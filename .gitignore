@@ -1,0 +1,17 @@
+.DS_Store
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.vite/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

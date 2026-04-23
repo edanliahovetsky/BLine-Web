@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="BLine Web icon">
+  <rect width="1024" height="1024" rx="168" fill="#1f2a35"/>
+  <path d="M196 676 L828 348" fill="none" stroke="#68b7ce" stroke-width="76" stroke-linecap="round"/>
+  <circle cx="196" cy="676" r="82" fill="#f7fbff" stroke="#68b7ce" stroke-width="44"/>
+  <circle cx="512" cy="512" r="62" fill="#e8f5ec" stroke="#7cb68a" stroke-width="38"/>
+  <circle cx="828" cy="348" r="82" fill="#f7fbff" stroke="#68b7ce" stroke-width="44"/>
+</svg>
