@@ -1,6 +1,14 @@
+mod storage;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            storage::storage_list_projects,
+            storage::storage_read_project,
+            storage::storage_write_project,
+            storage::storage_delete_project
+        ])
         .run(tauri::generate_context!())
         .expect("error while running BLine Web");
 }
