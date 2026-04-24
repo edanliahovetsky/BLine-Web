@@ -1,9 +1,13 @@
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Arrow, Circle, Group, Line, Rect, RegularPolygon } from "react-konva";
+import { Circle, Group, Line, Rect } from "react-konva";
 import {
+  elementCircleRadiusMeters,
+  elementOutlineMeters,
+  eventTriggerLengthMeters,
   eventMarkerHalfHeightPx,
-  nodeRadiusPx,
-  rotationNodeRadiusPx,
+  robotLengthMeters,
+  robotWidthMeters,
+  triangleSizeRatio,
   waypointSizePx
 } from "../constants";
 import type { StagePoint } from "../geometry";
@@ -24,7 +28,9 @@ interface WaypointNodeProps {
   point: StagePoint;
   selected: boolean;
   draggable: boolean;
-  rotationRadians: number | null;
+  headingRadians: number | null;
+  handoffRadiusMeters: number | null;
+  metersToPixels: number;
   onPointerDown(index: number, event: CanvasPointerEvent): void;
   onDragStart(index: number, event: CanvasDragEvent): void;
   onDragMove(index: number, event: CanvasDragEvent): void;
@@ -37,13 +43,22 @@ export function WaypointNode({
   point,
   selected,
   draggable,
-  rotationRadians,
+  headingRadians,
+  handoffRadiusMeters,
+  metersToPixels,
   onPointerDown,
   onDragStart,
   onDragMove,
   onDragEnd
 }: WaypointNodeProps) {
   const selectionStroke = selected ? "#fc6525" : undefined;
+  const circleRadius = metersToVisiblePixels(elementCircleRadiusMeters, metersToPixels, 7);
+  const rectWidth = metersToVisiblePixels(robotLengthMeters, metersToPixels, waypointSizePx);
+  const rectHeight = metersToVisiblePixels(robotWidthMeters, metersToPixels, waypointSizePx);
+  const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 3);
+  const handoffRadius = handoffRadiusMeters
+    ? Math.max(8, handoffRadiusMeters * metersToPixels)
+    : null;
 
   return (
     <Group
@@ -56,21 +71,32 @@ export function WaypointNode({
       onDragMove={(event) => onDragMove(index, event)}
       onDragEnd={(event) => onDragEnd(index, event)}
     >
+      {handoffRadius ? (
+        <Circle
+          radius={handoffRadius}
+          stroke="#ff00ff"
+          strokeWidth={3}
+          dash={[7, 6]}
+          opacity={0.95}
+          listening={false}
+        />
+      ) : null}
+
       {isTranslationTarget(element) ? (
         <>
           {selected ? (
             <Circle
-              radius={nodeRadiusPx + 7}
+              radius={circleRadius + 7}
               stroke={selectionStroke}
               strokeWidth={4}
               opacity={0.9}
             />
           ) : null}
           <Circle
-            radius={nodeRadiusPx}
-            fill="#f7fbff"
-            stroke="#236f91"
-            strokeWidth={4}
+            radius={circleRadius}
+            fill="#3aa3ff"
+            stroke="#1d6c9d"
+            strokeWidth={2}
           />
         </>
       ) : null}
@@ -78,50 +104,44 @@ export function WaypointNode({
       {isWaypoint(element) ? (
         <>
           {selected ? (
-            <Rect
-              x={-waypointSizePx / 2 - 6}
-              y={-waypointSizePx / 2 - 6}
-              width={waypointSizePx + 12}
-              height={waypointSizePx + 12}
+            <SelectionFootprint
+              width={rectWidth}
+              height={rectHeight}
+              headingRadians={headingRadians}
               stroke={selectionStroke}
-              strokeWidth={4}
-              cornerRadius={4}
             />
           ) : null}
-          <Rect
-            x={-waypointSizePx / 2}
-            y={-waypointSizePx / 2}
-            width={waypointSizePx}
-            height={waypointSizePx}
-            fill="#fffaf7"
-            stroke="#d9622b"
-            strokeWidth={4}
-            cornerRadius={3}
+          <RobotFootprint
+            width={rectWidth}
+            height={rectHeight}
+            outline="#ff7f3a"
+            outlineWidth={outlineWidth}
+            headingRadians={headingRadians}
+            dashed={false}
+            triangleMode="outline"
           />
-          <RotationArrow rotationRadians={rotationRadians} stroke="#d9622b" />
         </>
       ) : null}
 
       {isRotationTarget(element) ? (
         <>
           {selected ? (
-            <RegularPolygon
-              sides={4}
-              radius={rotationNodeRadiusPx + 8}
+            <SelectionFootprint
+              width={rectWidth}
+              height={rectHeight}
+              headingRadians={headingRadians}
               stroke={selectionStroke}
-              strokeWidth={4}
-              rotation={45}
             />
           ) : null}
-          <RegularPolygon
-            sides={4}
-            radius={rotationNodeRadiusPx}
-            stroke="#2f8b57"
-            strokeWidth={4}
-            dash={[7, 4]}
-            rotation={45}
+          <RobotFootprint
+            width={rectWidth}
+            height={rectHeight}
+            outline="#50c878"
+            outlineWidth={outlineWidth}
+            headingRadians={headingRadians}
+            dashed={true}
+            triangleMode="fill"
           />
-          <RotationArrow rotationRadians={rotationRadians} stroke="#2f8b57" />
         </>
       ) : null}
 
@@ -129,17 +149,19 @@ export function WaypointNode({
         <>
           {selected ? (
             <Line
-              points={[0, -eventMarkerHalfHeightPx - 8, 0, eventMarkerHalfHeightPx + 8]}
+              points={eventTriggerPoints(metersToPixels, 8)}
+              rotation={toStageDegrees(headingRadians)}
               stroke={selectionStroke}
               strokeWidth={8}
               lineCap="round"
             />
           ) : null}
           <Line
-            points={[0, -eventMarkerHalfHeightPx, 0, eventMarkerHalfHeightPx]}
-            stroke="#c69d16"
+            points={eventTriggerPoints(metersToPixels, 0)}
+            rotation={toStageDegrees(headingRadians)}
+            stroke="#ffd54d"
             strokeWidth={7}
-            lineCap="round"
+            lineCap="butt"
           />
         </>
       ) : null}
@@ -147,27 +169,100 @@ export function WaypointNode({
   );
 }
 
-function RotationArrow({
-  rotationRadians,
+function SelectionFootprint({
+  width,
+  height,
+  headingRadians,
   stroke
 }: {
-  rotationRadians: number | null;
-  stroke: string;
+  width: number;
+  height: number;
+  headingRadians: number | null;
+  stroke: string | undefined;
 }) {
-  if (rotationRadians === null) {
-    return null;
-  }
+  return (
+    <Group rotation={toStageDegrees(headingRadians)}>
+      <Rect
+        x={-width / 2 - 7}
+        y={-height / 2 - 7}
+        width={width + 14}
+        height={height + 14}
+        stroke={stroke}
+        strokeWidth={4}
+      />
+    </Group>
+  );
+}
+
+function RobotFootprint({
+  width,
+  height,
+  outline,
+  outlineWidth,
+  headingRadians,
+  dashed,
+  triangleMode
+}: {
+  width: number;
+  height: number;
+  outline: string;
+  outlineWidth: number;
+  headingRadians: number | null;
+  dashed: boolean;
+  triangleMode: "fill" | "outline";
+}) {
+  const triangleLength = Math.min(width, height) * triangleSizeRatio;
+  const halfTriangleHeight = triangleLength / 2;
+  const trianglePoints = [
+    triangleLength / 2,
+    0,
+    -triangleLength / 2,
+    halfTriangleHeight,
+    -triangleLength / 2,
+    -halfTriangleHeight
+  ];
 
   return (
-    <Arrow
-      points={[0, 0, 28, 0]}
-      rotation={-rotationRadians * (180 / Math.PI)}
-      stroke={stroke}
-      fill={stroke}
-      strokeWidth={3}
-      pointerLength={7}
-      pointerWidth={7}
-      lineCap="round"
-    />
+    <Group rotation={toStageDegrees(headingRadians)}>
+      <Rect
+        x={-width / 2}
+        y={-height / 2}
+        width={width}
+        height={height}
+        stroke={outline}
+        strokeWidth={outlineWidth}
+        dash={dashed ? [6, 4] : undefined}
+        fill="rgba(0, 0, 0, 0.05)"
+        lineJoin="miter"
+      />
+      <Line
+        points={trianglePoints}
+        closed={true}
+        fill={triangleMode === "fill" ? outline : undefined}
+        stroke={outline}
+        strokeWidth={outlineWidth}
+        lineJoin="miter"
+      />
+    </Group>
   );
+}
+
+function eventTriggerPoints(metersToPixels: number, paddingPx: number): number[] {
+  const halfLength =
+    metersToVisiblePixels(eventTriggerLengthMeters, metersToPixels, eventMarkerHalfHeightPx * 2) /
+      2 +
+    paddingPx;
+  return [-halfLength, 0, halfLength, 0];
+}
+
+function metersToVisiblePixels(
+  meters: number,
+  metersToPixels: number,
+  minimumPixels: number
+): number {
+  return Math.max(minimumPixels, meters * metersToPixels);
+}
+
+function toStageDegrees(radians: number | null): number {
+  return radians === null ? 0 : -radians * (180 / Math.PI);
 }

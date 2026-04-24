@@ -174,6 +174,16 @@ export function getAnchorPositions(
   });
 }
 
+export function getRenderableElementPositions(
+  elements: readonly PathElement[],
+  overrides: PositionOverrides = emptyOverrides
+): Array<{ index: number; position: PointMeters }> {
+  return elements.flatMap((_element, index) => {
+    const position = getElementPosition(elements, index, overrides);
+    return position ? [{ index, position }] : [];
+  });
+}
+
 export function getRotationRadians(element: PathElement): number | null {
   if (isRotationTarget(element)) {
     return element.rotation_radians;
@@ -181,6 +191,49 @@ export function getRotationRadians(element: PathElement): number | null {
 
   if (isWaypoint(element)) {
     return element.rotation_target.rotation_radians;
+  }
+
+  return null;
+}
+
+export function getElementHeadingRadians(
+  elements: readonly PathElement[],
+  index: number
+): number | null {
+  const element = elements[index];
+  if (!element) {
+    return null;
+  }
+
+  if (isRotationTarget(element) || isWaypoint(element)) {
+    return getRotationRadians(element);
+  }
+
+  if (isEventTrigger(element)) {
+    return getSegmentHeadingRadians(elements, index, Math.PI / 2);
+  }
+
+  if (isTranslationTarget(element)) {
+    for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+      const previous = elements[previousIndex];
+      if (isRotationTarget(previous) || isWaypoint(previous)) {
+        return getRotationRadians(previous);
+      }
+    }
+  }
+
+  return 0;
+}
+
+export function getHandoffRadiusMeters(element: PathElement): number | null {
+  if (isTranslationTarget(element)) {
+    return positiveRadiusOrNull(element.intermediate_handoff_radius_meters);
+  }
+
+  if (isWaypoint(element)) {
+    return positiveRadiusOrNull(
+      element.translation_target.intermediate_handoff_radius_meters
+    );
   }
 
   return null;
@@ -203,6 +256,28 @@ function findNeighborAnchorPosition(
   }
 
   return null;
+}
+
+function getSegmentHeadingRadians(
+  elements: readonly PathElement[],
+  index: number,
+  offsetRadians = 0
+): number | null {
+  const previous = findNeighborAnchorPosition(elements, index, -1, emptyOverrides);
+  const next = findNeighborAnchorPosition(elements, index, 1, emptyOverrides);
+
+  if (!previous || !next) {
+    return null;
+  }
+
+  return (
+    Math.atan2(next.y_meters - previous.y_meters, next.x_meters - previous.x_meters) +
+    offsetRadians
+  );
+}
+
+function positiveRadiusOrNull(radius: number | null): number | null {
+  return radius !== null && radius > 0 ? radius : null;
 }
 
 function clamp(value: number, min: number, max: number): number {

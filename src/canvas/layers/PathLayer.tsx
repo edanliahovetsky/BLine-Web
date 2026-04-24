@@ -1,9 +1,10 @@
 import { Layer, Line } from "react-konva";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import {
-  getAnchorPositions,
+  getElementHeadingRadians,
+  getHandoffRadiusMeters,
   getElementPosition,
-  getRotationRadians,
+  getRenderableElementPositions,
   modelToStagePoint,
   type FieldViewport,
   type PositionOverrides
@@ -34,18 +35,20 @@ export function PathLayer({
   }
 
   const elements = project.path.path_elements;
-  const anchorPoints = getAnchorPositions(elements, dragPreview).flatMap(({ position }) => {
-    const point = modelToStagePoint(position, viewport);
-    return [point.x, point.y];
-  });
+  const elementPoints = getRenderableElementPositions(elements, dragPreview).flatMap(
+    ({ position }) => {
+      const point = modelToStagePoint(position, viewport);
+      return [point.x, point.y];
+    }
+  );
 
   return (
     <Layer>
-      {anchorPoints.length >= 4 ? (
+      {elementPoints.length >= 4 ? (
         <Line
-          points={anchorPoints}
-          stroke="#315f7b"
-          strokeWidth={5}
+          points={elementPoints}
+          stroke="#cfd6dc"
+          strokeWidth={4}
           lineCap="round"
           lineJoin="round"
           opacity={0.95}
@@ -66,7 +69,11 @@ export function PathLayer({
             point={modelToStagePoint(position, viewport)}
             selected={selectedElementIndex === index}
             draggable={drag.isDragEnabled(element)}
-            rotationRadians={getRotationRadians(element)}
+            headingRadians={getElementHeadingRadians(elements, index)}
+            handoffRadiusMeters={
+              index === elements.length - 1 ? null : getHandoffRadiusMeters(element)
+            }
+            metersToPixels={viewport.scale}
             onPointerDown={selection.handleElementPointerDown}
             onDragStart={drag.handleDragStart}
             onDragMove={drag.handleDragMove}

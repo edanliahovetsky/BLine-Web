@@ -9,7 +9,10 @@ import {
 } from "../../../src/core/model/path";
 import {
   createFieldViewport,
+  getElementHeadingRadians,
   getElementPosition,
+  getHandoffRadiusMeters,
+  getRenderableElementPositions,
   modelToStagePoint,
   stageToModelPoint
 } from "../../../src/canvas/geometry";
@@ -48,6 +51,52 @@ describe("canvas geometry", () => {
       x_meters: 7,
       y_meters: 4
     });
+  });
+
+  it("keeps every renderable path element in drawing order", () => {
+    const elements = [
+      createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+      createRotationTarget({ t_ratio: 0.25 }),
+      createWaypoint({
+        translation_target: createTranslationTarget({ x_meters: 5, y_meters: 3 })
+      }),
+      createEventTrigger({ t_ratio: 0.5 }),
+      createTranslationTarget({ x_meters: 9, y_meters: 5 })
+    ];
+
+    expect(getRenderableElementPositions(elements).map(({ index }) => index)).toEqual([
+      0, 1, 2, 3, 4
+    ]);
+  });
+
+  it("derives visual headings and handoff radii from path semantics", () => {
+    const elements = [
+      createTranslationTarget({
+        x_meters: 1,
+        y_meters: 1,
+        intermediate_handoff_radius_meters: 0.6
+      }),
+      createRotationTarget({ rotation_radians: Math.PI / 4, t_ratio: 0.25 }),
+      createWaypoint({
+        translation_target: createTranslationTarget({
+          x_meters: 5,
+          y_meters: 3,
+          intermediate_handoff_radius_meters: 0.25
+        }),
+        rotation_target: createRotationTarget({ rotation_radians: Math.PI / 2 })
+      }),
+      createEventTrigger({ t_ratio: 0.5 }),
+      createTranslationTarget({ x_meters: 9, y_meters: 3 })
+    ];
+
+    expect(getElementHeadingRadians(elements, 0)).toBeCloseTo(0, 6);
+    expect(getElementHeadingRadians(elements, 1)).toBeCloseTo(Math.PI / 4, 6);
+    expect(getElementHeadingRadians(elements, 2)).toBeCloseTo(Math.PI / 2, 6);
+    expect(getElementHeadingRadians(elements, 3)).toBeCloseTo(Math.PI / 2, 6);
+    expect(getElementHeadingRadians(elements, 4)).toBeCloseTo(Math.PI / 2, 6);
+    expect(getHandoffRadiusMeters(elements[0])).toBe(0.6);
+    expect(getHandoffRadiusMeters(elements[2])).toBe(0.25);
+    expect(getHandoffRadiusMeters(elements[1])).toBeNull();
   });
 });
 
