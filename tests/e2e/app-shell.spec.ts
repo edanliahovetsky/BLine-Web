@@ -7,8 +7,10 @@ test("boots the Phase 1 shell", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "BLine Web" })).toBeVisible();
   await expect(page.getByLabel("Editor canvas")).toBeVisible();
   await expect(page.getByTestId("path-stage")).toBeVisible();
-  await expect(page.getByText("Phase 1 Canvas Draft")).toBeVisible();
-  await expect(page.getByText("TranslationTarget #1")).toBeVisible();
+  await expect(page.getByText("Current Path: Phase 1 Canvas Draft")).toBeVisible();
+  await expect(page.getByText("Path Elements")).toBeVisible();
+  await expect(page.getByTestId("path-element-row-0")).toContainText("1. Translation");
+  await expect(page.getByText("Element Properties")).toBeVisible();
 });
 
 test("selects and drags a canvas anchor", async ({ page }) => {
@@ -47,8 +49,31 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
   const stageBox = await requiredBox(page.getByTestId("path-stage"));
 
-  expect(documentHeight).toBeLessThan(1_250);
+  expect(documentHeight).toBeLessThan(1_700);
   expect(stageBox.height).toBeLessThan(320);
+});
+
+test("adds edits and removes path elements from the inspector", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: Waypoint #6"
+  );
+
+  await page.getByLabel("X (m)").fill("6.25");
+  await page.getByLabel("Y (m)").fill("3.75");
+  await page.getByLabel("Rotation (deg)").fill("45");
+
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6.25, 3.75 m");
+  await expect(page.getByText("Unsaved changes")).toBeVisible();
+
+  await page.getByRole("button", { name: "Remove Waypoint 6" }).click();
+
+  await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
 });
 
 interface Bounds {

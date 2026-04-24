@@ -1,19 +1,13 @@
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { PathStage } from "../../canvas/PathStage";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
-import { browserWebCapabilities, tauriCapabilities } from "../../env/capabilities";
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
+import { Sidebar } from "../sidebar/Sidebar";
 import "./AppShell.css";
 import { createInitialCanvasProject } from "./initialProject";
-
-const shellRows = [
-  { label: "Browser", status: "Ready", capabilities: browserWebCapabilities },
-  { label: "Tauri", status: "Ready", capabilities: tauriCapabilities },
-  { label: "Systemcore", status: "Deferred", capabilities: null }
-] as const;
 
 export function AppShell() {
   const project = useStoreSelector(projectStore, (state) => state.project);
@@ -22,19 +16,20 @@ export function AppShell() {
     selectionStore,
     (state) => state.selectedElementIndex
   );
+  const canUndo = useStoreSelector(
+    projectStore,
+    (state) => state.history.getState().canUndo
+  );
+  const canRedo = useStoreSelector(
+    projectStore,
+    (state) => state.history.getState().canRedo
+  );
 
   useEffect(() => {
     if (!projectStore.getState().project) {
       projectStore.getState().createProject(createInitialCanvasProject());
     }
   }, []);
-
-  const selectElement = useCallback(
-    (index: number) => {
-      selectionStore.getState().selectElement(index, project);
-    },
-    [project]
-  );
 
   const selectedElement =
     project && selectedElementIndex !== null
@@ -53,10 +48,31 @@ export function AppShell() {
     <main className="app-shell" data-testid="app-shell">
       <header className="app-toolbar">
         <div className="brand-block">
-          <span className="phase-label">Phase 1</span>
           <h1>BLine Web</h1>
+          <span className="project-selector">{project?.display_name ?? "No project"}</span>
         </div>
+        <nav className="app-tabs" aria-label="Primary sections">
+          <button type="button">Project</button>
+          <button type="button" className="is-active">
+            Path
+          </button>
+          <button type="button" disabled>
+            View
+          </button>
+          <button type="button" disabled>
+            Simulation
+          </button>
+          <button type="button" disabled>
+            Settings
+          </button>
+        </nav>
         <nav className="toolbar-actions" aria-label="Project actions">
+          <button type="button" onClick={() => projectStore.getState().undo()} disabled={!canUndo}>
+            Undo
+          </button>
+          <button type="button" onClick={() => projectStore.getState().redo()} disabled={!canRedo}>
+            Redo
+          </button>
           <button type="button" disabled>
             New
           </button>
@@ -70,54 +86,34 @@ export function AppShell() {
       </header>
 
       <div className="workspace">
-        <aside className="sidebar" aria-label="Editor sidebar">
-          <section className="sidebar-section">
-            <h2>Elements</h2>
-            {project ? (
-              <ol className="element-list" aria-label="Path elements">
-                {project.path.path_elements.map((element, index) => {
-                  const position = getElementPosition(project.path.path_elements, index);
-
-                  return (
-                    <li key={`${element.type}-${index}`}>
-                      <button
-                        type="button"
-                        className={selectedElementIndex === index ? "is-selected" : ""}
-                        onClick={() => selectElement(index)}
-                      >
-                        <span>
-                          {getElementLabel(element)} #{index + 1}
-                        </span>
-                        <small>{formatPointMeters(position)}</small>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
-            ) : (
-              <div className="empty-state">No path elements</div>
-            )}
-          </section>
-          <section className="sidebar-section">
-            <h2>Shells</h2>
-            <ul className="shell-list" aria-label="Phase 1 shells">
-              {shellRows.map((row) => (
-                <li key={row.label}>
-                  <span>{row.label}</span>
-                  <strong>{row.status}</strong>
-                </li>
-              ))}
-            </ul>
-          </section>
+        <aside className="tool-rail" aria-label="Canvas tools">
+          <button type="button" className="is-active" aria-label="Select tool">
+            <span aria-hidden="true">S</span>
+            <span>Select</span>
+          </button>
+          <button type="button" aria-label="Add waypoint tool" disabled>
+            <span aria-hidden="true">W</span>
+            <span>Waypoint</span>
+          </button>
+          <button type="button" aria-label="Add event tool" disabled>
+            <span aria-hidden="true">E</span>
+            <span>Event</span>
+          </button>
+          <button type="button" aria-label="Rotate tool" disabled>
+            <span aria-hidden="true">R</span>
+            <span>Rotate</span>
+          </button>
         </aside>
 
         <section className="canvas-region" aria-label="Editor canvas">
           <PathStage />
         </section>
+
+        <Sidebar project={project} selectedElementIndex={selectedElementIndex} />
       </div>
 
       <footer className="status-bar">
-        <span>{project?.display_name ?? "No project"}</span>
+        <span>Current Path: {project?.display_name ?? "No project"}</span>
         <span data-testid="selected-element-status">{selectedSummary}</span>
         <span>{dirty ? "Unsaved changes" : "Saved"}</span>
       </footer>
