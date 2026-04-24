@@ -95,6 +95,50 @@
   background: #ffffff;
 }
 
+.element-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.element-list button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid #d0d8df;
+  border-radius: 6px;
+  color: #263241;
+  text-align: left;
+  background: #ffffff;
+}
+
+.element-list button:hover,
+.element-list button:focus-visible {
+  border-color: #7f9bab;
+}
+
+.element-list button.is-selected {
+  border-color: #fc6525;
+  box-shadow: inset 4px 0 0 #fc6525;
+}
+
+.element-list span {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.element-list small {
+  color: #65717f;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
 .shell-list {
   display: grid;
   gap: 8px;
@@ -127,43 +171,17 @@
   background: #dfe4e9;
 }
 
-.field-frame {
-  position: relative;
+.path-stage {
   width: 100%;
-  height: 100%;
-  min-height: 420px;
+  min-height: 260px;
   overflow: hidden;
   border: 1px solid #b7c0c9;
   border-radius: 8px;
-  background: #edf3ee;
+  background: #eef6f0;
 }
 
-.field-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(#cbd8cf 1px, transparent 1px),
-    linear-gradient(90deg, #cbd8cf 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-
-.path-preview {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.path-preview line {
-  stroke: #2f6f87;
-  stroke-linecap: round;
-  stroke-width: 6;
-}
-
-.path-preview circle {
-  fill: #f6fbff;
-  stroke: #2f6f87;
-  stroke-width: 5;
+.path-stage canvas {
+  display: block;
 }
 
 .status-bar {
@@ -176,6 +194,11 @@
   color: #52606e;
   background: #f9fafb;
   font-size: 0.85rem;
+}
+
+.status-bar span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 760px) {
