@@ -600,21 +600,18 @@ export function AppShell() {
               }}
             />
           </TopMenuButton>
-          <TopMenuButton
-            id="settings"
-            label="Settings"
-            openTopMenu={openTopMenu}
-            setOpenTopMenu={setOpenTopMenu}
+          <button
+            type="button"
+            className="app-tab-button"
+            aria-expanded={showConfigDialog}
+            onClick={() => {
+              setOpenTopMenu(null);
+              setShowConfigDialog(true);
+            }}
+            disabled={!project}
           >
-            <MenuAction
-              label="Edit Config..."
-              disabled={!project}
-              onAction={() => {
-                setShowConfigDialog(true);
-                setOpenTopMenu(null);
-              }}
-            />
-          </TopMenuButton>
+            Settings
+          </button>
         </nav>
         <nav className="toolbar-actions" aria-label="Project actions">
           <div className="toolbar-actions__quick">
@@ -806,7 +803,7 @@ export function AppShell() {
   );
 }
 
-type TopMenuId = "project" | "path" | "edit" | "settings" | "actions";
+type TopMenuId = "project" | "path" | "edit" | "actions";
 
 function TopMenuButton({
   id,
