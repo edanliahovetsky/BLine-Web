@@ -989,23 +989,22 @@ select {
   position: fixed;
   z-index: 50;
   inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 22px;
-  background: rgba(4, 7, 10, 0.48);
+  pointer-events: none;
 }
 
 .constraint-popout {
+  position: absolute;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
-  width: min(820px, calc(100vw - 44px));
-  max-height: min(760px, calc(100vh - 44px));
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
   padding: 14px;
   border: 1px solid #3a4650;
   border-radius: 8px;
   color: #edf4fb;
   background: #1b2024;
+  pointer-events: auto;
   box-shadow: 0 22px 58px rgba(0, 0, 0, 0.56);
 }
 
@@ -1014,6 +1013,8 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  cursor: move;
+  user-select: none;
 }
 
 .dialog-close-button {

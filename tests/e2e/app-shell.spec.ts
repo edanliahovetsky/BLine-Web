@@ -254,6 +254,49 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 });
 
+test("keeps the constraint editor movable and modeless", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByText("Add constraint").click();
+  await page.getByRole("menuitem", { name: "Max Velocity" }).click();
+  await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("aria-modal", "false");
+
+  const initialDialogBox = await requiredBox(dialog);
+  const dragHandle = page.getByTestId("constraint-popout-drag-handle");
+  const handleBox = await requiredBox(dragHandle);
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + handleBox.width / 2 - 120, handleBox.y + handleBox.height / 2 + 70, {
+    steps: 8
+  });
+  await page.mouse.up();
+
+  const movedDialogBox = await requiredBox(dialog);
+  expect(movedDialogBox.x).toBeLessThan(initialDialogBox.x - 40);
+  expect(movedDialogBox.y).toBeGreaterThan(initialDialogBox.y + 40);
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 1.2,
+    y_meters: 1.1
+  });
+  await page.mouse.click(firstAnchor.x, firstAnchor.y);
+
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: TranslationTarget #1"
+  );
+
+  await dialog.getByLabel("Constraint 1 value").fill("3.25");
+  await expect(
+    dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+  ).toContainText("3.250 m/s");
+});
+
 test("edits project config with undo support", async ({ page }) => {
   await page.goto("/");
 

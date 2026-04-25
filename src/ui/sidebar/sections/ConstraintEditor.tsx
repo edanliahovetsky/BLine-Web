@@ -275,11 +275,64 @@ function ConstraintPopout({
   onClose: () => void;
 }): JSX.Element {
   const activeKeys = rangedConstraintKeys.filter((key) => getRangedEntries(project, key).length > 0);
+  const popoutRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const [position, setPosition] = useState(() => initialPopoutPosition());
+
+  const startWindowDrag = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button')) {
+      return;
+    }
+
+    const popout = popoutRef.current;
+    if (!popout) {
+      return;
+    }
+
+    const rect = popout.getBoundingClientRect();
+    dragRef.current = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    };
+    event.preventDefault();
+
+    const handleMove = (moveEvent: globalThis.MouseEvent) => {
+      const drag = dragRef.current;
+      const currentPopout = popoutRef.current;
+      if (!drag || !currentPopout) {
+        return;
+      }
+
+      const currentRect = currentPopout.getBoundingClientRect();
+      setPosition({
+        left: clamp(moveEvent.clientX - drag.offsetX, 8, Math.max(8, window.innerWidth - currentRect.width - 8)),
+        top: clamp(moveEvent.clientY - drag.offsetY, 8, Math.max(8, window.innerHeight - currentRect.height - 8)),
+      });
+      moveEvent.preventDefault();
+    };
+
+    const handleUp = () => {
+      dragRef.current = null;
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+  };
 
   return (
     <div className="constraint-popout-backdrop" role="presentation">
-      <div className="constraint-popout" role="dialog" aria-modal="true" aria-label="Constraint Editor">
-        <div className="constraint-popout__header">
+      <div
+        ref={popoutRef}
+        className="constraint-popout"
+        role="dialog"
+        aria-modal="false"
+        aria-label="Constraint Editor"
+        data-testid="constraint-popout-window"
+        style={{ left: position.left, top: position.top }}
+      >
+        <div className="constraint-popout__header" data-testid="constraint-popout-drag-handle" onMouseDown={startWindowDrag}>
           <div>
             <h2>Constraint Editor</h2>
             <span>Ranged constraints</span>
@@ -1147,6 +1200,18 @@ function contiguousGap(entries: RangedEntry[], total: number, ordinal: number): 
 
 function ordinalInRange(ordinal: number, constraint: RangedConstraint): boolean {
   return ordinal >= constraint.start_ordinal && ordinal <= constraint.end_ordinal;
+}
+
+function initialPopoutPosition(): { left: number; top: number } {
+  if (typeof window === 'undefined') {
+    return { left: 24, top: 72 };
+  }
+
+  const estimatedWidth = Math.min(760, window.innerWidth - 32);
+  return {
+    left: Math.max(16, window.innerWidth - estimatedWidth - 20),
+    top: 72,
+  };
 }
 
 function rangeLabel(labels: string[], constraint: RangedConstraint): string {
