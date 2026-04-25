@@ -25,6 +25,18 @@ export function createMoveElementCommand(
   };
 }
 
+export function createSetElementRatioCommand(
+  index: number,
+  previousRatio: number,
+  nextRatio: number
+): HistoryCommand<ProjectDocument> {
+  return {
+    description: `Move projected element ${index + 1}`,
+    apply: (project) => updateProjectElementRatio(project, index, nextRatio),
+    revert: (project) => updateProjectElementRatio(project, index, previousRatio)
+  };
+}
+
 export function updateProjectElementPosition(
   project: ProjectDocument,
   index: number,
@@ -46,6 +58,23 @@ export function updateProjectElementPosition(
   }
 
   throw new Error(`Element ${index} does not have an editable translation position`);
+}
+
+export function updateProjectElementRatio(
+  project: ProjectDocument,
+  index: number,
+  tRatio: number
+): ProjectDocument {
+  const nextProject = structuredClone(project);
+  const element = nextProject.path.path_elements[index];
+  const nextRatio = Math.max(0, Math.min(1, tRatio));
+
+  if (isRotationTarget(element) || isEventTrigger(element)) {
+    element.t_ratio = nextRatio;
+    return nextProject;
+  }
+
+  throw new Error(`Element ${index} does not have an editable path ratio`);
 }
 
 export function getElementLabel(element: PathElement): string {

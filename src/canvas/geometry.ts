@@ -239,6 +239,50 @@ export function getHandoffRadiusMeters(element: PathElement): number | null {
   return null;
 }
 
+export function getNeighborAnchorPositions(
+  elements: readonly PathElement[],
+  index: number,
+  overrides: PositionOverrides = emptyOverrides
+): { previous: PointMeters; next: PointMeters } | null {
+  const previous = findNeighborAnchorPosition(elements, index, -1, overrides);
+  const next = findNeighborAnchorPosition(elements, index, 1, overrides);
+
+  return previous && next ? { previous, next } : null;
+}
+
+export function projectPointToSegmentRatio(
+  point: PointMeters,
+  previous: PointMeters,
+  next: PointMeters
+): number {
+  const dx = next.x_meters - previous.x_meters;
+  const dy = next.y_meters - previous.y_meters;
+  const denominator = dx * dx + dy * dy;
+  if (denominator <= 1e-9) {
+    return 0;
+  }
+
+  return clamp(
+    ((point.x_meters - previous.x_meters) * dx +
+      (point.y_meters - previous.y_meters) * dy) /
+      denominator,
+    0,
+    1
+  );
+}
+
+export function interpolateSegmentPosition(
+  previous: PointMeters,
+  next: PointMeters,
+  tRatio: number
+): PointMeters {
+  const t = clamp(tRatio, 0, 1);
+  return {
+    x_meters: previous.x_meters + (next.x_meters - previous.x_meters) * t,
+    y_meters: previous.y_meters + (next.y_meters - previous.y_meters) * t
+  };
+}
+
 function findNeighborAnchorPosition(
   elements: readonly PathElement[],
   startIndex: number,

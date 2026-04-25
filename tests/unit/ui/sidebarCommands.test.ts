@@ -10,9 +10,14 @@ import {
 } from "../../../src/core/model/path";
 import {
   createDefaultElement,
+  createAddRangedConstraintCommand,
   createInsertPathElementCommand,
   createRemovePathElementCommand,
+  createRemoveRangedConstraintCommand,
+  createSetScalarConstraintCommand,
+  createSplitRangedConstraintCommand,
   createUpdatePathElementCommand,
+  createUpdateRangedConstraintCommand,
   getInsertionIndex,
   updateWaypoint
 } from "../../../src/ui/sidebar/sidebarCommands";
@@ -130,6 +135,65 @@ describe("sidebar commands", () => {
         end_ordinal: 2
       }
     ]);
+  });
+
+  it("edits scalar and ranged constraints through reversible commands", () => {
+    const project = exampleProject();
+    const scalar = createSetScalarConstraintCommand(
+      "end_translation_tolerance_meters",
+      null,
+      0.03
+    );
+    const withScalar = scalar.apply(project);
+    expect(withScalar.path.constraints.end_translation_tolerance_meters).toBe(0.03);
+    expect(scalar.revert(withScalar).path.constraints.end_translation_tolerance_meters).toBeNull();
+
+    const add = createAddRangedConstraintCommand(
+      "max_velocity_meters_per_sec",
+      2,
+      2
+    );
+    const withRange = add.apply(project);
+    expect(withRange.path.ranged_constraints).toEqual([
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 1,
+        end_ordinal: 1
+      }
+    ]);
+    expect(add.revert(withRange).path.ranged_constraints).toEqual([]);
+
+    const previous = {
+      key: "max_velocity_meters_per_sec" as const,
+      value: 2,
+      start_ordinal: 1,
+      end_ordinal: 2
+    };
+    const rangedProject = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createTranslationTarget({ x_meters: 4, y_meters: 4 })
+        ],
+        ranged_constraints: [previous]
+      })
+    });
+    const update = createUpdateRangedConstraintCommand(0, previous, {
+      ...previous,
+      value: 3
+    });
+    expect(update.apply(rangedProject).path.ranged_constraints[0].value).toBe(3);
+
+    const split = createSplitRangedConstraintCommand(0);
+    const splitProject = split.apply(rangedProject);
+    expect(splitProject.path.ranged_constraints).toHaveLength(2);
+    expect(split.revert(splitProject).path.ranged_constraints).toEqual([previous]);
+
+    const remove = createRemoveRangedConstraintCommand(0, previous);
+    expect(remove.apply(rangedProject).path.ranged_constraints).toEqual([]);
   });
 });
 

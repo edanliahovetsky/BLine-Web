@@ -19,7 +19,8 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   const stage = page.getByTestId("path-stage");
   await expect(stage).toBeVisible();
 
-  const firstAnchor = modelToCanvasPoint(await requiredBox(stage), {
+  const canvas = page.getByTestId("path-stage-canvas");
+  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 1.2,
     y_meters: 1.1
   });
@@ -53,6 +54,33 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   expect(stageBox.height).toBeLessThan(320);
 });
 
+test("plays and seeks the simulation transport", async ({ page }) => {
+  await page.goto("/");
+
+  const transport = page.getByTestId("simulation-transport");
+  await expect(transport).toBeVisible();
+  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
+  await transport.getByRole("button", { name: "Play simulation" }).click();
+  await expect(transport.getByRole("button", { name: "Pause simulation" })).toBeVisible();
+  await expect
+    .poll(async () => page.getByTestId("simulation-time").innerText())
+    .not.toMatch(/^0\.00 /);
+  await transport.getByRole("button", { name: "Pause simulation" }).click();
+
+  await page.getByLabel("Simulation time").evaluate((input) => {
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Expected range input");
+    }
+    input.value = "1.00";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(page.getByTestId("simulation-time")).toContainText("1.00 /");
+  await transport.getByRole("button", { name: "Reset simulation" }).click();
+  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+});
+
 test("adds edits and removes path elements from the inspector", async ({ page }) => {
   await page.goto("/");
 
@@ -74,6 +102,32 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await page.getByRole("button", { name: "Remove Waypoint 6" }).click();
 
   await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
+});
+
+test("adds edits and deletes ranged constraints", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByText("Add constraint").click();
+  await page.getByRole("menuitem", { name: "Max Velocity" }).click();
+
+  await expect(
+    page.getByTestId("constraint-card-max_velocity_meters_per_sec")
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+  ).toContainText("4.500 m/s");
+
+  await page.getByLabel("Add Max Velocity segment").click();
+  await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
+
+  await page.getByLabel("Constraint 1 value").fill("2.0");
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+  ).toContainText("2 m/s");
+
+  await page.getByLabel("Delete constraint 1").click();
+  await expect(page.getByTestId("ranged-constraint-row-0")).toHaveCount(1);
+  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 });
 
 test("creates saves and reloads a local project", async ({ page }) => {

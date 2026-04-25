@@ -12,12 +12,17 @@ import {
   getElementHeadingRadians,
   getElementPosition,
   getHandoffRadiusMeters,
+  getNeighborAnchorPositions,
+  interpolateSegmentPosition,
+  projectPointToSegmentRatio,
   getRenderableElementPositions,
   modelToStagePoint,
   stageToModelPoint
 } from "../../../src/canvas/geometry";
 import {
   createMoveElementCommand,
+  createSetElementRatioCommand,
+  updateProjectElementRatio,
   updateProjectElementPosition
 } from "../../../src/canvas/modelSync";
 
@@ -67,6 +72,32 @@ describe("canvas geometry", () => {
     expect(getRenderableElementPositions(elements).map(({ index }) => index)).toEqual([
       0, 1, 2, 3, 4
     ]);
+  });
+
+  it("projects dragged segment points back to rotation/event ratios", () => {
+    const elements = [
+      createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+      createEventTrigger({ t_ratio: 0.5 }),
+      createTranslationTarget({ x_meters: 5, y_meters: 1 })
+    ];
+    const segment = getNeighborAnchorPositions(elements, 1);
+
+    expect(segment).not.toBeNull();
+    if (!segment) {
+      return;
+    }
+
+    expect(
+      projectPointToSegmentRatio(
+        { x_meters: 3, y_meters: 3 },
+        segment.previous,
+        segment.next
+      )
+    ).toBeCloseTo(0.5, 6);
+    expect(interpolateSegmentPosition(segment.previous, segment.next, 0.25)).toEqual({
+      x_meters: 2,
+      y_meters: 1
+    });
   });
 
   it("derives visual headings and handoff radii from path semantics", () => {
@@ -146,5 +177,39 @@ describe("canvas model sync", () => {
     expect(() =>
       updateProjectElementPosition(project, 0, { x_meters: 2, y_meters: 3 })
     ).toThrow("does not have an editable translation position");
+  });
+
+  it("updates and reverts projected rotation/event ratios", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+          createEventTrigger({ t_ratio: 0.25, lib_key: "event" }),
+          createRotationTarget({ t_ratio: 0.5 }),
+          createTranslationTarget({ x_meters: 4, y_meters: 0 })
+        ]
+      })
+    });
+
+    const moved = updateProjectElementRatio(project, 1, 0.75);
+    expect(moved.path.path_elements[1]).toMatchObject({
+      type: "event_trigger",
+      t_ratio: 0.75
+    });
+
+    const command = createSetElementRatioCommand(2, 0.5, 0.1);
+    const updated = command.apply(project);
+    const reverted = command.revert(updated);
+
+    expect(updated.path.path_elements[2]).toMatchObject({
+      type: "rotation",
+      t_ratio: 0.1
+    });
+    expect(reverted.path.path_elements[2]).toMatchObject({
+      type: "rotation",
+      t_ratio: 0.5
+    });
   });
 });

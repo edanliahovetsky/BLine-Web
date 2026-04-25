@@ -6,13 +6,21 @@ import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import {
   getElementPosition,
+  getNeighborAnchorPositions,
+  interpolateSegmentPosition,
   modelToStagePoint,
+  projectPointToSegmentRatio,
   stageToModelPoint,
   type FieldViewport,
   type PointMeters,
   type PositionOverrides
 } from "../geometry";
-import { createMoveElementCommand, isTranslationBearingElement } from "../modelSync";
+import {
+  createMoveElementCommand,
+  createSetElementRatioCommand,
+  isTranslationBearingElement
+} from "../modelSync";
+import { isEventTrigger, isRotationTarget } from "../../core/model/path";
 
 type CanvasDragEvent = KonvaEventObject<DragEvent>;
 
@@ -20,6 +28,8 @@ interface ActiveDrag {
   index: number;
   start: PointMeters;
   current: PointMeters;
+  startRatio: number | null;
+  currentRatio: number | null;
 }
 
 interface UseCanvasDragInput {
@@ -41,7 +51,10 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
     : emptyPreview;
 
   const isDragEnabled = useCallback(
-    (element: PathElement) => isTranslationBearingElement(element),
+    (element: PathElement) =>
+      isTranslationBearingElement(element) ||
+      isRotationTarget(element) ||
+      isEventTrigger(element),
     []
   );
 
@@ -52,7 +65,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       }
 
       const element = project.path.path_elements[index];
-      if (!element || !isTranslationBearingElement(element)) {
+      if (!element || !isDragEnabled(element)) {
         return;
       }
 
@@ -67,10 +80,18 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       setActiveDrag({
         index,
         start,
-        current: start
+        current: start,
+        startRatio:
+          isRotationTarget(element) || isEventTrigger(element)
+            ? element.t_ratio
+            : null,
+        currentRatio:
+          isRotationTarget(element) || isEventTrigger(element)
+            ? element.t_ratio
+            : null
       });
     },
-    [project, setActiveDrag]
+    [isDragEnabled, project, setActiveDrag]
   );
 
   const handleDragMove = useCallback(
@@ -81,22 +102,42 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       }
 
       event.cancelBubble = true;
-      const nextPosition = stageToModelPoint(
+      let nextPosition = stageToModelPoint(
         {
           x: event.target.x(),
           y: event.target.y()
         },
         viewport
       );
+      let nextRatio = drag.currentRatio;
+      const element = project?.path.path_elements[index];
+
+      if (project && element && (isRotationTarget(element) || isEventTrigger(element))) {
+        const segment = getNeighborAnchorPositions(project.path.path_elements, index);
+        if (segment) {
+          nextRatio = projectPointToSegmentRatio(
+            nextPosition,
+            segment.previous,
+            segment.next
+          );
+          nextPosition = interpolateSegmentPosition(
+            segment.previous,
+            segment.next,
+            nextRatio
+          );
+        }
+      }
+
       const nextStagePoint = modelToStagePoint(nextPosition, viewport);
       event.target.position(nextStagePoint);
 
       setActiveDrag({
         ...drag,
-        current: nextPosition
+        current: nextPosition,
+        currentRatio: nextRatio
       });
     },
-    [setActiveDrag, viewport]
+    [project, setActiveDrag, viewport]
   );
 
   const handleDragEnd = useCallback(
@@ -108,16 +149,47 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       }
 
       event.cancelBubble = true;
-      const nextPosition = stageToModelPoint(
+      let nextPosition = stageToModelPoint(
         {
           x: event.target.x(),
           y: event.target.y()
         },
         viewport
       );
+      let nextRatio = drag.currentRatio;
+      const element = project.path.path_elements[index];
+
+      if (element && (isRotationTarget(element) || isEventTrigger(element))) {
+        const segment = getNeighborAnchorPositions(project.path.path_elements, index);
+        if (segment) {
+          nextRatio = projectPointToSegmentRatio(
+            nextPosition,
+            segment.previous,
+            segment.next
+          );
+          nextPosition = interpolateSegmentPosition(
+            segment.previous,
+            segment.next,
+            nextRatio
+          );
+        }
+      }
+
       const nextStagePoint = modelToStagePoint(nextPosition, viewport);
       event.target.position(nextStagePoint);
       setActiveDrag(null);
+
+      if (drag.startRatio !== null && nextRatio !== null) {
+        if (Math.abs(drag.startRatio - nextRatio) >= 0.001) {
+          projectStore
+            .getState()
+            .applyCommand(
+              createSetElementRatioCommand(index, drag.startRatio, nextRatio)
+            );
+          selectionStore.getState().selectElement(index, projectStore.getState().project);
+        }
+        return;
+      }
 
       if (!pointsAlmostEqual(drag.start, nextPosition)) {
         projectStore
