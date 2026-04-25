@@ -18,6 +18,10 @@ import {
   type RotationTarget
 } from "../model/path";
 import {
+  createProjectConfig,
+  projectConfigDefaultLookup
+} from "../config/projectConfig";
+import {
   type JsonObject,
   type ProjectConfig,
   type ProjectDocument,
@@ -225,6 +229,7 @@ export interface DeserializeProjectOptions {
   defaultLookup?: DefaultLookup;
   fallbackProjectId?: string;
   fallbackDisplayName?: string;
+  fallbackPathFileName?: string | null;
 }
 
 export function serializeProjectDocument(
@@ -234,6 +239,7 @@ export function serializeProjectDocument(
     schema_version: project.schema_version,
     project_id: project.project_id,
     display_name: project.display_name,
+    path_file_name: project.path_file_name,
     path: serializePath(project.path),
     config: project.config
   };
@@ -245,7 +251,8 @@ export function deserializeProjectDocument(
 ): ProjectDocument {
   const migration = migrateProjectDocument(input, {
     project_id: options.fallbackProjectId ?? "imported-project",
-    display_name: options.fallbackDisplayName ?? "Imported Project"
+    display_name: options.fallbackDisplayName ?? "Imported Project",
+    path_file_name: options.fallbackPathFileName ?? null
   });
   const document = migration.document;
 
@@ -253,11 +260,19 @@ export function deserializeProjectDocument(
     throw new Error("Project document is missing a path object");
   }
 
+  const config = readProjectConfig(document.config);
+  const defaultLookup =
+    options.defaultLookup ?? projectConfigDefaultLookup(config);
+
   return createProjectDocument({
     project_id: String(document.project_id),
     display_name: String(document.display_name),
-    path: deserializePath(document.path, options.defaultLookup),
-    config: readProjectConfig(document.config)
+    path_file_name:
+      typeof document.path_file_name === "string"
+        ? document.path_file_name
+        : null,
+    path: deserializePath(document.path, defaultLookup),
+    config
   });
 }
 
@@ -595,7 +610,7 @@ function legacyPositionFrom(input: JsonObject): readonly [number, number] | null
 }
 
 function readProjectConfig(input: unknown): ProjectConfig {
-  return isObject(input) ? input : {};
+  return createProjectConfig(input);
 }
 
 function stringValue(value: unknown): string {

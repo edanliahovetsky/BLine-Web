@@ -84,6 +84,53 @@ describe("sidebar commands", () => {
     expect(getInsertionIndex(project, "event_trigger", 1)).toBe(1);
     expect(getInsertionIndex(project, "waypoint", 1)).toBe(2);
   });
+
+  it("remaps ranged constraints when path structure changes", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createTranslationTarget({ x_meters: 4, y_meters: 4 })
+        ],
+        ranged_constraints: [
+          {
+            key: "max_velocity_meters_per_sec",
+            value: 2,
+            start_ordinal: 1,
+            end_ordinal: 2
+          }
+        ]
+      })
+    });
+    const insertedElement = createTranslationTarget({ x_meters: 0, y_meters: 0 });
+
+    const inserted = createInsertPathElementCommand(0, insertedElement).apply(project);
+
+    expect(inserted.path.ranged_constraints).toEqual([
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 2,
+        end_ordinal: 3
+      }
+    ]);
+
+    const removed = createRemovePathElementCommand(
+      0,
+      inserted.path.path_elements[0]
+    ).apply(inserted);
+
+    expect(removed.path.ranged_constraints).toEqual([
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 1,
+        end_ordinal: 2
+      }
+    ]);
+  });
 });
 
 function exampleProject(): ProjectDocument {

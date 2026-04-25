@@ -4,6 +4,7 @@ import { projectSchemaVersion } from "./projectSchema";
 export interface LegacyPathProjectDefaults {
   project_id: string;
   display_name: string;
+  path_file_name?: string | null;
 }
 
 export interface MigrationResult {
@@ -28,6 +29,7 @@ export function migrateProjectDocument(
         schema_version: projectSchemaVersion,
         project_id: defaults.project_id,
         display_name: defaults.display_name,
+        path_file_name: defaults.path_file_name ?? null,
         path: input,
         config: {}
       },

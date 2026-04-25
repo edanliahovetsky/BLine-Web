@@ -1,4 +1,8 @@
 import type { PathModel, ConstraintKey } from "../model/path";
+import {
+  createProjectConfig,
+  type CanonicalProjectConfig
+} from "../config/projectConfig";
 
 export const projectSchemaVersion = 1;
 
@@ -11,12 +15,13 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
-export type ProjectConfig = JsonObject;
+export type ProjectConfig = CanonicalProjectConfig;
 
 export interface ProjectDocument {
   schema_version: ProjectSchemaVersion;
   project_id: string;
   display_name: string;
+  path_file_name: string | null;
   path: PathModel;
   config: ProjectConfig;
 }
@@ -82,6 +87,7 @@ export interface SerializedProjectDocument {
   schema_version: ProjectSchemaVersion;
   project_id: string;
   display_name: string;
+  path_file_name?: string | null;
   path: SerializedPathDocument;
   config: ProjectConfig;
 }
@@ -89,21 +95,24 @@ export interface SerializedProjectDocument {
 export interface CreateProjectDocumentInput {
   project_id: string;
   display_name: string;
+  path_file_name?: string | null;
   path: PathModel;
-  config?: ProjectConfig;
+  config?: unknown;
 }
 
 export function createProjectDocument({
   project_id,
   display_name,
+  path_file_name = null,
   path,
-  config = {}
+  config
 }: CreateProjectDocumentInput): ProjectDocument {
   return {
     schema_version: projectSchemaVersion,
     project_id,
     display_name,
+    path_file_name,
     path,
-    config
+    config: createProjectConfig(config)
   };
 }

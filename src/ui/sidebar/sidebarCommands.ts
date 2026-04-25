@@ -6,6 +6,7 @@ import {
   robotWidthMeters
 } from "../../canvas/constants";
 import { getElementHeadingRadians, getElementPosition } from "../../canvas/geometry";
+import { remapRangedConstraints } from "../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import {
   createEventTrigger,
@@ -34,14 +35,18 @@ export function createInsertPathElementCommand(
     description: `Insert ${element.type} element`,
     apply: (project) => {
       const nextProject = structuredClone(project);
+      const previousElements = nextProject.path.path_elements.slice();
       const insertionIndex = clampIndex(index, nextProject.path.path_elements.length);
       nextProject.path.path_elements.splice(insertionIndex, 0, structuredClone(element));
+      remapRangedConstraints(nextProject.path, previousElements);
       return nextProject;
     },
     revert: (project) => {
       const nextProject = structuredClone(project);
+      const previousElements = nextProject.path.path_elements.slice();
       const removalIndex = clampIndex(index, nextProject.path.path_elements.length - 1);
       nextProject.path.path_elements.splice(removalIndex, 1);
+      remapRangedConstraints(nextProject.path, previousElements);
       return nextProject;
     }
   };
@@ -56,14 +61,18 @@ export function createRemovePathElementCommand(
     apply: (project) => {
       const nextProject = structuredClone(project);
       if (index >= 0 && index < nextProject.path.path_elements.length) {
+        const previousElements = nextProject.path.path_elements.slice();
         nextProject.path.path_elements.splice(index, 1);
+        remapRangedConstraints(nextProject.path, previousElements);
       }
       return nextProject;
     },
     revert: (project) => {
       const nextProject = structuredClone(project);
+      const previousElements = nextProject.path.path_elements.slice();
       const insertionIndex = clampIndex(index, nextProject.path.path_elements.length);
       nextProject.path.path_elements.splice(insertionIndex, 0, structuredClone(element));
+      remapRangedConstraints(nextProject.path, previousElements);
       return nextProject;
     }
   };

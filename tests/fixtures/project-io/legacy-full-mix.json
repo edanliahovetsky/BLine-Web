@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "project_id": "fixture-full-mix",
+  "display_name": "Fixture Full Mix",
+  "path_file_name": "full_mix.json",
+  "config": {
+    "robot_length_meters": 0.82,
+    "robot_width_meters": 0.98,
+    "robot_protrusion_front_meters": 0.3,
+    "default_intermediate_handoff_radius_meters": 0.45,
+    "default_max_velocity_meters_per_sec": 3.5
+  },
+  "path": {
+    "path_elements": [
+      {
+        "type": "translation",
+        "x_meters": 0,
+        "y_meters": 0
+      },
+      {
+        "type": "rotation",
+        "rotation_radians": 1.5707963267948966,
+        "x_meters": 1,
+        "y_meters": 0
+      },
+      {
+        "type": "event_trigger",
+        "t_ratio": 0.4,
+        "lib_key": "intake"
+      },
+      {
+        "type": "waypoint",
+        "translation_target": {
+          "x_meters": 2,
+          "y_meters": 0
+        },
+        "rotation_target": {
+          "rotation_radians": 0,
+          "x_meters": 2,
+          "y_meters": 0
+        }
+      }
+    ],
+    "constraints": {
+      "default_end_translation_tolerance_meters": 0.04,
+      "max_velocity_meters_per_sec": [
+        {
+          "value": 1.25,
+          "start_ordinal": 0,
+          "end_ordinal": 1
+        }
+      ],
+      "max_velocity_deg_per_sec": [
+        {
+          "value": 90,
+          "start_ordinal": 0,
+          "end_ordinal": 2
+        }
+      ]
+    }
+  }
+}
