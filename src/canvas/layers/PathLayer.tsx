@@ -20,6 +20,7 @@ interface PathLayerProps {
   viewport: FieldViewport;
   dragPreview: PositionOverrides;
   rotationPreview: RotationOverrides;
+  selectedPulse: number;
   drag: ReturnType<typeof useCanvasDrag>;
   selection: ReturnType<typeof useCanvasSelection>;
 }
@@ -30,6 +31,7 @@ export function PathLayer({
   viewport,
   dragPreview,
   rotationPreview,
+  selectedPulse,
   drag,
   selection
 }: PathLayerProps) {
@@ -44,6 +46,8 @@ export function PathLayer({
       return [point.x, point.y];
     }
   );
+
+  const hasSelection = selectedElementIndex !== null;
 
   return (
     <Layer>
@@ -71,6 +75,8 @@ export function PathLayer({
             index={index}
             point={modelToStagePoint(position, viewport)}
             selected={selectedElementIndex === index}
+            dimmed={hasSelection && selectedElementIndex !== index}
+            selectedPulse={selectedPulse}
             draggable={drag.isDragEnabled(element)}
             headingRadians={getElementHeadingRadians(elements, index, rotationPreview)}
             handoffRadiusMeters={

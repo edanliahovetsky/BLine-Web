@@ -6,6 +6,7 @@ import { modelToStagePoint, type FieldViewport } from "../geometry";
 interface SimulationLayerProps {
   result: SimResult | null;
   currentTimeS: number;
+  playing: boolean;
   viewport: FieldViewport;
   config: ProjectConfig | null;
 }
@@ -13,6 +14,7 @@ interface SimulationLayerProps {
 export function SimulationLayer({
   result,
   currentTimeS,
+  playing,
   viewport,
   config
 }: SimulationLayerProps) {
@@ -33,37 +35,41 @@ export function SimulationLayer({
     return [point.x, point.y];
   });
   const pose = poseAtOrBefore(result, currentTimeS);
+  const robotVisible = playing || currentTimeS > 1e-6;
   const robotPoint = pose
     ? modelToStagePoint({ x_meters: pose[0], y_meters: pose[1] }, viewport)
     : null;
-  const robotLength = Math.max(
-    28,
-    (config?.gui.robot.length_meters ?? 0.5) * viewport.scale
-  );
-  const robotWidth = Math.max(
-    28,
-    (config?.gui.robot.width_meters ?? 0.5) * viewport.scale
-  );
+  const robotLength = (config?.gui.robot.length_meters ?? 0.5) * viewport.scale;
+  const robotWidth = (config?.gui.robot.width_meters ?? 0.5) * viewport.scale;
   const protrusions = config?.gui.protrusions;
   const protrusionVisible =
     Boolean(protrusions?.enabled) &&
     protrusions?.default_state === "shown" &&
     (protrusions?.distance_meters ?? 0) > 0 &&
     protrusions?.side !== "none";
+  const robotBounds = getRobotBounds({
+    robotLength,
+    robotWidth,
+    protrusionVisible,
+    protrusionDistancePx: (protrusions?.distance_meters ?? 0) * viewport.scale,
+    protrusionSide: protrusions?.side ?? "none"
+  });
+  const triangleSize = Math.min(robotBounds.width, robotBounds.height) * 0.3;
+  const triangleOffset = robotBounds.width * 0.3;
 
   return (
     <Layer listening={false}>
       {trailPoints.length >= 4 ? (
         <Line
           points={trailPoints}
-          stroke="#ff8a2b"
+          stroke="#ffa500"
           strokeWidth={3}
           lineCap="round"
           lineJoin="round"
           opacity={0.88}
         />
       ) : null}
-      {robotPoint && pose ? (
+      {robotVisible && robotPoint && pose ? (
         <Group
           x={robotPoint.x}
           y={robotPoint.y}
@@ -71,90 +77,71 @@ export function SimulationLayer({
           opacity={0.92}
         >
           <Rect
-            x={-robotLength / 2}
-            y={-robotWidth / 2}
-            width={robotLength}
-            height={robotWidth}
-            stroke="#ff8a2b"
-            strokeWidth={3}
-            fill="rgba(255, 138, 43, 0.14)"
+            x={robotBounds.x}
+            y={robotBounds.y}
+            width={robotBounds.width}
+            height={robotBounds.height}
+            stroke="#050505"
+            strokeWidth={Math.max(1.5, viewport.scale * 0.03)}
+            fill="rgba(255, 165, 0, 0.47)"
           />
           <Line
             points={[
-              robotLength * 0.25,
+              triangleOffset + triangleSize,
               0,
-              -robotLength * 0.2,
-              robotWidth * 0.28,
-              -robotLength * 0.2,
-              -robotWidth * 0.28
+              triangleOffset - triangleSize / 2,
+              triangleSize / 2,
+              triangleOffset - triangleSize / 2,
+              -triangleSize / 2
             ]}
             closed={true}
-            fill="#ff8a2b"
-            opacity={0.9}
+            fill="#ffffff"
+            stroke="#050505"
+            strokeWidth={Math.max(1, viewport.scale * 0.02)}
           />
-          {protrusionVisible ? (
-            <Protrusion
-              side={protrusions?.side ?? "none"}
-              distancePx={(protrusions?.distance_meters ?? 0) * viewport.scale}
-              robotLength={robotLength}
-              robotWidth={robotWidth}
-            />
-          ) : null}
-          <Circle radius={5} fill="#ffffff" opacity={0.92} />
+          <Circle radius={Math.max(2.5, viewport.scale * 0.035)} fill="#ffffff" opacity={0.86} />
         </Group>
       ) : null}
     </Layer>
   );
 }
 
-function Protrusion({
-  side,
-  distancePx,
+function getRobotBounds({
   robotLength,
-  robotWidth
+  robotWidth,
+  protrusionVisible,
+  protrusionDistancePx,
+  protrusionSide
 }: {
-  side: string;
-  distancePx: number;
   robotLength: number;
   robotWidth: number;
+  protrusionVisible: boolean;
+  protrusionDistancePx: number;
+  protrusionSide: string;
 }) {
-  if (distancePx <= 0) {
-    return null;
+  let xMin = -robotLength / 2;
+  let xMax = robotLength / 2;
+  let yMin = -robotWidth / 2;
+  let yMax = robotWidth / 2;
+
+  if (protrusionVisible && protrusionDistancePx > 0) {
+    if (protrusionSide === "front") {
+      xMax += protrusionDistancePx;
+    } else if (protrusionSide === "back") {
+      xMin -= protrusionDistancePx;
+    } else if (protrusionSide === "left") {
+      yMin -= protrusionDistancePx;
+    } else if (protrusionSide === "right") {
+      yMax += protrusionDistancePx;
+    }
   }
 
-  if (side === "front" || side === "back") {
-    const direction = side === "front" ? 1 : -1;
-    const x = direction * robotLength / 2;
-    return (
-      <Rect
-        x={direction > 0 ? x : x - distancePx}
-        y={-robotWidth / 2}
-        width={distancePx}
-        height={robotWidth}
-        stroke="#ffd54d"
-        strokeWidth={2}
-        dash={[5, 4]}
-      />
-    );
-  }
-
-  if (side === "left" || side === "right") {
-    const direction = side === "left" ? -1 : 1;
-    const y = direction * robotWidth / 2;
-    return (
-      <Rect
-        x={-robotLength / 2}
-        y={direction > 0 ? y : y - distancePx}
-        width={robotLength}
-        height={distancePx}
-        stroke="#ffd54d"
-        strokeWidth={2}
-        dash={[5, 4]}
-      />
-    );
-  }
-
-  return null;
+  return {
+    x: xMin,
+    y: yMin,
+    width: xMax - xMin,
+    height: yMax - yMin
+  };
 }
 
 function poseAtOrBefore(result: SimResult, timeS: number) {

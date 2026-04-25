@@ -7,8 +7,7 @@ import {
   eventMarkerHalfHeightPx,
   robotLengthMeters,
   robotWidthMeters,
-  triangleSizeRatio,
-  waypointSizePx
+  triangleSizeRatio
 } from "../constants";
 import type { StagePoint } from "../geometry";
 import {
@@ -27,6 +26,8 @@ interface WaypointNodeProps {
   index: number;
   point: StagePoint;
   selected: boolean;
+  dimmed: boolean;
+  selectedPulse: number;
   draggable: boolean;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
@@ -42,6 +43,8 @@ export function WaypointNode({
   index,
   point,
   selected,
+  dimmed,
+  selectedPulse,
   draggable,
   headingRadians,
   handoffRadiusMeters,
@@ -52,10 +55,12 @@ export function WaypointNode({
   onDragEnd
 }: WaypointNodeProps) {
   const selectionStroke = selected ? "#fc6525" : undefined;
+  const selectionOpacity = 0.58 + selectedPulse * 0.34;
+  const selectionWidth = 3 + selectedPulse * 2;
   const circleRadius = metersToVisiblePixels(elementCircleRadiusMeters, metersToPixels, 7);
-  const rectWidth = metersToVisiblePixels(robotLengthMeters, metersToPixels, waypointSizePx);
-  const rectHeight = metersToVisiblePixels(robotWidthMeters, metersToPixels, waypointSizePx);
-  const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 3);
+  const rectWidth = robotLengthMeters * metersToPixels;
+  const rectHeight = robotWidthMeters * metersToPixels;
+  const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 2.25);
   const handoffRadius = handoffRadiusMeters
     ? Math.max(8, handoffRadiusMeters * metersToPixels)
     : null;
@@ -70,12 +75,13 @@ export function WaypointNode({
       onDragStart={(event) => onDragStart(index, event)}
       onDragMove={(event) => onDragMove(index, event)}
       onDragEnd={(event) => onDragEnd(index, event)}
+      opacity={dimmed ? 0.48 : 1}
     >
       {handoffRadius ? (
         <Circle
           radius={handoffRadius}
           stroke="#ff00ff"
-          strokeWidth={3}
+          strokeWidth={2}
           dash={[7, 6]}
           opacity={0.95}
           listening={false}
@@ -88,15 +94,15 @@ export function WaypointNode({
             <Circle
               radius={circleRadius + 7}
               stroke={selectionStroke}
-              strokeWidth={4}
-              opacity={0.9}
+              strokeWidth={selectionWidth}
+              opacity={selectionOpacity}
             />
           ) : null}
           <Circle
             radius={circleRadius}
             fill="#3aa3ff"
             stroke="#1d6c9d"
-            strokeWidth={2}
+            strokeWidth={1.75}
           />
         </>
       ) : null}
@@ -109,6 +115,8 @@ export function WaypointNode({
               height={rectHeight}
               headingRadians={headingRadians}
               stroke={selectionStroke}
+              opacity={selectionOpacity}
+              strokeWidth={selectionWidth}
             />
           ) : null}
           <RobotFootprint
@@ -131,6 +139,8 @@ export function WaypointNode({
               height={rectHeight}
               headingRadians={headingRadians}
               stroke={selectionStroke}
+              opacity={selectionOpacity}
+              strokeWidth={selectionWidth}
             />
           ) : null}
           <RobotFootprint
@@ -152,7 +162,8 @@ export function WaypointNode({
               points={eventTriggerPoints(metersToPixels, 8)}
               rotation={toStageDegrees(headingRadians)}
               stroke={selectionStroke}
-              strokeWidth={8}
+              strokeWidth={selectionWidth + 4}
+              opacity={selectionOpacity}
               lineCap="round"
             />
           ) : null}
@@ -160,7 +171,7 @@ export function WaypointNode({
             points={eventTriggerPoints(metersToPixels, 0)}
             rotation={toStageDegrees(headingRadians)}
             stroke="#ffd54d"
-            strokeWidth={7}
+            strokeWidth={5}
             lineCap="butt"
           />
         </>
@@ -173,12 +184,16 @@ function SelectionFootprint({
   width,
   height,
   headingRadians,
-  stroke
+  stroke,
+  opacity,
+  strokeWidth
 }: {
   width: number;
   height: number;
   headingRadians: number | null;
   stroke: string | undefined;
+  opacity: number;
+  strokeWidth: number;
 }) {
   return (
     <Group rotation={toStageDegrees(headingRadians)}>
@@ -188,7 +203,8 @@ function SelectionFootprint({
         width={width + 14}
         height={height + 14}
         stroke={stroke}
-        strokeWidth={4}
+        strokeWidth={strokeWidth}
+        opacity={opacity}
       />
     </Group>
   );
@@ -213,6 +229,8 @@ function RobotFootprint({
 }) {
   const triangleLength = Math.min(width, height) * triangleSizeRatio;
   const halfTriangleHeight = triangleLength / 2;
+  const dashLength = Math.max(3, outlineWidth * 1.2);
+  const dashGap = Math.max(2, outlineWidth * 0.65);
   const trianglePoints = [
     triangleLength / 2,
     0,
@@ -231,10 +249,19 @@ function RobotFootprint({
         height={height}
         stroke={outline}
         strokeWidth={outlineWidth}
-        dash={dashed ? [6, 4] : undefined}
+        dash={dashed ? [dashLength, dashGap] : undefined}
         fill="rgba(0, 0, 0, 0.05)"
         lineJoin="miter"
+        lineCap="butt"
       />
+      {dashed ? (
+        <CornerCaps
+          width={width}
+          height={height}
+          color={outline}
+          size={outlineWidth}
+        />
+      ) : null}
       <Line
         points={trianglePoints}
         closed={true}
@@ -244,6 +271,43 @@ function RobotFootprint({
         lineJoin="miter"
       />
     </Group>
+  );
+}
+
+function CornerCaps({
+  width,
+  height,
+  color,
+  size
+}: {
+  width: number;
+  height: number;
+  color: string;
+  size: number;
+}) {
+  const capSize = Math.max(2, size);
+  const halfCap = capSize / 2;
+  const points = [
+    [-width / 2, -height / 2],
+    [width / 2, -height / 2],
+    [-width / 2, height / 2],
+    [width / 2, height / 2]
+  ];
+
+  return (
+    <>
+      {points.map(([x, y]) => (
+        <Rect
+          key={`${x}-${y}`}
+          x={x - halfCap}
+          y={y - halfCap}
+          width={capSize}
+          height={capSize}
+          fill={color}
+          listening={false}
+        />
+      ))}
+    </>
   );
 }
 

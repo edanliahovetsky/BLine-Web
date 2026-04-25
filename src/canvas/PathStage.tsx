@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent
+} from "react";
 import { Stage } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
@@ -36,11 +43,18 @@ interface ActiveRotationDrag {
   currentRadians: number;
 }
 
+interface ActivePanDrag {
+  startPointer: { x: number; y: number };
+  startPanOffset: { x: number; y: number };
+}
+
 export function PathStage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const activePanDragRef = useRef<ActivePanDrag | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
   const [activeRotationDrag, setActiveRotationDragState] =
@@ -51,10 +65,25 @@ export function PathStage() {
     selectionStore,
     (state) => state.selectedElementIndex
   );
+  const [selectedPulse, setSelectedPulse] = useState(0);
 
   useEffect(() => {
     selectionStore.getState().reconcileProject(project);
   }, [project]);
+
+  useEffect(() => {
+    if (selectedElementIndex === null) {
+      return;
+    }
+
+    const startedAt = window.performance.now();
+    const timer = window.setInterval(() => {
+      const elapsed = window.performance.now() - startedAt;
+      setSelectedPulse((Math.sin((elapsed / selectionPulsePeriodMs) * Math.PI * 2) + 1) / 2);
+    }, selectionPulseIntervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [selectedElementIndex]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -65,7 +94,10 @@ export function PathStage() {
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
       const width = Math.max(320, Math.floor(rect.width));
-      const height = Math.max(260, Math.round(width / fieldAspectRatio));
+      const height = Math.max(
+        260,
+        Math.floor(rect.height) || Math.round(width / fieldAspectRatio)
+      );
       setStageSize({ width, height });
     };
 
@@ -94,6 +126,7 @@ export function PathStage() {
     }),
     [baseViewport, panOffset, viewScale]
   );
+
   const simulationResult: SimResult | null = useMemo(() => {
     if (!project) {
       return null;
@@ -114,6 +147,7 @@ export function PathStage() {
   const rotationPreview: RotationOverrides = activeRotationDrag
     ? new Map([[activeRotationDrag.index, activeRotationDrag.currentRadians]])
     : emptyRotationPreview;
+  const selectedPulseValue = selectedElementIndex === null ? 0 : selectedPulse;
 
   useEffect(() => {
     if (!simulationPlaying || !simulationResult) {
@@ -172,13 +206,95 @@ export function PathStage() {
   const handleWheel = (event: KonvaEventObject<WheelEvent>) => {
     event.evt.preventDefault();
     const direction = event.evt.deltaY > 0 ? -1 : 1;
-    const factor = direction > 0 ? 1.08 : 0.92;
-    setViewScale((current) => clamp(current * factor, 0.6, 3));
+    const factor = direction > 0 ? zoomStepFactor : 1 / zoomStepFactor;
+    const pointer = event.target.getStage()?.getPointerPosition() ?? {
+      x: stageSize.width / 2,
+      y: stageSize.height / 2
+    };
+    zoomAtStagePoint(pointer, factor);
   };
 
-  const handleFitView = () => {
-    setViewScale(1);
-    setPanOffset({ x: 0, y: 0 });
+  const zoomAtStagePoint = (
+    stagePoint: { x: number; y: number },
+    factor: number
+  ) => {
+    const nextScale = clamp(viewScale * factor, minViewScale, maxViewScale);
+    if (Math.abs(nextScale - viewScale) < 0.0001) {
+      return;
+    }
+
+    const scenePoint = {
+      x: (stagePoint.x - viewport.x) / viewport.scale,
+      y: (stagePoint.y - viewport.y) / viewport.scale
+    };
+    const nextViewportScale = baseViewport.scale * nextScale;
+    const nextViewportX = stagePoint.x - scenePoint.x * nextViewportScale;
+    const nextViewportY = stagePoint.y - scenePoint.y * nextViewportScale;
+
+    setViewScale(nextScale);
+    setPanOffset(
+      clampPanOffset(
+        {
+          x: nextViewportX - baseViewport.x,
+          y: nextViewportY - baseViewport.y
+        },
+        baseViewport,
+        stageSize,
+        nextScale
+      )
+    );
+  };
+
+  const handleStagePointerDown = (
+    event: KonvaEventObject<MouseEvent | TouchEvent>
+  ) => {
+    selection.handleStagePointerDown(event);
+    if (event.target !== event.target.getStage()) {
+      return;
+    }
+
+    const pointer = event.target.getStage()?.getPointerPosition();
+    if (!pointer) {
+      return;
+    }
+
+    activePanDragRef.current = {
+      startPointer: pointer,
+      startPanOffset: panOffset
+    };
+    setIsPanning(true);
+  };
+
+  const handleStagePointerMove = (
+    event: KonvaEventObject<MouseEvent | TouchEvent>
+  ) => {
+    const panDrag = activePanDragRef.current;
+    if (!panDrag) {
+      return;
+    }
+
+    const pointer = event.target.getStage()?.getPointerPosition();
+    if (!pointer) {
+      return;
+    }
+
+    event.evt.preventDefault();
+    setPanOffset(
+      clampPanOffset(
+        {
+          x: panDrag.startPanOffset.x + pointer.x - panDrag.startPointer.x,
+          y: panDrag.startPanOffset.y + pointer.y - panDrag.startPointer.y
+        },
+        baseViewport,
+        stageSize,
+        viewScale
+      )
+    );
+  };
+
+  const handleStagePointerUp = () => {
+    activePanDragRef.current = null;
+    setIsPanning(false);
   };
 
   const handleRotationDragStart = (
@@ -279,23 +395,20 @@ export function PathStage() {
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
-      <div className="path-stage__canvas" data-testid="path-stage-canvas">
-        <div className="canvas-hud" aria-label="Canvas view controls">
-          <button type="button" aria-label="Zoom in" onClick={() => setViewScale((v) => clamp(v * 1.15, 0.6, 3))}>
-            +
-          </button>
-          <button type="button" aria-label="Zoom out" onClick={() => setViewScale((v) => clamp(v * 0.85, 0.6, 3))}>
-            -
-          </button>
-          <button type="button" aria-label="Fit view" onClick={handleFitView}>
-            Fit
-          </button>
-        </div>
+      <div
+        className={`path-stage__canvas${isPanning ? " is-panning" : ""}`}
+        data-testid="path-stage-canvas"
+      >
         <Stage
           width={stageSize.width}
           height={stageSize.height}
-          onMouseDown={selection.handleStagePointerDown}
-          onTouchStart={selection.handleStagePointerDown}
+          onMouseDown={handleStagePointerDown}
+          onTouchStart={handleStagePointerDown}
+          onMouseMove={handleStagePointerMove}
+          onTouchMove={handleStagePointerMove}
+          onMouseUp={handleStagePointerUp}
+          onTouchEnd={handleStagePointerUp}
+          onMouseLeave={handleStagePointerUp}
           onWheel={handleWheel}
         >
           <FieldLayer viewport={viewport} />
@@ -310,6 +423,7 @@ export function PathStage() {
             viewport={viewport}
             dragPreview={drag.dragPreview}
             rotationPreview={rotationPreview}
+            selectedPulse={selectedPulseValue}
             drag={drag}
             selection={selection}
           />
@@ -317,6 +431,7 @@ export function PathStage() {
             project={project}
             selectedElementIndex={selectedElementIndex}
             viewport={viewport}
+            positionPreview={drag.dragPreview}
             rotationPreview={rotationPreview}
             onRotationDragStart={handleRotationDragStart}
             onRotationDragMove={handleRotationDragMove}
@@ -325,26 +440,27 @@ export function PathStage() {
           <SimulationLayer
             result={simulationResult}
             currentTimeS={simulationTime}
+            playing={simulationPlaying}
             viewport={viewport}
             config={project?.config ?? null}
           />
         </Stage>
+        <SimulationTransport
+          result={simulationResult}
+          currentTimeS={simulationTime}
+          playing={simulationPlaying}
+          onTogglePlaying={() => {
+            if (simulationResult && simulationTime >= simulationResult.total_time_s) {
+              setSimulationTime(0);
+            }
+            setSimulationPlaying((current) => !current);
+          }}
+          onSeek={(time) => {
+            setSimulationTime(time);
+            setSimulationPlaying(false);
+          }}
+        />
       </div>
-      <SimulationTransport
-        result={simulationResult}
-        currentTimeS={simulationTime}
-        playing={simulationPlaying}
-        onTogglePlaying={() => {
-          if (simulationResult && simulationTime >= simulationResult.total_time_s) {
-            setSimulationTime(0);
-          }
-          setSimulationPlaying((current) => !current);
-        }}
-        onSeek={(time) => {
-          setSimulationTime(time);
-          setSimulationPlaying(false);
-        }}
-      />
     </div>
   );
 }
@@ -364,34 +480,48 @@ function SimulationTransport({
 }) {
   const total = result?.total_time_s ?? 0;
   const safeCurrent = Math.min(currentTimeS, total);
+  const progress = total > 0 ? (safeCurrent / total) * 100 : 0;
+  const timelineStyle = {
+    "--transport-progress": `${progress}%`
+  } as CSSProperties;
 
   return (
     <div className="simulation-transport" data-testid="simulation-transport">
-      <button
-        type="button"
-        className="transport-play-button"
-        aria-label={playing ? "Pause simulation" : "Play simulation"}
-        onClick={onTogglePlaying}
-        disabled={!result || total <= 0}
-      >
-        {playing ? "Pause" : "Play"}
-      </button>
+      <div className="transport-primary-controls">
+        <button
+          type="button"
+          className="transport-play-button"
+          aria-label={playing ? "Pause simulation" : "Play simulation"}
+          title={playing ? "Pause simulation" : "Play simulation"}
+          onClick={onTogglePlaying}
+          disabled={!result || total <= 0}
+        >
+          <span className={playing ? "transport-icon pause" : "transport-icon play"} />
+        </button>
+      </div>
       <span className="transport-time" data-testid="simulation-time">
         {safeCurrent.toFixed(2)} / {total.toFixed(2)} s
       </span>
-      <input
-        aria-label="Simulation time"
-        type="range"
-        min={0}
-        max={Math.max(total, 0)}
-        step={0.02}
-        value={safeCurrent}
-        disabled={!result || total <= 0}
-        onChange={(event) => onSeek(Number(event.currentTarget.value))}
-      />
-      <button type="button" aria-label="Reset simulation" onClick={() => onSeek(0)}>
-        Reset
-      </button>
+      <div className="transport-timeline">
+        <input
+          aria-label="Simulation time"
+          type="range"
+          min={0}
+          max={Math.max(total, 0)}
+          step={0.02}
+          value={safeCurrent}
+          style={timelineStyle}
+          disabled={!result || total <= 0}
+          onChange={(event) => onSeek(Number(event.currentTarget.value))}
+        />
+        <div className="transport-ticks" aria-hidden="true">
+          {Array.from({ length: Math.max(1, Math.floor(total)) + 1 }, (_, index) => (
+            <span key={index} style={{ left: `${total > 0 ? (index / total) * 100 : 0}%` }}>
+              {index}s
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -427,7 +557,7 @@ function rotationHandlePoint(
   }
 
   const center = modelToStagePoint(position, viewport);
-  const radius = Math.max(40, Math.min(78, viewport.scale * 0.72));
+  const radius = Math.max(42, Math.min(64, viewport.scale * 0.36));
   return {
     x: center.x + Math.cos(rotationRadians) * radius,
     y: center.y - Math.sin(rotationRadians) * radius
@@ -453,4 +583,41 @@ function normalizeRadians(radians: number): number {
   return normalized;
 }
 
+function clampPanOffset(
+  offset: { x: number; y: number },
+  baseViewport: ReturnType<typeof createFieldViewport>,
+  stageSize: CanvasSize,
+  scale: number
+): { x: number; y: number } {
+  const scaledWidth = baseViewport.width * scale;
+  const scaledHeight = baseViewport.height * scale;
+
+  return {
+    x: clampAxisPan(offset.x, baseViewport.x, scaledWidth, stageSize.width),
+    y: clampAxisPan(offset.y, baseViewport.y, scaledHeight, stageSize.height)
+  };
+}
+
+function clampAxisPan(
+  offset: number,
+  basePosition: number,
+  scaledSize: number,
+  stageSize: number
+): number {
+  if (scaledSize <= stageSize) {
+    return 0;
+  }
+
+  const minVisible = Math.min(180, stageSize * 0.35, scaledSize * 0.5);
+  const minOffset = minVisible - scaledSize - basePosition;
+  const maxOffset = stageSize - minVisible - basePosition;
+
+  return clamp(offset, minOffset, maxOffset);
+}
+
 const emptyRotationPreview = new Map<number, number>();
+const minViewScale = 1;
+const maxViewScale = 8;
+const zoomStepFactor = 1.03;
+const selectionPulseIntervalMs = 40;
+const selectionPulsePeriodMs = 1800;

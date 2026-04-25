@@ -1,5 +1,5 @@
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Circle, Group, Layer, Line } from "react-konva";
+import { Circle, Layer } from "react-konva";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import { isRotationTarget, isWaypoint } from "../../core/model/path";
 import {
@@ -7,6 +7,7 @@ import {
   getElementPosition,
   modelToStagePoint,
   type FieldViewport,
+  type PositionOverrides,
   type RotationOverrides
 } from "../geometry";
 
@@ -16,6 +17,7 @@ interface RotationHandleLayerProps {
   project: ProjectDocument | null;
   selectedElementIndex: number | null;
   viewport: FieldViewport;
+  positionPreview: PositionOverrides;
   rotationPreview: RotationOverrides;
   onRotationDragStart(index: number, event: RotationDragEvent): void;
   onRotationDragMove(index: number, event: RotationDragEvent): void;
@@ -26,6 +28,7 @@ export function RotationHandleLayer({
   project,
   selectedElementIndex,
   viewport,
+  positionPreview,
   rotationPreview,
   onRotationDragStart,
   onRotationDragMove,
@@ -41,7 +44,7 @@ export function RotationHandleLayer({
     return <Layer />;
   }
 
-  const position = getElementPosition(elements, selectedElementIndex);
+  const position = getElementPosition(elements, selectedElementIndex, positionPreview);
   const rotationRadians = getElementHeadingRadians(
     elements,
     selectedElementIndex,
@@ -53,7 +56,7 @@ export function RotationHandleLayer({
   }
 
   const center = modelToStagePoint(position, viewport);
-  const radius = Math.max(40, Math.min(78, viewport.scale * 0.72));
+  const radius = Math.max(42, Math.min(64, viewport.scale * 0.36));
   const handle = {
     x: center.x + Math.cos(rotationRadians) * radius,
     y: center.y - Math.sin(rotationRadians) * radius
@@ -61,34 +64,14 @@ export function RotationHandleLayer({
 
   return (
     <Layer>
-      <Group listening={false}>
-        <Circle
-          x={center.x}
-          y={center.y}
-          radius={radius}
-          stroke="#2dd47a"
-          strokeWidth={2}
-          dash={[7, 7]}
-          opacity={0.38}
-        />
-        <Line
-          points={[center.x, center.y, handle.x, handle.y]}
-          stroke="#2dd47a"
-          strokeWidth={3}
-          lineCap="round"
-          opacity={0.76}
-        />
-      </Group>
       <Circle
         x={handle.x}
         y={handle.y}
-        radius={10}
-        fill="#2dd47a"
-        stroke="#0c1813"
-        strokeWidth={3}
+        radius={12}
+        fill="rgba(45, 212, 122, 0.14)"
+        stroke="rgba(45, 212, 122, 0.62)"
+        strokeWidth={2}
         draggable={true}
-        shadowColor="#2dd47a"
-        shadowBlur={9}
         data-testid="rotation-handle"
         onDragStart={(event) => onRotationDragStart(selectedElementIndex, event)}
         onDragMove={(event) => onRotationDragMove(selectedElementIndex, event)}
