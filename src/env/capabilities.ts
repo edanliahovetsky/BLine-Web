@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+
 export type ShellKind = "browser-web" | "tauri" | "systemcore-browser";
 
 export interface EnvironmentCapabilities {
@@ -26,3 +28,7 @@ export const tauriCapabilities: EnvironmentCapabilities = {
   canUseUrlSharing: false,
   canAttemptRobotNTConnection: false
 };
+
+export function detectEnvironmentCapabilities(): EnvironmentCapabilities {
+  return isTauri() ? tauriCapabilities : browserWebCapabilities;
+}

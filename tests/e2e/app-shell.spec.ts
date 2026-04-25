@@ -37,7 +37,7 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   await expect(page.getByTestId("selected-element-status")).not.toContainText(
     "1.20, 1.10 m"
   );
-  await expect(page.getByText("Unsaved changes")).toBeVisible();
+  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 });
 
 test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
@@ -69,11 +69,89 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await page.getByLabel("Rotation (deg)").fill("45");
 
   await expect(page.getByTestId("path-element-row-5")).toContainText("6.25, 3.75 m");
-  await expect(page.getByText("Unsaved changes")).toBeVisible();
+  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 
   await page.getByRole("button", { name: "Remove Waypoint 6" }).click();
 
   await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
+});
+
+test("creates saves and reloads a local project", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "New" }).click();
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+
+  await page.getByLabel("X (m)").fill("6.50");
+  await page.getByLabel("Y (m)").fill("3.90");
+  await page.getByRole("button", { name: "Save" }).click();
+
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  const currentPath = await page.getByTestId("current-path-status").textContent();
+
+  await page.reload();
+
+  if (!currentPath) {
+    throw new Error("Expected current path status to be populated");
+  }
+
+  await expect(page.getByTestId("current-path-status")).toHaveText(currentPath);
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6.50, 3.90 m");
+});
+
+test("recovers autosaved edits after reload", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("path-element-row-2").click();
+  await page.getByLabel("X (m)").fill("5.75");
+
+  await expect(page.getByTestId("save-status")).toContainText("Saved", {
+    timeout: 5_000
+  });
+
+  await page.reload();
+
+  await expect(page.getByTestId("path-element-row-2")).toContainText("5.75, 3.20 m");
+});
+
+test("opens a saved project from the project list", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "New" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  const firstPath = await currentPathName(page);
+
+  await page.getByRole("button", { name: "New" }).click();
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  await page.getByRole("button", { name: "Open" }).click();
+  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+  await page.getByText(firstPath, { exact: true }).click();
+
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    `Current Path: ${firstPath}`
+  );
+  await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
+});
+
+test("supports undo and redo for structural sidebar edits", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
+  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Translation");
+
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
 });
 
 interface Bounds {
@@ -95,6 +173,17 @@ async function requiredBox(locator: Locator): Promise<Bounds> {
   }
 
   return box;
+}
+
+async function currentPathName(page: {
+  getByTestId(testId: string): Locator;
+}): Promise<string> {
+  const currentPath = await page.getByTestId("current-path-status").textContent();
+  if (!currentPath?.startsWith("Current Path: ")) {
+    throw new Error("Expected current path status to include a project name");
+  }
+
+  return currentPath.replace("Current Path: ", "");
 }
 
 function modelToCanvasPoint(box: Bounds, point: PointMeters) {

@@ -1,17 +1,32 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { PathStage } from "../../canvas/PathStage";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
+import {
+  detectEnvironmentCapabilities,
+  type EnvironmentCapabilities
+} from "../../env/capabilities";
+import {
+  createProjectAutosaveCoordinator,
+  type AutosaveCoordinator,
+  type AutosaveStatus
+} from "../../state/autosave";
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
+import { createStorageAdapter, type ProjectSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import "./AppShell.css";
-import { createInitialCanvasProject } from "./initialProject";
+import { createInitialCanvasProject, createNewCanvasProject } from "./initialProject";
 
 export function AppShell() {
   const project = useStoreSelector(projectStore, (state) => state.project);
+  const storage = useStoreSelector(projectStore, (state) => state.storage);
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
+  const status = useStoreSelector(projectStore, (state) => state.status);
+  const error = useStoreSelector(projectStore, (state) => state.error);
+  const lastSavedAt = useStoreSelector(projectStore, (state) => state.lastSavedAt);
   const selectedElementIndex = useStoreSelector(
     selectionStore,
     (state) => state.selectedElementIndex
@@ -24,12 +39,206 @@ export function AppShell() {
     projectStore,
     (state) => state.history.getState().canRedo
   );
+  const [capabilities] = useState<EnvironmentCapabilities>(() =>
+    detectEnvironmentCapabilities()
+  );
+  const [projectSummaries, setProjectSummaries] = useState<ProjectSummary[]>([]);
+  const [showOpenPanel, setShowOpenPanel] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
+  const autosaveRef = useRef<AutosaveCoordinator | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const refreshProjectSummaries = useCallback(async (adapter = projectStore.getState().storage) => {
+    if (!adapter) {
+      setProjectSummaries([]);
+      return [];
+    }
+
+    const summaries = await adapter.listProjects();
+    setProjectSummaries(summaries);
+    return summaries;
+  }, []);
 
   useEffect(() => {
-    if (!projectStore.getState().project) {
-      projectStore.getState().createProject(createInitialCanvasProject());
+    let cancelled = false;
+    const adapter = createStorageAdapter(capabilities);
+
+    projectStore.getState().setStorageAdapter(adapter);
+
+    async function initializeProject() {
+      setInitializing(true);
+
+      try {
+        const summaries = await adapter.listProjects();
+        if (cancelled) {
+          return;
+        }
+
+        setProjectSummaries(summaries);
+
+        if (projectStore.getState().project) {
+          return;
+        }
+
+        if (summaries.length > 0) {
+          await projectStore.getState().loadProject(summaries[0].id);
+        } else {
+          projectStore.getState().createProject(createInitialCanvasProject());
+        }
+      } catch (caughtError) {
+        if (!cancelled) {
+          projectStore.getState().createProject(createInitialCanvasProject());
+          projectStore.getState().markSaveError(caughtError);
+        }
+      } finally {
+        if (!cancelled) {
+          setInitializing(false);
+        }
+      }
     }
+
+    void initializeProject();
+
+    return () => {
+      cancelled = true;
+      autosaveRef.current?.cancel();
+    };
+  }, [capabilities]);
+
+  useEffect(() => {
+    if (!storage) {
+      autosaveRef.current?.cancel();
+      autosaveRef.current = null;
+      return;
+    }
+
+    autosaveRef.current?.cancel();
+    autosaveRef.current = createProjectAutosaveCoordinator(projectStore, storage, {
+      delayMs: 750,
+      onStatusChange: setAutosaveStatus
+    });
+
+    return () => {
+      autosaveRef.current?.cancel();
+      autosaveRef.current = null;
+    };
+  }, [storage]);
+
+  useEffect(() => {
+    if (project && dirty) {
+      autosaveRef.current?.schedule();
+    }
+  }, [dirty, project]);
+
+  useEffect(() => {
+    if (lastSavedAt && storage) {
+      const refreshTimer = window.setTimeout(() => {
+        void refreshProjectSummaries(storage);
+      }, 0);
+
+      return () => window.clearTimeout(refreshTimer);
+    }
+
+    return undefined;
+  }, [lastSavedAt, refreshProjectSummaries, storage]);
+
+  const handleNewProject = useCallback(() => {
+    autosaveRef.current?.cancel();
+    projectStore.getState().createProject(createNewCanvasProject());
+    selectionStore.getState().clearSelection();
+    setShowOpenPanel(false);
   }, []);
+
+  const handleSaveProject = useCallback(async () => {
+    autosaveRef.current?.cancel();
+
+    try {
+      await projectStore.getState().saveProject();
+      await refreshProjectSummaries();
+    } catch {
+      // The project store already records the error for the status bar.
+    }
+  }, [refreshProjectSummaries]);
+
+  const handleToggleOpenPanel = useCallback(() => {
+    setShowOpenPanel((current) => {
+      if (!current) {
+        void refreshProjectSummaries();
+      }
+      return !current;
+    });
+  }, [refreshProjectSummaries]);
+
+  const handleOpenProject = useCallback(
+    async (id: string) => {
+      autosaveRef.current?.cancel();
+
+      try {
+        await projectStore.getState().loadProject(id);
+        selectionStore.getState().clearSelection();
+        setShowOpenPanel(false);
+        await refreshProjectSummaries();
+      } catch {
+        // The project store already records the error for the status bar.
+      }
+    },
+    [refreshProjectSummaries]
+  );
+
+  const handleExportProject = useCallback(async () => {
+    const activeProject = projectStore.getState().project;
+    const adapter = projectStore.getState().storage;
+    if (!activeProject || !adapter) {
+      return;
+    }
+
+    try {
+      if (projectStore.getState().dirty) {
+        autosaveRef.current?.cancel();
+        await projectStore.getState().saveProject();
+        await refreshProjectSummaries(adapter);
+      }
+
+      const bundle = await adapter.exportBundle([activeProject.project_id]);
+      downloadBlob(
+        bundle,
+        `${safeDownloadName(activeProject.display_name)}.bline-project.json`
+      );
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    }
+  }, [refreshProjectSummaries]);
+
+  const handleImportProject = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0];
+      event.currentTarget.value = "";
+
+      if (!file) {
+        return;
+      }
+
+      const adapter = projectStore.getState().storage;
+      if (!adapter) {
+        return;
+      }
+
+      try {
+        const result = await adapter.importBundle(file);
+        const summaries = await refreshProjectSummaries(adapter);
+        const imported = result.imported[0] ?? summaries[0];
+
+        if (imported) {
+          await projectStore.getState().loadProject(imported.id);
+          selectionStore.getState().clearSelection();
+        }
+      } catch (caughtError) {
+        projectStore.getState().markSaveError(caughtError);
+      }
+    },
+    [refreshProjectSummaries]
+  );
 
   const selectedElement =
     project && selectedElementIndex !== null
@@ -43,6 +252,15 @@ export function AppShell() {
     selectedElement && selectedElementIndex !== null
       ? `Selected: ${getElementLabel(selectedElement)} #${selectedElementIndex + 1} ${formatPointMeters(selectedPosition)}`
       : "Selected: none";
+  const storageLabel = capabilities.shell === "tauri" ? "Tauri local" : "Browser local";
+  const saveStatus = formatSaveStatus({
+    autosaveStatus,
+    dirty,
+    error,
+    initializing,
+    lastSavedAt,
+    status
+  });
 
   return (
     <main className="app-shell" data-testid="app-shell">
@@ -73,15 +291,61 @@ export function AppShell() {
           <button type="button" onClick={() => projectStore.getState().redo()} disabled={!canRedo}>
             Redo
           </button>
-          <button type="button" disabled>
+          <button type="button" onClick={handleNewProject} disabled={!storage}>
             New
           </button>
-          <button type="button" disabled>
+          <button
+            type="button"
+            aria-expanded={showOpenPanel}
+            onClick={handleToggleOpenPanel}
+            disabled={!storage || projectSummaries.length === 0}
+          >
             Open
           </button>
-          <button type="button" disabled>
+          <button type="button" onClick={handleExportProject} disabled={!project || !storage}>
+            Export
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!storage}
+          >
+            Import
+          </button>
+          <button
+            type="button"
+            className="primary-action"
+            onClick={handleSaveProject}
+            disabled={!project || !storage || status === "saving"}
+          >
             Save
           </button>
+          <input
+            ref={fileInputRef}
+            className="file-import-input"
+            aria-label="Import project bundle"
+            type="file"
+            accept="application/json,.json,.bline-project"
+            onChange={handleImportProject}
+          />
+          {showOpenPanel ? (
+            <div className="project-open-panel" data-testid="open-project-panel">
+              <strong>Saved Projects</strong>
+              <div className="project-open-panel__list" role="list">
+                {projectSummaries.map((summary) => (
+                  <button
+                    key={summary.id}
+                    type="button"
+                    role="listitem"
+                    onClick={() => void handleOpenProject(summary.id)}
+                  >
+                    <span>{summary.displayName}</span>
+                    <small>{formatTimestamp(summary.updatedAt)}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </nav>
       </header>
 
@@ -113,10 +377,82 @@ export function AppShell() {
       </div>
 
       <footer className="status-bar">
-        <span>Current Path: {project?.display_name ?? "No project"}</span>
+        <span data-testid="current-path-status">
+          Current Path: {project?.display_name ?? "No project"}
+        </span>
         <span data-testid="selected-element-status">{selectedSummary}</span>
-        <span>{dirty ? "Unsaved changes" : "Saved"}</span>
+        <span data-testid="storage-status">{storageLabel}</span>
+        <span data-testid="save-status">{saveStatus}</span>
       </footer>
     </main>
   );
+}
+
+interface SaveStatusInput {
+  autosaveStatus: AutosaveStatus;
+  dirty: boolean;
+  error: string | null;
+  initializing: boolean;
+  lastSavedAt: string | null;
+  status: string;
+}
+
+function formatSaveStatus({
+  autosaveStatus,
+  dirty,
+  error,
+  initializing,
+  lastSavedAt,
+  status
+}: SaveStatusInput): string {
+  if (initializing || status === "loading") {
+    return "Loading";
+  }
+
+  if (status === "error" && error) {
+    return `Save failed: ${error}`;
+  }
+
+  if (status === "saving" || autosaveStatus === "saving") {
+    return "Saving";
+  }
+
+  if (dirty && autosaveStatus === "pending") {
+    return "Autosave pending";
+  }
+
+  if (dirty) {
+    return "Unsaved changes";
+  }
+
+  return lastSavedAt ? `Saved ${formatTimestamp(lastSavedAt)}` : "Saved";
+}
+
+function formatTimestamp(value: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return value;
+  }
+
+  return timestamp.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function safeDownloadName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "") || "bline-project";
 }

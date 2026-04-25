@@ -7,10 +7,15 @@ import {
   createWaypoint
 } from "../../core/model/path";
 
-export function createInitialCanvasProject() {
+interface InitialCanvasProjectOptions {
+  projectId?: string;
+  displayName?: string;
+}
+
+export function createInitialCanvasProject(options: InitialCanvasProjectOptions = {}) {
   return createProjectDocument({
-    project_id: "phase-1-canvas-draft",
-    display_name: "Phase 1 Canvas Draft",
+    project_id: options.projectId ?? "phase-1-canvas-draft",
+    display_name: options.displayName ?? "Phase 1 Canvas Draft",
     path: createPathModel({
       path_elements: [
         createTranslationTarget({
@@ -41,5 +46,17 @@ export function createInitialCanvasProject() {
         })
       ]
     })
+  });
+}
+
+export function createNewCanvasProject(now = new Date()) {
+  const stamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+  const random =
+    globalThis.crypto?.randomUUID?.().slice(0, 8) ??
+    Math.random().toString(36).slice(2, 10);
+
+  return createInitialCanvasProject({
+    projectId: `phase-1-path-${stamp}-${random}`,
+    displayName: `Untitled Path ${stamp}-${random}`
   });
 }

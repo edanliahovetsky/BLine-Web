@@ -60,6 +60,7 @@ select {
 }
 
 .toolbar-actions {
+  position: relative;
   justify-content: flex-end;
 }
 
@@ -88,7 +89,7 @@ select {
   background: #132947;
 }
 
-.toolbar-actions button:last-child {
+.toolbar-actions button.primary-action {
   color: #ffffff;
   border-color: #2c63e5;
   background: #1856c9;
@@ -98,6 +99,64 @@ select {
 .toolbar-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.52;
+}
+
+.file-import-input {
+  display: none;
+}
+
+.project-open-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 28px));
+  padding: 10px;
+  border: 1px solid #37424c;
+  border-radius: 8px;
+  background: #12171b;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.46);
+}
+
+.project-open-panel strong {
+  color: #f5f8fb;
+  font-size: 0.86rem;
+}
+
+.project-open-panel__list {
+  display: grid;
+  gap: 5px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.project-open-panel__list button {
+  display: grid;
+  gap: 3px;
+  min-height: 44px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.project-open-panel__list button span,
+.project-open-panel__list button small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-open-panel__list button span {
+  color: #eef3f7;
+  font-size: 0.86rem;
+  font-weight: 690;
+}
+
+.project-open-panel__list button small {
+  color: #9eabb6;
+  font-size: 0.74rem;
 }
 
 .workspace {
@@ -499,7 +558,7 @@ select {
 
 .status-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) auto auto;
   align-items: center;
   gap: 16px;
   min-height: 40px;
@@ -521,6 +580,10 @@ select {
   justify-self: end;
   color: #70d486;
   font-weight: 720;
+}
+
+.status-bar span[data-testid="storage-status"] {
+  color: #9eabb6;
 }
 
 @media (max-width: 980px) {
