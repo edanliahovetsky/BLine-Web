@@ -744,6 +744,14 @@ select {
   opacity: 0.45;
 }
 
+.constraint-action-button svg {
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+}
+
 .constraint-popout-button {
   min-width: 66px;
 }

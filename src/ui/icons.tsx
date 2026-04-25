@@ -1,7 +1,9 @@
 import type { SVGProps } from "react";
 import type { AddableElementType } from "./sidebar/sidebarCommands";
 
-type IconProps = SVGProps<SVGSVGElement>;
+type IconProps = SVGProps<SVGSVGElement> & {
+  size?: number | string;
+};
 
 export function PlusIcon(props: IconProps) {
   return (
@@ -94,13 +96,17 @@ export function ElementIcon({
   );
 }
 
-function iconProps(props: IconProps): IconProps {
+function iconProps({ size, width, height, ...props }: IconProps): SVGProps<SVGSVGElement> {
+  const iconSize = size ?? 18;
+
   return {
     fill: "none",
+    height: height ?? iconSize,
     stroke: "currentColor",
     strokeLinecap: "round",
     strokeLinejoin: "round",
     strokeWidth: 2,
+    width: width ?? iconSize,
     ...props
   };
 }

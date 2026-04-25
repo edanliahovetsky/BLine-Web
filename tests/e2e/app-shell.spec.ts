@@ -206,6 +206,12 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   ).toContainText("4.500 m/s");
 
   await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
+  const addSegmentIcon = page.getByLabel("Add Max Velocity segment").locator("svg");
+  const deleteSegmentIcon = page.getByLabel("Delete constraint 1").locator("svg");
+  await expect(addSegmentIcon).toBeVisible();
+  await expect(deleteSegmentIcon).toBeVisible();
+  expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
+  expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
 
   await page.getByLabel("Constraint 1 value").fill("2.0");
   await expect(
