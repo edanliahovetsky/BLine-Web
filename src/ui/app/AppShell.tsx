@@ -408,25 +408,6 @@ export function AppShell() {
       </header>
 
       <div className="workspace">
-        <aside className="tool-rail" aria-label="Canvas tools">
-          <button type="button" className="is-active" aria-label="Select tool">
-            <span aria-hidden="true">S</span>
-            <span>Select</span>
-          </button>
-          <button type="button" aria-label="Add waypoint tool" disabled>
-            <span aria-hidden="true">W</span>
-            <span>Waypoint</span>
-          </button>
-          <button type="button" aria-label="Add event tool" disabled>
-            <span aria-hidden="true">E</span>
-            <span>Event</span>
-          </button>
-          <button type="button" aria-label="Rotate tool" disabled>
-            <span aria-hidden="true">R</span>
-            <span>Rotate</span>
-          </button>
-        </aside>
-
         <section className="canvas-region" aria-label="Editor canvas">
           <PathStage />
         </section>
