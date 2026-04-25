@@ -216,7 +216,7 @@ select {
   display: grid;
   grid-template-columns: 40px auto minmax(160px, 1fr);
   align-items: center;
-  gap: 11px;
+  gap: 14px;
   min-height: 38px;
   padding: 5px 8px;
   border: 0;
@@ -346,22 +346,24 @@ select {
   font-size: 0.84rem;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  min-width: 5.8rem;
   white-space: nowrap;
 }
 
 .transport-timeline {
   position: relative;
+  box-sizing: border-box;
   display: grid;
   align-content: start;
   min-height: 25px;
-  padding-top: 2px;
+  padding: 2px 10px 0 12px;
 }
 
 .transport-ticks {
   position: absolute;
-  right: 7px;
+  right: 17px;
   bottom: 1px;
-  left: 7px;
+  left: 19px;
   height: 12px;
   pointer-events: none;
 }

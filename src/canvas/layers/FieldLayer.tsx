@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Image as KonvaImage, Layer, Rect } from "react-konva";
 import type { FieldViewport } from "../geometry";
 
+const canvasBackgroundColor = "#101416";
+
 interface FieldLayerProps {
   viewport: FieldViewport;
 }
@@ -26,7 +28,7 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
         y={viewport.y}
         width={viewport.width}
         height={viewport.height}
-        fill="#111616"
+        fill={canvasBackgroundColor}
       />
       {fieldImage && imageRect ? (
         <KonvaImage
@@ -38,13 +40,6 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
           opacity={0.96}
         />
       ) : null}
-      <Rect
-        x={viewport.x}
-        y={viewport.y}
-        width={viewport.width}
-        height={viewport.height}
-        fill="rgba(8, 12, 13, 0.1)"
-      />
       {imageRect
         ? getFieldBorderMasks(imageRect).map((mask) => (
             <Rect
@@ -53,7 +48,7 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
               y={mask.y}
               width={mask.width}
               height={mask.height}
-              fill="#101416"
+              fill={canvasBackgroundColor}
             />
           ))
         : null}
@@ -61,13 +56,15 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
   );
 }
 
+type FieldImageSource = HTMLImageElement | HTMLCanvasElement;
+
 function useFieldImage(src: string) {
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [image, setImage] = useState<FieldImageSource | null>(null);
 
   useEffect(() => {
     const nextImage = new window.Image();
     nextImage.decoding = "async";
-    nextImage.onload = () => setImage(nextImage);
+    nextImage.onload = () => setImage(recolorFieldBackground(nextImage));
     nextImage.src = src;
 
     return () => {
@@ -76,6 +73,49 @@ function useFieldImage(src: string) {
   }, [src]);
 
   return image;
+}
+
+function recolorFieldBackground(image: HTMLImageElement): FieldImageSource {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return image;
+  }
+
+  context.drawImage(image, 0, 0);
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const background = hexToRgb(canvasBackgroundColor);
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3];
+    if (alpha === 0) {
+      continue;
+    }
+
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    if (red <= 16 && green <= 20 && blue <= 22) {
+      data[index] = background.red;
+      data[index + 1] = background.green;
+      data[index + 2] = background.blue;
+    }
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function hexToRgb(hex: string) {
+  return {
+    red: Number.parseInt(hex.slice(1, 3), 16),
+    green: Number.parseInt(hex.slice(3, 5), 16),
+    blue: Number.parseInt(hex.slice(5, 7), 16)
+  };
 }
 
 function getAspectFitRect(

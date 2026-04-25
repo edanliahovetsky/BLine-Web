@@ -608,9 +608,8 @@ function clampAxisPan(
     return 0;
   }
 
-  const minVisible = Math.min(180, stageSize * 0.35, scaledSize * 0.5);
-  const minOffset = minVisible - scaledSize - basePosition;
-  const maxOffset = stageSize - minVisible - basePosition;
+  const minOffset = stageSize - scaledSize - basePosition;
+  const maxOffset = -basePosition;
 
   return clamp(offset, minOffset, maxOffset);
 }
