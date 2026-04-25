@@ -184,6 +184,25 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 });
 
+test("edits project config with undo support", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  await page.getByLabel("Robot Length (m)").fill("0.825");
+  await page.getByLabel("Enable Protrusions").check();
+  await page.getByLabel("Protrusion Side").selectOption("front");
+  await page.getByLabel("Show On Event Keys").fill("intake, deploy");
+  await page.getByRole("button", { name: "OK" }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.500");
+  await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
+  await page.getByRole("button", { name: "Close config" }).click();
+});
+
 test("creates saves and reloads a local project", async ({ page }) => {
   await page.goto("/");
 
@@ -260,6 +279,24 @@ test("supports undo and redo for structural sidebar edits", async ({ page }) => 
 
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+});
+
+test("supports common keyboard shortcuts", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Translation");
+
+  await page.keyboard.press(`${shortcut}+Shift+Z`);
+  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+
+  await page.keyboard.press(`${shortcut}+S`);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
 });
 
 interface Bounds {

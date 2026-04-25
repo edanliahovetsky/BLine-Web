@@ -18,7 +18,9 @@ import { selectionStore } from "../../state/selectionStore";
 import { createStorageAdapter, type ProjectSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import "./AppShell.css";
+import { createUpdateProjectConfigCommand } from "./configCommands";
 import { createInitialCanvasProject, createNewCanvasProject } from "./initialProject";
+import { ProjectConfigDialog } from "./ProjectConfigDialog";
 
 export function AppShell() {
   const project = useStoreSelector(projectStore, (state) => state.project);
@@ -44,6 +46,7 @@ export function AppShell() {
   );
   const [projectSummaries, setProjectSummaries] = useState<ProjectSummary[]>([]);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
+  const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
   const autosaveRef = useRef<AutosaveCoordinator | null>(null);
@@ -115,7 +118,7 @@ export function AppShell() {
 
     autosaveRef.current?.cancel();
     autosaveRef.current = createProjectAutosaveCoordinator(projectStore, storage, {
-      delayMs: 750,
+      delayMs: 300,
       onStatusChange: setAutosaveStatus
     });
 
@@ -160,6 +163,42 @@ export function AppShell() {
       // The project store already records the error for the status bar.
     }
   }, [refreshProjectSummaries]);
+
+  useEffect(() => {
+    const handleShortcut = (event: globalThis.KeyboardEvent) => {
+      const modifier = event.metaKey || event.ctrlKey;
+      if (!modifier) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        void handleSaveProject();
+        return;
+      }
+
+      if (key === "z" && event.shiftKey) {
+        event.preventDefault();
+        projectStore.getState().redo();
+        return;
+      }
+
+      if (key === "z") {
+        event.preventDefault();
+        projectStore.getState().undo();
+        return;
+      }
+
+      if (key === "y") {
+        event.preventDefault();
+        projectStore.getState().redo();
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [handleSaveProject]);
 
   const handleToggleOpenPanel = useCallback(() => {
     setShowOpenPanel((current) => {
@@ -240,6 +279,20 @@ export function AppShell() {
     [refreshProjectSummaries]
   );
 
+  const handleSaveConfig = useCallback((nextConfig: NonNullable<typeof project>["config"]) => {
+    const activeProject = projectStore.getState().project;
+    if (!activeProject) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .applyCommand(
+        createUpdateProjectConfigCommand(activeProject.config, nextConfig)
+      );
+    setShowConfigDialog(false);
+  }, []);
+
   const selectedElement =
     project && selectedElementIndex !== null
       ? project.path.path_elements[selectedElementIndex]
@@ -280,7 +333,12 @@ export function AppShell() {
           <button type="button" disabled>
             Simulation
           </button>
-          <button type="button" disabled>
+          <button
+            type="button"
+            aria-expanded={showConfigDialog}
+            onClick={() => setShowConfigDialog(true)}
+            disabled={!project}
+          >
             Settings
           </button>
         </nav>
@@ -384,6 +442,14 @@ export function AppShell() {
         <span data-testid="storage-status">{storageLabel}</span>
         <span data-testid="save-status">{saveStatus}</span>
       </footer>
+
+      {project && showConfigDialog ? (
+        <ProjectConfigDialog
+          config={project.config}
+          onCancel={() => setShowConfigDialog(false)}
+          onSave={handleSaveConfig}
+        />
+      ) : null}
     </main>
   );
 }

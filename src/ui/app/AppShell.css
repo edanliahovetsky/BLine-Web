@@ -788,6 +788,113 @@ select {
   min-height: 42px;
 }
 
+.config-dialog-backdrop {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(4, 7, 10, 0.56);
+}
+
+.config-dialog {
+  display: grid;
+  gap: 12px;
+  width: min(520px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #3a4650;
+  border-radius: 8px;
+  color: #eef3f7;
+  background: #1b2024;
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.56);
+}
+
+.config-dialog__header,
+.config-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.config-dialog__header strong {
+  font-size: 1rem;
+}
+
+.config-dialog__section {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid #333a40;
+  border-radius: 7px;
+  background: #20252a;
+}
+
+.config-dialog__section h2 {
+  margin: 0 0 2px;
+  color: #f4f7fa;
+  font-size: 0.9rem;
+}
+
+.config-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(132px, 170px);
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.config-row span {
+  color: #eef3f7;
+  font-size: 0.82rem;
+  font-weight: 620;
+}
+
+.config-row input,
+.config-row select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #3c454e;
+  border-radius: 6px;
+  color: #f7fafc;
+  background: #14191e;
+}
+
+.config-row input[type="number"],
+.config-row input[type="text"] {
+  padding: 0 8px;
+}
+
+.config-row input:disabled,
+.config-row select:disabled {
+  opacity: 0.5;
+}
+
+.config-row--checkbox input {
+  justify-self: end;
+  width: 18px;
+  height: 18px;
+  accent-color: #1f86ff;
+}
+
+.config-dialog__header button,
+.config-dialog__footer button {
+  min-height: 32px;
+  border: 1px solid #33404b;
+  border-radius: 6px;
+  color: #edf4fb;
+  background: #1d242b;
+}
+
+.config-dialog__footer button.primary-action {
+  min-width: 70px;
+  border-color: #2c63e5;
+  background: #1856c9;
+}
+
 .terminal-constraints {
   display: grid;
   gap: 8px;
