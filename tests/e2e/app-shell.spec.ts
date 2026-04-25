@@ -107,7 +107,17 @@ test("adds edits and removes path elements from the inspector", async ({ page })
 test("reorders and converts path elements from the inspector", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Move Waypoint 3 down" }).click();
+  await expect(page.getByRole("button", { name: "Move Waypoint 3 down" })).toHaveCount(0);
+
+  const sourceBox = await requiredBox(page.getByTestId("path-element-row-2"));
+  const targetBox = await requiredBox(page.getByTestId("path-element-row-3"));
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 8
+  });
+  await page.mouse.up();
+
   await expect(page.getByTestId("path-element-row-2")).toContainText(
     "3. Event Trigger"
   );
@@ -121,6 +131,32 @@ test("reorders and converts path elements from the inspector", async ({ page }) 
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByTestId("path-element-row-3")).toContainText("4. Waypoint");
+});
+
+test("drags path elements in the inspector while preserving selection", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("path-element-row-3").click();
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: EventTrigger #4"
+  );
+
+  const sourceBox = await requiredBox(page.getByTestId("path-element-row-3"));
+  const targetBox = await requiredBox(page.getByTestId("path-element-row-1"));
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 8
+  });
+  await page.mouse.up();
+
+  await expect(page.getByTestId("path-element-row-1")).toContainText(
+    "2. Event Trigger"
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: EventTrigger #2"
+  );
 });
 
 test("rotates selected elements with the canvas handle", async ({ page }) => {
@@ -163,7 +199,6 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
   ).toContainText("4.500 m/s");
 
-  await page.getByLabel("Add Max Velocity segment").click();
   await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
 
   await page.getByLabel("Constraint 1 value").fill("2.0");
@@ -175,12 +210,27 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
   ).toContainText("2 m/s");
 
-  await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
-  await expect(page.getByRole("dialog", { name: "Max Velocity editor" })).toBeVisible();
-  await page.getByRole("button", { name: "Close Max Velocity editor" }).click();
+  await page.getByRole("button", { name: "Split selected Max Velocity segment" }).click();
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+  ).toContainText("2 m/s");
 
-  await page.getByLabel("Delete constraint 1").click();
-  await expect(page.getByTestId("ranged-constraint-row-0")).toHaveCount(1);
+  await page.getByLabel("Add Max Velocity segment").click();
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3")
+  ).toContainText("4.500 m/s");
+
+  await page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2").click();
+  await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
+  const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Constraint 2 value")).toHaveValue("2");
+  await page.getByRole("button", { name: "Close Constraint Editor" }).click();
+
+  await page.getByLabel("Delete constraint 2").click();
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+  ).toContainText("Open");
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 });
 
