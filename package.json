@@ -8,6 +8,7 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"*.config.ts\" --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "parity": "vitest run parity-harness",
     "test:e2e": "playwright test",
     "build": "tsc --noEmit && vite build",
     "tauri:dev": "tauri dev",
