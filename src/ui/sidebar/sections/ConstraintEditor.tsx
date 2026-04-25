@@ -336,15 +336,6 @@ function PopoutConstraintPanel({
             {entries.length} {entries.length === 1 ? 'segment' : 'segments'}
           </span>
         </div>
-        <button
-          type="button"
-          className="constraint-action-button"
-          onClick={() => addRangedConstraint(project, constraintKey)}
-          disabled={!canAddMoreRanged(project, constraintKey)}
-          aria-label={`Add ${meta.label} segment in popout`}
-        >
-          <PlusIcon size={16} /> Add
-        </button>
       </div>
 
       <ConstraintSegmentBar
@@ -530,30 +521,70 @@ function ConstraintSegmentBar({
       {labels.map((label, ordinalIndex) => {
         const ordinal = ordinalIndex + 1;
         const entry = displayedEntries.find(({ constraint }) => ordinalInRange(ordinal, constraint));
-        const selected = entry?.index === selectedIndex;
 
         return (
           <div
             key={`${constraintKey}-${ordinal}`}
+            className={['ranged-segment-ordinal', ordinal === total ? 'is-last' : ''].filter(Boolean).join(' ')}
+            style={{ gridColumn: ordinal, gridRow: 1 }}
+            data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+            aria-hidden="true"
+          >
+            <span>{label}</span>
+            <span className="visually-hidden">
+              {entry ? `${formatValue(entry.constraint.value)} ${unit}` : 'Open'}
+            </span>
+          </div>
+        );
+      })}
+
+      {labels.map((label, ordinalIndex) => {
+        const ordinal = ordinalIndex + 1;
+        const entry = displayedEntries.find(({ constraint }) => ordinalInRange(ordinal, constraint));
+
+        if (entry) {
+          return null;
+        }
+
+        return (
+          <div
+            key={`${constraintKey}-gap-${ordinal}`}
+            className={['ranged-segment-gap', ordinal === total ? 'is-last' : ''].filter(Boolean).join(' ')}
+            style={{ gridColumn: ordinal, gridRow: 2 }}
+            role="option"
+            aria-selected="false"
+            aria-label={`Create ${meta.label} segment at ${label}`}
+          >
+            <span>Open</span>
+          </div>
+        );
+      })}
+
+      {displayedEntries.map((entry) => {
+        const { constraint } = entry;
+        const start = clampOrdinal(constraint.start_ordinal, total);
+        const end = clampOrdinal(constraint.end_ordinal, total);
+        const selected = entry.index === selectedIndex;
+        const segmentNumber = entries.findIndex((candidate) => candidate.index === entry.index) + 1;
+
+        return (
+          <div
+            key={`${constraintKey}-range-${entry.index}`}
             className={[
-              'ranged-segment-cell',
-              entry ? 'is-active' : 'is-gap',
+              'ranged-segment-range',
               selected ? 'is-selected' : '',
             ]
               .filter(Boolean)
               .join(' ')}
-            data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+            style={{ gridColumn: `${Math.min(start, end)} / ${Math.max(start, end) + 1}`, gridRow: 2 }}
+            data-testid={`constraint-range-${constraintKey}-${entry.index}`}
             role="option"
             aria-selected={selected}
-            aria-label={
-              entry
-                ? `Select ${meta.label} segment ${entries.findIndex((candidate) => candidate.index === entry.index) + 1}`
-                : `Create ${meta.label} segment at ${label}`
-            }
+            aria-label={`Select ${meta.label} segment ${segmentNumber}`}
           >
-            <span className="ranged-segment-cell__label">{label}</span>
-            <span className="ranged-segment-cell__value">
-              {entry ? `${formatValue(entry.constraint.value)} ${unit}` : 'Open'}
+            <span className="ranged-segment-range__label">{rangeLabel(labels, constraint)}</span>
+            <span className="ranged-segment-range__value">
+              {formatValue(constraint.value)} {unit}
             </span>
           </div>
         );
@@ -1116,6 +1147,13 @@ function contiguousGap(entries: RangedEntry[], total: number, ordinal: number): 
 
 function ordinalInRange(ordinal: number, constraint: RangedConstraint): boolean {
   return ordinal >= constraint.start_ordinal && ordinal <= constraint.end_ordinal;
+}
+
+function rangeLabel(labels: string[], constraint: RangedConstraint): string {
+  const startLabel = labels[constraint.start_ordinal - 1] ?? String(constraint.start_ordinal);
+  const endLabel = labels[constraint.end_ordinal - 1] ?? String(constraint.end_ordinal);
+
+  return startLabel === endLabel ? startLabel : `${startLabel}-${endLabel}`;
 }
 
 function canSplit(constraint: RangedConstraint): boolean {

@@ -214,6 +214,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 
   const firstCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1");
   const secondCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2");
+  const firstRange = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
   const firstBox = await requiredBox(firstCell);
   const secondBox = await requiredBox(secondCell);
   await page.mouse.move(firstBox.x + firstBox.width - 2, firstBox.y + firstBox.height / 2);
@@ -225,6 +226,8 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
   ).toContainText("2 m/s");
+  await expect(firstRange).toContainText("T1-W1");
+  expect((await requiredBox(firstRange)).width).toBeGreaterThan(firstBox.width * 1.6);
 
   await page.getByRole("button", { name: "Split constraint 1" }).click();
   await expect(
@@ -240,6 +243,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
   const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Add Max Velocity segment in popout", { exact: true })).toHaveCount(0);
   await expect(dialog.getByLabel("Constraint 2 value")).toHaveValue("2");
   await page.getByRole("button", { name: "Close Constraint Editor" }).click();
 
