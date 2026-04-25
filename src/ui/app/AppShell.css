@@ -755,6 +755,8 @@ select {
   border: 1px solid #293846;
   border-radius: 8px;
   background: #101820;
+  cursor: default;
+  user-select: none;
 }
 
 .ranged-segment-bar--popout {
@@ -773,6 +775,7 @@ select {
   color: #9aabba;
   background: #111a21;
   text-align: center;
+  cursor: pointer;
 }
 
 .ranged-segment-cell:last-child {
@@ -819,13 +822,13 @@ select {
 
 .ranged-constraint-controls {
   display: grid;
-  grid-template-columns: minmax(54px, 0.55fr) minmax(54px, 0.55fr) minmax(104px, 1fr);
+  grid-template-columns: minmax(126px, 1fr) auto;
   align-items: end;
   gap: 7px;
 }
 
 .ranged-constraint-controls--wide {
-  grid-template-columns: minmax(76px, 0.5fr) minmax(76px, 0.5fr) minmax(140px, 1fr) auto;
+  grid-template-columns: minmax(180px, 1fr) auto;
 }
 
 .ranged-constraint-controls label,
@@ -875,14 +878,9 @@ select {
 }
 
 .ranged-constraint-controls__actions {
-  grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-}
-
-.ranged-constraint-controls--wide .ranged-constraint-controls__actions {
-  grid-column: auto;
 }
 
 .constraint-terminal-group {
@@ -892,7 +890,7 @@ select {
 
 .scalar-constraint-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(92px, 132px);
+  grid-template-columns: minmax(130px, 1fr) minmax(92px, 132px) auto;
   align-items: center;
   gap: 8px;
   min-height: 38px;
@@ -902,20 +900,12 @@ select {
   background: #24282d;
 }
 
-.constraint-toggle-label {
+.scalar-constraint-row__label {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
   color: #d9e2ea;
   font-size: 0.78rem;
   font-weight: 700;
-}
-
-.constraint-toggle-label input {
-  width: 16px;
-  height: 16px;
-  accent-color: #1f86ff;
 }
 
 .constraint-empty-state {

@@ -190,6 +190,12 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.goto("/");
 
   await page.getByText("Add constraint").click();
+  await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
+  await page.getByRole("button", { name: "Remove End Translation Tolerance" }).click();
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveCount(0);
+
+  await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "Max Velocity" }).click();
 
   await expect(
@@ -205,12 +211,22 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
   ).toContainText("2 m/s");
-  await page.getByLabel("Constraint 1 end ordinal").fill("2");
+
+  const firstCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1");
+  const secondCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2");
+  const firstBox = await requiredBox(firstCell);
+  const secondBox = await requiredBox(secondCell);
+  await page.mouse.move(firstBox.x + firstBox.width - 2, firstBox.y + firstBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, {
+    steps: 6
+  });
+  await page.mouse.up();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
   ).toContainText("2 m/s");
 
-  await page.getByRole("button", { name: "Split selected Max Velocity segment" }).click();
+  await page.getByRole("button", { name: "Split constraint 1" }).click();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
   ).toContainText("2 m/s");
