@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { domainForKey } from "../../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { getDefaultOptionalConfigValue } from "../../../core/config/projectConfig";
@@ -152,6 +153,7 @@ function RangedConstraintCard({
   project: ProjectDocument;
   constraintKey: RangedConstraintKey;
 }) {
+  const [popoutOpen, setPopoutOpen] = useState(false);
   const meta = rangedMeta[constraintKey];
   const constraints = project.path.ranged_constraints
     .map((constraint, index) => ({ constraint, index }))
@@ -173,6 +175,13 @@ function RangedConstraintCard({
           disabled={total <= 0}
         >
           +
+        </button>
+        <button
+          type="button"
+          aria-label={`Open ${meta.label} editor`}
+          onClick={() => setPopoutOpen(true)}
+        >
+          Pop
         </button>
       </div>
       <div
@@ -202,8 +211,93 @@ function RangedConstraintCard({
           constraint={constraint}
           index={index}
           unit={meta.unit}
+          total={total}
         />
       ))}
+      {popoutOpen ? (
+        <ConstraintPopout
+          project={project}
+          constraintKey={constraintKey}
+          label={meta.label}
+          unit={meta.unit}
+          total={total}
+          constraints={constraints}
+          onClose={() => setPopoutOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ConstraintPopout({
+  project,
+  constraintKey,
+  label,
+  unit,
+  total,
+  constraints,
+  onClose
+}: {
+  project: ProjectDocument;
+  constraintKey: RangedConstraintKey;
+  label: string;
+  unit: string;
+  total: number;
+  constraints: Array<{ constraint: RangedConstraint; index: number }>;
+  onClose(): void;
+}) {
+  return (
+    <div className="constraint-popout-backdrop" role="presentation">
+      <div
+        className="constraint-popout"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${label} editor`}
+      >
+        <header className="constraint-popout__header">
+          <strong>{label}</strong>
+          <button type="button" aria-label={`Close ${label} editor`} onClick={onClose}>
+            x
+          </button>
+        </header>
+        <div
+          className="constraint-segment-bar constraint-segment-bar--popout"
+          style={{ gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(54px, 1fr))` }}
+        >
+          {Array.from({ length: Math.max(total, 1) }, (_, index) => {
+            const ordinal = index + 1;
+            const active = constraints.find(({ constraint }) =>
+              ordinalInRange(ordinal, constraint)
+            );
+            return (
+              <span key={ordinal} className={active ? "is-active" : undefined}>
+                {active ? formatValue(active.constraint.value, unit) : ordinal}
+              </span>
+            );
+          })}
+        </div>
+        <div className="constraint-popout__rows">
+          {constraints.map(({ constraint, index }) => (
+            <RangedConstraintRow
+              key={`${constraint.key}-${index}`}
+              project={project}
+              constraint={constraint}
+              index={index}
+              unit={unit}
+              total={total}
+            />
+          ))}
+        </div>
+        <footer className="constraint-popout__footer">
+          <button
+            type="button"
+            onClick={() => addRangedConstraint(project, constraintKey)}
+            disabled={total <= 0}
+          >
+            Add
+          </button>
+        </footer>
+      </div>
     </div>
   );
 }
@@ -212,15 +306,51 @@ function RangedConstraintRow({
   project,
   constraint,
   index,
-  unit
+  unit,
+  total
 }: {
   project: ProjectDocument;
   constraint: RangedConstraint;
   index: number;
   unit: string;
+  total: number;
 }) {
   return (
     <div className="constraint-row" data-testid={`ranged-constraint-row-${index}`}>
+      <label>
+        <span>Start</span>
+        <input
+          aria-label={`Constraint ${index + 1} start ordinal`}
+          type="number"
+          min={1}
+          max={Math.max(total, 1)}
+          step={1}
+          value={constraint.start_ordinal}
+          onChange={(event) =>
+            updateRangedConstraint(project, index, {
+              ...constraint,
+              start_ordinal: parseOrdinal(event.currentTarget.value, constraint.start_ordinal, total)
+            })
+          }
+        />
+      </label>
+      <label>
+        <span>End</span>
+        <input
+          aria-label={`Constraint ${index + 1} end ordinal`}
+          type="number"
+          min={1}
+          max={Math.max(total, 1)}
+          step={1}
+          value={constraint.end_ordinal}
+          onChange={(event) =>
+            updateRangedConstraint(project, index, {
+              ...constraint,
+              end_ordinal: parseOrdinal(event.currentTarget.value, constraint.end_ordinal, total)
+            })
+          }
+        />
+      </label>
       <input
         aria-label={`Constraint ${index + 1} value`}
         type="number"
@@ -376,4 +506,12 @@ function formatValue(value: number, unit: string): string {
 function parseNumber(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+}
+
+function parseOrdinal(value: string, fallback: number, total: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(1, Math.trunc(parsed)), Math.max(total, 1));
 }

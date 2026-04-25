@@ -37,6 +37,20 @@ export function createSetElementRatioCommand(
   };
 }
 
+export function createSetElementRotationCommand(
+  index: number,
+  previousRotationRadians: number,
+  nextRotationRadians: number
+): HistoryCommand<ProjectDocument> {
+  return {
+    description: `Rotate element ${index + 1}`,
+    apply: (project) =>
+      updateProjectElementRotation(project, index, nextRotationRadians),
+    revert: (project) =>
+      updateProjectElementRotation(project, index, previousRotationRadians)
+  };
+}
+
 export function updateProjectElementPosition(
   project: ProjectDocument,
   index: number,
@@ -58,6 +72,28 @@ export function updateProjectElementPosition(
   }
 
   throw new Error(`Element ${index} does not have an editable translation position`);
+}
+
+export function updateProjectElementRotation(
+  project: ProjectDocument,
+  index: number,
+  rotationRadians: number
+): ProjectDocument {
+  const nextProject = structuredClone(project);
+  const element = nextProject.path.path_elements[index];
+  const nextRotation = normalizeRadians(rotationRadians);
+
+  if (isRotationTarget(element)) {
+    element.rotation_radians = nextRotation;
+    return nextProject;
+  }
+
+  if (isWaypoint(element)) {
+    element.rotation_target.rotation_radians = nextRotation;
+    return nextProject;
+  }
+
+  throw new Error(`Element ${index} does not have an editable rotation`);
 }
 
 export function updateProjectElementRatio(
@@ -103,4 +139,19 @@ export function formatPointMeters(point: PointMeters | null): string {
   }
 
   return `${point.x_meters.toFixed(2)}, ${point.y_meters.toFixed(2)} m`;
+}
+
+function normalizeRadians(radians: number): number {
+  if (!Number.isFinite(radians)) {
+    return 0;
+  }
+
+  let normalized = radians;
+  while (normalized <= -Math.PI) {
+    normalized += Math.PI * 2;
+  }
+  while (normalized > Math.PI) {
+    normalized -= Math.PI * 2;
+  }
+  return normalized;
 }

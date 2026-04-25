@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Stage } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
+import {
+  getElementHeadingRadians,
+  getElementPosition,
+  modelToStagePoint,
+  type RotationOverrides
+} from "./geometry";
 import { simulatePath, type SimResult } from "../core/sim";
 import { projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
@@ -12,13 +18,23 @@ import { useCanvasSelection } from "./hooks/useCanvasSelection";
 import { ConstraintOverlayLayer } from "./layers/ConstraintOverlayLayer";
 import { FieldLayer } from "./layers/FieldLayer";
 import { PathLayer } from "./layers/PathLayer";
+import { RotationHandleLayer } from "./layers/RotationHandleLayer";
 import { SimulationLayer } from "./layers/SimulationLayer";
-import { createRemovePathElementCommand } from "../ui/sidebar/sidebarCommands";
+import {
+  createRemovePathElementCommand
+} from "../ui/sidebar/sidebarCommands";
+import { createSetElementRotationCommand } from "./modelSync";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
   height: Math.round(960 / fieldAspectRatio)
 };
+
+interface ActiveRotationDrag {
+  index: number;
+  startRadians: number;
+  currentRadians: number;
+}
 
 export function PathStage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -27,6 +43,9 @@ export function PathStage() {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
+  const [activeRotationDrag, setActiveRotationDragState] =
+    useState<ActiveRotationDrag | null>(null);
+  const activeRotationDragRef = useRef<ActiveRotationDrag | null>(null);
   const project = useStoreSelector(projectStore, (state) => state.project);
   const selectedElementIndex = useStoreSelector(
     selectionStore,
@@ -88,6 +107,13 @@ export function PathStage() {
   }, [project]);
   const selection = useCanvasSelection(project);
   const drag = useCanvasDrag({ project, viewport });
+  const setActiveRotationDrag = (nextDrag: ActiveRotationDrag | null) => {
+    activeRotationDragRef.current = nextDrag;
+    setActiveRotationDragState(nextDrag);
+  };
+  const rotationPreview: RotationOverrides = activeRotationDrag
+    ? new Map([[activeRotationDrag.index, activeRotationDrag.currentRadians]])
+    : emptyRotationPreview;
 
   useEffect(() => {
     if (!simulationPlaying || !simulationResult) {
@@ -155,6 +181,95 @@ export function PathStage() {
     setPanOffset({ x: 0, y: 0 });
   };
 
+  const handleRotationDragStart = (
+    index: number,
+    event: KonvaEventObject<DragEvent>
+  ) => {
+    if (!project) {
+      return;
+    }
+
+    event.cancelBubble = true;
+    selectionStore.getState().selectElement(index, project);
+    const startRadians =
+      getElementHeadingRadians(project.path.path_elements, index) ?? 0;
+    setActiveRotationDrag({
+      index,
+      startRadians,
+      currentRadians: startRadians
+    });
+  };
+
+  const handleRotationDragMove = (
+    index: number,
+    event: KonvaEventObject<DragEvent>
+  ) => {
+    const rotationDrag = activeRotationDragRef.current;
+    if (!project || !rotationDrag || rotationDrag.index !== index) {
+      return;
+    }
+
+    event.cancelBubble = true;
+    const nextRadians = rotationFromStagePoint(
+      project,
+      index,
+      viewport,
+      {
+        x: event.target.x(),
+        y: event.target.y()
+      }
+    );
+    if (nextRadians === null) {
+      return;
+    }
+
+    const handlePoint = rotationHandlePoint(project, index, viewport, nextRadians);
+    if (handlePoint) {
+      event.target.position(handlePoint);
+    }
+
+    setActiveRotationDrag({
+      ...rotationDrag,
+      currentRadians: nextRadians
+    });
+  };
+
+  const handleRotationDragEnd = (
+    index: number,
+    event: KonvaEventObject<DragEvent>
+  ) => {
+    const rotationDrag = activeRotationDragRef.current;
+    if (!project || !rotationDrag || rotationDrag.index !== index) {
+      setActiveRotationDrag(null);
+      return;
+    }
+
+    event.cancelBubble = true;
+    const nextRadians =
+      rotationFromStagePoint(project, index, viewport, {
+        x: event.target.x(),
+        y: event.target.y()
+      }) ?? rotationDrag.currentRadians;
+    const handlePoint = rotationHandlePoint(project, index, viewport, nextRadians);
+    if (handlePoint) {
+      event.target.position(handlePoint);
+    }
+    setActiveRotationDrag(null);
+
+    if (Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001) {
+      projectStore
+        .getState()
+        .applyCommand(
+          createSetElementRotationCommand(
+            index,
+            rotationDrag.startRadians,
+            nextRadians
+          )
+        );
+      selectionStore.getState().selectElement(index, projectStore.getState().project);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -194,8 +309,18 @@ export function PathStage() {
             selectedElementIndex={selectedElementIndex}
             viewport={viewport}
             dragPreview={drag.dragPreview}
+            rotationPreview={rotationPreview}
             drag={drag}
             selection={selection}
+          />
+          <RotationHandleLayer
+            project={project}
+            selectedElementIndex={selectedElementIndex}
+            viewport={viewport}
+            rotationPreview={rotationPreview}
+            onRotationDragStart={handleRotationDragStart}
+            onRotationDragMove={handleRotationDragMove}
+            onRotationDragEnd={handleRotationDragEnd}
           />
           <SimulationLayer
             result={simulationResult}
@@ -274,3 +399,58 @@ function SimulationTransport({
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
+
+function rotationFromStagePoint(
+  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  index: number,
+  viewport: ReturnType<typeof createFieldViewport>,
+  point: { x: number; y: number }
+): number | null {
+  const position = getElementPosition(project.path.path_elements, index);
+  if (!position) {
+    return null;
+  }
+
+  const center = modelToStagePoint(position, viewport);
+  return normalizeRadians(Math.atan2(center.y - point.y, point.x - center.x));
+}
+
+function rotationHandlePoint(
+  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  index: number,
+  viewport: ReturnType<typeof createFieldViewport>,
+  rotationRadians: number
+): { x: number; y: number } | null {
+  const position = getElementPosition(project.path.path_elements, index);
+  if (!position) {
+    return null;
+  }
+
+  const center = modelToStagePoint(position, viewport);
+  const radius = Math.max(40, Math.min(78, viewport.scale * 0.72));
+  return {
+    x: center.x + Math.cos(rotationRadians) * radius,
+    y: center.y - Math.sin(rotationRadians) * radius
+  };
+}
+
+function angularDelta(a: number, b: number): number {
+  return normalizeRadians(b - a);
+}
+
+function normalizeRadians(radians: number): number {
+  if (!Number.isFinite(radians)) {
+    return 0;
+  }
+
+  let normalized = radians;
+  while (normalized <= -Math.PI) {
+    normalized += Math.PI * 2;
+  }
+  while (normalized > Math.PI) {
+    normalized -= Math.PI * 2;
+  }
+  return normalized;
+}
+
+const emptyRotationPreview = new Map<number, number>();

@@ -104,6 +104,52 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
 });
 
+test("reorders and converts path elements from the inspector", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Move Waypoint 3 down" }).click();
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Event Trigger"
+  );
+  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Waypoint");
+
+  await page.getByTestId("path-element-row-3").click();
+  await page.getByLabel("Type").selectOption("translation");
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Translation"
+  );
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Waypoint");
+});
+
+test("rotates selected elements with the canvas handle", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("path-element-row-2").click();
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("90");
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const center = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 5.1,
+    y_meters: 3.2
+  });
+
+  await page.mouse.move(center.x, center.y - 42);
+  await page.mouse.down();
+  await page.mouse.move(center.x + 42, center.y, { steps: 8 });
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => Number(await page.getByLabel("Rotation (deg)").inputValue()))
+    .toBeGreaterThan(-5);
+  await expect
+    .poll(async () => Number(await page.getByLabel("Rotation (deg)").inputValue()))
+    .toBeLessThan(5);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("90");
+});
+
 test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.goto("/");
 
@@ -124,6 +170,14 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
   ).toContainText("2 m/s");
+  await page.getByLabel("Constraint 1 end ordinal").fill("2");
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+  ).toContainText("2 m/s");
+
+  await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
+  await expect(page.getByRole("dialog", { name: "Max Velocity editor" })).toBeVisible();
+  await page.getByRole("button", { name: "Close Max Velocity editor" }).click();
 
   await page.getByLabel("Delete constraint 1").click();
   await expect(page.getByTestId("ranged-constraint-row-0")).toHaveCount(1);

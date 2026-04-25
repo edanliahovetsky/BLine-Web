@@ -21,8 +21,10 @@ import {
 } from "../../../src/canvas/geometry";
 import {
   createMoveElementCommand,
+  createSetElementRotationCommand,
   createSetElementRatioCommand,
   updateProjectElementRatio,
+  updateProjectElementRotation,
   updateProjectElementPosition
 } from "../../../src/canvas/modelSync";
 
@@ -125,6 +127,10 @@ describe("canvas geometry", () => {
     expect(getElementHeadingRadians(elements, 2)).toBeCloseTo(Math.PI / 2, 6);
     expect(getElementHeadingRadians(elements, 3)).toBeCloseTo(Math.PI / 2, 6);
     expect(getElementHeadingRadians(elements, 4)).toBeCloseTo(Math.PI / 2, 6);
+    expect(getElementHeadingRadians(elements, 2, new Map([[2, Math.PI]]))).toBeCloseTo(
+      Math.PI,
+      6
+    );
     expect(getHandoffRadiusMeters(elements[0])).toBe(0.6);
     expect(getHandoffRadiusMeters(elements[2])).toBe(0.25);
     expect(getHandoffRadiusMeters(elements[1])).toBeNull();
@@ -211,5 +217,39 @@ describe("canvas model sync", () => {
       type: "rotation",
       t_ratio: 0.5
     });
+  });
+
+  it("updates and reverts waypoint and rotation target headings", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createWaypoint({
+            rotation_target: createRotationTarget({ rotation_radians: 0 })
+          }),
+          createRotationTarget({ rotation_radians: Math.PI / 4 })
+        ]
+      })
+    });
+
+    const updatedWaypoint = updateProjectElementRotation(project, 0, Math.PI / 2);
+    expect(getElementHeadingRadians(updatedWaypoint.path.path_elements, 0)).toBeCloseTo(
+      Math.PI / 2,
+      6
+    );
+
+    const command = createSetElementRotationCommand(1, Math.PI / 4, -Math.PI / 2);
+    const updatedRotation = command.apply(project);
+    const reverted = command.revert(updatedRotation);
+
+    expect(getElementHeadingRadians(updatedRotation.path.path_elements, 1)).toBeCloseTo(
+      -Math.PI / 2,
+      6
+    );
+    expect(getElementHeadingRadians(reverted.path.path_elements, 1)).toBeCloseTo(
+      Math.PI / 4,
+      6
+    );
   });
 });

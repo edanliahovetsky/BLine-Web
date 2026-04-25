@@ -7,7 +7,8 @@ import {
   getRenderableElementPositions,
   modelToStagePoint,
   type FieldViewport,
-  type PositionOverrides
+  type PositionOverrides,
+  type RotationOverrides
 } from "../geometry";
 import { WaypointNode } from "../elements/WaypointNode";
 import type { useCanvasDrag } from "../hooks/useCanvasDrag";
@@ -18,6 +19,7 @@ interface PathLayerProps {
   selectedElementIndex: number | null;
   viewport: FieldViewport;
   dragPreview: PositionOverrides;
+  rotationPreview: RotationOverrides;
   drag: ReturnType<typeof useCanvasDrag>;
   selection: ReturnType<typeof useCanvasSelection>;
 }
@@ -27,6 +29,7 @@ export function PathLayer({
   selectedElementIndex,
   viewport,
   dragPreview,
+  rotationPreview,
   drag,
   selection
 }: PathLayerProps) {
@@ -69,7 +72,7 @@ export function PathLayer({
             point={modelToStagePoint(position, viewport)}
             selected={selectedElementIndex === index}
             draggable={drag.isDragEnabled(element)}
-            headingRadians={getElementHeadingRadians(elements, index)}
+            headingRadians={getElementHeadingRadians(elements, index, rotationPreview)}
             handoffRadiusMeters={
               index === elements.length - 1 ? null : getHandoffRadiusMeters(element)
             }

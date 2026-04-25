@@ -4,6 +4,7 @@ import type { PathElement } from "../../../core/model/path";
 import { formatPointMeters } from "../../../canvas/modelSync";
 import { AddElementMenu } from "../../controls/AddElementMenu";
 import {
+  canMovePathElement,
   elementTypeLabel,
   elementTypeValue,
   type AddableElementType
@@ -15,6 +16,7 @@ interface ElementListProps {
   onAddElement(type: AddableElementType): void;
   onSelectElement(index: number): void;
   onRemoveElement(index: number): void;
+  onMoveElement(fromIndex: number, toIndex: number): void;
 }
 
 export function ElementList({
@@ -22,7 +24,8 @@ export function ElementList({
   selectedElementIndex,
   onAddElement,
   onSelectElement,
-  onRemoveElement
+  onRemoveElement,
+  onMoveElement
 }: ElementListProps) {
   const elements = project?.path.path_elements ?? [];
 
@@ -59,6 +62,24 @@ export function ElementList({
                     {formatPointMeters(position)}
                   </span>
                 </button>
+                <div className="path-element-reorder">
+                  <button
+                    type="button"
+                    aria-label={`Move ${elementTypeLabel(element)} ${index + 1} up`}
+                    onClick={() => onMoveElement(index, index - 1)}
+                    disabled={!project || !canMovePathElement(project, index, index - 1)}
+                  >
+                    ^
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${elementTypeLabel(element)} ${index + 1} down`}
+                    onClick={() => onMoveElement(index, index + 1)}
+                    disabled={!project || !canMovePathElement(project, index, index + 1)}
+                  >
+                    v
+                  </button>
+                </div>
                 <button
                   type="button"
                   className="remove-element-button"

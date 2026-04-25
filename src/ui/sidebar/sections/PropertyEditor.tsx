@@ -6,7 +6,8 @@ import {
   type PathElement
 } from "../../../core/model/path";
 import {
-  elementTypeLabel,
+  type AddableElementType,
+  elementTypeValue,
   updateEventTrigger,
   updateRotationTarget,
   updateTranslationTarget,
@@ -16,12 +17,14 @@ import {
 interface PropertyEditorProps {
   element: PathElement | null;
   selectedElementIndex: number | null;
+  onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
 }
 
 export function PropertyEditor({
   element,
   selectedElementIndex,
+  onChangeType,
   onUpdateElement
 }: PropertyEditorProps) {
   return (
@@ -36,7 +39,7 @@ export function PropertyEditor({
           data-testid="property-editor"
           aria-label={`Element ${selectedElementIndex === null ? "" : selectedElementIndex + 1} properties`}
         >
-          <ReadOnlyTypeField element={element} />
+          <TypeField element={element} onChangeType={onChangeType} />
           {isTranslationTarget(element) ? (
             <TranslationFields
               element={element}
@@ -69,12 +72,27 @@ export function PropertyEditor({
   );
 }
 
-function ReadOnlyTypeField({ element }: { element: PathElement }) {
+function TypeField({
+  element,
+  onChangeType
+}: {
+  element: PathElement;
+  onChangeType(type: AddableElementType): void;
+}) {
   return (
     <label className="property-row">
       <span>Type</span>
-      <select aria-label="Type" value={element.type} disabled>
-        <option value={element.type}>{elementTypeLabel(element)}</option>
+      <select
+        aria-label="Type"
+        value={elementTypeValue(element)}
+        onChange={(event) =>
+          onChangeType(event.currentTarget.value as AddableElementType)
+        }
+      >
+        <option value="translation">Translation</option>
+        <option value="waypoint">Waypoint</option>
+        <option value="rotation">Rotation</option>
+        <option value="event_trigger">Event Trigger</option>
       </select>
     </label>
   );

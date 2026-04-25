@@ -6,8 +6,12 @@ import { ConstraintEditor } from "./sections/ConstraintEditor";
 import { ElementList } from "./sections/ElementList";
 import { PropertyEditor } from "./sections/PropertyEditor";
 import {
+  canMovePathElement,
+  createChangePathElementTypeCommand,
+  createConvertedElement,
   createDefaultElement,
   createInsertPathElementCommand,
+  createMovePathElementCommand,
   createRemovePathElementCommand,
   createUpdatePathElementCommand,
   getInsertionIndex,
@@ -60,6 +64,45 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       .selectElement(nextSelectionAfterRemoval(index, selectedElementIndex), projectStore.getState().project);
   };
 
+  const handleMoveElement = (fromIndex: number, toIndex: number) => {
+    if (!project || !canMovePathElement(project, fromIndex, toIndex)) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .applyCommand(createMovePathElementCommand(fromIndex, toIndex));
+    selectionStore.getState().selectElement(toIndex, projectStore.getState().project);
+  };
+
+  const handleChangeElementType = (type: AddableElementType) => {
+    if (!project || selectedElementIndex === null || !selectedElement) {
+      return;
+    }
+
+    const convertedElement = createConvertedElement(
+      project,
+      selectedElementIndex,
+      type
+    );
+    if (!convertedElement) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .applyCommand(
+        createChangePathElementTypeCommand(
+          selectedElementIndex,
+          selectedElement,
+          convertedElement
+        )
+      );
+    selectionStore
+      .getState()
+      .selectElement(selectedElementIndex, projectStore.getState().project);
+  };
+
   const handleUpdateElement = (nextElement: PathElement) => {
     if (!project || selectedElementIndex === null || !selectedElement) {
       return;
@@ -83,10 +126,12 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
         onAddElement={handleAddElement}
         onSelectElement={handleSelectElement}
         onRemoveElement={handleRemoveElement}
+        onMoveElement={handleMoveElement}
       />
       <PropertyEditor
         element={selectedElement}
         selectedElementIndex={selectedElementIndex}
+        onChangeType={handleChangeElementType}
         onUpdateElement={handleUpdateElement}
       />
       <ConstraintEditor project={project} />

@@ -17,6 +17,7 @@ import {
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
+  isAnchorElement,
   isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
@@ -38,11 +39,14 @@ export function createInsertPathElementCommand(
   index: number,
   element: PathElement
 ): HistoryCommand<ProjectDocument> {
+  let previousConstraints: RangedConstraint[] | null = null;
+
   return {
     description: `Insert ${element.type} element`,
     apply: (project) => {
       const nextProject = structuredClone(project);
       const previousElements = nextProject.path.path_elements.slice();
+      previousConstraints ??= structuredClone(nextProject.path.ranged_constraints);
       const insertionIndex = clampIndex(index, nextProject.path.path_elements.length);
       nextProject.path.path_elements.splice(insertionIndex, 0, structuredClone(element));
       remapRangedConstraints(nextProject.path, previousElements);
@@ -53,7 +57,11 @@ export function createInsertPathElementCommand(
       const previousElements = nextProject.path.path_elements.slice();
       const removalIndex = clampIndex(index, nextProject.path.path_elements.length - 1);
       nextProject.path.path_elements.splice(removalIndex, 1);
-      remapRangedConstraints(nextProject.path, previousElements);
+      if (previousConstraints) {
+        nextProject.path.ranged_constraints = structuredClone(previousConstraints);
+      } else {
+        remapRangedConstraints(nextProject.path, previousElements);
+      }
       return nextProject;
     }
   };
@@ -63,12 +71,15 @@ export function createRemovePathElementCommand(
   index: number,
   element: PathElement
 ): HistoryCommand<ProjectDocument> {
+  let previousConstraints: RangedConstraint[] | null = null;
+
   return {
     description: `Remove ${element.type} element`,
     apply: (project) => {
       const nextProject = structuredClone(project);
       if (index >= 0 && index < nextProject.path.path_elements.length) {
         const previousElements = nextProject.path.path_elements.slice();
+        previousConstraints ??= structuredClone(nextProject.path.ranged_constraints);
         nextProject.path.path_elements.splice(index, 1);
         remapRangedConstraints(nextProject.path, previousElements);
       }
@@ -79,7 +90,11 @@ export function createRemovePathElementCommand(
       const previousElements = nextProject.path.path_elements.slice();
       const insertionIndex = clampIndex(index, nextProject.path.path_elements.length);
       nextProject.path.path_elements.splice(insertionIndex, 0, structuredClone(element));
-      remapRangedConstraints(nextProject.path, previousElements);
+      if (previousConstraints) {
+        nextProject.path.ranged_constraints = structuredClone(previousConstraints);
+      } else {
+        remapRangedConstraints(nextProject.path, previousElements);
+      }
       return nextProject;
     }
   };
@@ -94,6 +109,51 @@ export function createUpdatePathElementCommand(
     description: `Update element ${index + 1}`,
     apply: (project) => replaceElement(project, index, nextElement),
     revert: (project) => replaceElement(project, index, previousElement)
+  };
+}
+
+export function createChangePathElementTypeCommand(
+  index: number,
+  previousElement: PathElement,
+  nextElement: PathElement
+): HistoryCommand<ProjectDocument> {
+  let previousConstraints: RangedConstraint[] | null = null;
+
+  return {
+    description: `Change element ${index + 1} type`,
+    apply: (project) => {
+      previousConstraints ??= structuredClone(project.path.ranged_constraints);
+      return replaceElementAndRemap(project, index, nextElement);
+    },
+    revert: (project) => {
+      const nextProject = replaceElementAndRemap(project, index, previousElement);
+      if (previousConstraints) {
+        nextProject.path.ranged_constraints = structuredClone(previousConstraints);
+      }
+      return nextProject;
+    }
+  };
+}
+
+export function createMovePathElementCommand(
+  fromIndex: number,
+  toIndex: number
+): HistoryCommand<ProjectDocument> {
+  let previousConstraints: RangedConstraint[] | null = null;
+
+  return {
+    description: `Reorder element ${fromIndex + 1}`,
+    apply: (project) => {
+      previousConstraints ??= structuredClone(project.path.ranged_constraints);
+      return moveElement(project, fromIndex, toIndex);
+    },
+    revert: (project) => {
+      const nextProject = moveElement(project, toIndex, fromIndex);
+      if (previousConstraints) {
+        nextProject.path.ranged_constraints = structuredClone(previousConstraints);
+      }
+      return nextProject;
+    }
   };
 }
 
@@ -253,6 +313,81 @@ export function createDefaultElement(
   });
 }
 
+export function createConvertedElement(
+  project: ProjectDocument,
+  index: number,
+  nextType: AddableElementType
+): PathElement | null {
+  const element = project.path.path_elements[index];
+  if (!element || element.type === nextType) {
+    return null;
+  }
+
+  const position = getElementPosition(project.path.path_elements, index);
+  const headingRadians = getElementHeadingRadians(project.path.path_elements, index) ?? 0;
+  const handoffRadius = getExistingHandoffRadius(element);
+  const ratio = getExistingRatio(element);
+
+  if (nextType === "translation") {
+    return createTranslationTarget({
+      x_meters: position?.x_meters ?? fieldLengthMeters / 2,
+      y_meters: position?.y_meters ?? fieldWidthMeters / 2,
+      intermediate_handoff_radius_meters: handoffRadius
+    });
+  }
+
+  if (nextType === "waypoint") {
+    return createWaypoint({
+      translation_target: createTranslationTarget({
+        x_meters: position?.x_meters ?? fieldLengthMeters / 2,
+        y_meters: position?.y_meters ?? fieldWidthMeters / 2,
+        intermediate_handoff_radius_meters: handoffRadius
+      }),
+      rotation_target: createRotationTarget({
+        rotation_radians: headingRadians,
+        t_ratio: ratio ?? 0
+      })
+    });
+  }
+
+  if (nextType === "rotation") {
+    return createRotationTarget({
+      rotation_radians: headingRadians,
+      t_ratio: ratio ?? 0.5
+    });
+  }
+
+  return createEventTrigger({
+    t_ratio: ratio ?? 0.5,
+    lib_key: isEventTrigger(element) ? element.lib_key : "event"
+  });
+}
+
+export function canMovePathElement(
+  project: ProjectDocument,
+  fromIndex: number,
+  toIndex: number
+): boolean {
+  if (fromIndex === toIndex) {
+    return false;
+  }
+
+  const elements = project.path.path_elements;
+  if (
+    fromIndex < 0 ||
+    fromIndex >= elements.length ||
+    toIndex < 0 ||
+    toIndex >= elements.length
+  ) {
+    return false;
+  }
+
+  const nextElements = elements.slice();
+  const [element] = nextElements.splice(fromIndex, 1);
+  nextElements.splice(toIndex, 0, element);
+  return isValidElementOrder(nextElements);
+}
+
 export function getInsertionIndex(
   project: ProjectDocument,
   type: AddableElementType,
@@ -355,6 +490,90 @@ function replaceElement(
     nextProject.path.path_elements[index] = structuredClone(element);
   }
   return nextProject;
+}
+
+function replaceElementAndRemap(
+  project: ProjectDocument,
+  index: number,
+  element: PathElement
+): ProjectDocument {
+  const nextProject = structuredClone(project);
+  if (index >= 0 && index < nextProject.path.path_elements.length) {
+    const previousElements = nextProject.path.path_elements.slice();
+    nextProject.path.path_elements[index] = structuredClone(element);
+    remapRangedConstraints(nextProject.path, previousElements);
+  }
+  return nextProject;
+}
+
+function moveElement(
+  project: ProjectDocument,
+  fromIndex: number,
+  toIndex: number
+): ProjectDocument {
+  const nextProject = structuredClone(project);
+  const elements = nextProject.path.path_elements;
+  if (
+    fromIndex < 0 ||
+    fromIndex >= elements.length ||
+    toIndex < 0 ||
+    toIndex >= elements.length ||
+    fromIndex === toIndex
+  ) {
+    return nextProject;
+  }
+
+  const previousElements = elements.slice();
+  const [element] = elements.splice(fromIndex, 1);
+  elements.splice(toIndex, 0, element);
+
+  if (!isValidElementOrder(elements)) {
+    nextProject.path.path_elements = previousElements;
+    return nextProject;
+  }
+
+  remapRangedConstraints(nextProject.path, previousElements);
+  return nextProject;
+}
+
+function isValidElementOrder(elements: readonly PathElement[]): boolean {
+  if (elements.filter(isAnchorElement).length < 2) {
+    return elements.every(isAnchorElement);
+  }
+
+  return elements.every((element, index) => {
+    if (isAnchorElement(element)) {
+      return true;
+    }
+
+    const hasPreviousAnchor = elements.slice(0, index).some(isAnchorElement);
+    const hasNextAnchor = elements.slice(index + 1).some(isAnchorElement);
+    return hasPreviousAnchor && hasNextAnchor;
+  });
+}
+
+function getExistingHandoffRadius(element: PathElement): number | null {
+  if (isTranslationTarget(element)) {
+    return element.intermediate_handoff_radius_meters;
+  }
+
+  if (isWaypoint(element)) {
+    return element.translation_target.intermediate_handoff_radius_meters;
+  }
+
+  return 0.25;
+}
+
+function getExistingRatio(element: PathElement): number | null {
+  if (isRotationTarget(element) || isEventTrigger(element)) {
+    return element.t_ratio;
+  }
+
+  if (isWaypoint(element)) {
+    return element.rotation_target.t_ratio;
+  }
+
+  return null;
 }
 
 function updateScalarConstraint(

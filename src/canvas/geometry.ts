@@ -38,6 +38,7 @@ export interface PointMeters {
 }
 
 export type PositionOverrides = ReadonlyMap<number, PointMeters>;
+export type RotationOverrides = ReadonlyMap<number, number>;
 
 export function createFieldViewport(
   size: CanvasSize,
@@ -198,8 +199,14 @@ export function getRotationRadians(element: PathElement): number | null {
 
 export function getElementHeadingRadians(
   elements: readonly PathElement[],
-  index: number
+  index: number,
+  overrides: RotationOverrides = emptyRotationOverrides
 ): number | null {
+  const override = overrides.get(index);
+  if (override !== undefined) {
+    return override;
+  }
+
   const element = elements[index];
   if (!element) {
     return null;
@@ -333,3 +340,4 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const emptyOverrides = new Map<number, PointMeters>();
+const emptyRotationOverrides = new Map<number, number>();

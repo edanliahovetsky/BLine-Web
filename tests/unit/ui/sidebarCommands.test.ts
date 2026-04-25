@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { createProjectDocument, type ProjectDocument } from "../../../src/core/io/projectSchema";
 import {
+  createRotationTarget,
   createPathModel,
   createTranslationTarget,
   createWaypoint,
+  isRotationTarget,
   isEventTrigger,
   isTranslationTarget,
   isWaypoint
 } from "../../../src/core/model/path";
 import {
+  canMovePathElement,
+  createChangePathElementTypeCommand,
+  createConvertedElement,
   createDefaultElement,
   createAddRangedConstraintCommand,
   createInsertPathElementCommand,
+  createMovePathElementCommand,
   createRemovePathElementCommand,
   createRemoveRangedConstraintCommand,
   createSetScalarConstraintCommand,
@@ -135,6 +141,88 @@ describe("sidebar commands", () => {
         end_ordinal: 2
       }
     ]);
+  });
+
+  it("reorders path elements while preserving ranged constraint identity", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createTranslationTarget({ x_meters: 2, y_meters: 2 }),
+          createTranslationTarget({ x_meters: 3, y_meters: 3 })
+        ],
+        ranged_constraints: [
+          {
+            key: "max_velocity_meters_per_sec",
+            value: 2,
+            start_ordinal: 1,
+            end_ordinal: 2
+          }
+        ]
+      })
+    });
+
+    expect(canMovePathElement(project, 2, 1)).toBe(true);
+    const command = createMovePathElementCommand(2, 1);
+    const moved = command.apply(project);
+
+    expect(moved.path.path_elements.map((element) => element.type)).toEqual([
+      "translation",
+      "translation",
+      "translation"
+    ]);
+    expect(moved.path.ranged_constraints).toEqual([
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 1,
+        end_ordinal: 3
+      }
+    ]);
+
+    const reverted = command.revert(moved);
+    expect(reverted.path.ranged_constraints).toEqual(project.path.ranged_constraints);
+  });
+
+  it("converts element types with explicit ordinal remapping", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createRotationTarget({ rotation_radians: Math.PI / 4, t_ratio: 0.5 }),
+          createTranslationTarget({ x_meters: 4, y_meters: 4 })
+        ],
+        ranged_constraints: [
+          {
+            key: "max_velocity_deg_per_sec",
+            value: 600,
+            start_ordinal: 1,
+            end_ordinal: 1
+          }
+        ]
+      })
+    });
+    const previous = project.path.path_elements[1];
+    const converted = createConvertedElement(project, 1, "event_trigger");
+
+    expect(converted).not.toBeNull();
+    if (!converted) {
+      return;
+    }
+    expect(isEventTrigger(converted)).toBe(true);
+
+    const command = createChangePathElementTypeCommand(1, previous, converted);
+    const updated = command.apply(project);
+    const restored = command.revert(updated);
+
+    expect(isEventTrigger(updated.path.path_elements[1])).toBe(true);
+    expect(updated.path.ranged_constraints).toEqual([]);
+    expect(isRotationTarget(restored.path.path_elements[1])).toBe(true);
+    expect(restored.path.ranged_constraints).toEqual(project.path.ranged_constraints);
   });
 
   it("edits scalar and ranged constraints through reversible commands", () => {

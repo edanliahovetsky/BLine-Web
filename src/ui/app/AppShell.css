@@ -418,7 +418,7 @@ select {
 
 .path-element-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 44px 34px;
   align-items: center;
   min-height: 36px;
   border-bottom: 1px solid #252b30;
@@ -513,6 +513,38 @@ select {
   color: #ff3030;
   font-weight: 780;
   background: transparent;
+}
+
+.path-element-reorder {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.path-element-reorder button {
+  display: grid;
+  width: 18px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid #33404b;
+  border-radius: 5px;
+  color: #aab6c0;
+  font-size: 0.72rem;
+  line-height: 1;
+  background: #1d242b;
+}
+
+.path-element-reorder button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.path-element-reorder button:not(:disabled):hover,
+.path-element-reorder button:not(:disabled):focus-visible {
+  color: #ffffff;
+  border-color: #2487ff;
+  background: #12396c;
 }
 
 .remove-element-button:hover,
@@ -614,11 +646,12 @@ select {
 .constraint-card__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
 }
 
 .constraint-card__header strong {
+  flex: 1;
   color: #f4f7fa;
   font-size: 0.88rem;
 }
@@ -669,7 +702,19 @@ select {
 }
 
 .constraint-row {
-  grid-template-columns: minmax(78px, 1fr) auto auto 30px;
+  grid-template-columns: minmax(54px, 0.55fr) minmax(54px, 0.55fr) minmax(76px, 1fr) auto auto 30px;
+}
+
+.constraint-row label {
+  display: grid;
+  gap: 3px;
+}
+
+.constraint-row label span {
+  color: #90a1b1;
+  font-size: 0.68rem;
+  font-weight: 720;
+  text-transform: uppercase;
 }
 
 .constraint-row input,
@@ -690,6 +735,57 @@ select {
 .constraint-scalar-row span {
   color: #cfd8e0;
   font-size: 0.78rem;
+}
+
+.constraint-popout-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(4, 7, 10, 0.48);
+}
+
+.constraint-popout {
+  display: grid;
+  gap: 14px;
+  width: min(720px, calc(100vw - 44px));
+  padding: 14px;
+  border: 1px solid #3a4650;
+  border-radius: 8px;
+  background: #1b2024;
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.56);
+}
+
+.constraint-popout__header,
+.constraint-popout__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.constraint-popout__header strong {
+  color: #f4f7fa;
+}
+
+.constraint-popout__header button,
+.constraint-popout__footer button {
+  min-height: 32px;
+  border: 1px solid #33404b;
+  border-radius: 6px;
+  color: #edf4fb;
+  background: #1d242b;
+}
+
+.constraint-popout__rows {
+  display: grid;
+  gap: 8px;
+}
+
+.constraint-segment-bar--popout span {
+  min-height: 42px;
 }
 
 .terminal-constraints {
