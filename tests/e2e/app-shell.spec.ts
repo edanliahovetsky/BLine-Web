@@ -188,7 +188,6 @@ test("edits project config with undo support", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("menuitem", { name: "Edit Config..." }).click();
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
   await page.getByLabel("Robot Length (m)").fill("0.825");
   await page.getByLabel("Enable Protrusions").check();
@@ -200,7 +199,6 @@ test("edits project config with undo support", async ({ page }) => {
 
   await page.getByRole("button", { name: "Undo" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("menuitem", { name: "Edit Config..." }).click();
   await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.5000");
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
   await page.getByRole("button", { name: "Close config" }).click();
@@ -231,8 +229,9 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await expect(page.getByRole("menuitem", { name: "Redo Ctrl+Y" })).toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByTestId("top-menu-settings")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Edit Config..." })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
+  await page.getByRole("button", { name: "Close config" }).click();
 });
 
 test("keeps top dropdowns streamlined with flyout path lists", async ({ page }) => {
@@ -264,8 +263,6 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByTestId("top-menu-settings")).toBeVisible();
-  await page.getByRole("menuitem", { name: "Edit Config..." }).click();
 
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
