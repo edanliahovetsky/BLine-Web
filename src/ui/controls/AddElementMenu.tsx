@@ -1,33 +1,39 @@
 import type { AddableElementType } from "../sidebar/sidebarCommands";
+import { ElementIcon, PlusIcon } from "../icons";
 
 interface AddElementMenuProps {
   disabled?: boolean;
+  options: readonly AddableElementType[];
   onAdd(type: AddableElementType): void;
 }
 
-const addOptions: Array<{ type: AddableElementType; label: string; shortLabel: string }> = [
-  { type: "waypoint", label: "Waypoint", shortLabel: "W" },
-  { type: "translation", label: "Translation", shortLabel: "T" },
-  { type: "rotation", label: "Rotation", shortLabel: "R" },
-  { type: "event_trigger", label: "Event Trigger", shortLabel: "E" }
+const addOptions: Array<{ type: AddableElementType; label: string }> = [
+  { type: "waypoint", label: "Waypoint" },
+  { type: "translation", label: "Translation" },
+  { type: "rotation", label: "Rotation" },
+  { type: "event_trigger", label: "Event Trigger" }
 ];
 
-export function AddElementMenu({ disabled = false, onAdd }: AddElementMenuProps) {
+export function AddElementMenu({
+  disabled = false,
+  options,
+  onAdd
+}: AddElementMenuProps) {
+  const visibleOptions = addOptions.filter((option) => options.includes(option.type));
+
   return (
     <details className="add-element-menu">
       <summary
-        aria-disabled={disabled}
-        className={disabled ? "is-disabled" : undefined}
+        aria-disabled={disabled || visibleOptions.length === 0}
+        className={disabled || visibleOptions.length === 0 ? "is-disabled" : undefined}
         role="button"
       >
-        <span aria-hidden="true" className="icon-button-symbol">
-          +
-        </span>
+        <PlusIcon className="icon-button-symbol" />
         <span>Add element</span>
       </summary>
-      {!disabled ? (
+      {!disabled && visibleOptions.length > 0 ? (
         <div className="add-element-menu__panel" role="menu">
-          {addOptions.map((option) => (
+          {visibleOptions.map((option) => (
             <button
               key={option.type}
               type="button"
@@ -38,7 +44,7 @@ export function AddElementMenu({ disabled = false, onAdd }: AddElementMenuProps)
               }}
             >
               <span aria-hidden="true" className={`element-type-mark type-${option.type}`}>
-                {option.shortLabel}
+                <ElementIcon type={option.type} />
               </span>
               <span>{option.label}</span>
             </button>

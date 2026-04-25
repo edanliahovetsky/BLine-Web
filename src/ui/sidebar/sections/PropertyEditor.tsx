@@ -1,3 +1,4 @@
+import { fieldLengthMeters, fieldWidthMeters } from "../../../canvas/constants";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -17,6 +18,7 @@ import {
 interface PropertyEditorProps {
   element: PathElement | null;
   selectedElementIndex: number | null;
+  typeOptions: readonly AddableElementType[];
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
 }
@@ -24,6 +26,7 @@ interface PropertyEditorProps {
 export function PropertyEditor({
   element,
   selectedElementIndex,
+  typeOptions,
   onChangeType,
   onUpdateElement
 }: PropertyEditorProps) {
@@ -39,7 +42,11 @@ export function PropertyEditor({
           data-testid="property-editor"
           aria-label={`Element ${selectedElementIndex === null ? "" : selectedElementIndex + 1} properties`}
         >
-          <TypeField element={element} onChangeType={onChangeType} />
+          <TypeField
+            element={element}
+            options={typeOptions}
+            onChangeType={onChangeType}
+          />
           {isTranslationTarget(element) ? (
             <TranslationFields
               element={element}
@@ -74,25 +81,33 @@ export function PropertyEditor({
 
 function TypeField({
   element,
+  options,
   onChangeType
 }: {
   element: PathElement;
+  options: readonly AddableElementType[];
   onChangeType(type: AddableElementType): void;
 }) {
+  const currentType = elementTypeValue(element);
+  const visibleOptions = options.includes(currentType)
+    ? options
+    : [currentType, ...options];
+
   return (
     <label className="property-row">
       <span>Type</span>
       <select
         aria-label="Type"
-        value={elementTypeValue(element)}
+        value={currentType}
         onChange={(event) =>
           onChangeType(event.currentTarget.value as AddableElementType)
         }
       >
-        <option value="translation">Translation</option>
-        <option value="waypoint">Waypoint</option>
-        <option value="rotation">Rotation</option>
-        <option value="event_trigger">Event Trigger</option>
+        {visibleOptions.map((type) => (
+          <option key={type} value={type}>
+            {typeOptionLabel(type)}
+          </option>
+        ))}
       </select>
     </label>
   );
@@ -110,7 +125,9 @@ function TranslationFields({
       <NumberField
         label="X (m)"
         value={element.x_meters}
-        step={0.001}
+        step={0.05}
+        min={0}
+        max={fieldLengthMeters}
         onChange={(value) =>
           onUpdateElement(updateTranslationTarget(element, { x_meters: value }))
         }
@@ -118,7 +135,9 @@ function TranslationFields({
       <NumberField
         label="Y (m)"
         value={element.y_meters}
-        step={0.001}
+        step={0.05}
+        min={0}
+        max={fieldWidthMeters}
         onChange={(value) =>
           onUpdateElement(updateTranslationTarget(element, { y_meters: value }))
         }
@@ -126,7 +145,7 @@ function TranslationFields({
       <OptionalNumberField
         label="Handoff Radius (m)"
         value={element.intermediate_handoff_radius_meters}
-        step={0.001}
+        step={0.05}
         onChange={(value) =>
           onUpdateElement(
             updateTranslationTarget(element, {
@@ -151,7 +170,7 @@ function WaypointFields({
       <NumberField
         label="Rotation (deg)"
         value={radiansToDegrees(element.rotation_target.rotation_radians)}
-        step={0.001}
+        step={1}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
@@ -163,7 +182,9 @@ function WaypointFields({
       <NumberField
         label="X (m)"
         value={element.translation_target.x_meters}
-        step={0.001}
+        step={0.05}
+        min={0}
+        max={fieldLengthMeters}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
@@ -175,7 +196,9 @@ function WaypointFields({
       <NumberField
         label="Y (m)"
         value={element.translation_target.y_meters}
-        step={0.001}
+        step={0.05}
+        min={0}
+        max={fieldWidthMeters}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
@@ -187,7 +210,7 @@ function WaypointFields({
       <OptionalNumberField
         label="Handoff Radius (m)"
         value={element.translation_target.intermediate_handoff_radius_meters}
-        step={0.001}
+        step={0.05}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
@@ -223,7 +246,7 @@ function RotationFields({
       <NumberField
         label="Rotation (deg)"
         value={radiansToDegrees(element.rotation_radians)}
-        step={0.001}
+        step={1}
         onChange={(value) =>
           onUpdateElement(
             updateRotationTarget(element, { rotation_radians: degreesToRadians(value) })
@@ -233,7 +256,7 @@ function RotationFields({
       <NumberField
         label="Rotation Pos (0-1)"
         value={element.t_ratio}
-        step={0.001}
+        step={0.01}
         min={0}
         max={1}
         onChange={(value) =>
@@ -263,7 +286,7 @@ function EventFields({
       <NumberField
         label="Event Pos (0-1)"
         value={element.t_ratio}
-        step={0.001}
+        step={0.01}
         min={0}
         max={1}
         onChange={(value) =>
@@ -312,7 +335,9 @@ function NumberField({
         step={step}
         min={min}
         max={max}
-        onChange={(event) => onChange(parseRequiredNumber(event.currentTarget.value))}
+        onChange={(event) =>
+          onChange(clampToBounds(parseRequiredNumber(event.currentTarget.value), min, max))
+        }
       />
     </label>
   );
@@ -394,4 +419,32 @@ function degreesToRadians(degrees: number): number {
 
 function clamp01(value: number): number {
   return Math.min(Math.max(value, 0), 1);
+}
+
+function clampToBounds(value: number, min?: number, max?: number): number {
+  if (min !== undefined && value < min) {
+    return min;
+  }
+
+  if (max !== undefined && value > max) {
+    return max;
+  }
+
+  return value;
+}
+
+function typeOptionLabel(type: AddableElementType): string {
+  if (type === "event_trigger") {
+    return "Event Trigger";
+  }
+
+  if (type === "translation") {
+    return "Translation";
+  }
+
+  if (type === "rotation") {
+    return "Rotation";
+  }
+
+  return "Waypoint";
 }
