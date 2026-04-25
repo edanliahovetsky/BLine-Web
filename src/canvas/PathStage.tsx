@@ -9,6 +9,7 @@ import { fieldAspectRatio } from "./constants";
 import { createFieldViewport, type CanvasSize } from "./geometry";
 import { useCanvasDrag } from "./hooks/useCanvasDrag";
 import { useCanvasSelection } from "./hooks/useCanvasSelection";
+import { ConstraintOverlayLayer } from "./layers/ConstraintOverlayLayer";
 import { FieldLayer } from "./layers/FieldLayer";
 import { PathLayer } from "./layers/PathLayer";
 import { SimulationLayer } from "./layers/SimulationLayer";
@@ -183,6 +184,11 @@ export function PathStage() {
           onWheel={handleWheel}
         >
           <FieldLayer viewport={viewport} />
+          <ConstraintOverlayLayer
+            project={project}
+            viewport={viewport}
+            dragPreview={drag.dragPreview}
+          />
           <PathLayer
             project={project}
             selectedElementIndex={selectedElementIndex}
