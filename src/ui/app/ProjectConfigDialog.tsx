@@ -18,6 +18,9 @@ export function ProjectConfigDialog({
   onSave
 }: ProjectConfigDialogProps) {
   const [draft, setDraft] = useState<ProjectConfig>(() => createProjectConfig(config));
+  const protrusionDefaultStateOptions = draft.gui.protrusions.enabled
+    ? ["shown", "hidden"]
+    : [""];
 
   return (
     <div className="config-dialog-backdrop" role="presentation">
@@ -84,7 +87,7 @@ export function ProjectConfigDialog({
                     ...current.gui.protrusions,
                     enabled: checked,
                     default_state: checked
-                      ? current.gui.protrusions.default_state
+                      ? current.gui.protrusions.default_state || "shown"
                       : ""
                   }
                 }
@@ -111,9 +114,13 @@ export function ProjectConfigDialog({
           />
           <SelectRow
             label="Default Protrusion State"
-            value={draft.gui.protrusions.default_state}
+            value={
+              draft.gui.protrusions.enabled
+                ? draft.gui.protrusions.default_state || "shown"
+                : ""
+            }
             disabled={!draft.gui.protrusions.enabled}
-            options={["", "shown", "hidden"]}
+            options={protrusionDefaultStateOptions}
             onChange={(value) =>
               updateProtrusions(setDraft, {
                 default_state: value as ProtrusionState
@@ -124,6 +131,7 @@ export function ProjectConfigDialog({
             label="Show On Event Keys"
             value={draft.gui.protrusions.show_on_event_keys.join(", ")}
             disabled={!draft.gui.protrusions.enabled}
+            placeholder="Comma-separated event keys"
             onChange={(value) =>
               updateProtrusions(setDraft, {
                 show_on_event_keys: parseKeyList(value)
@@ -134,6 +142,7 @@ export function ProjectConfigDialog({
             label="Hide On Event Keys"
             value={draft.gui.protrusions.hide_on_event_keys.join(", ")}
             disabled={!draft.gui.protrusions.enabled}
+            placeholder="Comma-separated event keys"
             onChange={(value) =>
               updateProtrusions(setDraft, {
                 hide_on_event_keys: parseKeyList(value)
@@ -279,7 +288,9 @@ function NumberRow({
         step={step}
         disabled={disabled}
         value={formatNumber(value)}
-        onChange={(event) => onChange(parseNumber(event.currentTarget.value, value))}
+        onChange={(event) =>
+          onChange(parseNumber(event.currentTarget.value, value, min, max))
+        }
       />
     </label>
   );
@@ -343,11 +354,13 @@ function TextRow({
   label,
   value,
   disabled = false,
+  placeholder,
   onChange
 }: {
   label: string;
   value: string;
   disabled?: boolean;
+  placeholder?: string;
   onChange(value: string): void;
 }) {
   return (
@@ -357,6 +370,7 @@ function TextRow({
         aria-label={label}
         type="text"
         disabled={disabled}
+        placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
@@ -384,11 +398,14 @@ function parseKeyList(value: string): string[] {
   return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))];
 }
 
-function parseNumber(value: string, fallback: number): number {
+function parseNumber(value: string, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
 }
 
 function formatNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(3);
+  return Number.isInteger(value) ? String(value) : value.toFixed(4);
 }
