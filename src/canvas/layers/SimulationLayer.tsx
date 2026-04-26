@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Circle, Group, Layer, Line, Rect } from "react-konva";
 import type { ProjectConfig } from "../../core/io/projectSchema";
 import type { SimResult } from "../../core/sim";
@@ -12,7 +13,7 @@ interface SimulationLayerProps {
   config: ProjectConfig | null;
 }
 
-export function SimulationLayer({
+export const SimulationLayer = memo(function SimulationLayer({
   result,
   currentTimeS,
   playing,
@@ -140,7 +141,7 @@ export function SimulationLayer({
       ) : null}
     </Layer>
   );
-}
+});
 
 function getRobotBounds({
   robotLength,

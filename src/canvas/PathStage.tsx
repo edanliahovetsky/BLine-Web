@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -32,6 +33,10 @@ import {
 } from "../ui/sidebar/sidebarCommands";
 import { createSetElementRotationCommand } from "./modelSync";
 
+const safariMaxKonvaPixelRatio = 1.5;
+
+configureKonvaForCanvasPerformance();
+
 const fallbackStageSize: CanvasSize = {
   width: 960,
   height: Math.round(960 / fieldAspectRatio)
@@ -51,15 +56,19 @@ interface ActivePanDrag {
 export function PathStage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activePanDragRef = useRef<ActivePanDrag | null>(null);
+  const panOffsetRef = useRef({ x: 0, y: 0 });
+  const pendingPanOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const panFrameRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [panOffset, setPanOffsetState] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
   const [activeRotationDrag, setActiveRotationDragState] =
     useState<ActiveRotationDrag | null>(null);
   const activeRotationDragRef = useRef<ActiveRotationDrag | null>(null);
+  const rotationFrameRef = useRef<number | null>(null);
   const project = useStoreSelector(projectStore, (state) => state.project);
   const selectedElementIndex = useStoreSelector(
     selectionStore,
@@ -71,19 +80,77 @@ export function PathStage() {
     selectionStore.getState().reconcileProject(project);
   }, [project]);
 
-  useEffect(() => {
-    if (selectedElementIndex === null) {
+  const flushPanOffset = useCallback(() => {
+    panFrameRef.current = null;
+    const nextOffset = pendingPanOffsetRef.current;
+    if (!nextOffset) {
       return;
     }
+    pendingPanOffsetRef.current = null;
+    setPanOffsetState(nextOffset);
+  }, []);
 
-    const startedAt = window.performance.now();
-    const timer = window.setInterval(() => {
-      const elapsed = window.performance.now() - startedAt;
-      setSelectedPulse((Math.sin((elapsed / selectionPulsePeriodMs) * Math.PI * 2) + 1) / 2);
-    }, selectionPulseIntervalMs);
+  const setPanOffset = useCallback(
+    (nextOffset: { x: number; y: number }, sync: "immediate" | "frame" = "immediate") => {
+      panOffsetRef.current = nextOffset;
 
-    return () => window.clearInterval(timer);
-  }, [selectedElementIndex]);
+      if (sync === "frame") {
+        pendingPanOffsetRef.current = nextOffset;
+        if (panFrameRef.current === null) {
+          panFrameRef.current = window.requestAnimationFrame(flushPanOffset);
+        }
+        return;
+      }
+
+      pendingPanOffsetRef.current = null;
+      if (panFrameRef.current !== null) {
+        window.cancelAnimationFrame(panFrameRef.current);
+        panFrameRef.current = null;
+      }
+      setPanOffsetState(nextOffset);
+    },
+    [flushPanOffset]
+  );
+
+  const flushRotationPreview = useCallback(() => {
+    rotationFrameRef.current = null;
+    setActiveRotationDragState(activeRotationDragRef.current);
+  }, []);
+
+  const setActiveRotationDrag = useCallback(
+    (
+      nextDrag: ActiveRotationDrag | null,
+      sync: "immediate" | "frame" = "immediate"
+    ) => {
+      activeRotationDragRef.current = nextDrag;
+
+      if (sync === "frame") {
+        if (rotationFrameRef.current === null) {
+          rotationFrameRef.current = window.requestAnimationFrame(flushRotationPreview);
+        }
+        return;
+      }
+
+      if (rotationFrameRef.current !== null) {
+        window.cancelAnimationFrame(rotationFrameRef.current);
+        rotationFrameRef.current = null;
+      }
+      setActiveRotationDragState(nextDrag);
+    },
+    [flushRotationPreview]
+  );
+
+  useEffect(
+    () => () => {
+      if (panFrameRef.current !== null) {
+        window.cancelAnimationFrame(panFrameRef.current);
+      }
+      if (rotationFrameRef.current !== null) {
+        window.cancelAnimationFrame(rotationFrameRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -140,14 +207,27 @@ export function PathStage() {
   }, [project]);
   const selection = useCanvasSelection(project);
   const drag = useCanvasDrag({ project, viewport });
-  const setActiveRotationDrag = (nextDrag: ActiveRotationDrag | null) => {
-    activeRotationDragRef.current = nextDrag;
-    setActiveRotationDragState(nextDrag);
-  };
+  const canvasInteractionActive =
+    isPanning || drag.isDragging || activeRotationDrag !== null;
   const rotationPreview: RotationOverrides = activeRotationDrag
     ? new Map([[activeRotationDrag.index, activeRotationDrag.currentRadians]])
     : emptyRotationPreview;
-  const selectedPulseValue = selectedElementIndex === null ? 0 : selectedPulse;
+  const selectedPulseValue =
+    selectedElementIndex === null ? 0 : canvasInteractionActive ? 0.72 : selectedPulse;
+
+  useEffect(() => {
+    if (selectedElementIndex === null || canvasInteractionActive) {
+      return;
+    }
+
+    const startedAt = window.performance.now();
+    const timer = window.setInterval(() => {
+      const elapsed = window.performance.now() - startedAt;
+      setSelectedPulse((Math.sin((elapsed / selectionPulsePeriodMs) * Math.PI * 2) + 1) / 2);
+    }, selectionPulseIntervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [canvasInteractionActive, selectedElementIndex]);
 
   useEffect(() => {
     if (!simulationPlaying || !simulationResult) {
@@ -260,7 +340,7 @@ export function PathStage() {
 
     activePanDragRef.current = {
       startPointer: pointer,
-      startPanOffset: panOffset
+      startPanOffset: panOffsetRef.current
     };
     setIsPanning(true);
   };
@@ -288,11 +368,15 @@ export function PathStage() {
         baseViewport,
         stageSize,
         viewScale
-      )
+      ),
+      "frame"
     );
   };
 
   const handleStagePointerUp = () => {
+    if (pendingPanOffsetRef.current) {
+      setPanOffset(pendingPanOffsetRef.current);
+    }
     activePanDragRef.current = null;
     setIsPanning(false);
   };
@@ -345,10 +429,13 @@ export function PathStage() {
       dragTarget.position(handlePoint);
     }
 
-    setActiveRotationDrag({
-      ...rotationDrag,
-      currentRadians: nextRadians
-    });
+    setActiveRotationDrag(
+      {
+        ...rotationDrag,
+        currentRadians: nextRadians
+      },
+      "frame"
+    );
   };
 
   const handleRotationDragEnd = (
@@ -623,3 +710,30 @@ const maxViewScale = 8;
 const zoomStepFactor = 1.03;
 const selectionPulseIntervalMs = 40;
 const selectionPulsePeriodMs = 1800;
+
+function configureKonvaForCanvasPerformance() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return;
+  }
+
+  const konva = (window as Window & { Konva?: KonvaRuntimeSettings }).Konva;
+  if (!konva) {
+    return;
+  }
+
+  konva.hitOnDragEnabled = false;
+
+  const userAgent = navigator.userAgent;
+  const isSafari =
+    /\bSafari\//.test(userAgent) &&
+    !/\b(?:Chrome|Chromium|CriOS|FxiOS|Edg|OPR)\//.test(userAgent);
+
+  if (isSafari && window.devicePixelRatio > safariMaxKonvaPixelRatio) {
+    konva.pixelRatio = safariMaxKonvaPixelRatio;
+  }
+}
+
+interface KonvaRuntimeSettings {
+  hitOnDragEnabled: boolean;
+  pixelRatio: number;
+}

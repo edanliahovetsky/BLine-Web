@@ -81,6 +81,7 @@ export function PathLayer({
             lineCap="round"
             lineJoin="round"
             opacity={0.92}
+            listening={false}
           />
           <Line
             points={elementPoints}
@@ -89,6 +90,7 @@ export function PathLayer({
             lineCap="round"
             lineJoin="round"
             opacity={0.94}
+            listening={false}
           />
         </>
       ) : null}
