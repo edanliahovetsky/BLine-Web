@@ -238,11 +238,16 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const deleteSegmentIcon = page.getByLabel("Delete constraint 1").locator("svg");
   await expect(addSegmentIcon).toBeVisible();
   await expect(deleteSegmentIcon).toBeVisible();
+  await expect(page.getByLabel("Add Max Velocity segment")).toHaveCSS("color", "rgb(88, 166, 255)");
+  await expect(page.getByLabel("Delete constraint 1")).toHaveCSS("color", "rgb(255, 77, 77)");
   expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
   expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
 
   const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
   const firstConstraintInput = page.getByLabel("Constraint 1 value");
+  const firstConstraintStepper = firstConstraintRow.locator(".sidebar-number-control");
+  await expect(firstConstraintStepper).toBeVisible();
+  expect((await requiredBox(firstConstraintStepper)).width).toBeLessThan(120);
   const increaseConstraint = firstConstraintRow.getByRole("button", { name: "Increase value" });
   const decreaseConstraint = firstConstraintRow.getByRole("button", { name: "Decrease value" });
   await expect(increaseConstraint.locator("svg")).toBeVisible();
@@ -291,7 +296,10 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(dialog.getByLabel("Add Max Velocity segment in popout", { exact: true })).toHaveCount(0);
   const dialogConstraintRow = dialog.getByTestId("ranged-constraint-row-2");
   const dialogConstraintInput = dialog.getByLabel("Constraint 2 value");
+  const dialogConstraintStepper = dialogConstraintRow.locator(".sidebar-number-control");
   await expect(dialogConstraintInput).toHaveValue("2");
+  await expect(dialogConstraintStepper).toBeVisible();
+  expect((await requiredBox(dialogConstraintStepper)).width).toBeLessThan(120);
   await expect(dialogConstraintRow.getByRole("button", { name: "Increase value" }).locator("svg")).toBeVisible();
   await expect(dialogConstraintRow.getByRole("button", { name: "Decrease value" }).locator("svg")).toBeVisible();
   await page.getByRole("button", { name: "Close Constraint Editor" }).click();

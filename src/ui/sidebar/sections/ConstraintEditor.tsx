@@ -899,6 +899,7 @@ function SelectedRangedConstraintControls({
       </label>
       <div className="ranged-constraint-controls__actions">
         <SidebarIconButton
+          className="sidebar-icon-button--add"
           onClick={() => addRangedConstraint(project, constraintKey)}
           disabled={!canAddMoreRanged(project, constraintKey)}
           aria-label={`Add ${meta.label} segment`}
@@ -907,6 +908,7 @@ function SelectedRangedConstraintControls({
           <PlusIcon size={16} />
         </SidebarIconButton>
         <SidebarIconButton
+          className="sidebar-icon-button--remove"
           onClick={() => deleteRangedConstraint(project, entry.index)}
           aria-label={`Delete constraint ${segmentNumber}`}
           title={`Delete constraint ${segmentNumber}`}
@@ -971,6 +973,7 @@ function ScalarConstraintRow({
         <span>{meta.unit}</span>
       </div>
       <SidebarIconButton
+        className="sidebar-icon-button--remove"
         onClick={() => {
           projectStore.getState().applyCommand(createSetScalarConstraintCommand(constraintKey, currentValue, null));
         }}

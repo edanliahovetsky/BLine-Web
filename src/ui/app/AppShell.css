@@ -847,12 +847,27 @@ select {
   padding: 0;
 }
 
+.sidebar-icon-button--add {
+  color: #58a6ff;
+}
+
+.sidebar-icon-button--remove {
+  color: #ff4d4d;
+}
+
 .sidebar-icon-button:hover:not(:disabled),
 .sidebar-icon-button:focus-visible,
 .sidebar-action-button:hover:not(:disabled),
 .sidebar-action-button:focus-visible {
   border-color: #4d8fe8;
   background: #213149;
+}
+
+.sidebar-icon-button--remove:hover:not(:disabled),
+.sidebar-icon-button--remove:focus-visible {
+  border-color: #ff4d4d;
+  color: #ffffff;
+  background: #d1242f;
 }
 
 .sidebar-icon-button:disabled,
@@ -1018,13 +1033,13 @@ select {
 
 .ranged-constraint-controls {
   display: grid;
-  grid-template-columns: minmax(126px, 1fr) auto;
+  grid-template-columns: 144px auto;
   align-items: end;
   gap: 7px;
 }
 
 .ranged-constraint-controls--wide {
-  grid-template-columns: minmax(180px, 1fr) auto;
+  grid-template-columns: 144px auto;
 }
 
 .ranged-constraint-controls label,
