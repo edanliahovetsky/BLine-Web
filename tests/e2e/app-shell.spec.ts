@@ -316,10 +316,14 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
 
   const initialDialogBox = await requiredBox(dialog);
   const dragHandle = page.getByTestId("constraint-popout-drag-handle");
-  const handleBox = await requiredBox(dragHandle);
-  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await expect(dragHandle).toBeVisible();
+  const edgeDragStart = {
+    x: initialDialogBox.x + 6,
+    y: initialDialogBox.y + 6
+  };
+  await page.mouse.move(edgeDragStart.x, edgeDragStart.y);
   await page.mouse.down();
-  await page.mouse.move(handleBox.x + handleBox.width / 2 - 120, handleBox.y + handleBox.height / 2 + 70, {
+  await page.mouse.move(edgeDragStart.x - 120, edgeDragStart.y + 70, {
     steps: 8
   });
   await page.mouse.up();

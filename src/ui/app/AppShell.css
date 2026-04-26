@@ -1121,6 +1121,8 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  margin: -14px -14px 0;
+  padding: 14px 14px 0;
   cursor: move;
   user-select: none;
 }
