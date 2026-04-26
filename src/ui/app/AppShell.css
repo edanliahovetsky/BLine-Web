@@ -1045,10 +1045,10 @@ select {
 .config-dialog__section {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid #303941;
   border-radius: 8px;
   background: #20262b;
@@ -1060,18 +1060,25 @@ select {
 }
 
 .config-dialog__section h2 {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
   margin: 0;
-  padding: 0 2px;
+  padding: 0 9px;
+  border: 1px solid #35414c;
+  border-left: 3px solid #2f81f7;
+  border-radius: 6px;
   color: #f3f7fb;
   font-size: 0.82rem;
   font-weight: 760;
   letter-spacing: 0;
+  background: #182027;
 }
 
 .config-dialog__dependent-group,
 .config-dialog__subsection {
   display: grid;
-  gap: 0;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1085,23 +1092,28 @@ select {
 }
 
 .config-dialog__subsection {
-  padding-top: 9px;
-  border-top: 1px solid #303941;
+  padding-top: 7px;
 }
 
 .config-dialog__subsection:first-of-type {
   padding-top: 0;
-  border-top: 0;
 }
 
 .config-dialog__subsection h3 {
+  display: flex;
+  align-items: center;
+  min-height: 25px;
   margin: 0;
-  padding: 0 2px 5px;
-  color: #a9b5bf;
+  padding: 0 8px;
+  border: 1px solid #303941;
+  border-left: 3px solid #7f8b96;
+  border-radius: 6px;
+  color: #b8c4ce;
   font-size: 0.72rem;
   font-weight: 760;
   letter-spacing: 0;
   text-transform: uppercase;
+  background: #1a2026;
 }
 
 .config-row {
@@ -1109,19 +1121,15 @@ select {
   grid-template-columns: minmax(132px, 1fr) minmax(116px, 168px);
   align-items: center;
   gap: 12px;
-  min-height: 36px;
-  padding: 7px 2px;
-  border-bottom: 1px solid rgba(68, 80, 91, 0.52);
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid #303941;
+  border-radius: 6px;
+  background: #1b2228;
 }
 
 .config-dialog__section--kinematics .config-row {
   grid-template-columns: minmax(198px, 1fr) minmax(116px, 154px);
-}
-
-.config-dialog__section > .config-row:last-child,
-.config-dialog__dependent-group > .config-row:last-child,
-.config-dialog__subsection > .config-row:last-child {
-  border-bottom: 0;
 }
 
 .config-row__label {
