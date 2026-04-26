@@ -1,22 +1,25 @@
-import { Layer, Line, Rect } from "react-konva";
-import { fieldLengthMeters, fieldWidthMeters } from "../constants";
+import { useEffect, useState } from "react";
+import { Image as KonvaImage, Layer, Rect } from "react-konva";
 import type { FieldViewport } from "../geometry";
+
+const canvasBackgroundColor = "#101416";
 
 interface FieldLayerProps {
   viewport: FieldViewport;
 }
 
 export function FieldLayer({ viewport }: FieldLayerProps) {
-  const verticalGridLines = Array.from(
-    { length: Math.floor(fieldLengthMeters) + 1 },
-    (_, index) => viewport.x + index * viewport.scale
-  );
-  const horizontalGridLines = Array.from(
-    { length: Math.floor(fieldWidthMeters) + 1 },
-    (_, index) => viewport.y + index * viewport.scale
-  );
-  const centerX = viewport.x + viewport.width / 2;
-  const centerY = viewport.y + viewport.height / 2;
+  const fieldImage = useFieldImage("/assets/field26.png");
+  const imageRect = fieldImage
+    ? getAspectFitRect(
+        fieldImage.width,
+        fieldImage.height,
+        viewport.x,
+        viewport.y,
+        viewport.width,
+        viewport.height
+      )
+    : null;
 
   return (
     <Layer listening={false}>
@@ -25,44 +28,58 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
         y={viewport.y}
         width={viewport.width}
         height={viewport.height}
-        fill="#191d1d"
-        stroke="#5b6268"
-        strokeWidth={2}
+        fill={canvasBackgroundColor}
       />
-      {verticalGridLines.map((x) => (
-        <Line
-          key={`v-${x}`}
-          points={[x, viewport.y, x, viewport.y + viewport.height]}
-          stroke="#293536"
-          strokeWidth={1}
+      {fieldImage && imageRect ? (
+        <KonvaImage
+          image={fieldImage}
+          x={imageRect.x}
+          y={imageRect.y}
+          width={imageRect.width}
+          height={imageRect.height}
         />
-      ))}
-      {horizontalGridLines.map((y) => (
-        <Line
-          key={`h-${y}`}
-          points={[viewport.x, y, viewport.x + viewport.width, y]}
-          stroke="#293536"
-          strokeWidth={1}
-        />
-      ))}
-      <Line
-        points={[centerX, viewport.y, centerX, viewport.y + viewport.height]}
-        stroke="#eff4f5"
-        strokeWidth={3}
-      />
-      <Line
-        points={[viewport.x, centerY, viewport.x + viewport.width, centerY]}
-        stroke="#050607"
-        strokeWidth={5}
-      />
-      <Rect
-        x={viewport.x}
-        y={viewport.y}
-        width={viewport.width}
-        height={viewport.height}
-        stroke="#d6dadd"
-        strokeWidth={3}
-      />
+      ) : null}
     </Layer>
   );
+}
+
+function useFieldImage(src: string) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    const nextImage = new window.Image();
+    nextImage.decoding = "async";
+    nextImage.onload = () => setImage(nextImage);
+    nextImage.src = src;
+
+    return () => {
+      nextImage.onload = null;
+    };
+  }, [src]);
+
+  return image;
+}
+
+function getAspectFitRect(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetX: number,
+  targetY: number,
+  targetWidth: number,
+  targetHeight: number
+) {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return null;
+  }
+
+  const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+
+  return {
+    x: targetX + Math.max(0, (targetWidth - width) / 2),
+    y: targetY + targetHeight - height,
+    width,
+    height
+  };
 }

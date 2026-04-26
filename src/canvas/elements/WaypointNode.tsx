@@ -7,8 +7,7 @@ import {
   eventMarkerHalfHeightPx,
   robotLengthMeters,
   robotWidthMeters,
-  triangleSizeRatio,
-  waypointSizePx
+  triangleSizeRatio
 } from "../constants";
 import type { StagePoint } from "../geometry";
 import {
@@ -18,6 +17,7 @@ import {
   isWaypoint,
   type PathElement
 } from "../../core/model/path";
+import { elementColors } from "../elementStyle";
 
 type CanvasPointerEvent = KonvaEventObject<MouseEvent | TouchEvent | PointerEvent>;
 type CanvasDragEvent = KonvaEventObject<DragEvent>;
@@ -27,6 +27,8 @@ interface WaypointNodeProps {
   index: number;
   point: StagePoint;
   selected: boolean;
+  dimmed: boolean;
+  selectedPulse: number;
   draggable: boolean;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
@@ -42,6 +44,8 @@ export function WaypointNode({
   index,
   point,
   selected,
+  dimmed,
+  selectedPulse,
   draggable,
   headingRadians,
   handoffRadiusMeters,
@@ -51,14 +55,19 @@ export function WaypointNode({
   onDragMove,
   onDragEnd
 }: WaypointNodeProps) {
-  const selectionStroke = selected ? "#fc6525" : undefined;
+  const selectionStroke = selected ? elementColors.selected : undefined;
+  const selectionOpacity = 0.46 + selectedPulse * 0.34;
+  const selectionWidth = selectionStrokeWidthPx;
   const circleRadius = metersToVisiblePixels(elementCircleRadiusMeters, metersToPixels, 7);
-  const rectWidth = metersToVisiblePixels(robotLengthMeters, metersToPixels, waypointSizePx);
-  const rectHeight = metersToVisiblePixels(robotWidthMeters, metersToPixels, waypointSizePx);
-  const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 3);
+  const rectWidth = robotLengthMeters * metersToPixels;
+  const rectHeight = robotWidthMeters * metersToPixels;
+  const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 1.65);
+  const selectionPadding = Math.max(6, outlineWidth / 2 + 5);
+  const nodeHaloThickness = clampedElementHaloThickness(circleRadius);
   const handoffRadius = handoffRadiusMeters
     ? Math.max(8, handoffRadiusMeters * metersToPixels)
     : null;
+  const elementOpacity = dimmed ? 0.58 : 1;
 
   return (
     <Group
@@ -70,34 +79,52 @@ export function WaypointNode({
       onDragStart={(event) => onDragStart(index, event)}
       onDragMove={(event) => onDragMove(index, event)}
       onDragEnd={(event) => onDragEnd(index, event)}
+      opacity={elementOpacity}
     >
       {handoffRadius ? (
-        <Circle
-          radius={handoffRadius}
-          stroke="#ff00ff"
-          strokeWidth={3}
-          dash={[7, 6]}
-          opacity={0.95}
-          listening={false}
-        />
+        <>
+          <Circle
+            radius={handoffRadius}
+            stroke="rgba(5, 8, 11, 0.82)"
+            strokeWidth={4}
+            dash={[6, 6]}
+            listening={false}
+          />
+          <Circle
+            radius={handoffRadius}
+            stroke={elementColors.handoff}
+            strokeWidth={1.45}
+            dash={[6, 6]}
+            opacity={0.82}
+            listening={false}
+          />
+        </>
       ) : null}
 
       {isTranslationTarget(element) ? (
         <>
           {selected ? (
             <Circle
-              radius={circleRadius + 7}
+              radius={circleRadius + 8}
               stroke={selectionStroke}
-              strokeWidth={4}
-              opacity={0.9}
+              strokeWidth={selectionWidth}
+              opacity={selectionOpacity}
             />
           ) : null}
           <Circle
-            radius={circleRadius}
-            fill="#3aa3ff"
-            stroke="#1d6c9d"
-            strokeWidth={2}
+            radius={circleRadius + nodeHaloThickness}
+            fill="rgba(5, 8, 11, 0.72)"
           />
+          <Circle
+            radius={circleRadius}
+            fill={elementColors.translation}
+            stroke="rgba(239, 248, 255, 0.9)"
+            strokeWidth={1.35}
+            shadowColor="rgba(45, 130, 255, 0.42)"
+            shadowBlur={4}
+            shadowOpacity={0.7}
+          />
+          <Circle radius={Math.max(2, circleRadius * 0.24)} fill="#f7fbff" />
         </>
       ) : null}
 
@@ -109,16 +136,19 @@ export function WaypointNode({
               height={rectHeight}
               headingRadians={headingRadians}
               stroke={selectionStroke}
+              opacity={selectionOpacity}
+              strokeWidth={selectionWidth}
+              padding={selectionPadding}
+              outlineWidth={outlineWidth}
             />
           ) : null}
           <RobotFootprint
             width={rectWidth}
             height={rectHeight}
-            outline="#ff7f3a"
+            accent={elementColors.waypoint}
             outlineWidth={outlineWidth}
             headingRadians={headingRadians}
-            dashed={false}
-            triangleMode="outline"
+            mode="waypoint"
           />
         </>
       ) : null}
@@ -131,16 +161,19 @@ export function WaypointNode({
               height={rectHeight}
               headingRadians={headingRadians}
               stroke={selectionStroke}
+              opacity={selectionOpacity}
+              strokeWidth={selectionWidth}
+              padding={selectionPadding}
+              outlineWidth={outlineWidth}
             />
           ) : null}
           <RobotFootprint
             width={rectWidth}
             height={rectHeight}
-            outline="#50c878"
+            accent={elementColors.rotation}
             outlineWidth={outlineWidth}
             headingRadians={headingRadians}
-            dashed={true}
-            triangleMode="fill"
+            mode="rotation"
           />
         </>
       ) : null}
@@ -152,16 +185,30 @@ export function WaypointNode({
               points={eventTriggerPoints(metersToPixels, 8)}
               rotation={toStageDegrees(headingRadians)}
               stroke={selectionStroke}
-              strokeWidth={8}
+              strokeWidth={selectionWidth + 4}
+              opacity={selectionOpacity}
               lineCap="round"
             />
           ) : null}
           <Line
+            points={eventTriggerPoints(metersToPixels, 2)}
+            rotation={toStageDegrees(headingRadians)}
+            stroke="rgba(5, 8, 11, 0.82)"
+            strokeWidth={8}
+            lineCap="round"
+          />
+          <Line
             points={eventTriggerPoints(metersToPixels, 0)}
             rotation={toStageDegrees(headingRadians)}
-            stroke="#ffd54d"
-            strokeWidth={7}
-            lineCap="butt"
+            stroke={elementColors.event}
+            strokeWidth={4}
+            lineCap="round"
+          />
+          <Circle
+            radius={3.75}
+            fill="#f8f4ff"
+            stroke="rgba(5, 8, 11, 0.58)"
+            strokeWidth={1}
           />
         </>
       ) : null}
@@ -173,22 +220,38 @@ function SelectionFootprint({
   width,
   height,
   headingRadians,
-  stroke
+  stroke,
+  opacity,
+  strokeWidth,
+  padding,
+  outlineWidth
 }: {
   width: number;
   height: number;
   headingRadians: number | null;
   stroke: string | undefined;
+  opacity: number;
+  strokeWidth: number;
+  padding: number;
+  outlineWidth: number;
 }) {
+  const cornerRadius = robotCornerRadius(width, height) + padding + outlineWidth * 0.12;
+
   return (
     <Group rotation={toStageDegrees(headingRadians)}>
       <Rect
-        x={-width / 2 - 7}
-        y={-height / 2 - 7}
-        width={width + 14}
-        height={height + 14}
+        x={-width / 2 - padding}
+        y={-height / 2 - padding}
+        width={width + padding * 2}
+        height={height + padding * 2}
+        cornerRadius={cornerRadius}
         stroke={stroke}
-        strokeWidth={4}
+        strokeWidth={strokeWidth}
+        opacity={opacity}
+        lineJoin="round"
+        shadowColor={stroke}
+        shadowBlur={8}
+        shadowOpacity={0.28}
       />
     </Group>
   );
@@ -197,22 +260,22 @@ function SelectionFootprint({
 function RobotFootprint({
   width,
   height,
-  outline,
+  accent,
   outlineWidth,
   headingRadians,
-  dashed,
-  triangleMode
+  mode
 }: {
   width: number;
   height: number;
-  outline: string;
+  accent: string;
   outlineWidth: number;
   headingRadians: number | null;
-  dashed: boolean;
-  triangleMode: "fill" | "outline";
+  mode: "waypoint" | "rotation";
 }) {
   const triangleLength = Math.min(width, height) * triangleSizeRatio;
   const halfTriangleHeight = triangleLength / 2;
+  const cornerRadius = robotCornerRadius(width, height);
+  const halo = robotHaloMetrics(width, height);
   const trianglePoints = [
     triangleLength / 2,
     0,
@@ -225,24 +288,61 @@ function RobotFootprint({
   return (
     <Group rotation={toStageDegrees(headingRadians)}>
       <Rect
+        x={-width / 2 - halo.padding}
+        y={-height / 2 - halo.padding}
+        width={width + halo.padding * 2}
+        height={height + halo.padding * 2}
+        cornerRadius={cornerRadius + halo.padding * 0.7}
+        stroke="rgba(5, 8, 11, 0.82)"
+        strokeWidth={halo.strokeWidth}
+        fill="rgba(5, 8, 11, 0.28)"
+        lineJoin="round"
+      />
+      <Rect
         x={-width / 2}
         y={-height / 2}
         width={width}
         height={height}
-        stroke={outline}
+        cornerRadius={cornerRadius}
+        stroke={accent}
         strokeWidth={outlineWidth}
-        dash={dashed ? [6, 4] : undefined}
-        fill="rgba(0, 0, 0, 0.05)"
-        lineJoin="miter"
+        fill={mode === "waypoint" ? "rgba(255, 159, 67, 0.1)" : "rgba(107, 220, 139, 0.1)"}
+        lineJoin="round"
       />
-      <Line
-        points={trianglePoints}
-        closed={true}
-        fill={triangleMode === "fill" ? outline : undefined}
-        stroke={outline}
-        strokeWidth={outlineWidth}
-        lineJoin="miter"
-      />
+      {mode === "rotation" ? (
+        <>
+          <Circle
+            radius={Math.max(4, Math.min(width, height) * 0.13)}
+            stroke={accent}
+            strokeWidth={Math.max(1.4, outlineWidth * 0.72)}
+            fill="rgba(5, 8, 11, 0.26)"
+          />
+          <Line
+            points={[0, 0, width * 0.28, 0]}
+            stroke={accent}
+            strokeWidth={Math.max(1.25, outlineWidth * 0.55)}
+            lineCap="round"
+          />
+        </>
+      ) : (
+        <Line
+          points={trianglePoints}
+          closed={true}
+          fill="rgba(5, 8, 11, 0.25)"
+          stroke={accent}
+          strokeWidth={Math.max(1.4, outlineWidth * 0.72)}
+          lineJoin="round"
+        />
+      )}
+      {mode === "rotation" ? (
+        <Line
+          points={trianglePoints}
+          closed={true}
+          fill={accent}
+          opacity={0.52}
+          lineJoin="round"
+        />
+      ) : null}
     </Group>
   );
 }
@@ -266,3 +366,26 @@ function metersToVisiblePixels(
 function toStageDegrees(radians: number | null): number {
   return radians === null ? 0 : -radians * (180 / Math.PI);
 }
+
+function robotCornerRadius(width: number, height: number): number {
+  return Math.max(3, Math.min(width, height) * 0.08);
+}
+
+function robotHaloMetrics(width: number, height: number) {
+  const footprintSize = Math.min(width, height);
+
+  return {
+    padding: clamp(footprintSize * 0.08, 1.4, 3),
+    strokeWidth: clamp(footprintSize * 0.12, 2.2, 5)
+  };
+}
+
+function clampedElementHaloThickness(radius: number): number {
+  return clamp(radius * 0.35, 2.25, 4);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+const selectionStrokeWidthPx = 2.6;

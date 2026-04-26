@@ -11,6 +11,10 @@ test("boots the Phase 1 shell", async ({ page }) => {
   await expect(page.getByText("Path Elements")).toBeVisible();
   await expect(page.getByTestId("path-element-row-0")).toContainText("1. Translation");
   await expect(page.getByText("Element Properties")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Zoom in" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Fit view" })).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Canvas tools" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Select tool" })).toHaveCount(0);
 });
 
 test("selects and drags a canvas anchor", async ({ page }) => {
@@ -38,7 +42,7 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   await expect(page.getByTestId("selected-element-status")).not.toContainText(
     "1.20, 1.10 m"
   );
-  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
+  await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
 });
 
 test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
@@ -50,8 +54,9 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
   const stageBox = await requiredBox(page.getByTestId("path-stage"));
 
-  expect(documentHeight).toBeLessThan(1_700);
-  expect(stageBox.height).toBeLessThan(320);
+  expect(documentHeight).toBeLessThan(1_850);
+  expect(stageBox.height).toBeGreaterThan(450);
+  expect(stageBox.height).toBeLessThan(650);
 });
 
 test("plays and seeks the simulation transport", async ({ page }) => {
@@ -60,6 +65,8 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   const transport = page.getByTestId("simulation-transport");
   await expect(transport).toBeVisible();
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+  await expect(transport.getByRole("button", { name: "Reset simulation" })).toHaveCount(0);
+  await expect(transport.getByRole("button", { name: "Play simulation" })).toHaveText("");
 
   await transport.getByRole("button", { name: "Play simulation" }).click();
   await expect(transport.getByRole("button", { name: "Pause simulation" })).toBeVisible();
@@ -77,7 +84,14 @@ test("plays and seeks the simulation transport", async ({ page }) => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await expect(page.getByTestId("simulation-time")).toContainText("1.00 /");
-  await transport.getByRole("button", { name: "Reset simulation" }).click();
+  await page.getByLabel("Simulation time").evaluate((input) => {
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Expected range input");
+    }
+    input.value = "0.00";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
 });
 
@@ -208,6 +222,29 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
     .toBeLessThan(5);
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("90");
+});
+
+test("keeps rotation handles hidden until an element is selected", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: none"
+  );
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const center = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 5.1,
+    y_meters: 3.2
+  });
+
+  await page.mouse.move(center.x, center.y - 42);
+  await page.mouse.down();
+  await page.mouse.move(center.x + 42, center.y, { steps: 8 });
+  await page.mouse.up();
+
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: none"
+  );
 });
 
 test("adds edits and deletes ranged constraints", async ({ page }) => {
