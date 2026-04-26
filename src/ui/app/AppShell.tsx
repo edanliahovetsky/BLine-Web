@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, FocusEvent } from "react";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { PathStage } from "../../canvas/PathStage";
 import { createProjectDocument, type ProjectDocument } from "../../core/io/projectSchema";
 import { createPathModel } from "../../core/model/path";
@@ -158,7 +159,13 @@ export function AppShell() {
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!toolbarRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const targetElement = target instanceof Element ? target : null;
+
+      if (
+        !toolbarRef.current?.contains(target) &&
+        !targetElement?.closest(".top-menu__submenu-panel")
+      ) {
         setOpenTopMenu(null);
       }
     };
@@ -848,17 +855,131 @@ function MenuSubmenu({
   testId: string;
   children: ReactNode;
 }) {
+  const submenuRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const updatePlacement = useCallback(() => {
+    const rect = submenuRef.current?.getBoundingClientRect();
+
+    if (!rect) {
+      return;
+    }
+
+    const viewportMargin = 8;
+    const flyoutGap = 6;
+    const width = Math.min(266, Math.max(160, window.innerWidth - viewportMargin * 2));
+    const left = Math.min(rect.right + flyoutGap, window.innerWidth - width - viewportMargin);
+    const top = Math.max(viewportMargin, Math.min(rect.top - 4, window.innerHeight - 128));
+    const maxHeight = Math.max(120, window.innerHeight - top - viewportMargin);
+
+    setPlacement({
+      left,
+      maxHeight,
+      top,
+      width
+    });
+  }, []);
+
+  const openSubmenu = useCallback(() => {
+    clearCloseTimer();
+    updatePlacement();
+    setOpen(true);
+  }, [clearCloseTimer, updatePlacement]);
+
+  const closeSubmenu = useCallback(() => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+    }, 120);
+  }, [clearCloseTimer]);
+
+  const handleBlur = (event: FocusEvent<HTMLElement>) => {
+    const nextTarget = event.relatedTarget as Node | null;
+
+    if (
+      nextTarget &&
+      (submenuRef.current?.contains(nextTarget) || panelRef.current?.contains(nextTarget))
+    ) {
+      return;
+    }
+
+    closeSubmenu();
+  };
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const handleReposition = () => updatePlacement();
+
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [open, updatePlacement]);
+
+  useEffect(() => clearCloseTimer, [clearCloseTimer]);
+
   return (
-    <div className="top-menu__submenu" role="none">
-      <button type="button" role="menuitem" aria-haspopup="menu" className="top-menu__item">
+    <div
+      ref={submenuRef}
+      className={`top-menu__submenu${open ? " is-open" : ""}`}
+      role="none"
+      onBlur={handleBlur}
+      onFocus={openSubmenu}
+      onMouseEnter={openSubmenu}
+      onMouseLeave={closeSubmenu}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="top-menu__item"
+        onClick={openSubmenu}
+      >
         <span>{label}</span>
         <span className="top-menu__chevron" aria-hidden="true">
           ›
         </span>
       </button>
-      <div className="top-menu__submenu-panel" role="menu" data-testid={testId}>
-        {children}
-      </div>
+      {open && placement
+        ? createPortal(
+            <div
+              ref={panelRef}
+              className="top-menu__submenu-panel"
+              role="menu"
+              data-testid={testId}
+              style={placement}
+              onBlur={handleBlur}
+              onFocus={openSubmenu}
+              onMouseEnter={openSubmenu}
+              onMouseLeave={closeSubmenu}
+            >
+              {children}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

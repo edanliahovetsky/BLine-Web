@@ -548,7 +548,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
-test("keeps top dropdowns streamlined with inline path lists", async ({ page }) => {
+test("keeps top dropdowns streamlined with right-side path flyouts", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Project" }).click();
@@ -562,9 +562,7 @@ test("keeps top dropdowns streamlined with inline path lists", async ({ page }) 
   const projectMenuBox = await requiredBox(projectMenu);
   const recentMenuBox = await requiredBox(recentMenu);
   expect(recentMenuBox.width).toBeLessThanOrEqual(285);
-  expect(recentMenuBox.x + recentMenuBox.width).toBeLessThanOrEqual(
-    projectMenuBox.x + projectMenuBox.width
-  );
+  expect(recentMenuBox.x).toBeGreaterThanOrEqual(projectMenuBox.x + projectMenuBox.width);
 
   await page.getByRole("button", { name: "Path" }).click();
   const pathMenu = page.getByTestId("top-menu-path");
@@ -577,9 +575,7 @@ test("keeps top dropdowns streamlined with inline path lists", async ({ page }) 
   const pathMenuBox = await requiredBox(pathMenu);
   const loadPathMenuBox = await requiredBox(loadPathMenu);
   expect(loadPathMenuBox.width).toBeLessThanOrEqual(285);
-  expect(loadPathMenuBox.x + loadPathMenuBox.width).toBeLessThanOrEqual(
-    pathMenuBox.x + pathMenuBox.width
-  );
+  expect(loadPathMenuBox.x).toBeGreaterThanOrEqual(pathMenuBox.x + pathMenuBox.width);
 });
 
 test("opens settings from a narrow portrait top bar", async ({ page }) => {
