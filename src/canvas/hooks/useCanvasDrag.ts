@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import type { PathElement } from "../../core/model/path";
@@ -40,7 +40,12 @@ interface UseCanvasDragInput {
 export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const activeDragRef = useRef<ActiveDrag | null>(null);
+  const renderedDragRef = useRef<ActiveDrag | null>(null);
   const previewFrameRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    renderedDragRef.current = activeDrag;
+  }, [activeDrag]);
 
   const flushDragPreview = useCallback(() => {
     previewFrameRef.current = null;
@@ -160,8 +165,8 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         }
       }
 
-      const nextStagePoint = modelToStagePoint(nextPosition, viewport);
-      dragTarget.position(nextStagePoint);
+      const renderedPosition = renderedDragRef.current?.current ?? drag.current;
+      dragTarget.position(modelToStagePoint(renderedPosition, viewport));
 
       setActiveDrag(
         {
@@ -185,13 +190,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
 
       event.cancelBubble = true;
       const dragTarget = event.currentTarget;
-      let nextPosition = stageToModelPoint(
-        {
-          x: dragTarget.x(),
-          y: dragTarget.y()
-        },
-        viewport
-      );
+      let nextPosition = drag.current;
       let nextRatio = drag.currentRatio;
       const element = project.path.path_elements[index];
 

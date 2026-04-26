@@ -424,7 +424,14 @@ export function PathStage() {
       return;
     }
 
-    const handlePoint = rotationHandlePoint(project, index, viewport, nextRadians);
+    const renderedRadians =
+      activeRotationDrag?.currentRadians ?? rotationDrag.currentRadians;
+    const handlePoint = rotationHandlePoint(
+      project,
+      index,
+      viewport,
+      renderedRadians
+    );
     if (handlePoint) {
       dragTarget.position(handlePoint);
     }
