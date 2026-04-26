@@ -20,8 +20,28 @@ export const SimulationLayer = memo(function SimulationLayer({
   viewport,
   config
 }: SimulationLayerProps) {
+  return (
+    <Layer listening={false}>
+      <SimulationLayerContent
+        result={result}
+        currentTimeS={currentTimeS}
+        playing={playing}
+        viewport={viewport}
+        config={config}
+      />
+    </Layer>
+  );
+});
+
+export const SimulationLayerContent = memo(function SimulationLayerContent({
+  result,
+  currentTimeS,
+  playing,
+  viewport,
+  config
+}: SimulationLayerProps) {
   if (!result || result.times_sorted.length === 0) {
-    return <Layer />;
+    return null;
   }
 
   const visibleTimes = result.times_sorted.filter((time) => time <= currentTimeS);
@@ -62,7 +82,7 @@ export const SimulationLayer = memo(function SimulationLayer({
   const robotHalo = robotHaloMetrics(robotBounds.width, robotBounds.height);
 
   return (
-    <Layer listening={false}>
+    <Group listening={false}>
       {trailPoints.length >= 4 ? (
         <>
           <Line
@@ -139,7 +159,7 @@ export const SimulationLayer = memo(function SimulationLayer({
           />
         </Group>
       ) : null}
-    </Layer>
+    </Group>
   );
 });
 

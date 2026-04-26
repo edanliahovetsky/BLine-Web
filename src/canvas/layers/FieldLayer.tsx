@@ -9,6 +9,16 @@ interface FieldLayerProps {
 }
 
 export const FieldLayer = memo(function FieldLayer({ viewport }: FieldLayerProps) {
+  return (
+    <Layer listening={false}>
+      <FieldLayerContent viewport={viewport} />
+    </Layer>
+  );
+});
+
+export const FieldLayerContent = memo(function FieldLayerContent({
+  viewport
+}: FieldLayerProps) {
   const fieldImage = useFieldImage("/assets/field26.png");
   const imageRect = fieldImage
     ? getAspectFitRect(
@@ -22,7 +32,7 @@ export const FieldLayer = memo(function FieldLayer({ viewport }: FieldLayerProps
     : null;
 
   return (
-    <Layer listening={false}>
+    <>
       <Rect
         x={viewport.x}
         y={viewport.y}
@@ -39,7 +49,7 @@ export const FieldLayer = memo(function FieldLayer({ viewport }: FieldLayerProps
           height={imageRect.height}
         />
       ) : null}
-    </Layer>
+    </>
   );
 });
 

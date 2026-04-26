@@ -35,14 +35,40 @@ export function RotationHandleLayer({
   onRotationDragMove,
   onRotationDragEnd
 }: RotationHandleLayerProps) {
+  return (
+    <Layer>
+      <RotationHandleLayerContent
+        project={project}
+        selectedElementIndex={selectedElementIndex}
+        viewport={viewport}
+        positionPreview={positionPreview}
+        rotationPreview={rotationPreview}
+        onRotationDragStart={onRotationDragStart}
+        onRotationDragMove={onRotationDragMove}
+        onRotationDragEnd={onRotationDragEnd}
+      />
+    </Layer>
+  );
+}
+
+export function RotationHandleLayerContent({
+  project,
+  selectedElementIndex,
+  viewport,
+  positionPreview,
+  rotationPreview,
+  onRotationDragStart,
+  onRotationDragMove,
+  onRotationDragEnd
+}: RotationHandleLayerProps) {
   if (!project || selectedElementIndex === null) {
-    return <Layer />;
+    return null;
   }
 
   const elements = project.path.path_elements;
   const element = elements[selectedElementIndex];
   if (!element || (!isWaypoint(element) && !isRotationTarget(element))) {
-    return <Layer />;
+    return null;
   }
 
   const position = getElementPosition(elements, selectedElementIndex, positionPreview);
@@ -52,7 +78,7 @@ export function RotationHandleLayer({
     rotationPreview
   );
   if (!position || rotationRadians === null) {
-    return <Layer />;
+    return null;
   }
 
   const accent = rotatableElementAccent(element);
@@ -64,7 +90,7 @@ export function RotationHandleLayer({
   };
 
   return (
-    <Layer>
+    <>
       <Group>
         <Line
           points={[center.x, center.y, handle.x, handle.y]}
@@ -100,7 +126,7 @@ export function RotationHandleLayer({
           onDragEnd={(event) => onRotationDragEnd(selectedElementIndex, event)}
         />
       </Group>
-    </Layer>
+    </>
   );
 }
 

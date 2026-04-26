@@ -1,4 +1,4 @@
-import { Circle, Layer, Line } from "react-konva";
+import { Circle, Group, Layer, Line } from "react-konva";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import {
   isRotationConstraintKey,
@@ -24,14 +24,30 @@ export function ConstraintOverlayLayer({
   viewport,
   dragPreview
 }: ConstraintOverlayLayerProps) {
+  return (
+    <Layer listening={false}>
+      <ConstraintOverlayLayerContent
+        project={project}
+        viewport={viewport}
+        dragPreview={dragPreview}
+      />
+    </Layer>
+  );
+}
+
+export function ConstraintOverlayLayerContent({
+  project,
+  viewport,
+  dragPreview
+}: ConstraintOverlayLayerProps) {
   if (!project || project.path.ranged_constraints.length === 0) {
-    return <Layer />;
+    return null;
   }
 
   const elements = project.path.path_elements;
 
   return (
-    <Layer listening={false}>
+    <Group listening={false}>
       {project.path.ranged_constraints.map((constraint, index) => (
         <ConstraintOverlay
           key={`${constraint.key}-${index}`}
@@ -41,7 +57,7 @@ export function ConstraintOverlayLayer({
           dragPreview={dragPreview}
         />
       ))}
-    </Layer>
+    </Group>
   );
 }
 

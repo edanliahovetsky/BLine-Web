@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type KeyboardEvent
 } from "react";
-import { Stage } from "react-konva";
+import { Layer, Stage } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
   getElementHeadingRadians,
@@ -23,17 +23,17 @@ import { fieldAspectRatio } from "./constants";
 import { createFieldViewport, type CanvasSize } from "./geometry";
 import { useCanvasDrag } from "./hooks/useCanvasDrag";
 import { useCanvasSelection } from "./hooks/useCanvasSelection";
-import { ConstraintOverlayLayer } from "./layers/ConstraintOverlayLayer";
-import { FieldLayer } from "./layers/FieldLayer";
-import { PathLayer } from "./layers/PathLayer";
-import { RotationHandleLayer } from "./layers/RotationHandleLayer";
-import { SimulationLayer } from "./layers/SimulationLayer";
+import { ConstraintOverlayLayerContent } from "./layers/ConstraintOverlayLayer";
+import { FieldLayerContent } from "./layers/FieldLayer";
+import { PathLayerContent } from "./layers/PathLayer";
+import { RotationHandleLayerContent } from "./layers/RotationHandleLayer";
+import { SimulationLayerContent } from "./layers/SimulationLayer";
 import {
   createRemovePathElementCommand
 } from "../ui/sidebar/sidebarCommands";
 import { createSetElementRotationCommand } from "./modelSync";
 
-const safariMaxKonvaPixelRatio = 1.5;
+const safariMaxKonvaPixelRatio = 1;
 
 configureKonvaForCanvasPerformance();
 
@@ -505,39 +505,43 @@ export function PathStage() {
           onMouseLeave={handleStagePointerUp}
           onWheel={handleWheel}
         >
-          <FieldLayer viewport={viewport} />
-          <ConstraintOverlayLayer
-            project={project}
-            viewport={viewport}
-            dragPreview={drag.dragPreview}
-          />
-          <PathLayer
-            project={project}
-            selectedElementIndex={selectedElementIndex}
-            viewport={viewport}
-            dragPreview={drag.dragPreview}
-            rotationPreview={rotationPreview}
-            selectedPulse={selectedPulseValue}
-            drag={drag}
-            selection={selection}
-          />
-          <RotationHandleLayer
-            project={project}
-            selectedElementIndex={selectedElementIndex}
-            viewport={viewport}
-            positionPreview={drag.dragPreview}
-            rotationPreview={rotationPreview}
-            onRotationDragStart={handleRotationDragStart}
-            onRotationDragMove={handleRotationDragMove}
-            onRotationDragEnd={handleRotationDragEnd}
-          />
-          <SimulationLayer
-            result={simulationResult}
-            currentTimeS={simulationTime}
-            playing={simulationPlaying}
-            viewport={viewport}
-            config={project?.config ?? null}
-          />
+          <Layer listening={false}>
+            <FieldLayerContent viewport={viewport} />
+          </Layer>
+          <Layer>
+            <ConstraintOverlayLayerContent
+              project={project}
+              viewport={viewport}
+              dragPreview={drag.dragPreview}
+            />
+            <PathLayerContent
+              project={project}
+              selectedElementIndex={selectedElementIndex}
+              viewport={viewport}
+              dragPreview={drag.dragPreview}
+              rotationPreview={rotationPreview}
+              selectedPulse={selectedPulseValue}
+              drag={drag}
+              selection={selection}
+            />
+            <RotationHandleLayerContent
+              project={project}
+              selectedElementIndex={selectedElementIndex}
+              viewport={viewport}
+              positionPreview={drag.dragPreview}
+              rotationPreview={rotationPreview}
+              onRotationDragStart={handleRotationDragStart}
+              onRotationDragMove={handleRotationDragMove}
+              onRotationDragEnd={handleRotationDragEnd}
+            />
+            <SimulationLayerContent
+              result={simulationResult}
+              currentTimeS={simulationTime}
+              playing={simulationPlaying}
+              viewport={viewport}
+              config={project?.config ?? null}
+            />
+          </Layer>
         </Stage>
         <SimulationTransport
           result={simulationResult}
