@@ -59,6 +59,61 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   expect(stageBox.height).toBeLessThan(650);
 });
 
+test("locks document scrolling to the viewport", async ({ page }) => {
+  for (const viewport of [
+    { width: 1200, height: 900 },
+    { width: 390, height: 900 },
+    { width: 320, height: 360 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+
+    const metrics = await page.evaluate(() => {
+      const documentScroller = document.scrollingElement ?? document.documentElement;
+      const shell = document.querySelector(".app-shell");
+      const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
+
+      if (!shell || !sidebar) {
+        throw new Error("Expected app shell and sidebar to be present");
+      }
+
+      const shellBox = shell.getBoundingClientRect();
+      sidebar.scrollTop = sidebar.scrollHeight;
+
+      return {
+        bodyOverflowY: getComputedStyle(document.body).overflowY,
+        documentClientHeight: documentScroller.clientHeight,
+        documentScrollHeight: documentScroller.scrollHeight,
+        htmlOverflowY: getComputedStyle(document.documentElement).overflowY,
+        shellBottom: shellBox.bottom,
+        shellTop: shellBox.top,
+        sidebarClientHeight: sidebar.clientHeight,
+        sidebarScrollHeight: sidebar.scrollHeight,
+        sidebarScrollTop: sidebar.scrollTop,
+        viewportHeight: window.innerHeight
+      };
+    });
+
+    expect(metrics.htmlOverflowY).toBe("hidden");
+    expect(metrics.bodyOverflowY).toBe("hidden");
+    expect(metrics.documentScrollHeight).toBeLessThanOrEqual(
+      metrics.documentClientHeight + 1
+    );
+    expect(metrics.shellTop).toBe(0);
+    expect(metrics.shellBottom).toBeLessThanOrEqual(metrics.viewportHeight + 1);
+
+    if (viewport.width < 980) {
+      expect(metrics.sidebarScrollHeight).toBeGreaterThan(metrics.sidebarClientHeight);
+      expect(metrics.sidebarScrollTop).toBeGreaterThan(0);
+    }
+
+    await page.mouse.move(viewport.width / 2, viewport.height / 2);
+    await page.mouse.wheel(0, 1200);
+    await page.evaluate(() => window.scrollTo(0, 1_000));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  }
+});
+
 test("keeps dense sidebar content inside the viewport without horizontal sidebar scroll", async ({ page }) => {
   for (const viewport of [
     { width: 390, height: 900 },

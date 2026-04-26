@@ -1,7 +1,11 @@
 .app-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
   color: #eef3f7;
   background: #0f1316;
 }
@@ -376,6 +380,7 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
   min-height: 0;
+  overflow: hidden;
   background: #11161a;
 }
 
@@ -615,6 +620,7 @@ select {
   align-content: start;
   gap: 9px;
   min-width: 0;
+  min-height: 0;
   max-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
@@ -2126,7 +2132,7 @@ select {
 
   .workspace {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(360px, auto) auto;
+    grid-template-rows: minmax(min(360px, 55%), 2fr) minmax(0, 1fr);
   }
 
   .inspector-sidebar {
