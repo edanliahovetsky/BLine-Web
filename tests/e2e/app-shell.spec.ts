@@ -81,11 +81,14 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
       const valueControl = document.querySelector(
         ".ranged-constraint-controls .sidebar-number-control"
       );
+      const valueInput = document.querySelector<HTMLInputElement>(
+        ".ranged-constraint-controls input[type='number']"
+      );
       const actionButtons = Array.from(
         document.querySelectorAll(".ranged-constraint-controls__actions button")
       );
 
-      if (!sidebar || !valueControl || actionButtons.length !== 4) {
+      if (!sidebar || !valueControl || !valueInput || actionButtons.length !== 4) {
         throw new Error("Expected dense sidebar ranged controls to be present");
       }
 
@@ -118,6 +121,8 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         sidebarRight: sidebarBox.right,
         childBoxes,
         valueControlBottom: valueBox.bottom,
+        valueInputClientWidth: valueInput.clientWidth,
+        valueInputScrollWidth: valueInput.scrollWidth,
         actionButtonBoxes
       };
     });
@@ -136,6 +141,10 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     for (const actionButtonBox of metrics.actionButtonBoxes) {
       expect(Math.abs(actionButtonBox.bottom - metrics.valueControlBottom)).toBeLessThanOrEqual(1);
     }
+
+    expect(metrics.valueInputScrollWidth).toBeLessThanOrEqual(
+      metrics.valueInputClientWidth + 1
+    );
   }
 });
 
