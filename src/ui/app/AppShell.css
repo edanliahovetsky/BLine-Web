@@ -608,6 +608,7 @@ select {
   gap: 9px;
   min-width: 0;
   max-height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 8px;
   border-left: 1px solid #30373d;
@@ -615,6 +616,8 @@ select {
 }
 
 .inspector-section {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid #303840;
   border-radius: 8px;
@@ -629,6 +632,8 @@ select {
   grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   min-height: 38px;
   padding: 7px 9px;
   border: 1px solid #34414d;
@@ -691,6 +696,7 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   min-height: 39px;
   padding: 7px 9px;
   border-bottom: 1px solid #2c333a;
@@ -763,8 +769,9 @@ select {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   gap: 6px;
+  min-width: 0;
 }
 
 .sidebar-section__body {
@@ -773,12 +780,16 @@ select {
 
 .add-element-menu {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .add-element-menu summary {
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
+  max-width: 100%;
   min-height: 30px;
   padding: 0;
   cursor: pointer;
@@ -787,6 +798,12 @@ select {
   font-weight: 670;
   list-style: none;
   white-space: nowrap;
+}
+
+.add-element-menu summary > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .add-element-menu summary::-webkit-details-marker {
@@ -1194,6 +1211,7 @@ select {
 .constraint-card {
   display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 10px;
   border: 1px solid #31404b;
   border-radius: 8px;
@@ -1304,6 +1322,8 @@ select {
 .ranged-segment-bar {
   display: grid;
   grid-template-rows: 18px 34px;
+  min-width: 0;
+  contain: paint;
   overflow-x: auto;
   overflow-y: hidden;
   border: 1px solid #293846;
@@ -1445,9 +1465,10 @@ select {
 
 .ranged-constraint-controls {
   display: grid;
-  grid-template-columns: 144px auto;
+  grid-template-columns: minmax(0, 144px) minmax(0, 1fr);
   align-items: end;
   gap: 7px;
+  min-width: 0;
 }
 
 .ranged-constraint-controls--wide {
@@ -1484,8 +1505,10 @@ select {
 
 .ranged-constraint-controls__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
 }
 
 .constraint-terminal-group {
