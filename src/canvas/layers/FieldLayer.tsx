@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Image as KonvaImage, Layer, Rect } from "react-konva";
 import type { FieldViewport } from "../geometry";
 
@@ -8,7 +8,17 @@ interface FieldLayerProps {
   viewport: FieldViewport;
 }
 
-export function FieldLayer({ viewport }: FieldLayerProps) {
+export const FieldLayer = memo(function FieldLayer({ viewport }: FieldLayerProps) {
+  return (
+    <Layer listening={false}>
+      <FieldLayerContent viewport={viewport} />
+    </Layer>
+  );
+});
+
+export const FieldLayerContent = memo(function FieldLayerContent({
+  viewport
+}: FieldLayerProps) {
   const fieldImage = useFieldImage("/assets/field26.png");
   const imageRect = fieldImage
     ? getAspectFitRect(
@@ -22,7 +32,7 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
     : null;
 
   return (
-    <Layer listening={false}>
+    <>
       <Rect
         x={viewport.x}
         y={viewport.y}
@@ -39,9 +49,9 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
           height={imageRect.height}
         />
       ) : null}
-    </Layer>
+    </>
   );
-}
+});
 
 function useFieldImage(src: string) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);

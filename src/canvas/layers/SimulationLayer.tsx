@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Circle, Group, Layer, Line, Rect } from "react-konva";
 import type { ProjectConfig } from "../../core/io/projectSchema";
 import type { SimResult } from "../../core/sim";
@@ -12,7 +13,27 @@ interface SimulationLayerProps {
   config: ProjectConfig | null;
 }
 
-export function SimulationLayer({
+export const SimulationLayer = memo(function SimulationLayer({
+  result,
+  currentTimeS,
+  playing,
+  viewport,
+  config
+}: SimulationLayerProps) {
+  return (
+    <Layer listening={false}>
+      <SimulationLayerContent
+        result={result}
+        currentTimeS={currentTimeS}
+        playing={playing}
+        viewport={viewport}
+        config={config}
+      />
+    </Layer>
+  );
+});
+
+export const SimulationLayerContent = memo(function SimulationLayerContent({
   result,
   currentTimeS,
   playing,
@@ -20,7 +41,7 @@ export function SimulationLayer({
   config
 }: SimulationLayerProps) {
   if (!result || result.times_sorted.length === 0) {
-    return <Layer />;
+    return null;
   }
 
   const visibleTimes = result.times_sorted.filter((time) => time <= currentTimeS);
@@ -61,7 +82,7 @@ export function SimulationLayer({
   const robotHalo = robotHaloMetrics(robotBounds.width, robotBounds.height);
 
   return (
-    <Layer listening={false}>
+    <Group listening={false}>
       {trailPoints.length >= 4 ? (
         <>
           <Line
@@ -138,9 +159,9 @@ export function SimulationLayer({
           />
         </Group>
       ) : null}
-    </Layer>
+    </Group>
   );
-}
+});
 
 function getRobotBounds({
   robotLength,

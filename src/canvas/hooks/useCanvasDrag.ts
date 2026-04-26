@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import type { PathElement } from "../../core/model/path";
@@ -40,15 +40,51 @@ interface UseCanvasDragInput {
 export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const activeDragRef = useRef<ActiveDrag | null>(null);
+  const renderedDragRef = useRef<ActiveDrag | null>(null);
+  const previewFrameRef = useRef<number | null>(null);
 
-  const setActiveDrag = useCallback((nextDrag: ActiveDrag | null) => {
-    activeDragRef.current = nextDrag;
-    setActiveDragState(nextDrag);
+  useLayoutEffect(() => {
+    renderedDragRef.current = activeDrag;
+  }, [activeDrag]);
+
+  const flushDragPreview = useCallback(() => {
+    previewFrameRef.current = null;
+    setActiveDragState(activeDragRef.current);
   }, []);
 
-  const dragPreview: PositionOverrides = activeDrag
-    ? new Map([[activeDrag.index, activeDrag.current]])
-    : emptyPreview;
+  const setActiveDrag = useCallback(
+    (nextDrag: ActiveDrag | null, sync: "immediate" | "frame" = "immediate") => {
+      activeDragRef.current = nextDrag;
+
+      if (sync === "frame") {
+        if (previewFrameRef.current === null) {
+          previewFrameRef.current = window.requestAnimationFrame(flushDragPreview);
+        }
+        return;
+      }
+
+      if (previewFrameRef.current !== null) {
+        window.cancelAnimationFrame(previewFrameRef.current);
+        previewFrameRef.current = null;
+      }
+      setActiveDragState(nextDrag);
+    },
+    [flushDragPreview]
+  );
+
+  useEffect(
+    () => () => {
+      if (previewFrameRef.current !== null) {
+        window.cancelAnimationFrame(previewFrameRef.current);
+      }
+    },
+    []
+  );
+
+  const dragPreview: PositionOverrides = useMemo(
+    () => (activeDrag ? new Map([[activeDrag.index, activeDrag.current]]) : emptyPreview),
+    [activeDrag]
+  );
 
   const isDragEnabled = useCallback(
     (element: PathElement) =>
@@ -129,14 +165,17 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         }
       }
 
-      const nextStagePoint = modelToStagePoint(nextPosition, viewport);
-      dragTarget.position(nextStagePoint);
+      const renderedPosition = renderedDragRef.current?.current ?? drag.current;
+      dragTarget.position(modelToStagePoint(renderedPosition, viewport));
 
-      setActiveDrag({
-        ...drag,
-        current: nextPosition,
-        currentRatio: nextRatio
-      });
+      setActiveDrag(
+        {
+          ...drag,
+          current: nextPosition,
+          currentRatio: nextRatio
+        },
+        "frame"
+      );
     },
     [project, setActiveDrag, viewport]
   );
@@ -151,13 +190,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
 
       event.cancelBubble = true;
       const dragTarget = event.currentTarget;
-      let nextPosition = stageToModelPoint(
-        {
-          x: dragTarget.x(),
-          y: dragTarget.y()
-        },
-        viewport
-      );
+      let nextPosition = drag.current;
       let nextRatio = drag.currentRatio;
       const element = project.path.path_elements[index];
 
@@ -205,6 +238,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
 
   return {
     dragPreview,
+    isDragging: activeDrag !== null,
     isDragEnabled,
     handleDragStart,
     handleDragMove,

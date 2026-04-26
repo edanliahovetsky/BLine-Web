@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Circle, Group, Line, Rect } from "react-konva";
 import {
@@ -39,7 +40,7 @@ interface WaypointNodeProps {
   onDragEnd(index: number, event: CanvasDragEvent): void;
 }
 
-export function WaypointNode({
+export const WaypointNode = memo(function WaypointNode({
   element,
   index,
   point,
@@ -81,6 +82,15 @@ export function WaypointNode({
       onDragEnd={(event) => onDragEnd(index, event)}
       opacity={elementOpacity}
     >
+      <NodeHitTarget
+        element={element}
+        circleRadius={circleRadius}
+        rectWidth={rectWidth}
+        rectHeight={rectHeight}
+        headingRadians={headingRadians}
+        metersToPixels={metersToPixels}
+      />
+
       {handoffRadius ? (
         <>
           <Circle
@@ -109,11 +119,13 @@ export function WaypointNode({
               stroke={selectionStroke}
               strokeWidth={selectionWidth}
               opacity={selectionOpacity}
+              listening={false}
             />
           ) : null}
           <Circle
             radius={circleRadius + nodeHaloThickness}
             fill="rgba(5, 8, 11, 0.72)"
+            listening={false}
           />
           <Circle
             radius={circleRadius}
@@ -123,8 +135,13 @@ export function WaypointNode({
             shadowColor="rgba(45, 130, 255, 0.42)"
             shadowBlur={4}
             shadowOpacity={0.7}
+            listening={false}
           />
-          <Circle radius={Math.max(2, circleRadius * 0.24)} fill="#f7fbff" />
+          <Circle
+            radius={Math.max(2, circleRadius * 0.24)}
+            fill="#f7fbff"
+            listening={false}
+          />
         </>
       ) : null}
 
@@ -188,6 +205,7 @@ export function WaypointNode({
               strokeWidth={selectionWidth + 4}
               opacity={selectionOpacity}
               lineCap="round"
+              listening={false}
             />
           ) : null}
           <Line
@@ -196,6 +214,7 @@ export function WaypointNode({
             stroke="rgba(5, 8, 11, 0.82)"
             strokeWidth={8}
             lineCap="round"
+            listening={false}
           />
           <Line
             points={eventTriggerPoints(metersToPixels, 0)}
@@ -203,17 +222,75 @@ export function WaypointNode({
             stroke={elementColors.event}
             strokeWidth={4}
             lineCap="round"
+            listening={false}
           />
           <Circle
             radius={3.75}
             fill="#f8f4ff"
             stroke="rgba(5, 8, 11, 0.58)"
             strokeWidth={1}
+            listening={false}
           />
         </>
       ) : null}
     </Group>
   );
+}, areWaypointNodePropsEqual);
+
+function NodeHitTarget({
+  element,
+  circleRadius,
+  rectWidth,
+  rectHeight,
+  headingRadians,
+  metersToPixels
+}: {
+  element: PathElement;
+  circleRadius: number;
+  rectWidth: number;
+  rectHeight: number;
+  headingRadians: number | null;
+  metersToPixels: number;
+}) {
+  if (isTranslationTarget(element)) {
+    return (
+      <Circle
+        radius={circleRadius + 12}
+        fill="rgba(255, 255, 255, 0.001)"
+      />
+    );
+  }
+
+  if (isWaypoint(element) || isRotationTarget(element)) {
+    const padding = Math.max(10, Math.min(rectWidth, rectHeight) * 0.18);
+
+    return (
+      <Group rotation={toStageDegrees(headingRadians)}>
+        <Rect
+          x={-rectWidth / 2 - padding}
+          y={-rectHeight / 2 - padding}
+          width={rectWidth + padding * 2}
+          height={rectHeight + padding * 2}
+          cornerRadius={robotCornerRadius(rectWidth, rectHeight) + padding}
+          fill="rgba(255, 255, 255, 0.001)"
+        />
+      </Group>
+    );
+  }
+
+  if (isEventTrigger(element)) {
+    return (
+      <Line
+        points={eventTriggerPoints(metersToPixels, 10)}
+        rotation={toStageDegrees(headingRadians)}
+        stroke="rgba(255, 255, 255, 0.001)"
+        strokeWidth={24}
+        lineCap="round"
+      />
+    );
+  }
+
+  return null;
 }
 
 function SelectionFootprint({
@@ -238,7 +315,7 @@ function SelectionFootprint({
   const cornerRadius = robotCornerRadius(width, height) + padding + outlineWidth * 0.12;
 
   return (
-    <Group rotation={toStageDegrees(headingRadians)}>
+    <Group rotation={toStageDegrees(headingRadians)} listening={false}>
       <Rect
         x={-width / 2 - padding}
         y={-height / 2 - padding}
@@ -286,7 +363,7 @@ function RobotFootprint({
   ];
 
   return (
-    <Group rotation={toStageDegrees(headingRadians)}>
+    <Group rotation={toStageDegrees(headingRadians)} listening={false}>
       <Rect
         x={-width / 2 - halo.padding}
         y={-height / 2 - halo.padding}
@@ -389,3 +466,32 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const selectionStrokeWidthPx = 2.6;
+
+function areWaypointNodePropsEqual(
+  previous: WaypointNodeProps,
+  next: WaypointNodeProps
+): boolean {
+  return (
+    previous.element === next.element &&
+    previous.index === next.index &&
+    previous.selected === next.selected &&
+    previous.dimmed === next.dimmed &&
+    previous.draggable === next.draggable &&
+    previous.headingRadians === next.headingRadians &&
+    previous.handoffRadiusMeters === next.handoffRadiusMeters &&
+    previous.metersToPixels === next.metersToPixels &&
+    previous.onPointerDown === next.onPointerDown &&
+    previous.onDragStart === next.onDragStart &&
+    previous.onDragMove === next.onDragMove &&
+    previous.onDragEnd === next.onDragEnd &&
+    pointsEqual(previous.point, next.point) &&
+    (!next.selected || previous.selectedPulse === next.selectedPulse)
+  );
+}
+
+function pointsEqual(
+  previous: StagePoint,
+  next: StagePoint
+): boolean {
+  return previous.x === next.x && previous.y === next.y;
+}

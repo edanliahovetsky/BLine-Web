@@ -35,8 +35,34 @@ export function PathLayer({
   drag,
   selection
 }: PathLayerProps) {
+  return (
+    <Layer>
+      <PathLayerContent
+        project={project}
+        selectedElementIndex={selectedElementIndex}
+        viewport={viewport}
+        dragPreview={dragPreview}
+        rotationPreview={rotationPreview}
+        selectedPulse={selectedPulse}
+        drag={drag}
+        selection={selection}
+      />
+    </Layer>
+  );
+}
+
+export function PathLayerContent({
+  project,
+  selectedElementIndex,
+  viewport,
+  dragPreview,
+  rotationPreview,
+  selectedPulse,
+  drag,
+  selection
+}: PathLayerProps) {
   if (!project) {
-    return <Layer />;
+    return null;
   }
 
   const elements = project.path.path_elements;
@@ -71,7 +97,7 @@ export function PathLayer({
         ];
 
   return (
-    <Layer>
+    <>
       {elementPoints.length >= 4 ? (
         <>
           <Line
@@ -81,6 +107,7 @@ export function PathLayer({
             lineCap="round"
             lineJoin="round"
             opacity={0.92}
+            listening={false}
           />
           <Line
             points={elementPoints}
@@ -89,6 +116,7 @@ export function PathLayer({
             lineCap="round"
             lineJoin="round"
             opacity={0.94}
+            listening={false}
           />
         </>
       ) : null}
@@ -116,6 +144,6 @@ export function PathLayer({
           />
         );
       })}
-    </Layer>
+    </>
   );
 }

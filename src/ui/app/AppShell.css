@@ -434,11 +434,17 @@ select {
   padding: 6px 14px 6px 10px;
   border: 1px solid rgba(235, 241, 247, 0.08);
   border-radius: 7px;
-  background: rgba(45, 50, 55, 0.54);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(72, 78, 84, 0.72),
+      rgba(36, 41, 46, 0.72)
+    );
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(9px) saturate(1.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+  contain: layout paint style;
 }
 
 .simulation-transport button {
