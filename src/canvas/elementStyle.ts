@@ -12,7 +12,7 @@ export const elementColors = {
   event: "#a78bfa",
   handoff: "#ff5cf4",
   simulation: "#62c7ff",
-  simulationTrail: "#ffb451",
+  simulationTrail: "#62c7ff",
   shadow: "rgba(5, 8, 11, 0.82)"
 };
 
