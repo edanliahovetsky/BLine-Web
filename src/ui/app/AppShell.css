@@ -993,10 +993,10 @@ select {
 .delete-paths-dialog {
   display: grid;
   max-height: calc(100vh - 40px);
-  border: 1px solid #3a4650;
+  border: 1px solid #3f4a55;
   border-radius: 8px;
   color: #eef3f7;
-  background: #1b2024;
+  background: #1a1f24;
   box-shadow: 0 22px 58px rgba(0, 0, 0, 0.56);
 }
 
@@ -1023,22 +1023,23 @@ select {
 
 .config-dialog__header strong {
   font-size: 0.98rem;
+  letter-spacing: 0;
 }
 
 .config-dialog__header {
-  min-height: 44px;
-  padding: 0 12px;
-  border-bottom: 1px solid #303941;
-  background: #20252a;
+  min-height: 46px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid #303a43;
+  background: #20262b;
 }
 
 .config-dialog__body {
   display: grid;
   grid-template-columns: minmax(250px, 0.86fr) minmax(360px, 1.14fr);
-  gap: 16px;
+  gap: 14px;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  padding: 14px;
 }
 
 .config-dialog__section {
@@ -1046,6 +1047,11 @@ select {
   align-content: start;
   gap: 0;
   min-width: 0;
+  overflow: hidden;
+  padding: 10px;
+  border: 1px solid #303a43;
+  border-radius: 8px;
+  background: #20252a;
 }
 
 .config-dialog__section--kinematics {
@@ -1055,7 +1061,7 @@ select {
 
 .config-dialog__section h2 {
   margin: 0;
-  padding: 0 2px 7px;
+  padding: 0 2px 8px;
   border-bottom: 1px solid #333a40;
   color: #f4f7fa;
   font-size: 0.86rem;
@@ -1068,8 +1074,8 @@ select {
   align-items: center;
   gap: 12px;
   min-height: 36px;
-  padding: 5px 2px;
-  border-bottom: 1px solid #282f36;
+  padding: 6px 2px;
+  border-bottom: 1px solid #303840;
 }
 
 .config-dialog__section--kinematics .config-row {
@@ -1088,15 +1094,22 @@ select {
   min-width: 0;
   width: 100%;
   height: 28px;
-  border: 1px solid #3c454e;
+  border: 1px solid #44505b;
   border-radius: 5px;
   color: #f7fafc;
-  background: #14191e;
+  background: #141a20;
 }
 
 .config-row input[type="number"],
 .config-row input[type="text"] {
   padding: 0 8px;
+}
+
+.config-row input:focus-visible,
+.config-row select:focus-visible {
+  border-color: #2f81f7;
+  outline: 1px solid rgba(47, 129, 247, 0.52);
+  outline-offset: 1px;
 }
 
 .config-row input:disabled,
@@ -1122,11 +1135,58 @@ select {
   background: #1d242b;
 }
 
+.config-dialog__header button {
+  --config-close-size: 30px;
+  position: relative;
+  display: grid;
+  flex: 0 0 var(--config-close-size);
+  width: var(--config-close-size);
+  min-width: var(--config-close-size);
+  max-width: var(--config-close-size);
+  height: var(--config-close-size);
+  min-height: var(--config-close-size);
+  max-height: var(--config-close-size);
+  aspect-ratio: 1;
+  align-self: center;
+  overflow: hidden;
+  padding: 0;
+  place-items: center;
+  appearance: none;
+  color: #d5dce3;
+  font-size: 0;
+  line-height: 0;
+}
+
+.config-dialog__header button::before,
+.config-dialog__header button::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.config-dialog__header button::before {
+  transform: rotate(45deg);
+}
+
+.config-dialog__header button::after {
+  transform: rotate(-45deg);
+}
+
+.config-dialog__header button:hover,
+.config-dialog__header button:focus-visible {
+  color: #ffffff;
+  border-color: #475461;
+  background: #28313a;
+}
+
 .config-dialog__footer {
-  min-height: 48px;
-  padding: 8px 12px;
-  border-top: 1px solid #303941;
-  background: #20252a;
+  min-height: 50px;
+  padding: 8px 14px;
+  border-top: 1px solid #303a43;
+  background: #20262b;
 }
 
 .config-dialog__footer button.primary-action {
