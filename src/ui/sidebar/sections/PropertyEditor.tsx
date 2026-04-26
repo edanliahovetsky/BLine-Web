@@ -6,7 +6,7 @@ import {
   isWaypoint,
   type PathElement
 } from "../../../core/model/path";
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon } from "../../icons";
+import { NumberStepperControl, SidebarSelectControl } from "../../controls/SidebarControls";
 import {
   type AddableElementType,
   elementTypeValue,
@@ -97,24 +97,12 @@ function TypeField({
   return (
     <label className="property-row">
       <span>Type</span>
-      <div className="property-select-control">
-        <select
-          aria-label="Type"
-          value={currentType}
-          onChange={(event) =>
-            onChangeType(event.currentTarget.value as AddableElementType)
-          }
-        >
-          {visibleOptions.map((type) => (
-            <option key={type} value={type}>
-              {typeOptionLabel(type)}
-            </option>
-          ))}
-        </select>
-        <span className="property-select-indicator" aria-hidden="true">
-          <ChevronDownIcon size={12} />
-        </span>
-      </div>
+      <SidebarSelectControl
+        ariaLabel="Type"
+        value={currentType}
+        options={visibleOptions.map((type) => ({ label: typeOptionLabel(type), value: type }))}
+        onChange={onChangeType}
+      />
     </label>
   );
 }
@@ -331,34 +319,17 @@ function NumberField({
   max?: number;
   onChange(value: number): void;
 }) {
-  const applyStep = (direction: 1 | -1) => {
-    onChange(stepNumber(value, step, direction, min, max));
-  };
-
   return (
     <label className="property-row">
       <span>{label}</span>
-      <div className="property-number-control">
-        <input
-          aria-label={label}
-          type="number"
-          value={formatNumericValue(value)}
-          step={step}
-          min={min}
-          max={max}
-          onChange={(event) =>
-            onChange(clampToBounds(parseRequiredNumber(event.currentTarget.value), min, max))
-          }
-        />
-        <span className="property-stepper">
-          <button type="button" aria-label="Increase value" title={`Increase ${label}`} onClick={() => applyStep(1)}>
-            <ArrowUpIcon size={12} />
-          </button>
-          <button type="button" aria-label="Decrease value" title={`Decrease ${label}`} onClick={() => applyStep(-1)}>
-            <ArrowDownIcon size={12} />
-          </button>
-        </span>
-      </div>
+      <NumberStepperControl
+        ariaLabel={label}
+        value={value}
+        step={step}
+        min={min}
+        max={max}
+        onChange={(nextValue) => onChange(nextValue ?? 0)}
+      />
     </label>
   );
 }
@@ -374,31 +345,17 @@ function OptionalNumberField({
   step: number;
   onChange(value: number | null): void;
 }) {
-  const applyStep = (direction: 1 | -1) => {
-    onChange(stepNumber(value ?? 0, step, direction, 0));
-  };
-
   return (
     <label className="property-row">
       <span>{label}</span>
-      <div className="property-number-control">
-        <input
-          aria-label={label}
-          type="number"
-          value={value === null ? "" : formatNumericValue(value)}
-          step={step}
-          min={0}
-          onChange={(event) => onChange(parseOptionalNumber(event.currentTarget.value))}
-        />
-        <span className="property-stepper">
-          <button type="button" aria-label="Increase value" title={`Increase ${label}`} onClick={() => applyStep(1)}>
-            <ArrowUpIcon size={12} />
-          </button>
-          <button type="button" aria-label="Decrease value" title={`Decrease ${label}`} onClick={() => applyStep(-1)}>
-            <ArrowDownIcon size={12} />
-          </button>
-        </span>
-      </div>
+      <NumberStepperControl
+        allowEmpty
+        ariaLabel={label}
+        value={value}
+        step={step}
+        min={0}
+        onChange={onChange}
+      />
     </label>
   );
 }
@@ -425,24 +382,6 @@ function BooleanField({
   );
 }
 
-function formatNumericValue(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(3);
-}
-
-function parseRequiredNumber(value: string): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function parseOptionalNumber(value: string): number | null {
-  if (value.trim() === "") {
-    return null;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function radiansToDegrees(radians: number): number {
   return radians * (180 / Math.PI);
 }
@@ -453,29 +392,6 @@ function degreesToRadians(degrees: number): number {
 
 function clamp01(value: number): number {
   return Math.min(Math.max(value, 0), 1);
-}
-
-function clampToBounds(value: number, min?: number, max?: number): number {
-  if (min !== undefined && value < min) {
-    return min;
-  }
-
-  if (max !== undefined && value > max) {
-    return max;
-  }
-
-  return value;
-}
-
-function stepNumber(value: number, step: number, direction: 1 | -1, min?: number, max?: number): number {
-  const precision = decimalPlaces(step);
-  const nextValue = Number((value + step * direction).toFixed(precision));
-  return clampToBounds(nextValue, min, max);
-}
-
-function decimalPlaces(value: number): number {
-  const [, decimals = ""] = String(value).split(".");
-  return decimals.length;
 }
 
 function typeOptionLabel(type: AddableElementType): string {

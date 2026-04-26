@@ -98,7 +98,7 @@ test("adds edits and removes path elements from the inspector", async ({ page })
 
   const typeSelect = page.getByLabel("Type");
   const typeRow = page.locator(".property-row").filter({ has: typeSelect });
-  const typeIndicatorIcon = typeRow.locator(".property-select-indicator svg");
+  const typeIndicatorIcon = typeRow.locator(".sidebar-select-indicator svg");
   await expect(typeIndicatorIcon).toBeVisible();
   expect((await requiredBox(typeIndicatorIcon)).width).toBeGreaterThan(6);
 
@@ -215,7 +215,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 
   await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
-  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.030");
   await page.getByRole("button", { name: "Remove End Translation Tolerance" }).click();
   await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveCount(0);
 
@@ -241,7 +241,18 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
   expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
 
-  await page.getByLabel("Constraint 1 value").fill("2.0");
+  const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
+  const firstConstraintInput = page.getByLabel("Constraint 1 value");
+  const increaseConstraint = firstConstraintRow.getByRole("button", { name: "Increase value" });
+  const decreaseConstraint = firstConstraintRow.getByRole("button", { name: "Decrease value" });
+  await expect(increaseConstraint.locator("svg")).toBeVisible();
+  await expect(decreaseConstraint.locator("svg")).toBeVisible();
+  await increaseConstraint.click();
+  await expect(firstConstraintInput).toHaveValue("4.600");
+  await decreaseConstraint.click();
+  await expect(firstConstraintInput).toHaveValue("4.500");
+
+  await firstConstraintInput.fill("2.0");
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
   ).toContainText("2 m/s");
@@ -278,7 +289,11 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("Add Max Velocity segment in popout", { exact: true })).toHaveCount(0);
-  await expect(dialog.getByLabel("Constraint 2 value")).toHaveValue("2");
+  const dialogConstraintRow = dialog.getByTestId("ranged-constraint-row-2");
+  const dialogConstraintInput = dialog.getByLabel("Constraint 2 value");
+  await expect(dialogConstraintInput).toHaveValue("2");
+  await expect(dialogConstraintRow.getByRole("button", { name: "Increase value" }).locator("svg")).toBeVisible();
+  await expect(dialogConstraintRow.getByRole("button", { name: "Decrease value" }).locator("svg")).toBeVisible();
   await page.getByRole("button", { name: "Close Constraint Editor" }).click();
 
   await page.getByLabel("Delete constraint 2").click();

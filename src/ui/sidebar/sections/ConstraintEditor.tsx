@@ -12,6 +12,7 @@ import {
   type RangedConstraintKey,
 } from '../../../core/model/path';
 import { projectStore } from '../../../state/projectStore';
+import { NumberStepperControl, SidebarActionButton, SidebarIconButton } from '../../controls/SidebarControls';
 import { ElementIcon, PlusIcon, RemoveIcon } from '../../icons';
 import {
   createAddRangedConstraintCommand,
@@ -880,17 +881,16 @@ function SelectedRangedConstraintControls({
       <label className="ranged-constraint-controls__value">
         <span>Value</span>
         <div className="constraint-value-input">
-          <input
-            type="number"
+          <NumberStepperControl
+            ariaLabel={`Constraint ${segmentNumber} value`}
+            value={constraint.value}
+            step={meta.step}
             min={meta.min}
             max={meta.max}
-            step={meta.step}
-            aria-label={`Constraint ${segmentNumber} value`}
-            value={formatInputValue(constraint.value)}
-            onChange={(event) => {
+            onChange={(value) => {
               updateRangedConstraint(project, entry.index, {
                 ...constraint,
-                value: parseNumber(event.target.value, constraint.value),
+                value: value ?? constraint.value,
               });
             }}
           />
@@ -898,43 +898,37 @@ function SelectedRangedConstraintControls({
         </div>
       </label>
       <div className="ranged-constraint-controls__actions">
-        <button
-          type="button"
-          className="constraint-action-button"
+        <SidebarIconButton
           onClick={() => addRangedConstraint(project, constraintKey)}
           disabled={!canAddMoreRanged(project, constraintKey)}
           aria-label={`Add ${meta.label} segment`}
           title="Add segment"
         >
           <PlusIcon size={16} />
-        </button>
-        <button
-          type="button"
-          className="constraint-action-button"
+        </SidebarIconButton>
+        <SidebarIconButton
           onClick={() => deleteRangedConstraint(project, entry.index)}
           aria-label={`Delete constraint ${segmentNumber}`}
+          title={`Delete constraint ${segmentNumber}`}
         >
           <RemoveIcon size={16} />
-        </button>
-        <button
-          type="button"
-          className="constraint-action-button"
+        </SidebarIconButton>
+        <SidebarActionButton
           onClick={() => splitRangedConstraint(project, entry.index)}
           disabled={!canSplit(constraint)}
           aria-label={`Split constraint ${segmentNumber}`}
         >
           Split
-        </button>
+        </SidebarActionButton>
         {onOpenPopout ? (
-          <button
-            type="button"
-            className="constraint-action-button constraint-popout-button"
+          <SidebarActionButton
+            className="constraint-popout-button"
             onClick={onOpenPopout}
             aria-label={`Open ${meta.label} editor`}
             title="Open editor"
           >
             Open
-          </button>
+          </SidebarActionButton>
         ) : null}
       </div>
     </div>
@@ -958,35 +952,33 @@ function ScalarConstraintRow({
         <span>{meta.label}</span>
       </label>
       <div className="constraint-value-input">
-        <input
-          type="number"
+        <NumberStepperControl
+          ariaLabel={meta.label}
+          value={value}
+          step={meta.step}
           min={meta.min}
           max={meta.max}
-          step={meta.step}
-          aria-label={meta.label}
-          value={formatInputValue(value)}
-          onChange={(event) => {
+          onChange={(nextValue) => {
             projectStore.getState().applyCommand(
               createSetScalarConstraintCommand(
                 constraintKey,
                 currentValue,
-                parseNumber(event.target.value, value)
+                nextValue ?? value
               )
             );
           }}
         />
         <span>{meta.unit}</span>
       </div>
-      <button
-        type="button"
-        className="constraint-action-button"
+      <SidebarIconButton
         onClick={() => {
           projectStore.getState().applyCommand(createSetScalarConstraintCommand(constraintKey, currentValue, null));
         }}
         aria-label={`Remove ${meta.label}`}
+        title={`Remove ${meta.label}`}
       >
         <RemoveIcon size={16} />
-      </button>
+      </SidebarIconButton>
     </div>
   );
 }
@@ -1321,19 +1313,10 @@ function constraintIconType(key: ConstraintKey): 'translation' | 'waypoint' | 'r
   return 'translation';
 }
 
-function formatInputValue(value: number): string {
-  return Number.isFinite(value) ? String(value) : '';
-}
-
 function formatValue(value: number): string {
   if (!Number.isFinite(value)) {
     return '0.000';
   }
 
   return Number.isInteger(value) ? String(value) : value.toFixed(3);
-}
-
-function parseNumber(value: string, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
 }

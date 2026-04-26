@@ -630,7 +630,9 @@ select {
 }
 
 .property-row input,
-.property-row select {
+.property-row select,
+.sidebar-number-control input,
+.sidebar-select-control select {
   width: 100%;
   min-width: 0;
   height: 29px;
@@ -645,19 +647,19 @@ select {
   padding: 0 8px;
 }
 
-.property-select-control {
+.sidebar-select-control {
   position: relative;
   width: 100%;
   min-width: 0;
 }
 
-.property-select-control select {
+.sidebar-select-control select {
   padding: 0 30px 0 8px;
   -webkit-appearance: none;
   appearance: none;
 }
 
-.property-select-indicator {
+.sidebar-select-indicator {
   position: absolute;
   top: 1px;
   right: 1px;
@@ -672,20 +674,21 @@ select {
   pointer-events: none;
 }
 
-.property-select-indicator svg {
+.sidebar-select-indicator svg {
   display: block;
   width: 12px;
   height: 12px;
 }
 
-.property-number-control {
+.sidebar-number-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   width: 100%;
   min-width: 0;
 }
 
-.property-number-control input[type="number"] {
+.sidebar-number-control input[type="number"] {
+  padding: 0 8px;
   border-right: 0;
   border-radius: 6px 0 0 6px;
   -moz-appearance: textfield;
@@ -693,14 +696,14 @@ select {
   appearance: textfield;
 }
 
-.property-number-control input[type="number"]::-webkit-inner-spin-button,
-.property-number-control input[type="number"]::-webkit-outer-spin-button {
+.sidebar-number-control input[type="number"]::-webkit-inner-spin-button,
+.sidebar-number-control input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
   -webkit-appearance: none;
   appearance: none;
 }
 
-.property-stepper {
+.sidebar-stepper {
   display: grid;
   min-width: 0;
   overflow-wrap: normal;
@@ -709,7 +712,7 @@ select {
   background: #182028;
 }
 
-.property-stepper button {
+.sidebar-stepper button {
   display: grid;
   width: 22px;
   min-width: 0;
@@ -721,17 +724,17 @@ select {
   background: transparent;
 }
 
-.property-stepper button:first-child {
+.sidebar-stepper button:first-child {
   border-bottom: 1px solid #3b4650;
 }
 
-.property-stepper button:hover,
-.property-stepper button:focus-visible {
+.sidebar-stepper button:hover,
+.sidebar-stepper button:focus-visible {
   color: #ffffff;
   background: #233247;
 }
 
-.property-stepper svg {
+.sidebar-stepper svg {
   display: block;
   width: 12px;
   height: 12px;
@@ -822,7 +825,8 @@ select {
   max-width: 172px;
 }
 
-.constraint-action-button {
+.sidebar-icon-button,
+.sidebar-action-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -838,18 +842,27 @@ select {
   font-weight: 720;
 }
 
-.constraint-action-button:hover:not(:disabled),
-.constraint-action-button:focus-visible {
+.sidebar-icon-button {
+  width: 30px;
+  padding: 0;
+}
+
+.sidebar-icon-button:hover:not(:disabled),
+.sidebar-icon-button:focus-visible,
+.sidebar-action-button:hover:not(:disabled),
+.sidebar-action-button:focus-visible {
   border-color: #4d8fe8;
   background: #213149;
 }
 
-.constraint-action-button:disabled {
+.sidebar-icon-button:disabled,
+.sidebar-action-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
-.constraint-action-button svg {
+.sidebar-icon-button svg,
+.sidebar-action-button svg {
   display: block;
   flex: 0 0 16px;
   width: 16px;
@@ -1026,24 +1039,6 @@ select {
   font-size: 0.67rem;
   font-weight: 740;
   text-transform: uppercase;
-}
-
-.ranged-constraint-controls input,
-.scalar-constraint-row input[type='number'] {
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid #3c454e;
-  border-radius: 6px;
-  color: #f7fafc;
-  background: #14191e;
-}
-
-.ranged-constraint-controls input:disabled,
-.scalar-constraint-row input:disabled {
-  color: #8b98a3;
-  background: #11161a;
 }
 
 .constraint-value-input {
