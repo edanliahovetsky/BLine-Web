@@ -18,6 +18,9 @@ export function ProjectConfigDialog({
   onSave
 }: ProjectConfigDialogProps) {
   const [draft, setDraft] = useState<ProjectConfig>(() => createProjectConfig(config));
+  const protrusionDefaultStateOptions = draft.gui.protrusions.enabled
+    ? ["shown", "hidden"]
+    : [""];
 
   return (
     <div className="config-dialog-backdrop" role="presentation">
@@ -32,170 +35,182 @@ export function ProjectConfigDialog({
         }}
       >
         <header className="config-dialog__header">
-          <strong>Configuration</strong>
+          <strong>Settings</strong>
           <button type="button" aria-label="Close config" onClick={onCancel}>
             x
           </button>
         </header>
 
-        <section className="config-dialog__section">
-          <h2>GUI</h2>
-          <NumberRow
-            label="Robot Length (m)"
-            value={draft.gui.robot.length_meters}
-            min={0.05}
-            max={5}
-            step={0.01}
-            onChange={(value) =>
-              setDraft((current) => ({
-                ...current,
-                gui: {
-                  ...current.gui,
-                  robot: { ...current.gui.robot, length_meters: value }
-                }
-              }))
-            }
-          />
-          <NumberRow
-            label="Robot Width (m)"
-            value={draft.gui.robot.width_meters}
-            min={0.05}
-            max={5}
-            step={0.01}
-            onChange={(value) =>
-              setDraft((current) => ({
-                ...current,
-                gui: {
-                  ...current.gui,
-                  robot: { ...current.gui.robot, width_meters: value }
-                }
-              }))
-            }
-          />
-          <CheckboxRow
-            label="Enable Protrusions"
-            checked={draft.gui.protrusions.enabled}
-            onChange={(checked) =>
-              setDraft((current) => ({
-                ...current,
-                gui: {
-                  ...current.gui,
-                  protrusions: {
-                    ...current.gui.protrusions,
-                    enabled: checked,
-                    default_state: checked
-                      ? current.gui.protrusions.default_state
-                      : ""
+        <div className="config-dialog__body">
+          <section className="config-dialog__section">
+            <h2>Robot</h2>
+            <NumberRow
+              label="Robot Length (m)"
+              value={draft.gui.robot.length_meters}
+              min={0.05}
+              max={5}
+              step={0.01}
+              onChange={(value) =>
+                setDraft((current) => ({
+                  ...current,
+                  gui: {
+                    ...current.gui,
+                    robot: { ...current.gui.robot, length_meters: value }
                   }
-                }
-              }))
-            }
-          />
-          <NumberRow
-            label="Protrusion Distance (m)"
-            value={draft.gui.protrusions.distance_meters}
-            min={0}
-            max={2}
-            step={0.01}
-            disabled={!draft.gui.protrusions.enabled}
-            onChange={(value) => updateProtrusions(setDraft, { distance_meters: value })}
-          />
-          <SelectRow
-            label="Protrusion Side"
-            value={draft.gui.protrusions.side}
-            disabled={!draft.gui.protrusions.enabled}
-            options={["none", "left", "right", "front", "back"]}
-            onChange={(value) =>
-              updateProtrusions(setDraft, { side: value as ProtrusionSide })
-            }
-          />
-          <SelectRow
-            label="Default Protrusion State"
-            value={draft.gui.protrusions.default_state}
-            disabled={!draft.gui.protrusions.enabled}
-            options={["", "shown", "hidden"]}
-            onChange={(value) =>
-              updateProtrusions(setDraft, {
-                default_state: value as ProtrusionState
-              })
-            }
-          />
-          <TextRow
-            label="Show On Event Keys"
-            value={draft.gui.protrusions.show_on_event_keys.join(", ")}
-            disabled={!draft.gui.protrusions.enabled}
-            onChange={(value) =>
-              updateProtrusions(setDraft, {
-                show_on_event_keys: parseKeyList(value)
-              })
-            }
-          />
-          <TextRow
-            label="Hide On Event Keys"
-            value={draft.gui.protrusions.hide_on_event_keys.join(", ")}
-            disabled={!draft.gui.protrusions.enabled}
-            onChange={(value) =>
-              updateProtrusions(setDraft, {
-                hide_on_event_keys: parseKeyList(value)
-              })
-            }
-          />
-        </section>
+                }))
+              }
+            />
+            <NumberRow
+              label="Robot Width (m)"
+              value={draft.gui.robot.width_meters}
+              min={0.05}
+              max={5}
+              step={0.01}
+              onChange={(value) =>
+                setDraft((current) => ({
+                  ...current,
+                  gui: {
+                    ...current.gui,
+                    robot: { ...current.gui.robot, width_meters: value }
+                  }
+                }))
+              }
+            />
+          </section>
 
-        <section className="config-dialog__section">
-          <h2>Kinematic Constraints</h2>
-          <KinematicNumberRow
-            draft={draft}
-            label="Default Max Velocity (m/s)"
-            configKey="default_max_velocity_meters_per_sec"
-            step={0.1}
-            setDraft={setDraft}
-          />
-          <KinematicNumberRow
-            draft={draft}
-            label="Default Max Accel (m/s2)"
-            configKey="default_max_acceleration_meters_per_sec2"
-            step={0.1}
-            setDraft={setDraft}
-          />
-          <KinematicNumberRow
-            draft={draft}
-            label="Default Handoff Radius (m)"
-            configKey="default_intermediate_handoff_radius_meters"
-            step={0.05}
-            setDraft={setDraft}
-          />
-          <KinematicNumberRow
-            draft={draft}
-            label="Default Max Rot Vel (deg/s)"
-            configKey="default_max_velocity_deg_per_sec"
-            step={1}
-            setDraft={setDraft}
-          />
-          <KinematicNumberRow
-            draft={draft}
-            label="Default Max Rot Accel (deg/s2)"
-            configKey="default_max_acceleration_deg_per_sec2"
-            step={1}
-            setDraft={setDraft}
-          />
-          <KinematicNumberRow
-            draft={draft}
-            label="End Translation Tolerance (m)"
-            configKey="default_end_translation_tolerance_meters"
-            max={1}
-            step={0.01}
-            setDraft={setDraft}
-          />
-          <KinematicNumberRow
-            draft={draft}
-            label="End Rotation Tolerance (deg)"
-            configKey="default_end_rotation_tolerance_deg"
-            max={180}
-            step={0.1}
-            setDraft={setDraft}
-          />
-        </section>
+          <section className="config-dialog__section">
+            <h2>Protrusions</h2>
+            <CheckboxRow
+              label="Enable Protrusions"
+              checked={draft.gui.protrusions.enabled}
+              onChange={(checked) =>
+                setDraft((current) => ({
+                  ...current,
+                  gui: {
+                    ...current.gui,
+                    protrusions: {
+                      ...current.gui.protrusions,
+                      enabled: checked,
+                      default_state: checked
+                        ? current.gui.protrusions.default_state || "shown"
+                        : ""
+                    }
+                  }
+                }))
+              }
+            />
+            <NumberRow
+              label="Protrusion Distance (m)"
+              value={draft.gui.protrusions.distance_meters}
+              min={0}
+              max={2}
+              step={0.01}
+              disabled={!draft.gui.protrusions.enabled}
+              onChange={(value) => updateProtrusions(setDraft, { distance_meters: value })}
+            />
+            <SelectRow
+              label="Protrusion Side"
+              value={draft.gui.protrusions.side}
+              disabled={!draft.gui.protrusions.enabled}
+              options={["none", "left", "right", "front", "back"]}
+              onChange={(value) =>
+                updateProtrusions(setDraft, { side: value as ProtrusionSide })
+              }
+            />
+            <SelectRow
+              label="Default Protrusion State"
+              value={
+                draft.gui.protrusions.enabled
+                  ? draft.gui.protrusions.default_state || "shown"
+                  : ""
+              }
+              disabled={!draft.gui.protrusions.enabled}
+              options={protrusionDefaultStateOptions}
+              onChange={(value) =>
+                updateProtrusions(setDraft, {
+                  default_state: value as ProtrusionState
+                })
+              }
+            />
+            <TextRow
+              label="Show On Event Keys"
+              value={draft.gui.protrusions.show_on_event_keys.join(", ")}
+              disabled={!draft.gui.protrusions.enabled}
+              placeholder="event_a, event_b"
+              onChange={(value) =>
+                updateProtrusions(setDraft, {
+                  show_on_event_keys: parseKeyList(value)
+                })
+              }
+            />
+            <TextRow
+              label="Hide On Event Keys"
+              value={draft.gui.protrusions.hide_on_event_keys.join(", ")}
+              disabled={!draft.gui.protrusions.enabled}
+              placeholder="event_a, event_b"
+              onChange={(value) =>
+                updateProtrusions(setDraft, {
+                  hide_on_event_keys: parseKeyList(value)
+                })
+              }
+            />
+          </section>
+
+          <section className="config-dialog__section config-dialog__section--kinematics">
+            <h2>Kinematics</h2>
+            <KinematicNumberRow
+              draft={draft}
+              label="Default Max Velocity (m/s)"
+              configKey="default_max_velocity_meters_per_sec"
+              step={0.1}
+              setDraft={setDraft}
+            />
+            <KinematicNumberRow
+              draft={draft}
+              label="Default Max Accel (m/s2)"
+              configKey="default_max_acceleration_meters_per_sec2"
+              step={0.1}
+              setDraft={setDraft}
+            />
+            <KinematicNumberRow
+              draft={draft}
+              label="Default Handoff Radius (m)"
+              configKey="default_intermediate_handoff_radius_meters"
+              step={0.05}
+              setDraft={setDraft}
+            />
+            <KinematicNumberRow
+              draft={draft}
+              label="Default Max Rot Vel (deg/s)"
+              configKey="default_max_velocity_deg_per_sec"
+              step={1}
+              setDraft={setDraft}
+            />
+            <KinematicNumberRow
+              draft={draft}
+              label="Default Max Rot Accel (deg/s2)"
+              configKey="default_max_acceleration_deg_per_sec2"
+              step={1}
+              setDraft={setDraft}
+            />
+            <KinematicNumberRow
+              draft={draft}
+              label="End Translation Tolerance (m)"
+              configKey="default_end_translation_tolerance_meters"
+              max={1}
+              step={0.01}
+              setDraft={setDraft}
+            />
+            <KinematicNumberRow
+              draft={draft}
+              label="End Rotation Tolerance (deg)"
+              configKey="default_end_rotation_tolerance_deg"
+              max={180}
+              step={0.1}
+              setDraft={setDraft}
+            />
+          </section>
+        </div>
 
         <footer className="config-dialog__footer">
           <button type="button" onClick={onCancel}>
@@ -279,7 +294,9 @@ function NumberRow({
         step={step}
         disabled={disabled}
         value={formatNumber(value)}
-        onChange={(event) => onChange(parseNumber(event.currentTarget.value, value))}
+        onChange={(event) =>
+          onChange(parseNumber(event.currentTarget.value, value, min, max))
+        }
       />
     </label>
   );
@@ -343,11 +360,13 @@ function TextRow({
   label,
   value,
   disabled = false,
+  placeholder,
   onChange
 }: {
   label: string;
   value: string;
   disabled?: boolean;
+  placeholder?: string;
   onChange(value: string): void;
 }) {
   return (
@@ -357,6 +376,7 @@ function TextRow({
         aria-label={label}
         type="text"
         disabled={disabled}
+        placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
@@ -384,11 +404,14 @@ function parseKeyList(value: string): string[] {
   return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))];
 }
 
-function parseNumber(value: string, fallback: number): number {
+function parseNumber(value: string, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
 }
 
 function formatNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(3);
+  return Number.isInteger(value) ? String(value) : value.toFixed(4);
 }

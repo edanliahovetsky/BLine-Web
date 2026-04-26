@@ -4,7 +4,7 @@ test("boots the Phase 1 shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "BLine Web" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Top menu" })).toBeVisible();
   await expect(page.getByLabel("Editor canvas")).toBeVisible();
   await expect(page.getByTestId("path-stage")).toBeVisible();
   await expect(page.getByText("Current Path: Phase 1 Canvas Draft")).toBeVisible();
@@ -45,7 +45,7 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 450, height: 900 });
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "BLine Web" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
 
   const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
   const stageBox = await requiredBox(page.getByTestId("path-stage"));
@@ -191,6 +191,7 @@ test("edits project config with undo support", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
   await page.getByLabel("Robot Length (m)").fill("0.825");
   await page.getByLabel("Enable Protrusions").check();
+  await expect(page.getByLabel("Default Protrusion State")).toHaveValue("shown");
   await page.getByLabel("Protrusion Side").selectOption("front");
   await page.getByLabel("Show On Event Keys").fill("intake, deploy");
   await page.getByRole("button", { name: "OK" }).click();
@@ -198,9 +199,99 @@ test("edits project config with undo support", async ({ page }) => {
 
   await page.getByRole("button", { name: "Undo" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.500");
+  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.5000");
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
   await page.getByRole("button", { name: "Close config" }).click();
+});
+
+test("exposes PySide-equivalent top menu commands", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Project" }).click();
+  await expect(page.getByTestId("top-menu-project")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Open Project..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import Project..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Export Project..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Recent Projects" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Path" }).click();
+  await expect(page.getByTestId("top-menu-path")).toBeVisible();
+  await expect(page.getByText("Current: Phase 1 Canvas Draft")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Load Path" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Create New Path" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Save Path As..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Rename Path..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Delete Paths..." })).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByTestId("top-menu-edit")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Undo Ctrl+Z" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Redo Ctrl+Y" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
+  await page.getByRole("button", { name: "Close config" }).click();
+});
+
+test("keeps top dropdowns streamlined with flyout path lists", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Project" }).click();
+  const projectMenu = page.getByTestId("top-menu-project");
+  await expect(projectMenu).toBeVisible();
+  expect((await requiredBox(projectMenu)).width).toBeLessThanOrEqual(260);
+
+  await page.getByRole("menuitem", { name: "Recent Projects" }).click();
+  const recentMenu = page.getByTestId("top-menu-project-recent");
+  await expect(recentMenu).toBeVisible();
+  expect((await requiredBox(recentMenu)).width).toBeLessThanOrEqual(285);
+
+  await page.getByRole("button", { name: "Path" }).click();
+  const pathMenu = page.getByTestId("top-menu-path");
+  await expect(pathMenu).toBeVisible();
+  expect((await requiredBox(pathMenu)).width).toBeLessThanOrEqual(270);
+
+  await page.getByRole("menuitem", { name: "Load Path" }).click();
+  const loadPathMenu = page.getByTestId("top-menu-path-load");
+  await expect(loadPathMenu).toBeVisible();
+  expect((await requiredBox(loadPathMenu)).width).toBeLessThanOrEqual(285);
+});
+
+test("opens settings from a narrow portrait top bar", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
+});
+
+test("selects and deletes a saved path without crashing", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  await page.getByRole("button", { name: "New" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("menuitem", { name: "Delete Paths..." }).click();
+  await expect(page.getByRole("dialog", { name: "Delete Paths" })).toBeVisible();
+
+  await page.getByRole("checkbox", { name: "Phase 1 Canvas Draft" }).check();
+  await expect(page.getByRole("button", { name: "Delete Selected" })).toBeEnabled();
+  await page.getByRole("button", { name: "Delete Selected" }).click();
+
+  await expect(page.getByRole("dialog", { name: "Delete Paths" })).toHaveCount(0);
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("menuitem", { name: "Load Path" }).click();
+  await expect(page.getByTestId("top-menu-path-load")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Phase 1 Canvas Draft" })).toHaveCount(0);
 });
 
 test("creates saves and reloads a local project", async ({ page }) => {
