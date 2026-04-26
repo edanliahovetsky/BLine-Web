@@ -504,6 +504,9 @@ function SimulationTransport({
       <span className="transport-time" data-testid="simulation-time">
         {safeCurrent.toFixed(2)} / {total.toFixed(2)} s
       </span>
+      <span className="transport-elapsed" aria-hidden="true">
+        {safeCurrent.toFixed(2)}s
+      </span>
       <div className="transport-timeline">
         <input
           aria-label="Simulation time"
