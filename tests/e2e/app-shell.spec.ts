@@ -188,19 +188,44 @@ test("edits project config with undo support", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  const saveButton = dialog.getByRole("button", { name: "Save" });
+  await expect(dialog).toBeVisible();
+  await expect(saveButton).toBeDisabled();
+  await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
+  await expect(dialog.getByLabel("Protrusion Side")).toBeDisabled();
   await page.getByLabel("Robot Length (m)").fill("0.825");
+  await expect(saveButton).toBeEnabled();
   await page.getByLabel("Enable Protrusions").check();
+  await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeEnabled();
+  await expect(dialog.getByLabel("Protrusion Side")).toBeEnabled();
   await expect(page.getByLabel("Default Protrusion State")).toHaveValue("shown");
   await page.getByLabel("Protrusion Side").selectOption("front");
   await page.getByLabel("Show On Event Keys").fill("intake, deploy");
-  await page.getByRole("button", { name: "OK" }).click();
+  await saveButton.click();
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 
   await page.getByRole("button", { name: "Undo" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.5000");
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
+  await page.getByRole("button", { name: "Close config" }).click();
+});
+
+test("cancels project config edits with Escape", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await expect(dialog).toBeVisible();
+  await page.getByLabel("Robot Width (m)").fill("0.725");
+  await expect(dialog.getByRole("button", { name: "Save" })).toBeEnabled();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.5000");
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
