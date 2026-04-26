@@ -59,6 +59,95 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   expect(stageBox.height).toBeLessThan(650);
 });
 
+test("keeps dense sidebar content inside the viewport without horizontal sidebar scroll", async ({ page }) => {
+  for (const viewport of [
+    { width: 390, height: 900 },
+    { width: 1200, height: 900 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+
+    for (let index = 0; index < 5; index += 1) {
+      await page.getByText("Add element").click();
+      await page.getByRole("menuitem", { name: "Waypoint" }).click();
+    }
+
+    await page.getByText("Add constraint").click();
+    await page.getByRole("menuitem", { name: "Max Rot Acceleration" }).click();
+
+    const metrics = await page.evaluate(() => {
+      const documentScroller = document.scrollingElement ?? document.documentElement;
+      const sidebar = document.querySelector(".inspector-sidebar");
+      const valueControl = document.querySelector(
+        ".ranged-constraint-controls .sidebar-number-control"
+      );
+      const valueInput = document.querySelector<HTMLInputElement>(
+        ".ranged-constraint-controls input[type='number']"
+      );
+      const actionButtons = Array.from(
+        document.querySelectorAll(".ranged-constraint-controls__actions button")
+      );
+
+      if (!sidebar || !valueControl || !valueInput || actionButtons.length !== 4) {
+        throw new Error("Expected dense sidebar ranged controls to be present");
+      }
+
+      const sidebarBox = sidebar.getBoundingClientRect();
+      const valueBox = valueControl.getBoundingClientRect();
+      const childBoxes = Array.from(sidebar.children).map((child) => {
+        const rect = child.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          scrollWidth: child.scrollWidth,
+          clientWidth: child.clientWidth
+        };
+      });
+      const actionButtonBoxes = actionButtons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return {
+          top: rect.top,
+          bottom: rect.bottom
+        };
+      });
+
+      return {
+        viewportWidth: window.innerWidth,
+        documentClientWidth: documentScroller.clientWidth,
+        documentScrollWidth: documentScroller.scrollWidth,
+        sidebarClientWidth: sidebar.clientWidth,
+        sidebarScrollWidth: sidebar.scrollWidth,
+        sidebarLeft: sidebarBox.left,
+        sidebarRight: sidebarBox.right,
+        childBoxes,
+        valueControlBottom: valueBox.bottom,
+        valueInputClientWidth: valueInput.clientWidth,
+        valueInputScrollWidth: valueInput.scrollWidth,
+        actionButtonBoxes
+      };
+    });
+
+    expect(metrics.documentScrollWidth).toBeLessThanOrEqual(metrics.documentClientWidth + 1);
+    expect(metrics.sidebarScrollWidth).toBeLessThanOrEqual(metrics.sidebarClientWidth + 1);
+    expect(metrics.sidebarLeft).toBeGreaterThanOrEqual(-1);
+    expect(metrics.sidebarRight).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+
+    for (const childBox of metrics.childBoxes) {
+      expect(childBox.left).toBeGreaterThanOrEqual(-1);
+      expect(childBox.right).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+      expect(childBox.scrollWidth).toBeLessThanOrEqual(childBox.clientWidth + 1);
+    }
+
+    for (const actionButtonBox of metrics.actionButtonBoxes) {
+      expect(Math.abs(actionButtonBox.bottom - metrics.valueControlBottom)).toBeLessThanOrEqual(1);
+    }
+
+    expect(metrics.valueInputScrollWidth).toBeLessThanOrEqual(
+      metrics.valueInputClientWidth + 1
+    );
+  }
+});
+
 test("plays and seeks the simulation transport", async ({ page }) => {
   await page.goto("/");
 
