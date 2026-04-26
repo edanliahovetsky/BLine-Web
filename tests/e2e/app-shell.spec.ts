@@ -30,18 +30,16 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   });
 
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
-  await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: TranslationTarget #1 1.20, 1.10 m"
-  );
+  const selectionContext = page.getByTestId("sidebar-selection-context");
+  await expect(selectionContext).toContainText("1. Translation");
+  await expect(selectionContext).toContainText("1.20, 1.10 m");
 
   await page.mouse.move(firstAnchor.x, firstAnchor.y);
   await page.mouse.down();
   await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, { steps: 8 });
   await page.mouse.up();
 
-  await expect(page.getByTestId("selected-element-status")).not.toContainText(
-    "1.20, 1.10 m"
-  );
+  await expect(selectionContext).not.toContainText("1.20, 1.10 m");
   await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
 });
 
@@ -250,8 +248,8 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
   await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
-  await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: Waypoint #6"
+  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
+    "6. Waypoint"
   );
 
   const typeSelect = page.getByLabel("Type");
@@ -401,8 +399,8 @@ test("drags path elements in the inspector while preserving selection", async ({
   await page.goto("/");
 
   await page.getByTestId("path-element-row-3").click();
-  await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: EventTrigger #4"
+  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
+    "4. Event Trigger"
   );
 
   const sourceBox = await requiredBox(page.getByTestId("path-element-row-3"));
@@ -418,8 +416,8 @@ test("drags path elements in the inspector while preserving selection", async ({
     "2. Event Trigger"
   );
   await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
-  await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: EventTrigger #2"
+  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
+    "2. Event Trigger"
   );
 });
 
@@ -453,8 +451,8 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
 test("keeps rotation handles hidden until an element is selected", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: none"
+  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
+    "No element selected"
   );
 
   const canvas = page.getByTestId("path-stage-canvas");
@@ -468,8 +466,8 @@ test("keeps rotation handles hidden until an element is selected", async ({ page
   await page.mouse.move(center.x + 42, center.y, { steps: 8 });
   await page.mouse.up();
 
-  await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: none"
+  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
+    "No element selected"
   );
 });
 
@@ -616,8 +614,8 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
 
   await expect(dialog).toBeVisible();
-  await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: TranslationTarget #1"
+  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
+    "1. Translation"
   );
   await expect(dialog.getByTestId("ranged-constraint-row-1")).toHaveCount(0);
 
