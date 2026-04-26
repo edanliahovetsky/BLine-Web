@@ -58,6 +58,7 @@ export function SimulationLayer({
   const triangleSize = Math.min(robotBounds.width, robotBounds.height) * 0.28;
   const triangleOffset = robotBounds.width * 0.26;
   const cornerRadius = Math.max(4, Math.min(robotBounds.width, robotBounds.height) * 0.08);
+  const robotHalo = robotHaloMetrics(robotBounds.width, robotBounds.height);
 
   return (
     <Layer listening={false}>
@@ -89,13 +90,13 @@ export function SimulationLayer({
           opacity={0.95}
         >
           <Rect
-            x={robotBounds.x - 3}
-            y={robotBounds.y - 3}
-            width={robotBounds.width + 6}
-            height={robotBounds.height + 6}
-            cornerRadius={cornerRadius + 2}
+            x={robotBounds.x - robotHalo.padding}
+            y={robotBounds.y - robotHalo.padding}
+            width={robotBounds.width + robotHalo.padding * 2}
+            height={robotBounds.height + robotHalo.padding * 2}
+            cornerRadius={cornerRadius + robotHalo.padding * 0.7}
             stroke={elementColors.shadow}
-            strokeWidth={6}
+            strokeWidth={robotHalo.strokeWidth}
             fill="rgba(5, 8, 11, 0.3)"
             lineJoin="round"
           />
@@ -177,6 +178,19 @@ function getRobotBounds({
     width: xMax - xMin,
     height: yMax - yMin
   };
+}
+
+function robotHaloMetrics(width: number, height: number) {
+  const footprintSize = Math.min(width, height);
+
+  return {
+    padding: clamp(footprintSize * 0.08, 1.4, 3),
+    strokeWidth: clamp(footprintSize * 0.12, 2.2, 5)
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function poseAtOrBefore(result: SimResult, timeS: number) {

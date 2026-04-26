@@ -63,6 +63,7 @@ export function WaypointNode({
   const rectHeight = robotWidthMeters * metersToPixels;
   const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 1.65);
   const selectionPadding = Math.max(6, outlineWidth / 2 + 5);
+  const nodeHaloThickness = clampedElementHaloThickness(circleRadius);
   const handoffRadius = handoffRadiusMeters
     ? Math.max(8, handoffRadiusMeters * metersToPixels)
     : null;
@@ -110,7 +111,10 @@ export function WaypointNode({
               opacity={selectionOpacity}
             />
           ) : null}
-          <Circle radius={circleRadius + 4} fill="rgba(5, 8, 11, 0.72)" />
+          <Circle
+            radius={circleRadius + nodeHaloThickness}
+            fill="rgba(5, 8, 11, 0.72)"
+          />
           <Circle
             radius={circleRadius}
             fill={elementColors.translation}
@@ -271,6 +275,7 @@ function RobotFootprint({
   const triangleLength = Math.min(width, height) * triangleSizeRatio;
   const halfTriangleHeight = triangleLength / 2;
   const cornerRadius = robotCornerRadius(width, height);
+  const halo = robotHaloMetrics(width, height);
   const trianglePoints = [
     triangleLength / 2,
     0,
@@ -283,13 +288,13 @@ function RobotFootprint({
   return (
     <Group rotation={toStageDegrees(headingRadians)}>
       <Rect
-        x={-width / 2 - 3}
-        y={-height / 2 - 3}
-        width={width + 6}
-        height={height + 6}
-        cornerRadius={cornerRadius + 2}
+        x={-width / 2 - halo.padding}
+        y={-height / 2 - halo.padding}
+        width={width + halo.padding * 2}
+        height={height + halo.padding * 2}
+        cornerRadius={cornerRadius + halo.padding * 0.7}
         stroke="rgba(5, 8, 11, 0.82)"
-        strokeWidth={outlineWidth + 4}
+        strokeWidth={halo.strokeWidth}
         fill="rgba(5, 8, 11, 0.28)"
         lineJoin="round"
       />
@@ -364,6 +369,23 @@ function toStageDegrees(radians: number | null): number {
 
 function robotCornerRadius(width: number, height: number): number {
   return Math.max(3, Math.min(width, height) * 0.08);
+}
+
+function robotHaloMetrics(width: number, height: number) {
+  const footprintSize = Math.min(width, height);
+
+  return {
+    padding: clamp(footprintSize * 0.08, 1.4, 3),
+    strokeWidth: clamp(footprintSize * 0.12, 2.2, 5)
+  };
+}
+
+function clampedElementHaloThickness(radius: number): number {
+  return clamp(radius * 0.35, 2.25, 4);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 const selectionStrokeWidthPx = 2.6;
