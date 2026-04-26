@@ -30,6 +30,7 @@ import {
 } from "../geometry";
 
 const constraintHighlightColor = "#15c915";
+const constraintPathHighlightStrokeWidthPx = 4;
 
 export function ConstraintRangeHighlightContent({
   project,
@@ -72,7 +73,6 @@ export function ConstraintRangeHighlightContent({
   }
 
   const points = covered.flatMap(({ point }) => [point.x, point.y]);
-  const strokeWidth = Math.max(6, viewport.scale * 0.05);
 
   return (
     <>
@@ -80,7 +80,7 @@ export function ConstraintRangeHighlightContent({
         <Line
           points={points}
           stroke={constraintHighlightColor}
-          strokeWidth={strokeWidth}
+          strokeWidth={constraintPathHighlightStrokeWidthPx}
           lineCap="round"
           lineJoin="round"
           opacity={0.96}
@@ -159,7 +159,7 @@ function ConstraintStartElementHighlight({
         points={eventTriggerPoints(metersToPixels)}
         rotation={toStageDegrees(headingRadians)}
         stroke={constraintHighlightColor}
-        strokeWidth={Math.max(6, metersToPixels * 0.05)}
+        strokeWidth={constraintPathHighlightStrokeWidthPx}
         lineCap="round"
         listening={false}
       />
