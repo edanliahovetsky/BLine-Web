@@ -5,8 +5,6 @@ import { createPortal } from "react-dom";
 import { PathStage } from "../../canvas/PathStage";
 import { createProjectDocument, type ProjectDocument } from "../../core/io/projectSchema";
 import { createPathModel } from "../../core/model/path";
-import { getElementPosition } from "../../canvas/geometry";
-import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import {
   detectEnvironmentCapabilities,
   type EnvironmentCapabilities
@@ -482,20 +480,20 @@ export function AppShell() {
     setShowConfigDialog(false);
   }, []);
 
-  const selectedElement =
-    project && selectedElementIndex !== null
-      ? project.path.path_elements[selectedElementIndex]
-      : null;
-  const selectedPosition =
-    project && selectedElementIndex !== null
-      ? getElementPosition(project.path.path_elements, selectedElementIndex)
-      : null;
-  const selectedSummary =
-    selectedElement && selectedElementIndex !== null
-      ? `Selected: ${getElementLabel(selectedElement)} #${selectedElementIndex + 1} ${formatPointMeters(selectedPosition)}`
-      : "Selected: none";
+  const currentPathSummary = `Current Path: ${project ? pathDisplayName(project) : "No path"}`;
+  const currentProjectSummary = `Current Project: ${
+    project?.display_name ?? "No project"
+  }`;
   const storageLabel = capabilities.shell === "tauri" ? "Tauri local" : "Browser local";
   const saveStatus = formatSaveStatus({
+    autosaveStatus,
+    dirty,
+    error,
+    initializing,
+    lastSavedAt,
+    status
+  });
+  const saveStatusTone = getSaveStatusTone({
     autosaveStatus,
     dirty,
     error,
@@ -763,13 +761,43 @@ export function AppShell() {
         <Sidebar project={project} selectedElementIndex={selectedElementIndex} />
       </div>
 
-      <footer className="status-bar">
-        <span data-testid="current-path-status">
-          Current Path: {project?.display_name ?? "No project"}
-        </span>
-        <span data-testid="selected-element-status">{selectedSummary}</span>
-        <span data-testid="storage-status">{storageLabel}</span>
-        <span data-testid="save-status">{saveStatus}</span>
+      <footer className="status-bar" aria-label="Workspace status">
+        <div className="status-bar__context">
+          <span
+            className="status-bar__item status-bar__item--path"
+            data-testid="current-path-status"
+            title={currentPathSummary}
+          >
+            <span className="status-bar__marker" aria-hidden="true" />
+            <span className="status-bar__text">{currentPathSummary}</span>
+          </span>
+          <span
+            className="status-bar__item status-bar__item--project"
+            data-testid="current-project-status"
+            title={currentProjectSummary}
+          >
+            <span className="status-bar__marker" aria-hidden="true" />
+            <span className="status-bar__text">{currentProjectSummary}</span>
+          </span>
+        </div>
+        <div className="status-bar__system">
+          <span
+            className="status-bar__item status-bar__item--storage"
+            data-testid="storage-status"
+            title={storageLabel}
+          >
+            <span className="status-bar__marker" aria-hidden="true" />
+            <span className="status-bar__text">{storageLabel}</span>
+          </span>
+          <span
+            className={`status-bar__item status-bar__item--save status-bar__save--${saveStatusTone}`}
+            data-testid="save-status"
+            title={saveStatus}
+          >
+            <span className="status-bar__marker" aria-hidden="true" />
+            <span className="status-bar__text">{saveStatus}</span>
+          </span>
+        </div>
       </footer>
 
       {project && showConfigDialog ? (
@@ -1184,6 +1212,34 @@ function formatSaveStatus({
   }
 
   return lastSavedAt ? `Saved ${formatTimestamp(lastSavedAt)}` : "Saved";
+}
+
+type SaveStatusTone = "danger" | "loading" | "pending" | "saved" | "saving";
+
+function getSaveStatusTone({
+  autosaveStatus,
+  dirty,
+  error,
+  initializing,
+  status
+}: SaveStatusInput): SaveStatusTone {
+  if (initializing || status === "loading") {
+    return "loading";
+  }
+
+  if ((status === "error" && error) || autosaveStatus === "error") {
+    return "danger";
+  }
+
+  if (status === "saving" || autosaveStatus === "saving") {
+    return "saving";
+  }
+
+  if (dirty) {
+    return "pending";
+  }
+
+  return "saved";
 }
 
 function createBlankPathProject({
