@@ -45,6 +45,7 @@ export function NumberStepperControl({
   min,
   max,
   allowEmpty = false,
+  disabled = false,
   onChange
 }: {
   ariaLabel: string;
@@ -53,6 +54,7 @@ export function NumberStepperControl({
   min?: number;
   max?: number;
   allowEmpty?: boolean;
+  disabled?: boolean;
   onChange(value: number | null): void;
 }) {
   const applyStep = (direction: 1 | -1) => {
@@ -60,7 +62,7 @@ export function NumberStepperControl({
   };
 
   return (
-    <div className="sidebar-number-control">
+    <div className={`sidebar-number-control${disabled ? " is-disabled" : ""}`}>
       <input
         aria-label={ariaLabel}
         type="number"
@@ -68,6 +70,7 @@ export function NumberStepperControl({
         step={step}
         min={min}
         max={max}
+        disabled={disabled}
         onChange={(event) => {
           const parsed = parseNumberInput(event.currentTarget.value, allowEmpty);
           onChange(parsed === null ? null : clampToBounds(parsed, min, max));
@@ -78,6 +81,7 @@ export function NumberStepperControl({
           type="button"
           aria-label="Increase value"
           title={`Increase ${ariaLabel}`}
+          disabled={disabled}
           onClick={() => applyStep(1)}
         >
           <ArrowUpIcon size={12} />
@@ -86,6 +90,7 @@ export function NumberStepperControl({
           type="button"
           aria-label="Decrease value"
           title={`Decrease ${ariaLabel}`}
+          disabled={disabled}
           onClick={() => applyStep(-1)}
         >
           <ArrowDownIcon size={12} />

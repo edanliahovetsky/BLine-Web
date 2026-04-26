@@ -11,6 +11,7 @@ import {
   type ProtrusionSide,
   type ProtrusionState
 } from "../../core/config/projectConfig";
+import { NumberStepperControl } from "../controls/SidebarControls";
 
 interface ProjectConfigDialogProps {
   config: ProjectConfig;
@@ -329,17 +330,14 @@ function NumberRow({
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
-      <input
-        aria-label={label}
-        type="number"
+      <NumberStepperControl
+        ariaLabel={label}
+        value={value}
         min={min}
         max={max}
         step={step}
         disabled={disabled}
-        value={formatNumber(value)}
-        onChange={(event) =>
-          onChange(parseNumber(event.currentTarget.value, value, min, max))
-        }
+        onChange={(nextValue) => onChange(nextValue ?? value)}
       />
     </label>
   );
@@ -448,18 +446,6 @@ function updateProtrusions(
 
 function parseKeyList(value: string): string[] {
   return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))];
-}
-
-function parseNumber(value: string, fallback: number, min: number, max: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(max, Math.max(min, parsed));
-}
-
-function formatNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(4);
 }
 
 function configsEqual(left: ProjectConfig, right: ProjectConfig): boolean {

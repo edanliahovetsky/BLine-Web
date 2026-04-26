@@ -1148,6 +1148,23 @@ select {
   background: #233247;
 }
 
+.sidebar-number-control.is-disabled .sidebar-stepper {
+  border-color: #333c45;
+  background: #11171d;
+  opacity: 0.72;
+}
+
+.sidebar-stepper button:disabled {
+  cursor: not-allowed;
+  color: #84919c;
+}
+
+.sidebar-stepper button:disabled:hover,
+.sidebar-stepper button:disabled:focus-visible {
+  color: #84919c;
+  background: transparent;
+}
+
 .sidebar-stepper svg {
   display: block;
   width: 12px;
@@ -1772,6 +1789,15 @@ select {
 .config-row input[type="number"],
 .config-row input[type="text"] {
   padding: 0 8px;
+}
+
+.config-row .sidebar-number-control {
+  min-width: 0;
+}
+
+.config-row .sidebar-number-control input[type="number"] {
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
 }
 
 .config-row input:not([type="checkbox"]):focus-visible,
