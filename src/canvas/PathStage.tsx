@@ -306,7 +306,6 @@ export function PathStage() {
     }
 
     event.cancelBubble = true;
-    selectionStore.getState().selectElement(index, project);
     const startRadians =
       getElementHeadingRadians(project.path.path_elements, index) ?? 0;
     setActiveRotationDrag({
@@ -326,14 +325,16 @@ export function PathStage() {
     }
 
     event.cancelBubble = true;
+    const dragTarget = event.currentTarget;
+    const pointer = dragTarget.getStage()?.getPointerPosition() ?? {
+      x: dragTarget.x(),
+      y: dragTarget.y()
+    };
     const nextRadians = rotationFromStagePoint(
       project,
       index,
       viewport,
-      {
-        x: event.target.x(),
-        y: event.target.y()
-      }
+      pointer
     );
     if (nextRadians === null) {
       return;
@@ -341,7 +342,7 @@ export function PathStage() {
 
     const handlePoint = rotationHandlePoint(project, index, viewport, nextRadians);
     if (handlePoint) {
-      event.target.position(handlePoint);
+      dragTarget.position(handlePoint);
     }
 
     setActiveRotationDrag({
@@ -361,14 +362,17 @@ export function PathStage() {
     }
 
     event.cancelBubble = true;
+    const dragTarget = event.currentTarget;
+    const pointer = dragTarget.getStage()?.getPointerPosition() ?? {
+      x: dragTarget.x(),
+      y: dragTarget.y()
+    };
     const nextRadians =
-      rotationFromStagePoint(project, index, viewport, {
-        x: event.target.x(),
-        y: event.target.y()
-      }) ?? rotationDrag.currentRadians;
+      rotationFromStagePoint(project, index, viewport, pointer) ??
+      rotationDrag.currentRadians;
     const handlePoint = rotationHandlePoint(project, index, viewport, nextRadians);
     if (handlePoint) {
-      event.target.position(handlePoint);
+      dragTarget.position(handlePoint);
     }
     setActiveRotationDrag(null);
 
@@ -383,7 +387,10 @@ export function PathStage() {
           )
         );
       selectionStore.getState().selectElement(index, projectStore.getState().project);
+      return;
     }
+
+    selectionStore.getState().selectElement(index, project);
   };
 
   return (
@@ -430,6 +437,7 @@ export function PathStage() {
           <RotationHandleLayer
             project={project}
             selectedElementIndex={selectedElementIndex}
+            activeRotationElementIndex={activeRotationDrag?.index ?? null}
             viewport={viewport}
             positionPreview={drag.dragPreview}
             rotationPreview={rotationPreview}

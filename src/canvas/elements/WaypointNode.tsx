@@ -17,6 +17,7 @@ import {
   isWaypoint,
   type PathElement
 } from "../../core/model/path";
+import { elementColors } from "../elementStyle";
 
 type CanvasPointerEvent = KonvaEventObject<MouseEvent | TouchEvent | PointerEvent>;
 type CanvasDragEvent = KonvaEventObject<DragEvent>;
@@ -55,12 +56,13 @@ export function WaypointNode({
   onDragEnd
 }: WaypointNodeProps) {
   const selectionStroke = selected ? elementColors.selected : undefined;
-  const selectionOpacity = 0.5 + selectedPulse * 0.36;
-  const selectionWidth = 2 + selectedPulse * 1.6;
+  const selectionOpacity = 0.46 + selectedPulse * 0.34;
+  const selectionWidth = selectionStrokeWidthPx;
   const circleRadius = metersToVisiblePixels(elementCircleRadiusMeters, metersToPixels, 7);
   const rectWidth = robotLengthMeters * metersToPixels;
   const rectHeight = robotWidthMeters * metersToPixels;
   const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 1.65);
+  const selectionPadding = Math.max(6, outlineWidth / 2 + 5);
   const handoffRadius = handoffRadiusMeters
     ? Math.max(8, handoffRadiusMeters * metersToPixels)
     : null;
@@ -132,6 +134,8 @@ export function WaypointNode({
               stroke={selectionStroke}
               opacity={selectionOpacity}
               strokeWidth={selectionWidth}
+              padding={selectionPadding}
+              outlineWidth={outlineWidth}
             />
           ) : null}
           <RobotFootprint
@@ -155,6 +159,8 @@ export function WaypointNode({
               stroke={selectionStroke}
               opacity={selectionOpacity}
               strokeWidth={selectionWidth}
+              padding={selectionPadding}
+              outlineWidth={outlineWidth}
             />
           ) : null}
           <RobotFootprint
@@ -175,7 +181,7 @@ export function WaypointNode({
               points={eventTriggerPoints(metersToPixels, 8)}
               rotation={toStageDegrees(headingRadians)}
               stroke={selectionStroke}
-              strokeWidth={selectionWidth + 5}
+              strokeWidth={selectionWidth + 4}
               opacity={selectionOpacity}
               lineCap="round"
             />
@@ -212,7 +218,9 @@ function SelectionFootprint({
   headingRadians,
   stroke,
   opacity,
-  strokeWidth
+  strokeWidth,
+  padding,
+  outlineWidth
 }: {
   width: number;
   height: number;
@@ -220,18 +228,26 @@ function SelectionFootprint({
   stroke: string | undefined;
   opacity: number;
   strokeWidth: number;
+  padding: number;
+  outlineWidth: number;
 }) {
+  const cornerRadius = robotCornerRadius(width, height) + padding + outlineWidth * 0.12;
+
   return (
     <Group rotation={toStageDegrees(headingRadians)}>
       <Rect
-        x={-width / 2 - 7}
-        y={-height / 2 - 7}
-        width={width + 14}
-        height={height + 14}
-        cornerRadius={Math.max(3, Math.min(width, height) * 0.06)}
+        x={-width / 2 - padding}
+        y={-height / 2 - padding}
+        width={width + padding * 2}
+        height={height + padding * 2}
+        cornerRadius={cornerRadius}
         stroke={stroke}
         strokeWidth={strokeWidth}
         opacity={opacity}
+        lineJoin="round"
+        shadowColor={stroke}
+        shadowBlur={8}
+        shadowOpacity={0.28}
       />
     </Group>
   );
@@ -254,7 +270,7 @@ function RobotFootprint({
 }) {
   const triangleLength = Math.min(width, height) * triangleSizeRatio;
   const halfTriangleHeight = triangleLength / 2;
-  const cornerRadius = Math.max(3, Math.min(width, height) * 0.08);
+  const cornerRadius = robotCornerRadius(width, height);
   const trianglePoints = [
     triangleLength / 2,
     0,
@@ -346,11 +362,8 @@ function toStageDegrees(radians: number | null): number {
   return radians === null ? 0 : -radians * (180 / Math.PI);
 }
 
-const elementColors = {
-  selected: "#ff8a3d",
-  translation: "#58a6ff",
-  waypoint: "#ff9f43",
-  rotation: "#6bdc8b",
-  event: "#a78bfa",
-  handoff: "#ff5cf4"
-};
+function robotCornerRadius(width: number, height: number): number {
+  return Math.max(3, Math.min(width, height) * 0.08);
+}
+
+const selectionStrokeWidthPx = 2.6;

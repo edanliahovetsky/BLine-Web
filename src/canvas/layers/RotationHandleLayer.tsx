@@ -1,7 +1,9 @@
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Circle, Layer, Line } from "react-konva";
+import { useState } from "react";
+import { Circle, Group, Layer, Line } from "react-konva";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import { isRotationTarget, isWaypoint } from "../../core/model/path";
+import { elementColors, rotatableElementAccent } from "../elementStyle";
 import {
   getElementHeadingRadians,
   getElementPosition,
@@ -16,6 +18,7 @@ type RotationDragEvent = KonvaEventObject<DragEvent>;
 interface RotationHandleLayerProps {
   project: ProjectDocument | null;
   selectedElementIndex: number | null;
+  activeRotationElementIndex: number | null;
   viewport: FieldViewport;
   positionPreview: PositionOverrides;
   rotationPreview: RotationOverrides;
@@ -27,6 +30,7 @@ interface RotationHandleLayerProps {
 export function RotationHandleLayer({
   project,
   selectedElementIndex,
+  activeRotationElementIndex,
   viewport,
   positionPreview,
   rotationPreview,
@@ -34,66 +38,102 @@ export function RotationHandleLayer({
   onRotationDragMove,
   onRotationDragEnd
 }: RotationHandleLayerProps) {
-  if (!project || selectedElementIndex === null) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  if (!project) {
     return <Layer />;
   }
 
   const elements = project.path.path_elements;
-  const element = elements[selectedElementIndex];
-  if (!element || (!isWaypoint(element) && !isRotationTarget(element))) {
-    return <Layer />;
-  }
+  const handles = elements.flatMap((element, index) => {
+    if (!isWaypoint(element) && !isRotationTarget(element)) {
+      return [];
+    }
 
-  const position = getElementPosition(elements, selectedElementIndex, positionPreview);
-  const rotationRadians = getElementHeadingRadians(
-    elements,
-    selectedElementIndex,
-    rotationPreview
-  );
+    const position = getElementPosition(elements, index, positionPreview);
+    const rotationRadians = getElementHeadingRadians(elements, index, rotationPreview);
+    if (!position || rotationRadians === null) {
+      return [];
+    }
 
-  if (!position || rotationRadians === null) {
-    return <Layer />;
-  }
+    const center = modelToStagePoint(position, viewport);
+    const radius = rotationHandleRadius(viewport);
+    const handle = {
+      x: center.x + Math.cos(rotationRadians) * radius,
+      y: center.y - Math.sin(rotationRadians) * radius
+    };
 
-  const center = modelToStagePoint(position, viewport);
-  const radius = Math.max(42, Math.min(64, viewport.scale * 0.36));
-  const handle = {
-    x: center.x + Math.cos(rotationRadians) * radius,
-    y: center.y - Math.sin(rotationRadians) * radius
-  };
+    return [
+      {
+        accent: rotatableElementAccent(element),
+        center,
+        handle,
+        index,
+        isPrimary:
+          index === selectedElementIndex ||
+          index === activeRotationElementIndex ||
+          index === hoveredIndex
+      }
+    ];
+  });
 
   return (
     <Layer>
-      <Line
-        points={[center.x, center.y, handle.x, handle.y]}
-        stroke="rgba(5, 8, 11, 0.82)"
-        strokeWidth={6}
-        lineCap="round"
-        listening={false}
-      />
-      <Line
-        points={[center.x, center.y, handle.x, handle.y]}
-        stroke="rgba(255, 138, 61, 0.7)"
-        strokeWidth={2}
-        lineCap="round"
-        listening={false}
-      />
-      <Circle
-        x={handle.x}
-        y={handle.y}
-        radius={10}
-        fill="rgba(15, 18, 21, 0.92)"
-        stroke="#ff8a3d"
-        strokeWidth={2}
-        shadowColor="rgba(255, 138, 61, 0.45)"
-        shadowBlur={6}
-        shadowOpacity={0.7}
-        draggable={true}
-        data-testid="rotation-handle"
-        onDragStart={(event) => onRotationDragStart(selectedElementIndex, event)}
-        onDragMove={(event) => onRotationDragMove(selectedElementIndex, event)}
-        onDragEnd={(event) => onRotationDragEnd(selectedElementIndex, event)}
-      />
+      {handles.map(({ accent, center, handle, index, isPrimary }) => {
+        const passiveOpacity = selectedElementIndex === null ? 0.66 : 0.48;
+        const opacity = isPrimary ? 1 : passiveOpacity;
+        const connectorWidth = isPrimary ? 2.2 : 1.35;
+        const handleRadius = isPrimary ? 10 : 8.5;
+
+        return (
+          <Group key={index}>
+            <Line
+              points={[center.x, center.y, handle.x, handle.y]}
+              stroke={elementColors.shadow}
+              strokeWidth={isPrimary ? 6 : 4}
+              lineCap="round"
+              opacity={isPrimary ? 0.78 : 0.38}
+              listening={false}
+            />
+            <Line
+              points={[center.x, center.y, handle.x, handle.y]}
+              stroke={accent}
+              strokeWidth={connectorWidth}
+              lineCap="round"
+              opacity={isPrimary ? 0.86 : 0.42}
+              listening={false}
+            />
+            <Circle
+              x={handle.x}
+              y={handle.y}
+              radius={handleRadius}
+              fill="rgba(15, 18, 21, 0.94)"
+              stroke={accent}
+              strokeWidth={2}
+              hitStrokeWidth={24}
+              shadowColor={accent}
+              shadowBlur={isPrimary ? 7 : 4}
+              shadowOpacity={isPrimary ? 0.54 : 0.28}
+              draggable={true}
+              opacity={opacity}
+              data-testid={
+                index === selectedElementIndex
+                  ? "rotation-handle"
+                  : `rotation-handle-${index}`
+              }
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex((current) => (current === index ? null : current))}
+              onDragStart={(event) => onRotationDragStart(index, event)}
+              onDragMove={(event) => onRotationDragMove(index, event)}
+              onDragEnd={(event) => onRotationDragEnd(index, event)}
+            />
+          </Group>
+        );
+      })}
     </Layer>
   );
+}
+
+function rotationHandleRadius(viewport: FieldViewport): number {
+  return Math.max(42, Math.min(64, viewport.scale * 0.36));
 }

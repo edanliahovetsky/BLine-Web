@@ -102,10 +102,11 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       }
 
       event.cancelBubble = true;
+      const dragTarget = event.currentTarget;
       let nextPosition = stageToModelPoint(
         {
-          x: event.target.x(),
-          y: event.target.y()
+          x: dragTarget.x(),
+          y: dragTarget.y()
         },
         viewport
       );
@@ -129,7 +130,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       }
 
       const nextStagePoint = modelToStagePoint(nextPosition, viewport);
-      event.target.position(nextStagePoint);
+      dragTarget.position(nextStagePoint);
 
       setActiveDrag({
         ...drag,
@@ -149,10 +150,11 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       }
 
       event.cancelBubble = true;
+      const dragTarget = event.currentTarget;
       let nextPosition = stageToModelPoint(
         {
-          x: event.target.x(),
-          y: event.target.y()
+          x: dragTarget.x(),
+          y: dragTarget.y()
         },
         viewport
       );
@@ -176,7 +178,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       }
 
       const nextStagePoint = modelToStagePoint(nextPosition, viewport);
-      event.target.position(nextStagePoint);
+      dragTarget.position(nextStagePoint);
       setActiveDrag(null);
 
       if (drag.startRatio !== null && nextRatio !== null) {

@@ -2,6 +2,7 @@ import { Circle, Group, Layer, Line, Rect } from "react-konva";
 import type { ProjectConfig } from "../../core/io/projectSchema";
 import type { SimResult } from "../../core/sim";
 import { modelToStagePoint, type FieldViewport } from "../geometry";
+import { elementColors } from "../elementStyle";
 
 interface SimulationLayerProps {
   result: SimResult | null;
@@ -54,36 +55,63 @@ export function SimulationLayer({
     protrusionDistancePx: (protrusions?.distance_meters ?? 0) * viewport.scale,
     protrusionSide: protrusions?.side ?? "none"
   });
-  const triangleSize = Math.min(robotBounds.width, robotBounds.height) * 0.3;
-  const triangleOffset = robotBounds.width * 0.3;
+  const triangleSize = Math.min(robotBounds.width, robotBounds.height) * 0.28;
+  const triangleOffset = robotBounds.width * 0.26;
+  const cornerRadius = Math.max(4, Math.min(robotBounds.width, robotBounds.height) * 0.08);
 
   return (
     <Layer listening={false}>
       {trailPoints.length >= 4 ? (
-        <Line
-          points={trailPoints}
-          stroke="#ffa500"
-          strokeWidth={3}
-          lineCap="round"
-          lineJoin="round"
-          opacity={0.88}
-        />
+        <>
+          <Line
+            points={trailPoints}
+            stroke={elementColors.shadow}
+            strokeWidth={7}
+            lineCap="round"
+            lineJoin="round"
+            opacity={0.7}
+          />
+          <Line
+            points={trailPoints}
+            stroke={elementColors.simulationTrail}
+            strokeWidth={2.6}
+            lineCap="round"
+            lineJoin="round"
+            opacity={0.92}
+          />
+        </>
       ) : null}
       {robotVisible && robotPoint && pose ? (
         <Group
           x={robotPoint.x}
           y={robotPoint.y}
           rotation={-pose[2] * (180 / Math.PI)}
-          opacity={0.92}
+          opacity={0.95}
         >
+          <Rect
+            x={robotBounds.x - 3}
+            y={robotBounds.y - 3}
+            width={robotBounds.width + 6}
+            height={robotBounds.height + 6}
+            cornerRadius={cornerRadius + 2}
+            stroke={elementColors.shadow}
+            strokeWidth={6}
+            fill="rgba(5, 8, 11, 0.3)"
+            lineJoin="round"
+          />
           <Rect
             x={robotBounds.x}
             y={robotBounds.y}
             width={robotBounds.width}
             height={robotBounds.height}
-            stroke="#050505"
-            strokeWidth={Math.max(1.5, viewport.scale * 0.03)}
-            fill="rgba(255, 165, 0, 0.47)"
+            cornerRadius={cornerRadius}
+            stroke={elementColors.simulation}
+            strokeWidth={2.4}
+            fill="rgba(98, 199, 255, 0.13)"
+            lineJoin="round"
+            shadowColor={elementColors.simulation}
+            shadowBlur={6}
+            shadowOpacity={0.34}
           />
           <Line
             points={[
@@ -95,11 +123,18 @@ export function SimulationLayer({
               -triangleSize / 2
             ]}
             closed={true}
-            fill="#ffffff"
-            stroke="#050505"
-            strokeWidth={Math.max(1, viewport.scale * 0.02)}
+            fill="rgba(98, 199, 255, 0.38)"
+            stroke={elementColors.simulation}
+            strokeWidth={1.9}
+            lineJoin="round"
           />
-          <Circle radius={Math.max(2.5, viewport.scale * 0.035)} fill="#ffffff" opacity={0.86} />
+          <Circle
+            radius={Math.max(2.5, Math.min(robotBounds.width, robotBounds.height) * 0.08)}
+            fill="rgba(5, 8, 11, 0.36)"
+            stroke={elementColors.simulation}
+            strokeWidth={1.5}
+            opacity={0.94}
+          />
         </Group>
       ) : null}
     </Layer>
