@@ -24,7 +24,9 @@ import {
   createSplitRangedConstraintCommand,
   createUpdatePathElementCommand,
   createUpdateRangedConstraintCommand,
+  getAddableElementTypes,
   getInsertionIndex,
+  getSwitchableElementTypes,
   updateWaypoint
 } from "../../../src/ui/sidebar/sidebarCommands";
 
@@ -91,9 +93,53 @@ describe("sidebar commands", () => {
   it("keeps rotation-domain insertions between translation anchors", () => {
     const project = exampleProject();
 
+    expect(getAddableElementTypes(project)).toEqual([
+      "waypoint",
+      "translation",
+      "rotation",
+      "event_trigger"
+    ]);
     expect(getInsertionIndex(project, "rotation", null)).toBe(1);
     expect(getInsertionIndex(project, "event_trigger", 1)).toBe(1);
     expect(getInsertionIndex(project, "waypoint", 1)).toBe(2);
+  });
+
+  it("hides rotation-domain additions until two anchors exist", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [createTranslationTarget({ x_meters: 1, y_meters: 1 })]
+      })
+    });
+
+    expect(getAddableElementTypes(project)).toEqual(["waypoint", "translation"]);
+    expect(createDefaultElement(project, "event_trigger", 0).type).toBe("translation");
+  });
+
+  it("limits endpoint type switches to anchor elements", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createWaypoint({
+            translation_target: createTranslationTarget({ x_meters: 2, y_meters: 2 })
+          }),
+          createTranslationTarget({ x_meters: 4, y_meters: 4 })
+        ]
+      })
+    });
+
+    expect(getSwitchableElementTypes(project, 0)).toEqual(["translation", "waypoint"]);
+    expect(getSwitchableElementTypes(project, 1)).toEqual([
+      "translation",
+      "waypoint",
+      "rotation",
+      "event_trigger"
+    ]);
+    expect(createConvertedElement(project, 0, "rotation")).toBeNull();
   });
 
   it("remaps ranged constraints when path structure changes", () => {

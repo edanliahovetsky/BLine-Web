@@ -15,6 +15,7 @@ import {
   createRemovePathElementCommand,
   createUpdatePathElementCommand,
   getInsertionIndex,
+  getSwitchableElementTypes,
   type AddableElementType
 } from "./sidebarCommands";
 
@@ -69,10 +70,15 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       return;
     }
 
+    const nextSelection = selectionAfterMove(
+      selectedElementIndex,
+      fromIndex,
+      toIndex
+    );
     projectStore
       .getState()
       .applyCommand(createMovePathElementCommand(fromIndex, toIndex));
-    selectionStore.getState().selectElement(toIndex, projectStore.getState().project);
+    selectionStore.getState().selectElement(nextSelection, projectStore.getState().project);
   };
 
   const handleChangeElementType = (type: AddableElementType) => {
@@ -131,12 +137,41 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       <PropertyEditor
         element={selectedElement}
         selectedElementIndex={selectedElementIndex}
+        typeOptions={
+          project && selectedElementIndex !== null
+            ? getSwitchableElementTypes(project, selectedElementIndex)
+            : []
+        }
         onChangeType={handleChangeElementType}
         onUpdateElement={handleUpdateElement}
       />
       <ConstraintEditor project={project} />
     </aside>
   );
+}
+
+function selectionAfterMove(
+  selectedElementIndex: number | null,
+  fromIndex: number,
+  toIndex: number
+): number | null {
+  if (selectedElementIndex === null) {
+    return null;
+  }
+
+  if (selectedElementIndex === fromIndex) {
+    return toIndex;
+  }
+
+  if (fromIndex < selectedElementIndex && selectedElementIndex <= toIndex) {
+    return selectedElementIndex - 1;
+  }
+
+  if (toIndex <= selectedElementIndex && selectedElementIndex < fromIndex) {
+    return selectedElementIndex + 1;
+  }
+
+  return selectedElementIndex;
 }
 
 function nextSelectionAfterRemoval(

@@ -84,6 +84,10 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 test("adds edits and removes path elements from the inspector", async ({ page }) => {
   await page.goto("/");
 
+  const addElementIcon = page.getByTestId("add-element-icon");
+  await expect(addElementIcon).toBeVisible();
+  expect((await requiredBox(addElementIcon)).width).toBeGreaterThanOrEqual(24);
+
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
@@ -92,9 +96,29 @@ test("adds edits and removes path elements from the inspector", async ({ page })
     "Selected: Waypoint #6"
   );
 
-  await page.getByLabel("X (m)").fill("6.25");
+  const typeSelect = page.getByLabel("Type");
+  const typeRow = page.locator(".property-row").filter({ has: typeSelect });
+  const typeIndicatorIcon = typeRow.locator(".sidebar-select-indicator svg");
+  await expect(typeIndicatorIcon).toBeVisible();
+  expect((await requiredBox(typeIndicatorIcon)).width).toBeGreaterThan(6);
+
+  const xInput = page.getByRole("spinbutton", { name: "X (m)" });
+  await xInput.fill("6.25");
   await page.getByLabel("Y (m)").fill("3.75");
   await page.getByLabel("Rotation (deg)").fill("45");
+
+  const xRow = page.locator(".property-row").filter({ has: xInput });
+  const increaseX = xRow.getByRole("button", { name: "Increase value" });
+  const decreaseX = xRow.getByRole("button", { name: "Decrease value" });
+  await expect(increaseX.locator("svg")).toBeVisible();
+  await expect(decreaseX.locator("svg")).toBeVisible();
+  expect((await requiredBox(increaseX.locator("svg"))).width).toBeGreaterThan(6);
+  expect((await requiredBox(decreaseX.locator("svg"))).width).toBeGreaterThan(6);
+
+  await increaseX.click();
+  await expect(xInput).toHaveValue("6.300");
+  await decreaseX.click();
+  await expect(xInput).toHaveValue("6.250");
 
   await expect(page.getByTestId("path-element-row-5")).toContainText("6.25, 3.75 m");
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
@@ -107,7 +131,17 @@ test("adds edits and removes path elements from the inspector", async ({ page })
 test("reorders and converts path elements from the inspector", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Move Waypoint 3 down" }).click();
+  await expect(page.getByRole("button", { name: "Move Waypoint 3 down" })).toHaveCount(0);
+
+  const sourceBox = await requiredBox(page.getByTestId("path-element-row-2"));
+  const targetBox = await requiredBox(page.getByTestId("path-element-row-3"));
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 8
+  });
+  await page.mouse.up();
+
   await expect(page.getByTestId("path-element-row-2")).toContainText(
     "3. Event Trigger"
   );
@@ -121,6 +155,32 @@ test("reorders and converts path elements from the inspector", async ({ page }) 
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByTestId("path-element-row-3")).toContainText("4. Waypoint");
+});
+
+test("drags path elements in the inspector while preserving selection", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("path-element-row-3").click();
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: EventTrigger #4"
+  );
+
+  const sourceBox = await requiredBox(page.getByTestId("path-element-row-3"));
+  const targetBox = await requiredBox(page.getByTestId("path-element-row-1"));
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 8
+  });
+  await page.mouse.up();
+
+  await expect(page.getByTestId("path-element-row-1")).toContainText(
+    "2. Event Trigger"
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: EventTrigger #2"
+  );
 });
 
 test("rotates selected elements with the canvas handle", async ({ page }) => {
@@ -154,6 +214,16 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.goto("/");
 
   await page.getByText("Add constraint").click();
+  await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.030");
+  await page.getByRole("button", { name: "Remove End Translation Tolerance" }).click();
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveCount(0);
+
+  const addConstraintIcon = page.getByTestId("add-constraint-icon");
+  await expect(addConstraintIcon).toBeVisible();
+  expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(24);
+
+  await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "Max Velocity" }).click();
 
   await expect(
@@ -163,25 +233,133 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
   ).toContainText("4.500 m/s");
 
-  await page.getByLabel("Add Max Velocity segment").click();
   await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
+  const addSegmentIcon = page.getByLabel("Add Max Velocity segment").locator("svg");
+  const deleteSegmentIcon = page.getByLabel("Delete constraint 1").locator("svg");
+  await expect(addSegmentIcon).toBeVisible();
+  await expect(deleteSegmentIcon).toBeVisible();
+  await expect(page.getByLabel("Add Max Velocity segment")).toHaveCSS("color", "rgb(88, 166, 255)");
+  await expect(page.getByLabel("Delete constraint 1")).toHaveCSS("color", "rgb(255, 77, 77)");
+  expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
+  expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
 
-  await page.getByLabel("Constraint 1 value").fill("2.0");
+  const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
+  const firstConstraintInput = page.getByLabel("Constraint 1 value");
+  const firstConstraintStepper = firstConstraintRow.locator(".sidebar-number-control");
+  await expect(firstConstraintStepper).toBeVisible();
+  expect((await requiredBox(firstConstraintStepper)).width).toBeLessThan(120);
+  const increaseConstraint = firstConstraintRow.getByRole("button", { name: "Increase value" });
+  const decreaseConstraint = firstConstraintRow.getByRole("button", { name: "Decrease value" });
+  await expect(increaseConstraint.locator("svg")).toBeVisible();
+  await expect(decreaseConstraint.locator("svg")).toBeVisible();
+  await increaseConstraint.click();
+  await expect(firstConstraintInput).toHaveValue("4.600");
+  await decreaseConstraint.click();
+  await expect(firstConstraintInput).toHaveValue("4.500");
+
+  await firstConstraintInput.fill("2.0");
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
   ).toContainText("2 m/s");
-  await page.getByLabel("Constraint 1 end ordinal").fill("2");
+
+  const firstCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1");
+  const secondCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2");
+  const firstRange = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  const firstBox = await requiredBox(firstCell);
+  const secondBox = await requiredBox(secondCell);
+  await page.mouse.move(firstBox.x + firstBox.width - 2, firstBox.y + firstBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, {
+    steps: 6
+  });
+  await page.mouse.up();
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+  ).toContainText("2 m/s");
+  await expect(firstRange).toContainText("T1-W1");
+  expect((await requiredBox(firstRange)).width).toBeGreaterThan(firstBox.width * 1.6);
+
+  await page.getByRole("button", { name: "Split constraint 1" }).click();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
   ).toContainText("2 m/s");
 
-  await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
-  await expect(page.getByRole("dialog", { name: "Max Velocity editor" })).toBeVisible();
-  await page.getByRole("button", { name: "Close Max Velocity editor" }).click();
+  await page.getByLabel("Add Max Velocity segment").click();
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3")
+  ).toContainText("4.500 m/s");
 
-  await page.getByLabel("Delete constraint 1").click();
-  await expect(page.getByTestId("ranged-constraint-row-0")).toHaveCount(1);
+  await page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2").click();
+  await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
+  const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Add Max Velocity segment in popout", { exact: true })).toHaveCount(0);
+  const dialogConstraintRow = dialog.getByTestId("ranged-constraint-row-2");
+  const dialogConstraintInput = dialog.getByLabel("Constraint 2 value");
+  const dialogConstraintStepper = dialogConstraintRow.locator(".sidebar-number-control");
+  await expect(dialogConstraintInput).toHaveValue("2");
+  await expect(dialogConstraintStepper).toBeVisible();
+  expect((await requiredBox(dialogConstraintStepper)).width).toBeLessThan(120);
+  await expect(dialogConstraintRow.getByRole("button", { name: "Increase value" }).locator("svg")).toBeVisible();
+  await expect(dialogConstraintRow.getByRole("button", { name: "Decrease value" }).locator("svg")).toBeVisible();
+  await page.getByRole("button", { name: "Close Constraint Editor" }).click();
+
+  await page.getByLabel("Delete constraint 2").click();
+  await expect(
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+  ).toContainText("Open");
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
+});
+
+test("keeps the constraint editor movable and modeless", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByText("Add constraint").click();
+  await page.getByRole("menuitem", { name: "Max Velocity" }).click();
+  await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("aria-modal", "false");
+  const closeButton = page.getByRole("button", { name: "Close Constraint Editor" });
+  await expect(closeButton.locator("svg")).toBeVisible();
+  const closeButtonBox = await requiredBox(closeButton);
+  expect(Math.abs(closeButtonBox.width - closeButtonBox.height)).toBeLessThanOrEqual(1);
+
+  const initialDialogBox = await requiredBox(dialog);
+  const dragHandle = page.getByTestId("constraint-popout-drag-handle");
+  await expect(dragHandle).toBeVisible();
+  const edgeDragStart = {
+    x: initialDialogBox.x + 6,
+    y: initialDialogBox.y + 6
+  };
+  await page.mouse.move(edgeDragStart.x, edgeDragStart.y);
+  await page.mouse.down();
+  await page.mouse.move(edgeDragStart.x - 120, edgeDragStart.y + 70, {
+    steps: 8
+  });
+  await page.mouse.up();
+
+  const movedDialogBox = await requiredBox(dialog);
+  expect(movedDialogBox.x).toBeLessThan(initialDialogBox.x - 40);
+  expect(movedDialogBox.y).toBeGreaterThan(initialDialogBox.y + 40);
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 1.2,
+    y_meters: 1.1
+  });
+  await page.mouse.click(firstAnchor.x, firstAnchor.y);
+
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId("selected-element-status")).toContainText(
+    "Selected: TranslationTarget #1"
+  );
+
+  await dialog.getByLabel("Constraint 1 value").fill("3.25");
+  await expect(
+    dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+  ).toContainText("3.250 m/s");
 });
 
 test("edits project config with undo support", async ({ page }) => {

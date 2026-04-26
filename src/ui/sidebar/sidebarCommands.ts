@@ -17,6 +17,7 @@ import {
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
+  countAnchorElements,
   isAnchorElement,
   isEventTrigger,
   isRotationTarget,
@@ -34,6 +35,38 @@ import {
 import type { HistoryCommand } from "../../state/historyStore";
 
 export type AddableElementType = PathElement["type"];
+
+export const addableElementTypes: readonly AddableElementType[] = [
+  "waypoint",
+  "translation",
+  "rotation",
+  "event_trigger"
+];
+
+export function getAddableElementTypes(project: ProjectDocument): AddableElementType[] {
+  const anchorCount = countAnchorElements(project.path.path_elements);
+  if (anchorCount < 2) {
+    return ["waypoint", "translation"];
+  }
+
+  return [...addableElementTypes];
+}
+
+export function getSwitchableElementTypes(
+  project: ProjectDocument,
+  index: number
+): AddableElementType[] {
+  if (index < 0 || index >= project.path.path_elements.length) {
+    return [];
+  }
+
+  const isEndpoint = index === 0 || index === project.path.path_elements.length - 1;
+  if (isEndpoint) {
+    return ["translation", "waypoint"];
+  }
+
+  return ["translation", "waypoint", "rotation", "event_trigger"];
+}
 
 export function createInsertPathElementCommand(
   index: number,
@@ -223,6 +256,70 @@ export function createUpdateRangedConstraintCommand(
   };
 }
 
+export function createUpdateRangedConstraintsCommand(
+  updates: Array<{ index: number; previous: RangedConstraint; next: RangedConstraint }>
+): HistoryCommand<ProjectDocument> {
+  return {
+    description: `Update ${updates.length} ranged constraints`,
+    apply: (project) => {
+      const nextProject = structuredClone(project);
+      for (const update of updates) {
+        if (
+          update.index >= 0 &&
+          update.index < nextProject.path.ranged_constraints.length
+        ) {
+          nextProject.path.ranged_constraints[update.index] = structuredClone(update.next);
+          nextProject.path.constraints[update.next.key] = null;
+        }
+      }
+      return nextProject;
+    },
+    revert: (project) => {
+      const nextProject = structuredClone(project);
+      for (const update of updates) {
+        if (
+          update.index >= 0 &&
+          update.index < nextProject.path.ranged_constraints.length
+        ) {
+          nextProject.path.ranged_constraints[update.index] = structuredClone(update.previous);
+          nextProject.path.constraints[update.previous.key] = null;
+        }
+      }
+      return nextProject;
+    }
+  };
+}
+
+export function createInsertRangedConstraintCommand(
+  constraint: RangedConstraint
+): HistoryCommand<ProjectDocument> {
+  let insertedIndex: number | null = null;
+
+  return {
+    description: `Insert ranged ${constraint.key}`,
+    apply: (project) => {
+      const nextProject = structuredClone(project);
+      nextProject.path.ranged_constraints.push(structuredClone(constraint));
+      insertedIndex = nextProject.path.ranged_constraints.length - 1;
+      nextProject.path.constraints[constraint.key] = null;
+      return nextProject;
+    },
+    revert: (project) => {
+      const nextProject = structuredClone(project);
+      const index =
+        insertedIndex !== null
+          ? insertedIndex
+          : nextProject.path.ranged_constraints.findIndex((candidate) =>
+              sameRangedConstraint(candidate, constraint)
+            );
+      if (index >= 0 && index < nextProject.path.ranged_constraints.length) {
+        nextProject.path.ranged_constraints.splice(index, 1);
+      }
+      return nextProject;
+    }
+  };
+}
+
 export function createRemoveRangedConstraintCommand(
   index: number,
   constraint: RangedConstraint
@@ -273,12 +370,14 @@ export function createDefaultElement(
   type: AddableElementType,
   selectedIndex: number | null
 ): PathElement {
+  const resolvedType =
+    getAddableElementTypes(project).includes(type) ? type : "translation";
   const position = defaultPosition(project, selectedIndex);
   const headingRadians = selectedIndex === null
     ? 0
     : (getElementHeadingRadians(project.path.path_elements, selectedIndex) ?? 0);
 
-  if (type === "translation") {
+  if (resolvedType === "translation") {
     return createTranslationTarget({
       x_meters: position.x_meters,
       y_meters: position.y_meters,
@@ -286,7 +385,7 @@ export function createDefaultElement(
     });
   }
 
-  if (type === "waypoint") {
+  if (resolvedType === "waypoint") {
     return createWaypoint({
       translation_target: createTranslationTarget({
         x_meters: position.x_meters,
@@ -300,7 +399,7 @@ export function createDefaultElement(
     });
   }
 
-  if (type === "rotation") {
+  if (resolvedType === "rotation") {
     return createRotationTarget({
       rotation_radians: headingRadians,
       t_ratio: 0.5
@@ -320,6 +419,10 @@ export function createConvertedElement(
 ): PathElement | null {
   const element = project.path.path_elements[index];
   if (!element || element.type === nextType) {
+    return null;
+  }
+
+  if (!getSwitchableElementTypes(project, index).includes(nextType)) {
     return null;
   }
 
@@ -602,6 +705,18 @@ function replaceRangedConstraint(
     nextProject.path.constraints[constraint.key] = null;
   }
   return nextProject;
+}
+
+function sameRangedConstraint(
+  candidate: RangedConstraint,
+  target: RangedConstraint
+): boolean {
+  return (
+    candidate.key === target.key &&
+    candidate.value === target.value &&
+    candidate.start_ordinal === target.start_ordinal &&
+    candidate.end_ordinal === target.end_ordinal
+  );
 }
 
 function defaultPosition(

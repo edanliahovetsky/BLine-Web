@@ -1,12 +1,18 @@
+import { useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
-import type { PathElement } from "../../../core/model/path";
 import { formatPointMeters } from "../../../canvas/modelSync";
+import {
+  ElementIcon,
+  GripIcon,
+  RemoveIcon
+} from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
 import {
   canMovePathElement,
   elementTypeLabel,
   elementTypeValue,
+  getAddableElementTypes,
   type AddableElementType
 } from "../sidebarCommands";
 
@@ -28,12 +34,71 @@ export function ElementList({
   onMoveElement
 }: ElementListProps) {
   const elements = project?.path.path_elements ?? [];
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const suppressClickRef = useRef(false);
+  const addableTypes = project ? getAddableElementTypes(project) : [];
+
+  const handleMouseDown = (event: MouseEvent<HTMLButtonElement>, index: number) => {
+    if (!project || event.button !== 0) {
+      return;
+    }
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let active = false;
+    let currentDropIndex: number | null = null;
+
+    const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
+      const movement = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
+      if (!active && movement < 5) {
+        return;
+      }
+
+      if (!active) {
+        active = true;
+        suppressClickRef.current = true;
+        setDragIndex(index);
+      }
+
+      const nextDropIndex = getDropIndexFromPoint(moveEvent.clientX, moveEvent.clientY);
+      currentDropIndex =
+        nextDropIndex !== null && canMovePathElement(project, index, nextDropIndex)
+          ? nextDropIndex
+          : null;
+      setDragOverIndex(currentDropIndex);
+    };
+
+    const handleMouseUp = (upEvent: globalThis.MouseEvent) => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      setDragIndex(null);
+      setDragOverIndex(null);
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+
+      if (!active || currentDropIndex === null || !canMovePathElement(project, index, currentDropIndex)) {
+        return;
+      }
+
+      upEvent.preventDefault();
+      onMoveElement(index, currentDropIndex);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
 
   return (
     <section className="inspector-section path-elements-section">
       <header className="inspector-section__header">
         <h2>Path Elements</h2>
-        <AddElementMenu disabled={!project} onAdd={onAddElement} />
+        <AddElementMenu
+          disabled={!project}
+          options={addableTypes}
+          onAdd={onAddElement}
+        />
       </header>
 
       {elements.length > 0 ? (
@@ -41,20 +106,39 @@ export function ElementList({
           {elements.map((element, index) => {
             const selected = selectedElementIndex === index;
             const position = getElementPosition(elements, index);
+            const type = elementTypeValue(element);
 
             return (
-              <li key={`${element.type}-${index}`} className={selected ? "is-selected" : ""}>
+              <li
+                key={`${element.type}-${index}`}
+                className={[
+                  selected ? "is-selected" : "",
+                  dragIndex === index ? "is-dragging" : "",
+                  dragOverIndex === index ? "is-drop-target" : ""
+                ].filter(Boolean).join(" ")}
+                data-testid={`path-element-item-${index}`}
+                data-path-element-index={index}
+              >
                 <button
                   type="button"
                   className="path-element-row"
                   data-testid={`path-element-row-${index}`}
                   aria-pressed={selected}
-                  onClick={() => onSelectElement(index)}
+                  onMouseDown={(event) => handleMouseDown(event, index)}
+                  onClick={() => {
+                    if (suppressClickRef.current) {
+                      suppressClickRef.current = false;
+                      return;
+                    }
+                    onSelectElement(index);
+                  }}
                 >
                   <span className="drag-grip" aria-hidden="true">
-                    ::
+                    <GripIcon />
                   </span>
-                  <ElementTypeMark element={element} />
+                  <span aria-hidden="true" className={`element-type-mark type-${type}`}>
+                    <ElementIcon type={type} />
+                  </span>
                   <span className="path-element-row__label">
                     {index + 1}. {elementTypeLabel(element)}
                   </span>
@@ -62,31 +146,13 @@ export function ElementList({
                     {formatPointMeters(position)}
                   </span>
                 </button>
-                <div className="path-element-reorder">
-                  <button
-                    type="button"
-                    aria-label={`Move ${elementTypeLabel(element)} ${index + 1} up`}
-                    onClick={() => onMoveElement(index, index - 1)}
-                    disabled={!project || !canMovePathElement(project, index, index - 1)}
-                  >
-                    ^
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Move ${elementTypeLabel(element)} ${index + 1} down`}
-                    onClick={() => onMoveElement(index, index + 1)}
-                    disabled={!project || !canMovePathElement(project, index, index + 1)}
-                  >
-                    v
-                  </button>
-                </div>
                 <button
                   type="button"
                   className="remove-element-button"
                   aria-label={`Remove ${elementTypeLabel(element)} ${index + 1}`}
                   onClick={() => onRemoveElement(index)}
                 >
-                  -
+                  <RemoveIcon />
                 </button>
               </li>
             );
@@ -99,19 +165,14 @@ export function ElementList({
   );
 }
 
-function ElementTypeMark({ element }: { element: PathElement }) {
-  const type = elementTypeValue(element);
-  return (
-    <span aria-hidden="true" className={`element-type-mark type-${type}`}>
-      {typeLabelInitial(type)}
-    </span>
-  );
-}
-
-function typeLabelInitial(type: AddableElementType): string {
-  if (type === "event_trigger") {
-    return "E";
-  }
-
-  return type.slice(0, 1).toUpperCase();
+function getDropIndexFromPoint(_clientX: number, clientY: number): number | null {
+  const target = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-path-element-index]")
+  ).find((element) => {
+    const rect = element.getBoundingClientRect();
+    return clientY >= rect.top && clientY <= rect.bottom;
+  });
+  const rawIndex = target?.dataset.pathElementIndex;
+  const index = Number(rawIndex);
+  return Number.isInteger(index) && index >= 0 ? index : null;
 }
