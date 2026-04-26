@@ -52,6 +52,31 @@ export function FieldLayer({ viewport }: FieldLayerProps) {
             />
           ))
         : null}
+      {imageRect
+        ? getFieldFrostedFrame(imageRect).map((frame) => (
+            <Rect
+              key={frame.key}
+              x={frame.x}
+              y={frame.y}
+              width={frame.width}
+              height={frame.height}
+              fill="rgba(236, 243, 249, 0.034)"
+            />
+          ))
+        : null}
+      {imageRect ? (
+        <Rect
+          x={imageRect.x}
+          y={imageRect.y}
+          width={imageRect.width}
+          height={imageRect.height}
+          stroke="rgba(235, 243, 249, 0.22)"
+          strokeWidth={Math.max(1, imageRect.height * 0.0015)}
+          shadowColor="rgba(235, 243, 249, 0.34)"
+          shadowBlur={Math.max(8, imageRect.height * 0.018)}
+          shadowOpacity={0.14}
+        />
+      ) : null}
     </Layer>
   );
 }
@@ -183,6 +208,46 @@ function getFieldBorderMasks(rect: {
       y: top - halfThickness,
       width: thickness,
       height: bottom - top + thickness
+    }
+  ];
+}
+
+function getFieldFrostedFrame(rect: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}) {
+  const thickness = Math.max(5, Math.min(12, rect.height * 0.016));
+
+  return [
+    {
+      key: "frost-top",
+      x: rect.x - thickness,
+      y: rect.y - thickness,
+      width: rect.width + thickness * 2,
+      height: thickness
+    },
+    {
+      key: "frost-bottom",
+      x: rect.x - thickness,
+      y: rect.y + rect.height,
+      width: rect.width + thickness * 2,
+      height: thickness
+    },
+    {
+      key: "frost-left",
+      x: rect.x - thickness,
+      y: rect.y,
+      width: thickness,
+      height: rect.height
+    },
+    {
+      key: "frost-right",
+      x: rect.x + rect.width,
+      y: rect.y,
+      width: thickness,
+      height: rect.height
     }
   ];
 }
