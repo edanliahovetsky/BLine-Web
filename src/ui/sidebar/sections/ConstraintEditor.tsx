@@ -130,7 +130,10 @@ export function ConstraintEditor({ project }: { project: ProjectDocument | null 
               setMenuOpen((open) => !open);
             }}
           >
-            <PlusIcon size={18} /> Add constraint
+            <span className="sidebar-add-icon" data-testid="add-constraint-icon" aria-hidden="true">
+              <PlusIcon size={17} />
+            </span>
+            <span>Add constraint</span>
           </summary>
           <div className="add-element-menu__panel" role="menu" aria-label="Add constraint">
             {availableItems.length === 0 ? (

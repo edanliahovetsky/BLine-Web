@@ -84,6 +84,10 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 test("adds edits and removes path elements from the inspector", async ({ page }) => {
   await page.goto("/");
 
+  const addElementIcon = page.getByTestId("add-element-icon");
+  await expect(addElementIcon).toBeVisible();
+  expect((await requiredBox(addElementIcon)).width).toBeGreaterThanOrEqual(24);
+
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
@@ -214,6 +218,10 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
   await page.getByRole("button", { name: "Remove End Translation Tolerance" }).click();
   await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveCount(0);
+
+  const addConstraintIcon = page.getByTestId("add-constraint-icon");
+  await expect(addConstraintIcon).toBeVisible();
+  expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(24);
 
   await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "Max Velocity" }).click();

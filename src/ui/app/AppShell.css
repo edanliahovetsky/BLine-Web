@@ -366,9 +366,9 @@ select {
 .add-element-menu summary {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 2px;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0;
   cursor: pointer;
   color: #58a6ff;
   font-size: 0.86rem;
@@ -387,16 +387,29 @@ select {
   pointer-events: none;
 }
 
-.icon-button-symbol {
-  width: 17px;
-  height: 17px;
+.sidebar-add-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 1px solid #374755;
+  border-radius: 6px;
   color: currentColor;
+  background: #1d242b;
 }
 
-.add-element-button svg {
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
+.add-element-menu summary:hover .sidebar-add-icon,
+.add-element-menu summary:focus-visible .sidebar-add-icon {
+  border-color: #4d8fe8;
+  background: #213149;
+}
+
+.sidebar-add-icon svg {
+  display: block;
+  flex: 0 0 17px;
+  width: 17px;
+  height: 17px;
 }
 
 .add-element-menu__panel {

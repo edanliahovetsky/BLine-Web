@@ -28,7 +28,9 @@ export function AddElementMenu({
         className={disabled || visibleOptions.length === 0 ? "is-disabled" : undefined}
         role="button"
       >
-        <PlusIcon className="icon-button-symbol" />
+        <span className="sidebar-add-icon" data-testid="add-element-icon" aria-hidden="true">
+          <PlusIcon size={17} />
+        </span>
         <span>Add element</span>
       </summary>
       {!disabled && visibleOptions.length > 0 ? (
