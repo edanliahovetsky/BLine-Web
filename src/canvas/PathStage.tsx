@@ -481,8 +481,6 @@ function SimulationTransport({
   const total = result?.total_time_s ?? 0;
   const safeCurrent = Math.min(currentTimeS, total);
   const progress = total > 0 ? (safeCurrent / total) * 100 : 0;
-  const minorTickCount = total > 0 ? Math.floor(total / transportMinorTickS) + 1 : 1;
-  const majorTickCount = Math.max(1, Math.floor(total)) + 1;
   const timelineStyle = {
     "--transport-progress": `${progress}%`
   } as CSSProperties;
@@ -519,27 +517,6 @@ function SimulationTransport({
           disabled={!result || total <= 0}
           onChange={(event) => onSeek(Number(event.currentTarget.value))}
         />
-        <div className="transport-minor-ticks" aria-hidden="true">
-          {Array.from({ length: minorTickCount }, (_, index) => {
-            const tickTime = index * transportMinorTickS;
-            const isMajorTick = Math.abs(tickTime - Math.round(tickTime)) < 0.001;
-
-            return (
-              <span
-                className={isMajorTick ? "is-major" : undefined}
-                key={index}
-                style={{ left: `${total > 0 ? (tickTime / total) * 100 : 0}%` }}
-              />
-            );
-          })}
-        </div>
-        <div className="transport-ticks" aria-hidden="true">
-          {Array.from({ length: majorTickCount }, (_, index) => (
-            <span key={index} style={{ left: `${total > 0 ? (index / total) * 100 : 0}%` }}>
-              {index}s
-            </span>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -637,6 +614,5 @@ const emptyRotationPreview = new Map<number, number>();
 const minViewScale = 1;
 const maxViewScale = 8;
 const zoomStepFactor = 1.03;
-const transportMinorTickS = 0.2;
 const selectionPulseIntervalMs = 40;
 const selectionPulsePeriodMs = 1800;
