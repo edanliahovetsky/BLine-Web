@@ -262,6 +262,14 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await expect(constraintsBody).toBeHidden();
 
   await page.getByText("Add constraint").click();
+  await expect(page.locator(".add-constraint-menu [role='menuitem']")).toHaveText([
+    "Max Velocity",
+    "Max Acceleration",
+    "Max Rot Velocity",
+    "Max Rot Acceleration",
+    "End Translation Tolerance",
+    "End Rotation Tolerance"
+  ]);
   await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
   await expect(constraintsBody).toBeHidden();
   await expect(page.getByTestId("save-status")).toContainText("Saved");

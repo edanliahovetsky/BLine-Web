@@ -114,6 +114,11 @@ const scalarMeta: Record<(typeof terminalToleranceKeys)[number], ScalarMeta> = {
   },
 };
 
+const addConstraintMenuOrder: readonly ConstraintKey[] = [
+  ...rangedConstraintKeys,
+  ...terminalToleranceKeys,
+];
+
 export function ConstraintEditor({
   project,
   open,
@@ -1094,7 +1099,7 @@ function ScalarConstraintRow({
 }
 
 function buildConstraintMenuItems(project: ProjectDocument): Array<{ key: ConstraintKey; label: string }> {
-  return constraintKeys.flatMap((key) => {
+  return addConstraintMenuOrder.flatMap((key) => {
     if (isRangedKey(key)) {
       const active = getRangedEntries(project, key).length > 0;
 

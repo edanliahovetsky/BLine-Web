@@ -55,7 +55,7 @@ describe("path model", () => {
     expect(path.path_elements).toEqual([first, second, third]);
   });
 
-  it("counts anchor and rotation-event domains used by ranged constraints", () => {
+  it("counts anchor and rotation domains used by ranged constraints", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget(),
@@ -66,6 +66,6 @@ describe("path model", () => {
     });
 
     expect(countAnchorElements(path.path_elements)).toBe(2);
-    expect(countRotationEventElements(path.path_elements)).toBe(3);
+    expect(countRotationEventElements(path.path_elements)).toBe(2);
   });
 });

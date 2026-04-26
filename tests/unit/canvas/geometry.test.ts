@@ -107,13 +107,21 @@ describe("canvas geometry", () => {
       })
     ).toEqual([0, 1, 2]);
     expect(
+      coveredDomainIndexesForConstraint(elements, {
+        key: "max_velocity_deg_per_sec",
+        value: 90,
+        start_ordinal: 1,
+        end_ordinal: 2
+      })
+    ).toEqual([1, 2]);
+    expect(
       pathIndexesForConstraintRange(elements, {
         key: "max_velocity_deg_per_sec",
         value: 90,
         start_ordinal: 2,
         end_ordinal: 3
       })
-    ).toEqual([1, 2, 3]);
+    ).toEqual([1, 2]);
     expect(
       firstDomainIndexForConstraintRange(elements, {
         key: "max_velocity_meters_per_sec",

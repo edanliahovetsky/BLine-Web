@@ -19,9 +19,7 @@ export function domainIndexesForConstraint(
 
     if (
       isRotationConstraintKey(constraint.key) &&
-      (element.type === "rotation" ||
-        element.type === "waypoint" ||
-        element.type === "event_trigger")
+      (element.type === "rotation" || element.type === "waypoint")
     ) {
       return [index];
     }

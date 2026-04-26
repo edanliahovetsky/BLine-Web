@@ -40,7 +40,7 @@ describe("project path serde", () => {
     });
   });
 
-  it("counts event triggers in the rotation ranged-constraint domain", () => {
+  it("ignores event triggers in the rotation ranged-constraint domain", () => {
     const restored = deserializePath({
       path_elements: [
         { type: "translation", x_meters: 0, y_meters: 0 },
@@ -50,7 +50,7 @@ describe("project path serde", () => {
       ],
       constraints: {
         max_velocity_deg_per_sec: [
-          { value: 90, start_ordinal: 1, end_ordinal: 1 }
+          { value: 90, start_ordinal: 0, end_ordinal: 0 }
         ]
       }
     });
@@ -61,8 +61,8 @@ describe("project path serde", () => {
       {
         key: "max_velocity_deg_per_sec",
         value: 90,
-        start_ordinal: 2,
-        end_ordinal: 2
+        start_ordinal: 1,
+        end_ordinal: 1
       }
     ]);
   });
@@ -205,13 +205,13 @@ describe("project path serde", () => {
           key: "max_velocity_deg_per_sec",
           value: 90,
           start_ordinal: 1,
-          end_ordinal: 3
+          end_ordinal: 2
         },
         {
           key: "max_acceleration_deg_per_sec2",
           value: 180,
           start_ordinal: 2,
-          end_ordinal: 3
+          end_ordinal: 2
         }
       ]
     });
@@ -224,10 +224,10 @@ describe("project path serde", () => {
         { value: 6, start_ordinal: 1, end_ordinal: 1 }
       ],
       max_velocity_deg_per_sec: [
-        { value: 90, start_ordinal: 0, end_ordinal: 2 }
+        { value: 90, start_ordinal: 0, end_ordinal: 1 }
       ],
       max_acceleration_deg_per_sec2: [
-        { value: 180, start_ordinal: 1, end_ordinal: 2 }
+        { value: 180, start_ordinal: 1, end_ordinal: 1 }
       ]
     });
   });
@@ -263,7 +263,7 @@ describe("project path serde", () => {
           { value: 2, start_ordinal: 1, end_ordinal: 1 }
         ],
         max_velocity_deg_per_sec: [
-          { value: 90, start_ordinal: 0, end_ordinal: 1 }
+          { value: 90, start_ordinal: 0, end_ordinal: 0 }
         ]
       }
     });
@@ -279,7 +279,7 @@ describe("project path serde", () => {
         key: "max_velocity_deg_per_sec",
         value: 90,
         start_ordinal: 1,
-        end_ordinal: 2
+        end_ordinal: 1
       }
     ]);
   });
@@ -453,7 +453,7 @@ describe("project document serde", () => {
         key: "max_velocity_deg_per_sec",
         value: 90,
         start_ordinal: 1,
-        end_ordinal: 3
+        end_ordinal: 2
       }
     ]);
   });

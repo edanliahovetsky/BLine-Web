@@ -1,5 +1,4 @@
 import {
-  isEventTrigger,
   isRotationTarget,
   isWaypoint,
   type PathElement,
@@ -468,7 +467,7 @@ export function buildRotationDomainEvents(
       continue;
     }
 
-    if (isRotationTarget(element) || isEventTrigger(element)) {
+    if (isRotationTarget(element)) {
       const bracket = surroundingAnchorOrdinals(path.path_elements, anchors, pathIndex);
       if (!bracket) {
         continue;
