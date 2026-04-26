@@ -142,6 +142,80 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
 });
 
+test("collapses sidebar sections persistently while keeping header actions available", async ({ page }) => {
+  await page.goto("/");
+
+  const pathToggle = page.getByTestId("sidebar-section-path-elements-toggle");
+  const propertiesToggle = page.getByTestId("sidebar-section-element-properties-toggle");
+  const constraintsToggle = page.getByTestId("sidebar-section-constraints-toggle");
+  const pathBody = page.getByTestId("sidebar-section-path-elements-body");
+  const propertiesBody = page.getByTestId("sidebar-section-element-properties-body");
+  const constraintsBody = page.getByTestId("sidebar-section-constraints-body");
+
+  await expect(pathToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(propertiesToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(constraintsToggle).toHaveAttribute("aria-expanded", "true");
+
+  await pathToggle.click();
+  await expect(pathToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(pathBody).toBeHidden();
+
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+  await expect(pathBody).toBeHidden();
+  await pathToggle.click();
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+
+  await pathToggle.click();
+  await propertiesToggle.click();
+  await constraintsToggle.click();
+  await expect(propertiesBody).toBeHidden();
+  await expect(constraintsBody).toBeHidden();
+
+  await page.getByText("Add constraint").click();
+  await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
+  await expect(constraintsBody).toBeHidden();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  await page.reload();
+
+  await expect(pathToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(propertiesToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(constraintsToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(pathBody).toBeHidden();
+  await expect(propertiesBody).toBeHidden();
+  await expect(constraintsBody).toBeHidden();
+
+  await constraintsToggle.click();
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.030");
+});
+
+test("keeps selected element context visible and scrolls selected rows into view", async ({ page }) => {
+  await page.goto("/");
+
+  const context = page.getByTestId("sidebar-selection-context");
+  await expect(context).toContainText("No element selected");
+
+  await page.getByTestId("path-element-row-3").click();
+  await expect(context).toContainText("4. Event Trigger");
+  await expect(context).toContainText("7.83, 2.50 m");
+
+  for (let index = 0; index < 12; index += 1) {
+    await page.getByText("Add element").click();
+    await page.getByRole("menuitem", { name: "Waypoint" }).click();
+  }
+
+  const pathList = page.getByRole("list", { name: "Path elements" });
+  const selectedRow = page.getByTestId("path-element-row-15");
+  await expect(context).toContainText("16. Waypoint");
+  await expect(selectedRow).toContainText("16. Waypoint");
+
+  const listBox = await requiredBox(pathList);
+  const selectedBox = await requiredBox(selectedRow);
+  expect(selectedBox.y).toBeGreaterThanOrEqual(listBox.y - 1);
+  expect(selectedBox.y + selectedBox.height).toBeLessThanOrEqual(listBox.y + listBox.height + 1);
+});
+
 test("reorders and converts path elements from the inspector", async ({ page }) => {
   await page.goto("/");
 

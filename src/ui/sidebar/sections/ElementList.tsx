@@ -1,4 +1,4 @@
-import { useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { formatPointMeters } from "../../../canvas/modelSync";
@@ -8,6 +8,7 @@ import {
   RemoveIcon
 } from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
+import { SidebarSection } from "../SidebarSection";
 import {
   canMovePathElement,
   elementTypeLabel,
@@ -19,25 +20,38 @@ import {
 interface ElementListProps {
   project: ProjectDocument | null;
   selectedElementIndex: number | null;
+  open: boolean;
   onAddElement(type: AddableElementType): void;
   onSelectElement(index: number): void;
   onRemoveElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
+  onToggleSection(): void;
 }
 
 export function ElementList({
   project,
   selectedElementIndex,
+  open,
   onAddElement,
   onSelectElement,
   onRemoveElement,
-  onMoveElement
+  onMoveElement,
+  onToggleSection
 }: ElementListProps) {
   const elements = project?.path.path_elements ?? [];
+  const selectedRowRef = useRef<HTMLLIElement | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const suppressClickRef = useRef(false);
   const addableTypes = project ? getAddableElementTypes(project) : [];
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    selectedRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [elements.length, open, selectedElementIndex]);
 
   const handleMouseDown = (event: MouseEvent<HTMLButtonElement>, index: number) => {
     if (!project || event.button !== 0) {
@@ -91,16 +105,21 @@ export function ElementList({
   };
 
   return (
-    <section className="inspector-section path-elements-section">
-      <header className="inspector-section__header">
-        <h2>Path Elements</h2>
+    <SidebarSection
+      actions={
         <AddElementMenu
           disabled={!project}
           options={addableTypes}
           onAdd={onAddElement}
         />
-      </header>
-
+      }
+      className="path-elements-section"
+      meta={`${elements.length} ${elements.length === 1 ? "element" : "elements"}`}
+      open={open}
+      sectionId="path-elements"
+      title="Path Elements"
+      onToggle={onToggleSection}
+    >
       {elements.length > 0 ? (
         <ol className="path-element-list" aria-label="Path elements">
           {elements.map((element, index) => {
@@ -111,6 +130,7 @@ export function ElementList({
             return (
               <li
                 key={`${element.type}-${index}`}
+                ref={selected ? selectedRowRef : undefined}
                 className={[
                   selected ? "is-selected" : "",
                   dragIndex === index ? "is-dragging" : "",
@@ -161,7 +181,7 @@ export function ElementList({
       ) : (
         <div className="sidebar-empty-state">No path elements</div>
       )}
-    </section>
+    </SidebarSection>
   );
 }
 
