@@ -92,9 +92,23 @@ test("adds edits and removes path elements from the inspector", async ({ page })
     "Selected: Waypoint #6"
   );
 
-  await page.getByLabel("X (m)").fill("6.25");
+  const xInput = page.getByRole("spinbutton", { name: "X (m)" });
+  await xInput.fill("6.25");
   await page.getByLabel("Y (m)").fill("3.75");
   await page.getByLabel("Rotation (deg)").fill("45");
+
+  const xRow = page.locator(".property-row").filter({ has: xInput });
+  const increaseX = xRow.getByRole("button", { name: "Increase value" });
+  const decreaseX = xRow.getByRole("button", { name: "Decrease value" });
+  await expect(increaseX.locator("svg")).toBeVisible();
+  await expect(decreaseX.locator("svg")).toBeVisible();
+  expect((await requiredBox(increaseX.locator("svg"))).width).toBeGreaterThan(6);
+  expect((await requiredBox(decreaseX.locator("svg"))).width).toBeGreaterThan(6);
+
+  await increaseX.click();
+  await expect(xInput).toHaveValue("6.300");
+  await decreaseX.click();
+  await expect(xInput).toHaveValue("6.250");
 
   await expect(page.getByTestId("path-element-row-5")).toContainText("6.25, 3.75 m");
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");

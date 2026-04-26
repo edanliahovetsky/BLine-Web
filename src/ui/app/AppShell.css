@@ -632,6 +632,65 @@ select {
   padding: 0 8px;
 }
 
+.property-number-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  width: 100%;
+  min-width: 0;
+}
+
+.property-number-control input[type="number"] {
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+  -moz-appearance: textfield;
+  -webkit-appearance: textfield;
+  appearance: textfield;
+}
+
+.property-number-control input[type="number"]::-webkit-inner-spin-button,
+.property-number-control input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.property-stepper {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: normal;
+  border: 1px solid #3b4650;
+  border-radius: 0 6px 6px 0;
+  background: #182028;
+}
+
+.property-stepper button {
+  display: grid;
+  width: 22px;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  color: #dce8f2;
+  background: transparent;
+}
+
+.property-stepper button:first-child {
+  border-bottom: 1px solid #3b4650;
+}
+
+.property-stepper button:hover,
+.property-stepper button:focus-visible {
+  color: #ffffff;
+  background: #233247;
+}
+
+.property-stepper svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
 .property-row select:disabled {
   opacity: 1;
 }
