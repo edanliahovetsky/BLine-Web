@@ -35,8 +35,8 @@ select {
 .app-tabs {
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 3px;
-  row-gap: 3px;
+  gap: 4px;
+  row-gap: 4px;
 }
 
 .toolbar-actions {
@@ -71,6 +71,11 @@ select {
   display: flex;
   align-items: center;
   padding: 0 9px;
+  border-color: #2c3741;
+  background: #151b20;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 0 rgba(0, 0, 0, 0.25);
   white-space: nowrap;
 }
 
@@ -95,6 +100,15 @@ select {
   color: #58a6ff;
   border-color: #225dba;
   background: #132947;
+}
+
+.top-menu > button:hover:not(:disabled),
+.top-menu > button:focus-visible:not(:disabled),
+.app-tab-button:hover:not(:disabled),
+.app-tab-button:focus-visible:not(:disabled) {
+  color: #eef6ff;
+  border-color: #3f5669;
+  background: #1c252d;
 }
 
 .app-tab-button:disabled {
@@ -152,6 +166,9 @@ select {
   width: max-content;
   min-width: var(--top-menu-panel-min);
   max-width: min(var(--top-menu-panel-max), calc(100vw - 16px));
+  max-height: calc(100vh - 58px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   border: 1px solid #35424f;
   border-radius: 7px;
@@ -268,6 +285,9 @@ select {
   box-sizing: border-box;
   gap: 1px;
   width: min(var(--top-menu-submenu-width), calc(100vw - 16px));
+  max-height: calc(100vh - 58px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   border: 1px solid #35424f;
   border-radius: 7px;
@@ -1633,22 +1653,22 @@ select {
 .config-dialog__body {
   display: grid;
   grid-template-columns: minmax(250px, 0.86fr) minmax(360px, 1.14fr);
-  gap: 14px;
+  gap: 12px;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px;
+  padding: 12px;
 }
 
 .config-dialog__section {
   display: grid;
   align-content: start;
-  gap: 0;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
   padding: 10px;
-  border: 1px solid #303a43;
+  border: 1px solid #303941;
   border-radius: 8px;
-  background: #20252a;
+  background: #20262b;
 }
 
 .config-dialog__section--kinematics {
@@ -1657,12 +1677,60 @@ select {
 }
 
 .config-dialog__section h2 {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
   margin: 0;
-  padding: 0 2px 8px;
-  border-bottom: 1px solid #333a40;
-  color: #f4f7fa;
-  font-size: 0.86rem;
+  padding: 0 9px;
+  border: 1px solid #35414c;
+  border-left: 3px solid #2f81f7;
+  border-radius: 6px;
+  color: #f3f7fb;
+  font-size: 0.82rem;
   font-weight: 760;
+  letter-spacing: 0;
+  background: #182027;
+}
+
+.config-dialog__dependent-group,
+.config-dialog__subsection {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.config-dialog__dependent-group {
+  border-radius: 7px;
+  transition: opacity 120ms ease;
+}
+
+.config-dialog__dependent-group.is-disabled {
+  opacity: 0.68;
+}
+
+.config-dialog__subsection {
+  padding-top: 7px;
+}
+
+.config-dialog__subsection:first-of-type {
+  padding-top: 0;
+}
+
+.config-dialog__subsection h3 {
+  display: flex;
+  align-items: center;
+  min-height: 25px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid #303941;
+  border-left: 3px solid #7f8b96;
+  border-radius: 6px;
+  color: #b8c4ce;
+  font-size: 0.72rem;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  background: #1a2026;
 }
 
 .config-row {
@@ -1670,27 +1738,29 @@ select {
   grid-template-columns: minmax(132px, 1fr) minmax(116px, 168px);
   align-items: center;
   gap: 12px;
-  min-height: 36px;
-  padding: 6px 2px;
-  border-bottom: 1px solid #303840;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid #303941;
+  border-radius: 6px;
+  background: #1b2228;
 }
 
 .config-dialog__section--kinematics .config-row {
   grid-template-columns: minmax(198px, 1fr) minmax(116px, 154px);
 }
 
-.config-row span {
+.config-row__label {
   color: #eef3f7;
   font-size: 0.8rem;
   font-weight: 620;
   line-height: 1.2;
 }
 
-.config-row input,
+.config-row input:not([type="checkbox"]),
 .config-row select {
   min-width: 0;
   width: 100%;
-  height: 28px;
+  height: 30px;
   border: 1px solid #44505b;
   border-radius: 5px;
   color: #f7fafc;
@@ -1702,17 +1772,83 @@ select {
   padding: 0 8px;
 }
 
-.config-row input:focus-visible,
+.config-row input:not([type="checkbox"]):focus-visible,
 .config-row select:focus-visible {
   border-color: #2f81f7;
   outline: 1px solid rgba(47, 129, 247, 0.52);
   outline-offset: 1px;
 }
 
-.config-row input:disabled,
+.config-row input:not([type="checkbox"]):disabled,
 .config-row select:disabled {
+  border-color: #333c45;
   color: #84919c;
+  background: #11171d;
   opacity: 0.72;
+}
+
+.config-row.is-disabled .config-row__label {
+  color: #a1adb8;
+}
+
+.config-switch {
+  position: relative;
+  justify-self: end;
+  width: 38px;
+  height: 21px;
+}
+
+.config-row--switch input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.config-switch__track {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid #4a5560;
+  border-radius: 999px;
+  background: #141a20;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.config-switch__track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: #a6b1bb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.34);
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.config-row--switch input:checked + .config-switch__track {
+  border-color: #2f81f7;
+  background: #1558a5;
+}
+
+.config-row--switch input:checked + .config-switch__track::before {
+  background: #ffffff;
+  transform: translateX(17px);
+}
+
+.config-row--switch input:focus-visible + .config-switch__track {
+  outline: 1px solid rgba(47, 129, 247, 0.7);
+  outline-offset: 2px;
 }
 
 .config-row--checkbox input {
@@ -1948,9 +2084,37 @@ select {
 
 @media (max-width: 640px) {
   .app-toolbar {
-    align-items: start;
+    align-items: center;
     gap: 8px;
     padding: 6px 8px;
+  }
+
+  .app-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    padding-bottom: 3px;
+    scrollbar-width: thin;
+    scrollbar-color: #40505f transparent;
+  }
+
+  .app-tabs::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .app-tabs::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .app-tabs::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #40505f;
+  }
+
+  .top-menu,
+  .app-tab-button {
+    flex: 0 0 auto;
   }
 
   .top-menu > button,
@@ -1971,13 +2135,24 @@ select {
   }
 
   .top-menu__panel {
+    position: fixed;
+    top: 48px;
+    left: 8px;
+    right: auto;
     max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 56px);
+  }
+
+  .top-menu--align-end .top-menu__panel {
+    right: 8px;
+    left: auto;
   }
 
   .top-menu__submenu-panel {
     position: static;
     width: auto;
     max-width: none;
+    max-height: min(260px, calc(100vh - 72px));
     margin: 2px 0 2px 10px;
     box-shadow: none;
   }
