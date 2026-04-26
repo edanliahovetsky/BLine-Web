@@ -23,7 +23,7 @@ import { fieldAspectRatio } from "./constants";
 import { createFieldViewport, type CanvasSize } from "./geometry";
 import { useCanvasDrag } from "./hooks/useCanvasDrag";
 import { useCanvasSelection } from "./hooks/useCanvasSelection";
-import { ConstraintOverlayLayerContent } from "./layers/ConstraintOverlayLayer";
+import { ConstraintRangeHighlightContent } from "./layers/ConstraintOverlayLayer";
 import { FieldLayerContent } from "./layers/FieldLayer";
 import { PathLayerContent } from "./layers/PathLayer";
 import { RotationHandleLayerContent } from "./layers/RotationHandleLayer";
@@ -73,6 +73,10 @@ export function PathStage() {
   const selectedElementIndex = useStoreSelector(
     selectionStore,
     (state) => state.selectedElementIndex
+  );
+  const selectedRangedConstraint = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedRangedConstraint
   );
   const [selectedPulse, setSelectedPulse] = useState(0);
 
@@ -516,11 +520,6 @@ export function PathStage() {
             <FieldLayerContent viewport={viewport} />
           </Layer>
           <Layer>
-            <ConstraintOverlayLayerContent
-              project={project}
-              viewport={viewport}
-              dragPreview={drag.dragPreview}
-            />
             <PathLayerContent
               project={project}
               selectedElementIndex={selectedElementIndex}
@@ -530,6 +529,12 @@ export function PathStage() {
               selectedPulse={selectedPulseValue}
               drag={drag}
               selection={selection}
+            />
+            <ConstraintRangeHighlightContent
+              project={project}
+              selection={selectedRangedConstraint}
+              viewport={viewport}
+              dragPreview={drag.dragPreview}
             />
             <RotationHandleLayerContent
               project={project}

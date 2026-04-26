@@ -6,7 +6,8 @@ import { createHistoryStore, type HistoryCommand } from "../../../src/state/hist
 import { createProjectStore } from "../../../src/state/projectStore";
 import {
   createSelectionStore,
-  normalizeElementSelection
+  normalizeElementSelection,
+  normalizeRangedConstraintSelection
 } from "../../../src/state/selectionStore";
 import type {
   ImportResult,
@@ -121,6 +122,67 @@ describe("selection store", () => {
     expect(store.getState().selectedElementIndex).toBeNull();
 
     expect(normalizeElementSelection(threeElements, -1)).toBeNull();
+  });
+
+  it("tracks ranged constraint selection separately from element selection", () => {
+    const store = createSelectionStore();
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createTranslationTarget({ x_meters: 2, y_meters: 2 })
+        ],
+        ranged_constraints: [
+          {
+            key: "max_velocity_meters_per_sec",
+            value: 2,
+            start_ordinal: 1,
+            end_ordinal: 2
+          }
+        ]
+      })
+    });
+
+    store.getState().selectRangedConstraint(
+      {
+        key: "max_velocity_meters_per_sec",
+        index: 0,
+        startOrdinal: 0,
+        endOrdinal: 2
+      },
+      project
+    );
+
+    expect(store.getState().selectedElementIndex).toBeNull();
+    expect(store.getState().selectedRangedConstraint).toEqual({
+      key: "max_velocity_meters_per_sec",
+      index: 0,
+      startOrdinal: 1,
+      endOrdinal: 2
+    });
+
+    store.getState().selectElement(1, project);
+    expect(store.getState().selectedElementIndex).toBe(1);
+    expect(store.getState().selectedRangedConstraint).toBeNull();
+
+    expect(
+      normalizeRangedConstraintSelection(project, {
+        key: "max_acceleration_meters_per_sec2",
+        index: 0,
+        startOrdinal: 1,
+        endOrdinal: 1
+      })
+    ).toBeNull();
+
+    store.getState().selectRangedConstraint({
+      key: "max_velocity_meters_per_sec",
+      index: 0,
+      startOrdinal: 0,
+      endOrdinal: 1
+    });
+    expect(store.getState().selectedRangedConstraint?.startOrdinal).toBe(0);
   });
 });
 
