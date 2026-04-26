@@ -1,7 +1,11 @@
+import { useState } from "react";
 import type { ProjectDocument } from "../../core/io/projectSchema";
+import { getElementPosition } from "../../canvas/geometry";
+import { formatPointMeters } from "../../canvas/modelSync";
 import type { PathElement } from "../../core/model/path";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
+import { ElementIcon } from "../icons";
 import { ConstraintEditor } from "./sections/ConstraintEditor";
 import { ElementList } from "./sections/ElementList";
 import { PropertyEditor } from "./sections/PropertyEditor";
@@ -14,10 +18,23 @@ import {
   createMovePathElementCommand,
   createRemovePathElementCommand,
   createUpdatePathElementCommand,
+  elementTypeLabel,
+  elementTypeValue,
   getInsertionIndex,
   getSwitchableElementTypes,
   type AddableElementType
 } from "./sidebarCommands";
+
+type SidebarSectionKey = "pathElements" | "properties" | "constraints";
+
+type SidebarSectionState = Record<SidebarSectionKey, boolean>;
+
+const sidebarSectionStorageKey = "bline.sidebar.sections.v1";
+const defaultSidebarSectionState: SidebarSectionState = {
+  pathElements: true,
+  properties: true,
+  constraints: true
+};
 
 interface SidebarProps {
   project: ProjectDocument | null;
@@ -25,6 +42,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
+  const [sectionState, setSectionState] = useState<SidebarSectionState>(() =>
+    readSidebarSectionState()
+  );
   const selectedElement =
     project && selectedElementIndex !== null
       ? project.path.path_elements[selectedElementIndex] ?? null
@@ -124,11 +144,26 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       .selectElement(selectedElementIndex, projectStore.getState().project);
   };
 
+  const handleToggleSection = (key: SidebarSectionKey) => {
+    setSectionState((current) => {
+      const next = { ...current, [key]: !current[key] };
+      writeSidebarSectionState(next);
+      return next;
+    });
+  };
+
   return (
     <aside className="inspector-sidebar" aria-label="Path inspector">
+      <SidebarSelectionContext
+        project={project}
+        selectedElement={selectedElement}
+        selectedElementIndex={selectedElementIndex}
+      />
       <ElementList
         project={project}
         selectedElementIndex={selectedElementIndex}
+        open={sectionState.pathElements}
+        onToggleSection={() => handleToggleSection("pathElements")}
         onAddElement={handleAddElement}
         onSelectElement={handleSelectElement}
         onRemoveElement={handleRemoveElement}
@@ -137,16 +172,55 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       <PropertyEditor
         element={selectedElement}
         selectedElementIndex={selectedElementIndex}
+        open={sectionState.properties}
         typeOptions={
           project && selectedElementIndex !== null
             ? getSwitchableElementTypes(project, selectedElementIndex)
             : []
         }
+        onToggleSection={() => handleToggleSection("properties")}
         onChangeType={handleChangeElementType}
         onUpdateElement={handleUpdateElement}
       />
-      <ConstraintEditor project={project} />
+      <ConstraintEditor
+        project={project}
+        open={sectionState.constraints}
+        onToggleSection={() => handleToggleSection("constraints")}
+      />
     </aside>
+  );
+}
+
+function SidebarSelectionContext({
+  project,
+  selectedElement,
+  selectedElementIndex
+}: {
+  project: ProjectDocument | null;
+  selectedElement: PathElement | null;
+  selectedElementIndex: number | null;
+}) {
+  if (!project || selectedElementIndex === null || !selectedElement) {
+    return (
+      <div className="sidebar-selection-context" data-testid="sidebar-selection-context">
+        <span className="sidebar-selection-context__empty">No element selected</span>
+      </div>
+    );
+  }
+
+  const type = elementTypeValue(selectedElement);
+  const position = getElementPosition(project.path.path_elements, selectedElementIndex);
+
+  return (
+    <div className="sidebar-selection-context" data-testid="sidebar-selection-context">
+      <span aria-hidden="true" className={`element-type-mark type-${type}`}>
+        <ElementIcon type={type} />
+      </span>
+      <span className="sidebar-selection-context__label">
+        {selectedElementIndex + 1}. {elementTypeLabel(selectedElement)}
+      </span>
+      <span className="sidebar-selection-context__meta">{formatPointMeters(position)}</span>
+    </div>
   );
 }
 
@@ -187,4 +261,47 @@ function nextSelectionAfterRemoval(
   }
 
   return selectedElementIndex;
+}
+
+function readSidebarSectionState(): SidebarSectionState {
+  if (typeof window === "undefined") {
+    return defaultSidebarSectionState;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(sidebarSectionStorageKey);
+    if (!rawValue) {
+      return defaultSidebarSectionState;
+    }
+
+    const parsed = JSON.parse(rawValue) as Partial<SidebarSectionState>;
+    return {
+      pathElements:
+        typeof parsed.pathElements === "boolean"
+          ? parsed.pathElements
+          : defaultSidebarSectionState.pathElements,
+      properties:
+        typeof parsed.properties === "boolean"
+          ? parsed.properties
+          : defaultSidebarSectionState.properties,
+      constraints:
+        typeof parsed.constraints === "boolean"
+          ? parsed.constraints
+          : defaultSidebarSectionState.constraints
+    };
+  } catch {
+    return defaultSidebarSectionState;
+  }
+}
+
+function writeSidebarSectionState(state: SidebarSectionState): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(sidebarSectionStorageKey, JSON.stringify(state));
+  } catch {
+    // Local UI preferences should never block editing.
+  }
 }

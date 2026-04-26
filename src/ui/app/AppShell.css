@@ -510,6 +510,50 @@ select {
   background: #191e22;
 }
 
+.sidebar-selection-context {
+  position: sticky;
+  z-index: 28;
+  top: 0;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #34414d;
+  border-radius: 8px;
+  color: #eef3f7;
+  background: #1b232a;
+  box-shadow: 0 6px 18px rgba(5, 8, 12, 0.22);
+}
+
+.sidebar-selection-context__label,
+.sidebar-selection-context__meta,
+.sidebar-selection-context__empty {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-selection-context__label {
+  font-size: 0.82rem;
+  font-weight: 720;
+}
+
+.sidebar-selection-context__meta {
+  color: #a8b4bf;
+  font-size: 0.72rem;
+  font-weight: 640;
+}
+
+.sidebar-selection-context__empty {
+  grid-column: 1 / -1;
+  color: #98a5af;
+  font-size: 0.82rem;
+  font-weight: 680;
+}
+
 .path-elements-section {
   position: relative;
   z-index: 12;
@@ -542,12 +586,78 @@ select {
   background: #20262b;
 }
 
-.inspector-section__header h2 {
+.inspector-section.is-collapsed .inspector-section__header {
+  border-bottom: 0;
+}
+
+.sidebar-section-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sidebar-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   margin: 0;
+  padding: 0;
+  border: 0;
   color: #f4f7fa;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sidebar-section-toggle:hover .sidebar-section-title,
+.sidebar-section-toggle:focus-visible .sidebar-section-title {
+  color: #ffffff;
+}
+
+.sidebar-section-toggle svg {
+  display: block;
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: #9eadb9;
+  transition: transform 120ms ease;
+}
+
+.inspector-section.is-collapsed .sidebar-section-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.sidebar-section-title {
+  min-width: 0;
+  overflow: hidden;
   font-size: 0.98rem;
   font-weight: 760;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-section-meta {
+  overflow: hidden;
+  color: #9eadb9;
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-section-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.sidebar-section__body {
+  min-width: 0;
 }
 
 .add-element-menu {

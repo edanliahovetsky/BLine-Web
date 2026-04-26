@@ -14,6 +14,7 @@ import {
 import { projectStore } from '../../../state/projectStore';
 import { NumberStepperControl, SidebarActionButton, SidebarIconButton } from '../../controls/SidebarControls';
 import { ElementIcon, PlusIcon, RemoveIcon, XIcon } from '../../icons';
+import { SidebarSection } from '../SidebarSection';
 import {
   createAddRangedConstraintCommand,
   createInsertRangedConstraintCommand,
@@ -106,19 +107,27 @@ const scalarMeta: Record<(typeof terminalToleranceKeys)[number], ScalarMeta> = {
   },
 };
 
-export function ConstraintEditor({ project }: { project: ProjectDocument | null }): JSX.Element {
+export function ConstraintEditor({
+  project,
+  open,
+  onToggleSection,
+}: {
+  project: ProjectDocument | null;
+  open: boolean;
+  onToggleSection(): void;
+}): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   const [popoutOpen, setPopoutOpen] = useState(false);
   const [selectedByKey, setSelectedByKey] = useState<Partial<Record<RangedConstraintKey, number>>>({});
   const availableItems = useMemo(() => (project ? buildConstraintMenuItems(project) : []), [project]);
+  const activeCount = project ? countActiveConstraints(project) : 0;
   const setSelectedForKey = (key: RangedConstraintKey, index: number) => {
     setSelectedByKey((selected) => ({ ...selected, [key]: index }));
   };
 
   return (
-    <section className="inspector-section constraints-section" aria-labelledby="constraints-heading">
-      <div className="inspector-section__header">
-        <h2 id="constraints-heading">Constraints</h2>
+    <SidebarSection
+      actions={
         <details className="add-element-menu add-constraint-menu" open={menuOpen}>
           <summary
             className={project ? 'add-element-button' : 'add-element-button is-disabled'}
@@ -158,8 +167,24 @@ export function ConstraintEditor({ project }: { project: ProjectDocument | null 
             )}
           </div>
         </details>
-      </div>
-
+      }
+      className="constraints-section"
+      meta={project ? constraintCountLabel(activeCount) : "No project"}
+      open={open}
+      overlay={
+        popoutOpen && project ? (
+          <ConstraintPopout
+            project={project}
+            selectedByKey={selectedByKey}
+            onSelect={setSelectedForKey}
+            onClose={() => setPopoutOpen(false)}
+          />
+        ) : null
+      }
+      sectionId="constraints"
+      title="Constraints"
+      onToggle={onToggleSection}
+    >
       <div className="constraint-list">
         {project ? (
           <>
@@ -190,16 +215,7 @@ export function ConstraintEditor({ project }: { project: ProjectDocument | null 
           <p className="constraint-empty-state">Open or create a project to edit constraints.</p>
         )}
       </div>
-
-      {popoutOpen && project ? (
-        <ConstraintPopout
-          project={project}
-          selectedByKey={selectedByKey}
-          onSelect={setSelectedForKey}
-          onClose={() => setPopoutOpen(false)}
-        />
-      ) : null}
-    </section>
+    </SidebarSection>
   );
 }
 
@@ -1011,6 +1027,21 @@ function hasAnyConstraint(project: ProjectDocument): boolean {
     project.path.ranged_constraints.length > 0 ||
     constraintKeys.some((key) => !isRangedKey(key) && project.path.constraints[key] !== null)
   );
+}
+
+function countActiveConstraints(project: ProjectDocument): number {
+  return (
+    project.path.ranged_constraints.length +
+    terminalToleranceKeys.filter((key) => project.path.constraints[key] !== null).length
+  );
+}
+
+function constraintCountLabel(count: number): string {
+  if (count === 0) {
+    return "No path constraints";
+  }
+
+  return `${count} ${count === 1 ? "constraint" : "constraints"}`;
 }
 
 function addConstraint(project: ProjectDocument, key: ConstraintKey): void {

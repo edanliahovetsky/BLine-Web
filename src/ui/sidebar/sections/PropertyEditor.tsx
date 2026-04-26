@@ -7,6 +7,7 @@ import {
   type PathElement
 } from "../../../core/model/path";
 import { NumberStepperControl, SidebarSelectControl } from "../../controls/SidebarControls";
+import { SidebarSection } from "../SidebarSection";
 import {
   type AddableElementType,
   elementTypeValue,
@@ -19,7 +20,9 @@ import {
 interface PropertyEditorProps {
   element: PathElement | null;
   selectedElementIndex: number | null;
+  open: boolean;
   typeOptions: readonly AddableElementType[];
+  onToggleSection(): void;
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
 }
@@ -27,16 +30,21 @@ interface PropertyEditorProps {
 export function PropertyEditor({
   element,
   selectedElementIndex,
+  open,
   typeOptions,
+  onToggleSection,
   onChangeType,
   onUpdateElement
 }: PropertyEditorProps) {
   return (
-    <section className="inspector-section property-editor-section">
-      <header className="inspector-section__header">
-        <h2>Element Properties</h2>
-      </header>
-
+    <SidebarSection
+      className="property-editor-section"
+      meta={propertySectionMeta(element, selectedElementIndex)}
+      open={open}
+      sectionId="element-properties"
+      title="Element Properties"
+      onToggle={onToggleSection}
+    >
       {element ? (
         <div
           className="property-editor"
@@ -76,7 +84,7 @@ export function PropertyEditor({
       ) : (
         <div className="sidebar-empty-state">No element selected</div>
       )}
-    </section>
+    </SidebarSection>
   );
 }
 
@@ -408,4 +416,12 @@ function typeOptionLabel(type: AddableElementType): string {
   }
 
   return "Waypoint";
+}
+
+function propertySectionMeta(element: PathElement | null, selectedElementIndex: number | null): string {
+  if (!element || selectedElementIndex === null) {
+    return "No selection";
+  }
+
+  return `${selectedElementIndex + 1}. ${typeOptionLabel(elementTypeValue(element))}`;
 }
