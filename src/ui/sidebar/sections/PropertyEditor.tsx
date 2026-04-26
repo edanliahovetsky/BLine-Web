@@ -6,7 +6,7 @@ import {
   isWaypoint,
   type PathElement
 } from "../../../core/model/path";
-import { ArrowDownIcon, ArrowUpIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon } from "../../icons";
 import {
   type AddableElementType,
   elementTypeValue,
@@ -97,19 +97,24 @@ function TypeField({
   return (
     <label className="property-row">
       <span>Type</span>
-      <select
-        aria-label="Type"
-        value={currentType}
-        onChange={(event) =>
-          onChangeType(event.currentTarget.value as AddableElementType)
-        }
-      >
-        {visibleOptions.map((type) => (
-          <option key={type} value={type}>
-            {typeOptionLabel(type)}
-          </option>
-        ))}
-      </select>
+      <div className="property-select-control">
+        <select
+          aria-label="Type"
+          value={currentType}
+          onChange={(event) =>
+            onChangeType(event.currentTarget.value as AddableElementType)
+          }
+        >
+          {visibleOptions.map((type) => (
+            <option key={type} value={type}>
+              {typeOptionLabel(type)}
+            </option>
+          ))}
+        </select>
+        <span className="property-select-indicator" aria-hidden="true">
+          <ChevronDownIcon size={12} />
+        </span>
+      </div>
     </label>
   );
 }

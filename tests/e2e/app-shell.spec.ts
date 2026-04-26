@@ -92,6 +92,12 @@ test("adds edits and removes path elements from the inspector", async ({ page })
     "Selected: Waypoint #6"
   );
 
+  const typeSelect = page.getByLabel("Type");
+  const typeRow = page.locator(".property-row").filter({ has: typeSelect });
+  const typeIndicatorIcon = typeRow.locator(".property-select-indicator svg");
+  await expect(typeIndicatorIcon).toBeVisible();
+  expect((await requiredBox(typeIndicatorIcon)).width).toBeGreaterThan(6);
+
   const xInput = page.getByRole("spinbutton", { name: "X (m)" });
   await xInput.fill("6.25");
   await page.getByLabel("Y (m)").fill("3.75");

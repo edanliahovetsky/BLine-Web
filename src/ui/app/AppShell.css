@@ -632,6 +632,39 @@ select {
   padding: 0 8px;
 }
 
+.property-select-control {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.property-select-control select {
+  padding: 0 30px 0 8px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.property-select-indicator {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  display: grid;
+  width: 23px;
+  place-items: center;
+  border-left: 1px solid #3b4650;
+  border-radius: 0 5px 5px 0;
+  color: #dce8f2;
+  background: #182028;
+  pointer-events: none;
+}
+
+.property-select-indicator svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
 .property-number-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
