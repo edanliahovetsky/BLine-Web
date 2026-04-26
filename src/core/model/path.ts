@@ -207,8 +207,8 @@ export function isAnchorElement(element: PathElement): element is TranslationTar
 
 export function isRotationEventElement(
   element: PathElement
-): element is RotationTarget | Waypoint | EventTrigger {
-  return isRotationTarget(element) || isWaypoint(element) || isEventTrigger(element);
+): element is RotationTarget | Waypoint {
+  return isRotationTarget(element) || isWaypoint(element);
 }
 
 export function isRangedConstraintKey(key: string): key is RangedConstraintKey {

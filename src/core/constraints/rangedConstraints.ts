@@ -160,10 +160,7 @@ export function translationDomain(
 
 export function rotationDomain(elements: readonly PathElement[]): PathElement[] {
   return elements.filter(
-    (element) =>
-      element.type === "rotation" ||
-      element.type === "waypoint" ||
-      element.type === "event_trigger"
+    (element) => element.type === "rotation" || element.type === "waypoint"
   );
 }
 

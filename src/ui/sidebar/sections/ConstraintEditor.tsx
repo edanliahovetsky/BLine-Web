@@ -12,6 +12,8 @@ import {
   type RangedConstraintKey,
 } from '../../../core/model/path';
 import { projectStore } from '../../../state/projectStore';
+import { selectionStore } from '../../../state/selectionStore';
+import { useStoreSelector } from '../../../state/react';
 import { NumberStepperControl, SidebarActionButton, SidebarIconButton } from '../../controls/SidebarControls';
 import { ElementIcon, PlusIcon, RemoveIcon, XIcon } from '../../icons';
 import { SidebarSection } from '../SidebarSection';
@@ -33,6 +35,11 @@ type RangedEntry = {
 type RangeUpdate = {
   index: number;
   next: RangedConstraint;
+};
+
+type AddedRangedConstraintSelection = {
+  key: RangedConstraintKey;
+  index: number;
 };
 
 type RangedMeta = {
@@ -107,6 +114,11 @@ const scalarMeta: Record<(typeof terminalToleranceKeys)[number], ScalarMeta> = {
   },
 };
 
+const addConstraintMenuOrder: readonly ConstraintKey[] = [
+  ...rangedConstraintKeys,
+  ...terminalToleranceKeys,
+];
+
 export function ConstraintEditor({
   project,
   open,
@@ -119,11 +131,51 @@ export function ConstraintEditor({
   const [menuOpen, setMenuOpen] = useState(false);
   const [popoutOpen, setPopoutOpen] = useState(false);
   const [selectedByKey, setSelectedByKey] = useState<Partial<Record<RangedConstraintKey, number>>>({});
+  const selectedRangedConstraint = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedRangedConstraint
+  );
   const availableItems = useMemo(() => (project ? buildConstraintMenuItems(project) : []), [project]);
   const activeCount = project ? countActiveConstraints(project) : 0;
   const setSelectedForKey = (key: RangedConstraintKey, index: number) => {
     setSelectedByKey((selected) => ({ ...selected, [key]: index }));
+    const latestProject = projectStore.getState().project ?? project;
+    if (latestProject) {
+      selectRangedConstraint(latestProject, key, index);
+    }
   };
+
+  useEffect(() => {
+    if (!selectedRangedConstraint) {
+      return;
+    }
+
+    const selectedToken = rangedSelectionToken(
+      selectedRangedConstraint.key,
+      selectedRangedConstraint.index
+    );
+    const clearIfOutsideSelectedRange = (event: Event) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(`[data-ranged-constraint-selection="${selectedToken}"]`)
+      ) {
+        return;
+      }
+
+      setSelectedByKey((selected) => ({
+        ...selected,
+        [selectedRangedConstraint.key]: -1,
+      }));
+      selectionStore.getState().clearRangedConstraintSelection();
+    };
+
+    document.addEventListener('pointerdown', clearIfOutsideSelectedRange, true);
+
+    return () => {
+      document.removeEventListener('pointerdown', clearIfOutsideSelectedRange, true);
+    };
+  }, [selectedRangedConstraint]);
 
   return (
     <SidebarSection
@@ -156,7 +208,10 @@ export function ConstraintEditor({
                   className="add-element-menu__item"
                   role="menuitem"
                   onClick={() => {
-                    addConstraint(project, item.key);
+                    const added = addConstraint(project, item.key);
+                    if (added) {
+                      setSelectedForKey(added.key, added.index);
+                    }
                     setMenuOpen(false);
                   }}
                 >
@@ -264,9 +319,21 @@ function RangedConstraintCard({
         unit={meta.unit}
         selectedIndex={selectedEntry?.index ?? null}
         onSelect={onSelect}
+        onPreview={(index, constraint) => {
+          previewRangedConstraint(constraintKey, index, constraint);
+        }}
         onRangesChange={(updates) => updateRangedConstraints(project, updates)}
         onGapDoubleClick={(start, end) => {
-          insertRangedConstraint(project, constraintKey, start, end, defaultFor(project, constraintKey, meta.defaultValue));
+          const insertedIndex = insertRangedConstraint(
+            project,
+            constraintKey,
+            start,
+            end,
+            defaultFor(project, constraintKey, meta.defaultValue)
+          );
+          if (insertedIndex !== null) {
+            onSelect(insertedIndex);
+          }
         }}
       />
 
@@ -276,6 +343,7 @@ function RangedConstraintCard({
           constraintKey={constraintKey}
           entry={selectedEntry}
           segmentNumber={selectedSegmentNumber}
+          onSelect={onSelect}
           onOpenPopout={onOpenPopout}
         />
       ) : null}
@@ -418,9 +486,21 @@ function PopoutConstraintPanel({
         unit={meta.unit}
         selectedIndex={selectedEntry?.index ?? null}
         onSelect={onSelect}
+        onPreview={(index, constraint) => {
+          previewRangedConstraint(constraintKey, index, constraint);
+        }}
         onRangesChange={(updates) => updateRangedConstraints(project, updates)}
         onGapDoubleClick={(start, end) => {
-          insertRangedConstraint(project, constraintKey, start, end, defaultFor(project, constraintKey, meta.defaultValue));
+          const insertedIndex = insertRangedConstraint(
+            project,
+            constraintKey,
+            start,
+            end,
+            defaultFor(project, constraintKey, meta.defaultValue)
+          );
+          if (insertedIndex !== null) {
+            onSelect(insertedIndex);
+          }
         }}
         density="popout"
       />
@@ -431,6 +511,7 @@ function PopoutConstraintPanel({
           constraintKey={constraintKey}
           entry={selectedEntry}
           segmentNumber={segmentNumber}
+          onSelect={onSelect}
           compact={false}
         />
       ) : null}
@@ -445,6 +526,7 @@ function ConstraintSegmentBar({
   unit,
   selectedIndex,
   onSelect,
+  onPreview,
   onRangesChange,
   onGapDoubleClick,
   density = 'sidebar',
@@ -455,6 +537,7 @@ function ConstraintSegmentBar({
   unit: string;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
+  onPreview?: (index: number, constraint: RangedConstraint) => void;
   onRangesChange: (updates: RangeUpdate[]) => void;
   onGapDoubleClick: (start: number, end: number) => void;
   density?: 'sidebar' | 'popout';
@@ -541,6 +624,10 @@ function ConstraintSegmentBar({
       drag.entries = nextEntries;
       drag.changed = true;
       setDraftEntries(nextEntries);
+      const previewEntry = nextEntries[drag.segmentIndex];
+      if (previewEntry) {
+        onPreview?.(previewEntry.index, previewEntry.constraint);
+      }
       moveEvent.preventDefault();
     };
 
@@ -651,6 +738,7 @@ function ConstraintSegmentBar({
               .join(' ')}
             style={{ gridColumn: `${Math.min(start, end)} / ${Math.max(start, end) + 1}`, gridRow: 2 }}
             data-testid={`constraint-range-${constraintKey}-${entry.index}`}
+            data-ranged-constraint-selection={rangedSelectionToken(constraintKey, entry.index)}
             role="option"
             aria-selected={selected}
             aria-label={`Select ${meta.label} segment ${segmentNumber}`}
@@ -876,6 +964,7 @@ function SelectedRangedConstraintControls({
   constraintKey,
   entry,
   segmentNumber,
+  onSelect,
   onOpenPopout,
   compact = true,
 }: {
@@ -883,6 +972,7 @@ function SelectedRangedConstraintControls({
   constraintKey: RangedConstraintKey;
   entry: RangedEntry;
   segmentNumber: number;
+  onSelect: (index: number) => void;
   onOpenPopout?: () => void;
   compact?: boolean;
 }): JSX.Element {
@@ -893,6 +983,7 @@ function SelectedRangedConstraintControls({
     <div
       className={compact ? 'ranged-constraint-controls' : 'ranged-constraint-controls ranged-constraint-controls--wide'}
       data-testid={`ranged-constraint-row-${segmentNumber}`}
+      data-ranged-constraint-selection={rangedSelectionToken(constraintKey, entry.index)}
     >
       <label className="ranged-constraint-controls__value">
         <span>Value</span>
@@ -916,7 +1007,12 @@ function SelectedRangedConstraintControls({
       <div className="ranged-constraint-controls__actions">
         <SidebarIconButton
           className="sidebar-icon-button--add"
-          onClick={() => addRangedConstraint(project, constraintKey)}
+          onClick={() => {
+            const addedIndex = addRangedConstraint(project, constraintKey);
+            if (addedIndex !== null) {
+              onSelect(addedIndex);
+            }
+          }}
           disabled={!canAddMoreRanged(project, constraintKey)}
           aria-label={`Add ${meta.label} segment`}
           title="Add segment"
@@ -1003,7 +1099,7 @@ function ScalarConstraintRow({
 }
 
 function buildConstraintMenuItems(project: ProjectDocument): Array<{ key: ConstraintKey; label: string }> {
-  return constraintKeys.flatMap((key) => {
+  return addConstraintMenuOrder.flatMap((key) => {
     if (isRangedKey(key)) {
       const active = getRangedEntries(project, key).length > 0;
 
@@ -1044,10 +1140,13 @@ function constraintCountLabel(count: number): string {
   return `${count} ${count === 1 ? "constraint" : "constraints"}`;
 }
 
-function addConstraint(project: ProjectDocument, key: ConstraintKey): void {
+function addConstraint(
+  project: ProjectDocument,
+  key: ConstraintKey
+): AddedRangedConstraintSelection | null {
   if (isRangedKey(key)) {
-    addRangedConstraint(project, key);
-    return;
+    const index = addRangedConstraint(project, key);
+    return index === null ? null : { key, index };
   }
 
   projectStore.getState().applyCommand(
@@ -1057,9 +1156,11 @@ function addConstraint(project: ProjectDocument, key: ConstraintKey): void {
       defaultFor(project, key, scalarMeta[key].defaultValue)
     )
   );
+  return null;
 }
 
-function addRangedConstraint(project: ProjectDocument, key: RangedConstraintKey): void {
+function addRangedConstraint(project: ProjectDocument, key: RangedConstraintKey): number | null {
+  const previousConstraints = project.path.ranged_constraints;
   projectStore.getState().applyCommand(
     createAddRangedConstraintCommand(
       key,
@@ -1067,6 +1168,55 @@ function addRangedConstraint(project: ProjectDocument, key: RangedConstraintKey)
       domainLabelsForKey(project, key).length
     )
   );
+
+  const nextProject = projectStore.getState().project;
+  if (!nextProject) {
+    return null;
+  }
+
+  return findAddedRangedConstraintIndex(
+    previousConstraints,
+    nextProject.path.ranged_constraints,
+    key
+  );
+}
+
+function selectRangedConstraint(
+  project: ProjectDocument,
+  key: RangedConstraintKey,
+  index: number
+): void {
+  const constraint = project.path.ranged_constraints[index];
+  if (!constraint || constraint.key !== key) {
+    return;
+  }
+
+  selectionStore.getState().selectRangedConstraint(
+    {
+      key,
+      index,
+      startOrdinal: constraint.start_ordinal,
+      endOrdinal: constraint.end_ordinal,
+    },
+    project
+  );
+}
+
+function previewRangedConstraint(
+  key: RangedConstraintKey,
+  index: number,
+  constraint: RangedConstraint
+): void {
+  if (constraint.key !== key) {
+    return;
+  }
+
+  selectionStore.getState().selectRangedConstraint({
+    key,
+    index,
+    startOrdinal: constraint.start_ordinal,
+    endOrdinal: constraint.end_ordinal,
+  });
 }
 
 function insertRangedConstraint(
@@ -1075,10 +1225,11 @@ function insertRangedConstraint(
   startOrdinal: number,
   endOrdinal: number,
   value: number
-): void {
+): number | null {
   const total = domainLabelsForKey(project, key).length;
   const start = clampOrdinal(startOrdinal, total);
   const end = clampOrdinal(endOrdinal, total);
+  const previousLength = project.path.ranged_constraints.length;
 
   projectStore.getState().applyCommand(
     createInsertRangedConstraintCommand({
@@ -1088,6 +1239,11 @@ function insertRangedConstraint(
       end_ordinal: Math.max(start, end),
     })
   );
+
+  const nextProject = projectStore.getState().project;
+  return nextProject && nextProject.path.ranged_constraints.length > previousLength
+    ? nextProject.path.ranged_constraints.length - 1
+    : null;
 }
 
 function updateRangedConstraint(project: ProjectDocument, index: number, next: RangedConstraint): void {
@@ -1134,6 +1290,7 @@ function deleteRangedConstraint(project: ProjectDocument, index: number): void {
   const constraint = project.path.ranged_constraints[index];
   if (constraint) {
     projectStore.getState().applyCommand(createRemoveRangedConstraintCommand(index, constraint));
+    selectionStore.getState().clearRangedConstraintSelection();
   }
 }
 
@@ -1148,12 +1305,48 @@ function getRangedEntries(project: ProjectDocument, key: RangedConstraintKey): R
     .sort((left, right) => left.constraint.start_ordinal - right.constraint.start_ordinal);
 }
 
+function findAddedRangedConstraintIndex(
+  previousConstraints: readonly RangedConstraint[],
+  nextConstraints: readonly RangedConstraint[],
+  key: RangedConstraintKey
+): number | null {
+  const previousForKey = previousConstraints.filter((constraint) => constraint.key === key);
+  const unmatched = nextConstraints.flatMap((constraint, index) => {
+    if (constraint.key !== key) {
+      return [];
+    }
+
+    return previousForKey.some((previous) => sameRangedConstraint(previous, constraint))
+      ? []
+      : [index];
+  });
+
+  return unmatched.at(-1) ?? null;
+}
+
+function sameRangedConstraint(left: RangedConstraint, right: RangedConstraint): boolean {
+  return (
+    left.key === right.key &&
+    left.value === right.value &&
+    left.start_ordinal === right.start_ordinal &&
+    left.end_ordinal === right.end_ordinal
+  );
+}
+
 function chooseSelectedEntry(entries: RangedEntry[], selectedIndex: number | null): RangedEntry | null {
   if (entries.length === 0) {
     return null;
   }
 
-  return entries.find((entry) => entry.index === selectedIndex) ?? entries[0];
+  if (selectedIndex === null) {
+    return null;
+  }
+
+  if (selectedIndex < 0) {
+    return null;
+  }
+
+  return entries.find((entry) => entry.index === selectedIndex) ?? null;
 }
 
 function domainLabelsForKey(project: ProjectDocument, key: RangedConstraintKey): string[] {
@@ -1248,6 +1441,10 @@ function rangeLabel(labels: string[], constraint: RangedConstraint): string {
   const endLabel = labels[constraint.end_ordinal - 1] ?? String(constraint.end_ordinal);
 
   return startLabel === endLabel ? startLabel : `${startLabel}-${endLabel}`;
+}
+
+function rangedSelectionToken(key: RangedConstraintKey, index: number): string {
+  return `${key}-${index}`;
 }
 
 function canSplit(constraint: RangedConstraint): boolean {

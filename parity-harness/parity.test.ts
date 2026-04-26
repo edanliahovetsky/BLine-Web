@@ -55,7 +55,7 @@ describe("Phase 2 parity harness", () => {
         { value: 1.25, start_ordinal: 0, end_ordinal: 1 }
       ],
       max_velocity_deg_per_sec: [
-        { value: 90, start_ordinal: 0, end_ordinal: 2 }
+        { value: 90, start_ordinal: 0, end_ordinal: 1 }
       ]
     });
   });

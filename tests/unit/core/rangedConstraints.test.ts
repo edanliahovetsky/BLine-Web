@@ -76,7 +76,7 @@ describe("ranged constraint edit operations", () => {
 });
 
 describe("ranged constraint ordinal remap", () => {
-  it("uses the desktop translation and rotation domains", () => {
+  it("uses translation and rotation domains without event triggers", () => {
     const translation = createTranslationTarget();
     const waypoint = createWaypoint();
     const rotation = createRotationTarget();
@@ -88,8 +88,7 @@ describe("ranged constraint ordinal remap", () => {
     ]);
     expect(rotationDomain([translation, rotation, waypoint, event])).toEqual([
       rotation,
-      waypoint,
-      event
+      waypoint
     ]);
   });
 
@@ -120,7 +119,7 @@ describe("ranged constraint ordinal remap", () => {
     expect(path.ranged_constraints).toEqual([]);
   });
 
-  it("keeps event triggers in the rotation constraint domain", () => {
+  it("drops rotation constraints that only covered event triggers", () => {
     const eventA = createEventTrigger();
     const eventB = createEventTrigger();
     const inserted = createEventTrigger();
@@ -138,14 +137,7 @@ describe("ranged constraint ordinal remap", () => {
 
     remapRangedConstraints(path, [eventA, eventB]);
 
-    expect(path.ranged_constraints).toEqual([
-      {
-        key: "max_velocity_deg_per_sec",
-        value: 50,
-        start_ordinal: 2,
-        end_ordinal: 3
-      }
-    ]);
+    expect(path.ranged_constraints).toEqual([]);
   });
 });
 

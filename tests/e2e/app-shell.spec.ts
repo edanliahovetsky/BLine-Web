@@ -317,6 +317,14 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await expect(constraintsBody).toBeHidden();
 
   await page.getByText("Add constraint").click();
+  await expect(page.locator(".add-constraint-menu [role='menuitem']")).toHaveText([
+    "Max Velocity",
+    "Max Acceleration",
+    "Max Rot Velocity",
+    "Max Rot Acceleration",
+    "End Translation Tolerance",
+    "End Rotation Tolerance"
+  ]);
   await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
   await expect(constraintsBody).toBeHidden();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
@@ -559,6 +567,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(dialogConstraintRow.getByRole("button", { name: "Decrease value" }).locator("svg")).toBeVisible();
   await page.getByRole("button", { name: "Close Constraint Editor" }).click();
 
+  await page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2").click();
   await page.getByLabel("Delete constraint 2").click();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
@@ -610,7 +619,9 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
   await expect(page.getByTestId("selected-element-status")).toContainText(
     "Selected: TranslationTarget #1"
   );
+  await expect(dialog.getByTestId("ranged-constraint-row-1")).toHaveCount(0);
 
+  await dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1").click();
   await dialog.getByLabel("Constraint 1 value").fill("3.25");
   await expect(
     dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")

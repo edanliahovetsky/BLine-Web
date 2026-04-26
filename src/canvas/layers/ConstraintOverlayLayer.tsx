@@ -1,144 +1,184 @@
-import { Circle, Group, Layer, Line } from "react-konva";
+import { Circle, Group, Line, Rect } from "react-konva";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import {
-  isRotationConstraintKey,
-  isTranslationConstraintKey,
+  isEventTrigger,
+  isRotationTarget,
+  isTranslationTarget,
+  isWaypoint,
   type PathElement,
   type RangedConstraint
 } from "../../core/model/path";
+import type { SelectedRangedConstraint } from "../../state/selectionStore";
 import {
+  elementCircleRadiusMeters,
+  eventMarkerHalfHeightPx,
+  eventTriggerLengthMeters,
+  robotLengthMeters,
+  robotWidthMeters
+} from "../constants";
+import {
+  firstDomainIndexForConstraintRange,
+  pathIndexesForConstraintRange
+} from "../constraintRange";
+import {
+  getElementHeadingRadians,
   getElementPosition,
   modelToStagePoint,
   type FieldViewport,
-  type PositionOverrides
+  type PositionOverrides,
+  type StagePoint
 } from "../geometry";
 
-interface ConstraintOverlayLayerProps {
-  project: ProjectDocument | null;
-  viewport: FieldViewport;
-  dragPreview: PositionOverrides;
-}
+const constraintHighlightColor = "#15c915";
+const constraintPathHighlightStrokeWidthPx = 4;
 
-export function ConstraintOverlayLayer({
+export function ConstraintRangeHighlightContent({
   project,
-  viewport,
-  dragPreview
-}: ConstraintOverlayLayerProps) {
-  return (
-    <Layer listening={false}>
-      <ConstraintOverlayLayerContent
-        project={project}
-        viewport={viewport}
-        dragPreview={dragPreview}
-      />
-    </Layer>
-  );
-}
-
-export function ConstraintOverlayLayerContent({
-  project,
-  viewport,
-  dragPreview
-}: ConstraintOverlayLayerProps) {
-  if (!project || project.path.ranged_constraints.length === 0) {
-    return null;
-  }
-
-  const elements = project.path.path_elements;
-
-  return (
-    <Group listening={false}>
-      {project.path.ranged_constraints.map((constraint, index) => (
-        <ConstraintOverlay
-          key={`${constraint.key}-${index}`}
-          constraint={constraint}
-          elements={elements}
-          viewport={viewport}
-          dragPreview={dragPreview}
-        />
-      ))}
-    </Group>
-  );
-}
-
-function ConstraintOverlay({
-  constraint,
-  elements,
+  selection,
   viewport,
   dragPreview
 }: {
-  constraint: RangedConstraint;
-  elements: readonly PathElement[];
+  project: ProjectDocument | null;
+  selection: SelectedRangedConstraint | null;
   viewport: FieldViewport;
   dragPreview: PositionOverrides;
 }) {
-  const domain = domainIndexesForConstraint(elements, constraint);
-  const start = Math.min(constraint.start_ordinal, constraint.end_ordinal);
-  const end = Math.max(constraint.start_ordinal, constraint.end_ordinal);
-  const covered = domain
-    .slice(Math.max(0, start - 1), Math.min(domain.length, end))
-    .flatMap((index) => {
-      const position = getElementPosition(elements, index, dragPreview);
-      return position ? [{ index, point: modelToStagePoint(position, viewport) }] : [];
-    });
+  if (!project || !selection) {
+    return null;
+  }
 
-  if (covered.length === 0) {
+  const selectedConstraint = project.path.ranged_constraints[selection.index];
+  if (!selectedConstraint || selectedConstraint.key !== selection.key) {
+    return null;
+  }
+
+  const constraint: RangedConstraint = {
+    ...selectedConstraint,
+    start_ordinal: selection.startOrdinal,
+    end_ordinal: selection.endOrdinal
+  };
+  const elements = project.path.path_elements;
+  const covered = pathIndexesForConstraintRange(elements, constraint).flatMap((index) => {
+    const position = getElementPosition(elements, index, dragPreview);
+    return position ? [{ index, point: modelToStagePoint(position, viewport) }] : [];
+  });
+  const firstDomainIndex = firstDomainIndexForConstraintRange(elements, constraint);
+  const firstDomainPosition =
+    firstDomainIndex === null
+      ? null
+      : getElementPosition(elements, firstDomainIndex, dragPreview);
+
+  if (covered.length === 0 && firstDomainPosition === null) {
     return null;
   }
 
   const points = covered.flatMap(({ point }) => [point.x, point.y]);
-  const isRotation = isRotationConstraintKey(constraint.key);
 
   return (
     <>
       {points.length >= 4 ? (
         <Line
           points={points}
-          stroke={isRotation ? "#22d47a" : "#2f81f7"}
-          strokeWidth={isRotation ? 3 : 5}
-          dash={isRotation ? [8, 6] : undefined}
+          stroke={constraintHighlightColor}
+          strokeWidth={constraintPathHighlightStrokeWidthPx}
           lineCap="round"
           lineJoin="round"
-          opacity={0.62}
+          opacity={0.96}
+          listening={false}
         />
       ) : null}
-      {covered.map(({ index, point }) => (
-        <Circle
-          key={index}
-          x={point.x}
-          y={point.y}
-          radius={isRotation ? 17 : 13}
-          stroke={isRotation ? "#22d47a" : "#2f81f7"}
-          strokeWidth={3}
-          dash={isRotation ? [5, 5] : undefined}
-          opacity={0.82}
+      {firstDomainIndex !== null && firstDomainPosition ? (
+        <ConstraintStartElementHighlight
+          element={elements[firstDomainIndex]}
+          point={modelToStagePoint(firstDomainPosition, viewport)}
+          headingRadians={getElementHeadingRadians(elements, firstDomainIndex)}
+          metersToPixels={viewport.scale}
         />
-      ))}
+      ) : null}
     </>
   );
 }
 
-function domainIndexesForConstraint(
-  elements: readonly PathElement[],
-  constraint: RangedConstraint
-): number[] {
-  return elements.flatMap((element, index) => {
-    if (
-      isTranslationConstraintKey(constraint.key) &&
-      (element.type === "translation" || element.type === "waypoint")
-    ) {
-      return [index];
-    }
+function ConstraintStartElementHighlight({
+  element,
+  point,
+  headingRadians,
+  metersToPixels
+}: {
+  element: PathElement;
+  point: StagePoint;
+  headingRadians: number | null;
+  metersToPixels: number;
+}) {
+  if (isTranslationTarget(element)) {
+    return (
+      <Circle
+        x={point.x}
+        y={point.y}
+        radius={Math.max(7, elementCircleRadiusMeters * metersToPixels)}
+        fill={constraintHighlightColor}
+        stroke={constraintHighlightColor}
+        strokeWidth={2}
+        listening={false}
+      />
+    );
+  }
 
-    if (
-      isRotationConstraintKey(constraint.key) &&
-      (element.type === "rotation" ||
-        element.type === "waypoint" ||
-        element.type === "event_trigger")
-    ) {
-      return [index];
-    }
+  if (isWaypoint(element) || isRotationTarget(element)) {
+    const width = robotLengthMeters * metersToPixels;
+    const height = robotWidthMeters * metersToPixels;
+    const strokeWidth = Math.max(4, Math.min(width, height) * 0.11);
 
-    return [];
-  });
+    return (
+      <Group
+        x={point.x}
+        y={point.y}
+        rotation={toStageDegrees(headingRadians)}
+        listening={false}
+      >
+        <Rect
+          x={-width / 2}
+          y={-height / 2}
+          width={width}
+          height={height}
+          cornerRadius={robotCornerRadius(width, height)}
+          stroke={constraintHighlightColor}
+          strokeWidth={strokeWidth}
+          fill="rgba(21, 201, 21, 0.22)"
+          lineJoin="round"
+        />
+      </Group>
+    );
+  }
+
+  if (isEventTrigger(element)) {
+    return (
+      <Line
+        x={point.x}
+        y={point.y}
+        points={eventTriggerPoints(metersToPixels)}
+        rotation={toStageDegrees(headingRadians)}
+        stroke={constraintHighlightColor}
+        strokeWidth={constraintPathHighlightStrokeWidthPx}
+        lineCap="round"
+        listening={false}
+      />
+    );
+  }
+
+  return null;
+}
+
+function eventTriggerPoints(metersToPixels: number): number[] {
+  const halfLength =
+    Math.max(eventMarkerHalfHeightPx * 2, eventTriggerLengthMeters * metersToPixels) / 2;
+  return [-halfLength, 0, halfLength, 0];
+}
+
+function toStageDegrees(radians: number | null): number {
+  return radians === null ? 0 : -radians * (180 / Math.PI);
+}
+
+function robotCornerRadius(width: number, height: number): number {
+  return Math.max(3, Math.min(width, height) * 0.08);
 }

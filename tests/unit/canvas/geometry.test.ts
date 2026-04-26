@@ -27,6 +27,11 @@ import {
   updateProjectElementRotation,
   updateProjectElementPosition
 } from "../../../src/canvas/modelSync";
+import {
+  coveredDomainIndexesForConstraint,
+  firstDomainIndexForConstraintRange,
+  pathIndexesForConstraintRange
+} from "../../../src/canvas/constraintRange";
 
 describe("canvas geometry", () => {
   it("round-trips model coordinates through stage coordinates", () => {
@@ -74,6 +79,57 @@ describe("canvas geometry", () => {
     expect(getRenderableElementPositions(elements).map(({ index }) => index)).toEqual([
       0, 1, 2, 3, 4
     ]);
+  });
+
+  it("maps selected ranged constraints to the highlighted path span", () => {
+    const elements = [
+      createTranslationTarget(),
+      createRotationTarget(),
+      createWaypoint(),
+      createEventTrigger(),
+      createTranslationTarget()
+    ];
+
+    expect(
+      coveredDomainIndexesForConstraint(elements, {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 2,
+        end_ordinal: 2
+      })
+    ).toEqual([2]);
+    expect(
+      pathIndexesForConstraintRange(elements, {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 2,
+        end_ordinal: 2
+      })
+    ).toEqual([0, 1, 2]);
+    expect(
+      coveredDomainIndexesForConstraint(elements, {
+        key: "max_velocity_deg_per_sec",
+        value: 90,
+        start_ordinal: 1,
+        end_ordinal: 2
+      })
+    ).toEqual([1, 2]);
+    expect(
+      pathIndexesForConstraintRange(elements, {
+        key: "max_velocity_deg_per_sec",
+        value: 90,
+        start_ordinal: 2,
+        end_ordinal: 3
+      })
+    ).toEqual([1, 2]);
+    expect(
+      firstDomainIndexForConstraintRange(elements, {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 0,
+        end_ordinal: 3
+      })
+    ).toBe(0);
   });
 
   it("projects dragged segment points back to rotation/event ratios", () => {
