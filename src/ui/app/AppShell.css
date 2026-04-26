@@ -1465,9 +1465,9 @@ select {
 
 .ranged-constraint-controls {
   display: grid;
-  grid-template-columns: minmax(0, 144px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 120px) minmax(max-content, 1fr);
   align-items: end;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1493,7 +1493,7 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .constraint-value-input span {
@@ -1505,10 +1505,19 @@ select {
 
 .ranged-constraint-controls__actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
+}
+
+.ranged-constraint-controls:not(.ranged-constraint-controls--wide) .sidebar-action-button {
+  min-width: 50px;
+  padding: 0 7px;
+}
+
+.ranged-constraint-controls:not(.ranged-constraint-controls--wide) .constraint-popout-button {
+  min-width: 56px;
 }
 
 .constraint-terminal-group {

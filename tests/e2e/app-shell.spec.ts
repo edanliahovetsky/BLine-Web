@@ -78,12 +78,19 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     const metrics = await page.evaluate(() => {
       const documentScroller = document.scrollingElement ?? document.documentElement;
       const sidebar = document.querySelector(".inspector-sidebar");
+      const valueControl = document.querySelector(
+        ".ranged-constraint-controls .sidebar-number-control"
+      );
+      const actionButtons = Array.from(
+        document.querySelectorAll(".ranged-constraint-controls__actions button")
+      );
 
-      if (!sidebar) {
-        throw new Error("Expected sidebar to be present");
+      if (!sidebar || !valueControl || actionButtons.length !== 4) {
+        throw new Error("Expected dense sidebar ranged controls to be present");
       }
 
       const sidebarBox = sidebar.getBoundingClientRect();
+      const valueBox = valueControl.getBoundingClientRect();
       const childBoxes = Array.from(sidebar.children).map((child) => {
         const rect = child.getBoundingClientRect();
         return {
@@ -91,6 +98,13 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
           right: rect.right,
           scrollWidth: child.scrollWidth,
           clientWidth: child.clientWidth
+        };
+      });
+      const actionButtonBoxes = actionButtons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return {
+          top: rect.top,
+          bottom: rect.bottom
         };
       });
 
@@ -102,7 +116,9 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         sidebarScrollWidth: sidebar.scrollWidth,
         sidebarLeft: sidebarBox.left,
         sidebarRight: sidebarBox.right,
-        childBoxes
+        childBoxes,
+        valueControlBottom: valueBox.bottom,
+        actionButtonBoxes
       };
     });
 
@@ -115,6 +131,10 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
       expect(childBox.left).toBeGreaterThanOrEqual(-1);
       expect(childBox.right).toBeLessThanOrEqual(metrics.viewportWidth + 1);
       expect(childBox.scrollWidth).toBeLessThanOrEqual(childBox.clientWidth + 1);
+    }
+
+    for (const actionButtonBox of metrics.actionButtonBoxes) {
+      expect(Math.abs(actionButtonBox.bottom - metrics.valueControlBottom)).toBeLessThanOrEqual(1);
     }
   }
 });
