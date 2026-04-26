@@ -274,18 +274,20 @@ select {
   color: #91a0ae;
   font-size: 1rem;
   line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.top-menu__submenu.is-open .top-menu__chevron {
+  transform: rotate(90deg);
 }
 
 .top-menu__submenu-panel {
-  position: absolute;
-  z-index: 45;
-  top: -4px;
-  left: calc(100% - 1px);
-  display: none;
+  position: fixed;
+  z-index: 70;
+  display: grid;
   box-sizing: border-box;
   gap: 1px;
-  width: min(var(--top-menu-submenu-width), calc(100vw - 16px));
-  max-height: calc(100vh - 58px);
+  max-width: calc(100vw - 16px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 4px;
@@ -295,9 +297,9 @@ select {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
 }
 
-.top-menu__submenu:hover > .top-menu__submenu-panel,
-.top-menu__submenu:focus-within > .top-menu__submenu-panel {
-  display: grid;
+.top-menu__submenu-panel .top-menu__list {
+  max-height: none;
+  overflow-y: visible;
 }
 
 .toolbar-actions button.primary-action {
@@ -1146,6 +1148,23 @@ select {
   background: #233247;
 }
 
+.sidebar-number-control.is-disabled .sidebar-stepper {
+  border-color: #333c45;
+  background: #11171d;
+  opacity: 0.72;
+}
+
+.sidebar-stepper button:disabled {
+  cursor: not-allowed;
+  color: #84919c;
+}
+
+.sidebar-stepper button:disabled:hover,
+.sidebar-stepper button:disabled:focus-visible {
+  color: #84919c;
+  background: transparent;
+}
+
 .sidebar-stepper svg {
   display: block;
   width: 12px;
@@ -1772,6 +1791,15 @@ select {
   padding: 0 8px;
 }
 
+.config-row .sidebar-number-control {
+  min-width: 0;
+}
+
+.config-row .sidebar-number-control input[type="number"] {
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+}
+
 .config-row input:not([type="checkbox"]):focus-visible,
 .config-row select:focus-visible {
   border-color: #2f81f7;
@@ -2146,15 +2174,6 @@ select {
   .top-menu--align-end .top-menu__panel {
     right: 8px;
     left: auto;
-  }
-
-  .top-menu__submenu-panel {
-    position: static;
-    width: auto;
-    max-width: none;
-    max-height: min(260px, calc(100vh - 72px));
-    margin: 2px 0 2px 10px;
-    box-shadow: none;
   }
 
   .config-dialog-backdrop {

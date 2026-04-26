@@ -482,11 +482,20 @@ test("edits project config with undo support", async ({ page }) => {
   await expect(dialog).toBeVisible();
   await expect(saveButton).toBeDisabled();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
+  await expect(
+    dialog.getByTitle("Increase Protrusion Distance (m)")
+  ).toBeDisabled();
   await expect(dialog.getByLabel("Protrusion Side")).toBeDisabled();
+  await expect(
+    dialog.getByTitle("Increase Robot Length (m)")
+  ).toBeVisible();
   await page.getByLabel("Robot Length (m)").fill("0.825");
   await expect(saveButton).toBeEnabled();
   await page.getByLabel("Enable Protrusions").check();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeEnabled();
+  await expect(
+    dialog.getByTitle("Increase Protrusion Distance (m)")
+  ).toBeEnabled();
   await expect(dialog.getByLabel("Protrusion Side")).toBeEnabled();
   await expect(page.getByLabel("Default Protrusion State")).toHaveValue("shown");
   await page.getByLabel("Protrusion Side").selectOption("front");
@@ -496,7 +505,7 @@ test("edits project config with undo support", async ({ page }) => {
 
   await page.getByRole("button", { name: "Undo" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.5000");
+  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.500");
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
   await page.getByRole("button", { name: "Close config" }).click();
 });
@@ -514,7 +523,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await expect(dialog).toBeHidden();
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.5000");
+  await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.500");
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
@@ -548,7 +557,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
-test("keeps top dropdowns streamlined with flyout path lists", async ({ page }) => {
+test("keeps top dropdowns streamlined with right-side path flyouts", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Project" }).click();
@@ -559,7 +568,10 @@ test("keeps top dropdowns streamlined with flyout path lists", async ({ page }) 
   await page.getByRole("menuitem", { name: "Recent Projects" }).click();
   const recentMenu = page.getByTestId("top-menu-project-recent");
   await expect(recentMenu).toBeVisible();
-  expect((await requiredBox(recentMenu)).width).toBeLessThanOrEqual(285);
+  const projectMenuBox = await requiredBox(projectMenu);
+  const recentMenuBox = await requiredBox(recentMenu);
+  expect(recentMenuBox.width).toBeLessThanOrEqual(285);
+  expect(recentMenuBox.x).toBeGreaterThanOrEqual(projectMenuBox.x + projectMenuBox.width);
 
   await page.getByRole("button", { name: "Path" }).click();
   const pathMenu = page.getByTestId("top-menu-path");
@@ -569,7 +581,10 @@ test("keeps top dropdowns streamlined with flyout path lists", async ({ page }) 
   await page.getByRole("menuitem", { name: "Load Path" }).click();
   const loadPathMenu = page.getByTestId("top-menu-path-load");
   await expect(loadPathMenu).toBeVisible();
-  expect((await requiredBox(loadPathMenu)).width).toBeLessThanOrEqual(285);
+  const pathMenuBox = await requiredBox(pathMenu);
+  const loadPathMenuBox = await requiredBox(loadPathMenu);
+  expect(loadPathMenuBox.width).toBeLessThanOrEqual(285);
+  expect(loadPathMenuBox.x).toBeGreaterThanOrEqual(pathMenuBox.x + pathMenuBox.width);
 });
 
 test("opens settings from a narrow portrait top bar", async ({ page }) => {
