@@ -293,6 +293,55 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
 });
 
+test("keeps the compact top menu scrollable instead of wrapping", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 360 });
+  await page.goto("/");
+
+  const topMenu = page.getByRole("navigation", { name: "Top menu" });
+  const metrics = await topMenu.evaluate((element) => {
+    const buttonRows = Array.from(element.querySelectorAll("button")).map((button) =>
+      Math.round(button.getBoundingClientRect().top)
+    );
+
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      rowCount: new Set(buttonRows).size,
+      overflowX: getComputedStyle(element).overflowX
+    };
+  });
+
+  expect(metrics.overflowX).toBe("auto");
+  expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+  expect(metrics.rowCount).toBe(1);
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+});
+
+test("bounds compact dropdown panels to the viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 180 });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Path" }).click();
+
+  const panelMetrics = await page.getByTestId("top-menu-path").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+
+    return {
+      bottom: rect.bottom,
+      clientHeight: element.clientHeight,
+      overflowY: getComputedStyle(element).overflowY,
+      scrollHeight: element.scrollHeight,
+      viewportHeight: window.innerHeight
+    };
+  });
+
+  expect(panelMetrics.overflowY).toBe("auto");
+  expect(panelMetrics.bottom).toBeLessThanOrEqual(panelMetrics.viewportHeight);
+  expect(panelMetrics.scrollHeight).toBeGreaterThan(panelMetrics.clientHeight);
+});
+
 test("selects and deletes a saved path without crashing", async ({ page }) => {
   await page.goto("/");
 

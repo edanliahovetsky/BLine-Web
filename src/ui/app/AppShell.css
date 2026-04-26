@@ -35,8 +35,8 @@ select {
 .app-tabs {
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 3px;
-  row-gap: 3px;
+  gap: 4px;
+  row-gap: 4px;
 }
 
 .toolbar-actions {
@@ -71,6 +71,11 @@ select {
   display: flex;
   align-items: center;
   padding: 0 9px;
+  border-color: #2c3741;
+  background: #151b20;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 0 rgba(0, 0, 0, 0.25);
   white-space: nowrap;
 }
 
@@ -95,6 +100,15 @@ select {
   color: #58a6ff;
   border-color: #225dba;
   background: #132947;
+}
+
+.top-menu > button:hover:not(:disabled),
+.top-menu > button:focus-visible:not(:disabled),
+.app-tab-button:hover:not(:disabled),
+.app-tab-button:focus-visible:not(:disabled) {
+  color: #eef6ff;
+  border-color: #3f5669;
+  background: #1c252d;
 }
 
 .app-tab-button:disabled {
@@ -152,6 +166,9 @@ select {
   width: max-content;
   min-width: var(--top-menu-panel-min);
   max-width: min(var(--top-menu-panel-max), calc(100vw - 16px));
+  max-height: calc(100vh - 58px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   border: 1px solid #35424f;
   border-radius: 7px;
@@ -268,6 +285,9 @@ select {
   box-sizing: border-box;
   gap: 1px;
   width: min(var(--top-menu-submenu-width), calc(100vw - 16px));
+  max-height: calc(100vh - 58px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   border: 1px solid #35424f;
   border-radius: 7px;
@@ -1471,9 +1491,37 @@ select {
 
 @media (max-width: 640px) {
   .app-toolbar {
-    align-items: start;
+    align-items: center;
     gap: 8px;
     padding: 6px 8px;
+  }
+
+  .app-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    padding-bottom: 3px;
+    scrollbar-width: thin;
+    scrollbar-color: #40505f transparent;
+  }
+
+  .app-tabs::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .app-tabs::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .app-tabs::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #40505f;
+  }
+
+  .top-menu,
+  .app-tab-button {
+    flex: 0 0 auto;
   }
 
   .top-menu > button,
@@ -1494,13 +1542,24 @@ select {
   }
 
   .top-menu__panel {
+    position: fixed;
+    top: 48px;
+    left: 8px;
+    right: auto;
     max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 56px);
+  }
+
+  .top-menu--align-end .top-menu__panel {
+    right: 8px;
+    left: auto;
   }
 
   .top-menu__submenu-panel {
     position: static;
     width: auto;
     max-width: none;
+    max-height: min(260px, calc(100vh - 72px));
     margin: 2px 0 2px 10px;
     box-shadow: none;
   }
