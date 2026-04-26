@@ -54,16 +54,17 @@ export function WaypointNode({
   onDragMove,
   onDragEnd
 }: WaypointNodeProps) {
-  const selectionStroke = selected ? "#fc6525" : undefined;
-  const selectionOpacity = 0.58 + selectedPulse * 0.34;
-  const selectionWidth = 3 + selectedPulse * 2;
+  const selectionStroke = selected ? elementColors.selected : undefined;
+  const selectionOpacity = 0.5 + selectedPulse * 0.36;
+  const selectionWidth = 2 + selectedPulse * 1.6;
   const circleRadius = metersToVisiblePixels(elementCircleRadiusMeters, metersToPixels, 7);
   const rectWidth = robotLengthMeters * metersToPixels;
   const rectHeight = robotWidthMeters * metersToPixels;
-  const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 2.25);
+  const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 1.65);
   const handoffRadius = handoffRadiusMeters
     ? Math.max(8, handoffRadiusMeters * metersToPixels)
     : null;
+  const elementOpacity = dimmed ? 0.58 : 1;
 
   return (
     <Group
@@ -75,35 +76,49 @@ export function WaypointNode({
       onDragStart={(event) => onDragStart(index, event)}
       onDragMove={(event) => onDragMove(index, event)}
       onDragEnd={(event) => onDragEnd(index, event)}
-      opacity={dimmed ? 0.48 : 1}
+      opacity={elementOpacity}
     >
       {handoffRadius ? (
-        <Circle
-          radius={handoffRadius}
-          stroke="#ff00ff"
-          strokeWidth={2}
-          dash={[7, 6]}
-          opacity={0.95}
-          listening={false}
-        />
+        <>
+          <Circle
+            radius={handoffRadius}
+            stroke="rgba(5, 8, 11, 0.82)"
+            strokeWidth={4}
+            dash={[6, 6]}
+            listening={false}
+          />
+          <Circle
+            radius={handoffRadius}
+            stroke={elementColors.handoff}
+            strokeWidth={1.45}
+            dash={[6, 6]}
+            opacity={0.82}
+            listening={false}
+          />
+        </>
       ) : null}
 
       {isTranslationTarget(element) ? (
         <>
           {selected ? (
             <Circle
-              radius={circleRadius + 7}
+              radius={circleRadius + 8}
               stroke={selectionStroke}
               strokeWidth={selectionWidth}
               opacity={selectionOpacity}
             />
           ) : null}
+          <Circle radius={circleRadius + 4} fill="rgba(5, 8, 11, 0.72)" />
           <Circle
             radius={circleRadius}
-            fill="#3aa3ff"
-            stroke="#1d6c9d"
-            strokeWidth={1.75}
+            fill={elementColors.translation}
+            stroke="rgba(239, 248, 255, 0.9)"
+            strokeWidth={1.35}
+            shadowColor="rgba(45, 130, 255, 0.42)"
+            shadowBlur={4}
+            shadowOpacity={0.7}
           />
+          <Circle radius={Math.max(2, circleRadius * 0.24)} fill="#f7fbff" />
         </>
       ) : null}
 
@@ -122,11 +137,10 @@ export function WaypointNode({
           <RobotFootprint
             width={rectWidth}
             height={rectHeight}
-            outline="#ff7f3a"
+            accent={elementColors.waypoint}
             outlineWidth={outlineWidth}
             headingRadians={headingRadians}
-            dashed={false}
-            triangleMode="outline"
+            mode="waypoint"
           />
         </>
       ) : null}
@@ -146,11 +160,10 @@ export function WaypointNode({
           <RobotFootprint
             width={rectWidth}
             height={rectHeight}
-            outline="#50c878"
+            accent={elementColors.rotation}
             outlineWidth={outlineWidth}
             headingRadians={headingRadians}
-            dashed={true}
-            triangleMode="fill"
+            mode="rotation"
           />
         </>
       ) : null}
@@ -162,17 +175,30 @@ export function WaypointNode({
               points={eventTriggerPoints(metersToPixels, 8)}
               rotation={toStageDegrees(headingRadians)}
               stroke={selectionStroke}
-              strokeWidth={selectionWidth + 4}
+              strokeWidth={selectionWidth + 5}
               opacity={selectionOpacity}
               lineCap="round"
             />
           ) : null}
           <Line
+            points={eventTriggerPoints(metersToPixels, 2)}
+            rotation={toStageDegrees(headingRadians)}
+            stroke="rgba(5, 8, 11, 0.82)"
+            strokeWidth={8}
+            lineCap="round"
+          />
+          <Line
             points={eventTriggerPoints(metersToPixels, 0)}
             rotation={toStageDegrees(headingRadians)}
-            stroke="#ffd54d"
-            strokeWidth={5}
-            lineCap="butt"
+            stroke={elementColors.event}
+            strokeWidth={4}
+            lineCap="round"
+          />
+          <Circle
+            radius={3.75}
+            fill="#f8f4ff"
+            stroke="rgba(5, 8, 11, 0.58)"
+            strokeWidth={1}
           />
         </>
       ) : null}
@@ -202,6 +228,7 @@ function SelectionFootprint({
         y={-height / 2 - 7}
         width={width + 14}
         height={height + 14}
+        cornerRadius={Math.max(3, Math.min(width, height) * 0.06)}
         stroke={stroke}
         strokeWidth={strokeWidth}
         opacity={opacity}
@@ -213,24 +240,21 @@ function SelectionFootprint({
 function RobotFootprint({
   width,
   height,
-  outline,
+  accent,
   outlineWidth,
   headingRadians,
-  dashed,
-  triangleMode
+  mode
 }: {
   width: number;
   height: number;
-  outline: string;
+  accent: string;
   outlineWidth: number;
   headingRadians: number | null;
-  dashed: boolean;
-  triangleMode: "fill" | "outline";
+  mode: "waypoint" | "rotation";
 }) {
   const triangleLength = Math.min(width, height) * triangleSizeRatio;
   const halfTriangleHeight = triangleLength / 2;
-  const dashLength = Math.max(3, outlineWidth * 1.2);
-  const dashGap = Math.max(2, outlineWidth * 0.65);
+  const cornerRadius = Math.max(3, Math.min(width, height) * 0.08);
   const trianglePoints = [
     triangleLength / 2,
     0,
@@ -243,71 +267,62 @@ function RobotFootprint({
   return (
     <Group rotation={toStageDegrees(headingRadians)}>
       <Rect
+        x={-width / 2 - 3}
+        y={-height / 2 - 3}
+        width={width + 6}
+        height={height + 6}
+        cornerRadius={cornerRadius + 2}
+        stroke="rgba(5, 8, 11, 0.82)"
+        strokeWidth={outlineWidth + 4}
+        fill="rgba(5, 8, 11, 0.28)"
+        lineJoin="round"
+      />
+      <Rect
         x={-width / 2}
         y={-height / 2}
         width={width}
         height={height}
-        stroke={outline}
+        cornerRadius={cornerRadius}
+        stroke={accent}
         strokeWidth={outlineWidth}
-        dash={dashed ? [dashLength, dashGap] : undefined}
-        fill="rgba(0, 0, 0, 0.05)"
-        lineJoin="miter"
-        lineCap="butt"
+        fill={mode === "waypoint" ? "rgba(255, 159, 67, 0.1)" : "rgba(107, 220, 139, 0.1)"}
+        lineJoin="round"
       />
-      {dashed ? (
-        <CornerCaps
-          width={width}
-          height={height}
-          color={outline}
-          size={outlineWidth}
+      {mode === "rotation" ? (
+        <>
+          <Circle
+            radius={Math.max(4, Math.min(width, height) * 0.13)}
+            stroke={accent}
+            strokeWidth={Math.max(1.4, outlineWidth * 0.72)}
+            fill="rgba(5, 8, 11, 0.26)"
+          />
+          <Line
+            points={[0, 0, width * 0.28, 0]}
+            stroke={accent}
+            strokeWidth={Math.max(1.25, outlineWidth * 0.55)}
+            lineCap="round"
+          />
+        </>
+      ) : (
+        <Line
+          points={trianglePoints}
+          closed={true}
+          fill="rgba(5, 8, 11, 0.25)"
+          stroke={accent}
+          strokeWidth={Math.max(1.4, outlineWidth * 0.72)}
+          lineJoin="round"
+        />
+      )}
+      {mode === "rotation" ? (
+        <Line
+          points={trianglePoints}
+          closed={true}
+          fill={accent}
+          opacity={0.52}
+          lineJoin="round"
         />
       ) : null}
-      <Line
-        points={trianglePoints}
-        closed={true}
-        fill={triangleMode === "fill" ? outline : undefined}
-        stroke={outline}
-        strokeWidth={outlineWidth}
-        lineJoin="miter"
-      />
     </Group>
-  );
-}
-
-function CornerCaps({
-  width,
-  height,
-  color,
-  size
-}: {
-  width: number;
-  height: number;
-  color: string;
-  size: number;
-}) {
-  const capSize = Math.max(2, size);
-  const halfCap = capSize / 2;
-  const points = [
-    [-width / 2, -height / 2],
-    [width / 2, -height / 2],
-    [-width / 2, height / 2],
-    [width / 2, height / 2]
-  ];
-
-  return (
-    <>
-      {points.map(([x, y]) => (
-        <Rect
-          key={`${x}-${y}`}
-          x={x - halfCap}
-          y={y - halfCap}
-          width={capSize}
-          height={capSize}
-          fill={color}
-          listening={false}
-        />
-      ))}
-    </>
   );
 }
 
@@ -330,3 +345,12 @@ function metersToVisiblePixels(
 function toStageDegrees(radians: number | null): number {
   return radians === null ? 0 : -radians * (180 / Math.PI);
 }
+
+const elementColors = {
+  selected: "#ff8a3d",
+  translation: "#58a6ff",
+  waypoint: "#ff9f43",
+  rotation: "#6bdc8b",
+  event: "#a78bfa",
+  handoff: "#ff5cf4"
+};

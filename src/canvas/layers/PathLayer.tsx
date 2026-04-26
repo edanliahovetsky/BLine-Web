@@ -48,26 +48,52 @@ export function PathLayer({
   );
 
   const hasSelection = selectedElementIndex !== null;
+  const renderedNodes = elements.flatMap((element, index) => {
+    const position = getElementPosition(elements, index, dragPreview);
+    if (!position) {
+      return [];
+    }
+
+    return [
+      {
+        element,
+        index,
+        position
+      }
+    ];
+  });
+  const orderedNodes =
+    selectedElementIndex === null
+      ? renderedNodes
+      : [
+          ...renderedNodes.filter(({ index }) => index !== selectedElementIndex),
+          ...renderedNodes.filter(({ index }) => index === selectedElementIndex)
+        ];
 
   return (
     <Layer>
       {elementPoints.length >= 4 ? (
-        <Line
-          points={elementPoints}
-          stroke="#cfd6dc"
-          strokeWidth={4}
-          lineCap="round"
-          lineJoin="round"
-          opacity={0.95}
-        />
+        <>
+          <Line
+            points={elementPoints}
+            stroke="rgba(5, 9, 12, 0.82)"
+            strokeWidth={8}
+            lineCap="round"
+            lineJoin="round"
+            opacity={0.92}
+          />
+          <Line
+            points={elementPoints}
+            stroke="#d7dde3"
+            strokeWidth={2.75}
+            lineCap="round"
+            lineJoin="round"
+            opacity={0.94}
+          />
+        </>
       ) : null}
 
-      {elements.map((element, index) => {
-        const position = getElementPosition(elements, index, dragPreview);
-        if (!position) {
-          return null;
-        }
-
+      {orderedNodes.map(({ element, index, position }) => {
         return (
           <WaypointNode
             key={`${element.type}-${index}`}

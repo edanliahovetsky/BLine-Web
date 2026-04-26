@@ -1,5 +1,5 @@
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Circle, Layer } from "react-konva";
+import { Circle, Layer, Line } from "react-konva";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import { isRotationTarget, isWaypoint } from "../../core/model/path";
 import {
@@ -64,13 +64,30 @@ export function RotationHandleLayer({
 
   return (
     <Layer>
+      <Line
+        points={[center.x, center.y, handle.x, handle.y]}
+        stroke="rgba(5, 8, 11, 0.82)"
+        strokeWidth={6}
+        lineCap="round"
+        listening={false}
+      />
+      <Line
+        points={[center.x, center.y, handle.x, handle.y]}
+        stroke="rgba(255, 138, 61, 0.7)"
+        strokeWidth={2}
+        lineCap="round"
+        listening={false}
+      />
       <Circle
         x={handle.x}
         y={handle.y}
-        radius={12}
-        fill="rgba(45, 212, 122, 0.14)"
-        stroke="rgba(45, 212, 122, 0.62)"
+        radius={10}
+        fill="rgba(15, 18, 21, 0.92)"
+        stroke="#ff8a3d"
         strokeWidth={2}
+        shadowColor="rgba(255, 138, 61, 0.45)"
+        shadowBlur={6}
+        shadowOpacity={0.7}
         draggable={true}
         data-testid="rotation-handle"
         onDragStart={(event) => onRotationDragStart(selectedElementIndex, event)}
