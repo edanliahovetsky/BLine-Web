@@ -164,9 +164,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("90");
 });
 
-test("rotates a canvas element by dragging its handle without preselecting", async ({
-  page
-}) => {
+test("keeps rotation handles hidden until an element is selected", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByTestId("selected-element-status")).toContainText(
@@ -185,14 +183,8 @@ test("rotates a canvas element by dragging its handle without preselecting", asy
   await page.mouse.up();
 
   await expect(page.getByTestId("selected-element-status")).toContainText(
-    "Selected: Waypoint #3"
+    "Selected: none"
   );
-  await expect
-    .poll(async () => Number(await page.getByLabel("Rotation (deg)").inputValue()))
-    .toBeGreaterThan(-5);
-  await expect
-    .poll(async () => Number(await page.getByLabel("Rotation (deg)").inputValue()))
-    .toBeLessThan(5);
 });
 
 test("adds edits and deletes ranged constraints", async ({ page }) => {

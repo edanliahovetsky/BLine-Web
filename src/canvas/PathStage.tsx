@@ -437,7 +437,6 @@ export function PathStage() {
           <RotationHandleLayer
             project={project}
             selectedElementIndex={selectedElementIndex}
-            activeRotationElementIndex={activeRotationDrag?.index ?? null}
             viewport={viewport}
             positionPreview={drag.dragPreview}
             rotationPreview={rotationPreview}
