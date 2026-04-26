@@ -321,6 +321,10 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAttribute("aria-modal", "false");
+  const closeButton = page.getByRole("button", { name: "Close Constraint Editor" });
+  await expect(closeButton.locator("svg")).toBeVisible();
+  const closeButtonBox = await requiredBox(closeButton);
+  expect(Math.abs(closeButtonBox.width - closeButtonBox.height)).toBeLessThanOrEqual(1);
 
   const initialDialogBox = await requiredBox(dialog);
   const dragHandle = page.getByTestId("constraint-popout-drag-handle");

@@ -1143,14 +1143,29 @@ select {
 }
 
 .dialog-close-button {
-  min-width: 32px;
-  min-height: 32px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  padding: 0;
   border: 1px solid #33404b;
   border-radius: 6px;
   color: #edf4fb;
   background: #1d242b;
-  font-size: 0.86rem;
-  font-weight: 760;
+  line-height: 1;
+}
+
+.dialog-close-button:hover,
+.dialog-close-button:focus-visible {
+  border-color: #4d8fe8;
+  background: #213149;
+}
+
+.dialog-close-button svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .constraint-popout__content {

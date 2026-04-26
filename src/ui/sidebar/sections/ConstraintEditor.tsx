@@ -13,7 +13,7 @@ import {
 } from '../../../core/model/path';
 import { projectStore } from '../../../state/projectStore';
 import { NumberStepperControl, SidebarActionButton, SidebarIconButton } from '../../controls/SidebarControls';
-import { ElementIcon, PlusIcon, RemoveIcon } from '../../icons';
+import { ElementIcon, PlusIcon, RemoveIcon, XIcon } from '../../icons';
 import {
   createAddRangedConstraintCommand,
   createInsertRangedConstraintCommand,
@@ -342,7 +342,7 @@ function ConstraintPopout({
             <span>Ranged constraints</span>
           </div>
           <button type="button" className="dialog-close-button" onClick={onClose} aria-label="Close Constraint Editor">
-            x
+            <XIcon size={16} />
           </button>
         </div>
 
