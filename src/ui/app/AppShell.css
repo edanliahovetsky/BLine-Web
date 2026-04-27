@@ -1154,7 +1154,7 @@ select {
   min-width: 0;
 }
 
-.sidebar-number-control input[type="number"] {
+.sidebar-number-control input {
   padding: 0 8px;
   border-right: 0;
   border-radius: 6px 0 0 6px;
@@ -1870,7 +1870,7 @@ select {
   min-width: 0;
 }
 
-.config-row .sidebar-number-control input[type="number"] {
+.config-row .sidebar-number-control input {
   border-right: 0;
   border-radius: 6px 0 0 6px;
 }

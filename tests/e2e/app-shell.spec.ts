@@ -272,9 +272,9 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   expect((await requiredBox(decreaseX.locator("svg"))).width).toBeGreaterThan(6);
 
   await increaseX.click();
-  await expect(xInput).toHaveValue("6.300");
+  await expect(xInput).toHaveValue("6.3");
   await decreaseX.click();
-  await expect(xInput).toHaveValue("6.250");
+  await expect(xInput).toHaveValue("6.25");
 
   await expect(page.getByTestId("path-element-row-5")).toContainText("6.25, 3.75 m");
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
@@ -337,7 +337,7 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await expect(constraintsBody).toBeHidden();
 
   await constraintsToggle.click();
-  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.030");
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
 });
 
 test("keeps selected element context visible and scrolls selected rows into view", async ({ page }) => {
@@ -476,7 +476,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 
   await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
-  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.030");
+  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
   await page.getByRole("button", { name: "Remove End Translation Tolerance" }).click();
   await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveCount(0);
 
@@ -514,10 +514,16 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(increaseConstraint.locator("svg")).toBeVisible();
   await expect(decreaseConstraint.locator("svg")).toBeVisible();
   await increaseConstraint.click();
-  await expect(firstConstraintInput).toHaveValue("4.600");
+  await expect(firstConstraintInput).toHaveValue("4.6");
   await decreaseConstraint.click();
-  await expect(firstConstraintInput).toHaveValue("4.500");
+  await expect(firstConstraintInput).toHaveValue("4.5");
 
+  await firstConstraintInput.fill("");
+  await expect(firstConstraintInput).toHaveValue("");
+  await firstConstraintInput.fill("2.");
+  await expect(firstConstraintInput).toHaveValue("2.");
+  await firstConstraintInput.fill("2.456");
+  await expect(firstConstraintInput).toHaveValue("2.45");
   await firstConstraintInput.fill("2.4");
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
@@ -558,7 +564,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const dialogConstraintRow = dialog.getByTestId("ranged-constraint-row-2");
   const dialogConstraintInput = dialog.getByLabel("Constraint 2 value");
   const dialogConstraintStepper = dialogConstraintRow.locator(".sidebar-number-control");
-  await expect(dialogConstraintInput).toHaveValue("2.400");
+  await expect(dialogConstraintInput).toHaveValue("2.4");
   await expect(dialogConstraintStepper).toBeVisible();
   expect((await requiredBox(dialogConstraintStepper)).width).toBeLessThan(120);
   await expect(dialogConstraintRow.getByRole("button", { name: "Increase value" }).locator("svg")).toBeVisible();
@@ -658,7 +664,7 @@ test("edits project config with undo support", async ({ page }) => {
 
   await page.getByRole("button", { name: "Undo" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.500");
+  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.5");
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
   await page.getByRole("button", { name: "Close config" }).click();
 });
@@ -676,7 +682,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await expect(dialog).toBeHidden();
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.500");
+  await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.5");
   await page.getByRole("button", { name: "Close config" }).click();
 });
 

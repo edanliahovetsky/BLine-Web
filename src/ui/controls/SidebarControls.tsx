@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon } from "../icons";
 
@@ -46,6 +46,7 @@ export function NumberStepperControl({
   max,
   allowEmpty = false,
   disabled = false,
+  precision = 2,
   onChange
 }: {
   ariaLabel: string;
@@ -55,26 +56,107 @@ export function NumberStepperControl({
   max?: number;
   allowEmpty?: boolean;
   disabled?: boolean;
+  precision?: number;
   onChange(value: number | null): void;
 }) {
+  const formattedValue = value === null ? "" : formatNumericValue(value, precision);
+  const [draftValue, setDraftValue] = useState(formattedValue);
+  const [editing, setEditing] = useState(false);
+  const skipBlurCommitRef = useRef(false);
+  const inputValue = editing ? draftValue : formattedValue;
+  const draftNumber = parseDraftNumber(inputValue);
+  const ariaValueNow = draftNumber ?? value ?? undefined;
+
   const applyStep = (direction: 1 | -1) => {
-    onChange(stepNumber(value ?? 0, step, direction, min, max));
+    const baseValue = parseDraftNumber(draftValue) ?? value ?? 0;
+    const nextValue = stepNumber(baseValue, step, direction, min, max, precision);
+    setDraftValue(formatNumericValue(nextValue, precision));
+    onChange(nextValue);
+  };
+
+  const commitDraft = (draft: string) => {
+    const parsed = parseDraftNumber(draft);
+
+    if (parsed === null) {
+      if (allowEmpty && draft.trim() === "") {
+        setDraftValue("");
+        onChange(null);
+      } else {
+        setDraftValue(formattedValue);
+      }
+      return;
+    }
+
+    const nextValue = clampToBounds(roundToPrecision(parsed, precision), min, max);
+    setDraftValue(formatNumericValue(nextValue, precision));
+    onChange(nextValue);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      applyStep(1);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      applyStep(-1);
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitDraft(draftValue);
+      skipBlurCommitRef.current = true;
+      event.currentTarget.blur();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setDraftValue(formattedValue);
+      skipBlurCommitRef.current = true;
+      event.currentTarget.blur();
+    }
   };
 
   return (
     <div className={`sidebar-number-control${disabled ? " is-disabled" : ""}`}>
       <input
         aria-label={ariaLabel}
-        type="number"
-        value={value === null ? "" : formatNumericValue(value)}
-        step={step}
-        min={min}
-        max={max}
+        aria-valuemax={max}
+        aria-valuemin={min}
+        aria-valuenow={ariaValueNow}
+        inputMode="decimal"
+        role="spinbutton"
+        type="text"
+        value={inputValue}
         disabled={disabled}
         onChange={(event) => {
-          const parsed = parseNumberInput(event.currentTarget.value, allowEmpty);
-          onChange(parsed === null ? null : clampToBounds(parsed, min, max));
+          const nextDraft = sanitizeNumberInput(event.currentTarget.value, precision, min);
+          const parsed = parseDraftNumber(nextDraft);
+          setDraftValue(nextDraft);
+
+          if (parsed !== null) {
+            onChange(clampToBounds(roundToPrecision(parsed, precision), min, max));
+          } else if (allowEmpty && nextDraft.trim() === "") {
+            onChange(null);
+          }
         }}
+        onBlur={() => {
+          setEditing(false);
+          if (skipBlurCommitRef.current) {
+            skipBlurCommitRef.current = false;
+            return;
+          }
+          commitDraft(draftValue);
+        }}
+        onFocus={() => {
+          setEditing(true);
+          setDraftValue(formattedValue);
+        }}
+        onKeyDown={handleKeyDown}
       />
       <div className="sidebar-stepper">
         <button
@@ -132,28 +214,68 @@ export function SidebarActionButton({
   );
 }
 
-function formatNumericValue(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(3);
-}
-
-function parseNumberInput(value: string, allowEmpty: boolean): number | null {
-  if (value.trim() === "") {
-    return allowEmpty ? null : 0;
+function formatNumericValue(value: number, precision: number): string {
+  if (!Number.isFinite(value)) {
+    return "";
   }
 
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : allowEmpty ? null : 0;
+  return Number(roundToPrecision(value, precision).toFixed(Math.max(0, precision))).toString();
 }
 
-function stepNumber(value: number, step: number, direction: 1 | -1, min?: number, max?: number): number {
-  const precision = decimalPlaces(step);
-  const nextValue = Number((value + step * direction).toFixed(precision));
+function sanitizeNumberInput(value: string, precision: number, min?: number): string {
+  const allowNegative = min === undefined || min < 0;
+  const normalizedPrecision = Math.max(0, precision);
+  let sanitized = value.replace(/[^\d.-]/g, "");
+
+  if (allowNegative) {
+    const negative = sanitized.startsWith("-");
+    sanitized = sanitized.replace(/-/g, "");
+    sanitized = negative ? `-${sanitized}` : sanitized;
+  } else {
+    sanitized = sanitized.replace(/-/g, "");
+  }
+
+  if (normalizedPrecision === 0) {
+    return sanitized.replace(/\./g, "");
+  }
+
+  const decimalIndex = sanitized.indexOf(".");
+  if (decimalIndex === -1) {
+    return sanitized;
+  }
+
+  const integerPart = sanitized.slice(0, decimalIndex + 1);
+  const decimalPart = sanitized.slice(decimalIndex + 1).replace(/\./g, "").slice(0, normalizedPrecision);
+  return `${integerPart}${decimalPart}`;
+}
+
+function parseDraftNumber(value: string): number | null {
+  const draft = value.trim();
+  if (draft === "" || draft === "-" || draft === "." || draft === "-.") {
+    return null;
+  }
+
+  const parsed = Number(draft);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function stepNumber(
+  value: number,
+  step: number,
+  direction: 1 | -1,
+  min: number | undefined,
+  max: number | undefined,
+  precision: number
+): number {
+  const nextValue = roundToPrecision(value + step * direction, precision);
   return clampToBounds(nextValue, min, max);
 }
 
-function decimalPlaces(value: number): number {
-  const [, decimals = ""] = String(value).split(".");
-  return decimals.length;
+function roundToPrecision(value: number, precision: number): number {
+  const normalizedPrecision = Math.max(0, precision);
+  const factor = 10 ** normalizedPrecision;
+  const epsilon = value >= 0 ? Number.EPSILON : -Number.EPSILON;
+  return Number((Math.round((value + epsilon) * factor) / factor).toFixed(normalizedPrecision));
 }
 
 function clampToBounds(value: number, min?: number, max?: number): number {
