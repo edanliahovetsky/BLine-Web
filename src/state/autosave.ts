@@ -1,11 +1,12 @@
-import type { ProjectDocument } from "../core/io/projectSchema";
-import type { StorageAdapter, WriteResult } from "../storage/adapter";
+import type { ProjectWorkspaceDocument } from "../core/io/projectSchema";
+import type { ProjectIoService } from "../platform/projectIo";
+import type { WriteResult } from "../storage/adapter";
 import type { ProjectStore } from "./projectStore";
 
 export type AutosaveStatus = "idle" | "pending" | "saving" | "error";
 
 export interface AutosaveSnapshot {
-  project: ProjectDocument | null;
+  workspace: ProjectWorkspaceDocument | null;
   expectedVersion?: string;
   dirty?: boolean;
 }
@@ -16,7 +17,7 @@ export interface AutosaveScheduler<TimerHandle = unknown> {
 }
 
 export interface AutosaveCoordinatorOptions<TimerHandle = unknown> {
-  storage: StorageAdapter;
+  io: Pick<ProjectIoService, "saveWorkspace">;
   getSnapshot: () => AutosaveSnapshot;
   delayMs?: number;
   scheduler?: AutosaveScheduler<TimerHandle>;
@@ -33,9 +34,9 @@ export interface AutosaveCoordinator {
   cancel(): void;
 }
 
-export function createAutosaveCoordinator<TimerHandle = ReturnType<typeof setTimeout>>(
-  options: AutosaveCoordinatorOptions<TimerHandle>
-): AutosaveCoordinator {
+export function createAutosaveCoordinator<
+  TimerHandle = ReturnType<typeof setTimeout>
+>(options: AutosaveCoordinatorOptions<TimerHandle>): AutosaveCoordinator {
   const delayMs = options.delayMs ?? 750;
   const scheduler = options.scheduler ?? defaultScheduler<TimerHandle>();
   let timer: TimerHandle | null = null;
@@ -70,7 +71,7 @@ export function createAutosaveCoordinator<TimerHandle = ReturnType<typeof setTim
       }
 
       const snapshot = options.getSnapshot();
-      if (!snapshot.project || snapshot.dirty === false) {
+      if (!snapshot.workspace || snapshot.dirty === false) {
         setStatus("idle");
         return null;
       }
@@ -78,8 +79,8 @@ export function createAutosaveCoordinator<TimerHandle = ReturnType<typeof setTim
       setStatus("saving");
 
       try {
-        const result = await options.storage.writeProject(
-          snapshot.project,
+        const result = await options.io.saveWorkspace(
+          snapshot.workspace,
           snapshot.expectedVersion
         );
         setStatus("idle");
@@ -104,16 +105,19 @@ export function createAutosaveCoordinator<TimerHandle = ReturnType<typeof setTim
 
 export function createProjectAutosaveCoordinator(
   projectStore: ProjectStore,
-  storage: StorageAdapter,
-  options: Omit<AutosaveCoordinatorOptions, "storage" | "getSnapshot" | "onSaved" | "onError"> = {}
+  io: ProjectIoService,
+  options: Omit<
+    AutosaveCoordinatorOptions,
+    "io" | "getSnapshot" | "onSaved" | "onError"
+  > = {}
 ): AutosaveCoordinator {
   return createAutosaveCoordinator({
     ...options,
-    storage,
+    io,
     getSnapshot: () => {
       const state = projectStore.getState();
       return {
-        project: state.project,
+        workspace: state.workspace,
         expectedVersion: state.version,
         dirty: state.dirty
       };

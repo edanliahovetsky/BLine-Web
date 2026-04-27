@@ -1,12 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectDocument, SerializedProjectDocument } from "../core/io/projectSchema";
-import { deserializeProjectDocument, serializeProjectDocument } from "../core/io/projectSerde";
+import type {
+  ProjectWorkspaceDocument,
+  SerializedProjectWorkspaceDocument
+} from "../core/io/projectSchema";
 import {
-  createProjectBundle,
-  importProjectBundle,
-  type ImportResult,
-  type ProjectSummary,
-  type StorageAdapter,
+  deserializeProjectWorkspaceDocument,
+  serializeProjectWorkspaceDocument
+} from "../core/io/workspaceSerde";
+import {
+  createBLineWorkspaceArchive,
+  importWorkspaceArchive,
+  type ProjectFolderAdapter,
+  type ProjectWorkspaceSummary,
+  type WorkspaceImportResult,
   type WriteResult
 } from "./adapter";
 
@@ -17,7 +23,7 @@ export interface TauriStorageOptions {
   now?: () => Date;
 }
 
-export class TauriStorage implements StorageAdapter {
+export class TauriStorage implements ProjectFolderAdapter {
   private readonly invoke: TauriInvoke;
   private readonly now: () => Date;
 
@@ -26,39 +32,63 @@ export class TauriStorage implements StorageAdapter {
     this.now = options.now ?? (() => new Date());
   }
 
-  async listProjects(): Promise<ProjectSummary[]> {
-    return this.invoke<ProjectSummary[]>("storage_list_projects");
+  async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
+    return this.listRecentWorkspaces();
   }
 
-  async readProject(id: string): Promise<ProjectDocument> {
-    const project = await this.invoke<SerializedProjectDocument>("storage_read_project", {
-      id
-    });
-    return deserializeProjectDocument(project);
+  async readWorkspace(id?: string): Promise<ProjectWorkspaceDocument> {
+    const workspace = await this.invoke<SerializedProjectWorkspaceDocument>(
+      "storage_read_workspace",
+      { id: id ?? null }
+    );
+    return deserializeProjectWorkspaceDocument(workspace);
   }
 
-  async writeProject(
-    project: ProjectDocument,
+  async writeWorkspace(
+    workspace: ProjectWorkspaceDocument,
     expectedVersion?: string
   ): Promise<WriteResult> {
-    return this.invoke<WriteResult>("storage_write_project", {
-      project: serializeProjectDocument(project),
+    return this.invoke<WriteResult>("storage_write_workspace", {
+      workspace: serializeProjectWorkspaceDocument(workspace),
       expected: expectedVersion ?? null
     });
   }
 
-  async deleteProject(id: string, expectedVersion?: string): Promise<void> {
-    await this.invoke<void>("storage_delete_project", {
-      id,
-      expected: expectedVersion ?? null
+  async exportWorkspaceArchive(id?: string): Promise<Blob> {
+    const workspace = id ? await this.readWorkspace(id) : await this.readWorkspace();
+    const memoryAdapter = {
+      readWorkspace: async () => workspace
+    };
+    return createBLineWorkspaceArchive(
+      memoryAdapter,
+      workspace.project_id,
+      this.now().toISOString()
+    );
+  }
+
+  async importWorkspaceArchive(archive: Blob): Promise<WorkspaceImportResult> {
+    return importWorkspaceArchive(this, archive);
+  }
+
+  async getCurrentWorkspace(): Promise<ProjectWorkspaceSummary | null> {
+    return this.invoke<ProjectWorkspaceSummary | null>("storage_get_current_workspace");
+  }
+
+  async listRecentWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
+    return this.invoke<ProjectWorkspaceSummary[]>("storage_list_recent_workspaces");
+  }
+
+  async openWorkspace(): Promise<ProjectWorkspaceSummary | null> {
+    return this.invoke<ProjectWorkspaceSummary | null>("storage_open_workspace_dialog");
+  }
+
+  async createWorkspace(): Promise<ProjectWorkspaceSummary | null> {
+    return this.invoke<ProjectWorkspaceSummary | null>("storage_create_workspace_dialog");
+  }
+
+  async switchWorkspace(id: string): Promise<ProjectWorkspaceSummary | null> {
+    return this.invoke<ProjectWorkspaceSummary | null>("storage_switch_workspace", {
+      id
     });
-  }
-
-  async exportBundle(ids: string[]): Promise<Blob> {
-    return createProjectBundle(this, ids, this.now().toISOString());
-  }
-
-  async importBundle(bundle: Blob): Promise<ImportResult> {
-    return importProjectBundle(this, bundle);
   }
 }

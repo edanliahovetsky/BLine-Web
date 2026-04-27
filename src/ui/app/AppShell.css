@@ -310,6 +310,30 @@ select {
   color: #ffffff;
   border-color: #2c63e5;
   background: #1856c9;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 2px 0 #0b3485,
+    0 6px 14px rgba(0, 0, 0, 0.28);
+  transform: translateY(0);
+  transition:
+    background 90ms ease,
+    border-color 90ms ease,
+    box-shadow 90ms ease,
+    transform 90ms ease;
+}
+
+.toolbar-actions button.primary-action:hover:not(:disabled),
+.toolbar-actions button.primary-action:focus-visible:not(:disabled) {
+  border-color: #4c7cff;
+  background: #2365dc;
+}
+
+.toolbar-actions button.primary-action:active:not(:disabled) {
+  background: #164ba9;
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.38),
+    0 1px 0 #0b3485;
+  transform: translateY(2px);
 }
 
 .top-menu > button:disabled,
@@ -1675,7 +1699,8 @@ select {
 }
 
 .config-dialog,
-.delete-paths-dialog {
+.delete-paths-dialog,
+.delete-projects-dialog {
   display: grid;
   max-height: calc(100vh - 40px);
   border: 1px solid #3f4a55;
@@ -1691,7 +1716,8 @@ select {
   overflow: hidden;
 }
 
-.delete-paths-dialog {
+.delete-paths-dialog,
+.delete-projects-dialog {
   gap: 12px;
   width: min(520px, calc(100vw - 40px));
   overflow-y: auto;
@@ -2016,7 +2042,8 @@ select {
   opacity: 0.5;
 }
 
-.delete-paths-dialog__list {
+.delete-paths-dialog__list,
+.delete-projects-dialog__list {
   display: grid;
   gap: 6px;
   max-height: min(420px, calc(100vh - 190px));
@@ -2027,7 +2054,40 @@ select {
   background: #20252a;
 }
 
-.delete-path-row {
+.delete-projects-dialog__confirm {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #553636;
+  border-radius: 7px;
+  background: #2d2424;
+}
+
+.delete-projects-dialog__confirm strong {
+  color: #ffffff;
+  font-size: 0.92rem;
+}
+
+.delete-projects-dialog__confirm p {
+  margin: 0;
+  color: #d3dde6;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.delete-projects-dialog__confirm ul {
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0;
+  padding-left: 18px;
+  color: #f4f7fa;
+  font-size: 0.82rem;
+}
+
+.delete-path-row,
+.delete-project-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -2039,18 +2099,21 @@ select {
   background: #24282d;
 }
 
-.delete-path-row.is-current {
+.delete-path-row.is-current,
+.delete-project-row.is-current {
   border-color: #794545;
   background: #2d2424;
 }
 
-.delete-path-row input {
+.delete-path-row input,
+.delete-project-row input {
   width: 17px;
   height: 17px;
   accent-color: #1f86ff;
 }
 
-.delete-path-row span {
+.delete-path-row span,
+.delete-project-row span {
   min-width: 0;
   overflow: hidden;
   color: #f4f7fa;
@@ -2060,12 +2123,15 @@ select {
 }
 
 .delete-path-row small,
-.delete-paths-dialog__empty {
+.delete-project-row small,
+.delete-paths-dialog__empty,
+.delete-projects-dialog__empty {
   color: #9eabb6;
   font-size: 0.78rem;
 }
 
-.delete-paths-dialog__spacer {
+.delete-paths-dialog__spacer,
+.delete-projects-dialog__spacer {
   flex: 1;
 }
 
@@ -2148,6 +2214,12 @@ select {
   --status-accent: #ffb86b;
   flex: 0 1 auto;
   max-width: min(520px, 42vw);
+}
+
+.status-bar__item--selection {
+  --status-accent: #8fd6bd;
+  flex: 0 1 auto;
+  max-width: min(420px, 34vw);
 }
 
 .status-bar__item--storage {
@@ -2368,6 +2440,7 @@ select {
 
   .status-bar__item--path,
   .status-bar__item--project,
+  .status-bar__item--selection,
   .status-bar__item--storage,
   .status-bar__item--save {
     max-width: calc(100vw - 20px);

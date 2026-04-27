@@ -1,44 +1,57 @@
 import { describe, expect, it } from "vitest";
-import { createPathModel, createTranslationTarget } from "../../../src/core/model/path";
-import { createProjectDocument } from "../../../src/core/io/projectSchema";
-import { serializeProjectDocument } from "../../../src/core/io/projectSerde";
+import {
+  createPathModel,
+  createTranslationTarget
+} from "../../../src/core/model/path";
+import {
+  createProjectDocument,
+  createProjectPathDocument,
+  createProjectWorkspaceDocument,
+  type ProjectWorkspaceDocument
+} from "../../../src/core/io/projectSchema";
+import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   BrowserStorage,
   StorageConflictError,
   createStorageAdapter,
+  createStoredProjectRecord,
   type StorageLike,
   type TauriInvoke,
   TauriStorage
 } from "../../../src/storage";
-import { browserWebCapabilities, tauriCapabilities } from "../../../src/env/capabilities";
+import {
+  browserWebCapabilities,
+  tauriCapabilities
+} from "../../../src/env/capabilities";
 
 describe("BrowserStorage", () => {
-  it("writes, lists, reads, and deletes projects", async () => {
+  it("writes, lists, reads, and deletes workspaces", async () => {
     const storage = new BrowserStorage({
       storage: new MemoryStorage(),
       now: fixedClock("2026-04-23T15:30:00.000Z")
     });
-    const project = exampleProject("project-a", "Alpha");
+    const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
 
-    const write = await storage.writeProject(project);
-    const summaries = await storage.listProjects();
-    const restored = await storage.readProject("project-a");
+    const write = await storage.writeWorkspace(workspace);
+    const summaries = await storage.listWorkspaces();
+    const restored = await storage.readWorkspace("workspace-a");
 
     expect(write.updatedAt).toBe("2026-04-23T15:30:00.000Z");
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({
-      id: "project-a",
+      id: "workspace-a",
       displayName: "Alpha",
       updatedAt: "2026-04-23T15:30:00.000Z"
     });
     expect(restored).toMatchObject({
-      project_id: "project-a",
-      display_name: "Alpha"
+      project_id: "workspace-a",
+      display_name: "Alpha",
+      paths: [{ display_name: "One" }]
     });
 
-    await storage.deleteProject("project-a", write.version);
+    await storage.deleteWorkspace("workspace-a", write.version);
 
-    await expect(storage.listProjects()).resolves.toEqual([]);
+    await expect(storage.listWorkspaces()).resolves.toEqual([]);
   });
 
   it("enforces expected versions on writes and deletes", async () => {
@@ -47,71 +60,121 @@ describe("BrowserStorage", () => {
       now: fixedClock("2026-04-23T15:31:00.000Z")
     });
 
-    const write = await storage.writeProject(exampleProject("project-a", "Alpha"));
+    const write = await storage.writeWorkspace(
+      exampleWorkspace("workspace-a", "Alpha", ["One"])
+    );
 
     await expect(
-      storage.writeProject(exampleProject("project-a", "Alpha 2"), "wrong-version")
+      storage.writeWorkspace(
+        exampleWorkspace("workspace-a", "Alpha 2", ["One"]),
+        "wrong-version"
+      )
     ).rejects.toBeInstanceOf(StorageConflictError);
     await expect(
-      storage.deleteProject("project-a", "wrong-version")
+      storage.deleteWorkspace("workspace-a", "wrong-version")
     ).rejects.toBeInstanceOf(StorageConflictError);
 
     await expect(
-      storage.writeProject(exampleProject("project-a", "Alpha 2"), write.version)
+      storage.writeWorkspace(
+        exampleWorkspace("workspace-a", "Alpha 2", ["One"]),
+        write.version
+      )
     ).resolves.toMatchObject({
       updatedAt: "2026-04-23T15:31:00.000Z"
     });
   });
 
-  it("exports and imports project bundles", async () => {
+  it("exports and imports BLine project archives with shared config and multiple paths", async () => {
     const source = new BrowserStorage({
       storage: new MemoryStorage(),
-      now: fixedClock("2026-04-23T15:32:00.000Z")
+      now: fixedClock("2026-04-23T15:35:00.000Z")
     });
     const target = new BrowserStorage({
       storage: new MemoryStorage(),
-      now: fixedClock("2026-04-23T15:33:00.000Z")
+      now: fixedClock("2026-04-23T15:36:00.000Z")
     });
 
-    await source.writeProject(exampleProject("project-a", "Alpha"));
-    await source.writeProject(exampleProject("project-b", "Beta"));
+    await source.writeWorkspace(
+      exampleWorkspace("workspace-a", "Alpha", ["One", "Two"])
+    );
 
-    const bundle = await source.exportBundle(["project-b", "project-a"]);
-    const imported = await target.importBundle(bundle);
+    const archive = await source.exportWorkspaceArchive("workspace-a");
+    const rawArchive = JSON.parse(await archive.text()) as {
+      bline_project_schema_version: number;
+      paths: Array<{ file_name: string }>;
+    };
+    const imported = await target.importWorkspaceArchive(
+      new Blob([JSON.stringify(rawArchive)], { type: "application/json" })
+    );
 
-    expect(bundle.type).toBe("application/json");
-    expect(imported.imported.map((project) => project.id).sort()).toEqual([
-      "project-a",
-      "project-b"
+    expect(rawArchive.bline_project_schema_version).toBe(1);
+    expect(rawArchive.paths.map((path) => path.file_name).sort()).toEqual([
+      "One.json",
+      "Two.json"
     ]);
-    await expect(target.readProject("project-b")).resolves.toMatchObject({
-      project_id: "project-b",
-      display_name: "Beta"
+    expect(imported.imported).toHaveLength(1);
+    await expect(target.readWorkspace(imported.imported[0].id)).resolves.toMatchObject({
+      paths: [{ file_name: "One.json" }, { file_name: "Two.json" }]
     });
+  });
+
+  it("migrates legacy one-path browser records into workspaces", async () => {
+    const memory = new MemoryStorage();
+    const legacyProject = createProjectDocument({
+      project_id: "legacy-project",
+      display_name: "Legacy Path",
+      path_file_name: "legacy.json",
+      path: createPathModel()
+    });
+    memory.setItem(
+      "bline-web:project:legacy-project",
+      JSON.stringify(
+        createStoredProjectRecord(
+          legacyProject,
+          "legacy-version",
+          "2026-04-23T15:37:00.000Z"
+        )
+      )
+    );
+    const storage = new BrowserStorage({ storage: memory });
+
+    const summaries = await storage.listWorkspaces();
+    const workspace = await storage.readWorkspace("legacy-project");
+
+    expect(summaries[0]).toMatchObject({
+      id: "legacy-project",
+      version: "legacy-version"
+    });
+    expect(workspace.paths[0]).toMatchObject({
+      path_id: "legacy-project",
+      file_name: "legacy.json"
+    });
+    expect(memory.getItem("bline-web:project:legacy-project")).toBeNull();
   });
 });
 
 describe("TauriStorage", () => {
-  it("serializes project documents through invoke commands", async () => {
+  it("serializes workspace documents through invoke commands", async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
-    const project = exampleProject("project-a", "Alpha");
-    const serialized = serializeProjectDocument(project);
+    const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
+    const serialized = serializeProjectWorkspaceDocument(workspace);
     const invoke: TauriInvoke = async (command, args) => {
       calls.push({ command, args });
 
-      if (command === "storage_write_project") {
+      if (command === "storage_write_workspace") {
         return { version: "v1", updatedAt: "2026-04-23T15:34:00.000Z" };
       }
 
-      if (command === "storage_read_project") {
+      if (command === "storage_read_workspace") {
         return serialized;
       }
 
-      if (command === "storage_list_projects") {
+      if (command === "storage_list_recent_workspaces") {
         return [
           {
-            id: "project-a",
+            id: "workspace-a",
             displayName: "Alpha",
+            directoryPath: "/tmp/autos",
             updatedAt: "2026-04-23T15:34:00.000Z",
             version: "v1"
           }
@@ -122,20 +185,21 @@ describe("TauriStorage", () => {
     };
     const storage = new TauriStorage({ invoke });
 
-    await expect(storage.writeProject(project, "v0")).resolves.toEqual({
+    await expect(storage.writeWorkspace(workspace, "v0")).resolves.toEqual({
       version: "v1",
       updatedAt: "2026-04-23T15:34:00.000Z"
     });
-    await expect(storage.readProject("project-a")).resolves.toMatchObject({
-      project_id: "project-a",
-      display_name: "Alpha"
+    await expect(storage.readWorkspace("workspace-a")).resolves.toMatchObject({
+      project_id: "workspace-a",
+      display_name: "Alpha",
+      paths: [{ display_name: "One" }]
     });
-    await expect(storage.listProjects()).resolves.toHaveLength(1);
+    await expect(storage.listWorkspaces()).resolves.toHaveLength(1);
 
     expect(calls[0]).toEqual({
-      command: "storage_write_project",
+      command: "storage_write_workspace",
       args: {
-        project: serialized,
+        workspace: serialized,
         expected: "v0"
       }
     });
@@ -153,13 +217,34 @@ describe("createStorageAdapter", () => {
   });
 });
 
-function exampleProject(project_id: string, display_name: string) {
-  return createProjectDocument({
+function exampleWorkspace(
+  project_id: string,
+  display_name: string,
+  pathNames: string[]
+): ProjectWorkspaceDocument {
+  const paths = pathNames.map((name, index) =>
+    createProjectPathDocument({
+      path_id: `path-${index + 1}`,
+      display_name: name,
+      file_name: `${name}.json`,
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: index + 1, y_meters: index + 2 })
+        ]
+      })
+    })
+  );
+
+  return createProjectWorkspaceDocument({
     project_id,
     display_name,
-    path: createPathModel({
-      path_elements: [createTranslationTarget({ x_meters: 1, y_meters: 2 })]
-    })
+    config: {
+      kinematic_constraints: {
+        default_intermediate_handoff_radius_meters: 0.42
+      }
+    },
+    paths,
+    active_path_id: paths[0]?.path_id ?? null
   });
 }
 

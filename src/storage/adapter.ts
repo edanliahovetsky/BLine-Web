@@ -1,17 +1,36 @@
 import type {
   ProjectDocument,
-  SerializedProjectDocument
+  ProjectWorkspaceDocument,
+  SerializedProjectDocument,
+  SerializedProjectWorkspaceDocument
 } from "../core/io/projectSchema";
+import {
+  deserializeBLineProjectArchive,
+  isBLineProjectArchive,
+  serializeBLineProjectArchive
+} from "../core/io/blineProject";
 import {
   deserializeProjectDocument,
   serializeProjectDocument
 } from "../core/io/projectSerde";
+import {
+  deserializeProjectWorkspaceDocument,
+  projectDocumentToWorkspaceDocument,
+  serializeProjectWorkspaceDocument
+} from "../core/io/workspaceSerde";
 
-export interface ProjectSummary {
+export interface ProjectWorkspaceSummary {
   id: string;
   displayName: string;
   updatedAt: string;
   version: string;
+  directoryPath?: string;
+}
+
+export interface ProjectPathSummary {
+  id: string;
+  displayName: string;
+  fileName: string;
 }
 
 export interface WriteResult {
@@ -19,8 +38,14 @@ export interface WriteResult {
   updatedAt: string;
 }
 
-export interface ImportResult {
-  imported: ProjectSummary[];
+export interface WorkspaceImportResult {
+  imported: ProjectWorkspaceSummary[];
+}
+
+export interface StoredWorkspaceRecord {
+  document: SerializedProjectWorkspaceDocument;
+  version: string;
+  updatedAt: string;
 }
 
 export interface StoredProjectRecord {
@@ -35,13 +60,36 @@ export interface ProjectBundle {
   projects: SerializedProjectDocument[];
 }
 
+export interface WorkspaceBundle {
+  bundle_schema_version: 2;
+  exported_at: string;
+  workspaces: SerializedProjectWorkspaceDocument[];
+}
+
 export interface StorageAdapter {
-  listProjects(): Promise<ProjectSummary[]>;
-  readProject(id: string): Promise<ProjectDocument>;
-  writeProject(project: ProjectDocument, expectedVersion?: string): Promise<WriteResult>;
-  deleteProject(id: string, expectedVersion?: string): Promise<void>;
-  exportBundle(ids: string[]): Promise<Blob>;
-  importBundle(bundle: Blob): Promise<ImportResult>;
+  initialize?(): Promise<void>;
+  listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
+  readWorkspace(id?: string): Promise<ProjectWorkspaceDocument>;
+  writeWorkspace(
+    workspace: ProjectWorkspaceDocument,
+    expectedVersion?: string
+  ): Promise<WriteResult>;
+  deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
+  exportWorkspaceArchive?(id?: string): Promise<Blob>;
+  importWorkspaceArchive?(archive: Blob): Promise<WorkspaceImportResult>;
+}
+
+export interface CurrentWorkspaceAdapter extends StorageAdapter {
+  getCurrentWorkspaceId(): Promise<string | null>;
+  setCurrentWorkspaceId(id: string | null): Promise<void>;
+}
+
+export interface ProjectFolderAdapter extends StorageAdapter {
+  getCurrentWorkspace(): Promise<ProjectWorkspaceSummary | null>;
+  listRecentWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
+  openWorkspace(): Promise<ProjectWorkspaceSummary | null>;
+  createWorkspace(): Promise<ProjectWorkspaceSummary | null>;
+  switchWorkspace(id: string): Promise<ProjectWorkspaceSummary | null>;
 }
 
 export class StorageConflictError extends Error {
@@ -63,6 +111,136 @@ export class ProjectNotFoundError extends Error {
   }
 }
 
+export function createStoredWorkspaceRecord(
+  workspace: ProjectWorkspaceDocument,
+  version: string,
+  updatedAt: string
+): StoredWorkspaceRecord {
+  return {
+    document: serializeProjectWorkspaceDocument(workspace),
+    version,
+    updatedAt
+  };
+}
+
+export function workspaceSummaryFromRecord(
+  record: StoredWorkspaceRecord
+): ProjectWorkspaceSummary {
+  return {
+    id: record.document.project_id,
+    displayName: record.document.display_name,
+    updatedAt: record.updatedAt,
+    version: record.version
+  };
+}
+
+export function workspaceFromRecord(
+  record: StoredWorkspaceRecord
+): ProjectWorkspaceDocument {
+  return deserializeProjectWorkspaceDocument(record.document);
+}
+
+export async function createWorkspaceBundle(
+  adapter: Pick<StorageAdapter, "readWorkspace">,
+  ids: readonly string[],
+  exportedAt: string
+): Promise<Blob> {
+  const workspaces = await Promise.all(
+    ids.map(async (id) =>
+      serializeProjectWorkspaceDocument(await adapter.readWorkspace(id))
+    )
+  );
+
+  const bundle: WorkspaceBundle = {
+    bundle_schema_version: 2,
+    exported_at: exportedAt,
+    workspaces
+  };
+
+  return new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json"
+  });
+}
+
+export async function createBLineWorkspaceArchive(
+  adapter: Pick<StorageAdapter, "readWorkspace">,
+  id: string,
+  exportedAt: string
+): Promise<Blob> {
+  return serializeBLineProjectArchive(await adapter.readWorkspace(id), exportedAt);
+}
+
+export async function importWorkspaceArchive(
+  adapter: Pick<StorageAdapter, "writeWorkspace" | "listWorkspaces">,
+  archive: Blob
+): Promise<WorkspaceImportResult> {
+  const workspace = await decodeWorkspaceArchive(archive);
+  await adapter.writeWorkspace(workspace);
+  const summaries = await adapter.listWorkspaces();
+
+  return {
+    imported: summaries.filter((summary) => summary.id === workspace.project_id)
+  };
+}
+
+export async function decodeWorkspaceArchive(
+  archive: Blob
+): Promise<ProjectWorkspaceDocument> {
+  const parsed = JSON.parse(await archive.text()) as unknown;
+
+  if (isBLineProjectArchive(parsed)) {
+    return deserializeBLineProjectArchive(parsed);
+  }
+
+  if (isWorkspaceBundle(parsed)) {
+    const [workspace] = parsed.workspaces;
+    if (!workspace) {
+      throw new Error("Workspace bundle is empty");
+    }
+    return deserializeProjectWorkspaceDocument(workspace);
+  }
+
+  if (isProjectBundle(parsed)) {
+    return legacyProjectBundleToWorkspace(parsed);
+  }
+
+  return deserializeProjectWorkspaceDocument(parsed);
+}
+
+export function compareWorkspaceSummaries(
+  a: ProjectWorkspaceSummary,
+  b: ProjectWorkspaceSummary
+): number {
+  return (
+    b.updatedAt.localeCompare(a.updatedAt) ||
+    a.displayName.localeCompare(b.displayName) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+export function isCurrentWorkspaceAdapter(
+  adapter: StorageAdapter
+): adapter is CurrentWorkspaceAdapter {
+  const candidate = adapter as Partial<CurrentWorkspaceAdapter>;
+  return (
+    typeof candidate.getCurrentWorkspaceId === "function" &&
+    typeof candidate.setCurrentWorkspaceId === "function"
+  );
+}
+
+export function isProjectFolderAdapter(
+  adapter: StorageAdapter
+): adapter is ProjectFolderAdapter {
+  const candidate = adapter as Partial<ProjectFolderAdapter>;
+  return (
+    typeof candidate.getCurrentWorkspace === "function" &&
+    typeof candidate.listRecentWorkspaces === "function" &&
+    typeof candidate.openWorkspace === "function" &&
+    typeof candidate.createWorkspace === "function" &&
+    typeof candidate.switchWorkspace === "function"
+  );
+}
+
 export function createStoredProjectRecord(
   project: ProjectDocument,
   version: string,
@@ -75,72 +253,43 @@ export function createStoredProjectRecord(
   };
 }
 
-export function summaryFromRecord(record: StoredProjectRecord): ProjectSummary {
-  return {
-    id: record.document.project_id,
-    displayName: record.document.display_name,
-    updatedAt: record.updatedAt,
-    version: record.version
-  };
-}
-
-export function projectFromRecord(record: StoredProjectRecord): ProjectDocument {
-  return deserializeProjectDocument(record.document);
-}
-
-export async function createProjectBundle(
-  adapter: Pick<StorageAdapter, "readProject">,
-  ids: readonly string[],
-  exportedAt: string
-): Promise<Blob> {
-  const projects = await Promise.all(
-    ids.map(async (id) => serializeProjectDocument(await adapter.readProject(id)))
+function legacyProjectBundleToWorkspace(
+  bundle: ProjectBundle
+): ProjectWorkspaceDocument {
+  const projects = bundle.projects.map((project) =>
+    deserializeProjectDocument(project)
   );
+  const first = projects[0];
 
-  const bundle: ProjectBundle = {
-    bundle_schema_version: 1,
-    exported_at: exportedAt,
-    projects
-  };
-
-  return new Blob([JSON.stringify(bundle, null, 2)], {
-    type: "application/json"
-  });
-}
-
-export async function importProjectBundle(
-  adapter: Pick<StorageAdapter, "writeProject" | "listProjects">,
-  bundle: Blob
-): Promise<ImportResult> {
-  const projects = await decodeProjectBundle(bundle);
-
-  for (const project of projects) {
-    await adapter.writeProject(project);
+  if (!first) {
+    throw new Error("Project bundle is empty");
   }
-
-  const summaries = await adapter.listProjects();
-  const importedIds = new Set(projects.map((project) => project.project_id));
 
   return {
-    imported: summaries.filter((summary) => importedIds.has(summary.id))
+    ...projectDocumentToWorkspaceDocument(first, {
+      fallbackProjectId: first.project_id,
+      fallbackDisplayName: first.display_name
+    }),
+    paths: projects.map((project) => ({
+      path_id: project.project_id,
+      display_name: project.display_name,
+      file_name: project.path_file_name ?? `${project.project_id}.json`,
+      path: project.path
+    })),
+    active_path_id: first.project_id
   };
 }
 
-export async function decodeProjectBundle(bundle: Blob): Promise<ProjectDocument[]> {
-  const parsed = JSON.parse(await bundle.text()) as unknown;
-
-  if (isProjectBundle(parsed)) {
-    return parsed.projects.map((project) => deserializeProjectDocument(project));
+function isWorkspaceBundle(input: unknown): input is WorkspaceBundle {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return false;
   }
 
-  return [deserializeProjectDocument(parsed)];
-}
-
-export function compareProjectSummaries(a: ProjectSummary, b: ProjectSummary): number {
   return (
-    b.updatedAt.localeCompare(a.updatedAt) ||
-    a.displayName.localeCompare(b.displayName) ||
-    a.id.localeCompare(b.id)
+    "bundle_schema_version" in input &&
+    (input as { bundle_schema_version: unknown }).bundle_schema_version === 2 &&
+    "workspaces" in input &&
+    Array.isArray((input as { workspaces: unknown }).workspaces)
   );
 }
 

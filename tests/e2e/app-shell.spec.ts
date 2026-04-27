@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 test("boots the Phase 1 shell", async ({ page }) => {
   await page.goto("/");
@@ -683,12 +683,39 @@ test("cancels project config edits with Escape", async ({ page }) => {
 test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Project" }).click();
+  await openProjectMenu(page);
   await expect(page.getByTestId("top-menu-project")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Open Project..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import Project..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Export Project..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Workspace" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import / Export" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Config" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Recent Projects" })).toBeVisible();
+
+  await page.getByRole("menuitem", { name: "Workspace" }).click();
+  await expect(page.getByTestId("top-menu-project-workspace")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "New Project" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Open Project..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Delete Projects..." })).toBeVisible();
+
+  await page.getByRole("menuitem", { name: "Delete Projects..." }).click();
+  await expect(page.getByRole("dialog", { name: "Delete Projects" })).toBeVisible();
+  await page.getByRole("button", { name: "Select All" }).click();
+  await page.getByRole("button", { name: "Delete Selected" }).click();
+  await expect(page.getByText("Delete 1 selected project?")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm Delete" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import Autos Folder..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Export Autos Folder..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import Project Archive..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Export Project Archive..." })).toBeVisible();
+
+  await page.getByRole("menuitem", { name: "Config" }).click();
+  await expect(page.getByTestId("top-menu-project-config")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import Config..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Export Config..." })).toBeVisible();
 
   await page.getByRole("button", { name: "Path" }).click();
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
@@ -713,7 +740,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
 test("keeps top dropdowns streamlined with right-side path flyouts", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Project" }).click();
+  await openProjectMenu(page);
   const projectMenu = page.getByTestId("top-menu-project");
   await expect(projectMenu).toBeVisible();
   expect((await requiredBox(projectMenu)).width).toBeLessThanOrEqual(260);
@@ -805,7 +832,9 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await page.getByRole("button", { name: "New" }).click();
+  page.once("dialog", (dialog) => void dialog.accept("Second Path"));
+  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("menuitem", { name: "Create New Path" }).click();
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
@@ -828,7 +857,7 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
 test("creates saves and reloads a local project", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "New" }).click();
+  await createNewProject(page);
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
@@ -867,12 +896,12 @@ test("recovers autosaved edits after reload", async ({ page }) => {
 test("opens a saved project from the project list", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "New" }).click();
+  await createNewProject(page);
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   const firstPath = await currentPathName(page);
 
-  await page.getByRole("button", { name: "New" }).click();
+  await createNewProject(page);
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
   await page.getByRole("button", { name: "Save" }).click();
@@ -951,6 +980,16 @@ async function currentPathName(page: {
   }
 
   return currentPath.replace("Current Path: ", "");
+}
+
+async function openProjectMenu(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Project", exact: true }).click();
+}
+
+async function createNewProject(page: Page): Promise<void> {
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Workspace" }).click();
+  await page.getByRole("menuitem", { name: "New Project" }).click();
 }
 
 function modelToCanvasPoint(box: Bounds, point: PointMeters) {

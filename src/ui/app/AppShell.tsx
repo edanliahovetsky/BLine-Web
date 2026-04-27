@@ -3,12 +3,18 @@ import type { ChangeEvent, FocusEvent } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { PathStage } from "../../canvas/PathStage";
-import { createProjectDocument, type ProjectDocument } from "../../core/io/projectSchema";
-import { createPathModel } from "../../core/model/path";
+import type {
+  ProjectPathDocument,
+  ProjectWorkspaceDocument
+} from "../../core/io/projectSchema";
+import { getElementPosition } from "../../canvas/geometry";
+import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
+import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
-  detectEnvironmentCapabilities,
-  type EnvironmentCapabilities
-} from "../../env/capabilities";
+  createProjectIoService,
+  type ProjectFolderExport,
+  type ProjectIoCapabilities
+} from "../../platform/projectIo";
 import {
   createProjectAutosaveCoordinator,
   type AutosaveCoordinator,
@@ -17,19 +23,24 @@ import {
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
-import { createStorageAdapter, type ProjectSummary } from "../../storage";
+import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import "./AppShell.css";
 import { createUpdateProjectConfigCommand } from "./configCommands";
-import { createInitialCanvasProject, createNewCanvasProject } from "./initialProject";
+import {
+  createInitialCanvasWorkspace,
+  createNewCanvasWorkspace
+} from "./initialProject";
 import { ProjectConfigDialog } from "./ProjectConfigDialog";
 
 export function AppShell() {
+  const workspace = useStoreSelector(projectStore, (state) => state.workspace);
   const project = useStoreSelector(projectStore, (state) => state.project);
-  const storage = useStoreSelector(projectStore, (state) => state.storage);
+  const projectIo = useStoreSelector(projectStore, (state) => state.io);
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
   const status = useStoreSelector(projectStore, (state) => state.status);
   const error = useStoreSelector(projectStore, (state) => state.error);
+  const currentVersion = useStoreSelector(projectStore, (state) => state.version);
   const lastSavedAt = useStoreSelector(projectStore, (state) => state.lastSavedAt);
   const selectedElementIndex = useStoreSelector(
     selectionStore,
@@ -43,60 +54,63 @@ export function AppShell() {
     projectStore,
     (state) => state.history.getState().canRedo
   );
-  const [capabilities] = useState<EnvironmentCapabilities>(() =>
-    detectEnvironmentCapabilities()
-  );
-  const [projectSummaries, setProjectSummaries] = useState<ProjectSummary[]>([]);
+  const [workspaceSummaries, setWorkspaceSummaries] = useState<ProjectWorkspaceSummary[]>([]);
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
+  const [pendingImportMode, setPendingImportMode] =
+    useState<ImportMode>("archive");
   const [initializing, setInitializing] = useState(true);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
   const autosaveRef = useRef<AutosaveCoordinator | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
 
-  const refreshProjectSummaries = useCallback(async (adapter = projectStore.getState().storage) => {
-    if (!adapter) {
-      setProjectSummaries([]);
-      return [];
-    }
+  const refreshWorkspaceSummaries = useCallback(
+    async (service = projectStore.getState().io) => {
+      if (!service) {
+        setWorkspaceSummaries([]);
+        return [];
+      }
 
-    const summaries = await adapter.listProjects();
-    setProjectSummaries(summaries);
-    return summaries;
+      const summaries = await service.listWorkspaces();
+      setWorkspaceSummaries(summaries);
+      return summaries;
+    },
+    []
+  );
+
+  const attachFolderInput = useCallback((element: HTMLInputElement | null) => {
+    folderInputRef.current = element;
+    element?.setAttribute("webkitdirectory", "");
+    element?.setAttribute("directory", "");
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const adapter = createStorageAdapter(capabilities);
+    const service = createProjectIoService(detectEnvironmentCapabilities());
 
-    projectStore.getState().setStorageAdapter(adapter);
+    projectStore.getState().setProjectIoService(service);
 
     async function initializeProject() {
       setInitializing(true);
 
       try {
-        const summaries = await adapter.listProjects();
-        if (cancelled) {
-          return;
-        }
-
-        setProjectSummaries(summaries);
-
-        if (projectStore.getState().project) {
-          return;
-        }
-
-        if (summaries.length > 0) {
-          await projectStore.getState().loadProject(summaries[0].id);
-        } else {
-          projectStore.getState().createProject(createInitialCanvasProject());
+        await projectStore
+          .getState()
+          .initializeWorkspace(
+            service.capabilities.supportsProjectFolders
+              ? undefined
+              : createInitialCanvasWorkspace()
+          );
+        if (!cancelled) {
+          await refreshWorkspaceSummaries(service);
         }
       } catch (caughtError) {
         if (!cancelled) {
-          projectStore.getState().createProject(createInitialCanvasProject());
           projectStore.getState().markSaveError(caughtError);
         }
       } finally {
@@ -112,17 +126,17 @@ export function AppShell() {
       cancelled = true;
       autosaveRef.current?.cancel();
     };
-  }, [capabilities]);
+  }, [refreshWorkspaceSummaries]);
 
   useEffect(() => {
-    if (!storage) {
+    if (!projectIo) {
       autosaveRef.current?.cancel();
       autosaveRef.current = null;
       return;
     }
 
     autosaveRef.current?.cancel();
-    autosaveRef.current = createProjectAutosaveCoordinator(projectStore, storage, {
+    autosaveRef.current = createProjectAutosaveCoordinator(projectStore, projectIo, {
       delayMs: 300,
       onStatusChange: setAutosaveStatus
     });
@@ -131,25 +145,25 @@ export function AppShell() {
       autosaveRef.current?.cancel();
       autosaveRef.current = null;
     };
-  }, [storage]);
+  }, [projectIo]);
 
   useEffect(() => {
-    if (project && dirty) {
+    if (workspace && dirty) {
       autosaveRef.current?.schedule();
     }
-  }, [dirty, project]);
+  }, [dirty, workspace]);
 
   useEffect(() => {
-    if (lastSavedAt && storage) {
+    if (lastSavedAt && projectIo) {
       const refreshTimer = window.setTimeout(() => {
-        void refreshProjectSummaries(storage);
+        void refreshWorkspaceSummaries(projectIo);
       }, 0);
 
       return () => window.clearTimeout(refreshTimer);
     }
 
     return undefined;
-  }, [lastSavedAt, refreshProjectSummaries, storage]);
+  }, [lastSavedAt, projectIo, refreshWorkspaceSummaries]);
 
   useEffect(() => {
     if (!openTopMenu) {
@@ -183,47 +197,48 @@ export function AppShell() {
     };
   }, [openTopMenu]);
 
-  const handleNewProject = useCallback(() => {
+  const handleNewProject = useCallback(async () => {
     autosaveRef.current?.cancel();
-    projectStore.getState().createProject(createNewCanvasProject());
-    selectionStore.getState().clearSelection();
-    setShowOpenPanel(false);
-  }, []);
+
+    try {
+      await projectStore.getState().createWorkspace(createNewCanvasWorkspace());
+      selectionStore.getState().clearSelection();
+      setShowOpenPanel(false);
+      await refreshWorkspaceSummaries();
+    } catch {
+      // The project store already records the error for the status bar.
+    } finally {
+      setOpenTopMenu(null);
+    }
+  }, [refreshWorkspaceSummaries]);
 
   const handleCreateNewPath = useCallback(async () => {
     const rawName = window.prompt("Enter path name:", "new_path");
-    const displayName = rawName?.trim() || "Untitled Path";
-    const nextProject = createBlankPathProject({
-      displayName,
-      config: projectStore.getState().project?.config
-    });
+    if (rawName === null) {
+      setOpenTopMenu(null);
+      return;
+    }
 
-    autosaveRef.current?.cancel();
-    projectStore.getState().createProject(nextProject);
+    const displayName = rawName.trim() || "Untitled Path";
+    projectStore.getState().createPath({
+      displayName,
+      fileName: ensureJsonFileName(displayName)
+    });
     selectionStore.getState().clearSelection();
     setShowOpenPanel(false);
     setOpenTopMenu(null);
-
-    if (rawName !== null && projectStore.getState().storage) {
-      try {
-        await projectStore.getState().saveProject();
-        await refreshProjectSummaries();
-      } catch {
-        // The project store already records the error for the status bar.
-      }
-    }
-  }, [refreshProjectSummaries]);
+  }, []);
 
   const handleSaveProject = useCallback(async () => {
     autosaveRef.current?.cancel();
 
     try {
-      await projectStore.getState().saveProject();
-      await refreshProjectSummaries();
+      await projectStore.getState().saveWorkspace();
+      await refreshWorkspaceSummaries();
     } catch {
       // The project store already records the error for the status bar.
     }
-  }, [refreshProjectSummaries]);
+  }, [refreshWorkspaceSummaries]);
 
   useEffect(() => {
     const handleShortcut = (event: globalThis.KeyboardEvent) => {
@@ -264,76 +279,216 @@ export function AppShell() {
   const handleToggleOpenPanel = useCallback(() => {
     setShowOpenPanel((current) => {
       if (!current) {
-        void refreshProjectSummaries();
+        void refreshWorkspaceSummaries();
       }
       return !current;
     });
-  }, [refreshProjectSummaries]);
+  }, [refreshWorkspaceSummaries]);
 
   const handleOpenProjectPanel = useCallback(() => {
-    void refreshProjectSummaries();
+    void refreshWorkspaceSummaries();
     setShowOpenPanel(true);
     setOpenTopMenu(null);
-  }, [refreshProjectSummaries]);
+  }, [refreshWorkspaceSummaries]);
 
-  const handleOpenProject = useCallback(
+  const handleOpenWorkspaceById = useCallback(
     async (id: string) => {
       autosaveRef.current?.cancel();
 
       try {
-        await projectStore.getState().loadProject(id);
+        await projectStore.getState().openWorkspace(id);
         selectionStore.getState().clearSelection();
         setShowOpenPanel(false);
-        await refreshProjectSummaries();
+        await refreshWorkspaceSummaries();
       } catch {
         // The project store already records the error for the status bar.
       }
     },
-    [refreshProjectSummaries]
+    [refreshWorkspaceSummaries]
   );
 
-  const handleOpenProjectFromMenu = useCallback(
+  const handleOpenWorkspaceFromMenu = useCallback(
     async (id: string) => {
       setOpenTopMenu(null);
-      await handleOpenProject(id);
+      await handleOpenWorkspaceById(id);
     },
-    [handleOpenProject]
+    [handleOpenWorkspaceById]
   );
 
-  const handleExportProject = useCallback(async () => {
-    const activeProject = projectStore.getState().project;
-    const adapter = projectStore.getState().storage;
-    if (!activeProject || !adapter) {
+  const handleOpenWorkspace = useCallback(async () => {
+    autosaveRef.current?.cancel();
+
+    try {
+      await projectStore.getState().openWorkspace();
+      selectionStore.getState().clearSelection();
+      setShowOpenPanel(false);
+      await refreshWorkspaceSummaries();
+    } catch {
+      // The project store already records the error for the status bar.
+    } finally {
+      setOpenTopMenu(null);
+    }
+  }, [refreshWorkspaceSummaries]);
+
+  const handleCreateWorkspace = useCallback(async () => {
+    autosaveRef.current?.cancel();
+
+    try {
+      await projectStore.getState().createWorkspace(createNewCanvasWorkspace());
+      selectionStore.getState().clearSelection();
+      setShowOpenPanel(false);
+      await refreshWorkspaceSummaries();
+    } catch {
+      // The project store already records the error for the status bar.
+    } finally {
+      setOpenTopMenu(null);
+    }
+  }, [refreshWorkspaceSummaries]);
+
+  const handleShowDeleteProjects = useCallback(() => {
+    void refreshWorkspaceSummaries();
+    setShowDeleteProjectDialog(true);
+    setOpenTopMenu(null);
+  }, [refreshWorkspaceSummaries]);
+
+  const handleDeleteProjects = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) {
+        setShowDeleteProjectDialog(false);
+        return;
+      }
+
+      autosaveRef.current?.cancel();
+
+      try {
+        const currentProjectId = projectStore.getState().workspace?.project_id ?? null;
+        const orderedIds = [
+          ...ids.filter((id) => id !== currentProjectId),
+          ...ids.filter((id) => id === currentProjectId)
+        ];
+
+        for (const id of orderedIds) {
+          await projectStore.getState().deleteWorkspace(id);
+        }
+
+        selectionStore.getState().clearSelection();
+        setShowOpenPanel(false);
+        setShowDeleteProjectDialog(false);
+        await refreshWorkspaceSummaries();
+      } catch (caughtError) {
+        projectStore.getState().markSaveError(caughtError);
+      }
+    },
+    [refreshWorkspaceSummaries]
+  );
+
+  const handleSwitchWorkspace = useCallback(
+    async (id: string) => {
+      autosaveRef.current?.cancel();
+
+      try {
+        await projectStore.getState().switchWorkspace(id);
+        selectionStore.getState().clearSelection();
+        await refreshWorkspaceSummaries();
+      } catch {
+        // The project store already records the error for the status bar.
+      } finally {
+        setShowOpenPanel(false);
+        setOpenTopMenu(null);
+      }
+    },
+    [refreshWorkspaceSummaries]
+  );
+
+  const handleExportProjectArchive = useCallback(async () => {
+    const activeWorkspace = projectStore.getState().workspace;
+    if (!activeWorkspace) {
       return;
     }
 
     try {
-      if (projectStore.getState().dirty) {
-        autosaveRef.current?.cancel();
-        await projectStore.getState().saveProject();
-        await refreshProjectSummaries(adapter);
+      const bundle = await projectStore.getState().exportProjectArchive();
+      if (bundle) {
+        downloadBlob(
+          bundle,
+          `${safeDownloadName(activeWorkspace.display_name)}.bline-project.json`
+        );
       }
-
-      const bundle = await adapter.exportBundle([activeProject.project_id]);
-      downloadBlob(
-        bundle,
-        `${safeDownloadName(activeProject.display_name)}.bline-project.json`
-      );
     } catch (caughtError) {
       projectStore.getState().markSaveError(caughtError);
+    } finally {
+      setOpenTopMenu(null);
     }
-  }, [refreshProjectSummaries]);
+  }, []);
+
+  const handleExportProjectFolder = useCallback(async () => {
+    try {
+      const projectFolder = await projectStore.getState().exportProjectFolder();
+      if (projectFolder) {
+        await writeProjectFolder(projectFolder);
+      }
+    } catch (caughtError) {
+      if (!isAbortError(caughtError)) {
+        projectStore.getState().markSaveError(caughtError);
+      }
+    } finally {
+      setOpenTopMenu(null);
+    }
+  }, []);
+
+  const handleExportPath = useCallback(async () => {
+    const activeWorkspace = projectStore.getState().workspace;
+    const activePath = activePathDocument(activeWorkspace);
+    if (!activePath) {
+      return;
+    }
+
+    try {
+      const blob = await projectStore.getState().exportPath(activePath.path_id);
+      if (blob) {
+        downloadBlob(blob, activePath.file_name);
+      }
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    } finally {
+      setOpenTopMenu(null);
+    }
+  }, []);
+
+  const handleExportConfig = useCallback(async () => {
+    try {
+      const blob = await projectStore.getState().exportConfig();
+      if (blob) {
+        downloadBlob(blob, "config.json");
+      }
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    } finally {
+      setOpenTopMenu(null);
+    }
+  }, []);
+
+  const queueFileImport = useCallback((mode: ImportMode) => {
+    setPendingImportMode(mode);
+    setOpenTopMenu(null);
+    fileInputRef.current?.click();
+  }, []);
+
+  const queueFolderImport = useCallback(() => {
+    setOpenTopMenu(null);
+    folderInputRef.current?.click();
+  }, []);
 
   const handleSavePathAs = useCallback(async () => {
-    const activeProject = projectStore.getState().project;
-    const adapter = projectStore.getState().storage;
-    if (!activeProject || !adapter) {
+    const activeWorkspace = projectStore.getState().workspace;
+    const activePath = activePathDocument(activeWorkspace);
+    if (!activePath) {
       return;
     }
 
     const rawName = window.prompt(
       "Save Path As",
-      pathDisplayName(activeProject)
+      activePath.display_name
     );
     const displayName = rawName?.trim();
     if (!displayName) {
@@ -341,99 +496,55 @@ export function AppShell() {
       return;
     }
 
-    const nextProject = createProjectDocument({
-      project_id: createPathProjectId(),
-      display_name: displayName,
-      path_file_name: ensureJsonFileName(displayName),
-      path: structuredClone(activeProject.path),
-      config: structuredClone(activeProject.config)
-    });
-
     try {
-      autosaveRef.current?.cancel();
-      await adapter.writeProject(nextProject);
-      await projectStore.getState().loadProject(nextProject.project_id);
+      projectStore.getState().duplicatePath(activePath.path_id, displayName);
       selectionStore.getState().clearSelection();
-      await refreshProjectSummaries(adapter);
     } catch (caughtError) {
       projectStore.getState().markSaveError(caughtError);
     } finally {
       setOpenTopMenu(null);
     }
-  }, [refreshProjectSummaries]);
+  }, []);
 
   const handleRenamePath = useCallback(() => {
-    const activeProject = projectStore.getState().project;
-    if (!activeProject) {
+    const activeWorkspace = projectStore.getState().workspace;
+    const activePath = activePathDocument(activeWorkspace);
+    if (!activePath) {
       return;
     }
 
-    const rawName = window.prompt("Rename Path", pathDisplayName(activeProject));
+    const rawName = window.prompt("Rename Path", activePath.display_name);
     const displayName = rawName?.trim();
     if (!displayName) {
       setOpenTopMenu(null);
       return;
     }
 
-    projectStore.getState().applyCommand({
-      description: "Rename path",
-      apply: (projectDocument) => ({
-        ...projectDocument,
-        display_name: displayName,
-        path_file_name: ensureJsonFileName(displayName)
-      }),
-      revert: (projectDocument) => ({
-        ...projectDocument,
-        display_name: activeProject.display_name,
-        path_file_name: activeProject.path_file_name
-      })
-    });
+    projectStore.getState().renamePath(activePath.path_id, displayName);
     setOpenTopMenu(null);
   }, []);
 
   const handleShowDeletePaths = useCallback(() => {
-    void refreshProjectSummaries();
     setShowDeletePathDialog(true);
     setOpenTopMenu(null);
-  }, [refreshProjectSummaries]);
+  }, []);
 
   const handleDeletePaths = useCallback(
     async (ids: string[]) => {
-      const adapter = projectStore.getState().storage;
-      if (!adapter || ids.length === 0) {
+      if (ids.length === 0) {
         setShowDeletePathDialog(false);
         return;
       }
 
-      const activeId = projectStore.getState().project?.project_id ?? null;
-      const selectedSummaries = projectSummaries.filter((summary) =>
-        ids.includes(summary.id)
-      );
-
       try {
-        autosaveRef.current?.cancel();
-        await Promise.all(
-          selectedSummaries.map((summary) =>
-            adapter.deleteProject(summary.id, summary.version)
-          )
-        );
-        const summaries = await refreshProjectSummaries(adapter);
+        projectStore.getState().deletePaths(ids);
+        selectionStore.getState().clearSelection();
         setShowDeletePathDialog(false);
-
-        if (activeId && ids.includes(activeId)) {
-          selectionStore.getState().clearSelection();
-          const nextProject = summaries.find((summary) => !ids.includes(summary.id));
-          if (nextProject) {
-            await projectStore.getState().loadProject(nextProject.id);
-          } else {
-            projectStore.getState().createProject(createInitialCanvasProject());
-          }
-        }
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
       }
     },
-    [projectSummaries, refreshProjectSummaries]
+    []
   );
 
   const handleImportProject = useCallback(
@@ -445,25 +556,50 @@ export function AppShell() {
         return;
       }
 
-      const adapter = projectStore.getState().storage;
-      if (!adapter) {
+      if (!projectStore.getState().io) {
         return;
       }
 
       try {
-        const result = await adapter.importBundle(file);
-        const summaries = await refreshProjectSummaries(adapter);
-        const imported = result.imported[0] ?? summaries[0];
-
-        if (imported) {
-          await projectStore.getState().loadProject(imported.id);
+        if (pendingImportMode === "path") {
+          await projectStore.getState().importPath(file);
           selectionStore.getState().clearSelection();
+          return;
         }
+
+        if (pendingImportMode === "config") {
+          await projectStore.getState().importConfig(file);
+          return;
+        }
+
+        await projectStore.getState().importProjectArchive(file);
+        await refreshWorkspaceSummaries();
+        selectionStore.getState().clearSelection();
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
       }
     },
-    [refreshProjectSummaries]
+    [pendingImportMode, refreshWorkspaceSummaries]
+  );
+
+  const handleImportProjectFolder = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.currentTarget.files ?? []);
+      event.currentTarget.value = "";
+
+      if (files.length === 0 || !projectStore.getState().io) {
+        return;
+      }
+
+      try {
+        await projectStore.getState().importProjectFolder(files);
+        await refreshWorkspaceSummaries();
+        selectionStore.getState().clearSelection();
+      } catch (caughtError) {
+        projectStore.getState().markSaveError(caughtError);
+      }
+    },
+    [refreshWorkspaceSummaries]
   );
 
   const handleSaveConfig = useCallback((nextConfig: NonNullable<typeof project>["config"]) => {
@@ -480,11 +616,34 @@ export function AppShell() {
     setShowConfigDialog(false);
   }, []);
 
-  const currentPathSummary = `Current Path: ${project ? pathDisplayName(project) : "No path"}`;
-  const currentProjectSummary = `Current Project: ${
-    project?.display_name ?? "No project"
-  }`;
-  const storageLabel = capabilities.shell === "tauri" ? "Tauri local" : "Browser local";
+  const selectedElement =
+    project && selectedElementIndex !== null
+      ? project.path.path_elements[selectedElementIndex]
+      : null;
+  const selectedPosition =
+    project && selectedElementIndex !== null
+      ? getElementPosition(project.path.path_elements, selectedElementIndex)
+      : null;
+  const selectedSummary =
+    selectedElement && selectedElementIndex !== null
+      ? `Selected: ${getElementLabel(selectedElement)} #${selectedElementIndex + 1} ${formatPointMeters(selectedPosition)}`
+      : "Selected: none";
+  const ioCapabilities = projectIo?.capabilities;
+  const supportsProjectFolders = Boolean(ioCapabilities?.supportsProjectFolders);
+  const activePath = activePathDocument(workspace);
+  const pathDocuments = workspace?.paths ?? [];
+  const projectSummaries = ensureCurrentWorkspaceSummary(
+    workspaceSummaries,
+    workspace,
+    currentVersion,
+    lastSavedAt
+  );
+  const toolbarActions = ioCapabilities?.primaryToolbarActions ?? [];
+  const projectLabel = workspace?.display_name ?? "No project";
+  const pathLabel = activePath?.display_name ?? "No path";
+  const currentProjectSummary = `Project: ${projectLabel}`;
+  const currentPathSummary = `Current Path: ${pathLabel}`;
+  const storageLabel = formatStorageLabel(workspace, ioCapabilities);
   const saveStatus = formatSaveStatus({
     autosaveStatus,
     dirty,
@@ -511,31 +670,96 @@ export function AppShell() {
             label="Project"
             openTopMenu={openTopMenu}
             setOpenTopMenu={setOpenTopMenu}
-            onBeforeOpen={refreshProjectSummaries}
+            onBeforeOpen={refreshWorkspaceSummaries}
           >
-            <MenuAction label="Open Project..." disabled={!storage} onAction={handleOpenProjectPanel} />
-            <MenuAction
-              label="Import Project..."
-              disabled={!storage}
-              onAction={() => {
-                setOpenTopMenu(null);
-                fileInputRef.current?.click();
-              }}
-            />
-            <MenuAction
-              label="Export Project..."
-              disabled={!project || !storage}
-              onAction={() => {
-                setOpenTopMenu(null);
-                void handleExportProject();
-              }}
-            />
-            <div className="top-menu__separator" role="separator" />
-            <MenuSubmenu label="Recent Projects" testId="top-menu-project-recent">
-              <ProjectMenuList
-                emptyLabel="(No recent projects)"
-                projects={projectSummaries}
-                onOpen={handleOpenProjectFromMenu}
+            {supportsProjectFolders ? (
+              <>
+                <MenuSubmenu label="Folder" testId="top-menu-project-folder">
+                  <MenuAction
+                    label="Open Project Folder..."
+                    disabled={!projectIo}
+                    onAction={() => void handleOpenWorkspace()}
+                  />
+                  <MenuAction
+                    label="Create Project Folder..."
+                    disabled={!projectIo}
+                    onAction={() => void handleCreateWorkspace()}
+                  />
+                </MenuSubmenu>
+              </>
+            ) : (
+              <>
+                <MenuSubmenu label="Workspace" testId="top-menu-project-workspace">
+                  <MenuAction
+                    label="New Project"
+                    disabled={!projectIo}
+                    onAction={() => void handleNewProject()}
+                  />
+                  <MenuAction
+                    label="Open Project..."
+                    disabled={!projectIo}
+                    onAction={handleOpenProjectPanel}
+                  />
+                  <MenuAction
+                    label="Delete Projects..."
+                    disabled={!workspace || !projectIo}
+                    onAction={handleShowDeleteProjects}
+                  />
+                </MenuSubmenu>
+              </>
+            )}
+            <MenuSubmenu label="Import / Export" testId="top-menu-project-transfer">
+              {!supportsProjectFolders ? (
+                <>
+                  <MenuAction
+                    label="Import Autos Folder..."
+                    disabled={!projectIo}
+                    onAction={queueFolderImport}
+                  />
+                  <MenuAction
+                    label="Export Autos Folder..."
+                    disabled={!workspace || !projectIo}
+                    onAction={() => void handleExportProjectFolder()}
+                  />
+                  <div className="top-menu__separator" role="separator" />
+                </>
+              ) : null}
+              <MenuAction
+                label="Import Project Archive..."
+                disabled={!projectIo}
+                onAction={() => queueFileImport("archive")}
+              />
+              <MenuAction
+                label="Export Project Archive..."
+                disabled={!workspace || !projectIo}
+                onAction={() => {
+                  setOpenTopMenu(null);
+                  void handleExportProjectArchive();
+                }}
+              />
+            </MenuSubmenu>
+            <MenuSubmenu label="Config" testId="top-menu-project-config">
+              <MenuAction
+                label="Import Config..."
+                disabled={!workspace || !projectIo}
+                onAction={() => queueFileImport("config")}
+              />
+              <MenuAction
+                label="Export Config..."
+                disabled={!workspace || !projectIo}
+                onAction={() => void handleExportConfig()}
+              />
+            </MenuSubmenu>
+            <MenuSubmenu
+              label={supportsProjectFolders ? "Recent Project Folders" : "Recent Projects"}
+              testId="top-menu-project-recent"
+            >
+              <WorkspaceMenuList
+                emptyLabel={
+                  supportsProjectFolders ? "(No recent folders)" : "(No saved projects)"
+                }
+                workspaces={projectSummaries}
+                onOpen={supportsProjectFolders ? handleSwitchWorkspace : handleOpenWorkspaceFromMenu}
               />
             </MenuSubmenu>
           </TopMenuButton>
@@ -545,39 +769,53 @@ export function AppShell() {
             active
             openTopMenu={openTopMenu}
             setOpenTopMenu={setOpenTopMenu}
-            onBeforeOpen={refreshProjectSummaries}
           >
-            <MenuLabel>Current: {project?.display_name ?? "(No Path)"}</MenuLabel>
+            <MenuLabel>Current: {pathLabel}</MenuLabel>
             <div className="top-menu__separator" role="separator" />
             <MenuSubmenu label="Load Path" testId="top-menu-path-load">
-              <ProjectMenuList
+              <PathMenuList
                 emptyLabel="(No paths)"
-                projects={projectSummaries.filter(
-                  (summary) => summary.id !== project?.project_id
+                paths={pathDocuments.filter(
+                  (path) => path.path_id !== workspace?.active_path_id
                 )}
-                onOpen={handleOpenProjectFromMenu}
+                onOpen={async (pathId) => {
+                  projectStore.getState().setActivePath(pathId);
+                  selectionStore.getState().clearSelection();
+                  setOpenTopMenu(null);
+                }}
               />
             </MenuSubmenu>
             <div className="top-menu__separator" role="separator" />
             <MenuAction
               label="Create New Path"
-              disabled={!storage}
+              disabled={!workspace || !projectIo}
               onAction={() => void handleCreateNewPath()}
             />
             <MenuAction
               label="Save Path As..."
-              disabled={!project || !storage}
+              disabled={!activePath || !projectIo}
               onAction={() => void handleSavePathAs()}
             />
             <MenuAction
               label="Rename Path..."
-              disabled={!project}
+              disabled={!activePath}
               onAction={handleRenamePath}
             />
             <MenuAction
               label="Delete Paths..."
-              disabled={!storage || projectSummaries.length === 0}
+              disabled={!workspace || pathDocuments.length === 0}
               onAction={handleShowDeletePaths}
+            />
+            <div className="top-menu__separator" role="separator" />
+            <MenuAction
+              label="Import Path..."
+              disabled={!workspace || !projectIo}
+              onAction={() => queueFileImport("path")}
+            />
+            <MenuAction
+              label="Export Path..."
+              disabled={!activePath || !projectIo}
+              onAction={() => void handleExportPath()}
             />
           </TopMenuButton>
           <TopMenuButton
@@ -626,27 +864,44 @@ export function AppShell() {
             <button type="button" onClick={() => projectStore.getState().redo()} disabled={!canRedo}>
               Redo
             </button>
-            <button type="button" onClick={handleNewProject} disabled={!storage}>
-              New
-            </button>
-            <button
-              type="button"
-              aria-expanded={showOpenPanel}
-              onClick={handleToggleOpenPanel}
-              disabled={!storage || projectSummaries.length === 0}
-            >
-              Open
-            </button>
-            <button type="button" onClick={handleExportProject} disabled={!project || !storage}>
-              Export
-            </button>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!storage}
-            >
-              Import
-            </button>
+            {toolbarActions.includes("open-workspace") ? (
+              <button
+                type="button"
+                aria-expanded={showOpenPanel}
+                onClick={handleToggleOpenPanel}
+                disabled={!projectIo || workspaceSummaries.length === 0}
+              >
+                Open
+              </button>
+            ) : null}
+            {toolbarActions.includes("open-folder") ? (
+              <button type="button" onClick={() => void handleOpenWorkspace()} disabled={!projectIo}>
+                Open Folder
+              </button>
+            ) : null}
+            {toolbarActions.includes("new-path") ? (
+              <button type="button" onClick={() => void handleCreateNewPath()} disabled={!workspace}>
+                New Path
+              </button>
+            ) : null}
+            {toolbarActions.includes("export-project") ? (
+              <button
+                type="button"
+                onClick={() => void handleExportProjectFolder()}
+                disabled={!workspace || !projectIo}
+              >
+                Export
+              </button>
+            ) : null}
+            {toolbarActions.includes("import-project") ? (
+              <button
+                type="button"
+                onClick={queueFolderImport}
+                disabled={!projectIo}
+              >
+                Import
+              </button>
+            ) : null}
           </div>
           <div className="toolbar-actions__overflow">
             <TopMenuButton
@@ -655,7 +910,7 @@ export function AppShell() {
               align="end"
               openTopMenu={openTopMenu}
               setOpenTopMenu={setOpenTopMenu}
-              onBeforeOpen={refreshProjectSummaries}
+              onBeforeOpen={refreshWorkspaceSummaries}
             >
               <MenuAction
                 label="Undo"
@@ -676,39 +931,62 @@ export function AppShell() {
                 }}
               />
               <div className="top-menu__separator" role="separator" />
+              {supportsProjectFolders ? (
+                <MenuAction
+                  label="New Path"
+                  disabled={!projectIo}
+                  onAction={() => {
+                    void handleCreateNewPath();
+                    setOpenTopMenu(null);
+                  }}
+                />
+              ) : null}
               <MenuAction
-                label="New"
-                disabled={!storage}
+                label={supportsProjectFolders ? "Open Folder..." : "Open..."}
+                disabled={!projectIo}
                 onAction={() => {
-                  handleNewProject();
-                  setOpenTopMenu(null);
+                  if (supportsProjectFolders) {
+                    void handleOpenWorkspace();
+                  } else {
+                    handleOpenProjectPanel();
+                  }
                 }}
               />
               <MenuAction
-                label="Open..."
-                disabled={!storage}
-                onAction={handleOpenProjectPanel}
-              />
-              <MenuAction
-                label="Import..."
-                disabled={!storage}
+                label={
+                  supportsProjectFolders
+                    ? "Import Project Archive..."
+                    : "Import Autos Folder..."
+                }
+                disabled={!projectIo}
                 onAction={() => {
-                  setOpenTopMenu(null);
-                  fileInputRef.current?.click();
+                  if (supportsProjectFolders) {
+                    queueFileImport("archive");
+                  } else {
+                    queueFolderImport();
+                  }
                 }}
               />
               <MenuAction
-                label="Export..."
-                disabled={!project || !storage}
+                label={
+                  supportsProjectFolders
+                    ? "Export Project Archive..."
+                    : "Export Autos Folder..."
+                }
+                disabled={!workspace || !projectIo}
                 onAction={() => {
                   setOpenTopMenu(null);
-                  void handleExportProject();
+                  if (supportsProjectFolders) {
+                    void handleExportProjectArchive();
+                  } else {
+                    void handleExportProjectFolder();
+                  }
                 }}
               />
               <div className="top-menu__separator" role="separator" />
               <MenuAction
                 label="Save"
-                disabled={!project || !storage || status === "saving"}
+                disabled={!workspace || !projectIo || status === "saving"}
                 onAction={() => {
                   setOpenTopMenu(null);
                   void handleSaveProject();
@@ -720,28 +998,37 @@ export function AppShell() {
             type="button"
             className="primary-action"
             onClick={handleSaveProject}
-            disabled={!project || !storage || status === "saving"}
+            disabled={!workspace || !projectIo || status === "saving"}
           >
             Save
           </button>
           <input
             ref={fileInputRef}
             className="file-import-input"
-            aria-label="Import project bundle"
+            aria-label="Import BLine JSON"
             type="file"
-            accept="application/json,.json,.bline-project"
+            accept="application/json,.json,.bline-project,.bline-project.json"
             onChange={handleImportProject}
+          />
+          <input
+            ref={attachFolderInput}
+            className="file-import-input"
+            aria-label="Import autos folder"
+            type="file"
+            accept="application/json,.json"
+            multiple
+            onChange={handleImportProjectFolder}
           />
           {showOpenPanel ? (
             <div className="project-open-panel" data-testid="open-project-panel">
-              <strong>Saved Projects</strong>
+              <strong>Saved Workspaces</strong>
               <div className="project-open-panel__list" role="list">
                 {projectSummaries.map((summary) => (
                   <button
                     key={summary.id}
                     type="button"
                     role="listitem"
-                    onClick={() => void handleOpenProject(summary.id)}
+                    onClick={() => void handleOpenWorkspaceById(summary.id)}
                   >
                     <span>{summary.displayName}</span>
                     <small>{formatTimestamp(summary.updatedAt)}</small>
@@ -779,6 +1066,14 @@ export function AppShell() {
             <span className="status-bar__marker" aria-hidden="true" />
             <span className="status-bar__text">{currentProjectSummary}</span>
           </span>
+          <span
+            className="status-bar__item status-bar__item--selection"
+            data-testid="selected-element-status"
+            title={selectedSummary}
+          >
+            <span className="status-bar__marker" aria-hidden="true" />
+            <span className="status-bar__text">{selectedSummary}</span>
+          </span>
         </div>
         <div className="status-bar__system">
           <span
@@ -807,10 +1102,18 @@ export function AppShell() {
           onSave={handleSaveConfig}
         />
       ) : null}
+      {showDeleteProjectDialog ? (
+        <DeleteProjectsDialog
+          activeWorkspaceId={workspace?.project_id ?? null}
+          workspaces={projectSummaries}
+          onCancel={() => setShowDeleteProjectDialog(false)}
+          onDelete={(ids) => void handleDeleteProjects(ids)}
+        />
+      ) : null}
       {showDeletePathDialog ? (
         <DeletePathsDialog
-          activeProjectId={project?.project_id ?? null}
-          projects={projectSummaries}
+          activePathId={workspace?.active_path_id ?? null}
+          paths={pathDocuments}
           onCancel={() => setShowDeletePathDialog(false)}
           onDelete={(ids) => void handleDeletePaths(ids)}
         />
@@ -820,6 +1123,7 @@ export function AppShell() {
 }
 
 type TopMenuId = "project" | "path" | "edit" | "actions";
+type ImportMode = "archive" | "path" | "config";
 
 function TopMenuButton({
   id,
@@ -836,7 +1140,7 @@ function TopMenuButton({
   active?: boolean;
   openTopMenu: TopMenuId | null;
   setOpenTopMenu(menu: TopMenuId | null): void;
-  onBeforeOpen?: () => Promise<ProjectSummary[]>;
+  onBeforeOpen?: () => Promise<unknown> | void;
   align?: "start" | "end";
   children: ReactNode;
 }) {
@@ -1041,27 +1345,59 @@ function MenuLabel({ children }: { children: ReactNode }) {
   return <div className="top-menu__label">{children}</div>;
 }
 
-function ProjectMenuList({
-  projects,
+function PathMenuList({
+  paths,
   emptyLabel,
   onOpen
 }: {
-  projects: ProjectSummary[];
+  paths: ProjectPathDocument[];
   emptyLabel: string;
   onOpen(id: string): Promise<void>;
 }) {
-  if (projects.length === 0) {
+  if (paths.length === 0) {
     return <div className="top-menu__empty">{emptyLabel}</div>;
   }
 
   return (
     <div className="top-menu__list">
-      {projects.map((summary) => (
+      {paths.map((path) => (
+        <button
+          key={path.path_id}
+          type="button"
+          role="menuitem"
+          className="top-menu__item top-menu__project"
+          onClick={() => void onOpen(path.path_id)}
+        >
+          <span>{path.display_name}</span>
+          <small>{path.file_name}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceMenuList({
+  workspaces,
+  emptyLabel,
+  onOpen
+}: {
+  workspaces: ProjectWorkspaceSummary[];
+  emptyLabel: string;
+  onOpen(id: string): Promise<void>;
+}) {
+  if (workspaces.length === 0) {
+    return <div className="top-menu__empty">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="top-menu__list">
+      {workspaces.map((summary) => (
         <button
           key={summary.id}
           type="button"
           role="menuitem"
           className="top-menu__item top-menu__project"
+          title={summary.directoryPath}
           onClick={() => void onOpen(summary.id)}
         >
           <span>{summary.displayName}</span>
@@ -1072,14 +1408,158 @@ function ProjectMenuList({
   );
 }
 
-function DeletePathsDialog({
-  activeProjectId,
-  projects,
+function DeleteProjectsDialog({
+  activeWorkspaceId,
+  workspaces,
   onCancel,
   onDelete
 }: {
-  activeProjectId: string | null;
-  projects: ProjectSummary[];
+  activeWorkspaceId: string | null;
+  workspaces: ProjectWorkspaceSummary[];
+  onCancel(): void;
+  onDelete(ids: string[]): void;
+}) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [confirming, setConfirming] = useState(false);
+  const selectedCount = selectedIds.size;
+  const selectedProjects = workspaces.filter((workspaceSummary) =>
+    selectedIds.has(workspaceSummary.id)
+  );
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <form
+        className="delete-projects-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Delete Projects"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!confirming) {
+            setConfirming(true);
+            return;
+          }
+          onDelete([...selectedIds]);
+        }}
+      >
+        <header className="config-dialog__header">
+          <strong>Delete Projects</strong>
+          <button type="button" aria-label="Close delete projects" onClick={onCancel}>
+            x
+          </button>
+        </header>
+        {confirming ? (
+          <section
+            className="delete-projects-dialog__confirm"
+            aria-label="Confirm project deletion"
+          >
+            <strong>
+              Delete {selectedCount} selected project{selectedCount === 1 ? "" : "s"}?
+            </strong>
+            <p>
+              This removes the selected project{selectedCount === 1 ? "" : "s"} from
+              browser storage. Exported autos folders and downloaded archives are not
+              deleted.
+            </p>
+            <ul>
+              {selectedProjects.map((workspaceSummary) => (
+                <li key={workspaceSummary.id}>{workspaceSummary.displayName}</li>
+              ))}
+            </ul>
+          </section>
+        ) : (
+          <section className="delete-projects-dialog__list" aria-label="Saved projects">
+          {workspaces.length === 0 ? (
+            <div className="delete-projects-dialog__empty">
+              No projects found to delete.
+            </div>
+          ) : (
+            workspaces.map((workspaceSummary) => {
+              const checked = selectedIds.has(workspaceSummary.id);
+              const isCurrent = workspaceSummary.id === activeWorkspaceId;
+              return (
+                <label
+                  key={workspaceSummary.id}
+                  className={
+                    isCurrent
+                      ? "delete-project-row is-current"
+                      : "delete-project-row"
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      const nextChecked = event.currentTarget.checked;
+                      setSelectedIds((current) => {
+                        const next = new Set(current);
+                        if (nextChecked) {
+                          next.add(workspaceSummary.id);
+                        } else {
+                          next.delete(workspaceSummary.id);
+                        }
+                        return next;
+                      });
+                    }}
+                  />
+                  <span>{workspaceSummary.displayName}</span>
+                  {isCurrent ? <small>Current</small> : null}
+                </label>
+              );
+            })
+          )}
+          </section>
+        )}
+        <footer className="config-dialog__footer">
+          {confirming ? (
+            <button type="button" onClick={() => setConfirming(false)}>
+              Back
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedIds(new Set(workspaces.map((summary) => summary.id)))
+                }
+                disabled={workspaces.length === 0}
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                disabled={selectedCount === 0}
+              >
+                Select None
+              </button>
+            </>
+          )}
+          <span className="delete-projects-dialog__spacer" />
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="danger-action"
+            disabled={selectedCount === 0}
+          >
+            {confirming ? "Confirm Delete" : "Delete Selected"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function DeletePathsDialog({
+  activePathId,
+  paths,
+  onCancel,
+  onDelete
+}: {
+  activePathId: string | null;
+  paths: ProjectPathDocument[];
   onCancel(): void;
   onDelete(ids: string[]): void;
 }) {
@@ -1105,16 +1585,16 @@ function DeletePathsDialog({
           </button>
         </header>
         <section className="delete-paths-dialog__list" aria-label="Saved paths">
-          {projects.length === 0 ? (
+          {paths.length === 0 ? (
             <div className="delete-paths-dialog__empty">No paths found to delete.</div>
           ) : (
-            projects.map((summary) => {
-              const checked = selectedIds.has(summary.id);
+            paths.map((path) => {
+              const checked = selectedIds.has(path.path_id);
               return (
                 <label
-                  key={summary.id}
+                  key={path.path_id}
                   className={
-                    summary.id === activeProjectId
+                    path.path_id === activePathId
                       ? "delete-path-row is-current"
                       : "delete-path-row"
                   }
@@ -1127,16 +1607,16 @@ function DeletePathsDialog({
                       setSelectedIds((current) => {
                         const next = new Set(current);
                         if (nextChecked) {
-                          next.add(summary.id);
+                          next.add(path.path_id);
                         } else {
-                          next.delete(summary.id);
+                          next.delete(path.path_id);
                         }
                         return next;
                       });
                     }}
                   />
-                  <span>{summary.displayName}</span>
-                  {summary.id === activeProjectId ? <small>Current</small> : null}
+                  <span>{path.display_name}</span>
+                  {path.path_id === activePathId ? <small>Current</small> : null}
                 </label>
               );
             })
@@ -1145,8 +1625,8 @@ function DeletePathsDialog({
         <footer className="config-dialog__footer">
           <button
             type="button"
-            onClick={() => setSelectedIds(new Set(projects.map((summary) => summary.id)))}
-            disabled={projects.length === 0}
+            onClick={() => setSelectedIds(new Set(paths.map((path) => path.path_id)))}
+            disabled={paths.length === 0}
           >
             Select All
           </button>
@@ -1242,41 +1722,64 @@ function getSaveStatusTone({
   return "saved";
 }
 
-function createBlankPathProject({
-  displayName,
-  config
-}: {
-  displayName: string;
-  config?: ProjectDocument["config"];
-}): ProjectDocument {
-  return createProjectDocument({
-    project_id: createPathProjectId(),
-    display_name: displayName,
-    path_file_name: ensureJsonFileName(displayName),
-    path: createPathModel(),
-    config
-  });
-}
-
-function createPathProjectId(): string {
-  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
-  const random =
-    globalThis.crypto?.randomUUID?.().slice(0, 8) ??
-    Math.random().toString(36).slice(2, 10);
-  return `path-${stamp}-${random}`;
-}
-
-function pathDisplayName(project: ProjectDocument): string {
-  return project.path_file_name?.replace(/\.json$/i, "") || project.display_name;
-}
-
 function ensureJsonFileName(value: string): string {
-  const base = safeDownloadName(value) || "untitled-path";
-  return base.endsWith(".json") ? base : `${base}.json`;
+  const base = safeDownloadName(value.replace(/\.json$/i, "")) || "untitled-path";
+  return `${base}.json`;
+}
+
+function activePathDocument(
+  workspace: ProjectWorkspaceDocument | null
+): ProjectPathDocument | null {
+  if (!workspace) {
+    return null;
+  }
+
+  return (
+    workspace.paths.find((path) => path.path_id === workspace.active_path_id) ??
+    workspace.paths[0] ??
+    null
+  );
+}
+
+function ensureCurrentWorkspaceSummary(
+  summaries: ProjectWorkspaceSummary[],
+  workspace: ProjectWorkspaceDocument | null,
+  version: string | undefined,
+  lastSavedAt: string | null
+): ProjectWorkspaceSummary[] {
+  if (!workspace || summaries.some((summary) => summary.id === workspace.project_id)) {
+    return summaries;
+  }
+
+  return [
+    {
+      id: workspace.project_id,
+      displayName: workspace.display_name,
+      updatedAt: lastSavedAt ?? new Date().toISOString(),
+      version: version ?? ""
+    },
+    ...summaries
+  ];
+}
+
+function formatStorageLabel(
+  workspace: ProjectWorkspaceDocument | null,
+  capabilities: ProjectIoCapabilities | undefined
+): string {
+  if (!capabilities) {
+    return "Storage: unavailable";
+  }
+
+  if (capabilities.directFileAutosave) {
+    return `Autosave: ${workspace?.project_id ?? "No folder"}`;
+  }
+
+  return `Autosave: ${capabilities.autosaveTargetLabel}`;
 }
 
 function formatTimestamp(value: string): string {
-  const timestamp = new Date(value);
+  const millis = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  const timestamp = new Date(Number.isFinite(millis) ? millis : value);
   if (Number.isNaN(timestamp.getTime())) {
     return value;
   }
@@ -1285,6 +1788,65 @@ function formatTimestamp(value: string): string {
     hour: "numeric",
     minute: "2-digit"
   });
+}
+
+async function writeProjectFolder(projectFolder: ProjectFolderExport): Promise<void> {
+  const directoryPicker = (window as BrowserFolderWindow).showDirectoryPicker;
+
+  if (directoryPicker) {
+    const selectedDirectory = await directoryPicker.call(window, {
+      mode: "readwrite"
+    });
+    const autosDirectory =
+      selectedDirectory.name.toLowerCase() === projectFolder.folderName.toLowerCase()
+        ? selectedDirectory
+        : await selectedDirectory.getDirectoryHandle(projectFolder.folderName, {
+            create: true
+          });
+
+    for (const file of projectFolder.files) {
+      await writeFolderFile(autosDirectory, file.relativePath, file.blob);
+    }
+    return;
+  }
+
+  for (const file of projectFolder.files) {
+    downloadBlob(
+      file.blob,
+      `${projectFolder.folderName}-${file.relativePath.replace(/\//g, "-")}`
+    );
+  }
+}
+
+async function writeFolderFile(
+  directory: BrowserDirectoryHandle,
+  relativePath: string,
+  blob: Blob
+): Promise<void> {
+  const segments = relativePath.split("/").filter(Boolean);
+  const fileName = segments.at(-1);
+
+  if (!fileName) {
+    return;
+  }
+
+  let currentDirectory = directory;
+  for (const segment of segments.slice(0, -1)) {
+    currentDirectory = await currentDirectory.getDirectoryHandle(segment, {
+      create: true
+    });
+  }
+
+  const fileHandle = await currentDirectory.getFileHandle(fileName, {
+    create: true
+  });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function downloadBlob(blob: Blob, fileName: string): void {
@@ -1302,4 +1864,31 @@ function safeDownloadName(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "") || "bline-project";
+}
+
+interface BrowserFolderWindow extends Window {
+  showDirectoryPicker?: (options?: {
+    mode?: "read" | "readwrite";
+  }) => Promise<BrowserDirectoryHandle>;
+}
+
+interface BrowserDirectoryHandle {
+  name: string;
+  getDirectoryHandle(
+    name: string,
+    options?: { create?: boolean }
+  ): Promise<BrowserDirectoryHandle>;
+  getFileHandle(
+    name: string,
+    options?: { create?: boolean }
+  ): Promise<BrowserFileHandle>;
+}
+
+interface BrowserFileHandle {
+  createWritable(): Promise<BrowserWritableFileStream>;
+}
+
+interface BrowserWritableFileStream {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
 }

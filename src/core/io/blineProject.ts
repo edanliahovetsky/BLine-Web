@@ -1,0 +1,151 @@
+import { createProjectConfig } from "../config/projectConfig";
+import type {
+  ProjectConfig,
+  ProjectDocument,
+  ProjectWorkspaceDocument,
+  SerializedPathDocument
+} from "./projectSchema";
+import { createProjectDocument } from "./projectSchema";
+import { serializePath } from "./projectSerde";
+import {
+  deserializeProjectWorkspaceDocument,
+  ensureJsonFileName,
+  projectDocumentToWorkspaceDocument
+} from "./workspaceSerde";
+
+export const blineProjectArchiveSchemaVersion = 1;
+
+export interface SerializedProjectArchivePath {
+  file_name: string;
+  display_name?: string;
+  path: SerializedPathDocument;
+}
+
+export interface SerializedProjectArchive {
+  bline_project_schema_version: typeof blineProjectArchiveSchemaVersion;
+  exported_at: string;
+  config: ProjectConfig;
+  paths: SerializedProjectArchivePath[];
+}
+
+type ArchiveSource = ProjectWorkspaceDocument | readonly ProjectDocument[];
+
+export function serializeProjectConfig(config: unknown): ProjectConfig {
+  return createProjectConfig(config);
+}
+
+export function deserializeProjectConfig(input: unknown): ProjectConfig {
+  return createProjectConfig(input);
+}
+
+export function createBLineProjectArchive(
+  source: ArchiveSource,
+  exportedAt: string
+): SerializedProjectArchive {
+  const workspace = workspaceFromArchiveSource(source);
+
+  return {
+    bline_project_schema_version: blineProjectArchiveSchemaVersion,
+    exported_at: exportedAt,
+    config: serializeProjectConfig(workspace.config),
+    paths: workspace.paths.map((path, index) => ({
+      file_name: ensureJsonFileName(path.file_name || `path-${index + 1}.json`),
+      display_name: path.display_name,
+      path: serializePath(path.path)
+    }))
+  };
+}
+
+export function serializeBLineProjectArchive(
+  source: ArchiveSource,
+  exportedAt: string
+): Blob {
+  return new Blob([JSON.stringify(createBLineProjectArchive(source, exportedAt), null, 2)], {
+    type: "application/json"
+  });
+}
+
+export function deserializeBLineProjectArchive(
+  input: unknown,
+  options: {
+    fallbackProjectId?: string;
+    fallbackDisplayName?: string;
+  } = {}
+): ProjectWorkspaceDocument {
+  if (!isBLineProjectArchive(input)) {
+    throw new Error("Unsupported BLine project archive schema");
+  }
+
+  return deserializeProjectWorkspaceDocument(
+    {
+      schema_version: 1,
+      project_id: options.fallbackProjectId ?? "imported-project",
+      display_name: options.fallbackDisplayName ?? "Imported Project",
+      config: input.config,
+      paths: input.paths.map((entry, index) => ({
+        path_id: entry.file_name || `path-${index + 1}`,
+        display_name: entry.display_name,
+        file_name: entry.file_name || `path-${index + 1}.json`,
+        path: entry.path
+      })),
+      active_path_id: input.paths[0]?.file_name ?? null
+    },
+    options
+  );
+}
+
+export function deserializeBLineProjectArchiveAsProjects(
+  input: unknown
+): ProjectDocument[] {
+  const workspace = deserializeBLineProjectArchive(input);
+
+  return workspace.paths.map((path) =>
+    createProjectDocument({
+      project_id: path.path_id,
+      display_name: path.display_name,
+      path_file_name: path.file_name,
+      path: path.path,
+      config: workspace.config
+    })
+  );
+}
+
+export function isBLineProjectArchive(input: unknown): input is SerializedProjectArchive {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return false;
+  }
+
+  const candidate = input as Partial<SerializedProjectArchive>;
+  return (
+    candidate.bline_project_schema_version === blineProjectArchiveSchemaVersion &&
+    Array.isArray(candidate.paths)
+  );
+}
+
+function workspaceFromArchiveSource(source: ArchiveSource): ProjectWorkspaceDocument {
+  if (Array.isArray(source)) {
+    const first = source[0];
+    return first
+      ? {
+          ...projectDocumentToWorkspaceDocument(first),
+          paths: source.map((project) => ({
+            path_id: project.project_id,
+            display_name: project.display_name,
+            file_name: ensureJsonFileName(
+              project.path_file_name ?? project.display_name ?? project.project_id
+            ),
+            path: project.path
+          })),
+          active_path_id: first.project_id
+        }
+      : deserializeProjectWorkspaceDocument({
+          schema_version: 1,
+          project_id: "empty-project",
+          display_name: "Empty Project",
+          config: undefined,
+          paths: []
+        });
+  }
+
+  return source;
+}

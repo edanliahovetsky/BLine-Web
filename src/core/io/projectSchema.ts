@@ -26,6 +26,22 @@ export interface ProjectDocument {
   config: ProjectConfig;
 }
 
+export interface ProjectPathDocument {
+  path_id: string;
+  display_name: string;
+  file_name: string;
+  path: PathModel;
+}
+
+export interface ProjectWorkspaceDocument {
+  schema_version: ProjectSchemaVersion;
+  project_id: string;
+  display_name: string;
+  config: ProjectConfig;
+  paths: ProjectPathDocument[];
+  active_path_id: string | null;
+}
+
 export interface SerializedRangedConstraint {
   value: number;
   start_ordinal: number;
@@ -92,12 +108,43 @@ export interface SerializedProjectDocument {
   config: ProjectConfig;
 }
 
+export interface SerializedProjectPathDocument {
+  path_id: string;
+  display_name: string;
+  file_name: string;
+  path: SerializedPathDocument;
+}
+
+export interface SerializedProjectWorkspaceDocument {
+  schema_version: ProjectSchemaVersion;
+  project_id: string;
+  display_name: string;
+  config: ProjectConfig;
+  paths: SerializedProjectPathDocument[];
+  active_path_id?: string | null;
+}
+
 export interface CreateProjectDocumentInput {
   project_id: string;
   display_name: string;
   path_file_name?: string | null;
   path: PathModel;
   config?: unknown;
+}
+
+export interface CreateProjectPathDocumentInput {
+  path_id: string;
+  display_name: string;
+  file_name: string;
+  path: PathModel;
+}
+
+export interface CreateProjectWorkspaceDocumentInput {
+  project_id: string;
+  display_name: string;
+  config?: unknown;
+  paths?: ProjectPathDocument[];
+  active_path_id?: string | null;
 }
 
 export function createProjectDocument({
@@ -114,5 +161,38 @@ export function createProjectDocument({
     path_file_name,
     path,
     config: createProjectConfig(config)
+  };
+}
+
+export function createProjectPathDocument({
+  path_id,
+  display_name,
+  file_name,
+  path
+}: CreateProjectPathDocumentInput): ProjectPathDocument {
+  return {
+    path_id,
+    display_name,
+    file_name,
+    path
+  };
+}
+
+export function createProjectWorkspaceDocument({
+  project_id,
+  display_name,
+  config,
+  paths = [],
+  active_path_id = paths[0]?.path_id ?? null
+}: CreateProjectWorkspaceDocumentInput): ProjectWorkspaceDocument {
+  const activePathExists = paths.some((path) => path.path_id === active_path_id);
+
+  return {
+    schema_version: projectSchemaVersion,
+    project_id,
+    display_name,
+    config: createProjectConfig(config),
+    paths,
+    active_path_id: activePathExists ? active_path_id : paths[0]?.path_id ?? null
   };
 }

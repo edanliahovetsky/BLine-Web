@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import {
   createConstraints,
   createEventTrigger,
@@ -16,6 +17,23 @@ import {
   serializePath,
   serializeProjectDocument
 } from "../../../src/core/io/projectSerde";
+import {
+  activeProjectFromWorkspace,
+  deserializeProjectWorkspaceDocument,
+  projectDocumentToWorkspaceDocument,
+  serializeProjectWorkspaceDocument
+} from "../../../src/core/io/workspaceSerde";
+import {
+  createBLineProjectArchive,
+  deserializeBLineProjectArchive,
+  deserializeProjectConfig,
+  serializeProjectConfig
+} from "../../../src/core/io/blineProject";
+import { stringifyBLineJson } from "../../../src/core/io/blineJson";
+import {
+  deserializeBLineProjectFolder,
+  serializeBLineProjectFolder
+} from "../../../src/core/io/projectFolder";
 
 describe("project path serde", () => {
   it("serializes and deserializes the native BLine path shape", () => {
@@ -169,6 +187,110 @@ describe("project path serde", () => {
         ]
       }
     });
+  });
+
+  it("serializes native BLine path JSON in PySide key order", () => {
+    const path = createPathModel({
+      constraints: createConstraints({
+        max_velocity_meters_per_sec: 4,
+        end_translation_tolerance_meters: 0.05
+      }),
+      path_elements: [
+        createTranslationTarget({
+          x_meters: 0,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.15
+        }),
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 1,
+            y_meters: 1,
+            intermediate_handoff_radius_meters: 0.2
+          }),
+          rotation_target: createRotationTarget({ rotation_radians: 1.25 })
+        }),
+        createEventTrigger({ t_ratio: 0.25, lib_key: "marker" })
+      ],
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 2.5,
+          start_ordinal: 1,
+          end_ordinal: 2
+        }
+      ]
+    });
+
+    expectSubstringsInOrder(stringifyBLineJson(serializePath(path)), [
+      '"path_elements"',
+      '"type": "translation"',
+      '"x_meters": 0.0',
+      '"y_meters": 0.0',
+      '"intermediate_handoff_radius_meters": 0.15',
+      '"type": "waypoint"',
+      '"translation_target"',
+      '"x_meters": 1.0',
+      '"y_meters": 1.0',
+      '"intermediate_handoff_radius_meters": 0.2',
+      '"rotation_target"',
+      '"rotation_radians": 1.25',
+      '"profiled_rotation": true',
+      '"type": "event_trigger"',
+      '"t_ratio": 0.25',
+      '"lib_key": "marker"',
+      '"constraints"',
+      '"end_translation_tolerance_meters": 0.05',
+      '"max_velocity_meters_per_sec"',
+      '"value": 2.5',
+      '"start_ordinal": 0',
+      '"end_ordinal": 1'
+    ]);
+  });
+
+  it("rounds native BLine path JSON numbers to five decimal places", () => {
+    const encoded = stringifyBLineJson({
+      path_elements: [
+        {
+          type: "waypoint",
+          translation_target: {
+            x_meters: 6.830235379219491,
+            y_meters: 0.22000000000000003,
+            intermediate_handoff_radius_meters: 0.15000000000000002
+          },
+          rotation_target: {
+            rotation_radians: 3.141592653589793,
+            profiled_rotation: true
+          }
+        },
+        {
+          type: "event_trigger",
+          t_ratio: 0.303547298130239,
+          lib_key: "shoot"
+        }
+      ],
+      constraints: {
+        max_velocity_meters_per_sec: [
+          {
+            value: 2.0000049,
+            start_ordinal: 0,
+            end_ordinal: 1
+          }
+        ],
+        max_acceleration_meters_per_sec2: 12.0000004
+      }
+    });
+
+    expectSubstringsInOrder(encoded, [
+      '"x_meters": 6.83024',
+      '"y_meters": 0.22',
+      '"intermediate_handoff_radius_meters": 0.15',
+      '"rotation_radians": 3.14159',
+      '"t_ratio": 0.30355',
+      '"value": 2.0',
+      '"start_ordinal": 0',
+      '"end_ordinal": 1',
+      '"max_acceleration_meters_per_sec2": 12.0'
+    ]);
   });
 
   it("serializes all ranged constraint domains with zero-based ordinals", () => {
@@ -352,6 +474,14 @@ describe("project path serde", () => {
   });
 });
 
+function textImportFile(webkitRelativePath: string, value: unknown) {
+  return {
+    name: webkitRelativePath.split("/").at(-1) ?? "file.json",
+    webkitRelativePath,
+    text: async () => JSON.stringify(value)
+  };
+}
+
 describe("project document serde", () => {
   it("serializes and deserializes a versioned project document", () => {
     const project = createProjectDocument({
@@ -482,10 +612,312 @@ describe("project document serde", () => {
       y_meters: 5
     });
   });
+
+  it("serializes config JSON in the BLine-Lib-compatible global config shape", () => {
+    const config = serializeProjectConfig({
+      robot_length_meters: 0.7,
+      default_max_velocity_meters_per_sec: 5.2
+    });
+
+    expect(config).toMatchObject({
+      gui: {
+        robot: {
+          length_meters: 0.7
+        }
+      },
+      kinematic_constraints: {
+        default_max_velocity_meters_per_sec: 5.2
+      }
+    });
+    expect(deserializeProjectConfig(config)).toEqual(config);
+  });
+
+  it("round-trips a BLine project archive with config and native paths", () => {
+    const project = createProjectDocument({
+      project_id: "project-1",
+      display_name: "Top Sweep",
+      path_file_name: "top_sweep.json",
+      path: createPathModel({
+        path_elements: [createTranslationTarget({ x_meters: 1, y_meters: 2 })]
+      }),
+      config: {
+        kinematic_constraints: {
+          default_intermediate_handoff_radius_meters: 0.42
+        }
+      }
+    });
+
+    const archive = createBLineProjectArchive(
+      [project],
+      "2026-04-26T12:00:00.000Z"
+    );
+    const restored = deserializeBLineProjectArchive(archive);
+
+    expect(archive).toMatchObject({
+      bline_project_schema_version: 1,
+      config: {
+        kinematic_constraints: {
+          default_intermediate_handoff_radius_meters: 0.42
+        }
+      },
+      paths: [
+        {
+          file_name: "top_sweep.json",
+          path: {
+            path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }]
+          }
+        }
+      ]
+    });
+    expect(restored.paths[0]).toMatchObject({
+      path_id: "top_sweep.json",
+      display_name: "Top Sweep",
+      file_name: "top_sweep.json"
+    });
+    expect(restored.paths[0].path.path_elements[0]).toMatchObject({
+      type: "translation",
+      intermediate_handoff_radius_meters: 0.42
+    });
+  });
+
+  it("round-trips an expanded autos folder with config.json and paths/*.json", async () => {
+    const workspace = deserializeProjectWorkspaceDocument({
+      schema_version: 1,
+      project_id: "workspace-1",
+      display_name: "Robot Autos",
+      config: {
+        kinematic_constraints: {
+          default_intermediate_handoff_radius_meters: 0.35
+        }
+      },
+      paths: [
+        {
+          path_id: "top",
+          display_name: "Top Sweep",
+          file_name: "top_sweep.json",
+          path: {
+            path_elements: [
+              { type: "translation", x_meters: 1, y_meters: 2 }
+            ]
+          }
+        },
+        {
+          path_id: "bottom",
+          display_name: "Bottom Sweep",
+          file_name: "bottom_sweep.json",
+          path: {
+            path_elements: [
+              { type: "translation", x_meters: 3, y_meters: 4 }
+            ]
+          }
+        }
+      ],
+      active_path_id: "top"
+    });
+
+    const folder = serializeBLineProjectFolder(workspace);
+    const restored = await deserializeBLineProjectFolder(
+      folder.files.map((file) => ({
+        name: file.relativePath.split("/").at(-1) ?? file.relativePath,
+        webkitRelativePath: `autos/${file.relativePath}`,
+        text: () => file.blob.text()
+      }))
+    );
+
+    expect(folder.files.map((file) => file.relativePath)).toEqual([
+      "config.json",
+      "paths/top_sweep.json",
+      "paths/bottom_sweep.json"
+    ]);
+    expect(restored.display_name).toBe("autos");
+    expect(restored.paths.map((path) => path.file_name)).toEqual([
+      "bottom_sweep.json",
+      "top_sweep.json"
+    ]);
+    expect(restored.paths[0].path.path_elements[0]).toMatchObject({
+      type: "translation",
+      intermediate_handoff_radius_meters: 0.35
+    });
+  });
+
+  it("imports an FRC project root folder and preserves config plus ranged constraints", async () => {
+    const restored = await deserializeBLineProjectFolder([
+      textImportFile(
+        "2026-robot-code/src/main/deploy/autos/config.json",
+        {
+          gui: {
+            robot: {
+              length_meters: 0.8255,
+              width_meters: 0.9779
+            },
+            protrusions: {
+              enabled: true,
+              distance_meters: 0.3,
+              side: "front",
+              default_state: "hidden",
+              show_on_event_keys: ["intake", "deploy"],
+              hide_on_event_keys: []
+            }
+          },
+          kinematic_constraints: {
+            default_max_velocity_meters_per_sec: 4.5,
+            default_max_acceleration_meters_per_sec2: 12,
+            default_intermediate_handoff_radius_meters: 0.25,
+            default_max_velocity_deg_per_sec: 600,
+            default_max_acceleration_deg_per_sec2: 2000,
+            default_end_translation_tolerance_meters: 0.03,
+            default_end_rotation_tolerance_deg: 2
+          }
+        }
+      ),
+      textImportFile(
+        "2026-robot-code/src/main/deploy/autos/paths/top_sweep_short.json",
+        {
+          path_elements: [
+            { type: "translation", x_meters: 1, y_meters: 2 },
+            { type: "translation", x_meters: 3, y_meters: 4 },
+            { type: "translation", x_meters: 5, y_meters: 6 }
+          ],
+          constraints: {
+            max_velocity_meters_per_sec: [
+              { value: 2, start_ordinal: 0, end_ordinal: 1 },
+              { value: 2.7, start_ordinal: 2, end_ordinal: 2 }
+            ]
+          }
+        }
+      )
+    ]);
+
+    expect(restored.display_name).toBe("2026 robot code");
+    expect(restored.config.gui.robot.length_meters).toBe(0.8255);
+    expect(restored.config.gui.protrusions).toMatchObject({
+      enabled: true,
+      distance_meters: 0.3,
+      side: "front",
+      default_state: "hidden",
+      show_on_event_keys: ["intake", "deploy"]
+    });
+    expect(restored.config.kinematic_constraints).toMatchObject({
+      default_max_acceleration_meters_per_sec2: 12,
+      default_intermediate_handoff_radius_meters: 0.25,
+      default_max_velocity_deg_per_sec: 600
+    });
+    expect(restored.paths[0].path.path_elements[0]).toMatchObject({
+      type: "translation",
+      intermediate_handoff_radius_meters: 0.25
+    });
+    expect(restored.paths[0].path.ranged_constraints).toEqual([
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2,
+        start_ordinal: 1,
+        end_ordinal: 2
+      },
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2.7,
+        start_ordinal: 3,
+        end_ordinal: 3
+      }
+    ]);
+  });
+
+  it.skipIf(!process.env.BLINE_ROBOT_CODE_FIXTURE_DIR)(
+    "imports the local 2026 robot-code autos fixture",
+    async () => {
+      const root = process.env.BLINE_ROBOT_CODE_FIXTURE_DIR;
+      if (!root) {
+        throw new Error("BLINE_ROBOT_CODE_FIXTURE_DIR is not set");
+      }
+
+      const files = recursiveJsonFiles(root).map((filePath) => ({
+        name: filePath.split("/").at(-1) ?? "file.json",
+        webkitRelativePath: `2026-robot-code/${relative(root, filePath).replace(/\\/g, "/")}`,
+        text: async () => readFileSync(filePath, "utf8")
+      }));
+      const restored = await deserializeBLineProjectFolder(files);
+      const constrainedPath = restored.paths.find(
+        (path) => path.path.ranged_constraints.length > 0
+      );
+
+      expect(restored.config.gui.robot.length_meters).toBe(0.8255);
+      expect(restored.config.gui.protrusions).toMatchObject({
+        enabled: true,
+        side: "front",
+        default_state: "hidden"
+      });
+      expect(restored.config.kinematic_constraints).toMatchObject({
+        default_max_acceleration_meters_per_sec2: 12,
+        default_intermediate_handoff_radius_meters: 0.25,
+        default_max_velocity_deg_per_sec: 600
+      });
+      expect(restored.paths.length).toBeGreaterThan(10);
+      expect(constrainedPath?.path.ranged_constraints.length).toBeGreaterThan(0);
+    }
+  );
+
+  it("migrates one-path project documents into workspace documents", () => {
+    const project = createProjectDocument({
+      project_id: "project-1",
+      display_name: "Top Sweep",
+      path_file_name: "top_sweep.json",
+      path: createPathModel({
+        path_elements: [createTranslationTarget({ x_meters: 1, y_meters: 2 })]
+      })
+    });
+
+    const workspace = projectDocumentToWorkspaceDocument(project);
+    const serialized = serializeProjectWorkspaceDocument(workspace);
+    const restored = deserializeProjectWorkspaceDocument(serialized);
+    const activeProject = activeProjectFromWorkspace(restored);
+
+    expect(restored).toMatchObject({
+      schema_version: 1,
+      project_id: "project-1",
+      display_name: "Top Sweep",
+      active_path_id: "project-1"
+    });
+    expect(restored.paths).toHaveLength(1);
+    expect(activeProject).toMatchObject({
+      project_id: "project-1",
+      display_name: "Top Sweep",
+      path_file_name: "top_sweep.json"
+    });
+  });
 });
 
 function readFixture(name: string): unknown {
   return JSON.parse(
     readFileSync(new URL(`../../fixtures/project-io/${name}`, import.meta.url), "utf8")
   ) as unknown;
+}
+
+function recursiveJsonFiles(root: string): string[] {
+  if (!existsSync(root)) {
+    return [];
+  }
+
+  const files: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory)) {
+      const entryPath = join(directory, entry);
+      const stats = statSync(entryPath);
+      if (stats.isDirectory()) {
+        visit(entryPath);
+      } else if (entryPath.endsWith(".json")) {
+        files.push(entryPath);
+      }
+    }
+  };
+  visit(root);
+  return files.sort();
+}
+
+function expectSubstringsInOrder(source: string, substrings: readonly string[]): void {
+  let cursor = 0;
+  for (const substring of substrings) {
+    const offset = source.slice(cursor).indexOf(substring);
+    expect(offset, `missing ${substring} after byte ${cursor}`).toBeGreaterThanOrEqual(0);
+    cursor += offset + substring.length;
+  }
 }

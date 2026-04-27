@@ -4,6 +4,13 @@ mod storage;
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            storage::storage_get_current_workspace,
+            storage::storage_list_recent_workspaces,
+            storage::storage_open_workspace_dialog,
+            storage::storage_create_workspace_dialog,
+            storage::storage_switch_workspace,
+            storage::storage_read_workspace,
+            storage::storage_write_workspace,
             storage::storage_list_projects,
             storage::storage_read_project,
             storage::storage_write_project,
