@@ -3,6 +3,7 @@ import {
   deserializeProjectConfig,
   serializeProjectConfig
 } from "../../core/io/blineProject";
+import { stringifyBLineJson } from "../../core/io/blineJson";
 import {
   deserializeBLineProjectFolder,
   serializeBLineProjectFolder
@@ -424,7 +425,7 @@ function isJsonObject(input: unknown): input is Record<string, unknown> {
 }
 
 function jsonBlob(value: unknown): Blob {
-  return new Blob([JSON.stringify(value, null, 2)], {
+  return new Blob([stringifyBLineJson(value)], {
     type: "application/json"
   });
 }

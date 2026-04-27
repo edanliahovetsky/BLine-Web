@@ -11,6 +11,7 @@ import {
   deserializeProjectConfig,
   serializeProjectConfig
 } from "./blineProject";
+import { stringifyBLineJson } from "./blineJson";
 import { deserializePath, serializePath } from "./projectSerde";
 import {
   createWorkspaceId,
@@ -108,7 +109,7 @@ export async function deserializeBLineProjectFolder(
 function jsonFile(relativePath: string, value: unknown): ProjectFolderExportFile {
   return {
     relativePath,
-    blob: new Blob([JSON.stringify(value, null, 2)], {
+    blob: new Blob([stringifyBLineJson(value)], {
       type: "application/json"
     })
   };

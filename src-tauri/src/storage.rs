@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Number, Value};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -586,8 +586,104 @@ fn read_json_file(path: &Path) -> Result<Value, String> {
 }
 
 fn write_json_file(path: &Path, value: &Value) -> Result<(), String> {
-    let encoded = serde_json::to_string_pretty(value).map_err(error_string)?;
+    let encoded = encode_bline_json(value)?;
     fs::write(path, encoded).map_err(error_string)
+}
+
+fn encode_bline_json(value: &Value) -> Result<String, String> {
+    let mut encoded = String::new();
+    write_bline_json_value(&mut encoded, value, 0, None)?;
+    Ok(encoded)
+}
+
+fn write_bline_json_value(
+    output: &mut String,
+    value: &Value,
+    depth: usize,
+    key: Option<&str>,
+) -> Result<(), String> {
+    match value {
+        Value::Null => output.push_str("null"),
+        Value::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+        Value::Number(value) => write_bline_json_number(output, value, key),
+        Value::String(value) => {
+            output.push_str(&serde_json::to_string(value).map_err(error_string)?)
+        }
+        Value::Array(values) => {
+            if values.is_empty() {
+                output.push_str("[]");
+                return Ok(());
+            }
+
+            output.push_str("[\n");
+            for (index, item) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push_str(",\n");
+                }
+                write_indent(output, depth + 1);
+                write_bline_json_value(output, item, depth + 1, None)?;
+            }
+            output.push('\n');
+            write_indent(output, depth);
+            output.push(']');
+        }
+        Value::Object(values) => {
+            if values.is_empty() {
+                output.push_str("{}");
+                return Ok(());
+            }
+
+            output.push_str("{\n");
+            for (index, (entry_key, item)) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push_str(",\n");
+                }
+                write_indent(output, depth + 1);
+                output.push_str(&serde_json::to_string(entry_key).map_err(error_string)?);
+                output.push_str(": ");
+                write_bline_json_value(output, item, depth + 1, Some(entry_key))?;
+            }
+            output.push('\n');
+            write_indent(output, depth);
+            output.push('}');
+        }
+    }
+
+    Ok(())
+}
+
+fn write_bline_json_number(output: &mut String, value: &Number, key: Option<&str>) {
+    let mut encoded = value.to_string();
+    if should_format_number_as_float(key)
+        && !encoded.contains('.')
+        && !encoded.contains('e')
+        && !encoded.contains('E')
+    {
+        encoded.push_str(".0");
+    }
+    output.push_str(&encoded);
+}
+
+fn should_format_number_as_float(key: Option<&str>) -> bool {
+    matches!(
+        key,
+        Some(key)
+            if !matches!(
+                key,
+                "schema_version"
+                    | "project_schema_version"
+                    | "bline_project_schema_version"
+                    | "bundle_schema_version"
+                    | "start_ordinal"
+                    | "end_ordinal"
+            )
+    )
+}
+
+fn write_indent(output: &mut String, depth: usize) {
+    for _ in 0..depth {
+        output.push_str("  ");
+    }
 }
 
 fn read_state(app: &AppHandle) -> Result<DesktopStorageState, String> {
@@ -678,4 +774,84 @@ fn unix_millis() -> String {
 
 fn error_string(error: impl ToString) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_bline_json;
+    use serde_json::json;
+
+    #[test]
+    fn pretty_json_preserves_bline_key_order() {
+        let value = json!({
+            "path_elements": [
+                {
+                    "type": "waypoint",
+                    "translation_target": {
+                        "x_meters": 1.0,
+                        "y_meters": 2.0,
+                        "intermediate_handoff_radius_meters": 0.25
+                    },
+                    "rotation_target": {
+                        "rotation_radians": 0.0,
+                        "profiled_rotation": true
+                    }
+                },
+                {
+                    "type": "event_trigger",
+                    "t_ratio": 0.5,
+                    "lib_key": "shoot"
+                }
+            ],
+            "constraints": {
+                "max_velocity_meters_per_sec": 4.5,
+                "max_acceleration_meters_per_sec2": 12.0,
+                "end_translation_tolerance_meters": 0.03,
+                "max_velocity_deg_per_sec": [
+                    {
+                        "value": 90.0,
+                        "start_ordinal": 0,
+                        "end_ordinal": 1
+                    }
+                ]
+            }
+        });
+        let encoded = encode_bline_json(&value).expect("JSON should encode");
+
+        assert_order(
+            &encoded,
+            &[
+                "\"path_elements\"",
+                "\"type\": \"waypoint\"",
+                "\"translation_target\"",
+                "\"x_meters\": 1.0",
+                "\"y_meters\": 2.0",
+                "\"intermediate_handoff_radius_meters\": 0.25",
+                "\"rotation_target\"",
+                "\"rotation_radians\": 0.0",
+                "\"profiled_rotation\"",
+                "\"type\": \"event_trigger\"",
+                "\"t_ratio\": 0.5",
+                "\"lib_key\"",
+                "\"constraints\"",
+                "\"max_velocity_meters_per_sec\": 4.5",
+                "\"max_acceleration_meters_per_sec2\": 12.0",
+                "\"end_translation_tolerance_meters\": 0.03",
+                "\"max_velocity_deg_per_sec\"",
+                "\"value\": 90.0",
+                "\"start_ordinal\": 0",
+                "\"end_ordinal\": 1",
+            ],
+        );
+    }
+
+    fn assert_order(haystack: &str, needles: &[&str]) {
+        let mut cursor = 0;
+        for needle in needles {
+            let offset = haystack[cursor..]
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing {needle} after byte {cursor}"));
+            cursor += offset + needle.len();
+        }
+    }
 }

@@ -29,6 +29,7 @@ import {
   deserializeProjectConfig,
   serializeProjectConfig
 } from "../../../src/core/io/blineProject";
+import { stringifyBLineJson } from "../../../src/core/io/blineJson";
 import {
   deserializeBLineProjectFolder,
   serializeBLineProjectFolder
@@ -186,6 +187,64 @@ describe("project path serde", () => {
         ]
       }
     });
+  });
+
+  it("serializes native BLine path JSON in PySide key order", () => {
+    const path = createPathModel({
+      constraints: createConstraints({
+        max_velocity_meters_per_sec: 4,
+        end_translation_tolerance_meters: 0.05
+      }),
+      path_elements: [
+        createTranslationTarget({
+          x_meters: 0,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.15
+        }),
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 1,
+            y_meters: 1,
+            intermediate_handoff_radius_meters: 0.2
+          }),
+          rotation_target: createRotationTarget({ rotation_radians: 1.25 })
+        }),
+        createEventTrigger({ t_ratio: 0.25, lib_key: "marker" })
+      ],
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 2.5,
+          start_ordinal: 1,
+          end_ordinal: 2
+        }
+      ]
+    });
+
+    expectSubstringsInOrder(stringifyBLineJson(serializePath(path)), [
+      '"path_elements"',
+      '"type": "translation"',
+      '"x_meters": 0.0',
+      '"y_meters": 0.0',
+      '"intermediate_handoff_radius_meters": 0.15',
+      '"type": "waypoint"',
+      '"translation_target"',
+      '"x_meters": 1.0',
+      '"y_meters": 1.0',
+      '"intermediate_handoff_radius_meters": 0.2',
+      '"rotation_target"',
+      '"rotation_radians": 1.25',
+      '"profiled_rotation": true',
+      '"type": "event_trigger"',
+      '"t_ratio": 0.25',
+      '"lib_key": "marker"',
+      '"constraints"',
+      '"end_translation_tolerance_meters": 0.05',
+      '"max_velocity_meters_per_sec"',
+      '"value": 2.5',
+      '"start_ordinal": 0',
+      '"end_ordinal": 1'
+    ]);
   });
 
   it("serializes all ranged constraint domains with zero-based ordinals", () => {
@@ -806,4 +865,13 @@ function recursiveJsonFiles(root: string): string[] {
   };
   visit(root);
   return files.sort();
+}
+
+function expectSubstringsInOrder(source: string, substrings: readonly string[]): void {
+  let cursor = 0;
+  for (const substring of substrings) {
+    const offset = source.slice(cursor).indexOf(substring);
+    expect(offset, `missing ${substring} after byte ${cursor}`).toBeGreaterThanOrEqual(0);
+    cursor += offset + substring.length;
+  }
 }
