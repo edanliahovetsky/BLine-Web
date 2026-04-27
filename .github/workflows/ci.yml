@@ -29,8 +29,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browser
-        run: npx playwright install chromium
+      - name: Install Playwright browsers
+        run: npx playwright install chromium webkit
 
       - name: Release metadata check
         run: npm run release:check

@@ -100,12 +100,12 @@ npm run tauri:build
 - Node.js `24.6.0`
 - npm, using the committed `package-lock.json`
 - Rust stable for Tauri commands and desktop builds
-- Playwright Chromium for browser E2E tests
+- Playwright Chromium and WebKit for browser E2E tests
 
-Install the Playwright browser dependency with:
+Install the Playwright browser dependencies with:
 
 ```sh
-npx playwright install chromium
+npx playwright install chromium webkit
 ```
 
 Linux Tauri builds also require the native WebKit/AppIndicator/Rsvg/Patchelf
