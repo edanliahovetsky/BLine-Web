@@ -186,7 +186,7 @@ jobs:
         run: npm run release:check -- "${{ needs.metadata.outputs.tag }}"
 
       - name: Build Tauri bundle
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         with:
           args: ${{ matrix.args }}
 
