@@ -1,11 +1,8 @@
 import { useState } from "react";
 import type { ProjectDocument } from "../../core/io/projectSchema";
-import { getElementPosition } from "../../canvas/geometry";
-import { formatPointMeters } from "../../canvas/modelSync";
 import type { PathElement } from "../../core/model/path";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
-import { ElementIcon } from "../icons";
 import { ConstraintEditor } from "./sections/ConstraintEditor";
 import { ElementList } from "./sections/ElementList";
 import { PropertyEditor } from "./sections/PropertyEditor";
@@ -18,8 +15,6 @@ import {
   createMovePathElementCommand,
   createRemovePathElementCommand,
   createUpdatePathElementCommand,
-  elementTypeLabel,
-  elementTypeValue,
   getInsertionIndex,
   getSwitchableElementTypes,
   type AddableElementType
@@ -154,11 +149,6 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
 
   return (
     <aside className="inspector-sidebar" aria-label="Path inspector">
-      <SidebarSelectionContext
-        project={project}
-        selectedElement={selectedElement}
-        selectedElementIndex={selectedElementIndex}
-      />
       <ElementList
         project={project}
         selectedElementIndex={selectedElementIndex}
@@ -188,39 +178,6 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
         onToggleSection={() => handleToggleSection("constraints")}
       />
     </aside>
-  );
-}
-
-function SidebarSelectionContext({
-  project,
-  selectedElement,
-  selectedElementIndex
-}: {
-  project: ProjectDocument | null;
-  selectedElement: PathElement | null;
-  selectedElementIndex: number | null;
-}) {
-  if (!project || selectedElementIndex === null || !selectedElement) {
-    return (
-      <div className="sidebar-selection-context" data-testid="sidebar-selection-context">
-        <span className="sidebar-selection-context__empty">No element selected</span>
-      </div>
-    );
-  }
-
-  const type = elementTypeValue(selectedElement);
-  const position = getElementPosition(project.path.path_elements, selectedElementIndex);
-
-  return (
-    <div className="sidebar-selection-context" data-testid="sidebar-selection-context">
-      <span aria-hidden="true" className={`element-type-mark type-${type}`}>
-        <ElementIcon type={type} />
-      </span>
-      <span className="sidebar-selection-context__label">
-        {selectedElementIndex + 1}. {elementTypeLabel(selectedElement)}
-      </span>
-      <span className="sidebar-selection-context__meta">{formatPointMeters(position)}</span>
-    </div>
   );
 }
 

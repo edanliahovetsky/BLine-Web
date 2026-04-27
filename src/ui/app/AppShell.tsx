@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState
+} from "react";
 import type { ChangeEvent, FocusEvent } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -28,6 +36,7 @@ import { Sidebar } from "../sidebar/Sidebar";
 import "./AppShell.css";
 import { createUpdateProjectConfigCommand } from "./configCommands";
 import {
+  createBlankCanvasPath,
   createInitialCanvasWorkspace,
   createNewCanvasWorkspace
 } from "./initialProject";
@@ -70,6 +79,13 @@ export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
+
+  const setActiveTopMenu = useCallback((menu: TopMenuId | null) => {
+    if (menu) {
+      setShowOpenPanel(false);
+    }
+    setOpenTopMenu(menu);
+  }, []);
 
   const refreshWorkspaceSummaries = useCallback(
     async (service = projectStore.getState().io) => {
@@ -215,6 +231,33 @@ export function AppShell() {
     };
   }, [openTopMenu]);
 
+  useEffect(() => {
+    if (!showOpenPanel) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!toolbarRef.current?.contains(target)) {
+        setShowOpenPanel(false);
+      }
+    };
+
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowOpenPanel(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [showOpenPanel]);
+
   const handleNewProject = useCallback(async () => {
     autosaveRef.current?.cancel();
 
@@ -240,7 +283,8 @@ export function AppShell() {
     const displayName = rawName.trim() || "Untitled Path";
     projectStore.getState().createPath({
       displayName,
-      fileName: ensureJsonFileName(displayName)
+      fileName: ensureJsonFileName(displayName),
+      path: createBlankCanvasPath()
     });
     selectionStore.getState().clearSelection();
     setShowOpenPanel(false);
@@ -295,6 +339,7 @@ export function AppShell() {
   }, [handleSaveProject]);
 
   const handleToggleOpenPanel = useCallback(() => {
+    setOpenTopMenu(null);
     setShowOpenPanel((current) => {
       if (!current) {
         void refreshWorkspaceSummaries();
@@ -317,6 +362,7 @@ export function AppShell() {
         await projectStore.getState().openWorkspace(id);
         selectionStore.getState().clearSelection();
         setShowOpenPanel(false);
+        setOpenTopMenu(null);
         await refreshWorkspaceSummaries();
       } catch {
         // The project store already records the error for the status bar.
@@ -687,7 +733,7 @@ export function AppShell() {
             id="project"
             label="Project"
             openTopMenu={openTopMenu}
-            setOpenTopMenu={setOpenTopMenu}
+            setOpenTopMenu={setActiveTopMenu}
             onBeforeOpen={refreshWorkspaceSummaries}
           >
             {supportsProjectFolders ? (
@@ -786,7 +832,7 @@ export function AppShell() {
             label="Path"
             active
             openTopMenu={openTopMenu}
-            setOpenTopMenu={setOpenTopMenu}
+            setOpenTopMenu={setActiveTopMenu}
           >
             <MenuLabel>Current: {pathLabel}</MenuLabel>
             <div className="top-menu__separator" role="separator" />
@@ -840,7 +886,7 @@ export function AppShell() {
             id="edit"
             label="Edit"
             openTopMenu={openTopMenu}
-            setOpenTopMenu={setOpenTopMenu}
+            setOpenTopMenu={setActiveTopMenu}
           >
             <MenuAction
               label={canUndo ? "Undo" : "Undo"}
@@ -866,6 +912,7 @@ export function AppShell() {
             className="app-tab-button"
             aria-expanded={showConfigDialog}
             onClick={() => {
+              setShowOpenPanel(false);
               setOpenTopMenu(null);
               setShowConfigDialog(true);
             }}
@@ -927,7 +974,7 @@ export function AppShell() {
               label="Actions"
               align="end"
               openTopMenu={openTopMenu}
-              setOpenTopMenu={setOpenTopMenu}
+              setOpenTopMenu={setActiveTopMenu}
               onBeforeOpen={refreshWorkspaceSummaries}
             >
               <MenuAction
@@ -1040,12 +1087,11 @@ export function AppShell() {
           {showOpenPanel ? (
             <div className="project-open-panel" data-testid="open-project-panel">
               <strong>Saved Workspaces</strong>
-              <div className="project-open-panel__list" role="list">
+              <div className="project-open-panel__list">
                 {projectSummaries.map((summary) => (
                   <button
                     key={summary.id}
                     type="button"
-                    role="listitem"
                     onClick={() => void handleOpenWorkspaceById(summary.id)}
                   >
                     <span>{summary.displayName}</span>
@@ -1143,6 +1189,15 @@ export function AppShell() {
 type TopMenuId = "project" | "path" | "edit" | "actions";
 type ImportMode = "archive" | "path" | "config";
 
+interface TopMenuSubmenuContextValue {
+  activeSubmenuId: string | null;
+  setActiveSubmenuId(id: string | null): void;
+}
+
+const TopMenuSubmenuContext = createContext<TopMenuSubmenuContextValue | null>(
+  null
+);
+
 function TopMenuButton({
   id,
   label,
@@ -1163,6 +1218,7 @@ function TopMenuButton({
   children: ReactNode;
 }) {
   const open = openTopMenu === id;
+  const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
   const className = [
     "top-menu",
     `top-menu--${id}`,
@@ -1179,6 +1235,7 @@ function TopMenuButton({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
+          setActiveSubmenuId(null);
           if (!open) {
             void onBeforeOpen?.();
           }
@@ -1188,9 +1245,13 @@ function TopMenuButton({
         {label}
       </button>
       {open ? (
-        <div className="top-menu__panel" role="menu" data-testid={`top-menu-${id}`}>
-          {children}
-        </div>
+        <TopMenuSubmenuContext.Provider
+          value={{ activeSubmenuId, setActiveSubmenuId }}
+        >
+          <div className="top-menu__panel" role="menu" data-testid={`top-menu-${id}`}>
+            {children}
+          </div>
+        </TopMenuSubmenuContext.Provider>
       ) : null}
     </div>
   );
@@ -1205,16 +1266,33 @@ function MenuSubmenu({
   testId: string;
   children: ReactNode;
 }) {
+  const submenuId = useId();
+  const submenuContext = useContext(TopMenuSubmenuContext);
   const submenuRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
   const [placement, setPlacement] = useState<{
     left: number;
     top: number;
     width: number;
     maxHeight: number;
   } | null>(null);
+  const open = submenuContext
+    ? submenuContext.activeSubmenuId === submenuId
+    : localOpen;
+
+  const setSubmenuOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (submenuContext) {
+        submenuContext.setActiveSubmenuId(nextOpen ? submenuId : null);
+        return;
+      }
+
+      setLocalOpen(nextOpen);
+    },
+    [submenuContext, submenuId]
+  );
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current !== null) {
@@ -1248,15 +1326,15 @@ function MenuSubmenu({
   const openSubmenu = useCallback(() => {
     clearCloseTimer();
     updatePlacement();
-    setOpen(true);
-  }, [clearCloseTimer, updatePlacement]);
+    setSubmenuOpen(true);
+  }, [clearCloseTimer, setSubmenuOpen, updatePlacement]);
 
   const closeSubmenu = useCallback(() => {
     clearCloseTimer();
     closeTimerRef.current = window.setTimeout(() => {
-      setOpen(false);
+      setSubmenuOpen(false);
     }, 120);
-  }, [clearCloseTimer]);
+  }, [clearCloseTimer, setSubmenuOpen]);
 
   const handleBlur = (event: FocusEvent<HTMLElement>) => {
     const nextTarget = event.relatedTarget as Node | null;
