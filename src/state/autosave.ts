@@ -24,6 +24,7 @@ export interface AutosaveCoordinatorOptions<TimerHandle = unknown> {
   onStatusChange?: (status: AutosaveStatus) => void;
   onSaved?: (result: WriteResult) => void;
   onError?: (error: unknown) => void;
+  shouldDefer?: () => boolean;
 }
 
 export interface AutosaveCoordinator {
@@ -68,6 +69,11 @@ export function createAutosaveCoordinator<
       if (timer !== null) {
         scheduler.clearTimeout(timer);
         timer = null;
+      }
+
+      if (options.shouldDefer?.()) {
+        setStatus("pending");
+        return null;
       }
 
       const snapshot = options.getSnapshot();

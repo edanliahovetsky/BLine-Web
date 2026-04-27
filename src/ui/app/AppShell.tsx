@@ -64,7 +64,9 @@ export function AppShell() {
     useState<ImportMode>("archive");
   const [initializing, setInitializing] = useState(true);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
+  const [canvasInteractionActive, setCanvasInteractionActive] = useState(false);
   const autosaveRef = useRef<AutosaveCoordinator | null>(null);
+  const canvasInteractionActiveRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
@@ -87,6 +89,14 @@ export function AppShell() {
     folderInputRef.current = element;
     element?.setAttribute("webkitdirectory", "");
     element?.setAttribute("directory", "");
+  }, []);
+
+  const handleCanvasInteractionStateChange = useCallback((active: boolean) => {
+    canvasInteractionActiveRef.current = active;
+    setCanvasInteractionActive(active);
+    if (active) {
+      autosaveRef.current?.cancel();
+    }
   }, []);
 
   useEffect(() => {
@@ -138,7 +148,8 @@ export function AppShell() {
     autosaveRef.current?.cancel();
     autosaveRef.current = createProjectAutosaveCoordinator(projectStore, projectIo, {
       delayMs: 300,
-      onStatusChange: setAutosaveStatus
+      onStatusChange: setAutosaveStatus,
+      shouldDefer: () => canvasInteractionActiveRef.current
     });
 
     return () => {
@@ -148,10 +159,17 @@ export function AppShell() {
   }, [projectIo]);
 
   useEffect(() => {
-    if (workspace && dirty) {
-      autosaveRef.current?.schedule();
+    if (!workspace || !dirty) {
+      return;
     }
-  }, [dirty, workspace]);
+
+    if (canvasInteractionActiveRef.current) {
+      autosaveRef.current?.cancel();
+      return;
+    }
+
+    autosaveRef.current?.schedule();
+  }, [canvasInteractionActive, dirty, workspace]);
 
   useEffect(() => {
     if (lastSavedAt && projectIo) {
@@ -1042,7 +1060,7 @@ export function AppShell() {
 
       <div className="workspace">
         <section className="canvas-region" aria-label="Editor canvas">
-          <PathStage />
+          <PathStage onInteractionStateChange={handleCanvasInteractionStateChange} />
         </section>
 
         <Sidebar project={project} selectedElementIndex={selectedElementIndex} />

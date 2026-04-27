@@ -43,6 +43,42 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
 });
 
+test("defers autosave while a dirty canvas drag is active", async ({ page }) => {
+  await installWorkspaceWriteSpy(page);
+  await page.goto("/");
+
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 1.2,
+    y_meters: 1.1
+  });
+
+  await page.mouse.click(firstAnchor.x, firstAnchor.y);
+  await expect(page.getByLabel("X (m)")).toHaveValue("1.200");
+
+  await page.getByLabel("X (m)").fill("1.250");
+
+  const movedAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 1.25,
+    y_meters: 1.1
+  });
+  await page.mouse.move(movedAnchor.x, movedAnchor.y);
+  await page.mouse.down();
+  await resetWorkspaceWriteSpy(page);
+  await page.mouse.move(movedAnchor.x + 60, movedAnchor.y - 24, { steps: 4 });
+  await page.waitForTimeout(550);
+
+  expect(await workspaceWriteCount(page)).toBe(0);
+
+  await page.mouse.up();
+  await expect(page.getByTestId("save-status")).toContainText("Saved", {
+    timeout: 3_000
+  });
+  expect(await workspaceWriteCount(page)).toBeGreaterThan(0);
+});
+
 test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 450, height: 900 });
   await page.goto("/");
@@ -962,6 +998,10 @@ interface PointMeters {
   y_meters: number;
 }
 
+type WorkspaceWriteSpyWindow = Window & {
+  __blineWorkspaceWrites?: Array<{ key: string; at: number }>;
+};
+
 async function requiredBox(locator: Locator): Promise<Bounds> {
   const box = await locator.boundingBox();
   if (!box) {
@@ -969,6 +1009,41 @@ async function requiredBox(locator: Locator): Promise<Bounds> {
   }
 
   return box;
+}
+
+async function installWorkspaceWriteSpy(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    const spyWindow = window as WorkspaceWriteSpyWindow;
+
+    spyWindow.__blineWorkspaceWrites = [];
+    Storage.prototype.setItem = function setItemWithWorkspaceWriteSpy(
+      this: Storage,
+      key: string,
+      value: string
+    ) {
+      if (key.startsWith("bline-web:workspace:")) {
+        spyWindow.__blineWorkspaceWrites?.push({
+          key,
+          at: performance.now()
+        });
+      }
+
+      return originalSetItem.call(this, key, value);
+    };
+  });
+}
+
+async function resetWorkspaceWriteSpy(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites = [];
+  });
+}
+
+async function workspaceWriteCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites?.length ?? 0
+  );
 }
 
 async function currentPathName(page: {
