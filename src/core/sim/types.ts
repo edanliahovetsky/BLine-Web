@@ -1,3 +1,5 @@
+import type { CanonicalProjectConfig } from "../config/projectConfig";
+
 export type PoseTuple = readonly [x_m: number, y_m: number, theta_rad: number];
 export type PointTuple = readonly [x_m: number, y_m: number];
 
@@ -7,7 +9,20 @@ export interface ChassisSpeeds {
   omega_radps: number;
 }
 
-export interface SimulationConfig {
+type KinematicSimulationConfig = Partial<
+  Record<keyof CanonicalProjectConfig["kinematic_constraints"], number | null>
+>;
+
+type GuiSimulationConfig = {
+  robot?: Partial<CanonicalProjectConfig["gui"]["robot"]>;
+  protrusions?: Partial<CanonicalProjectConfig["gui"]["protrusions"]> & {
+    event_state_overrides?: Record<string, unknown>;
+  };
+};
+
+export interface SimulationConfig extends KinematicSimulationConfig {
+  kinematic_constraints?: KinematicSimulationConfig;
+  gui?: GuiSimulationConfig;
   default_max_velocity_meters_per_sec?: number | null;
   default_max_acceleration_meters_per_sec2?: number | null;
   default_intermediate_handoff_radius_meters?: number | null;
@@ -21,6 +36,8 @@ export interface SimulationOptions {
 
 export interface SimResult {
   poses_by_time: Map<number, PoseTuple>;
+  global_s_by_time: Map<number, number>;
+  protrusion_visible_by_time: Map<number, boolean>;
   times_sorted: number[];
   total_time_s: number;
   trail_points: PointTuple[];

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { deserializePath } from "../../../../src/core/io/projectSerde";
 import {
+  createEventTrigger,
   createPathModel,
   createRotationTarget,
   createTranslationTarget,
@@ -134,6 +135,100 @@ describe("simulatePath", () => {
     expectPose(result.poses_by_time.get(result.total_time_s), [2, 0, 0], 6);
   });
 
+  it("toggles protrusion visibility from named event triggers", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createEventTrigger({ t_ratio: 0.25, lib_key: "deploy" }),
+        createEventTrigger({ t_ratio: 0.75, lib_key: "stow" }),
+        createTranslationTarget({ x_meters: 4, y_meters: 0 })
+      ]
+    });
+
+    const result = simulatePath(
+      path,
+      {
+        ...defaultConfig,
+        gui: {
+          robot: {
+            length_meters: 0.5,
+            width_meters: 0.5
+          },
+          protrusions: {
+            enabled: true,
+            distance_meters: 0.25,
+            side: "front",
+            default_state: "hidden",
+            show_on_event_keys: ["deploy"],
+            hide_on_event_keys: ["stow"]
+          }
+        }
+      },
+      { dt_s: 0.01 }
+    );
+
+    expect(result.protrusion_visible_by_time.get(0)).toBe(false);
+    expect(visibilityAtOrAfterS(result, 1)).toBe(true);
+    expect(visibilityAtOrAfterS(result, 2)).toBe(true);
+    expect(visibilityAtOrAfterS(result, 3)).toBe(false);
+  });
+
+  it("uses case-sensitive event key matching and gives show keys precedence", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createEventTrigger({ t_ratio: 0.5, lib_key: "Deploy" }),
+        createTranslationTarget({ x_meters: 2, y_meters: 0 })
+      ]
+    });
+
+    const unmatched = simulatePath(
+      path,
+      {
+        ...defaultConfig,
+        gui: {
+          robot: {
+            length_meters: 0.5,
+            width_meters: 0.5
+          },
+          protrusions: {
+            enabled: true,
+            distance_meters: 0.25,
+            side: "front",
+            default_state: "hidden",
+            show_on_event_keys: ["deploy"],
+            hide_on_event_keys: []
+          }
+        }
+      },
+      { dt_s: 0.01 }
+    );
+    expect(visibilityAtOrAfterS(unmatched, 1)).toBe(false);
+
+    const showWins = simulatePath(
+      path,
+      {
+        ...defaultConfig,
+        gui: {
+          robot: {
+            length_meters: 0.5,
+            width_meters: 0.5
+          },
+          protrusions: {
+            enabled: true,
+            distance_meters: 0.25,
+            side: "front",
+            default_state: "hidden",
+            show_on_event_keys: ["Deploy"],
+            hide_on_event_keys: ["Deploy"]
+          }
+        }
+      },
+      { dt_s: 0.01 }
+    );
+    expect(visibilityAtOrAfterS(showWins, 1)).toBe(true);
+  });
+
   it("simulates the dense top sweep fixture without endpoint spin", () => {
     const path = deserializePath(readFixture("top_sweep_short_depo.json"));
     const result = simulatePath(
@@ -175,4 +270,14 @@ function expectPose(
   expect(pose?.[0]).toBeCloseTo(expected[0], precision);
   expect(pose?.[1]).toBeCloseTo(expected[1], precision);
   expect(pose?.[2]).toBeCloseTo(expected[2], precision);
+}
+
+function visibilityAtOrAfterS(
+  result: ReturnType<typeof simulatePath>,
+  targetS: number
+): boolean | undefined {
+  const time = result.times_sorted.find(
+    (candidate) => (result.global_s_by_time.get(candidate) ?? 0) >= targetS
+  );
+  return time === undefined ? undefined : result.protrusion_visible_by_time.get(time);
 }

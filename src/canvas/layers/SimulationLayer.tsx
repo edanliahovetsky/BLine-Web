@@ -64,9 +64,10 @@ export const SimulationLayerContent = memo(function SimulationLayerContent({
   const robotLength = (config?.gui.robot.length_meters ?? 0.5) * viewport.scale;
   const robotWidth = (config?.gui.robot.width_meters ?? 0.5) * viewport.scale;
   const protrusions = config?.gui.protrusions;
+  const timelineProtrusionVisible = protrusionVisibleAtOrBefore(result, currentTimeS);
   const protrusionVisible =
     Boolean(protrusions?.enabled) &&
-    protrusions?.default_state === "shown" &&
+    (timelineProtrusionVisible ?? protrusions?.default_state === "shown") &&
     (protrusions?.distance_meters ?? 0) > 0 &&
     protrusions?.side !== "none";
   const robotBounds = getRobotBounds({
@@ -223,4 +224,15 @@ function poseAtOrBefore(result: SimResult, timeS: number) {
     selected = time;
   }
   return result.poses_by_time.get(selected) ?? null;
+}
+
+function protrusionVisibleAtOrBefore(result: SimResult, timeS: number): boolean | null {
+  let selected = result.times_sorted[0];
+  for (const time of result.times_sorted) {
+    if (time > timeS) {
+      break;
+    }
+    selected = time;
+  }
+  return result.protrusion_visible_by_time.get(selected) ?? null;
 }

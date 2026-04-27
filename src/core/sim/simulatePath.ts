@@ -1,10 +1,12 @@
 import {
+  isEventTrigger,
   isRotationTarget,
   isWaypoint,
   type PathElement,
   type PathModel,
   type RangedConstraintKey
 } from "../model/path";
+import { createProjectConfig } from "../config/projectConfig";
 import type {
   ChassisSpeeds,
   PointTuple,
@@ -39,6 +41,12 @@ interface SegmentBuildResult {
   cumulativeLengths: number[];
 }
 
+interface ProtrusionTrigger {
+  s_m: number;
+  path_index: number;
+  visible: boolean;
+}
+
 const emptySpeeds: ChassisSpeeds = {
   vx_mps: 0,
   vy_mps: 0,
@@ -58,6 +66,7 @@ export function simulatePath(
   const cfg = normalizeSimulationConfig(config);
   const { anchors, segments, cumulativeLengths } = buildSegments(path);
   const posesByTime = new Map<number, PoseTuple>();
+  const globalSByTime = new Map<number, number>();
   const timesSorted: number[] = [];
   const trailPoints: PointTuple[] = [];
 
@@ -65,12 +74,23 @@ export function simulatePath(
     const first = anchors[0];
     if (first) {
       posesByTime.set(0, [first.x, first.y, 0]);
+      globalSByTime.set(0, 0);
       timesSorted.push(0);
       trailPoints.push([first.x, first.y]);
     }
+    const uniqueTimes = dedupeTimes(timesSorted);
     return {
       poses_by_time: posesByTime,
-      times_sorted: timesSorted,
+      global_s_by_time: globalSByTime,
+      protrusion_visible_by_time: buildProtrusionVisibilityByTime(
+        path,
+        config,
+        anchors,
+        cumulativeLengths,
+        globalSByTime,
+        uniqueTimes
+      ),
+      times_sorted: uniqueTimes,
       total_time_s: 0,
       trail_points: trailPoints
     };
@@ -156,6 +176,7 @@ export function simulatePath(
   const guardTime = Math.max(3, 2 * estTransTime + 1.5 * estRotTime);
   const epsPos = 1e-3;
   const epsAng = degreesToRadians(0.5);
+  let lastGlobalS = 0;
 
   while (tS <= guardTime) {
     if (segmentIndex >= segments.length) {
@@ -288,7 +309,16 @@ export function simulatePath(
     theta = wrapAngleRadians(theta + limited.omega_radps * dt);
 
     const tKey = round3(tS);
+    const poseGlobalS = Math.min(
+      totalPathLength,
+      Math.max(
+        lastGlobalS,
+        projectPointToGlobalS(x, y, segments, cumulativeLengths, lastGlobalS)
+      )
+    );
+    lastGlobalS = poseGlobalS;
     posesByTime.set(tKey, [x, y, theta]);
+    globalSByTime.set(tKey, poseGlobalS);
     timesSorted.push(tKey);
     trailPoints.push([x, y]);
 
@@ -313,6 +343,10 @@ export function simulatePath(
       if (snappedPos || snappedRot) {
         posesByTime.set(tKey, [x, y, theta]);
         trailPoints[trailPoints.length - 1] = [x, y];
+        if (snappedPos) {
+          lastGlobalS = totalPathLength;
+          globalSByTime.set(tKey, totalPathLength);
+        }
 
         if (snappedPos) {
           limited = { vx_mps: 0, vy_mps: 0, omega_radps: limited.omega_radps };
@@ -336,21 +370,26 @@ export function simulatePath(
   const lastTime = round3(tS);
   if (!posesByTime.has(lastTime) && timesSorted.length > 0) {
     posesByTime.set(lastTime, posesByTime.get(timesSorted[timesSorted.length - 1])!);
+    globalSByTime.set(
+      lastTime,
+      globalSByTime.get(timesSorted[timesSorted.length - 1]) ?? lastGlobalS
+    );
     timesSorted.push(lastTime);
   }
 
-  const uniqueTimes: number[] = [];
-  const seen = new Set<number>();
-  for (const time of timesSorted) {
-    if (seen.has(time)) {
-      continue;
-    }
-    seen.add(time);
-    uniqueTimes.push(time);
-  }
+  const uniqueTimes = dedupeTimes(timesSorted);
 
   return {
     poses_by_time: posesByTime,
+    global_s_by_time: globalSByTime,
+    protrusion_visible_by_time: buildProtrusionVisibilityByTime(
+      path,
+      config,
+      anchors,
+      cumulativeLengths,
+      globalSByTime,
+      uniqueTimes
+    ),
     times_sorted: uniqueTimes,
     total_time_s: uniqueTimes[uniqueTimes.length - 1] ?? 0,
     trail_points: trailPoints
@@ -753,6 +792,124 @@ function projectedDistanceOnSegment(
   return Math.max(0, Math.min(projected, segment.length_m));
 }
 
+function projectPointToGlobalS(
+  x: number,
+  y: number,
+  segments: readonly Segment[],
+  cumulativeLengths: readonly number[],
+  fallbackS: number
+): number {
+  let bestS = fallbackS;
+  let bestDist2: number | null = null;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const projected = projectedDistanceOnSegment(segment, x, y);
+    const projX = segment.ax + segment.ux * projected;
+    const projY = segment.ay + segment.uy * projected;
+    const dist2 = (x - projX) ** 2 + (y - projY) ** 2;
+    if (bestDist2 === null || dist2 < bestDist2) {
+      bestDist2 = dist2;
+      bestS = (cumulativeLengths[index] ?? 0) + projected;
+    }
+  }
+
+  return bestS;
+}
+
+function buildProtrusionVisibilityByTime(
+  path: PathModel,
+  rawConfig: unknown,
+  anchors: readonly Anchor[],
+  cumulativeLengths: readonly number[],
+  globalSByTime: ReadonlyMap<number, number>,
+  timesSorted: readonly number[]
+): Map<number, boolean> {
+  const visibilityByTime = new Map<number, boolean>();
+  const protrusions = createProjectConfig(rawConfig).gui.protrusions;
+
+  if (!protrusions.enabled) {
+    for (const time of timesSorted) {
+      visibilityByTime.set(time, false);
+    }
+    return visibilityByTime;
+  }
+
+  const schedule = buildProtrusionTriggerSchedule(
+    path,
+    anchors,
+    cumulativeLengths,
+    protrusions.show_on_event_keys,
+    protrusions.hide_on_event_keys
+  );
+  let visible = protrusions.default_state === "shown";
+  let scheduleIndex = 0;
+
+  for (const time of timesSorted) {
+    const sNow = globalSByTime.get(time) ?? 0;
+    while (
+      scheduleIndex < schedule.length &&
+      sNow + 1e-6 >= schedule[scheduleIndex].s_m
+    ) {
+      visible = schedule[scheduleIndex].visible;
+      scheduleIndex += 1;
+    }
+    visibilityByTime.set(time, visible);
+  }
+
+  return visibilityByTime;
+}
+
+function buildProtrusionTriggerSchedule(
+  path: PathModel,
+  anchors: readonly Anchor[],
+  cumulativeLengths: readonly number[],
+  showOnEventKeys: readonly string[],
+  hideOnEventKeys: readonly string[]
+): ProtrusionTrigger[] {
+  const showKeys = new Set(showOnEventKeys);
+  const hideKeys = new Set(hideOnEventKeys);
+  if (showKeys.size === 0 && hideKeys.size === 0) {
+    return [];
+  }
+
+  const triggerSchedule: ProtrusionTrigger[] = [];
+  for (const [pathIndex, element] of path.path_elements.entries()) {
+    if (!isEventTrigger(element)) {
+      continue;
+    }
+
+    const key = element.lib_key.trim();
+    if (!key) {
+      continue;
+    }
+
+    const visible = showKeys.has(key)
+      ? true
+      : hideKeys.has(key)
+        ? false
+        : null;
+    if (visible === null) {
+      continue;
+    }
+
+    const bracket = surroundingAnchorOrdinals(path.path_elements, anchors, pathIndex);
+    if (!bracket) {
+      continue;
+    }
+
+    const s0 = cumulativeLengths[bracket.previous] ?? 0;
+    const s1 = cumulativeLengths[bracket.next] ?? s0;
+    triggerSchedule.push({
+      s_m: s0 + clamp01(element.t_ratio) * Math.max(s1 - s0, 0),
+      path_index: pathIndex,
+      visible
+    });
+  }
+
+  return triggerSchedule.sort((a, b) => a.s_m - b.s_m || a.path_index - b.path_index);
+}
+
 function defaultHeading(segment: Segment): number {
   return Math.atan2(segment.by - segment.ay, segment.bx - segment.ax);
 }
@@ -830,6 +987,19 @@ function numericOption(value: unknown): number | null {
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function dedupeTimes(timesSorted: readonly number[]): number[] {
+  const uniqueTimes: number[] = [];
+  const seen = new Set<number>();
+  for (const time of timesSorted) {
+    if (seen.has(time)) {
+      continue;
+    }
+    seen.add(time);
+    uniqueTimes.push(time);
+  }
+  return uniqueTimes;
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {
