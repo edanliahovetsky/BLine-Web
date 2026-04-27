@@ -143,6 +143,7 @@ export function ElementList({
                   type="button"
                   className="path-element-row"
                   data-testid={`path-element-row-${index}`}
+                  aria-keyshortcuts="ArrowUp ArrowDown Delete Backspace"
                   aria-pressed={selected}
                   onMouseDown={(event) => handleMouseDown(event, index)}
                   onClick={() => {

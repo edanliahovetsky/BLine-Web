@@ -458,11 +458,11 @@ select {
   bottom: 10px;
   left: 16px;
   display: grid;
-  grid-template-columns: 36px 4.75rem minmax(180px, 1fr);
+  grid-template-columns: auto 4.25rem minmax(64px, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 44px;
-  padding: 6px 14px 6px 10px;
+  padding: 6px 12px 6px 10px;
   border: 1px solid rgba(235, 241, 247, 0.08);
   border-radius: 7px;
   background:
@@ -549,7 +549,23 @@ select {
 .transport-primary-controls {
   display: flex;
   align-items: center;
+  gap: 6px;
   min-height: 30px;
+}
+
+.transport-step-button {
+  display: grid;
+  width: 30px;
+  min-width: 30px;
+  height: 32px;
+  place-items: center;
+  color: #d9e8f8;
+  background: rgba(42, 58, 74, 0.86) !important;
+}
+
+.transport-step-button:disabled {
+  color: rgba(217, 232, 248, 0.36);
+  background: rgba(42, 58, 74, 0.5) !important;
 }
 
 .transport-play-button {

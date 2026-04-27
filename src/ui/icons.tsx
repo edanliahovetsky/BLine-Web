@@ -67,6 +67,24 @@ export function ArrowDownIcon(props: IconProps) {
   );
 }
 
+export function SkipBackIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <path d="M5 5v14" />
+      <path d="m19 6-9 6 9 6V6Z" />
+    </svg>
+  );
+}
+
+export function SkipForwardIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <path d="M19 5v14" />
+      <path d="m5 6 9 6-9 6V6Z" />
+    </svg>
+  );
+}
+
 export function ElementIcon({
   type,
   ...props

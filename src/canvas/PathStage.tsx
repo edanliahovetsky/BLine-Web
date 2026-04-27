@@ -19,7 +19,12 @@ import { simulatePath, type SimResult } from "../core/sim";
 import { projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
-import { createRemovePathElementCommand } from "../ui/sidebar/sidebarCommands";
+import { SkipBackIcon, SkipForwardIcon } from "../ui/icons";
+import {
+  isInteractiveShortcutTarget,
+  removeSelectedPathElement,
+  removeSelectedRangedConstraint
+} from "../ui/keyboardShortcuts";
 import { fieldAspectRatio } from "./constants";
 import {
   createFieldViewport,
@@ -362,6 +367,69 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     return () => window.cancelAnimationFrame(frameId);
   }, [simulationPlaying, simulationResult]);
 
+  const toggleSimulationPlaying = useCallback(() => {
+    if (!simulationResult || simulationResult.total_time_s <= 0) {
+      return;
+    }
+
+    if (simulationTime >= simulationResult.total_time_s) {
+      setSimulationTime(0);
+    }
+    setSimulationPlaying((current) => !current);
+  }, [simulationResult, simulationTime]);
+
+  const resetSimulation = useCallback(() => {
+    if (!simulationResult || simulationResult.total_time_s <= 0) {
+      return;
+    }
+
+    setSimulationPlaying(false);
+    setSimulationTime(0);
+  }, [simulationResult]);
+
+  const finishSimulation = useCallback(() => {
+    if (!simulationResult || simulationResult.total_time_s <= 0) {
+      return;
+    }
+
+    setSimulationPlaying(false);
+    setSimulationTime(simulationResult.total_time_s);
+  }, [simulationResult]);
+
+  useEffect(() => {
+    const handleSimulationShortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isInteractiveShortcutTarget(event.target)
+      ) {
+        return;
+      }
+
+      if (event.key === " " || event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        toggleSimulationPlaying();
+        return;
+      }
+
+      if (event.key === "ArrowLeft" || event.key === "Home") {
+        event.preventDefault();
+        resetSimulation();
+        return;
+      }
+
+      if (event.key === "ArrowRight" || event.key === "End") {
+        event.preventDefault();
+        finishSimulation();
+      }
+    };
+
+    window.addEventListener("keydown", handleSimulationShortcut);
+    return () => window.removeEventListener("keydown", handleSimulationShortcut);
+  }, [finishSimulation, resetSimulation, toggleSimulationPlaying]);
+
   const renderInput = useMemo<PixiRenderInput>(
     () => ({
       stageSize,
@@ -398,29 +466,38 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   }, [renderInput]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === " " && simulationResult) {
-      event.preventDefault();
-      setSimulationPlaying((current) => !current);
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      isInteractiveShortcutTarget(event.target)
+    ) {
       return;
     }
 
-    if (
-      (event.key === "Delete" || event.key === "Backspace") &&
-      selectedElementIndex !== null &&
-      project
-    ) {
+    if (event.key === " " || event.key.toLowerCase() === "k") {
       event.preventDefault();
-      const element = project.path.path_elements[selectedElementIndex];
-      if (!element) {
-        return;
+      toggleSimulationPlaying();
+      return;
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "Home") {
+      event.preventDefault();
+      resetSimulation();
+      return;
+    }
+
+    if (event.key === "ArrowRight" || event.key === "End") {
+      event.preventDefault();
+      finishSimulation();
+      return;
+    }
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      if (removeSelectedRangedConstraint() || removeSelectedPathElement()) {
+        event.preventDefault();
       }
-      projectStore
-        .getState()
-        .applyCommand(createRemovePathElementCommand(selectedElementIndex, element));
-      selectionStore.getState().selectElement(
-        Math.min(selectedElementIndex, project.path.path_elements.length - 2),
-        projectStore.getState().project
-      );
     }
   };
 
@@ -720,12 +797,9 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
           result={simulationResult}
           currentTimeS={simulationTime}
           playing={simulationPlaying}
-          onTogglePlaying={() => {
-            if (simulationResult && simulationTime >= simulationResult.total_time_s) {
-              setSimulationTime(0);
-            }
-            setSimulationPlaying((current) => !current);
-          }}
+          onReset={resetSimulation}
+          onTogglePlaying={toggleSimulationPlaying}
+          onFinish={finishSimulation}
           onSeek={(time) => {
             setSimulationTime(time);
             setSimulationPlaying(false);
@@ -740,17 +814,22 @@ function SimulationTransport({
   result,
   currentTimeS,
   playing,
+  onReset,
   onTogglePlaying,
+  onFinish,
   onSeek
 }: {
   result: SimResult | null;
   currentTimeS: number;
   playing: boolean;
+  onReset(): void;
   onTogglePlaying(): void;
+  onFinish(): void;
   onSeek(timeS: number): void;
 }) {
   const total = result?.total_time_s ?? 0;
   const safeCurrent = Math.min(currentTimeS, total);
+  const disabled = !result || total <= 0;
   const progress = total > 0 ? (safeCurrent / total) * 100 : 0;
   const timelineStyle = {
     "--transport-progress": `${progress}%`
@@ -761,13 +840,36 @@ function SimulationTransport({
       <div className="transport-primary-controls">
         <button
           type="button"
+          className="transport-step-button"
+          aria-label="Reset simulation"
+          aria-keyshortcuts="ArrowLeft Home"
+          title="Reset simulation (Left Arrow)"
+          onClick={onReset}
+          disabled={disabled || safeCurrent <= 0}
+        >
+          <SkipBackIcon size={16} />
+        </button>
+        <button
+          type="button"
           className="transport-play-button"
           aria-label={playing ? "Pause simulation" : "Play simulation"}
-          title={playing ? "Pause simulation" : "Play simulation"}
+          aria-keyshortcuts="Space K"
+          title={playing ? "Pause simulation (Space)" : "Play simulation (Space)"}
           onClick={onTogglePlaying}
-          disabled={!result || total <= 0}
+          disabled={disabled}
         >
           <span className={playing ? "transport-icon pause" : "transport-icon play"} />
+        </button>
+        <button
+          type="button"
+          className="transport-step-button"
+          aria-label="Fast forward simulation"
+          aria-keyshortcuts="ArrowRight End"
+          title="Fast forward simulation (Right Arrow)"
+          onClick={onFinish}
+          disabled={disabled || safeCurrent >= total}
+        >
+          <SkipForwardIcon size={16} />
         </button>
       </div>
       <span className="transport-time" data-testid="simulation-time">
@@ -785,7 +887,7 @@ function SimulationTransport({
           step={0.02}
           value={safeCurrent}
           style={timelineStyle}
-          disabled={!result || total <= 0}
+          disabled={disabled}
           onChange={(event) => onSeek(Number(event.currentTarget.value))}
         />
       </div>

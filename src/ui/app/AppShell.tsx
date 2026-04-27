@@ -31,6 +31,13 @@ import {
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
+import {
+  isEditableShortcutTarget,
+  isInteractiveShortcutTarget,
+  moveSelectedPathElement,
+  removeSelectedPathElement,
+  removeSelectedRangedConstraint
+} from "../keyboardShortcuts";
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import "./AppShell.css";
@@ -329,39 +336,93 @@ export function AppShell() {
 
   useEffect(() => {
     const handleShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
       const modifier = event.metaKey || event.ctrlKey;
-      if (!modifier) {
-        return;
-      }
-
       const key = event.key.toLowerCase();
-      if (key === "s") {
-        event.preventDefault();
-        void handleSaveProject();
+
+      if (modifier) {
+        if (event.altKey) {
+          return;
+        }
+
+        if (key === "s") {
+          event.preventDefault();
+          void handleSaveProject();
+          return;
+        }
+
+        if (isEditableShortcutTarget(event.target)) {
+          return;
+        }
+
+        if (key === "z" && event.shiftKey) {
+          event.preventDefault();
+          projectStore.getState().redo();
+          return;
+        }
+
+        if (key === "z") {
+          event.preventDefault();
+          projectStore.getState().undo();
+          return;
+        }
+
+        if (key === "y") {
+          event.preventDefault();
+          projectStore.getState().redo();
+        }
         return;
       }
 
-      if (key === "z" && event.shiftKey) {
-        event.preventDefault();
-        projectStore.getState().redo();
+      if (
+        event.altKey ||
+        hasActiveBlockingSurface({
+          openTopMenu,
+          showConfigDialog,
+          showDeletePathDialog,
+          showDeleteProjectDialog,
+          showMobileSupportWarning,
+          showOpenPanel
+        }) ||
+        isEditableShortcutTarget(event.target) ||
+        (
+          isInteractiveShortcutTarget(event.target) &&
+          !isPathElementShortcutTarget(event.target) &&
+          !isRangedConstraintShortcutTarget(event.target)
+        )
+      ) {
         return;
       }
 
-      if (key === "z") {
-        event.preventDefault();
-        projectStore.getState().undo();
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (removeSelectedRangedConstraint() || removeSelectedPathElement()) {
+          event.preventDefault();
+        }
         return;
       }
 
-      if (key === "y") {
-        event.preventDefault();
-        projectStore.getState().redo();
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        const direction = event.key === "ArrowUp" ? -1 : 1;
+        if (moveSelectedPathElement(direction)) {
+          event.preventDefault();
+        }
       }
     };
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [handleSaveProject]);
+  }, [
+    handleSaveProject,
+    openTopMenu,
+    showConfigDialog,
+    showDeletePathDialog,
+    showDeleteProjectDialog,
+    showMobileSupportWarning,
+    showOpenPanel
+  ]);
 
   const handleToggleOpenPanel = useCallback(() => {
     setOpenTopMenu(null);
@@ -1542,6 +1603,39 @@ function MenuAction({
 
 function MenuLabel({ children }: { children: ReactNode }) {
   return <div className="top-menu__label">{children}</div>;
+}
+
+function hasActiveBlockingSurface({
+  openTopMenu,
+  showConfigDialog,
+  showDeletePathDialog,
+  showDeleteProjectDialog,
+  showMobileSupportWarning,
+  showOpenPanel
+}: {
+  openTopMenu: TopMenuId | null;
+  showConfigDialog: boolean;
+  showDeletePathDialog: boolean;
+  showDeleteProjectDialog: boolean;
+  showMobileSupportWarning: boolean;
+  showOpenPanel: boolean;
+}): boolean {
+  return Boolean(
+    openTopMenu ||
+      showConfigDialog ||
+      showDeletePathDialog ||
+      showDeleteProjectDialog ||
+      showMobileSupportWarning ||
+      showOpenPanel
+  );
+}
+
+function isPathElementShortcutTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("[data-path-element-index]"));
+}
+
+function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("[data-ranged-constraint-selection]"));
 }
 
 function PathMenuList({
