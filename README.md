@@ -34,28 +34,8 @@ BLine Web is currently an alpha replacement for the original PySide6
 desktop workflows are implemented and tested against the existing GUI's core
 behavior.
 
-| Target | Status | Notes |
-| --- | --- | --- |
-| Hosted web app | Alpha supported | Browser-local project storage with import/export |
-| Tauri desktop app | Alpha supported | Real BLine autos folders on disk |
-| BLine project format | Supported | Reads and writes `config.json` plus `paths/*.json` |
-
 The current app is useful for browser and desktop editing. SystemCore support is
 a possible future direction, not part of the current supported product surface.
-
-## What It Does
-
-- Edit BLine paths on a field canvas.
-- Add and edit translation targets, rotation targets, event triggers, and
-  waypoints.
-- Drag path elements directly on the canvas.
-- Tune path constraints, ranged translation/rotation constraints, and terminal
-  tolerances.
-- Preview the local idealized path simulation with robot and trail overlays.
-- Use undo/redo across canvas edits, sidebar edits, structural edits, and config
-  edits.
-- Autosave browser and desktop workspaces.
-- Import/export BLine project folders and project archives.
 
 ## For Existing BLine Users
 
