@@ -193,6 +193,10 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
 
     await page.getByText("Add constraint").click();
     await page.getByRole("menuitem", { name: "Max Rot Acceleration" }).click();
+    await expect(
+      page.getByRole("button", { name: "Open Max Rot Acceleration editor" })
+    ).toBeVisible();
+    await expect(page.locator(".ranged-constraint-controls__actions button")).toHaveCount(4);
 
     const metrics = await page.evaluate(() => {
       const documentScroller = document.scrollingElement ?? document.documentElement;

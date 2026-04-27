@@ -11,6 +11,7 @@
     "parity": "vitest run parity-harness",
     "test:e2e": "playwright test",
     "build": "tsc --noEmit && vite build",
+    "release:check": "node scripts/release-check.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },

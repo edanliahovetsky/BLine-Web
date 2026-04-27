@@ -1,10 +1,11 @@
-name: Phase 2 CI
+name: CI
 
 on:
   pull_request:
   push:
     branches:
       - main
+      - web-deploy
       - "codex/**"
 
 jobs:
@@ -19,7 +20,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24.6.0
+          node-version-file: .node-version
           cache: npm
 
       - name: Setup Rust
@@ -30,6 +31,9 @@ jobs:
 
       - name: Install Playwright browser
         run: npx playwright install chromium
+
+      - name: Release metadata check
+        run: npm run release:check
 
       - name: Lint
         run: npm run lint
