@@ -15,6 +15,7 @@ import {
   type PointMeters,
   type PositionOverrides
 } from "../geometry";
+import { robotSizeFromConfig } from "../robotFootprint";
 import {
   createMoveElementCommand,
   createSetElementRatioCommand,
@@ -139,12 +140,14 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
 
       event.cancelBubble = true;
       const dragTarget = event.currentTarget;
+      const robotSizeMeters = robotSizeFromConfig(project?.config);
       let nextPosition = stageToModelPoint(
         {
           x: dragTarget.x(),
           y: dragTarget.y()
         },
-        viewport
+        viewport,
+        robotSizeMeters
       );
       let nextRatio = drag.currentRatio;
       const element = project?.path.path_elements[index];

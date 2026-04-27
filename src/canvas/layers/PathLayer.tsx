@@ -10,6 +10,7 @@ import {
   type PositionOverrides,
   type RotationOverrides
 } from "../geometry";
+import { robotSizeFromConfig } from "../robotFootprint";
 import { WaypointNode } from "../elements/WaypointNode";
 import { buildElementProtrusionVisibilityByIndex } from "../protrusionVisibility";
 import type { useCanvasDrag } from "../hooks/useCanvasDrag";
@@ -67,6 +68,7 @@ export function PathLayerContent({
   }
 
   const elements = project.path.path_elements;
+  const robotSizeMeters = robotSizeFromConfig(project.config);
   const protrusions = project.config.gui.protrusions;
   const protrusionVisibilityByIndex = buildElementProtrusionVisibilityByIndex(
     elements,
@@ -143,6 +145,7 @@ export function PathLayerContent({
             handoffRadiusMeters={
               index === elements.length - 1 ? null : getHandoffRadiusMeters(element)
             }
+            robotSizeMeters={robotSizeMeters}
             metersToPixels={viewport.scale}
             protrusionVisible={
               Boolean(protrusions.enabled) &&

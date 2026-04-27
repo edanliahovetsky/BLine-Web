@@ -6,11 +6,14 @@ import {
   elementOutlineMeters,
   eventTriggerLengthMeters,
   eventMarkerHalfHeightPx,
-  robotLengthMeters,
-  robotWidthMeters,
   triangleSizeRatio
 } from "../constants";
 import type { StagePoint } from "../geometry";
+import {
+  centeredRobotBounds,
+  strokedRectInsideBounds,
+  type RobotSizeMeters
+} from "../robotFootprint";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -41,6 +44,7 @@ interface WaypointNodeProps {
   draggable: boolean;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
+  robotSizeMeters: RobotSizeMeters;
   metersToPixels: number;
   protrusionVisible: boolean;
   protrusionDistanceMeters: number;
@@ -61,6 +65,7 @@ export const WaypointNode = memo(function WaypointNode({
   draggable,
   headingRadians,
   handoffRadiusMeters,
+  robotSizeMeters,
   metersToPixels,
   protrusionVisible,
   protrusionDistanceMeters,
@@ -74,8 +79,8 @@ export const WaypointNode = memo(function WaypointNode({
   const selectionOpacity = 0.46 + selectedPulse * 0.34;
   const selectionWidth = selectionStrokeWidthPx;
   const circleRadius = metersToVisiblePixels(elementCircleRadiusMeters, metersToPixels, 7);
-  const rectWidth = robotLengthMeters * metersToPixels;
-  const rectHeight = robotWidthMeters * metersToPixels;
+  const rectWidth = robotSizeMeters.lengthMeters * metersToPixels;
+  const rectHeight = robotSizeMeters.widthMeters * metersToPixels;
   const protrusionDistancePx = Math.max(0, protrusionDistanceMeters) * metersToPixels;
   const showProtrusion =
     protrusionVisible && protrusionDistancePx > 0 && protrusionSide !== "none";
@@ -417,6 +422,9 @@ function RobotFootprint({
   const halfTriangleHeight = triangleLength / 2;
   const cornerRadius = robotCornerRadius(width, height);
   const halo = robotHaloMetrics(width, height);
+  const footprintBounds = centeredRobotBounds(width, height);
+  const haloOutline = strokedRectInsideBounds(footprintBounds, halo.strokeWidth);
+  const robotOutline = strokedRectInsideBounds(footprintBounds, outlineWidth);
   const trianglePoints = [
     triangleLength / 2,
     0,
@@ -439,24 +447,24 @@ function RobotFootprint({
         protrusionSide={protrusionSide}
       />
       <Rect
-        x={-width / 2 - halo.padding}
-        y={-height / 2 - halo.padding}
-        width={width + halo.padding * 2}
-        height={height + halo.padding * 2}
-        cornerRadius={cornerRadius + halo.padding * 0.7}
+        x={haloOutline.rect.x}
+        y={haloOutline.rect.y}
+        width={haloOutline.rect.width}
+        height={haloOutline.rect.height}
+        cornerRadius={Math.max(0, cornerRadius - haloOutline.strokeWidth / 2)}
         stroke="rgba(5, 8, 11, 0.82)"
-        strokeWidth={halo.strokeWidth}
+        strokeWidth={haloOutline.strokeWidth}
         fill="rgba(5, 8, 11, 0.28)"
         lineJoin="round"
       />
       <Rect
-        x={-width / 2}
-        y={-height / 2}
-        width={width}
-        height={height}
-        cornerRadius={cornerRadius}
+        x={robotOutline.rect.x}
+        y={robotOutline.rect.y}
+        width={robotOutline.rect.width}
+        height={robotOutline.rect.height}
+        cornerRadius={Math.max(0, cornerRadius - robotOutline.strokeWidth / 2)}
         stroke={accent}
-        strokeWidth={outlineWidth}
+        strokeWidth={robotOutline.strokeWidth}
         fill={mode === "waypoint" ? "rgba(255, 159, 67, 0.1)" : "rgba(107, 220, 139, 0.1)"}
         lineJoin="round"
       />
@@ -670,7 +678,6 @@ function robotHaloMetrics(width: number, height: number) {
   const footprintSize = Math.min(width, height);
 
   return {
-    padding: clamp(footprintSize * 0.08, 1.4, 3),
     strokeWidth: clamp(footprintSize * 0.12, 2.2, 5)
   };
 }
@@ -697,6 +704,8 @@ function areWaypointNodePropsEqual(
     previous.draggable === next.draggable &&
     previous.headingRadians === next.headingRadians &&
     previous.handoffRadiusMeters === next.handoffRadiusMeters &&
+    previous.robotSizeMeters.lengthMeters === next.robotSizeMeters.lengthMeters &&
+    previous.robotSizeMeters.widthMeters === next.robotSizeMeters.widthMeters &&
     previous.metersToPixels === next.metersToPixels &&
     previous.protrusionVisible === next.protrusionVisible &&
     previous.protrusionDistanceMeters === next.protrusionDistanceMeters &&
