@@ -12,9 +12,7 @@ import type { SelectedRangedConstraint } from "../../state/selectionStore";
 import {
   elementCircleRadiusMeters,
   eventMarkerHalfHeightPx,
-  eventTriggerLengthMeters,
-  robotLengthMeters,
-  robotWidthMeters
+  eventTriggerLengthMeters
 } from "../constants";
 import {
   firstDomainIndexForConstraintRange,
@@ -28,6 +26,12 @@ import {
   type PositionOverrides,
   type StagePoint
 } from "../geometry";
+import {
+  centeredRobotBounds,
+  robotSizeFromConfig,
+  strokedRectInsideBounds,
+  type RobotSizeMeters
+} from "../robotFootprint";
 
 const constraintHighlightColor = "#15c915";
 const constraintPathHighlightStrokeWidthPx = 4;
@@ -58,6 +62,7 @@ export function ConstraintRangeHighlightContent({
     end_ordinal: selection.endOrdinal
   };
   const elements = project.path.path_elements;
+  const robotSizeMeters = robotSizeFromConfig(project.config);
   const covered = pathIndexesForConstraintRange(elements, constraint).flatMap((index) => {
     const position = getElementPosition(elements, index, dragPreview);
     return position ? [{ index, point: modelToStagePoint(position, viewport) }] : [];
@@ -92,6 +97,7 @@ export function ConstraintRangeHighlightContent({
           element={elements[firstDomainIndex]}
           point={modelToStagePoint(firstDomainPosition, viewport)}
           headingRadians={getElementHeadingRadians(elements, firstDomainIndex)}
+          robotSizeMeters={robotSizeMeters}
           metersToPixels={viewport.scale}
         />
       ) : null}
@@ -103,11 +109,13 @@ function ConstraintStartElementHighlight({
   element,
   point,
   headingRadians,
+  robotSizeMeters,
   metersToPixels
 }: {
   element: PathElement;
   point: StagePoint;
   headingRadians: number | null;
+  robotSizeMeters: RobotSizeMeters;
   metersToPixels: number;
 }) {
   if (isTranslationTarget(element)) {
@@ -125,9 +133,13 @@ function ConstraintStartElementHighlight({
   }
 
   if (isWaypoint(element) || isRotationTarget(element)) {
-    const width = robotLengthMeters * metersToPixels;
-    const height = robotWidthMeters * metersToPixels;
+    const width = robotSizeMeters.lengthMeters * metersToPixels;
+    const height = robotSizeMeters.widthMeters * metersToPixels;
     const strokeWidth = Math.max(4, Math.min(width, height) * 0.11);
+    const outline = strokedRectInsideBounds(
+      centeredRobotBounds(width, height),
+      strokeWidth
+    );
 
     return (
       <Group
@@ -137,13 +149,16 @@ function ConstraintStartElementHighlight({
         listening={false}
       >
         <Rect
-          x={-width / 2}
-          y={-height / 2}
-          width={width}
-          height={height}
-          cornerRadius={robotCornerRadius(width, height)}
+          x={outline.rect.x}
+          y={outline.rect.y}
+          width={outline.rect.width}
+          height={outline.rect.height}
+          cornerRadius={Math.max(
+            0,
+            robotCornerRadius(width, height) - outline.strokeWidth / 2
+          )}
           stroke={constraintHighlightColor}
-          strokeWidth={strokeWidth}
+          strokeWidth={outline.strokeWidth}
           fill="rgba(21, 201, 21, 0.22)"
           lineJoin="round"
         />

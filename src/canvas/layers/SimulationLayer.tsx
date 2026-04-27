@@ -4,6 +4,12 @@ import type { ProjectConfig } from "../../core/io/projectSchema";
 import type { SimResult } from "../../core/sim";
 import { modelToStagePoint, type FieldViewport } from "../geometry";
 import { elementColors } from "../elementStyle";
+import {
+  robotBoundsWithProtrusion,
+  robotSizeFromConfig,
+  robotSizeToPixels,
+  strokedRectInsideBounds
+} from "../robotFootprint";
 
 interface SimulationLayerProps {
   result: SimResult | null;
@@ -61,17 +67,17 @@ export const SimulationLayerContent = memo(function SimulationLayerContent({
   const robotPoint = pose
     ? modelToStagePoint({ x_meters: pose[0], y_meters: pose[1] }, viewport)
     : null;
-  const robotLength = (config?.gui.robot.length_meters ?? 0.5) * viewport.scale;
-  const robotWidth = (config?.gui.robot.width_meters ?? 0.5) * viewport.scale;
+  const robotSize = robotSizeFromConfig(config);
+  const { lengthPx, widthPx } = robotSizeToPixels(robotSize, viewport.scale);
   const protrusions = config?.gui.protrusions;
   const protrusionVisible =
     Boolean(protrusions?.enabled) &&
     protrusions?.default_state === "shown" &&
     (protrusions?.distance_meters ?? 0) > 0 &&
     protrusions?.side !== "none";
-  const robotBounds = getRobotBounds({
-    robotLength,
-    robotWidth,
+  const robotBounds = robotBoundsWithProtrusion({
+    lengthPx,
+    widthPx,
     protrusionVisible,
     protrusionDistancePx: (protrusions?.distance_meters ?? 0) * viewport.scale,
     protrusionSide: protrusions?.side ?? "none"
@@ -80,6 +86,8 @@ export const SimulationLayerContent = memo(function SimulationLayerContent({
   const triangleOffset = robotBounds.width * 0.26;
   const cornerRadius = Math.max(4, Math.min(robotBounds.width, robotBounds.height) * 0.08);
   const robotHalo = robotHaloMetrics(robotBounds.width, robotBounds.height);
+  const haloOutline = strokedRectInsideBounds(robotBounds, robotHalo.strokeWidth);
+  const robotOutline = strokedRectInsideBounds(robotBounds, simulationRobotStrokeWidthPx);
 
   return (
     <Group listening={false}>
@@ -111,24 +119,24 @@ export const SimulationLayerContent = memo(function SimulationLayerContent({
           opacity={0.95}
         >
           <Rect
-            x={robotBounds.x - robotHalo.padding}
-            y={robotBounds.y - robotHalo.padding}
-            width={robotBounds.width + robotHalo.padding * 2}
-            height={robotBounds.height + robotHalo.padding * 2}
-            cornerRadius={cornerRadius + robotHalo.padding * 0.7}
+            x={haloOutline.rect.x}
+            y={haloOutline.rect.y}
+            width={haloOutline.rect.width}
+            height={haloOutline.rect.height}
+            cornerRadius={Math.max(0, cornerRadius - haloOutline.strokeWidth / 2)}
             stroke={elementColors.shadow}
-            strokeWidth={robotHalo.strokeWidth}
+            strokeWidth={haloOutline.strokeWidth}
             fill="rgba(5, 8, 11, 0.3)"
             lineJoin="round"
           />
           <Rect
-            x={robotBounds.x}
-            y={robotBounds.y}
-            width={robotBounds.width}
-            height={robotBounds.height}
-            cornerRadius={cornerRadius}
+            x={robotOutline.rect.x}
+            y={robotOutline.rect.y}
+            width={robotOutline.rect.width}
+            height={robotOutline.rect.height}
+            cornerRadius={Math.max(0, cornerRadius - robotOutline.strokeWidth / 2)}
             stroke={elementColors.simulation}
-            strokeWidth={2.4}
+            strokeWidth={robotOutline.strokeWidth}
             fill="rgba(98, 199, 255, 0.13)"
             lineJoin="round"
             shadowColor={elementColors.simulation}
@@ -163,49 +171,10 @@ export const SimulationLayerContent = memo(function SimulationLayerContent({
   );
 });
 
-function getRobotBounds({
-  robotLength,
-  robotWidth,
-  protrusionVisible,
-  protrusionDistancePx,
-  protrusionSide
-}: {
-  robotLength: number;
-  robotWidth: number;
-  protrusionVisible: boolean;
-  protrusionDistancePx: number;
-  protrusionSide: string;
-}) {
-  let xMin = -robotLength / 2;
-  let xMax = robotLength / 2;
-  let yMin = -robotWidth / 2;
-  let yMax = robotWidth / 2;
-
-  if (protrusionVisible && protrusionDistancePx > 0) {
-    if (protrusionSide === "front") {
-      xMax += protrusionDistancePx;
-    } else if (protrusionSide === "back") {
-      xMin -= protrusionDistancePx;
-    } else if (protrusionSide === "left") {
-      yMin -= protrusionDistancePx;
-    } else if (protrusionSide === "right") {
-      yMax += protrusionDistancePx;
-    }
-  }
-
-  return {
-    x: xMin,
-    y: yMin,
-    width: xMax - xMin,
-    height: yMax - yMin
-  };
-}
-
 function robotHaloMetrics(width: number, height: number) {
   const footprintSize = Math.min(width, height);
 
   return {
-    padding: clamp(footprintSize * 0.08, 1.4, 3),
     strokeWidth: clamp(footprintSize * 0.12, 2.2, 5)
   };
 }
@@ -224,3 +193,5 @@ function poseAtOrBefore(result: SimResult, timeS: number) {
   }
   return result.poses_by_time.get(selected) ?? null;
 }
+
+const simulationRobotStrokeWidthPx = 2.4;
