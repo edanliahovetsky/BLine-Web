@@ -9,7 +9,6 @@ import {
 } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import Konva from "konva";
-import { flushSync } from "react-dom";
 import { Layer, Stage } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
@@ -132,7 +131,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const setActiveRotationDrag = useCallback(
     (
       nextDrag: ActiveRotationDrag | null,
-      sync: "immediate" | "frame" | "flush" = "immediate"
+      sync: "immediate" | "frame" = "immediate"
     ) => {
       activeRotationDragRef.current = nextDrag;
 
@@ -146,11 +145,6 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       if (rotationFrameRef.current !== null) {
         window.cancelAnimationFrame(rotationFrameRef.current);
         rotationFrameRef.current = null;
-      }
-
-      if (sync === "flush") {
-        flushSync(() => setActiveRotationDragState(nextDrag));
-        return;
       }
 
       setActiveRotationDragState(nextDrag);
@@ -463,7 +457,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         ...rotationDrag,
         currentRadians: nextRadians
       },
-      "flush"
+      "frame"
     );
   };
 

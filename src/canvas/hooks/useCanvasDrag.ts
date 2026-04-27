@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import type { PathElement } from "../../core/model/path";
@@ -54,7 +53,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
   const setActiveDrag = useCallback(
     (
       nextDrag: ActiveDrag | null,
-      sync: "immediate" | "frame" | "flush" = "immediate"
+      sync: "immediate" | "frame" = "immediate"
     ) => {
       activeDragRef.current = nextDrag;
 
@@ -68,11 +67,6 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       if (previewFrameRef.current !== null) {
         window.cancelAnimationFrame(previewFrameRef.current);
         previewFrameRef.current = null;
-      }
-
-      if (sync === "flush") {
-        flushSync(() => setActiveDragState(nextDrag));
-        return;
       }
 
       setActiveDragState(nextDrag);
@@ -203,7 +197,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
           current: nextPosition,
           currentRatio: nextRatio
         },
-        "flush"
+        "frame"
       );
     },
     [project, setActiveDrag, viewport]
