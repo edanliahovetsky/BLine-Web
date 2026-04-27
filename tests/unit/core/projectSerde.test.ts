@@ -247,6 +247,52 @@ describe("project path serde", () => {
     ]);
   });
 
+  it("rounds native BLine path JSON numbers to five decimal places", () => {
+    const encoded = stringifyBLineJson({
+      path_elements: [
+        {
+          type: "waypoint",
+          translation_target: {
+            x_meters: 6.830235379219491,
+            y_meters: 0.22000000000000003,
+            intermediate_handoff_radius_meters: 0.15000000000000002
+          },
+          rotation_target: {
+            rotation_radians: 3.141592653589793,
+            profiled_rotation: true
+          }
+        },
+        {
+          type: "event_trigger",
+          t_ratio: 0.303547298130239,
+          lib_key: "shoot"
+        }
+      ],
+      constraints: {
+        max_velocity_meters_per_sec: [
+          {
+            value: 2.0000049,
+            start_ordinal: 0,
+            end_ordinal: 1
+          }
+        ],
+        max_acceleration_meters_per_sec2: 12.0000004
+      }
+    });
+
+    expectSubstringsInOrder(encoded, [
+      '"x_meters": 6.83024',
+      '"y_meters": 0.22',
+      '"intermediate_handoff_radius_meters": 0.15',
+      '"rotation_radians": 3.14159',
+      '"t_ratio": 0.30355',
+      '"value": 2.0',
+      '"start_ordinal": 0',
+      '"end_ordinal": 1',
+      '"max_acceleration_meters_per_sec2": 12.0'
+    ]);
+  });
+
   it("serializes all ranged constraint domains with zero-based ordinals", () => {
     const path = createPathModel({
       constraints: createConstraints({

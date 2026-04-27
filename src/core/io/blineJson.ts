@@ -61,12 +61,25 @@ function formatJsonNumber(value: number, forceFloat: boolean): string {
     return "null";
   }
 
-  const encoded = JSON.stringify(value) ?? "null";
-  if (!forceFloat || encoded.includes(".") || /e/i.test(encoded)) {
-    return encoded;
+  if (!forceFloat) {
+    return JSON.stringify(value) ?? "null";
   }
 
-  return Object.is(value, -0) ? "-0.0" : `${encoded}.0`;
+  const rounded = roundToBLinePrecision(value);
+  return trimFixedDecimal(rounded.toFixed(blineDecimalPlaces));
+}
+
+function roundToBLinePrecision(value: number): number {
+  const sign = value < 0 ? -1 : 1;
+  const rounded =
+    (Math.round((Math.abs(value) + Number.EPSILON) * blineScale) / blineScale) *
+    sign;
+  return Object.is(rounded, -0) || rounded === 0 ? 0 : rounded;
+}
+
+function trimFixedDecimal(value: string): string {
+  const trimmed = value.replace(/(\.\d*?)0+$/, "$1");
+  return trimmed.endsWith(".") ? `${trimmed}0` : trimmed;
 }
 
 function shouldFormatNumberAsFloat(key: string | undefined): boolean {
@@ -81,6 +94,9 @@ const integerKeys = new Set([
   "start_ordinal",
   "end_ordinal"
 ]);
+
+const blineDecimalPlaces = 5;
+const blineScale = 10 ** blineDecimalPlaces;
 
 function indent(depth: number): string {
   return "  ".repeat(depth);

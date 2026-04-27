@@ -653,6 +653,13 @@ fn write_bline_json_value(
 }
 
 fn write_bline_json_number(output: &mut String, value: &Number, key: Option<&str>) {
+    if should_format_number_as_float(key) {
+        if let Some(value) = value.as_f64() {
+            output.push_str(&format_bline_float(value));
+            return;
+        }
+    }
+
     let mut encoded = value.to_string();
     if should_format_number_as_float(key)
         && !encoded.contains('.')
@@ -662,6 +669,26 @@ fn write_bline_json_number(output: &mut String, value: &Number, key: Option<&str
         encoded.push_str(".0");
     }
     output.push_str(&encoded);
+}
+
+fn format_bline_float(value: f64) -> String {
+    let sign = if value.is_sign_negative() { -1.0 } else { 1.0 };
+    let rounded_abs = (value.abs() * BLINE_FLOAT_SCALE).round() / BLINE_FLOAT_SCALE;
+    let rounded = if rounded_abs == 0.0 {
+        0.0
+    } else {
+        rounded_abs * sign
+    };
+    let mut encoded = format!("{rounded:.BLINE_DECIMAL_PLACES$}");
+
+    while encoded.contains('.') && encoded.ends_with('0') {
+        encoded.pop();
+    }
+    if encoded.ends_with('.') {
+        encoded.push('0');
+    }
+
+    encoded
 }
 
 fn should_format_number_as_float(key: Option<&str>) -> bool {
@@ -685,6 +712,9 @@ fn write_indent(output: &mut String, depth: usize) {
         output.push_str("  ");
     }
 }
+
+const BLINE_DECIMAL_PLACES: usize = 5;
+const BLINE_FLOAT_SCALE: f64 = 100_000.0;
 
 fn read_state(app: &AppHandle) -> Result<DesktopStorageState, String> {
     let path = state_path(app)?;
@@ -788,28 +818,28 @@ mod tests {
                 {
                     "type": "waypoint",
                     "translation_target": {
-                        "x_meters": 1.0,
-                        "y_meters": 2.0,
-                        "intermediate_handoff_radius_meters": 0.25
+                        "x_meters": 6.830235379219491,
+                        "y_meters": 0.22000000000000003,
+                        "intermediate_handoff_radius_meters": 0.15000000000000002
                     },
                     "rotation_target": {
-                        "rotation_radians": 0.0,
+                        "rotation_radians": 3.141592653589793,
                         "profiled_rotation": true
                     }
                 },
                 {
                     "type": "event_trigger",
-                    "t_ratio": 0.5,
+                    "t_ratio": 0.303547298130239,
                     "lib_key": "shoot"
                 }
             ],
             "constraints": {
                 "max_velocity_meters_per_sec": 4.5,
-                "max_acceleration_meters_per_sec2": 12.0,
+                "max_acceleration_meters_per_sec2": 12.0000004,
                 "end_translation_tolerance_meters": 0.03,
                 "max_velocity_deg_per_sec": [
                     {
-                        "value": 90.0,
+                        "value": 90.0000049,
                         "start_ordinal": 0,
                         "end_ordinal": 1
                     }
@@ -824,14 +854,14 @@ mod tests {
                 "\"path_elements\"",
                 "\"type\": \"waypoint\"",
                 "\"translation_target\"",
-                "\"x_meters\": 1.0",
-                "\"y_meters\": 2.0",
-                "\"intermediate_handoff_radius_meters\": 0.25",
+                "\"x_meters\": 6.83024",
+                "\"y_meters\": 0.22",
+                "\"intermediate_handoff_radius_meters\": 0.15",
                 "\"rotation_target\"",
-                "\"rotation_radians\": 0.0",
+                "\"rotation_radians\": 3.14159",
                 "\"profiled_rotation\"",
                 "\"type\": \"event_trigger\"",
-                "\"t_ratio\": 0.5",
+                "\"t_ratio\": 0.30355",
                 "\"lib_key\"",
                 "\"constraints\"",
                 "\"max_velocity_meters_per_sec\": 4.5",
