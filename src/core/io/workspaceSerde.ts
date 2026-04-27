@@ -1,5 +1,15 @@
-import { projectConfigDefaultLookup } from "../config/projectConfig";
-import { createPathModel } from "../model/path";
+import {
+  defaultAutoVelocityMergeToleranceMetersPerSec,
+  projectConfigDefaultLookup
+} from "../config/projectConfig";
+import {
+  createPathModel,
+  isRangedConstraintKey,
+  type AutoVelocityConstraintMetadata,
+  type PathModel,
+  type RangedConstraint,
+  type RangedConstraintSource
+} from "../model/path";
 import {
   createProjectDocument,
   createProjectPathDocument,
@@ -9,7 +19,9 @@ import {
   type ProjectPathDocument,
   type ProjectWorkspaceDocument,
   type SerializedProjectPathDocument,
-  type SerializedProjectWorkspaceDocument
+  type SerializedPathEditorMetadata,
+  type SerializedProjectWorkspaceDocument,
+  type SerializedRangedConstraintMetadata
 } from "./projectSchema";
 import {
   deserializePath,
@@ -43,7 +55,8 @@ export function serializeProjectWorkspaceDocument(
       path_id: path.path_id,
       display_name: path.display_name,
       file_name: ensureJsonFileName(path.file_name),
-      path: serializePath(path.path)
+      path: serializePath(path.path),
+      editor_metadata: serializePathEditorMetadata(path.path)
     })),
     active_path_id: workspace.active_path_id
   };
@@ -110,7 +123,10 @@ export function deserializeProjectPathDocument(
     path_id: pathId,
     display_name: displayName,
     file_name: fileName,
-    path: deserializePath(object.path ?? input, defaultLookup)
+    path: applyPathEditorMetadata(
+      deserializePath(object.path ?? input, defaultLookup),
+      object.editor_metadata
+    )
   });
 }
 
@@ -363,6 +379,156 @@ function deserializeProjectPathDocumentFromArchive(
   defaultLookup?: Parameters<typeof deserializePath>[1]
 ): ProjectPathDocument {
   return deserializeProjectPathDocument(input, index, defaultLookup);
+}
+
+function serializePathEditorMetadata(
+  path: PathModel
+): SerializedPathEditorMetadata | undefined {
+  const rangedConstraints = path.ranged_constraints.flatMap((constraint) => {
+    const source = normalizeRangedConstraintSource(constraint.source);
+    if (source === null || source === "manual") {
+      return [];
+    }
+
+    const metadata: SerializedRangedConstraintMetadata = {
+      key: constraint.key,
+      value: Number(constraint.value),
+      start_ordinal: Math.trunc(constraint.start_ordinal),
+      end_ordinal: Math.trunc(constraint.end_ordinal),
+      source
+    };
+    const autoVelocity = normalizeAutoVelocityMetadata(constraint.auto_velocity);
+    if (autoVelocity) {
+      metadata.auto_velocity = autoVelocity;
+    }
+    return [metadata];
+  });
+
+  return rangedConstraints.length === 0
+    ? undefined
+    : { ranged_constraints: rangedConstraints };
+}
+
+function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
+  const metadata = readPathEditorMetadata(input);
+  if (metadata.length === 0) {
+    return path;
+  }
+
+  const used = new Set<number>();
+  for (const entry of metadata) {
+    const exactIndex = path.ranged_constraints.findIndex((constraint, index) =>
+      !used.has(index) && sameMetadataTarget(constraint, entry, true)
+    );
+    const index =
+      exactIndex >= 0
+        ? exactIndex
+        : path.ranged_constraints.findIndex((constraint, candidateIndex) =>
+            !used.has(candidateIndex) && sameMetadataTarget(constraint, entry, false)
+          );
+
+    if (index < 0) {
+      continue;
+    }
+
+    const source = normalizeRangedConstraintSource(entry.source);
+    if (source === null) {
+      continue;
+    }
+
+    const autoVelocity = normalizeAutoVelocityMetadata(entry.auto_velocity);
+    path.ranged_constraints[index] = {
+      ...path.ranged_constraints[index],
+      source,
+      auto_velocity: source === "auto_velocity" ? autoVelocity : null
+    };
+    used.add(index);
+  }
+
+  return path;
+}
+
+function readPathEditorMetadata(input: unknown): SerializedRangedConstraintMetadata[] {
+  if (!isObject(input) || !Array.isArray(input.ranged_constraints)) {
+    return [];
+  }
+
+  return input.ranged_constraints.flatMap((entry) => {
+    if (!isObject(entry)) {
+      return [];
+    }
+
+    const key = String(entry.key ?? "");
+    const source = normalizeRangedConstraintSource(entry.source);
+    const value = finiteNumber(entry.value);
+    const start = finiteInteger(entry.start_ordinal);
+    const end = finiteInteger(entry.end_ordinal);
+    if (!isRangedConstraintKey(key) || source === null || value === null || start === null || end === null) {
+      return [];
+    }
+
+    return [
+      {
+        key,
+        value,
+        start_ordinal: start,
+        end_ordinal: end,
+        source,
+        auto_velocity: normalizeAutoVelocityMetadata(entry.auto_velocity)
+      }
+    ];
+  });
+}
+
+function sameMetadataTarget(
+  constraint: RangedConstraint,
+  metadata: SerializedRangedConstraintMetadata,
+  includeValue: boolean
+): boolean {
+  return (
+    constraint.key === metadata.key &&
+    Math.trunc(constraint.start_ordinal) === Math.trunc(metadata.start_ordinal) &&
+    Math.trunc(constraint.end_ordinal) === Math.trunc(metadata.end_ordinal) &&
+    (!includeValue || Math.abs(Number(constraint.value) - metadata.value) < 1e-9)
+  );
+}
+
+function normalizeRangedConstraintSource(
+  value: unknown
+): RangedConstraintSource | null {
+  return value === "manual" || value === "auto_velocity" ? value : null;
+}
+
+function normalizeAutoVelocityMetadata(
+  value: unknown
+): AutoVelocityConstraintMetadata | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const velocity = finiteNumber(value.velocity_safety_factor);
+  const acceleration = finiteNumber(value.acceleration_safety_factor);
+  const mergeTolerance = finiteNumber(value.merge_tolerance_meters_per_sec);
+  if (velocity === null || acceleration === null) {
+    return null;
+  }
+
+  return {
+    velocity_safety_factor: velocity,
+    acceleration_safety_factor: acceleration,
+    merge_tolerance_meters_per_sec:
+      mergeTolerance ?? defaultAutoVelocityMergeToleranceMetersPerSec
+  };
+}
+
+function finiteNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function finiteInteger(value: unknown): number | null {
+  const parsed = finiteNumber(value);
+  return parsed === null ? null : Math.trunc(parsed);
 }
 
 function isWorkspaceLike(input: unknown): input is Record<string, unknown> & {

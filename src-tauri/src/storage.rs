@@ -152,6 +152,7 @@ pub fn storage_read_workspace(app: AppHandle, id: Option<String>) -> Result<Valu
     ensure_project_structure(&dir)?;
 
     let config = read_config_or_default(&dir)?;
+    let metadata_by_file = read_path_metadata(&dir)?;
     let paths_dir = dir.join("paths");
     let mut paths = Vec::new();
 
@@ -172,12 +173,20 @@ pub fn storage_read_workspace(app: AppHandle, id: Option<String>) -> Result<Valu
             .cloned()
             .unwrap_or_else(|| path_json.clone());
 
-        paths.push(json!({
+        let mut path_entry = json!({
             "path_id": file_name,
             "display_name": display_name_from_file_name(file_name),
             "file_name": file_name,
             "path": path_payload
-        }));
+        });
+
+        if let Some(editor_metadata) = metadata_by_file.get(file_name) {
+            if let Some(object) = path_entry.as_object_mut() {
+                object.insert("editor_metadata".to_owned(), editor_metadata.clone());
+            }
+        }
+
+        paths.push(path_entry);
     }
 
     paths.sort_by(|a, b| {
@@ -251,6 +260,7 @@ pub fn storage_write_workspace(
     let paths_dir = dir.join("paths");
     fs::create_dir_all(&paths_dir).map_err(error_string)?;
     let mut retained_files = std::collections::HashSet::new();
+    let mut metadata_by_file = serde_json::Map::new();
 
     for path_entry in paths {
         let file_name = path_entry
@@ -263,8 +273,14 @@ pub fn storage_write_workspace(
             .ok_or_else(|| "Workspace path is missing path".to_owned())?;
 
         retained_files.insert(file_name.clone());
-        write_json_file(&paths_dir.join(file_name), path_json)?;
+        write_json_file(&paths_dir.join(&file_name), path_json)?;
+
+        if let Some(editor_metadata) = path_entry.get("editor_metadata") {
+            metadata_by_file.insert(file_name.clone(), editor_metadata.clone());
+        }
     }
+
+    write_path_metadata(&dir, &metadata_by_file)?;
 
     for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
         let entry = entry.map_err(error_string)?;
@@ -537,6 +553,59 @@ fn read_config_or_default(project_dir: &Path) -> Result<Value, String> {
     }
 }
 
+fn read_path_metadata(project_dir: &Path) -> Result<serde_json::Map<String, Value>, String> {
+    let path = path_metadata_file(project_dir);
+    if !path.exists() {
+        return Ok(serde_json::Map::new());
+    }
+
+    let parsed = read_json_file(&path)?;
+    let mut metadata = serde_json::Map::new();
+    let Some(paths) = parsed.get("paths").and_then(Value::as_object) else {
+        return Ok(metadata);
+    };
+
+    for (file_name, entry) in paths {
+        if let Some(editor_metadata) = entry.get("editor_metadata") {
+            metadata.insert(file_name.clone(), editor_metadata.clone());
+        }
+    }
+
+    Ok(metadata)
+}
+
+fn write_path_metadata(
+    project_dir: &Path,
+    metadata_by_file: &serde_json::Map<String, Value>,
+) -> Result<(), String> {
+    let metadata_file = path_metadata_file(project_dir);
+    if metadata_by_file.is_empty() {
+        if metadata_file.exists() {
+            fs::remove_file(metadata_file).map_err(error_string)?;
+        }
+        return Ok(());
+    }
+
+    let metadata_dir = metadata_file
+        .parent()
+        .ok_or_else(|| "Invalid metadata path".to_owned())?;
+    fs::create_dir_all(metadata_dir).map_err(error_string)?;
+
+    let mut paths = serde_json::Map::new();
+    for (file_name, editor_metadata) in metadata_by_file {
+        paths.insert(
+            file_name.clone(),
+            json!({ "editor_metadata": editor_metadata })
+        );
+    }
+
+    write_json_file(&metadata_file, &json!({ "paths": paths }))
+}
+
+fn path_metadata_file(project_dir: &Path) -> PathBuf {
+    project_dir.join(".bline-web").join("path-metadata.json")
+}
+
 fn default_config_value() -> Result<Value, String> {
     serde_json::from_str(DEFAULT_CONFIG_JSON).map_err(error_string)
 }
@@ -761,6 +830,11 @@ fn file_version(path: &Path) -> String {
 fn workspace_version(path: &Path) -> Result<String, String> {
     let mut parts = vec![file_version(&path.join("config.json"))];
     let paths_dir = path.join("paths");
+    let metadata_file = path_metadata_file(path);
+
+    if metadata_file.exists() {
+        parts.push(file_version(&metadata_file));
+    }
 
     if paths_dir.is_dir() {
         for entry in fs::read_dir(paths_dir).map_err(error_string)? {
