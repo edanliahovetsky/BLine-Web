@@ -18,9 +18,9 @@ The web-first BLine autonomous path editor for FRC holonomic drivetrains.
 ## Overview
 
 BLine Web is the next-generation editor for BLine, an FRC autonomous path
-generation and tracking suite for holonomic drivetrains such as swerve and
-mecanum. It brings the existing BLine desktop workflow to a modern React/Tauri
-codebase that runs in the browser and as a desktop app.
+generation and tracking suite for holonomic drivetrains. It brings the existing
+BLine desktop workflow to a modern React/Tauri codebase that runs in the browser
+and as a desktop app.
 
 The editor is built for rapid iteration: create or open a BLine project, edit
 paths on the field, tune translation and rotation constraints, preview the
