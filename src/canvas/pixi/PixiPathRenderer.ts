@@ -774,7 +774,7 @@ function drawRobotProtrusionOutline(
     protrusionSide: options.protrusionSide,
     strokeWidth: options.strokeWidth,
     cornerRadiusPx: cornerRadius,
-    rootInsetPx: cornerRadius + options.strokeWidth / 2
+    rootInsetPx: 0
   });
 
   if (!outline) {

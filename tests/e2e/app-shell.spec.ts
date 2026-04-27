@@ -1138,9 +1138,20 @@ async function canvasNodePosition(
   page: Page,
   testId: string
 ): Promise<{ x: number; y: number }> {
-  const position = await page.evaluate((nodeTestId) => {
-    return (window as PixiDebugWindow).__blinePixiDebug?.nodePosition(nodeTestId) ?? null;
-  }, testId);
+  let position: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        position = await page.evaluate((nodeTestId) => {
+          return (window as PixiDebugWindow).__blinePixiDebug?.nodePosition(nodeTestId) ?? null;
+        }, testId);
+        return position;
+      },
+      {
+        message: `Expected canvas node "${testId}" to exist`
+      }
+    )
+    .not.toBeNull();
 
   if (!position) {
     throw new Error(`Expected canvas node "${testId}" to exist`);
