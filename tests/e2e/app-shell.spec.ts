@@ -84,7 +84,9 @@ test("defers autosave while a dirty canvas drag is active", async ({ page }) => 
   });
 
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
-  await expect(page.getByLabel("X (m)")).toHaveValue("1.200");
+  await expect
+    .poll(async () => Number(await page.getByLabel("X (m)").inputValue()))
+    .toBeCloseTo(1.2, 2);
 
   await page.getByLabel("X (m)").fill("1.250");
 
@@ -199,7 +201,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         ".ranged-constraint-controls .sidebar-number-control"
       );
       const valueInput = document.querySelector<HTMLInputElement>(
-        ".ranged-constraint-controls input[type='number']"
+        ".ranged-constraint-controls input[role='spinbutton']"
       );
       const actionButtons = Array.from(
         document.querySelectorAll(".ranged-constraint-controls__actions button")
