@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Circle, Group, Line, Rect } from "react-konva";
+import { Circle, Group, Line, Path, Rect } from "react-konva";
 import {
   elementCircleRadiusMeters,
   elementOutlineMeters,
@@ -11,6 +11,8 @@ import {
 import type { StagePoint } from "../geometry";
 import {
   centeredRobotBounds,
+  robotProtrusionBounds,
+  robotProtrusionOutlineGeometry,
   strokedRectInsideBounds,
   type RobotSizeMeters
 } from "../robotFootprint";
@@ -425,6 +427,16 @@ function RobotFootprint({
   const footprintBounds = centeredRobotBounds(width, height);
   const haloOutline = strokedRectInsideBounds(footprintBounds, halo.strokeWidth);
   const robotOutline = strokedRectInsideBounds(footprintBounds, outlineWidth);
+  const haloCornerRadius = robotCornerRadiusForProtrusion(
+    Math.max(0, cornerRadius - haloOutline.strokeWidth / 2),
+    protrusionVisible,
+    protrusionSide
+  );
+  const outlineCornerRadius = robotCornerRadiusForProtrusion(
+    Math.max(0, cornerRadius - robotOutline.strokeWidth / 2),
+    protrusionVisible,
+    protrusionSide
+  );
   const trianglePoints = [
     triangleLength / 2,
     0,
@@ -441,7 +453,7 @@ function RobotFootprint({
         height={height}
         accent={accent}
         outlineWidth={outlineWidth}
-        mode={mode}
+        layer="halo"
         visible={protrusionVisible}
         protrusionDistancePx={protrusionDistancePx}
         protrusionSide={protrusionSide}
@@ -451,7 +463,7 @@ function RobotFootprint({
         y={haloOutline.rect.y}
         width={haloOutline.rect.width}
         height={haloOutline.rect.height}
-        cornerRadius={Math.max(0, cornerRadius - haloOutline.strokeWidth / 2)}
+        cornerRadius={haloCornerRadius}
         stroke="rgba(5, 8, 11, 0.82)"
         strokeWidth={haloOutline.strokeWidth}
         fill="rgba(5, 8, 11, 0.28)"
@@ -462,11 +474,21 @@ function RobotFootprint({
         y={robotOutline.rect.y}
         width={robotOutline.rect.width}
         height={robotOutline.rect.height}
-        cornerRadius={Math.max(0, cornerRadius - robotOutline.strokeWidth / 2)}
+        cornerRadius={outlineCornerRadius}
         stroke={accent}
         strokeWidth={robotOutline.strokeWidth}
         fill={mode === "waypoint" ? "rgba(255, 159, 67, 0.1)" : "rgba(107, 220, 139, 0.1)"}
         lineJoin="round"
+      />
+      <ProtrusionFootprint
+        width={width}
+        height={height}
+        accent={accent}
+        outlineWidth={outlineWidth}
+        layer="accent"
+        visible={protrusionVisible}
+        protrusionDistancePx={protrusionDistancePx}
+        protrusionSide={protrusionSide}
       />
       {mode === "rotation" ? (
         <>
@@ -511,7 +533,7 @@ function ProtrusionFootprint({
   height,
   accent,
   outlineWidth,
-  mode,
+  layer,
   visible,
   protrusionDistancePx,
   protrusionSide
@@ -520,48 +542,66 @@ function ProtrusionFootprint({
   height: number;
   accent: string;
   outlineWidth: number;
-  mode: "waypoint" | "rotation";
+  layer: "halo" | "accent";
   visible: boolean;
   protrusionDistancePx: number;
   protrusionSide: ProtrusionSide;
 }) {
-  const bounds = protrusionBounds(width, height, visible, protrusionDistancePx, protrusionSide);
-  if (!bounds) {
+  const protrusionStrokeWidth = outlineWidth * 0.6;
+  const cornerRadius = robotCornerRadius(width, height);
+  const accentRootInset = cornerRadius + protrusionStrokeWidth / 2;
+  const accentOutline = robotProtrusionOutlineGeometry({
+    lengthPx: width,
+    widthPx: height,
+    protrusionVisible: visible,
+    protrusionDistancePx,
+    protrusionSide,
+    strokeWidth: protrusionStrokeWidth,
+    cornerRadiusPx: cornerRadius,
+    rootInsetPx: accentRootInset
+  });
+
+  if (!accentOutline) {
     return null;
   }
 
-  const cornerRadius = Math.min(
-    robotCornerRadius(width, height),
-    Math.min(bounds.width, bounds.height) * 0.25
-  );
   const halo = robotHaloMetrics(width, height);
+  const haloStrokeWidth = Math.max(
+    protrusionStrokeWidth + 1.4,
+    protrusionStrokeWidth + halo.strokeWidth * 0.55
+  );
+  const haloRootInset = cornerRadius + haloStrokeWidth / 2;
+  const haloOutline = robotProtrusionOutlineGeometry({
+    lengthPx: width,
+    widthPx: height,
+    protrusionVisible: visible,
+    protrusionDistancePx,
+    protrusionSide,
+    strokeWidth: haloStrokeWidth,
+    cornerRadiusPx: cornerRadius,
+    rootInsetPx: haloRootInset
+  });
+
+  if (layer === "halo") {
+    return haloOutline ? (
+      <Path
+        data={haloOutline.pathData}
+        stroke="rgba(5, 8, 11, 0.76)"
+        strokeWidth={haloOutline.strokeWidth}
+        lineCap="butt"
+        lineJoin="round"
+      />
+    ) : null;
+  }
 
   return (
-    <>
-      <Rect
-        x={bounds.x - halo.padding}
-        y={bounds.y - halo.padding}
-        width={bounds.width + halo.padding * 2}
-        height={bounds.height + halo.padding * 2}
-        cornerRadius={cornerRadius + halo.padding * 0.7}
-        stroke="rgba(5, 8, 11, 0.82)"
-        strokeWidth={halo.strokeWidth}
-        fill="rgba(5, 8, 11, 0.22)"
-        lineJoin="round"
-      />
-      <Rect
-        x={bounds.x}
-        y={bounds.y}
-        width={bounds.width}
-        height={bounds.height}
-        cornerRadius={cornerRadius}
-        stroke={accent}
-        strokeWidth={outlineWidth}
-        fill={mode === "waypoint" ? "rgba(255, 159, 67, 0.08)" : "rgba(107, 220, 139, 0.08)"}
-        dash={[Math.max(4, outlineWidth * 2.6), Math.max(3, outlineWidth * 1.7)]}
-        lineJoin="round"
-      />
-    </>
+    <Path
+      data={accentOutline.pathData}
+      stroke={accent}
+      strokeWidth={accentOutline.strokeWidth}
+      lineCap="butt"
+      lineJoin="round"
+    />
   );
 }
 
@@ -578,62 +618,15 @@ function robotVisualBounds(
     width,
     height
   };
-  const extensionBounds = protrusionBounds(
-    width,
-    height,
+  const extensionBounds = robotProtrusionBounds({
+    lengthPx: width,
+    widthPx: height,
     protrusionVisible,
     protrusionDistancePx,
     protrusionSide
-  );
+  });
 
   return extensionBounds ? unionBounds(baseBounds, extensionBounds) : baseBounds;
-}
-
-function protrusionBounds(
-  width: number,
-  height: number,
-  protrusionVisible: boolean,
-  protrusionDistancePx: number,
-  protrusionSide: ProtrusionSide
-): Bounds | null {
-  if (!protrusionVisible || protrusionDistancePx <= 0) {
-    return null;
-  }
-
-  if (protrusionSide === "front") {
-    return {
-      x: width / 2,
-      y: -height / 2,
-      width: protrusionDistancePx,
-      height
-    };
-  }
-  if (protrusionSide === "back") {
-    return {
-      x: -width / 2 - protrusionDistancePx,
-      y: -height / 2,
-      width: protrusionDistancePx,
-      height
-    };
-  }
-  if (protrusionSide === "left") {
-    return {
-      x: -width / 2,
-      y: -height / 2 - protrusionDistancePx,
-      width,
-      height: protrusionDistancePx
-    };
-  }
-  if (protrusionSide === "right") {
-    return {
-      x: -width / 2,
-      y: height / 2,
-      width,
-      height: protrusionDistancePx
-    };
-  }
-
-  return null;
 }
 
 function unionBounds(a: Bounds, b: Bounds): Bounds {
@@ -672,6 +665,31 @@ function toStageDegrees(radians: number | null): number {
 
 function robotCornerRadius(width: number, height: number): number {
   return Math.max(3, Math.min(width, height) * 0.08);
+}
+
+function robotCornerRadiusForProtrusion(
+  radius: number,
+  protrusionVisible: boolean,
+  protrusionSide: ProtrusionSide
+): number | [number, number, number, number] {
+  if (!protrusionVisible || protrusionSide === "none") {
+    return radius;
+  }
+
+  if (protrusionSide === "front") {
+    return [radius, 0, 0, radius];
+  }
+  if (protrusionSide === "back") {
+    return [0, radius, radius, 0];
+  }
+  if (protrusionSide === "left") {
+    return [0, 0, radius, radius];
+  }
+  if (protrusionSide === "right") {
+    return [radius, radius, 0, 0];
+  }
+
+  return radius;
 }
 
 function robotHaloMetrics(width: number, height: number) {

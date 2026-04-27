@@ -5,6 +5,7 @@ import { clampModelPoint } from "../../../src/canvas/geometry";
 import {
   centeredRobotBounds,
   robotBoundsWithProtrusion,
+  robotProtrusionOutlineGeometry,
   robotSizeFromConfig,
   strokedRectInsideBounds
 } from "../../../src/canvas/robotFootprint";
@@ -66,6 +67,73 @@ describe("robot footprint geometry", () => {
       width: 62,
       height: 40
     });
+  });
+
+  it("keeps protrusion outline outer edge at the configured distance", () => {
+    const frontOutline = robotProtrusionOutlineGeometry({
+      lengthPx: 50,
+      widthPx: 40,
+      protrusionVisible: true,
+      protrusionDistancePx: 12,
+      protrusionSide: "front",
+      strokeWidth: 4
+    });
+
+    expect(frontOutline).not.toBeNull();
+    expect(frontOutline?.bounds).toEqual({
+      x: 25,
+      y: -20,
+      width: 12,
+      height: 40
+    });
+
+    expect(frontOutline?.pathPoints).toEqual([25, -18, 35, -18, 35, 18, 25, 18]);
+    expect(frontOutline?.pathData).toContain("Q");
+    expect((frontOutline?.pathPoints[2] ?? 0) + 2).toBeCloseTo(37);
+    expect((frontOutline?.pathPoints[3] ?? 0) - 2).toBeCloseTo(-20);
+    expect((frontOutline?.pathPoints[5] ?? 0) + 2).toBeCloseTo(20);
+
+    const rightOutline = robotProtrusionOutlineGeometry({
+      lengthPx: 50,
+      widthPx: 40,
+      protrusionVisible: true,
+      protrusionDistancePx: 8,
+      protrusionSide: "right",
+      strokeWidth: 4
+    });
+
+    expect(rightOutline).not.toBeNull();
+    expect(rightOutline?.bounds).toEqual({
+      x: -25,
+      y: 20,
+      width: 50,
+      height: 8
+    });
+
+    expect(rightOutline?.pathPoints).toEqual([-23, 20, -23, 26, 23, 26, 23, 20]);
+    expect(rightOutline?.pathData).toContain("Q");
+    expect((rightOutline?.pathPoints[3] ?? 0) + 2).toBeCloseTo(28);
+    expect((rightOutline?.pathPoints[0] ?? 0) - 2).toBeCloseTo(-25);
+    expect((rightOutline?.pathPoints[4] ?? 0) + 2).toBeCloseTo(25);
+  });
+
+  it("returns one continuous protrusion path", () => {
+    const outline = robotProtrusionOutlineGeometry({
+      lengthPx: 50,
+      widthPx: 40,
+      protrusionVisible: true,
+      protrusionDistancePx: 12,
+      protrusionSide: "front",
+      strokeWidth: 4,
+      cornerRadiusPx: 4,
+      rootInsetPx: 2
+    });
+
+    expect(outline?.pathPoints).toHaveLength(8);
+    expect(outline?.pathPoints.slice(0, 2)).toEqual([25, -18]);
+    expect(outline?.pathPoints.slice(-2)).toEqual([25, 18]);
+    expect(outline?.pathData).toContain("M 23 -16 Q 23 -18 25 -18");
+    expect(outline?.pathData).toContain("L 25 18 Q 23 18 23 16");
   });
 
   it("clamps model points by configured robot half extents", () => {
