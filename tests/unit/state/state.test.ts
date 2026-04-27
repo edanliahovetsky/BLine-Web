@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createProjectDocument, type ProjectDocument } from "../../../src/core/io/projectSchema";
+import {
+  createProjectDocument,
+  type ProjectDocument,
+  type ProjectWorkspaceDocument
+} from "../../../src/core/io/projectSchema";
+import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import { createPathModel, createTranslationTarget } from "../../../src/core/model/path";
 import { createAutosaveCoordinator, createProjectAutosaveCoordinator } from "../../../src/state/autosave";
 import { createHistoryStore, type HistoryCommand } from "../../../src/state/historyStore";
@@ -8,12 +13,8 @@ import {
   createSelectionStore,
   normalizeElementSelection
 } from "../../../src/state/selectionStore";
-import type {
-  ImportResult,
-  ProjectSummary,
-  StorageAdapter,
-  WriteResult
-} from "../../../src/storage";
+import type { ProjectIoCapabilities, ProjectIoService } from "../../../src/platform/projectIo";
+import type { ProjectWorkspaceSummary, WriteResult } from "../../../src/storage";
 
 describe("history store", () => {
   it("executes commands and supports undo/redo", () => {
@@ -51,14 +52,17 @@ describe("history store", () => {
 });
 
 describe("project store", () => {
-  it("applies project commands and keeps undo/redo state", () => {
+  it("applies active-path commands and keeps undo/redo state", async () => {
     const store = createProjectStore();
-    const project = exampleProject("project-a", "Alpha", 1);
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const io = new RecordingIo(workspace);
 
-    store.getState().createProject(project);
+    store.getState().setProjectIoService(io);
+    await store.getState().initializeWorkspace();
     store.getState().applyCommand(renameCommand("Beta", "Alpha"));
 
     expect(store.getState().project?.display_name).toBe("Beta");
+    expect(store.getState().workspace?.paths[0].display_name).toBe("Beta");
     expect(store.getState().dirty).toBe(true);
     expect(store.getState().history.getState().canUndo).toBe(true);
 
@@ -72,14 +76,14 @@ describe("project store", () => {
     expect(store.getState().project?.display_name).toBe("Beta");
   });
 
-  it("loads and saves through the configured storage adapter", async () => {
-    const storage = new RecordingStorage();
-    const project = exampleProject("project-a", "Alpha", 1);
-    const initialWrite = await storage.writeProject(project);
+  it("loads and saves through the configured IO service", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const io = new RecordingIo(workspace);
+    const initialWrite = await io.saveWorkspace(workspace);
     const store = createProjectStore();
 
-    store.getState().setStorageAdapter(storage);
-    await store.getState().loadProject("project-a");
+    store.getState().setProjectIoService(io);
+    await store.getState().initializeWorkspace();
 
     expect(store.getState()).toMatchObject({
       version: initialWrite.version,
@@ -89,12 +93,12 @@ describe("project store", () => {
     });
 
     store.getState().applyCommand(renameCommand("Beta", "Alpha"));
-    const secondWrite = await store.getState().saveProject();
+    const secondWrite = await store.getState().saveWorkspace();
 
     expect(secondWrite).toMatchObject({ version: "v2" });
-    expect(storage.writes.at(-1)).toMatchObject({
+    expect(io.writes.at(-1)).toMatchObject({
       expectedVersion: initialWrite.version,
-      projectName: "Beta"
+      pathName: "Beta"
     });
     expect(store.getState()).toMatchObject({
       version: "v2",
@@ -125,19 +129,22 @@ describe("selection store", () => {
 });
 
 describe("autosave coordinator", () => {
-  it("writes the current dirty project and marks the project store saved", async () => {
-    const storage = new RecordingStorage();
+  it("writes the current dirty workspace and marks the project store saved", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const io = new RecordingIo(workspace);
     const store = createProjectStore();
-    store.getState().createProject(exampleProject("project-a", "Alpha", 1));
-    const coordinator = createProjectAutosaveCoordinator(store, storage);
+    store.getState().setProjectIoService(io);
+    await store.getState().initializeWorkspace();
+    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    const coordinator = createProjectAutosaveCoordinator(store, io);
 
     const result = await coordinator.flush();
 
     expect(result).toMatchObject({ version: "v1" });
-    expect(storage.writes).toHaveLength(1);
-    expect(storage.writes[0]).toMatchObject({
-      projectId: "project-a",
-      expectedVersion: undefined
+    expect(io.writes).toHaveLength(1);
+    expect(io.writes[0]).toMatchObject({
+      workspaceId: "project-a",
+      expectedVersion: io.initialVersion
     });
     expect(store.getState()).toMatchObject({
       dirty: false,
@@ -147,14 +154,14 @@ describe("autosave coordinator", () => {
   });
 
   it("skips clean snapshots and supports debounced scheduling", async () => {
-    const storage = new RecordingStorage();
+    const io = new RecordingIo(exampleWorkspace("project-a", "Alpha", 1));
     const scheduler = new ManualScheduler();
     const coordinator = createAutosaveCoordinator({
-      storage,
+      io,
       delayMs: 25,
       scheduler,
       getSnapshot: () => ({
-        project: exampleProject("project-a", "Alpha", 1),
+        workspace: exampleWorkspace("project-a", "Alpha", 1),
         expectedVersion: "v0",
         dirty: false
       })
@@ -167,7 +174,7 @@ describe("autosave coordinator", () => {
 
     await scheduler.runPending();
 
-    expect(storage.writes).toHaveLength(0);
+    expect(io.writes).toHaveLength(0);
     expect(coordinator.status).toBe("idle");
   });
 });
@@ -188,6 +195,16 @@ function exampleProject(
   });
 }
 
+function exampleWorkspace(
+  project_id: string,
+  display_name: string,
+  elementCount: number
+): ProjectWorkspaceDocument {
+  return projectDocumentToWorkspaceDocument(
+    exampleProject(project_id, display_name, elementCount)
+  );
+}
+
 function renameCommand(
   nextName: string,
   previousName: string
@@ -205,62 +222,166 @@ function renameCommand(
   };
 }
 
-class RecordingStorage implements StorageAdapter {
+class RecordingIo implements ProjectIoService {
+  readonly capabilities: ProjectIoCapabilities = {
+    shellLabel: "Test",
+    autosaveTargetLabel: "Test storage",
+    directFileAutosave: false,
+    browserPersistentAutosave: true,
+    supportsProjectFolders: false,
+    supportsAutosFolderImportExport: true,
+    supportsWorkspaceList: true,
+    supportsPortableImportExport: true,
+    supportsUrlSharing: false,
+    supportsRemoteSync: false,
+    primaryToolbarActions: ["save"]
+  };
+  readonly initialVersion = "v0";
   readonly writes: Array<{
-    projectId: string;
-    projectName: string;
+    workspaceId: string;
+    pathName: string;
     expectedVersion: string | undefined;
   }> = [];
 
-  private readonly projects = new Map<string, ProjectDocument>();
-  private readonly versions = new Map<string, ProjectSummary>();
+  private workspace: ProjectWorkspaceDocument | null;
+  private version: string | undefined = this.initialVersion;
+  private updatedAt: string | null = "2026-04-23T15:40:00.000Z";
 
-  async listProjects(): Promise<ProjectSummary[]> {
-    return [...this.versions.values()];
+  constructor(workspace: ProjectWorkspaceDocument | null = null) {
+    this.workspace = workspace ? structuredClone(workspace) : null;
   }
 
-  async readProject(id: string): Promise<ProjectDocument> {
-    const project = this.projects.get(id);
-    if (!project) {
-      throw new Error(`Missing project ${id}`);
+  async initialize(): Promise<ProjectWorkspaceDocument | null> {
+    return this.getWorkspace();
+  }
+
+  async getWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+    return this.workspace ? structuredClone(this.workspace) : null;
+  }
+
+  getCurrentVersion(): string | undefined {
+    return this.version;
+  }
+
+  getLastSavedAt(): string | null {
+    return this.updatedAt;
+  }
+
+  async createWorkspace(input: { workspace?: ProjectWorkspaceDocument } = {}) {
+    if (!input.workspace) {
+      throw new Error("Test createWorkspace requires a workspace");
     }
-    return structuredClone(project);
+    this.workspace = structuredClone(input.workspace);
+    return structuredClone(input.workspace);
   }
 
-  async writeProject(
-    project: ProjectDocument,
+  async openWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+    return this.getWorkspace();
+  }
+
+  async deleteWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+    this.workspace = null;
+    this.version = undefined;
+    this.updatedAt = null;
+    return null;
+  }
+
+  async saveWorkspace(
+    workspace: ProjectWorkspaceDocument,
     expectedVersion?: string
   ): Promise<WriteResult> {
     this.writes.push({
-      projectId: project.project_id,
-      projectName: project.display_name,
+      workspaceId: workspace.project_id,
+      pathName: workspace.paths[0]?.display_name ?? "",
       expectedVersion
     });
 
     const version = `v${this.writes.length}`;
     const updatedAt = `2026-04-23T15:4${this.writes.length}:00.000Z`;
-    this.projects.set(project.project_id, structuredClone(project));
-    this.versions.set(project.project_id, {
-      id: project.project_id,
-      displayName: project.display_name,
-      updatedAt,
-      version
-    });
+    this.workspace = structuredClone(workspace);
+    this.version = version;
+    this.updatedAt = updatedAt;
 
     return { version, updatedAt };
   }
 
-  async deleteProject(id: string): Promise<void> {
-    this.projects.delete(id);
-    this.versions.delete(id);
+  async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
+    return this.workspace
+      ? [
+          {
+            id: this.workspace.project_id,
+            displayName: this.workspace.display_name,
+            updatedAt: this.updatedAt ?? "",
+            version: this.version ?? ""
+          }
+        ]
+      : [];
   }
 
-  async exportBundle(): Promise<Blob> {
-    throw new Error("Not implemented in test storage");
+  async switchWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+    return this.getWorkspace();
   }
 
-  async importBundle(): Promise<ImportResult> {
-    throw new Error("Not implemented in test storage");
+  async setActivePath(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async createPath(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async renamePath(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async duplicatePath(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async deletePaths(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async importPath(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async exportPath(): Promise<Blob> {
+    return new Blob([]);
+  }
+
+  async importConfig(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async exportConfig(): Promise<Blob> {
+    return new Blob([]);
+  }
+
+  async importProjectFolder(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async exportProjectFolder() {
+    return {
+      folderName: "autos",
+      files: []
+    };
+  }
+
+  async importProjectArchive(): Promise<ProjectWorkspaceDocument> {
+    return this.requireWorkspace();
+  }
+
+  async exportProjectArchive(): Promise<Blob> {
+    return new Blob([]);
+  }
+
+  private requireWorkspace(): ProjectWorkspaceDocument {
+    if (!this.workspace) {
+      throw new Error("No workspace");
+    }
+    return structuredClone(this.workspace);
   }
 }
 

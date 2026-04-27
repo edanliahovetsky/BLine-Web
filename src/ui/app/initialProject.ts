@@ -1,4 +1,8 @@
-import { createProjectDocument } from "../../core/io/projectSchema";
+import {
+  createProjectDocument,
+  createProjectPathDocument,
+  createProjectWorkspaceDocument
+} from "../../core/io/projectSchema";
 import {
   createEventTrigger,
   createPathModel,
@@ -49,6 +53,24 @@ export function createInitialCanvasProject(options: InitialCanvasProjectOptions 
   });
 }
 
+export function createInitialCanvasWorkspace(options: InitialCanvasProjectOptions = {}) {
+  const project = createInitialCanvasProject(options);
+  const path = createProjectPathDocument({
+    path_id: project.project_id,
+    display_name: project.display_name,
+    file_name: project.path_file_name ?? `${project.project_id}.json`,
+    path: project.path
+  });
+
+  return createProjectWorkspaceDocument({
+    project_id: options.projectId ?? "phase-1-canvas-workspace",
+    display_name: options.displayName ?? "Phase 1 Canvas Draft",
+    config: project.config,
+    paths: [path],
+    active_path_id: path.path_id
+  });
+}
+
 export function createNewCanvasProject(now = new Date()) {
   const stamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   const random =
@@ -58,5 +80,17 @@ export function createNewCanvasProject(now = new Date()) {
   return createInitialCanvasProject({
     projectId: `phase-1-path-${stamp}-${random}`,
     displayName: `Untitled Path ${stamp}-${random}`
+  });
+}
+
+export function createNewCanvasWorkspace(now = new Date()) {
+  const stamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+  const random =
+    globalThis.crypto?.randomUUID?.().slice(0, 8) ??
+    Math.random().toString(36).slice(2, 10);
+
+  return createInitialCanvasWorkspace({
+    projectId: `workspace-${stamp}-${random}`,
+    displayName: `Untitled Project ${stamp}-${random}`
   });
 }
