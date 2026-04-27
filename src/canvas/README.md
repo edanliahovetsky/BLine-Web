@@ -1,3 +1,3 @@
 # Canvas
 
-Konva-based path editor rendering and interactions live here.
+PixiJS-backed path editor rendering and interactions live here.
