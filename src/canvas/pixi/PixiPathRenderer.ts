@@ -685,23 +685,6 @@ function drawRobotFootprint(
       color: 0x05080b,
       alpha: 0.76 * opacity
     });
-  }
-  drawRect(graphics, haloOutline.rect, {
-    fill: 0x05080b,
-    fillAlpha: 0.28 * opacity,
-    stroke: 0x05080b,
-    strokeAlpha: 0.82 * opacity,
-    strokeWidth: haloOutline.strokeWidth
-  }, transform);
-  drawRect(graphics, robotOutline.rect, {
-    fill: fillColor,
-    fillAlpha: 0.1 * opacity,
-    stroke: accent,
-    strokeAlpha: opacity,
-    strokeWidth: robotOutline.strokeWidth
-  }, transform);
-
-  if (extension) {
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
@@ -710,6 +693,20 @@ function drawRobotFootprint(
       alpha: opacity
     });
   }
+  drawRobotBodyRect(graphics, haloOutline.rect, {
+    fill: 0x05080b,
+    fillAlpha: 0.28 * opacity,
+    stroke: 0x05080b,
+    strokeAlpha: 0.82 * opacity,
+    strokeWidth: haloOutline.strokeWidth
+  }, transform, extension ? protrusionSide : null);
+  drawRobotBodyRect(graphics, robotOutline.rect, {
+    fill: fillColor,
+    fillAlpha: 0.1 * opacity,
+    stroke: accent,
+    strokeAlpha: opacity,
+    strokeWidth: robotOutline.strokeWidth
+  }, transform, extension ? protrusionSide : null);
 
   if (mode === "rotation") {
     const center = transformLocalPoint(transform, 0, 0);
@@ -774,7 +771,7 @@ function drawRobotProtrusionOutline(
     protrusionSide: options.protrusionSide,
     strokeWidth: options.strokeWidth,
     cornerRadiusPx: cornerRadius,
-    rootInsetPx: Math.min(1, options.strokeWidth / 2)
+    rootInsetPx: 0
   });
 
   if (!outline) {
@@ -786,6 +783,109 @@ function drawRobotProtrusionOutline(
     width: outline.strokeWidth,
     alpha: options.alpha
   });
+}
+
+function drawRobotBodyRect(
+  graphics: Graphics,
+  rect: RobotLocalBounds,
+  options: {
+    fill?: string | number;
+    fillAlpha?: number;
+    stroke?: string | number;
+    strokeAlpha?: number;
+    strokeWidth?: number;
+  },
+  transform: LocalTransform,
+  protrusionSide: DrawNodeInput["protrusionSide"] | null
+): void {
+  if (!protrusionSide || protrusionSide === "none") {
+    drawRect(graphics, rect, options, transform);
+    return;
+  }
+
+  drawPolygon(graphics, rectPoints(rect), {
+    fill: options.fill,
+    fillAlpha: options.fillAlpha
+  }, transform);
+
+  if (options.stroke === undefined || options.strokeWidth === undefined) {
+    return;
+  }
+
+  drawRectStrokeWithSharpAttachmentCorners(graphics, rect, protrusionSide, transform, {
+    color: options.stroke,
+    width: options.strokeWidth,
+    alpha: options.strokeAlpha ?? 1
+  });
+}
+
+function drawRectStrokeWithSharpAttachmentCorners(
+  graphics: Graphics,
+  rect: RobotLocalBounds,
+  protrusionSide: DrawNodeInput["protrusionSide"],
+  transform: LocalTransform,
+  style: { color: string | number; width: number; alpha: number }
+): void {
+  const left = rect.x;
+  const right = rect.x + rect.width;
+  const top = rect.y;
+  const bottom = rect.y + rect.height;
+  const halfStroke = style.width / 2;
+
+  if (protrusionSide === "front") {
+    drawLocalStrokePath(graphics, [right, top, left, top, left, bottom, right, bottom], transform, {
+      ...style,
+      cap: "butt",
+      join: "round"
+    });
+    drawLocalStrokePath(graphics, [right, top - halfStroke, right, bottom + halfStroke], transform, {
+      ...style,
+      cap: "butt",
+      join: "miter"
+    });
+    return;
+  }
+
+  if (protrusionSide === "back") {
+    drawLocalStrokePath(graphics, [left, top, right, top, right, bottom, left, bottom], transform, {
+      ...style,
+      cap: "butt",
+      join: "round"
+    });
+    drawLocalStrokePath(graphics, [left, top - halfStroke, left, bottom + halfStroke], transform, {
+      ...style,
+      cap: "butt",
+      join: "miter"
+    });
+    return;
+  }
+
+  if (protrusionSide === "left") {
+    drawLocalStrokePath(graphics, [left, top, left, bottom, right, bottom, right, top], transform, {
+      ...style,
+      cap: "butt",
+      join: "round"
+    });
+    drawLocalStrokePath(graphics, [left - halfStroke, top, right + halfStroke, top], transform, {
+      ...style,
+      cap: "butt",
+      join: "miter"
+    });
+    return;
+  }
+
+  if (protrusionSide === "right") {
+    drawLocalStrokePath(graphics, [left, bottom, left, top, right, top, right, bottom], transform, {
+      ...style,
+      cap: "butt",
+      join: "round"
+    });
+    drawLocalStrokePath(graphics, [left - halfStroke, bottom, right + halfStroke, bottom], transform, {
+      ...style,
+      cap: "butt",
+      join: "miter"
+    });
+  }
 }
 
 function drawSelectionFootprint(
@@ -960,6 +1060,37 @@ function drawLocalPolyline(
   drawPolyline(graphics, transformed, style);
 }
 
+function drawLocalStrokePath(
+  graphics: Graphics,
+  points: number[],
+  transform: LocalTransform,
+  style: {
+    color: string | number;
+    width: number;
+    alpha: number;
+    cap: "butt" | "round";
+    join: "miter" | "round";
+  }
+): void {
+  if (points.length < 4) {
+    return;
+  }
+
+  const start = transformLocalPoint(transform, points[0], points[1]);
+  graphics.moveTo(start.x, start.y);
+  for (let index = 2; index < points.length; index += 2) {
+    const point = transformLocalPoint(transform, points[index], points[index + 1]);
+    graphics.lineTo(point.x, point.y);
+  }
+  graphics.stroke({
+    color: style.color,
+    width: style.width,
+    alpha: style.alpha,
+    cap: style.cap,
+    join: style.join
+  });
+}
+
 function drawLocalPathCommands(
   graphics: Graphics,
   commands: RobotProtrusionPathCommand[],
@@ -1054,21 +1185,7 @@ function drawRect(
   transform?: LocalTransform
 ): void {
   if (transform) {
-    drawPolygon(
-      graphics,
-      [
-        rect.x,
-        rect.y,
-        rect.x + rect.width,
-        rect.y,
-        rect.x + rect.width,
-        rect.y + rect.height,
-        rect.x,
-        rect.y + rect.height
-      ],
-      options,
-      transform
-    );
+    drawPolygon(graphics, rectPoints(rect), options, transform);
     return;
   }
 
@@ -1084,6 +1201,19 @@ function drawRect(
       join: "round"
     });
   }
+}
+
+function rectPoints(rect: RobotLocalBounds): number[] {
+  return [
+    rect.x,
+    rect.y,
+    rect.x + rect.width,
+    rect.y,
+    rect.x + rect.width,
+    rect.y + rect.height,
+    rect.x,
+    rect.y + rect.height
+  ];
 }
 
 function drawPolygon(
