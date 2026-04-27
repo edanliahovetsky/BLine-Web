@@ -4,6 +4,7 @@ test("boots the Phase 1 shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "Top menu" })).toBeVisible();
   await expect(page.getByLabel("Editor canvas")).toBeVisible();
   await expect(page.getByTestId("path-stage")).toBeVisible();
@@ -24,6 +25,22 @@ test("boots the Phase 1 shell", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Fit view" })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "Canvas tools" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Select tool" })).toHaveCount(0);
+});
+
+test("warns mobile users that support is limited", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto("/");
+
+  const warning = page.getByRole("dialog", { name: "Mobile support warning" });
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText("Mobile support is very limited");
+  await expect(warning).toContainText("may be buggy");
+
+  await warning.getByRole("button", { name: "Continue" }).click();
+  await expect(warning).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
 });
 
 test("selects and drags a canvas anchor", async ({ page }) => {
@@ -195,6 +212,9 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
   ]) {
     await page.setViewportSize(viewport);
     await page.goto("/");
+    if (viewport.width < 980) {
+      await dismissMobileSupportWarning(page);
+    }
 
     for (let index = 0; index < 5; index += 1) {
       await page.getByText("Add element").click();
@@ -913,6 +933,7 @@ test("closes the open-project panel when using top menus", async ({ page }) => {
 test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto("/");
+  await dismissMobileSupportWarning(page);
 
   await page.getByRole("button", { name: "Settings" }).click();
 
@@ -923,6 +944,7 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
 test("keeps the compact top menu scrollable instead of wrapping", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 360 });
   await page.goto("/");
+  await dismissMobileSupportWarning(page);
 
   const topMenu = page.getByRole("navigation", { name: "Top menu" });
   const metrics = await topMenu.evaluate((element) => {
@@ -949,6 +971,7 @@ test("keeps the compact top menu scrollable instead of wrapping", async ({ page 
 test("bounds compact dropdown panels to the viewport", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 180 });
   await page.goto("/");
+  await dismissMobileSupportWarning(page);
 
   await page.getByRole("button", { name: "Path" }).click();
 
@@ -1063,6 +1086,7 @@ test("opens a saved project from the project list", async ({ page }) => {
 test("opens a saved project from the mobile project list", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto("/");
+  await dismissMobileSupportWarning(page);
 
   await createNewProject(page);
   await page.getByRole("button", { name: "Save" }).click();
@@ -1276,6 +1300,13 @@ async function createNewProject(page: Page): Promise<void> {
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Workspace" }).click();
   await page.getByRole("menuitem", { name: "New Project" }).click();
+}
+
+async function dismissMobileSupportWarning(page: Page): Promise<void> {
+  const warning = page.getByRole("dialog", { name: "Mobile support warning" });
+  await expect(warning).toBeVisible();
+  await warning.getByRole("button", { name: "Continue" }).click();
+  await expect(warning).toHaveCount(0);
 }
 
 function modelToCanvasPoint(box: Bounds, point: PointMeters) {

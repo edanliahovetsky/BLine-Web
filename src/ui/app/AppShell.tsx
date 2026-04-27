@@ -69,6 +69,7 @@ export function AppShell() {
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
+  const [showMobileSupportWarning, setShowMobileSupportWarning] = useState(false);
   const [pendingImportMode, setPendingImportMode] =
     useState<ImportMode>("archive");
   const [initializing, setInitializing] = useState(true);
@@ -153,6 +154,25 @@ export function AppShell() {
       autosaveRef.current?.cancel();
     };
   }, [refreshWorkspaceSummaries]);
+
+  useEffect(() => {
+    const mobileQuery = window.matchMedia(
+      "(max-width: 767px), (pointer: coarse) and (max-width: 980px)"
+    );
+
+    const syncMobileWarning = () => {
+      setShowMobileSupportWarning(
+        mobileQuery.matches && !hasDismissedMobileSupportWarning()
+      );
+    };
+
+    syncMobileWarning();
+    mobileQuery.addEventListener("change", syncMobileWarning);
+
+    return () => {
+      mobileQuery.removeEventListener("change", syncMobileWarning);
+    };
+  }, []);
 
   useEffect(() => {
     if (!projectIo) {
@@ -272,6 +292,11 @@ export function AppShell() {
       setOpenTopMenu(null);
     }
   }, [refreshWorkspaceSummaries]);
+
+  const handleDismissMobileSupportWarning = useCallback(() => {
+    markMobileSupportWarningDismissed();
+    setShowMobileSupportWarning(false);
+  }, []);
 
   const handleCreateNewPath = useCallback(async () => {
     const rawName = window.prompt("Enter path name:", "new_path");
@@ -1182,12 +1207,17 @@ export function AppShell() {
           onDelete={(ids) => void handleDeletePaths(ids)}
         />
       ) : null}
+      {showMobileSupportWarning ? (
+        <MobileSupportWarningDialog onDismiss={handleDismissMobileSupportWarning} />
+      ) : null}
     </main>
   );
 }
 
 type TopMenuId = "project" | "path" | "edit" | "actions";
 type ImportMode = "archive" | "path" | "config";
+const MOBILE_SUPPORT_WARNING_DISMISSED_KEY =
+  "bline-web:mobile-support-warning-dismissed";
 
 interface TopMenuSubmenuContextValue {
   activeSubmenuId: string | null;
@@ -1197,6 +1227,79 @@ interface TopMenuSubmenuContextValue {
 const TopMenuSubmenuContext = createContext<TopMenuSubmenuContextValue | null>(
   null
 );
+
+function hasDismissedMobileSupportWarning(): boolean {
+  try {
+    return (
+      window.sessionStorage.getItem(MOBILE_SUPPORT_WARNING_DISMISSED_KEY) ===
+      "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function markMobileSupportWarningDismissed() {
+  try {
+    window.sessionStorage.setItem(MOBILE_SUPPORT_WARNING_DISMISSED_KEY, "true");
+  } catch {
+    // Dismiss the dialog for this render even if private storage is unavailable.
+  }
+}
+
+function MobileSupportWarningDialog({ onDismiss }: { onDismiss(): void }) {
+  const dismissButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    dismissButtonRef.current?.focus();
+
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onDismiss();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onDismiss]);
+
+  return (
+    <div
+      className="config-dialog-backdrop mobile-warning-backdrop"
+      role="presentation"
+    >
+      <section
+        className="mobile-warning-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-warning-title"
+        aria-describedby="mobile-warning-description"
+        data-testid="mobile-support-warning"
+      >
+        <header className="mobile-warning-dialog__header">
+          <span className="mobile-warning-dialog__icon" aria-hidden="true">
+            !
+          </span>
+          <h2 id="mobile-warning-title">Mobile support warning</h2>
+        </header>
+        <p id="mobile-warning-description">
+          Mobile support is very limited and may be buggy. For full path editing,
+          use BLine Web on a desktop or laptop browser.
+        </p>
+        <footer className="mobile-warning-dialog__footer">
+          <button
+            ref={dismissButtonRef}
+            type="button"
+            className="mobile-warning-dialog__action"
+            onClick={onDismiss}
+          >
+            Continue
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
 
 function TopMenuButton({
   id,
