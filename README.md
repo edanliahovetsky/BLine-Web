@@ -1,18 +1,231 @@
+<div align="center">
+
 # BLine Web
 
-Implementation repo for the web-first BLine editor.
+The web-first BLine autonomous path editor for FRC holonomic drivetrains.
+
+[![Web Build](https://img.shields.io/badge/web-bline--web.pages.dev-0f766e)](https://bline-web.pages.dev/)
+[![Status](https://img.shields.io/badge/status-alpha-f59e0b)](#project-status)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-2563eb)](LICENSE)
+
+[Open the hosted app](https://bline-web.pages.dev/) |
+[BLine-Lib](https://github.com/edanliahovetsky/BLine-Lib) |
+[Docs](https://edanliahovetsky.github.io/BLine-Docs/) |
+[Chief Delphi](https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778)
+
+</div>
+
+## Overview
+
+BLine Web is the next-generation editor for BLine, an FRC autonomous path
+generation and tracking suite for holonomic drivetrains such as swerve and
+mecanum. It brings the existing BLine desktop workflow to a modern React/Tauri
+codebase that runs in the browser and as a desktop app.
+
+The editor is built for rapid iteration: create or open a BLine project, edit
+paths on the field, tune translation and rotation constraints, preview the
+idealized path simulation, and save/export the same `config.json` plus
+`paths/*.json` files used by the BLine robot library.
+
+## Project Status
+
+BLine Web is currently an alpha replacement for the original PySide6
+[BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). Browser and Tauri
+desktop workflows are implemented and tested against the existing GUI's core
+behavior.
+
+| Target | Status | Notes |
+| --- | --- | --- |
+| Hosted web app | Alpha supported | Browser-local project storage with import/export |
+| Tauri desktop app | Alpha supported | Real BLine autos folders on disk |
+| BLine project format | Supported | Reads and writes `config.json` plus `paths/*.json` |
+
+The current app is useful for browser and desktop editing. SystemCore support is
+a possible future direction, not part of the current supported product surface.
+
+## What It Does
+
+- Edit BLine paths on a field canvas.
+- Add and edit translation targets, rotation targets, event triggers, and
+  waypoints.
+- Drag path elements directly on the canvas.
+- Tune path constraints, ranged translation/rotation constraints, and terminal
+  tolerances.
+- Preview the local idealized path simulation with robot and trail overlays.
+- Use undo/redo across canvas edits, sidebar edits, structural edits, and config
+  edits.
+- Autosave browser and desktop workspaces.
+- Import/export BLine project folders and project archives.
+
+## For Existing BLine Users
+
+BLine Web is meant to preserve the BLine workflow while making the editor easier
+to run and distribute. It reads and writes the standard autos folder shape:
+
+```text
+autos/
+  config.json
+  paths/
+    my_auto.json
+```
+
+In browser mode, projects are stored under the browser origin. Use import/export
+to move projects between machines or into robot project folders.
+
+In Tauri desktop mode:
+
+- selecting an `autos` folder uses it directly;
+- selecting an FRC robot repository resolves to `src/main/deploy/autos` when
+  that deploy folder exists;
+- missing `config.json` and `paths/` structure is created as needed.
+
+Normal save/autosave writes to the editor's selected storage target. Saving a
+project is intentionally separate from any robot runtime deployment workflow.
+
+## Quick Start
+
+Use Node `24.6.0`, matching `.node-version`.
+
+```sh
+npm ci
+npm run dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:1420/
+```
+
+Desktop development shell:
+
+```sh
+npm run tauri:dev
+```
+
+Production web build:
+
+```sh
+npm run build
+```
+
+Desktop artifacts:
+
+```sh
+npm run tauri:build
+```
+
+## Requirements
+
+- Node.js `24.6.0`
+- npm, using the committed `package-lock.json`
+- Rust stable for Tauri commands and desktop builds
+- Playwright Chromium for browser E2E tests
+
+Install the Playwright browser dependency with:
+
+```sh
+npx playwright install chromium
+```
+
+Linux Tauri builds also require the native WebKit/AppIndicator/Rsvg/Patchelf
+packages used by the release workflow.
 
 ## Scripts
 
-- `npm run lint`
-- `npm run typecheck`
-- `npm run test`
-- `npm run parity`
-- `npm run test:e2e`
-- `npm run build`
-- `npm run release:check`
-- `npm run tauri:dev`
-- `npm run tauri:build`
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start Vite on `127.0.0.1:1420` |
+| `npm run lint` | Run ESLint over source, tests, and config files |
+| `npm run typecheck` | Run TypeScript with `--noEmit` |
+| `npm run test` | Run Vitest unit tests |
+| `npm run parity` | Run parity tests against reference fixtures |
+| `npm run test:e2e` | Run Playwright browser tests |
+| `npm run build` | Typecheck and build the Vite bundle |
+| `npm run release:check` | Verify package, Tauri, Cargo, and optional tag versions |
+| `npm run tauri:dev` | Start the Tauri desktop development shell |
+| `npm run tauri:build` | Build Tauri desktop artifacts |
+
+Recommended pre-PR check:
+
+```sh
+npm run release:check
+npm run lint
+npm run typecheck
+npm run test
+npm run parity
+npm run build
+npm run test:e2e
+```
+
+Run `npm run tauri:build` when desktop behavior or release readiness is in
+scope.
+
+## Architecture
+
+```text
+src/
+  core/       Framework-free model, IO, migrations, constraints, simulation
+  state/      Project, selection, history, and autosave stores
+  storage/    Browser and Tauri storage adapter implementations
+  platform/   Project IO service and shell-facing capability abstraction
+  canvas/     Konva field renderer, layers, geometry, and interactions
+  ui/         React app shell, menus, dialogs, sidebar, controls
+  env/        Environment capability detection
+src-tauri/    Tauri 2 desktop shell and Rust storage commands
+parity-harness/
+tests/
+  unit/
+  e2e/
+  fixtures/
+  manual/
+scripts/
+```
+
+Boundary rules:
+
+- `src/core` is framework-free and should not import React, Konva, browser APIs,
+  Tauri APIs, or service code.
+- UI and canvas code may depend on state/core; core must not depend on UI or
+  canvas.
+- Storage behavior should go through adapter/service boundaries rather than
+  direct environment checks in UI code.
+
+## For WPILib/FRC Tooling Reviewers
+
+BLine Web is structured to make evaluation straightforward:
+
+- No cloud backend is required for the current browser or desktop editor.
+- Core path model, serialization, constraints, and simulation are plain
+  TypeScript and testable without React or Tauri.
+- Browser and desktop persistence are separated behind storage adapters.
+- Project persistence is distinct from robot runtime deployment, so ordinary
+  editor autosave is not treated as a robot-code deploy operation.
+- Tauri desktop storage maps naturally to FRC robot project folders and
+  `src/main/deploy/autos`.
+
+The intended long-term shape is a single editor that can be hosted statically,
+bundled as desktop software, or adapted to another FRC tooling environment
+without changing the core path-editing logic.
+
+## Testing And QA
+
+The automated suite is layered by risk:
+
+- ESLint and TypeScript for static checks.
+- Vitest for core, storage, state, canvas helpers, and UI command behavior.
+- Playwright for browser-visible app shell and interaction flows.
+- `parity-harness/` for behavior that must stay aligned with the existing
+  desktop reference.
+- Tauri build/smoke checks for desktop packaging and storage behavior.
+
+The parity harness focuses on high-value drift risks:
+
+- legacy project/schema round-trip stability;
+- native path serializer ranged-constraint ordinal stability;
+- deterministic simulation output for a dense reference fixture.
+
+Manual smoke notes live under `tests/manual/`.
 
 ## Release Model
 
@@ -20,18 +233,42 @@ Implementation repo for the web-first BLine editor.
 deploy to Cloudflare and does not create desktop release artifacts.
 
 `web-deploy` is the public release branch. Cloudflare Pages should be configured
-to deploy production from `web-deploy` with:
+with:
 
-- build command: `npm run build`
-- output directory: `dist`
-- Node version: `24.6.0`
+```text
+Build command: npm run build
+Output directory: dist
+Node version: 24.6.0
+```
 
 Every push to `web-deploy` runs the release gate, builds the Vite web bundle,
 builds unsigned Tauri desktop artifacts for testers, and creates or updates a
-draft GitHub Release named from `package.json` such as `v0.1.0-alpha.1`.
+draft GitHub Release named from `package.json`, for example
+`v0.1.0-alpha.1`.
 
-Promotion is explicit: merge or push a tested commit to `web-deploy` when it is
-ready for the public Cloudflare site and draft desktop release artifacts.
+Promotion is explicit: merge or push a tested commit to `web-deploy` only when
+it is ready for the public Cloudflare site and draft desktop release artifacts.
 Cloudflare hosts the website; GitHub Releases host desktop installers.
 
-Systemcore service/package work is intentionally placeholder-only until Phase 3.
+Version metadata must stay aligned across:
+
+- `package.json`
+- `src-tauri/tauri.conf.json`
+- `src-tauri/Cargo.toml`
+
+Use `npm run release:check` to verify that alignment.
+
+## Related Projects
+
+- [BLine-Lib](https://github.com/edanliahovetsky/BLine-Lib): Java robot library.
+- [BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI): original PySide6
+  desktop editor.
+- [BLine Docs](https://edanliahovetsky.github.io/BLine-Docs/): user-facing
+  documentation for the BLine ecosystem.
+- [Chief Delphi thread](https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778):
+  discussion, feedback, and announcements.
+
+## License
+
+BLine Web is licensed under the BSD 3-Clause License. See
+[`LICENSE`](LICENSE).
