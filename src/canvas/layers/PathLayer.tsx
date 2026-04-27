@@ -11,6 +11,7 @@ import {
   type RotationOverrides
 } from "../geometry";
 import { WaypointNode } from "../elements/WaypointNode";
+import { buildElementProtrusionVisibilityByIndex } from "../protrusionVisibility";
 import type { useCanvasDrag } from "../hooks/useCanvasDrag";
 import type { useCanvasSelection } from "../hooks/useCanvasSelection";
 
@@ -66,6 +67,12 @@ export function PathLayerContent({
   }
 
   const elements = project.path.path_elements;
+  const protrusions = project.config.gui.protrusions;
+  const protrusionVisibilityByIndex = buildElementProtrusionVisibilityByIndex(
+    elements,
+    project.config,
+    dragPreview
+  );
   const elementPoints = getRenderableElementPositions(elements, dragPreview).flatMap(
     ({ position }) => {
       const point = modelToStagePoint(position, viewport);
@@ -137,6 +144,14 @@ export function PathLayerContent({
               index === elements.length - 1 ? null : getHandoffRadiusMeters(element)
             }
             metersToPixels={viewport.scale}
+            protrusionVisible={
+              Boolean(protrusions.enabled) &&
+              Boolean(protrusionVisibilityByIndex.get(index)) &&
+              protrusions.distance_meters > 0 &&
+              protrusions.side !== "none"
+            }
+            protrusionDistanceMeters={protrusions.distance_meters}
+            protrusionSide={protrusions.side}
             onPointerDown={selection.handleElementPointerDown}
             onDragStart={drag.handleDragStart}
             onDragMove={drag.handleDragMove}
