@@ -239,6 +239,38 @@ describe("autosave coordinator", () => {
     expect(io.writes).toHaveLength(0);
     expect(coordinator.status).toBe("idle");
   });
+
+  it("defers pending writes while autosave is temporarily blocked", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const io = new RecordingIo(workspace);
+    const scheduler = new ManualScheduler();
+    let shouldDefer = true;
+    const coordinator = createAutosaveCoordinator({
+      io,
+      delayMs: 25,
+      scheduler,
+      shouldDefer: () => shouldDefer,
+      getSnapshot: () => ({
+        workspace,
+        expectedVersion: "v0",
+        dirty: true
+      })
+    });
+
+    coordinator.schedule();
+    await scheduler.runPending();
+
+    expect(io.writes).toHaveLength(0);
+    expect(coordinator.pending).toBe(false);
+    expect(coordinator.status).toBe("pending");
+
+    shouldDefer = false;
+    coordinator.schedule();
+    await scheduler.runPending();
+
+    expect(io.writes).toHaveLength(1);
+    expect(coordinator.status).toBe("idle");
+  });
 });
 
 function exampleProject(

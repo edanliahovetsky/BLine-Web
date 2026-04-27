@@ -7,6 +7,8 @@ import {
   type CSSProperties,
   type KeyboardEvent
 } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import Konva from "konva";
 import { Layer, Stage } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
@@ -21,12 +23,16 @@ import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
 import { fieldAspectRatio } from "./constants";
 import { createFieldViewport, type CanvasSize } from "./geometry";
-import { useCanvasDrag } from "./hooks/useCanvasDrag";
+import { useCanvasDrag, type LiveDragPreview } from "./hooks/useCanvasDrag";
+import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import { useCanvasSelection } from "./hooks/useCanvasSelection";
 import { ConstraintRangeHighlightContent } from "./layers/ConstraintOverlayLayer";
 import { FieldLayerContent } from "./layers/FieldLayer";
 import { PathLayerContent } from "./layers/PathLayer";
-import { RotationHandleLayerContent } from "./layers/RotationHandleLayer";
+import {
+  RotationHandleLayerContent,
+  type RotationHandleLayerHandle
+} from "./layers/RotationHandleLayer";
 import { SimulationLayerContent } from "./layers/SimulationLayer";
 import {
   createRemovePathElementCommand
@@ -42,6 +48,10 @@ const fallbackStageSize: CanvasSize = {
   height: Math.round(960 / fieldAspectRatio)
 };
 
+interface PathStageProps {
+  onInteractionStateChange?: (active: boolean) => void;
+}
+
 interface ActiveRotationDrag {
   index: number;
   startRadians: number;
@@ -53,8 +63,9 @@ interface ActivePanDrag {
   startPanOffset: { x: number; y: number };
 }
 
-export function PathStage() {
+export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const rotationHandleLayerRef = useRef<RotationHandleLayerHandle | null>(null);
   const activePanDragRef = useRef<ActivePanDrag | null>(null);
   const panOffsetRef = useRef({ x: 0, y: 0 });
   const pendingPanOffsetRef = useRef<{ x: number; y: number } | null>(null);
@@ -139,6 +150,7 @@ export function PathStage() {
         window.cancelAnimationFrame(rotationFrameRef.current);
         rotationFrameRef.current = null;
       }
+
       setActiveRotationDragState(nextDrag);
     },
     [flushRotationPreview]
@@ -210,7 +222,17 @@ export function PathStage() {
     }
   }, [project]);
   const selection = useCanvasSelection(project);
-  const drag = useCanvasDrag({ project, viewport });
+  const handleLiveDragPreviewChange = useCallback(
+    (preview: LiveDragPreview | null) => {
+      rotationHandleLayerRef.current?.syncElementPosition(preview);
+    },
+    []
+  );
+  const drag = useCanvasDrag({
+    project,
+    viewport,
+    onLiveDragPreviewChange: handleLiveDragPreviewChange
+  });
   const canvasInteractionActive =
     isPanning || drag.isDragging || activeRotationDrag !== null;
   const rotationPreview: RotationOverrides = activeRotationDrag
@@ -218,6 +240,12 @@ export function PathStage() {
     : emptyRotationPreview;
   const selectedPulseValue =
     selectedElementIndex === null ? 0 : canvasInteractionActive ? 0.72 : selectedPulse;
+
+  useCanvasInteractionActivity({
+    containerRef,
+    semanticActive: canvasInteractionActive,
+    onChange: onInteractionStateChange
+  });
 
   useEffect(() => {
     if (selectedElementIndex === null || canvasInteractionActive) {
@@ -428,16 +456,15 @@ export function PathStage() {
       return;
     }
 
-    const renderedRadians =
-      activeRotationDrag?.currentRadians ?? rotationDrag.currentRadians;
     const handlePoint = rotationHandlePoint(
       project,
       index,
       viewport,
-      renderedRadians
+      nextRadians
     );
     if (handlePoint) {
-      dragTarget.position(handlePoint);
+      dragTarget.absolutePosition(handlePoint);
+      dragTarget.getLayer()?.batchDraw();
     }
 
     setActiveRotationDrag(
@@ -470,7 +497,8 @@ export function PathStage() {
       rotationDrag.currentRadians;
     const handlePoint = rotationHandlePoint(project, index, viewport, nextRadians);
     if (handlePoint) {
-      dragTarget.position(handlePoint);
+      dragTarget.absolutePosition(handlePoint);
+      dragTarget.getLayer()?.batchDraw();
     }
     setActiveRotationDrag(null);
 
@@ -537,6 +565,7 @@ export function PathStage() {
               dragPreview={drag.dragPreview}
             />
             <RotationHandleLayerContent
+              ref={rotationHandleLayerRef}
               project={project}
               selectedElementIndex={selectedElementIndex}
               viewport={viewport}
@@ -728,28 +757,21 @@ const selectionPulseIntervalMs = 40;
 const selectionPulsePeriodMs = 1800;
 
 function configureKonvaForCanvasPerformance() {
+  Konva.hitOnDragEnabled = false;
+
   if (typeof window === "undefined" || typeof navigator === "undefined") {
     return;
   }
-
-  const konva = (window as Window & { Konva?: KonvaRuntimeSettings }).Konva;
-  if (!konva) {
-    return;
-  }
-
-  konva.hitOnDragEnabled = false;
 
   const userAgent = navigator.userAgent;
   const isSafari =
     /\bSafari\//.test(userAgent) &&
     !/\b(?:Chrome|Chromium|CriOS|FxiOS|Edg|OPR)\//.test(userAgent);
 
-  if (isSafari && window.devicePixelRatio > safariMaxKonvaPixelRatio) {
-    konva.pixelRatio = safariMaxKonvaPixelRatio;
+  if (
+    (isSafari || isTauri()) &&
+    window.devicePixelRatio > safariMaxKonvaPixelRatio
+  ) {
+    Konva.pixelRatio = safariMaxKonvaPixelRatio;
   }
-}
-
-interface KonvaRuntimeSettings {
-  hitOnDragEnabled: boolean;
-  pixelRatio: number;
 }

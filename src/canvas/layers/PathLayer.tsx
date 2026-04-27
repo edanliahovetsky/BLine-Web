@@ -141,6 +141,7 @@ export function PathLayerContent({
             dimmed={hasSelection && selectedElementIndex !== index}
             selectedPulse={selectedPulse}
             draggable={drag.isDragEnabled(element)}
+            dragBoundFunc={drag.getDragBoundFunc(index)}
             headingRadians={getElementHeadingRadians(elements, index, rotationPreview)}
             handoffRadiusMeters={
               index === elements.length - 1 ? null : getHandoffRadiusMeters(element)

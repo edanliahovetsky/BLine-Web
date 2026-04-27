@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import type { PathElement } from "../../core/model/path";
@@ -13,7 +13,8 @@ import {
   stageToModelPoint,
   type FieldViewport,
   type PointMeters,
-  type PositionOverrides
+  type PositionOverrides,
+  type StagePoint
 } from "../geometry";
 import { robotSizeFromConfig } from "../robotFootprint";
 import {
@@ -24,6 +25,7 @@ import {
 import { isEventTrigger, isRotationTarget } from "../../core/model/path";
 
 type CanvasDragEvent = KonvaEventObject<DragEvent>;
+type DragBoundFunc = (position: StagePoint) => StagePoint;
 
 interface ActiveDrag {
   index: number;
@@ -33,20 +35,27 @@ interface ActiveDrag {
   currentRatio: number | null;
 }
 
+export interface LiveDragPreview {
+  index: number;
+  position: PointMeters;
+  stagePoint: StagePoint;
+  ratio: number | null;
+}
+
 interface UseCanvasDragInput {
   project: ProjectDocument | null;
   viewport: FieldViewport;
+  onLiveDragPreviewChange?: (preview: LiveDragPreview | null) => void;
 }
 
-export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
+export function useCanvasDrag({
+  project,
+  viewport,
+  onLiveDragPreviewChange
+}: UseCanvasDragInput) {
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const activeDragRef = useRef<ActiveDrag | null>(null);
-  const renderedDragRef = useRef<ActiveDrag | null>(null);
   const previewFrameRef = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    renderedDragRef.current = activeDrag;
-  }, [activeDrag]);
 
   const flushDragPreview = useCallback(() => {
     previewFrameRef.current = null;
@@ -54,7 +63,10 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
   }, []);
 
   const setActiveDrag = useCallback(
-    (nextDrag: ActiveDrag | null, sync: "immediate" | "frame" = "immediate") => {
+    (
+      nextDrag: ActiveDrag | null,
+      sync: "immediate" | "frame" = "immediate"
+    ) => {
       activeDragRef.current = nextDrag;
 
       if (sync === "frame") {
@@ -68,6 +80,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         window.cancelAnimationFrame(previewFrameRef.current);
         previewFrameRef.current = null;
       }
+
       setActiveDragState(nextDrag);
     },
     [flushDragPreview]
@@ -95,6 +108,32 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
     []
   );
 
+  const dragBoundFuncs = useMemo(() => {
+    if (!project) {
+      return emptyDragBoundFuncs;
+    }
+
+    const funcs = new Map<number, DragBoundFunc>();
+    const robotSizeMeters = robotSizeFromConfig(project.config);
+    for (const [index, element] of project.path.path_elements.entries()) {
+      if (!isDragEnabled(element)) {
+        continue;
+      }
+
+      funcs.set(index, (stagePoint) =>
+        projectDragStagePoint(project, viewport, robotSizeMeters, index, stagePoint)
+          .stagePoint
+      );
+    }
+
+    return funcs;
+  }, [isDragEnabled, project, viewport]);
+
+  const getDragBoundFunc = useCallback(
+    (index: number) => dragBoundFuncs.get(index),
+    [dragBoundFuncs]
+  );
+
   const handleDragStart = useCallback(
     (index: number, event: CanvasDragEvent) => {
       if (!project) {
@@ -114,21 +153,26 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         return;
       }
 
+      const startRatio =
+        isRotationTarget(element) || isEventTrigger(element)
+          ? element.t_ratio
+          : null;
+
       setActiveDrag({
         index,
         start,
         current: start,
-        startRatio:
-          isRotationTarget(element) || isEventTrigger(element)
-            ? element.t_ratio
-            : null,
-        currentRatio:
-          isRotationTarget(element) || isEventTrigger(element)
-            ? element.t_ratio
-            : null
+        startRatio,
+        currentRatio: startRatio
+      });
+      onLiveDragPreviewChange?.({
+        index,
+        position: start,
+        stagePoint: modelToStagePoint(start, viewport),
+        ratio: startRatio
       });
     },
-    [isDragEnabled, project, setActiveDrag]
+    [isDragEnabled, onLiveDragPreviewChange, project, setActiveDrag, viewport]
   );
 
   const handleDragMove = useCallback(
@@ -140,37 +184,36 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
 
       event.cancelBubble = true;
       const dragTarget = event.currentTarget;
-      const robotSizeMeters = robotSizeFromConfig(project?.config);
-      let nextPosition = stageToModelPoint(
-        {
-          x: dragTarget.x(),
-          y: dragTarget.y()
-        },
-        viewport,
-        robotSizeMeters
-      );
-      let nextRatio = drag.currentRatio;
-      const element = project?.path.path_elements[index];
+      const projected = project
+        ? projectDragStagePoint(
+            project,
+            viewport,
+            robotSizeFromConfig(project.config),
+            index,
+            {
+              x: dragTarget.x(),
+              y: dragTarget.y()
+            }
+          )
+        : {
+            position: stageToModelPoint(
+              {
+                x: dragTarget.x(),
+                y: dragTarget.y()
+              },
+              viewport
+            ),
+            ratio: drag.currentRatio
+          };
+      const nextPosition = projected.position;
+      const nextRatio = projected.ratio;
 
-      if (project && element && (isRotationTarget(element) || isEventTrigger(element))) {
-        const segment = getNeighborAnchorPositions(project.path.path_elements, index);
-        if (segment) {
-          nextRatio = projectPointToSegmentRatio(
-            nextPosition,
-            segment.previous,
-            segment.next
-          );
-          nextPosition = interpolateSegmentPosition(
-            segment.previous,
-            segment.next,
-            nextRatio
-          );
-        }
-      }
-
-      const renderedPosition = renderedDragRef.current?.current ?? drag.current;
-      dragTarget.position(modelToStagePoint(renderedPosition, viewport));
-
+      onLiveDragPreviewChange?.({
+        index,
+        position: nextPosition,
+        stagePoint: projected.stagePoint,
+        ratio: nextRatio
+      });
       setActiveDrag(
         {
           ...drag,
@@ -180,7 +223,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         "frame"
       );
     },
-    [project, setActiveDrag, viewport]
+    [onLiveDragPreviewChange, project, setActiveDrag, viewport]
   );
 
   const handleDragEnd = useCallback(
@@ -215,6 +258,12 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
 
       const nextStagePoint = modelToStagePoint(nextPosition, viewport);
       dragTarget.position(nextStagePoint);
+      onLiveDragPreviewChange?.({
+        index,
+        position: nextPosition,
+        stagePoint: nextStagePoint,
+        ratio: nextRatio
+      });
       setActiveDrag(null);
 
       if (drag.startRatio !== null && nextRatio !== null) {
@@ -236,16 +285,44 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         selectionStore.getState().selectElement(index, projectStore.getState().project);
       }
     },
-    [project, setActiveDrag, viewport]
+    [onLiveDragPreviewChange, project, setActiveDrag, viewport]
   );
 
   return {
     dragPreview,
     isDragging: activeDrag !== null,
+    getDragBoundFunc,
     isDragEnabled,
     handleDragStart,
     handleDragMove,
     handleDragEnd
+  };
+}
+
+function projectDragStagePoint(
+  project: ProjectDocument,
+  viewport: FieldViewport,
+  robotSizeMeters: ReturnType<typeof robotSizeFromConfig>,
+  index: number,
+  stagePoint: StagePoint
+): { position: PointMeters; ratio: number | null; stagePoint: StagePoint } {
+  let position = stageToModelPoint(stagePoint, viewport, robotSizeMeters);
+  let ratio: number | null = null;
+  const element = project.path.path_elements[index];
+
+  if (element && (isRotationTarget(element) || isEventTrigger(element))) {
+    ratio = element.t_ratio;
+    const segment = getNeighborAnchorPositions(project.path.path_elements, index);
+    if (segment) {
+      ratio = projectPointToSegmentRatio(position, segment.previous, segment.next);
+      position = interpolateSegmentPosition(segment.previous, segment.next, ratio);
+    }
+  }
+
+  return {
+    position,
+    ratio,
+    stagePoint: modelToStagePoint(position, viewport)
   };
 }
 
@@ -257,3 +334,4 @@ function pointsAlmostEqual(a: PointMeters, b: PointMeters): boolean {
 }
 
 const emptyPreview = new Map<number, PointMeters>();
+const emptyDragBoundFuncs = new Map<number, DragBoundFunc>();

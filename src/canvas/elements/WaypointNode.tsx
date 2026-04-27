@@ -44,6 +44,7 @@ interface WaypointNodeProps {
   dimmed: boolean;
   selectedPulse: number;
   draggable: boolean;
+  dragBoundFunc?: (position: StagePoint) => StagePoint;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
   robotSizeMeters: RobotSizeMeters;
@@ -65,6 +66,7 @@ export const WaypointNode = memo(function WaypointNode({
   dimmed,
   selectedPulse,
   draggable,
+  dragBoundFunc,
   headingRadians,
   handoffRadiusMeters,
   robotSizeMeters,
@@ -99,6 +101,8 @@ export const WaypointNode = memo(function WaypointNode({
       x={point.x}
       y={point.y}
       draggable={draggable}
+      dragBoundFunc={dragBoundFunc}
+      data-testid={`path-element-node-${index}`}
       onMouseDown={(event) => onPointerDown(index, event)}
       onTouchStart={(event) => onPointerDown(index, event)}
       onDragStart={(event) => onDragStart(index, event)}
@@ -720,6 +724,7 @@ function areWaypointNodePropsEqual(
     previous.selected === next.selected &&
     previous.dimmed === next.dimmed &&
     previous.draggable === next.draggable &&
+    previous.dragBoundFunc === next.dragBoundFunc &&
     previous.headingRadians === next.headingRadians &&
     previous.handoffRadiusMeters === next.handoffRadiusMeters &&
     previous.robotSizeMeters.lengthMeters === next.robotSizeMeters.lengthMeters &&

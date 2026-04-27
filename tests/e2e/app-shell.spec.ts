@@ -43,6 +43,70 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
 });
 
+test("keeps the rotation handle attached while dragging selected elements", async ({
+  page
+}) => {
+  await page.goto("/");
+
+  await page.getByTestId("path-element-row-2").click();
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const center = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 5.1,
+    y_meters: 3.2
+  });
+  const selectedNodeBefore = await canvasNodePosition(page, "path-element-node-2");
+  const handleRootBefore = await canvasNodePosition(page, "rotation-handle-root");
+  expect(pointDistance(selectedNodeBefore, handleRootBefore)).toBeLessThan(0.5);
+
+  await holdAnimationFrames(page);
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.down();
+  await page.mouse.move(center.x + 72, center.y - 36);
+
+  const selectedNodeDuring = await canvasNodePosition(page, "path-element-node-2");
+  const handleRootDuring = await canvasNodePosition(page, "rotation-handle-root");
+  expect(pointDistance(selectedNodeDuring, handleRootDuring)).toBeLessThan(0.5);
+
+  await page.mouse.up();
+});
+
+test("defers autosave while a dirty canvas drag is active", async ({ page }) => {
+  await installWorkspaceWriteSpy(page);
+  await page.goto("/");
+
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 1.2,
+    y_meters: 1.1
+  });
+
+  await page.mouse.click(firstAnchor.x, firstAnchor.y);
+  await expect(page.getByLabel("X (m)")).toHaveValue("1.200");
+
+  await page.getByLabel("X (m)").fill("1.250");
+
+  const movedAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 1.25,
+    y_meters: 1.1
+  });
+  await page.mouse.move(movedAnchor.x, movedAnchor.y);
+  await page.mouse.down();
+  await resetWorkspaceWriteSpy(page);
+  await page.mouse.move(movedAnchor.x + 60, movedAnchor.y - 24, { steps: 4 });
+  await page.waitForTimeout(550);
+
+  expect(await workspaceWriteCount(page)).toBe(0);
+
+  await page.mouse.up();
+  await expect(page.getByTestId("save-status")).toContainText("Saved", {
+    timeout: 3_000
+  });
+  expect(await workspaceWriteCount(page)).toBeGreaterThan(0);
+});
+
 test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 450, height: 900 });
   await page.goto("/");
@@ -987,6 +1051,32 @@ interface PointMeters {
   y_meters: number;
 }
 
+type WorkspaceWriteSpyWindow = Window & {
+  __blineWorkspaceWrites?: Array<{ key: string; at: number }>;
+};
+
+type AnimationFrameHoldWindow = Window & {
+  __blineOriginalRequestAnimationFrame?: typeof window.requestAnimationFrame;
+  __blineOriginalCancelAnimationFrame?: typeof window.cancelAnimationFrame;
+  __blineHeldAnimationFrameIds?: Set<number>;
+  __blineNextHeldAnimationFrameId?: number;
+};
+
+interface KonvaDebugNode {
+  getAttr(name: string): unknown;
+  absolutePosition(): { x: number; y: number };
+}
+
+interface KonvaDebugStage {
+  find(predicate: (node: KonvaDebugNode) => boolean): KonvaDebugNode[];
+}
+
+type KonvaDebugWindow = Window & {
+  Konva?: {
+    stages?: KonvaDebugStage[];
+  };
+};
+
 async function requiredBox(locator: Locator): Promise<Bounds> {
   const box = await locator.boundingBox();
   if (!box) {
@@ -994,6 +1084,94 @@ async function requiredBox(locator: Locator): Promise<Bounds> {
   }
 
   return box;
+}
+
+async function holdAnimationFrames(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const testWindow = window as AnimationFrameHoldWindow;
+    if (testWindow.__blineOriginalRequestAnimationFrame) {
+      return;
+    }
+
+    testWindow.__blineOriginalRequestAnimationFrame =
+      window.requestAnimationFrame.bind(window);
+    testWindow.__blineOriginalCancelAnimationFrame =
+      window.cancelAnimationFrame.bind(window);
+    testWindow.__blineHeldAnimationFrameIds = new Set();
+    testWindow.__blineNextHeldAnimationFrameId = 1;
+
+    window.requestAnimationFrame = () => {
+      const frameId = testWindow.__blineNextHeldAnimationFrameId ?? 1;
+      testWindow.__blineNextHeldAnimationFrameId = frameId + 1;
+      testWindow.__blineHeldAnimationFrameIds?.add(frameId);
+      return frameId;
+    };
+    window.cancelAnimationFrame = (frameId) => {
+      testWindow.__blineHeldAnimationFrameIds?.delete(frameId);
+    };
+  });
+}
+
+async function canvasNodePosition(
+  page: Page,
+  testId: string
+): Promise<{ x: number; y: number }> {
+  const position = await page.evaluate((nodeTestId) => {
+    const konvaWindow = window as KonvaDebugWindow;
+    const stage = konvaWindow.Konva?.stages?.[0];
+    const node = stage?.find(
+      (candidate) => candidate.getAttr("data-testid") === nodeTestId
+    )[0];
+    return node?.absolutePosition() ?? null;
+  }, testId);
+
+  if (!position) {
+    throw new Error(`Expected canvas node "${testId}" to exist`);
+  }
+
+  return position;
+}
+
+function pointDistance(
+  first: { x: number; y: number },
+  second: { x: number; y: number }
+): number {
+  return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+async function installWorkspaceWriteSpy(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    const spyWindow = window as WorkspaceWriteSpyWindow;
+
+    spyWindow.__blineWorkspaceWrites = [];
+    Storage.prototype.setItem = function setItemWithWorkspaceWriteSpy(
+      this: Storage,
+      key: string,
+      value: string
+    ) {
+      if (key.startsWith("bline-web:workspace:")) {
+        spyWindow.__blineWorkspaceWrites?.push({
+          key,
+          at: performance.now()
+        });
+      }
+
+      return originalSetItem.call(this, key, value);
+    };
+  });
+}
+
+async function resetWorkspaceWriteSpy(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites = [];
+  });
+}
+
+async function workspaceWriteCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites?.length ?? 0
+  );
 }
 
 async function currentPathName(page: {
