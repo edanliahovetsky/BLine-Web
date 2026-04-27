@@ -36,6 +36,10 @@ export function PropertyEditor({
   onChangeType,
   onUpdateElement
 }: PropertyEditorProps) {
+  if (!element) {
+    return null;
+  }
+
   return (
     <SidebarSection
       className="property-editor-section"
@@ -45,45 +49,41 @@ export function PropertyEditor({
       title="Element Properties"
       onToggle={onToggleSection}
     >
-      {element ? (
-        <div
-          className="property-editor"
-          data-testid="property-editor"
-          aria-label={`Element ${selectedElementIndex === null ? "" : selectedElementIndex + 1} properties`}
-        >
-          <TypeField
+      <div
+        className="property-editor"
+        data-testid="property-editor"
+        aria-label={`Element ${selectedElementIndex === null ? "" : selectedElementIndex + 1} properties`}
+      >
+        <TypeField
+          element={element}
+          options={typeOptions}
+          onChangeType={onChangeType}
+        />
+        {isTranslationTarget(element) ? (
+          <TranslationFields
             element={element}
-            options={typeOptions}
-            onChangeType={onChangeType}
+            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
           />
-          {isTranslationTarget(element) ? (
-            <TranslationFields
-              element={element}
-              onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
-            />
-          ) : null}
-          {isWaypoint(element) ? (
-            <WaypointFields
-              element={element}
-              onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
-            />
-          ) : null}
-          {isRotationTarget(element) ? (
-            <RotationFields
-              element={element}
-              onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
-            />
-          ) : null}
-          {isEventTrigger(element) ? (
-            <EventFields
-              element={element}
-              onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <div className="sidebar-empty-state">No element selected</div>
-      )}
+        ) : null}
+        {isWaypoint(element) ? (
+          <WaypointFields
+            element={element}
+            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+          />
+        ) : null}
+        {isRotationTarget(element) ? (
+          <RotationFields
+            element={element}
+            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+          />
+        ) : null}
+        {isEventTrigger(element) ? (
+          <EventFields
+            element={element}
+            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+          />
+        ) : null}
+      </div>
     </SidebarSection>
   );
 }

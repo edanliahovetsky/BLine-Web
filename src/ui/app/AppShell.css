@@ -348,12 +348,13 @@ select {
 
 .project-open-panel {
   position: absolute;
-  z-index: 30;
+  z-index: 45;
   top: calc(100% + 8px);
   right: 0;
   display: grid;
   gap: 8px;
   width: min(360px, calc(100vw - 28px));
+  box-sizing: border-box;
   padding: 10px;
   border: 1px solid #37424c;
   border-radius: 8px;
@@ -379,6 +380,7 @@ select {
   min-height: 44px;
   padding: 7px 9px;
   text-align: left;
+  touch-action: manipulation;
 }
 
 .project-open-panel__list button span,
@@ -660,52 +662,6 @@ select {
   border: 1px solid #303840;
   border-radius: 8px;
   background: #191e22;
-}
-
-.sidebar-selection-context {
-  position: sticky;
-  z-index: 28;
-  top: 0;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  max-width: 100%;
-  min-height: 38px;
-  padding: 7px 9px;
-  border: 1px solid #34414d;
-  border-radius: 8px;
-  color: #eef3f7;
-  background: #1b232a;
-  box-shadow: 0 6px 18px rgba(5, 8, 12, 0.22);
-}
-
-.sidebar-selection-context__label,
-.sidebar-selection-context__meta,
-.sidebar-selection-context__empty {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-selection-context__label {
-  font-size: 0.82rem;
-  font-weight: 720;
-}
-
-.sidebar-selection-context__meta {
-  color: #a8b4bf;
-  font-size: 0.72rem;
-  font-weight: 640;
-}
-
-.sidebar-selection-context__empty {
-  grid-column: 1 / -1;
-  color: #98a5af;
-  font-size: 0.82rem;
-  font-weight: 680;
 }
 
 .path-elements-section {
@@ -2386,9 +2342,32 @@ select {
     max-height: calc(100vh - 56px);
   }
 
+  .top-menu__item {
+    min-height: 36px;
+  }
+
   .top-menu--align-end .top-menu__panel {
     right: 8px;
     left: auto;
+  }
+
+  .project-open-panel {
+    position: fixed;
+    top: 50px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-height: calc(100vh - 64px);
+    max-height: calc(100dvh - 64px);
+  }
+
+  .project-open-panel__list {
+    max-height: min(48vh, 360px);
+    max-height: min(48dvh, 360px);
+  }
+
+  .project-open-panel__list button {
+    min-height: 52px;
   }
 
   .config-dialog-backdrop {

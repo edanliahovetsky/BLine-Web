@@ -3,6 +3,7 @@ import type {
   ProjectDocument,
   ProjectWorkspaceDocument
 } from "../core/io/projectSchema";
+import type { PathModel } from "../core/model/path";
 import {
   activeProjectFromWorkspace,
   addPathToWorkspace,
@@ -40,7 +41,7 @@ export interface ProjectStoreState {
   switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
   saveWorkspace(): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
-  createPath(input: { displayName: string; fileName?: string }): void;
+  createPath(input: { displayName: string; fileName?: string; path?: PathModel }): void;
   renamePath(pathId: string, name: string): void;
   duplicatePath(pathId: string, name: string): void;
   deletePaths(pathIds: readonly string[]): void;
@@ -224,6 +225,7 @@ export function createProjectStore(
       const nextWorkspace = addPathToWorkspace(workspace, {
         display_name: input.displayName,
         file_name: input.fileName,
+        path: input.path,
         makeActive: true
       });
       history.getState().clear();
