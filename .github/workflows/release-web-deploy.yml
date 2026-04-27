@@ -1,0 +1,294 @@
+name: Web Deploy Release
+
+on:
+  push:
+    branches:
+      - web-deploy
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-deploy-release
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Release Metadata
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Read release metadata
+        id: metadata
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          npm run release:check -- "${TAG}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  verify:
+    name: Release Gate
+    runs-on: macos-latest
+    needs: metadata
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Release metadata check
+        run: npm run release:check -- "${{ needs.metadata.outputs.tag }}"
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Parity harness
+        run: npm run parity
+
+      - name: Build web bundle
+        run: npm run build
+
+      - name: Browser smoke
+        run: npm run test:e2e
+
+      - name: Tauri build
+        run: npm run tauri:build
+
+  web-artifact:
+    name: Web Artifact
+    runs-on: ubuntu-22.04
+    needs:
+      - metadata
+      - verify
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Release metadata check
+        run: npm run release:check -- "${{ needs.metadata.outputs.tag }}"
+
+      - name: Build web bundle
+        run: npm run build
+
+      - name: Zip web bundle
+        run: |
+          cd dist
+          zip -r "../bline-web-web-${{ needs.metadata.outputs.version }}.zip" .
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-dist
+          path: bline-web-web-${{ needs.metadata.outputs.version }}.zip
+          if-no-files-found: error
+
+  desktop-artifacts:
+    name: Desktop Artifact (${{ matrix.asset-prefix }})
+    runs-on: ${{ matrix.platform }}
+    needs:
+      - metadata
+      - verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            asset-prefix: macos-aarch64
+            args: --target aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - platform: macos-latest
+            asset-prefix: macos-x64
+            args: --target x86_64-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            asset-prefix: linux-x64
+            args: ""
+            rust-targets: ""
+          - platform: windows-latest
+            asset-prefix: windows-x64
+            args: ""
+            rust-targets: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Install Linux Tauri dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Release metadata check
+        run: npm run release:check -- "${{ needs.metadata.outputs.tag }}"
+
+      - name: Build Tauri bundle
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: ${{ matrix.args }}
+
+      - name: Collect desktop assets
+        shell: bash
+        run: |
+          mkdir -p desktop-assets
+          while IFS= read -r -d '' file; do
+            base="$(basename "${file}")"
+            cp "${file}" "desktop-assets/${{ matrix.asset-prefix }}-${base}"
+          done < <(
+            find src-tauri/target -path "*/release/bundle/*" -type f \
+              \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) \
+              -print0
+          )
+
+          if ! find desktop-assets -type f -print -quit | grep -q .; then
+            echo "No desktop release assets were produced."
+            exit 1
+          fi
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-desktop-${{ matrix.asset-prefix }}
+          path: desktop-assets/*
+          if-no-files-found: error
+
+  publish-draft:
+    name: Publish Draft Release
+    runs-on: ubuntu-22.04
+    needs:
+      - metadata
+      - web-artifact
+      - desktop-artifacts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release notes
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Draft release generated from the `web-deploy` branch.
+
+          Cloudflare Pages deploys this same commit as the production web build.
+
+          Artifacts:
+          - Web static bundle zip
+          - Unsigned Tauri desktop bundles for tester use
+          NOTES
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          TITLE: BLine Web ${{ needs.metadata.outputs.tag }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          if gh release view "${TAG}" --json isDraft --jq .isDraft > release-is-draft.txt 2>/dev/null; then
+            if [[ "$(cat release-is-draft.txt)" != "true" ]]; then
+              echo "Release ${TAG} already exists and is not a draft. Refusing to replace published assets."
+              exit 1
+            fi
+            RELEASE_EXISTS=true
+          else
+            RELEASE_EXISTS=false
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${TAG}" "${GITHUB_SHA}"
+          git push --force origin "refs/tags/${TAG}"
+
+          if [[ "${RELEASE_EXISTS}" == "true" ]]; then
+            gh release edit "${TAG}" \
+              --title "${TITLE}" \
+              --notes-file release-notes.md \
+              --draft=true \
+              --prerelease="${PRERELEASE}" \
+              --target "${GITHUB_SHA}"
+          else
+            args=(release create "${TAG}" --title "${TITLE}" --notes-file release-notes.md --draft --target "${GITHUB_SHA}" --latest=false)
+            if [[ "${PRERELEASE}" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+            gh "${args[@]}"
+          fi
+
+          mapfile -d '' assets < <(find release-assets -type f -print0)
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No release assets were downloaded."
+            exit 1
+          fi
+
+          gh release upload "${TAG}" "${assets[@]}" --clobber
