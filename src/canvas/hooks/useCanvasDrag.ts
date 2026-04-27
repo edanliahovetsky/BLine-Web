@@ -35,12 +35,24 @@ interface ActiveDrag {
   currentRatio: number | null;
 }
 
+export interface LiveDragPreview {
+  index: number;
+  position: PointMeters;
+  stagePoint: StagePoint;
+  ratio: number | null;
+}
+
 interface UseCanvasDragInput {
   project: ProjectDocument | null;
   viewport: FieldViewport;
+  onLiveDragPreviewChange?: (preview: LiveDragPreview | null) => void;
 }
 
-export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
+export function useCanvasDrag({
+  project,
+  viewport,
+  onLiveDragPreviewChange
+}: UseCanvasDragInput) {
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const activeDragRef = useRef<ActiveDrag | null>(null);
   const previewFrameRef = useRef<number | null>(null);
@@ -141,21 +153,26 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         return;
       }
 
+      const startRatio =
+        isRotationTarget(element) || isEventTrigger(element)
+          ? element.t_ratio
+          : null;
+
       setActiveDrag({
         index,
         start,
         current: start,
-        startRatio:
-          isRotationTarget(element) || isEventTrigger(element)
-            ? element.t_ratio
-            : null,
-        currentRatio:
-          isRotationTarget(element) || isEventTrigger(element)
-            ? element.t_ratio
-            : null
+        startRatio,
+        currentRatio: startRatio
+      });
+      onLiveDragPreviewChange?.({
+        index,
+        position: start,
+        stagePoint: modelToStagePoint(start, viewport),
+        ratio: startRatio
       });
     },
-    [isDragEnabled, project, setActiveDrag]
+    [isDragEnabled, onLiveDragPreviewChange, project, setActiveDrag, viewport]
   );
 
   const handleDragMove = useCallback(
@@ -191,6 +208,12 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
       const nextPosition = projected.position;
       const nextRatio = projected.ratio;
 
+      onLiveDragPreviewChange?.({
+        index,
+        position: nextPosition,
+        stagePoint: projected.stagePoint,
+        ratio: nextRatio
+      });
       setActiveDrag(
         {
           ...drag,
@@ -200,7 +223,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         "frame"
       );
     },
-    [project, setActiveDrag, viewport]
+    [onLiveDragPreviewChange, project, setActiveDrag, viewport]
   );
 
   const handleDragEnd = useCallback(
@@ -235,6 +258,12 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
 
       const nextStagePoint = modelToStagePoint(nextPosition, viewport);
       dragTarget.position(nextStagePoint);
+      onLiveDragPreviewChange?.({
+        index,
+        position: nextPosition,
+        stagePoint: nextStagePoint,
+        ratio: nextRatio
+      });
       setActiveDrag(null);
 
       if (drag.startRatio !== null && nextRatio !== null) {
@@ -256,7 +285,7 @@ export function useCanvasDrag({ project, viewport }: UseCanvasDragInput) {
         selectionStore.getState().selectElement(index, projectStore.getState().project);
       }
     },
-    [project, setActiveDrag, viewport]
+    [onLiveDragPreviewChange, project, setActiveDrag, viewport]
   );
 
   return {

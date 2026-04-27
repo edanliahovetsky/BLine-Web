@@ -23,13 +23,16 @@ import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
 import { fieldAspectRatio } from "./constants";
 import { createFieldViewport, type CanvasSize } from "./geometry";
-import { useCanvasDrag } from "./hooks/useCanvasDrag";
+import { useCanvasDrag, type LiveDragPreview } from "./hooks/useCanvasDrag";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import { useCanvasSelection } from "./hooks/useCanvasSelection";
 import { ConstraintRangeHighlightContent } from "./layers/ConstraintOverlayLayer";
 import { FieldLayerContent } from "./layers/FieldLayer";
 import { PathLayerContent } from "./layers/PathLayer";
-import { RotationHandleLayerContent } from "./layers/RotationHandleLayer";
+import {
+  RotationHandleLayerContent,
+  type RotationHandleLayerHandle
+} from "./layers/RotationHandleLayer";
 import { SimulationLayerContent } from "./layers/SimulationLayer";
 import {
   createRemovePathElementCommand
@@ -62,6 +65,7 @@ interface ActivePanDrag {
 
 export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const rotationHandleLayerRef = useRef<RotationHandleLayerHandle | null>(null);
   const activePanDragRef = useRef<ActivePanDrag | null>(null);
   const panOffsetRef = useRef({ x: 0, y: 0 });
   const pendingPanOffsetRef = useRef<{ x: number; y: number } | null>(null);
@@ -218,7 +222,17 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     }
   }, [project]);
   const selection = useCanvasSelection(project);
-  const drag = useCanvasDrag({ project, viewport });
+  const handleLiveDragPreviewChange = useCallback(
+    (preview: LiveDragPreview | null) => {
+      rotationHandleLayerRef.current?.syncElementPosition(preview);
+    },
+    []
+  );
+  const drag = useCanvasDrag({
+    project,
+    viewport,
+    onLiveDragPreviewChange: handleLiveDragPreviewChange
+  });
   const canvasInteractionActive =
     isPanning || drag.isDragging || activeRotationDrag !== null;
   const rotationPreview: RotationOverrides = activeRotationDrag
@@ -449,7 +463,8 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       nextRadians
     );
     if (handlePoint) {
-      dragTarget.position(handlePoint);
+      dragTarget.absolutePosition(handlePoint);
+      dragTarget.getLayer()?.batchDraw();
     }
 
     setActiveRotationDrag(
@@ -482,7 +497,8 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       rotationDrag.currentRadians;
     const handlePoint = rotationHandlePoint(project, index, viewport, nextRadians);
     if (handlePoint) {
-      dragTarget.position(handlePoint);
+      dragTarget.absolutePosition(handlePoint);
+      dragTarget.getLayer()?.batchDraw();
     }
     setActiveRotationDrag(null);
 
@@ -549,6 +565,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
               dragPreview={drag.dragPreview}
             />
             <RotationHandleLayerContent
+              ref={rotationHandleLayerRef}
               project={project}
               selectedElementIndex={selectedElementIndex}
               viewport={viewport}

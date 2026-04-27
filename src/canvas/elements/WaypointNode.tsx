@@ -100,6 +100,7 @@ export const WaypointNode = memo(function WaypointNode({
       y={point.y}
       draggable={draggable}
       dragBoundFunc={dragBoundFunc}
+      data-testid={`path-element-node-${index}`}
       onMouseDown={(event) => onPointerDown(index, event)}
       onTouchStart={(event) => onPointerDown(index, event)}
       onDragStart={(event) => onDragStart(index, event)}
