@@ -25,6 +25,11 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] }
+    },
+    {
+      name: "webkit-canvas",
+      grep: /@webkit-canvas/,
+      use: { ...devices["Desktop Safari"] }
     }
   ]
 });
