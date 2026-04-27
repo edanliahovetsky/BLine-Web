@@ -44,10 +44,12 @@ import {
   centeredRobotBounds,
   robotBoundsWithProtrusion,
   robotProtrusionBounds,
+  robotProtrusionOutlineGeometry,
   robotSizeFromConfig,
   robotSizeToPixels,
   strokedRectInsideBounds,
   type RobotLocalBounds,
+  type RobotProtrusionPathCommand,
   type RobotSizeMeters
 } from "../robotFootprint";
 import { buildElementProtrusionVisibilityByIndex } from "../protrusionVisibility";
@@ -658,6 +660,7 @@ function drawRobotFootprint(
   const halo = robotHaloMetrics(width, height);
   const haloOutline = strokedRectInsideBounds(footprintBounds, halo.strokeWidth);
   const robotOutline = strokedRectInsideBounds(footprintBounds, outlineWidth);
+  const protrusionStrokeWidth = Math.max(1.2, outlineWidth * 0.6);
   const extension = robotProtrusionBounds({
     lengthPx: width,
     widthPx: height,
@@ -665,15 +668,23 @@ function drawRobotFootprint(
     protrusionDistancePx,
     protrusionSide
   });
+  const fillColor = mode === "waypoint" ? 0xff9f43 : 0x6bdc8b;
 
   if (extension) {
     drawRect(graphics, extension, {
-      fill: 0x05080b,
-      fillAlpha: 0.22 * opacity,
-      stroke: 0x05080b,
-      strokeAlpha: 0.76 * opacity,
-      strokeWidth: Math.max(outlineWidth * 0.8, halo.strokeWidth)
+      fill: fillColor,
+      fillAlpha: 0.08 * opacity
     }, transform);
+    drawRobotProtrusionOutline(graphics, transform, width, height, {
+      protrusionDistancePx,
+      protrusionSide,
+      strokeWidth: Math.max(
+        protrusionStrokeWidth + 1.4,
+        protrusionStrokeWidth + halo.strokeWidth * 0.55
+      ),
+      color: 0x05080b,
+      alpha: 0.76 * opacity
+    });
   }
   drawRect(graphics, haloOutline.rect, {
     fill: 0x05080b,
@@ -683,8 +694,7 @@ function drawRobotFootprint(
     strokeWidth: haloOutline.strokeWidth
   }, transform);
   drawRect(graphics, robotOutline.rect, {
-    fill:
-      mode === "waypoint" ? 0xff9f43 : 0x6bdc8b,
+    fill: fillColor,
     fillAlpha: 0.1 * opacity,
     stroke: accent,
     strokeAlpha: opacity,
@@ -692,11 +702,13 @@ function drawRobotFootprint(
   }, transform);
 
   if (extension) {
-    drawRect(graphics, extension, {
-      stroke: accent,
-      strokeAlpha: opacity,
-      strokeWidth: Math.max(1.2, outlineWidth * 0.6)
-    }, transform);
+    drawRobotProtrusionOutline(graphics, transform, width, height, {
+      protrusionDistancePx,
+      protrusionSide,
+      strokeWidth: protrusionStrokeWidth,
+      color: accent,
+      alpha: opacity
+    });
   }
 
   if (mode === "rotation") {
@@ -738,6 +750,42 @@ function drawRobotFootprint(
     },
     transform
   );
+}
+
+function drawRobotProtrusionOutline(
+  graphics: Graphics,
+  transform: LocalTransform,
+  width: number,
+  height: number,
+  options: {
+    protrusionDistancePx: number;
+    protrusionSide: DrawNodeInput["protrusionSide"];
+    strokeWidth: number;
+    color: string | number;
+    alpha: number;
+  }
+): void {
+  const cornerRadius = robotCornerRadius(width, height);
+  const outline = robotProtrusionOutlineGeometry({
+    lengthPx: width,
+    widthPx: height,
+    protrusionVisible: true,
+    protrusionDistancePx: options.protrusionDistancePx,
+    protrusionSide: options.protrusionSide,
+    strokeWidth: options.strokeWidth,
+    cornerRadiusPx: cornerRadius,
+    rootInsetPx: cornerRadius + options.strokeWidth / 2
+  });
+
+  if (!outline) {
+    return;
+  }
+
+  drawLocalPathCommands(graphics, outline.pathCommands, transform, {
+    color: options.color,
+    width: outline.strokeWidth,
+    alpha: options.alpha
+  });
 }
 
 function drawSelectionFootprint(
@@ -910,6 +958,43 @@ function drawLocalPolyline(
     transformed.push(point.x, point.y);
   }
   drawPolyline(graphics, transformed, style);
+}
+
+function drawLocalPathCommands(
+  graphics: Graphics,
+  commands: RobotProtrusionPathCommand[],
+  transform: LocalTransform,
+  style: { color: string | number; width: number; alpha: number }
+): void {
+  if (commands.length === 0) {
+    return;
+  }
+
+  for (const command of commands) {
+    if (command[0] === "M") {
+      const point = transformLocalPoint(transform, command[1], command[2]);
+      graphics.moveTo(point.x, point.y);
+      continue;
+    }
+
+    if (command[0] === "L") {
+      const point = transformLocalPoint(transform, command[1], command[2]);
+      graphics.lineTo(point.x, point.y);
+      continue;
+    }
+
+    const control = transformLocalPoint(transform, command[1], command[2]);
+    const end = transformLocalPoint(transform, command[3], command[4]);
+    graphics.quadraticCurveTo(control.x, control.y, end.x, end.y);
+  }
+
+  graphics.stroke({
+    color: style.color,
+    width: style.width,
+    alpha: style.alpha,
+    cap: "butt",
+    join: "round"
+  });
 }
 
 function drawLine(
@@ -1195,6 +1280,10 @@ function robotHaloMetrics(width: number, height: number) {
   return {
     strokeWidth: clamp(footprintSize * 0.12, 2.2, 5)
   };
+}
+
+function robotCornerRadius(width: number, height: number): number {
+  return Math.max(3, Math.min(width, height) * 0.08);
 }
 
 function clampedElementHaloThickness(radius: number): number {

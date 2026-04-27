@@ -17,8 +17,14 @@ export interface RobotProtrusionOutlineGeometry {
   bounds: RobotLocalBounds;
   strokeWidth: number;
   pathData: string;
+  pathCommands: RobotProtrusionPathCommand[];
   pathPoints: number[];
 }
+
+export type RobotProtrusionPathCommand =
+  | ["M", number, number]
+  | ["L", number, number]
+  | ["Q", number, number, number, number];
 
 const defaultRobotConfig = createProjectConfig().gui.robot;
 
@@ -230,7 +236,7 @@ export function robotProtrusionOutlineGeometry({
     robotLeftY,
     robotRightY
   });
-  const pathData = protrusionOutlinePathData({
+  const pathCommands = protrusionOutlinePathCommands({
     protrusionSide,
     leftStrokeX,
     rightStrokeX,
@@ -247,7 +253,8 @@ export function robotProtrusionOutlineGeometry({
   return {
     bounds,
     strokeWidth: normalizedStrokeWidth,
-    pathData,
+    pathData: pathData(pathCommands),
+    pathCommands,
     pathPoints
   };
 }
@@ -343,7 +350,7 @@ function protrusionOutlinePathPoints({
   return [];
 }
 
-function protrusionOutlinePathData({
+function protrusionOutlinePathCommands({
   protrusionSide,
   leftStrokeX,
   rightStrokeX,
@@ -367,11 +374,11 @@ function protrusionOutlinePathData({
   rootRightY: number;
   filletRadius: number;
   rootFilletRadius: number;
-}): string {
+}): RobotProtrusionPathCommand[] {
   const r = filletRadius;
   const rootR = rootFilletRadius;
   if (protrusionSide === "front") {
-    return pathData([
+    return [
       ["M", rootFrontX, topStrokeY + rootR],
       ["Q", rootFrontX, topStrokeY, rootFrontX + rootR, topStrokeY],
       ["L", rightStrokeX - r, topStrokeY],
@@ -380,10 +387,10 @@ function protrusionOutlinePathData({
       ["Q", rightStrokeX, bottomStrokeY, rightStrokeX - r, bottomStrokeY],
       ["L", rootFrontX + rootR, bottomStrokeY],
       ["Q", rootFrontX, bottomStrokeY, rootFrontX, bottomStrokeY - rootR]
-    ]);
+    ];
   }
   if (protrusionSide === "back") {
-    return pathData([
+    return [
       ["M", rootBackX, topStrokeY + rootR],
       ["Q", rootBackX, topStrokeY, rootBackX - rootR, topStrokeY],
       ["L", leftStrokeX + r, topStrokeY],
@@ -392,10 +399,10 @@ function protrusionOutlinePathData({
       ["Q", leftStrokeX, bottomStrokeY, leftStrokeX + r, bottomStrokeY],
       ["L", rootBackX - rootR, bottomStrokeY],
       ["Q", rootBackX, bottomStrokeY, rootBackX, bottomStrokeY - rootR]
-    ]);
+    ];
   }
   if (protrusionSide === "left") {
-    return pathData([
+    return [
       ["M", leftStrokeX + rootR, rootLeftY],
       ["Q", leftStrokeX, rootLeftY, leftStrokeX, rootLeftY - rootR],
       ["L", leftStrokeX, topStrokeY + r],
@@ -404,10 +411,10 @@ function protrusionOutlinePathData({
       ["Q", rightStrokeX, topStrokeY, rightStrokeX, topStrokeY + r],
       ["L", rightStrokeX, rootLeftY - rootR],
       ["Q", rightStrokeX, rootLeftY, rightStrokeX - rootR, rootLeftY]
-    ]);
+    ];
   }
   if (protrusionSide === "right") {
-    return pathData([
+    return [
       ["M", leftStrokeX + rootR, rootRightY],
       ["Q", leftStrokeX, rootRightY, leftStrokeX, rootRightY + rootR],
       ["L", leftStrokeX, bottomStrokeY - r],
@@ -416,13 +423,13 @@ function protrusionOutlinePathData({
       ["Q", rightStrokeX, bottomStrokeY, rightStrokeX, bottomStrokeY - r],
       ["L", rightStrokeX, rootRightY + rootR],
       ["Q", rightStrokeX, rootRightY, rightStrokeX - rootR, rootRightY]
-    ]);
+    ];
   }
 
-  return "";
+  return [];
 }
 
-function pathData(commands: Array<[string, ...number[]]>): string {
+function pathData(commands: RobotProtrusionPathCommand[]): string {
   return commands
     .map(([command, ...values]) => `${command} ${values.map(formatPathNumber).join(" ")}`)
     .join(" ");
