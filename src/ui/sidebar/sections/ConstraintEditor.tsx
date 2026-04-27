@@ -737,6 +737,7 @@ function ConstraintSegmentBar({
             data-ranged-constraint-selection={rangedSelectionToken(constraintKey, entry.index)}
             role="option"
             aria-selected={selected}
+            aria-keyshortcuts="Delete Backspace"
             aria-label={`Select ${meta.label} segment ${segmentNumber}`}
           >
             {density === 'popout' ? (
@@ -1038,6 +1039,7 @@ function RangedConstraintControls({
           }}
           disabled={!entry}
           aria-label={`Delete ${selectedActionLabel}`}
+          aria-keyshortcuts={entry ? 'Delete Backspace' : undefined}
           title={`Delete ${selectedActionLabel}`}
         >
           <RemoveIcon size={16} />

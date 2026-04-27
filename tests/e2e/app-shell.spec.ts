@@ -365,10 +365,16 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   const transport = page.getByTestId("simulation-transport");
   await expect(transport).toBeVisible();
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
-  await expect(transport.getByRole("button", { name: "Reset simulation" })).toHaveCount(0);
+  await expect(transport.getByRole("button", { name: "Reset simulation" })).toBeDisabled();
+  await expect(transport.getByRole("button", { name: "Fast forward simulation" })).toBeEnabled();
   await expect(transport.getByRole("button", { name: "Play simulation" })).toHaveText("");
+  await expect(transport.getByRole("button", { name: "Play simulation" })).toHaveAttribute(
+    "aria-keyshortcuts",
+    "Space K"
+  );
 
-  await transport.getByRole("button", { name: "Play simulation" }).click();
+  await page.getByTestId("path-stage").focus();
+  await page.keyboard.press("Space");
   await expect(transport.getByRole("button", { name: "Pause simulation" })).toBeVisible();
   await expect
     .poll(async () => page.getByTestId("simulation-time").innerText())
@@ -384,6 +390,16 @@ test("plays and seeks the simulation transport", async ({ page }) => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await expect(page.getByTestId("simulation-time")).toContainText("1.00 /");
+
+  await page.getByTestId("path-stage").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => simulationProgress(page)).toMatchObject({
+    atEnd: true
+  });
+
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
   await page.getByLabel("Simulation time").evaluate((input) => {
     if (!(input instanceof HTMLInputElement)) {
       throw new Error("Expected range input");
@@ -436,7 +452,7 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await expect(xInput).toHaveValue("6.25");
 
   await expect(page.getByTestId("path-element-row-6")).toContainText("6.25, 3.75 m");
-  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
+  await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
 
   await page.getByRole("button", { name: "Remove Waypoint 7" }).click();
 
@@ -638,6 +654,7 @@ test("keeps rotation handles hidden until an element is selected", async ({ page
 
 test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.goto("/");
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
   await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
@@ -666,12 +683,27 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
   const addSegmentIcon = page.getByLabel("Add Max Velocity segment").locator("svg");
   const deleteSegmentIcon = page.getByLabel("Delete constraint 1").locator("svg");
+  await expect(
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+  ).toHaveAttribute("aria-keyshortcuts", "Delete Backspace");
+  await expect(page.getByLabel("Delete constraint 1")).toHaveAttribute(
+    "aria-keyshortcuts",
+    "Delete Backspace"
+  );
   await expect(addSegmentIcon).toBeVisible();
   await expect(deleteSegmentIcon).toBeVisible();
   await expect(page.getByLabel("Add Max Velocity segment")).toHaveCSS("color", "rgb(88, 166, 255)");
   await expect(page.getByLabel("Delete constraint 1")).toHaveCSS("color", "rgb(255, 77, 77)");
   expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
   expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
+
+  await page.getByTestId("constraint-range-max_velocity_meters_per_sec-0").click();
+  await page.keyboard.press("Delete");
+  await expect(page.getByTestId("constraint-card-max_velocity_meters_per_sec")).toHaveCount(0);
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(
+    page.getByTestId("constraint-card-max_velocity_meters_per_sec")
+  ).toBeVisible();
 
   const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
   const firstConstraintInput = page.getByLabel("Constraint 1 value");
@@ -1177,6 +1209,37 @@ test("supports undo and redo for structural sidebar edits", async ({ page }) => 
   await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
 });
 
+test("moves selected path elements with arrow shortcuts", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("path-element-row-2").click();
+  await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
+    "aria-keyshortcuts",
+    "ArrowUp ArrowDown Delete Backspace"
+  );
+
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Translation");
+  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Rotation");
+  await expect(page.getByTestId("path-element-row-3")).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+
+  await page.keyboard.press("ArrowUp");
+  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
+  await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+
+  await page.getByLabel("Rotation (deg)").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("44");
+  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
+  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Translation");
+});
+
 test("supports common keyboard shortcuts", async ({ page }) => {
   await page.goto("/");
 
@@ -1189,6 +1252,18 @@ test("supports common keyboard shortcuts", async ({ page }) => {
   await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
 
   await page.keyboard.press(`${shortcut}+Shift+Z`);
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByLabel("X (m)").focus();
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+
+  await page.getByTestId("path-element-row-5").click();
+  await page.keyboard.press("Delete");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+
+  await page.keyboard.press(`${shortcut}+Z`);
   await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
 
   await page.keyboard.press(`${shortcut}+S`);
@@ -1288,6 +1363,22 @@ async function canvasSceneMetrics(page: Page): Promise<{
       renderer: debugMetrics?.renderer ?? ""
     };
   });
+}
+
+async function simulationProgress(page: Page): Promise<{
+  atEnd: boolean;
+  current: number;
+  total: number;
+}> {
+  const text = await page.getByTestId("simulation-time").innerText();
+  const values = text.match(/\d+\.\d+/g)?.map(Number) ?? [];
+  const [current = 0, total = 0] = values;
+
+  return {
+    atEnd: total > 0 && Math.abs(total - current) < 0.011,
+    current,
+    total
+  };
 }
 
 async function installWorkspaceWriteSpy(page: Page): Promise<void> {
