@@ -155,7 +155,7 @@ jobs:
             rust-targets: ""
           - platform: windows-latest
             asset-prefix: windows-x64
-            args: ""
+            args: --config src-tauri/target/generated/tauri.windows-msi-version.json
             rust-targets: ""
 
     steps:
@@ -184,6 +184,10 @@ jobs:
 
       - name: Release metadata check
         run: npm run release:check -- "${{ needs.metadata.outputs.tag }}"
+
+      - name: Prepare Windows MSI version override
+        if: matrix.platform == 'windows-latest'
+        run: npm run release:windows-msi-config
 
       - name: Build Tauri bundle
         run: npm run tauri:build -- ${{ matrix.args }}

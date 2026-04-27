@@ -1,4 +1,8 @@
 import { readFileSync } from "node:fs";
+import {
+  deriveWindowsMsiVersion,
+  isReleaseVersion,
+} from "./release-version.mjs";
 
 const packageJson = readJson("package.json");
 const tauriConfig = readJson("src-tauri/tauri.conf.json");
@@ -13,13 +17,17 @@ const cargoVersion = readCargoPackageVersion(cargoToml);
 const expectedTag = `v${packageVersion}`;
 const suppliedTag = process.argv[2];
 
-const semverPattern =
-  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/;
-
 const failures = [];
+let windowsMsiVersion;
 
-if (!semverPattern.test(packageVersion)) {
+if (!isReleaseVersion(packageVersion)) {
   failures.push(`package.json version is not valid semver: ${packageVersion}`);
+} else {
+  try {
+    windowsMsiVersion = deriveWindowsMsiVersion(packageVersion);
+  } catch (error) {
+    failures.push(error.message);
+  }
 }
 
 if (tauriVersion !== packageVersion) {
@@ -45,7 +53,9 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`release-check: ${packageVersion} (${expectedTag})`);
+console.log(
+  `release-check: ${packageVersion} (${expectedTag}); windows-msi ${windowsMsiVersion}`
+);
 
 function readJson(path) {
   return JSON.parse(readText(path));
