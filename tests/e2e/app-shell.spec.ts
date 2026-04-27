@@ -518,10 +518,10 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await decreaseConstraint.click();
   await expect(firstConstraintInput).toHaveValue("4.500");
 
-  await firstConstraintInput.fill("2.0");
+  await firstConstraintInput.fill("2.4");
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
-  ).toContainText("2 m/s");
+  ).toContainText("2.400 m/s");
 
   const firstCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1");
   const secondCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2");
@@ -536,14 +536,14 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.mouse.up();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
-  ).toContainText("2 m/s");
-  await expect(firstRange).toContainText("T1-W1");
+  ).toContainText("2.400 m/s");
+  await expect(firstRange).toHaveText("2.4 m/s");
   expect((await requiredBox(firstRange)).width).toBeGreaterThan(firstBox.width * 1.6);
 
   await page.getByRole("button", { name: "Split constraint 1" }).click();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
-  ).toContainText("2 m/s");
+  ).toContainText("2.400 m/s");
 
   await page.getByLabel("Add Max Velocity segment").click();
   await expect(
@@ -558,7 +558,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const dialogConstraintRow = dialog.getByTestId("ranged-constraint-row-2");
   const dialogConstraintInput = dialog.getByLabel("Constraint 2 value");
   const dialogConstraintStepper = dialogConstraintRow.locator(".sidebar-number-control");
-  await expect(dialogConstraintInput).toHaveValue("2");
+  await expect(dialogConstraintInput).toHaveValue("2.400");
   await expect(dialogConstraintStepper).toBeVisible();
   expect((await requiredBox(dialogConstraintStepper)).width).toBeLessThan(120);
   await expect(dialogConstraintRow.getByRole("button", { name: "Increase value" }).locator("svg")).toBeVisible();

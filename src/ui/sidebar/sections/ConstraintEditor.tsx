@@ -743,9 +743,11 @@ function ConstraintSegmentBar({
             aria-selected={selected}
             aria-label={`Select ${meta.label} segment ${segmentNumber}`}
           >
-            <span className="ranged-segment-range__label">{rangeLabel(labels, constraint)}</span>
+            {density === 'popout' ? (
+              <span className="ranged-segment-range__label">{rangeLabel(labels, constraint)}</span>
+            ) : null}
             <span className="ranged-segment-range__value">
-              {formatValue(constraint.value)} {unit}
+              {formatSegmentValue(constraint.value, unit)}
             </span>
           </div>
         );
@@ -1550,4 +1552,16 @@ function formatValue(value: number): string {
   }
 
   return Number.isInteger(value) ? String(value) : value.toFixed(3);
+}
+
+function formatSegmentValue(value: number, unit: string): string {
+  return `${formatSegmentNumber(value)} ${unit}`;
+}
+
+function formatSegmentNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+
+  return Number(value.toFixed(2)).toString();
 }
