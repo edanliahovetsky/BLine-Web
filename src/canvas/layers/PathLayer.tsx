@@ -10,6 +10,7 @@ import {
   type PositionOverrides,
   type RotationOverrides
 } from "../geometry";
+import { robotSizeFromConfig } from "../robotFootprint";
 import { WaypointNode } from "../elements/WaypointNode";
 import type { useCanvasDrag } from "../hooks/useCanvasDrag";
 import type { useCanvasSelection } from "../hooks/useCanvasSelection";
@@ -66,6 +67,7 @@ export function PathLayerContent({
   }
 
   const elements = project.path.path_elements;
+  const robotSizeMeters = robotSizeFromConfig(project.config);
   const elementPoints = getRenderableElementPositions(elements, dragPreview).flatMap(
     ({ position }) => {
       const point = modelToStagePoint(position, viewport);
@@ -136,6 +138,7 @@ export function PathLayerContent({
             handoffRadiusMeters={
               index === elements.length - 1 ? null : getHandoffRadiusMeters(element)
             }
+            robotSizeMeters={robotSizeMeters}
             metersToPixels={viewport.scale}
             onPointerDown={selection.handleElementPointerDown}
             onDragStart={drag.handleDragStart}

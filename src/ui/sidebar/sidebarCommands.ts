@@ -5,11 +5,10 @@ import {
 import {
   fieldCoordinateOffsetMeters,
   fieldLengthMeters,
-  fieldWidthMeters,
-  robotLengthMeters,
-  robotWidthMeters
+  fieldWidthMeters
 } from "../../canvas/constants";
 import { getElementHeadingRadians, getElementPosition } from "../../canvas/geometry";
+import { robotSizeFromConfig } from "../../canvas/robotFootprint";
 import { remapRangedConstraints } from "../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import {
@@ -734,15 +733,22 @@ function defaultPosition(
       Math.max(0, project.path.path_elements.length - 1)
     );
 
-  return clampFieldPosition({
-    x_meters: (fallbackPosition?.x_meters ?? fieldLengthMeters / 2) + 0.75,
-    y_meters: (fallbackPosition?.y_meters ?? fieldWidthMeters / 2) + 0.35
-  });
+  return clampFieldPosition(
+    {
+      x_meters: (fallbackPosition?.x_meters ?? fieldLengthMeters / 2) + 0.75,
+      y_meters: (fallbackPosition?.y_meters ?? fieldWidthMeters / 2) + 0.35
+    },
+    project
+  );
 }
 
-function clampFieldPosition(point: { x_meters: number; y_meters: number }) {
-  const halfRobotLength = robotLengthMeters / 2;
-  const halfRobotWidth = robotWidthMeters / 2;
+function clampFieldPosition(
+  point: { x_meters: number; y_meters: number },
+  project: ProjectDocument
+) {
+  const robotSizeMeters = robotSizeFromConfig(project.config);
+  const halfRobotLength = robotSizeMeters.lengthMeters / 2;
+  const halfRobotWidth = robotSizeMeters.widthMeters / 2;
   return {
     x_meters: clamp(
       point.x_meters,
