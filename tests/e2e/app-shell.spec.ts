@@ -43,6 +43,56 @@ test("warns mobile users that support is limited", async ({ page }) => {
   await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
 });
 
+test.describe("Pixi canvas rendering", () => {
+  test.use({
+    deviceScaleFactor: 2,
+    viewport: { width: 1180, height: 860 }
+  });
+
+  test("keeps the WebGL overlay sharp while panning @webkit-canvas", async ({
+    page
+  }) => {
+    await page.goto("/");
+
+    const canvas = page.getByTestId("path-stage-canvas");
+    await expect(canvas).toBeVisible();
+    await expect.poll(() => canvasSceneMetrics(page)).toMatchObject({
+      count: 1,
+      ratios: [2]
+    });
+    await expect
+      .poll(async () => (await canvasSceneMetrics(page)).renderer.toLowerCase())
+      .toContain("webgl");
+
+    let box = await requiredBox(canvas);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let zoomStep = 0; zoomStep < 12; zoomStep += 1) {
+      await page.mouse.wheel(0, -400);
+    }
+
+    await expect.poll(() => canvasSceneMetrics(page)).toMatchObject({
+      count: 1,
+      ratios: [2]
+    });
+
+    const nodeBeforePan = await canvasNodePosition(page, "path-element-node-0");
+    box = await requiredBox(canvas);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 96, box.y + box.height / 2 + 72, {
+      steps: 4
+    });
+    await page.mouse.up();
+
+    await expect.poll(() => canvasSceneMetrics(page)).toMatchObject({
+      count: 1,
+      ratios: [2]
+    });
+    const nodeAfterPan = await canvasNodePosition(page, "path-element-node-0");
+    expect(pointDistance(nodeBeforePan, nodeAfterPan)).toBeGreaterThan(8);
+  });
+});
+
 test("selects and drags a canvas anchor", async ({ page }) => {
   await page.goto("/");
 
@@ -86,7 +136,6 @@ test("keeps the rotation handle attached while dragging selected elements", asyn
   const handleRootBefore = await canvasNodePosition(page, "rotation-handle-root");
   expect(pointDistance(selectedNodeBefore, handleRootBefore)).toBeLessThan(0.5);
 
-  await holdAnimationFrames(page);
   await page.mouse.move(center.x, center.y);
   await page.mouse.down();
   await page.mouse.move(center.x + 72, center.y - 36);
@@ -1162,25 +1211,18 @@ type WorkspaceWriteSpyWindow = Window & {
   __blineWorkspaceWrites?: Array<{ key: string; at: number }>;
 };
 
-type AnimationFrameHoldWindow = Window & {
-  __blineOriginalRequestAnimationFrame?: typeof window.requestAnimationFrame;
-  __blineOriginalCancelAnimationFrame?: typeof window.cancelAnimationFrame;
-  __blineHeldAnimationFrameIds?: Set<number>;
-  __blineNextHeldAnimationFrameId?: number;
-};
-
-interface KonvaDebugNode {
-  getAttr(name: string): unknown;
-  absolutePosition(): { x: number; y: number };
-}
-
-interface KonvaDebugStage {
-  find(predicate: (node: KonvaDebugNode) => boolean): KonvaDebugNode[];
-}
-
-type KonvaDebugWindow = Window & {
-  Konva?: {
-    stages?: KonvaDebugStage[];
+type PixiDebugWindow = Window & {
+  __blinePixiDebug?: {
+    canvasMetrics(): {
+      canvasHeight: number;
+      canvasWidth: number;
+      cssHeight: number;
+      cssWidth: number;
+      ratio: number;
+      renderer: string;
+      renderCount: number;
+    };
+    nodePosition(testId: string): { x: number; y: number } | null;
   };
 };
 
@@ -1193,44 +1235,24 @@ async function requiredBox(locator: Locator): Promise<Bounds> {
   return box;
 }
 
-async function holdAnimationFrames(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const testWindow = window as AnimationFrameHoldWindow;
-    if (testWindow.__blineOriginalRequestAnimationFrame) {
-      return;
-    }
-
-    testWindow.__blineOriginalRequestAnimationFrame =
-      window.requestAnimationFrame.bind(window);
-    testWindow.__blineOriginalCancelAnimationFrame =
-      window.cancelAnimationFrame.bind(window);
-    testWindow.__blineHeldAnimationFrameIds = new Set();
-    testWindow.__blineNextHeldAnimationFrameId = 1;
-
-    window.requestAnimationFrame = () => {
-      const frameId = testWindow.__blineNextHeldAnimationFrameId ?? 1;
-      testWindow.__blineNextHeldAnimationFrameId = frameId + 1;
-      testWindow.__blineHeldAnimationFrameIds?.add(frameId);
-      return frameId;
-    };
-    window.cancelAnimationFrame = (frameId) => {
-      testWindow.__blineHeldAnimationFrameIds?.delete(frameId);
-    };
-  });
-}
-
 async function canvasNodePosition(
   page: Page,
   testId: string
 ): Promise<{ x: number; y: number }> {
-  const position = await page.evaluate((nodeTestId) => {
-    const konvaWindow = window as KonvaDebugWindow;
-    const stage = konvaWindow.Konva?.stages?.[0];
-    const node = stage?.find(
-      (candidate) => candidate.getAttr("data-testid") === nodeTestId
-    )[0];
-    return node?.absolutePosition() ?? null;
-  }, testId);
+  let position: { x: number; y: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        position = await page.evaluate((nodeTestId) => {
+          return (window as PixiDebugWindow).__blinePixiDebug?.nodePosition(nodeTestId) ?? null;
+        }, testId);
+        return position;
+      },
+      {
+        message: `Expected canvas node "${testId}" to exist`
+      }
+    )
+    .not.toBeNull();
 
   if (!position) {
     throw new Error(`Expected canvas node "${testId}" to exist`);
@@ -1244,6 +1266,28 @@ function pointDistance(
   second: { x: number; y: number }
 ): number {
   return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+async function canvasSceneMetrics(page: Page): Promise<{
+  count: number;
+  ratios: number[];
+  renderer: string;
+}> {
+  return page.evaluate(() => {
+    const ratios = Array.from(document.querySelectorAll(".path-stage canvas")).map(
+      (canvas) => {
+        const rect = canvas.getBoundingClientRect();
+        return Number((canvas.width / rect.width).toFixed(2));
+      }
+    );
+    const debugMetrics = (window as PixiDebugWindow).__blinePixiDebug?.canvasMetrics();
+
+    return {
+      count: ratios.length,
+      ratios,
+      renderer: debugMetrics?.renderer ?? ""
+    };
+  });
 }
 
 async function installWorkspaceWriteSpy(page: Page): Promise<void> {
