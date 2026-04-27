@@ -9,8 +9,17 @@ test("boots the Phase 1 shell", async ({ page }) => {
   await expect(page.getByTestId("path-stage")).toBeVisible();
   await expect(page.getByText("Current Path: Phase 1 Canvas Draft")).toBeVisible();
   await expect(page.getByText("Path Elements")).toBeVisible();
-  await expect(page.getByTestId("path-element-row-0")).toContainText("1. Translation");
-  await expect(page.getByText("Element Properties")).toBeVisible();
+  await expect(page.getByText("6 elements")).toBeVisible();
+  await expect(page.getByTestId("path-element-row-0")).toContainText("1. Waypoint");
+  await expect(page.getByTestId("path-element-row-0")).toContainText("5.70, 2.50 m");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("10.90, 5.50 m");
+  await expect(page.getByRole("heading", { name: "Max Velocity" })).toBeVisible();
+  await expect(
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+  ).toHaveText("3 m/s");
+  await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
+  await expect(page.getByText("Element Properties")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Zoom in" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Fit view" })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "Canvas tools" })).toHaveCount(0);
@@ -25,21 +34,22 @@ test("selects and drags a canvas anchor", async ({ page }) => {
 
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 1.2,
-    y_meters: 1.1
+    x_meters: 5.7,
+    y_meters: 2.5
   });
 
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
-  const selectionContext = page.getByTestId("sidebar-selection-context");
-  await expect(selectionContext).toContainText("1. Translation");
-  await expect(selectionContext).toContainText("1.20, 1.10 m");
+  const selectedRow = page.getByTestId("path-element-row-0");
+  await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
 
   await page.mouse.move(firstAnchor.x, firstAnchor.y);
   await page.mouse.down();
   await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, { steps: 8 });
   await page.mouse.up();
 
-  await expect(selectionContext).not.toContainText("1.20, 1.10 m");
+  await expect(selectedRow).not.toContainText("5.70, 2.50 m");
   await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
 });
 
@@ -52,8 +62,8 @@ test("keeps the rotation handle attached while dragging selected elements", asyn
 
   const canvas = page.getByTestId("path-stage-canvas");
   const center = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 5.1,
-    y_meters: 3.2
+    x_meters: 8.3,
+    y_meters: 4.0
   });
   const selectedNodeBefore = await canvasNodePosition(page, "path-element-node-2");
   const handleRootBefore = await canvasNodePosition(page, "rotation-handle-root");
@@ -79,20 +89,20 @@ test("defers autosave while a dirty canvas drag is active", async ({ page }) => 
 
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 1.2,
-    y_meters: 1.1
+    x_meters: 5.7,
+    y_meters: 2.5
   });
 
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
   await expect
     .poll(async () => Number(await page.getByLabel("X (m)").inputValue()))
-    .toBeCloseTo(1.2, 2);
+    .toBeCloseTo(5.7, 2);
 
-  await page.getByLabel("X (m)").fill("1.250");
+  await page.getByLabel("X (m)").fill("5.750");
 
   const movedAnchor = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 1.25,
-    y_meters: 1.1
+    x_meters: 5.75,
+    y_meters: 2.5
   });
   await page.mouse.move(movedAnchor.x, movedAnchor.y);
   await page.mouse.down();
@@ -196,22 +206,31 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     await expect(
       page.getByRole("button", { name: "Open Max Rot Acceleration editor" })
     ).toBeVisible();
-    await expect(page.locator(".ranged-constraint-controls__actions button")).toHaveCount(4);
+    const denseConstraintCard = page.getByTestId(
+      "constraint-card-max_acceleration_deg_per_sec2"
+    );
+    await expect(
+      denseConstraintCard.locator(".ranged-constraint-controls__actions button")
+    ).toHaveCount(4);
 
     const metrics = await page.evaluate(() => {
       const documentScroller = document.scrollingElement ?? document.documentElement;
       const sidebar = document.querySelector(".inspector-sidebar");
-      const valueControl = document.querySelector(
+      const denseCard = document.querySelector(
+        "[data-testid='constraint-card-max_acceleration_deg_per_sec2']"
+      );
+      const valueControl = denseCard?.querySelector(
         ".ranged-constraint-controls .sidebar-number-control"
       );
-      const valueInput = document.querySelector<HTMLInputElement>(
+      const valueInput = denseCard?.querySelector<HTMLInputElement>(
         ".ranged-constraint-controls input[role='spinbutton']"
       );
       const actionButtons = Array.from(
-        document.querySelectorAll(".ranged-constraint-controls__actions button")
+        denseCard?.querySelectorAll(".ranged-constraint-controls__actions button") ??
+          []
       );
 
-      if (!sidebar || !valueControl || !valueInput || actionButtons.length !== 4) {
+      if (!sidebar || !denseCard || !valueControl || !valueInput || actionButtons.length !== 4) {
         throw new Error("Expected dense sidebar ranged controls to be present");
       }
 
@@ -317,9 +336,10 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
-  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
-    "6. Waypoint"
+  await expect(page.getByTestId("path-element-row-6")).toContainText("7. Waypoint");
+  await expect(page.getByTestId("path-element-row-6")).toHaveAttribute(
+    "aria-pressed",
+    "true"
   );
 
   const typeSelect = page.getByLabel("Type");
@@ -346,16 +366,17 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await decreaseX.click();
   await expect(xInput).toHaveValue("6.25");
 
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6.25, 3.75 m");
+  await expect(page.getByTestId("path-element-row-6")).toContainText("6.25, 3.75 m");
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 
-  await page.getByRole("button", { name: "Remove Waypoint 6" }).click();
+  await page.getByRole("button", { name: "Remove Waypoint 7" }).click();
 
-  await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
+  await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
 });
 
 test("collapses sidebar sections persistently while keeping header actions available", async ({ page }) => {
   await page.goto("/");
+  await page.getByTestId("path-element-row-0").click();
 
   const pathToggle = page.getByTestId("sidebar-section-path-elements-toggle");
   const propertiesToggle = page.getByTestId("sidebar-section-element-properties-toggle");
@@ -376,7 +397,7 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await expect(pathBody).toBeHidden();
   await pathToggle.click();
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+  await expect(page.getByTestId("path-element-row-1")).toContainText("2. Waypoint");
 
   await pathToggle.click();
   await propertiesToggle.click();
@@ -386,7 +407,7 @@ test("collapses sidebar sections persistently while keeping header actions avail
 
   await page.getByText("Add constraint").click();
   await expect(page.locator(".add-constraint-menu [role='menuitem']")).toHaveText([
-    "Max Velocity",
+    "Max Velocity (+)",
     "Max Acceleration",
     "Max Rot Velocity",
     "Max Rot Acceleration",
@@ -398,6 +419,12 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
   await page.reload();
+  const canvas = page.getByTestId("path-stage-canvas");
+  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 5.7,
+    y_meters: 2.5
+  });
+  await page.mouse.click(firstAnchor.x, firstAnchor.y);
 
   await expect(pathToggle).toHaveAttribute("aria-expanded", "false");
   await expect(propertiesToggle).toHaveAttribute("aria-expanded", "false");
@@ -410,15 +437,16 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
 });
 
-test("keeps selected element context visible and scrolls selected rows into view", async ({ page }) => {
+test("scrolls selected rows into view", async ({ page }) => {
   await page.goto("/");
 
-  const context = page.getByTestId("sidebar-selection-context");
-  await expect(context).toContainText("No element selected");
+  await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
 
-  await page.getByTestId("path-element-row-3").click();
-  await expect(context).toContainText("4. Event Trigger");
-  await expect(context).toContainText("7.83, 2.50 m");
+  await page.getByTestId("path-element-row-4").click();
+  await expect(page.getByTestId("path-element-row-4")).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
 
   for (let index = 0; index < 12; index += 1) {
     await page.getByText("Add element").click();
@@ -426,9 +454,9 @@ test("keeps selected element context visible and scrolls selected rows into view
   }
 
   const pathList = page.getByRole("list", { name: "Path elements" });
-  const selectedRow = page.getByTestId("path-element-row-15");
-  await expect(context).toContainText("16. Waypoint");
-  await expect(selectedRow).toContainText("16. Waypoint");
+  const selectedRow = page.getByTestId("path-element-row-16");
+  await expect(selectedRow).toContainText("17. Waypoint");
+  await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
 
   const listBox = await requiredBox(pathList);
   const selectedBox = await requiredBox(selectedRow);
@@ -451,9 +479,9 @@ test("reorders and converts path elements from the inspector", async ({ page }) 
   await page.mouse.up();
 
   await expect(page.getByTestId("path-element-row-2")).toContainText(
-    "3. Event Trigger"
+    "3. Translation"
   );
-  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Waypoint");
+  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Rotation");
 
   await page.getByTestId("path-element-row-3").click();
   await page.getByLabel("Type").selectOption("translation");
@@ -462,18 +490,19 @@ test("reorders and converts path elements from the inspector", async ({ page }) 
   );
 
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Waypoint");
+  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Rotation");
 });
 
 test("drags path elements in the inspector while preserving selection", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByTestId("path-element-row-3").click();
-  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
-    "4. Event Trigger"
+  await page.getByTestId("path-element-row-4").click();
+  await expect(page.getByTestId("path-element-row-4")).toHaveAttribute(
+    "aria-pressed",
+    "true"
   );
 
-  const sourceBox = await requiredBox(page.getByTestId("path-element-row-3"));
+  const sourceBox = await requiredBox(page.getByTestId("path-element-row-4"));
   const targetBox = await requiredBox(page.getByTestId("path-element-row-1"));
   await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
   await page.mouse.down();
@@ -485,9 +514,10 @@ test("drags path elements in the inspector while preserving selection", async ({
   await expect(page.getByTestId("path-element-row-1")).toContainText(
     "2. Event Trigger"
   );
-  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
-  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
-    "2. Event Trigger"
+  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Translation");
+  await expect(page.getByTestId("path-element-row-1")).toHaveAttribute(
+    "aria-pressed",
+    "true"
   );
 });
 
@@ -495,15 +525,15 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
   await page.goto("/");
 
   await page.getByTestId("path-element-row-2").click();
-  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("90");
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
 
   const canvas = page.getByTestId("path-stage-canvas");
   const center = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 5.1,
-    y_meters: 3.2
+    x_meters: 8.3,
+    y_meters: 4.0
   });
 
-  await page.mouse.move(center.x, center.y - 42);
+  await page.mouse.move(center.x + 30, center.y - 30);
   await page.mouse.down();
   await page.mouse.move(center.x + 42, center.y, { steps: 8 });
   await page.mouse.up();
@@ -515,20 +545,18 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
     .poll(async () => Number(await page.getByLabel("Rotation (deg)").inputValue()))
     .toBeLessThan(5);
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("90");
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
 });
 
 test("keeps rotation handles hidden until an element is selected", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
-    "No element selected"
-  );
+  await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
 
   const canvas = page.getByTestId("path-stage-canvas");
   const center = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 5.1,
-    y_meters: 3.2
+    x_meters: 8.3,
+    y_meters: 4.0
   });
 
   await page.mouse.move(center.x, center.y - 42);
@@ -536,9 +564,7 @@ test("keeps rotation handles hidden until an element is selected", async ({ page
   await page.mouse.move(center.x + 42, center.y, { steps: 8 });
   await page.mouse.up();
 
-  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
-    "No element selected"
-  );
+  await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
 });
 
 test("adds edits and deletes ranged constraints", async ({ page }) => {
@@ -553,6 +579,10 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const addConstraintIcon = page.getByTestId("add-constraint-icon");
   await expect(addConstraintIcon).toBeVisible();
   expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(24);
+
+  await page.getByTestId("constraint-range-max_velocity_meters_per_sec-0").click();
+  await page.getByLabel("Delete constraint 1").click();
+  await expect(page.getByTestId("constraint-card-max_velocity_meters_per_sec")).toHaveCount(0);
 
   await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "Max Velocity" }).click();
@@ -671,8 +701,6 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 test("keeps the constraint editor movable and modeless", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByText("Add constraint").click();
-  await page.getByRole("menuitem", { name: "Max Velocity" }).click();
   await page.getByRole("button", { name: "Open Max Velocity editor" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
@@ -703,14 +731,15 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
 
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 1.2,
-    y_meters: 1.1
+    x_meters: 5.7,
+    y_meters: 2.5
   });
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
 
   await expect(dialog).toBeVisible();
-  await expect(page.getByTestId("sidebar-selection-context")).toContainText(
-    "1. Translation"
+  await expect(page.getByTestId("path-element-row-0")).toHaveAttribute(
+    "aria-pressed",
+    "true"
   );
   await expect(dialog.getByTestId("ranged-constraint-row-1")).toHaveCount(0);
 
@@ -794,7 +823,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Delete Projects..." }).click();
   await expect(page.getByRole("dialog", { name: "Delete Projects" })).toBeVisible();
   await page.getByRole("button", { name: "Select All" }).click();
-  await page.getByRole("button", { name: "Delete Selected" }).click();
+  await page.getByRole("button", { name: "Delete Selected", exact: true }).click();
   await expect(page.getByText("Delete 1 selected project?")).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm Delete" })).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -821,7 +850,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await expect(page.getByRole("menuitem", { name: "Rename Path..." })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Delete Paths..." })).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit" }).click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByTestId("top-menu-edit")).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Undo Ctrl+Z" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Redo Ctrl+Y" })).toBeVisible();
@@ -848,6 +877,10 @@ test("keeps top dropdowns streamlined with right-side path flyouts", async ({ pa
   expect(recentMenuBox.width).toBeLessThanOrEqual(285);
   expect(recentMenuBox.x).toBeGreaterThanOrEqual(projectMenuBox.x + projectMenuBox.width);
 
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await expect(recentMenu).toHaveCount(0);
+  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
+
   await page.getByRole("button", { name: "Path" }).click();
   const pathMenu = page.getByTestId("top-menu-path");
   await expect(pathMenu).toBeVisible();
@@ -860,6 +893,21 @@ test("keeps top dropdowns streamlined with right-side path flyouts", async ({ pa
   const loadPathMenuBox = await requiredBox(loadPathMenu);
   expect(loadPathMenuBox.width).toBeLessThanOrEqual(285);
   expect(loadPathMenuBox.x).toBeGreaterThanOrEqual(pathMenuBox.x + pathMenuBox.width);
+});
+
+test("closes the open-project panel when using top menus", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+
+  await page.getByRole("button", { name: "Path" }).click();
+  await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
+  await expect(page.getByTestId("top-menu-path")).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByTestId("top-menu-path")).toHaveCount(0);
+  await expect(page.getByTestId("top-menu-edit")).toBeVisible();
 });
 
 test("opens settings from a narrow portrait top bar", async ({ page }) => {
@@ -938,8 +986,8 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "Delete Paths" })).toBeVisible();
 
   await page.getByRole("checkbox", { name: "Phase 1 Canvas Draft" }).check();
-  await expect(page.getByRole("button", { name: "Delete Selected" })).toBeEnabled();
-  await page.getByRole("button", { name: "Delete Selected" }).click();
+  await expect(page.getByRole("button", { name: "Delete Selected", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Delete Selected", exact: true }).click();
 
   await expect(page.getByRole("dialog", { name: "Delete Paths" })).toHaveCount(0);
   await expect(page.getByTestId("app-shell")).toBeVisible();
@@ -970,14 +1018,14 @@ test("creates saves and reloads a local project", async ({ page }) => {
   }
 
   await expect(page.getByTestId("current-path-status")).toHaveText(currentPath);
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6.50, 3.90 m");
+  await expect(page.getByTestId("path-element-row-0")).toContainText("6.50, 3.90 m");
 });
 
 test("recovers autosaved edits after reload", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByTestId("path-element-row-2").click();
-  await page.getByLabel("X (m)").fill("5.75");
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByLabel("X (m)").fill("7.50");
 
   await expect(page.getByTestId("save-status")).toContainText("Saved", {
     timeout: 5_000
@@ -985,7 +1033,7 @@ test("recovers autosaved edits after reload", async ({ page }) => {
 
   await page.reload();
 
-  await expect(page.getByTestId("path-element-row-2")).toContainText("5.75, 3.20 m");
+  await expect(page.getByTestId("path-element-row-1")).toContainText("7.50, 4.00 m");
 });
 
 test("opens a saved project from the project list", async ({ page }) => {
@@ -998,18 +1046,47 @@ test("opens a saved project from the project list", async ({ page }) => {
 
   await createNewProject(page);
   await page.getByText("Add element").click();
-  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
   await page.getByText(firstPath, { exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
     `Current Path: ${firstPath}`
   );
-  await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
+  await expect(page.getByTestId("path-element-row-0")).toHaveCount(0);
+});
+
+test("opens a saved project from the mobile project list", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto("/");
+
+  await createNewProject(page);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  const firstPath = await currentPathName(page);
+
+  await createNewProject(page);
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByLabel("X (m)").fill("5.4");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Workspace" }).click();
+  await page.getByRole("menuitem", { name: "Open Project..." }).click();
+  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+  await page.getByText(firstPath, { exact: true }).click();
+
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    `Current Path: ${firstPath}`
+  );
+  await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
 });
 
 test("supports undo and redo for structural sidebar edits", async ({ page }) => {
@@ -1017,14 +1094,14 @@ test("supports undo and redo for structural sidebar edits", async ({ page }) => 
 
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
 
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(page.getByTestId("path-element-row-5")).toHaveCount(0);
-  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Translation");
+  await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
 
   await page.getByRole("button", { name: "Redo" }).click();
-  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
 });
 
 test("supports common keyboard shortcuts", async ({ page }) => {
@@ -1032,14 +1109,14 @@ test("supports common keyboard shortcuts", async ({ page }) => {
 
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
 
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.press(`${shortcut}+Z`);
-  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Translation");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
 
   await page.keyboard.press(`${shortcut}+Shift+Z`);
-  await expect(page.getByTestId("path-element-row-4")).toContainText("5. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
 
   await page.keyboard.press(`${shortcut}+S`);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
