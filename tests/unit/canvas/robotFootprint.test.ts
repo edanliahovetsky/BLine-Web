@@ -69,6 +69,39 @@ describe("robot footprint geometry", () => {
     });
   });
 
+  it("keeps the total outer footprint at robot size plus protrusion size", () => {
+    const cases = [
+      {
+        protrusionSide: "front",
+        expected: { x: -25, y: -20, width: 62, height: 40 }
+      },
+      {
+        protrusionSide: "back",
+        expected: { x: -37, y: -20, width: 62, height: 40 }
+      },
+      {
+        protrusionSide: "left",
+        expected: { x: -25, y: -32, width: 50, height: 52 }
+      },
+      {
+        protrusionSide: "right",
+        expected: { x: -25, y: -20, width: 50, height: 52 }
+      }
+    ] as const;
+
+    for (const { protrusionSide, expected } of cases) {
+      expect(
+        robotBoundsWithProtrusion({
+          lengthPx: 50,
+          widthPx: 40,
+          protrusionVisible: true,
+          protrusionDistancePx: 12,
+          protrusionSide
+        })
+      ).toEqual(expected);
+    }
+  });
+
   it("keeps protrusion outline outer edge at the configured distance", () => {
     const frontOutline = robotProtrusionOutlineGeometry({
       lengthPx: 50,
@@ -115,6 +148,92 @@ describe("robot footprint geometry", () => {
     expect((rightOutline?.pathPoints[3] ?? 0) + 2).toBeCloseTo(28);
     expect((rightOutline?.pathPoints[0] ?? 0) - 2).toBeCloseTo(-25);
     expect((rightOutline?.pathPoints[4] ?? 0) + 2).toBeCloseTo(25);
+  });
+
+  it("keeps every protrusion stroke rooted on the robot outer edge", () => {
+    const cases = [
+      {
+        protrusionSide: "front",
+        expectedBounds: { x: 25, y: -20, width: 12, height: 40 },
+        expectedPathPoints: [25, -18, 35, -18, 35, 18, 25, 18],
+        rootIndexes: [0, 6],
+        rootValue: 25,
+        farIndexes: [2, 4],
+        farValue: 35,
+        minCrossIndexes: [1, 3],
+        minCrossValue: -18,
+        maxCrossIndexes: [5, 7],
+        maxCrossValue: 18
+      },
+      {
+        protrusionSide: "back",
+        expectedBounds: { x: -37, y: -20, width: 12, height: 40 },
+        expectedPathPoints: [-25, -18, -35, -18, -35, 18, -25, 18],
+        rootIndexes: [0, 6],
+        rootValue: -25,
+        farIndexes: [2, 4],
+        farValue: -35,
+        minCrossIndexes: [1, 3],
+        minCrossValue: -18,
+        maxCrossIndexes: [5, 7],
+        maxCrossValue: 18
+      },
+      {
+        protrusionSide: "left",
+        expectedBounds: { x: -25, y: -32, width: 50, height: 12 },
+        expectedPathPoints: [-23, -20, -23, -30, 23, -30, 23, -20],
+        rootIndexes: [1, 7],
+        rootValue: -20,
+        farIndexes: [3, 5],
+        farValue: -30,
+        minCrossIndexes: [0, 2],
+        minCrossValue: -23,
+        maxCrossIndexes: [4, 6],
+        maxCrossValue: 23
+      },
+      {
+        protrusionSide: "right",
+        expectedBounds: { x: -25, y: 20, width: 50, height: 12 },
+        expectedPathPoints: [-23, 20, -23, 30, 23, 30, 23, 20],
+        rootIndexes: [1, 7],
+        rootValue: 20,
+        farIndexes: [3, 5],
+        farValue: 30,
+        minCrossIndexes: [0, 2],
+        minCrossValue: -23,
+        maxCrossIndexes: [4, 6],
+        maxCrossValue: 23
+      }
+    ] as const;
+
+    for (const testCase of cases) {
+      const outline = robotProtrusionOutlineGeometry({
+        lengthPx: 50,
+        widthPx: 40,
+        protrusionVisible: true,
+        protrusionDistancePx: 12,
+        protrusionSide: testCase.protrusionSide,
+        strokeWidth: 4,
+        rootInsetPx: 0
+      });
+
+      expect(outline).not.toBeNull();
+      expect(outline?.bounds).toEqual(testCase.expectedBounds);
+      expect(outline?.pathPoints).toEqual(testCase.expectedPathPoints);
+
+      for (const index of testCase.rootIndexes) {
+        expect(outline?.pathPoints[index]).toBeCloseTo(testCase.rootValue);
+      }
+      for (const index of testCase.farIndexes) {
+        expect(outline?.pathPoints[index]).toBeCloseTo(testCase.farValue);
+      }
+      for (const index of testCase.minCrossIndexes) {
+        expect(outline?.pathPoints[index]).toBeCloseTo(testCase.minCrossValue);
+      }
+      for (const index of testCase.maxCrossIndexes) {
+        expect(outline?.pathPoints[index]).toBeCloseTo(testCase.maxCrossValue);
+      }
+    }
   });
 
   it("returns one continuous protrusion path", () => {
