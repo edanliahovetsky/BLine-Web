@@ -546,6 +546,19 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(firstRange).toHaveText("2.4 m/s");
   expect((await requiredBox(firstRange)).width).toBeGreaterThan(firstBox.width * 1.6);
 
+  await page
+    .getByTestId("constraint-card-max_velocity_meters_per_sec")
+    .getByRole("heading", { name: "Max Velocity" })
+    .click();
+  const emptyConstraintRow = page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty");
+  await expect(emptyConstraintRow).toBeVisible();
+  await expect(emptyConstraintRow.getByLabel("Max Velocity value")).toHaveValue("");
+  await expect(emptyConstraintRow.getByRole("button", { name: "Delete selected constraint" })).toBeDisabled();
+  await expect(emptyConstraintRow.getByRole("button", { name: "Split selected constraint" })).toBeDisabled();
+  await expect(emptyConstraintRow.getByRole("button", { name: "Add Max Velocity segment" })).toBeVisible();
+  await expect(emptyConstraintRow.getByRole("button", { name: "Open Max Velocity editor" })).toBeVisible();
+  await firstRange.click();
+
   await page.getByRole("button", { name: "Split constraint 1" }).click();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
@@ -569,6 +582,12 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   expect((await requiredBox(dialogConstraintStepper)).width).toBeLessThan(120);
   await expect(dialogConstraintRow.getByRole("button", { name: "Increase value" }).locator("svg")).toBeVisible();
   await expect(dialogConstraintRow.getByRole("button", { name: "Decrease value" }).locator("svg")).toBeVisible();
+  await page.getByTestId("constraint-popout-drag-handle").click();
+  const emptyDialogConstraintRow = dialog.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty");
+  await expect(emptyDialogConstraintRow).toBeVisible();
+  await expect(emptyDialogConstraintRow.getByLabel("Max Velocity value")).toHaveValue("");
+  await expect(emptyDialogConstraintRow.getByRole("button", { name: "Delete selected constraint" })).toBeDisabled();
+  await expect(emptyDialogConstraintRow.getByRole("button", { name: "Split selected constraint" })).toBeDisabled();
   await page.getByRole("button", { name: "Close Constraint Editor" }).click();
 
   await page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2").click();

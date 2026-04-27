@@ -337,16 +337,14 @@ function RangedConstraintCard({
         }}
       />
 
-      {selectedEntry ? (
-        <SelectedRangedConstraintControls
-          project={project}
-          constraintKey={constraintKey}
-          entry={selectedEntry}
-          segmentNumber={selectedSegmentNumber}
-          onSelect={onSelect}
-          onOpenPopout={onOpenPopout}
-        />
-      ) : null}
+      <RangedConstraintControls
+        project={project}
+        constraintKey={constraintKey}
+        entry={selectedEntry}
+        segmentNumber={selectedSegmentNumber}
+        onSelect={onSelect}
+        onOpenPopout={onOpenPopout}
+      />
     </article>
   );
 }
@@ -505,16 +503,14 @@ function PopoutConstraintPanel({
         density="popout"
       />
 
-      {selectedEntry ? (
-        <SelectedRangedConstraintControls
-          project={project}
-          constraintKey={constraintKey}
-          entry={selectedEntry}
-          segmentNumber={segmentNumber}
-          onSelect={onSelect}
-          compact={false}
-        />
-      ) : null}
+      <RangedConstraintControls
+        project={project}
+        constraintKey={constraintKey}
+        entry={selectedEntry}
+        segmentNumber={segmentNumber}
+        onSelect={onSelect}
+        compact={false}
+      />
     </article>
   );
 }
@@ -961,7 +957,7 @@ function changedRangeUpdates(originalEntries: RangedEntry[], nextEntries: Ranged
   });
 }
 
-function SelectedRangedConstraintControls({
+function RangedConstraintControls({
   project,
   constraintKey,
   entry,
@@ -972,31 +968,43 @@ function SelectedRangedConstraintControls({
 }: {
   project: ProjectDocument;
   constraintKey: RangedConstraintKey;
-  entry: RangedEntry;
+  entry: RangedEntry | null;
   segmentNumber: number;
   onSelect: (index: number) => void;
   onOpenPopout?: () => void;
   compact?: boolean;
 }): JSX.Element {
   const meta = rangedMeta[constraintKey];
-  const constraint = entry.constraint;
+  const constraint = entry?.constraint ?? null;
+  const constraintSelectionToken = entry ? rangedSelectionToken(constraintKey, entry.index) : undefined;
+  const rowTestId = entry
+    ? `ranged-constraint-row-${segmentNumber}`
+    : `ranged-constraint-row-${constraintKey}-empty`;
+  const valueLabel = entry ? `Constraint ${segmentNumber} value` : `${meta.label} value`;
+  const selectedActionLabel = entry ? `constraint ${segmentNumber}` : 'selected constraint';
 
   return (
     <div
       className={compact ? 'ranged-constraint-controls' : 'ranged-constraint-controls ranged-constraint-controls--wide'}
-      data-testid={`ranged-constraint-row-${segmentNumber}`}
-      data-ranged-constraint-selection={rangedSelectionToken(constraintKey, entry.index)}
+      data-testid={rowTestId}
+      data-ranged-constraint-selection={constraintSelectionToken}
     >
       <label className="ranged-constraint-controls__value">
         <span>Value</span>
         <div className="constraint-value-input">
           <NumberStepperControl
-            ariaLabel={`Constraint ${segmentNumber} value`}
-            value={constraint.value}
+            allowEmpty
+            ariaLabel={valueLabel}
+            value={constraint?.value ?? null}
             step={meta.step}
             min={meta.min}
             max={meta.max}
+            disabled={!constraint}
             onChange={(value) => {
+              if (!entry || !constraint) {
+                return;
+              }
+
               updateRangedConstraint(project, entry.index, {
                 ...constraint,
                 value: value ?? constraint.value,
@@ -1023,16 +1031,25 @@ function SelectedRangedConstraintControls({
         </SidebarIconButton>
         <SidebarIconButton
           className="sidebar-icon-button--remove"
-          onClick={() => deleteRangedConstraint(project, entry.index)}
-          aria-label={`Delete constraint ${segmentNumber}`}
-          title={`Delete constraint ${segmentNumber}`}
+          onClick={() => {
+            if (entry) {
+              deleteRangedConstraint(project, entry.index);
+            }
+          }}
+          disabled={!entry}
+          aria-label={`Delete ${selectedActionLabel}`}
+          title={`Delete ${selectedActionLabel}`}
         >
           <RemoveIcon size={16} />
         </SidebarIconButton>
         <SidebarActionButton
-          onClick={() => splitRangedConstraint(project, entry.index)}
-          disabled={!canSplit(constraint)}
-          aria-label={`Split constraint ${segmentNumber}`}
+          onClick={() => {
+            if (entry) {
+              splitRangedConstraint(project, entry.index);
+            }
+          }}
+          disabled={!constraint || !canSplit(constraint)}
+          aria-label={`Split ${selectedActionLabel}`}
         >
           Split
         </SidebarActionButton>

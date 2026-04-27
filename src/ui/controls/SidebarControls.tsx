@@ -63,7 +63,7 @@ export function NumberStepperControl({
   const [draftValue, setDraftValue] = useState(formattedValue);
   const [editing, setEditing] = useState(false);
   const skipBlurCommitRef = useRef(false);
-  const inputValue = editing ? draftValue : formattedValue;
+  const inputValue = editing && !disabled ? draftValue : formattedValue;
   const draftNumber = parseDraftNumber(inputValue);
   const ariaValueNow = draftNumber ?? value ?? undefined;
 
