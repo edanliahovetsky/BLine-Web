@@ -21,10 +21,18 @@ import {
   isWaypoint,
   type PathElement
 } from "../../core/model/path";
+import type { ProtrusionSide } from "../../core/config/projectConfig";
 import { elementColors } from "../elementStyle";
 
 type CanvasPointerEvent = KonvaEventObject<MouseEvent | TouchEvent | PointerEvent>;
 type CanvasDragEvent = KonvaEventObject<DragEvent>;
+
+interface Bounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 interface WaypointNodeProps {
   element: PathElement;
@@ -38,6 +46,9 @@ interface WaypointNodeProps {
   handoffRadiusMeters: number | null;
   robotSizeMeters: RobotSizeMeters;
   metersToPixels: number;
+  protrusionVisible: boolean;
+  protrusionDistanceMeters: number;
+  protrusionSide: ProtrusionSide;
   onPointerDown(index: number, event: CanvasPointerEvent): void;
   onDragStart(index: number, event: CanvasDragEvent): void;
   onDragMove(index: number, event: CanvasDragEvent): void;
@@ -56,6 +67,9 @@ export const WaypointNode = memo(function WaypointNode({
   handoffRadiusMeters,
   robotSizeMeters,
   metersToPixels,
+  protrusionVisible,
+  protrusionDistanceMeters,
+  protrusionSide,
   onPointerDown,
   onDragStart,
   onDragMove,
@@ -67,6 +81,9 @@ export const WaypointNode = memo(function WaypointNode({
   const circleRadius = metersToVisiblePixels(elementCircleRadiusMeters, metersToPixels, 7);
   const rectWidth = robotSizeMeters.lengthMeters * metersToPixels;
   const rectHeight = robotSizeMeters.widthMeters * metersToPixels;
+  const protrusionDistancePx = Math.max(0, protrusionDistanceMeters) * metersToPixels;
+  const showProtrusion =
+    protrusionVisible && protrusionDistancePx > 0 && protrusionSide !== "none";
   const outlineWidth = metersToVisiblePixels(elementOutlineMeters, metersToPixels, 1.65);
   const selectionPadding = Math.max(6, outlineWidth / 2 + 5);
   const nodeHaloThickness = clampedElementHaloThickness(circleRadius);
@@ -94,6 +111,9 @@ export const WaypointNode = memo(function WaypointNode({
         rectHeight={rectHeight}
         headingRadians={headingRadians}
         metersToPixels={metersToPixels}
+        protrusionVisible={showProtrusion}
+        protrusionDistancePx={protrusionDistancePx}
+        protrusionSide={protrusionSide}
       />
 
       {handoffRadius ? (
@@ -162,6 +182,9 @@ export const WaypointNode = memo(function WaypointNode({
               strokeWidth={selectionWidth}
               padding={selectionPadding}
               outlineWidth={outlineWidth}
+              protrusionVisible={showProtrusion}
+              protrusionDistancePx={protrusionDistancePx}
+              protrusionSide={protrusionSide}
             />
           ) : null}
           <RobotFootprint
@@ -171,6 +194,9 @@ export const WaypointNode = memo(function WaypointNode({
             outlineWidth={outlineWidth}
             headingRadians={headingRadians}
             mode="waypoint"
+            protrusionVisible={showProtrusion}
+            protrusionDistancePx={protrusionDistancePx}
+            protrusionSide={protrusionSide}
           />
         </>
       ) : null}
@@ -187,6 +213,9 @@ export const WaypointNode = memo(function WaypointNode({
               strokeWidth={selectionWidth}
               padding={selectionPadding}
               outlineWidth={outlineWidth}
+              protrusionVisible={showProtrusion}
+              protrusionDistancePx={protrusionDistancePx}
+              protrusionSide={protrusionSide}
             />
           ) : null}
           <RobotFootprint
@@ -196,6 +225,9 @@ export const WaypointNode = memo(function WaypointNode({
             outlineWidth={outlineWidth}
             headingRadians={headingRadians}
             mode="rotation"
+            protrusionVisible={showProtrusion}
+            protrusionDistancePx={protrusionDistancePx}
+            protrusionSide={protrusionSide}
           />
         </>
       ) : null}
@@ -248,7 +280,10 @@ function NodeHitTarget({
   rectWidth,
   rectHeight,
   headingRadians,
-  metersToPixels
+  metersToPixels,
+  protrusionVisible,
+  protrusionDistancePx,
+  protrusionSide
 }: {
   element: PathElement;
   circleRadius: number;
@@ -256,6 +291,9 @@ function NodeHitTarget({
   rectHeight: number;
   headingRadians: number | null;
   metersToPixels: number;
+  protrusionVisible: boolean;
+  protrusionDistancePx: number;
+  protrusionSide: ProtrusionSide;
 }) {
   if (isTranslationTarget(element)) {
     return (
@@ -268,14 +306,21 @@ function NodeHitTarget({
 
   if (isWaypoint(element) || isRotationTarget(element)) {
     const padding = Math.max(10, Math.min(rectWidth, rectHeight) * 0.18);
+    const bounds = robotVisualBounds(
+      rectWidth,
+      rectHeight,
+      protrusionVisible,
+      protrusionDistancePx,
+      protrusionSide
+    );
 
     return (
       <Group rotation={toStageDegrees(headingRadians)}>
         <Rect
-          x={-rectWidth / 2 - padding}
-          y={-rectHeight / 2 - padding}
-          width={rectWidth + padding * 2}
-          height={rectHeight + padding * 2}
+          x={bounds.x - padding}
+          y={bounds.y - padding}
+          width={bounds.width + padding * 2}
+          height={bounds.height + padding * 2}
           cornerRadius={robotCornerRadius(rectWidth, rectHeight) + padding}
           fill="rgba(255, 255, 255, 0.001)"
         />
@@ -306,7 +351,10 @@ function SelectionFootprint({
   opacity,
   strokeWidth,
   padding,
-  outlineWidth
+  outlineWidth,
+  protrusionVisible,
+  protrusionDistancePx,
+  protrusionSide
 }: {
   width: number;
   height: number;
@@ -316,16 +364,26 @@ function SelectionFootprint({
   strokeWidth: number;
   padding: number;
   outlineWidth: number;
+  protrusionVisible: boolean;
+  protrusionDistancePx: number;
+  protrusionSide: ProtrusionSide;
 }) {
   const cornerRadius = robotCornerRadius(width, height) + padding + outlineWidth * 0.12;
+  const bounds = robotVisualBounds(
+    width,
+    height,
+    protrusionVisible,
+    protrusionDistancePx,
+    protrusionSide
+  );
 
   return (
     <Group rotation={toStageDegrees(headingRadians)} listening={false}>
       <Rect
-        x={-width / 2 - padding}
-        y={-height / 2 - padding}
-        width={width + padding * 2}
-        height={height + padding * 2}
+        x={bounds.x - padding}
+        y={bounds.y - padding}
+        width={bounds.width + padding * 2}
+        height={bounds.height + padding * 2}
         cornerRadius={cornerRadius}
         stroke={stroke}
         strokeWidth={strokeWidth}
@@ -345,7 +403,10 @@ function RobotFootprint({
   accent,
   outlineWidth,
   headingRadians,
-  mode
+  mode,
+  protrusionVisible,
+  protrusionDistancePx,
+  protrusionSide
 }: {
   width: number;
   height: number;
@@ -353,6 +414,9 @@ function RobotFootprint({
   outlineWidth: number;
   headingRadians: number | null;
   mode: "waypoint" | "rotation";
+  protrusionVisible: boolean;
+  protrusionDistancePx: number;
+  protrusionSide: ProtrusionSide;
 }) {
   const triangleLength = Math.min(width, height) * triangleSizeRatio;
   const halfTriangleHeight = triangleLength / 2;
@@ -372,6 +436,16 @@ function RobotFootprint({
 
   return (
     <Group rotation={toStageDegrees(headingRadians)} listening={false}>
+      <ProtrusionFootprint
+        width={width}
+        height={height}
+        accent={accent}
+        outlineWidth={outlineWidth}
+        mode={mode}
+        visible={protrusionVisible}
+        protrusionDistancePx={protrusionDistancePx}
+        protrusionSide={protrusionSide}
+      />
       <Rect
         x={haloOutline.rect.x}
         y={haloOutline.rect.y}
@@ -432,6 +506,150 @@ function RobotFootprint({
   );
 }
 
+function ProtrusionFootprint({
+  width,
+  height,
+  accent,
+  outlineWidth,
+  mode,
+  visible,
+  protrusionDistancePx,
+  protrusionSide
+}: {
+  width: number;
+  height: number;
+  accent: string;
+  outlineWidth: number;
+  mode: "waypoint" | "rotation";
+  visible: boolean;
+  protrusionDistancePx: number;
+  protrusionSide: ProtrusionSide;
+}) {
+  const bounds = protrusionBounds(width, height, visible, protrusionDistancePx, protrusionSide);
+  if (!bounds) {
+    return null;
+  }
+
+  const cornerRadius = Math.min(
+    robotCornerRadius(width, height),
+    Math.min(bounds.width, bounds.height) * 0.25
+  );
+  const halo = robotHaloMetrics(width, height);
+
+  return (
+    <>
+      <Rect
+        x={bounds.x - halo.padding}
+        y={bounds.y - halo.padding}
+        width={bounds.width + halo.padding * 2}
+        height={bounds.height + halo.padding * 2}
+        cornerRadius={cornerRadius + halo.padding * 0.7}
+        stroke="rgba(5, 8, 11, 0.82)"
+        strokeWidth={halo.strokeWidth}
+        fill="rgba(5, 8, 11, 0.22)"
+        lineJoin="round"
+      />
+      <Rect
+        x={bounds.x}
+        y={bounds.y}
+        width={bounds.width}
+        height={bounds.height}
+        cornerRadius={cornerRadius}
+        stroke={accent}
+        strokeWidth={outlineWidth}
+        fill={mode === "waypoint" ? "rgba(255, 159, 67, 0.08)" : "rgba(107, 220, 139, 0.08)"}
+        dash={[Math.max(4, outlineWidth * 2.6), Math.max(3, outlineWidth * 1.7)]}
+        lineJoin="round"
+      />
+    </>
+  );
+}
+
+function robotVisualBounds(
+  width: number,
+  height: number,
+  protrusionVisible: boolean,
+  protrusionDistancePx: number,
+  protrusionSide: ProtrusionSide
+): Bounds {
+  const baseBounds = {
+    x: -width / 2,
+    y: -height / 2,
+    width,
+    height
+  };
+  const extensionBounds = protrusionBounds(
+    width,
+    height,
+    protrusionVisible,
+    protrusionDistancePx,
+    protrusionSide
+  );
+
+  return extensionBounds ? unionBounds(baseBounds, extensionBounds) : baseBounds;
+}
+
+function protrusionBounds(
+  width: number,
+  height: number,
+  protrusionVisible: boolean,
+  protrusionDistancePx: number,
+  protrusionSide: ProtrusionSide
+): Bounds | null {
+  if (!protrusionVisible || protrusionDistancePx <= 0) {
+    return null;
+  }
+
+  if (protrusionSide === "front") {
+    return {
+      x: width / 2,
+      y: -height / 2,
+      width: protrusionDistancePx,
+      height
+    };
+  }
+  if (protrusionSide === "back") {
+    return {
+      x: -width / 2 - protrusionDistancePx,
+      y: -height / 2,
+      width: protrusionDistancePx,
+      height
+    };
+  }
+  if (protrusionSide === "left") {
+    return {
+      x: -width / 2,
+      y: -height / 2 - protrusionDistancePx,
+      width,
+      height: protrusionDistancePx
+    };
+  }
+  if (protrusionSide === "right") {
+    return {
+      x: -width / 2,
+      y: height / 2,
+      width,
+      height: protrusionDistancePx
+    };
+  }
+
+  return null;
+}
+
+function unionBounds(a: Bounds, b: Bounds): Bounds {
+  const xMin = Math.min(a.x, b.x);
+  const yMin = Math.min(a.y, b.y);
+  const xMax = Math.max(a.x + a.width, b.x + b.width);
+  const yMax = Math.max(a.y + a.height, b.y + b.height);
+
+  return {
+    x: xMin,
+    y: yMin,
+    width: xMax - xMin,
+    height: yMax - yMin
+  };
+}
+
 function eventTriggerPoints(metersToPixels: number, paddingPx: number): number[] {
   const halfLength =
     metersToVisiblePixels(eventTriggerLengthMeters, metersToPixels, eventMarkerHalfHeightPx * 2) /
@@ -489,6 +707,9 @@ function areWaypointNodePropsEqual(
     previous.robotSizeMeters.lengthMeters === next.robotSizeMeters.lengthMeters &&
     previous.robotSizeMeters.widthMeters === next.robotSizeMeters.widthMeters &&
     previous.metersToPixels === next.metersToPixels &&
+    previous.protrusionVisible === next.protrusionVisible &&
+    previous.protrusionDistanceMeters === next.protrusionDistanceMeters &&
+    previous.protrusionSide === next.protrusionSide &&
     previous.onPointerDown === next.onPointerDown &&
     previous.onDragStart === next.onDragStart &&
     previous.onDragMove === next.onDragMove &&
