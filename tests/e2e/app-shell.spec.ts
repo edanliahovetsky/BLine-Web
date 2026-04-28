@@ -703,10 +703,14 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 
   await page.getByTestId("constraint-range-max_velocity_meters_per_sec-0").click();
   await page.keyboard.press("Delete");
-  await expect(page.getByTestId("constraint-card-max_velocity_meters_per_sec")).toHaveCount(0);
+  await expect(page.getByTestId("constraint-card-max_velocity_meters_per_sec")).toBeVisible();
+  await expect(page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")).toHaveCount(0);
+  await expect(
+    page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty")
+  ).toBeVisible();
   await page.keyboard.press(`${shortcut}+Z`);
   await expect(
-    page.getByTestId("constraint-card-max_velocity_meters_per_sec")
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")
   ).toBeVisible();
 
   const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
