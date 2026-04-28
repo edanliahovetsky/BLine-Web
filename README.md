@@ -35,8 +35,7 @@ BLine Web is currently an alpha replacement for the original PySide6
 desktop workflows are implemented and tested against the existing GUI's core
 behavior.
 
-The current app is useful for browser and desktop editing. SystemCore support is
-a possible future direction, not part of the current supported product surface.
+The current app is useful for browser and desktop editing.
 
 ## For Existing BLine Users
 

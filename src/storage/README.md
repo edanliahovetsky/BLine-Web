@@ -1,6 +1,6 @@
 # Storage
 
-Storage adapters for browser, Tauri, and later Systemcore modes live here.
+Storage adapters for browser and Tauri modes live here.
 
 - Browser mode uses `window.localStorage` under the `bline-web:project:` key
   prefix for legacy one-path records and `bline-web:workspace:` for current

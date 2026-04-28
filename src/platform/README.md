@@ -2,7 +2,7 @@
 
 Shell detection, capability resolution, and high-level project IO services live
 here. UI code should consume `projectIo` capabilities/actions instead of
-branching directly on browser, Tauri, or future Systemcore storage details.
+branching directly on browser, Tauri, or shell-specific storage details.
 
 Project-level import/export should go through the service as either the expanded
 BLine autos folder (`config.json` and `paths/*.json`) or the secondary project

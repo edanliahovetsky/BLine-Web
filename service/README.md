@@ -1,3 +1,3 @@
 # Service
 
-Systemcore service work is deferred until Phase 3.
+Service work is deferred until a later phase.
