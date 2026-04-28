@@ -762,11 +762,16 @@ function ConstraintSegmentBar({
         drag.mode === 'boundary'
           ? dragBoundary(drag.entries, drag.segmentIndex, drag.side, nextOrdinal, total)
           : dragWholeSegment(drag.entries, drag.segmentIndex, nextOrdinal, drag.offset, drag.width, total);
+      const displayedNextEntries = manualizeChangedAutoVelocityEntries(
+        constraintKey,
+        drag.originalEntries,
+        nextEntries
+      );
 
-      drag.entries = nextEntries;
+      drag.entries = displayedNextEntries;
       drag.changed = true;
-      setDraftEntries(nextEntries);
-      const previewEntry = nextEntries[drag.segmentIndex];
+      setDraftEntries(displayedNextEntries);
+      const previewEntry = displayedNextEntries[drag.segmentIndex];
       if (previewEntry) {
         onPreview?.(previewEntry.index, previewEntry.constraint);
       }
@@ -1111,6 +1116,37 @@ function changedRangeUpdates(originalEntries: RangedEntry[], nextEntries: Ranged
     }
 
     return [{ index: nextEntry.index, next: nextEntry.constraint }];
+  });
+}
+
+function manualizeChangedAutoVelocityEntries(
+  constraintKey: RangedConstraintKey,
+  originalEntries: RangedEntry[],
+  nextEntries: RangedEntry[]
+): RangedEntry[] {
+  if (constraintKey !== autoVelocityKey) {
+    return nextEntries;
+  }
+
+  return nextEntries.map((nextEntry) => {
+    const original = originalEntries.find((entry) => entry.index === nextEntry.index);
+    if (
+      nextEntry.constraint.source !== 'auto_velocity' ||
+      !original ||
+      (original.constraint.start_ordinal === nextEntry.constraint.start_ordinal &&
+        original.constraint.end_ordinal === nextEntry.constraint.end_ordinal)
+    ) {
+      return nextEntry;
+    }
+
+    return {
+      ...nextEntry,
+      constraint: {
+        ...nextEntry.constraint,
+        source: 'manual',
+        auto_velocity: null,
+      },
+    };
   });
 }
 

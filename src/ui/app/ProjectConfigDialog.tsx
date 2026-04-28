@@ -239,7 +239,25 @@ export function ProjectConfigDialog({
             </section>
 
             <section className="config-dialog__section config-dialog__section--wide-rows">
-              <h2>Auto Velocity</h2>
+              <h2>Rotation</h2>
+              <KinematicNumberRow
+                draft={draft}
+                label="Default Max Rot Vel (deg/s)"
+                configKey="default_max_velocity_deg_per_sec"
+                step={1}
+                setDraft={setDraft}
+              />
+              <KinematicNumberRow
+                draft={draft}
+                label="Default Max Rot Accel (deg/s2)"
+                configKey="default_max_acceleration_deg_per_sec2"
+                step={1}
+                setDraft={setDraft}
+              />
+            </section>
+
+            <section className="config-dialog__section config-dialog__section--wide-rows">
+              <h2>Auto Constrain</h2>
               <KinematicNumberRow
                 draft={draft}
                 label="Default Auto Velocity Factor"
@@ -264,24 +282,6 @@ export function ProjectConfigDialog({
                 configKey="default_auto_velocity_merge_tolerance_meters_per_sec"
                 max={20}
                 step={0.05}
-                setDraft={setDraft}
-              />
-            </section>
-
-            <section className="config-dialog__section config-dialog__section--wide-rows">
-              <h2>Rotation</h2>
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Max Rot Vel (deg/s)"
-                configKey="default_max_velocity_deg_per_sec"
-                step={1}
-                setDraft={setDraft}
-              />
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Max Rot Accel (deg/s2)"
-                configKey="default_max_acceleration_deg_per_sec2"
-                step={1}
                 setDraft={setDraft}
               />
             </section>

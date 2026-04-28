@@ -708,6 +708,36 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
 });
 
+test("turns dragged auto velocity ranges into manual ranges", async ({ page }) => {
+  await page.goto("/");
+
+  const firstRange = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  await firstRange.click();
+  await page.getByLabel("Delete constraint 1").click();
+  await expect(firstRange).toHaveCount(0);
+
+  await page.getByLabel("Auto velocity merge diff").fill("20");
+  await page.getByRole("button", { name: "Apply auto velocity to open segments" }).click();
+
+  const autoRange = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  await expect(autoRange).toHaveClass(/ranged-segment-range--auto/);
+
+  const secondCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2");
+  const autoBox = await requiredBox(autoRange);
+  const secondBox = await requiredBox(secondCell);
+  await page.mouse.move(autoBox.x + autoBox.width - 2, autoBox.y + autoBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, {
+    steps: 6
+  });
+  await page.mouse.up();
+
+  await expect(autoRange).toHaveClass(/ranged-segment-range--manual/);
+  const modeControl = page.getByRole("group", { name: "Velocity constraint mode" });
+  await expect(modeControl.getByRole("button", { name: "Manual" })).toBeDisabled();
+  await expect(modeControl.getByRole("button", { name: "Auto" })).toBeEnabled();
+});
+
 test("keeps the constraint editor movable and modeless", async ({ page }) => {
   await page.goto("/");
 
@@ -768,6 +798,9 @@ test("edits project config with undo support", async ({ page }) => {
   const saveButton = dialog.getByRole("button", { name: "Save" });
   await expect(dialog).toBeVisible();
   await expect(saveButton).toBeDisabled();
+  await expect(dialog.getByRole("heading", { name: "Auto Velocity" })).toHaveCount(0);
+  await expect(dialog.getByRole("heading", { name: "Auto Constrain" })).toBeVisible();
+  await expect(dialog.locator("h2").last()).toHaveText("Auto Constrain");
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
   await expect(
     dialog.getByTitle("Increase Protrusion Distance (m)")
