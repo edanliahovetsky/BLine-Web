@@ -115,10 +115,10 @@ export class PixiPathRenderer {
       this.fieldGraphics,
       this.fieldSprite,
       this.pathGraphics,
+      this.simulationGraphics,
       this.constraintGraphics,
       this.nodeGraphics,
-      this.rotationGraphics,
-      this.simulationGraphics
+      this.rotationGraphics
     );
   }
 
