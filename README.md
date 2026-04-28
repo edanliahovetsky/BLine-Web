@@ -120,6 +120,7 @@ packages used by the release workflow.
 | `npm run typecheck` | Run TypeScript with `--noEmit` |
 | `npm run test` | Run Vitest unit tests |
 | `npm run parity` | Run parity tests against reference fixtures |
+| `npm run validate:bline-lib-io` | Validate generated autos files against BLine-Lib |
 | `npm run test:e2e` | Run Playwright browser tests |
 | `npm run build` | Typecheck and build the Vite bundle |
 | `npm run release:check` | Verify package, Tauri, Cargo, and optional tag versions |
@@ -134,12 +135,17 @@ npm run lint
 npm run typecheck
 npm run test
 npm run parity
+npm run validate:bline-lib-io
 npm run build
 npm run test:e2e
 ```
 
 Run `npm run tauri:build` when desktop behavior or release readiness is in
 scope.
+
+`npm run validate:bline-lib-io` requires a BLine-Lib checkout. CI checks out
+`edanliahovetsky/BLine-Lib@main` automatically. For local runs outside the
+default `/Users/edan/FRC/BLine-Lib` location, set `BLINE_LIB_DIR=/path/to/BLine-Lib`.
 
 ## Architecture
 

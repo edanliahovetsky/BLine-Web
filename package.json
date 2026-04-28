@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "parity": "vitest run parity-harness",
+    "validate:bline-lib-io": "vitest run --config vitest.bline-lib-io.config.ts",
     "test:e2e": "playwright test",
     "build": "tsc --noEmit && vite build",
     "release:check": "node scripts/release-check.mjs",

@@ -26,7 +26,7 @@ export default defineConfig({
     include: [
       "tests/unit/**/*.test.ts",
       "tests/unit/**/*.test.tsx",
-      "parity-harness/**/*.test.ts"
+      "parity-harness/parity.test.ts"
     ]
   }
 });

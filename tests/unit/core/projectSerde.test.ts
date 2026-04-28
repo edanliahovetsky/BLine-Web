@@ -354,6 +354,46 @@ describe("project path serde", () => {
     });
   });
 
+  it("serializes scalar motion constraints as full-domain BLine-Lib ranges", () => {
+    const path = createPathModel({
+      constraints: createConstraints({
+        max_velocity_meters_per_sec: 3.2,
+        max_acceleration_meters_per_sec2: 6.4,
+        max_velocity_deg_per_sec: 540,
+        max_acceleration_deg_per_sec2: 1200,
+        end_translation_tolerance_meters: 0.04
+      }),
+      path_elements: [
+        createWaypoint({
+          translation_target: createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+          rotation_target: createRotationTarget({ rotation_radians: 0 })
+        }),
+        createTranslationTarget({ x_meters: 1, y_meters: 0 }),
+        createRotationTarget({ t_ratio: 0.5, rotation_radians: 1 }),
+        createWaypoint({
+          translation_target: createTranslationTarget({ x_meters: 2, y_meters: 0 }),
+          rotation_target: createRotationTarget({ rotation_radians: 2 })
+        })
+      ]
+    });
+
+    expect(serializePath(path).constraints).toEqual({
+      max_velocity_meters_per_sec: [
+        { value: 3.2, start_ordinal: 0, end_ordinal: 2 }
+      ],
+      max_acceleration_meters_per_sec2: [
+        { value: 6.4, start_ordinal: 0, end_ordinal: 2 }
+      ],
+      end_translation_tolerance_meters: 0.04,
+      max_velocity_deg_per_sec: [
+        { value: 540, start_ordinal: 0, end_ordinal: 2 }
+      ],
+      max_acceleration_deg_per_sec2: [
+        { value: 1200, start_ordinal: 0, end_ordinal: 2 }
+      ]
+    });
+  });
+
   it("reads legacy default scalar constraint keys", () => {
     const restored = deserializePath({
       path_elements: [{ type: "translation", x_meters: 0, y_meters: 0 }],
