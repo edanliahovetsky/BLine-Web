@@ -62,8 +62,8 @@ export interface FlatProjectConfig {
 const defaultConfig: CanonicalProjectConfig = {
   gui: {
     robot: {
-      length_meters: 0.5,
-      width_meters: 0.5
+      length_meters: 0.8,
+      width_meters: 0.8
     },
     protrusions: {
       enabled: false,
@@ -76,7 +76,7 @@ const defaultConfig: CanonicalProjectConfig = {
   },
   kinematic_constraints: {
     default_max_velocity_meters_per_sec: 4.5,
-    default_max_acceleration_meters_per_sec2: 7,
+    default_max_acceleration_meters_per_sec2: 12,
     default_intermediate_handoff_radius_meters: 0.2,
     default_max_velocity_deg_per_sec: 720,
     default_max_acceleration_deg_per_sec2: 1500,

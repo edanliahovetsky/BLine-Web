@@ -545,7 +545,7 @@ describe("project document serde", () => {
         gui: {
           robot: {
             length_meters: 0.7,
-            width_meters: 0.5
+            width_meters: 0.8
           }
         }
       }

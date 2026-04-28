@@ -1097,7 +1097,8 @@ test("edits project config with undo support", async ({ page }) => {
 
   await page.getByRole("button", { name: "Undo" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.5");
+  await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.8");
+  await expect(page.getByLabel("Default Max Accel (m/s2)")).toHaveValue("12");
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
   await page.getByRole("button", { name: "Close config" }).click();
 });
@@ -1115,7 +1116,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await expect(dialog).toBeHidden();
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.5");
+  await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.8");
   await page.getByRole("button", { name: "Close config" }).click();
 });
 

@@ -7,6 +7,18 @@ import {
 } from "../../../src/core/config/projectConfig";
 
 describe("project config", () => {
+  it("uses current robot and translation defaults", () => {
+    const config = createProjectConfig();
+
+    expect(config.gui.robot).toEqual({
+      length_meters: 0.8,
+      width_meters: 0.8
+    });
+    expect(
+      config.kinematic_constraints.default_max_acceleration_meters_per_sec2
+    ).toBe(12);
+  });
+
   it("normalizes legacy flat robot, protrusion, and default values", () => {
     const config = createProjectConfig({
       robot_length_meters: 0.7,
@@ -135,7 +147,7 @@ describe("project config", () => {
     expect(
       needsProjectConfigMigration({
         gui: {
-          robot: { length_meters: 0.5, width_meters: 0.5 },
+          robot: { length_meters: 0.8, width_meters: 0.8 },
           protrusions: {
             enabled: false,
             distance_meters: 0,
