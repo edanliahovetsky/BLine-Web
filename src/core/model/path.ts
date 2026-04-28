@@ -28,6 +28,13 @@ export type TranslationConstraintKey = (typeof translationConstraintKeys)[number
 export type RotationConstraintKey = (typeof rotationConstraintKeys)[number];
 export type RangedConstraintKey = (typeof rangedConstraintKeys)[number];
 export type ConstraintKey = (typeof constraintKeys)[number];
+export type RangedConstraintSource = "manual" | "auto_velocity";
+
+export interface AutoVelocityConstraintMetadata {
+  velocity_safety_factor: number;
+  acceleration_safety_factor: number;
+  merge_tolerance_meters_per_sec?: number;
+}
 
 export interface Constraints {
   max_velocity_meters_per_sec: number | null;
@@ -43,6 +50,8 @@ export interface RangedConstraint {
   value: number;
   start_ordinal: number;
   end_ordinal: number;
+  source?: RangedConstraintSource;
+  auto_velocity?: AutoVelocityConstraintMetadata | null;
 }
 
 export interface TranslationTarget {

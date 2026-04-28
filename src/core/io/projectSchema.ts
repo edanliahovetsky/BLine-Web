@@ -1,4 +1,10 @@
-import type { PathModel, ConstraintKey } from "../model/path";
+import type {
+  AutoVelocityConstraintMetadata,
+  ConstraintKey,
+  PathModel,
+  RangedConstraintKey,
+  RangedConstraintSource
+} from "../model/path";
 import {
   createProjectConfig,
   type CanonicalProjectConfig
@@ -46,6 +52,19 @@ export interface SerializedRangedConstraint {
   value: number;
   start_ordinal: number;
   end_ordinal: number;
+}
+
+export interface SerializedRangedConstraintMetadata {
+  key: RangedConstraintKey;
+  value: number;
+  start_ordinal: number;
+  end_ordinal: number;
+  source: RangedConstraintSource;
+  auto_velocity?: AutoVelocityConstraintMetadata | null;
+}
+
+export interface SerializedPathEditorMetadata {
+  ranged_constraints?: SerializedRangedConstraintMetadata[];
 }
 
 export type SerializedConstraintValue = number | SerializedRangedConstraint[];
@@ -113,6 +132,7 @@ export interface SerializedProjectPathDocument {
   display_name: string;
   file_name: string;
   path: SerializedPathDocument;
+  editor_metadata?: SerializedPathEditorMetadata;
 }
 
 export interface SerializedProjectWorkspaceDocument {

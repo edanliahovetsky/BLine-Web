@@ -14,7 +14,9 @@ describe("project config", () => {
       robot_protrusion_left_meters: 0.18,
       robot_protrusion_front_meters: 0.08,
       default_max_velocity_meters_per_sec: 3,
-      default_intermediate_handoff_radius_meters: 0.55
+      default_intermediate_handoff_radius_meters: 0.55,
+      default_auto_velocity_velocity_safety_factor: 0.85,
+      default_auto_velocity_merge_tolerance_meters_per_sec: 0.25
     });
 
     expect(config.gui.robot).toEqual({
@@ -29,7 +31,10 @@ describe("project config", () => {
     });
     expect(config.kinematic_constraints).toMatchObject({
       default_max_velocity_meters_per_sec: 3,
-      default_intermediate_handoff_radius_meters: 0.55
+      default_intermediate_handoff_radius_meters: 0.55,
+      default_auto_velocity_velocity_safety_factor: 0.85,
+      default_auto_velocity_acceleration_safety_factor: 0.8,
+      default_auto_velocity_merge_tolerance_meters_per_sec: 0.25
     });
   });
 
@@ -103,6 +108,26 @@ describe("project config", () => {
       )
     ).toBe(0.42);
     expect(getDefaultOptionalConfigValue(config, "not_real")).toBeNull();
+  });
+
+  it("provides auto velocity defaults from project settings", () => {
+    const config = createProjectConfig({
+      kinematic_constraints: {
+        default_auto_velocity_velocity_safety_factor: 0.75,
+        default_auto_velocity_acceleration_safety_factor: 0.65,
+        default_auto_velocity_merge_tolerance_meters_per_sec: 0.2
+      }
+    });
+
+    expect(
+      getDefaultOptionalConfigValue(config, "auto_velocity_velocity_safety_factor")
+    ).toBe(0.75);
+    expect(
+      getDefaultOptionalConfigValue(config, "auto_velocity_acceleration_safety_factor")
+    ).toBe(0.65);
+    expect(
+      getDefaultOptionalConfigValue(config, "auto_velocity_merge_tolerance_meters_per_sec")
+    ).toBe(0.2);
   });
 
   it("flags legacy or partial config documents as migration candidates", () => {

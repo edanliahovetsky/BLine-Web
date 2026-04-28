@@ -1,6 +1,10 @@
 export type ProtrusionSide = "none" | "left" | "right" | "front" | "back";
 export type ProtrusionState = "" | "shown" | "hidden";
 
+export const defaultAutoVelocityVelocitySafetyFactor = 0.9;
+export const defaultAutoVelocityAccelerationSafetyFactor = 0.8;
+export const defaultAutoVelocityMergeToleranceMetersPerSec = 0.3;
+
 export interface CanonicalProjectConfig {
   gui: {
     robot: {
@@ -24,6 +28,9 @@ export interface CanonicalProjectConfig {
     default_max_acceleration_deg_per_sec2: number;
     default_end_translation_tolerance_meters: number;
     default_end_rotation_tolerance_deg: number;
+    default_auto_velocity_velocity_safety_factor: number;
+    default_auto_velocity_acceleration_safety_factor: number;
+    default_auto_velocity_merge_tolerance_meters_per_sec: number;
   };
 }
 
@@ -47,6 +54,9 @@ export interface FlatProjectConfig {
   default_max_acceleration_deg_per_sec2: number;
   default_end_translation_tolerance_meters: number;
   default_end_rotation_tolerance_deg: number;
+  default_auto_velocity_velocity_safety_factor: number;
+  default_auto_velocity_acceleration_safety_factor: number;
+  default_auto_velocity_merge_tolerance_meters_per_sec: number;
 }
 
 const defaultConfig: CanonicalProjectConfig = {
@@ -71,7 +81,13 @@ const defaultConfig: CanonicalProjectConfig = {
     default_max_velocity_deg_per_sec: 720,
     default_max_acceleration_deg_per_sec2: 1500,
     default_end_translation_tolerance_meters: 0.03,
-    default_end_rotation_tolerance_deg: 2
+    default_end_rotation_tolerance_deg: 2,
+    default_auto_velocity_velocity_safety_factor:
+      defaultAutoVelocityVelocitySafetyFactor,
+    default_auto_velocity_acceleration_safety_factor:
+      defaultAutoVelocityAccelerationSafetyFactor,
+    default_auto_velocity_merge_tolerance_meters_per_sec:
+      defaultAutoVelocityMergeToleranceMetersPerSec
   }
 };
 

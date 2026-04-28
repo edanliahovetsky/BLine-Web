@@ -289,6 +289,19 @@ export function createUpdateRangedConstraintsCommand(
   };
 }
 
+export function createReplaceRangedConstraintsForKeyCommand(
+  key: RangedConstraintKey,
+  previous: readonly RangedConstraint[],
+  next: readonly RangedConstraint[],
+  description = `Set ranged ${key}`
+): HistoryCommand<ProjectDocument> {
+  return {
+    description,
+    apply: (project) => replaceRangedConstraintsForKey(project, key, next),
+    revert: (project) => replaceRangedConstraintsForKey(project, key, previous)
+  };
+}
+
 export function createInsertRangedConstraintCommand(
   constraint: RangedConstraint
 ): HistoryCommand<ProjectDocument> {
@@ -706,6 +719,21 @@ function replaceRangedConstraint(
   return nextProject;
 }
 
+function replaceRangedConstraintsForKey(
+  project: ProjectDocument,
+  key: RangedConstraintKey,
+  constraints: readonly RangedConstraint[]
+): ProjectDocument {
+  const nextProject = structuredClone(project);
+  nextProject.path.ranged_constraints = [
+    ...nextProject.path.ranged_constraints.filter((constraint) => constraint.key !== key),
+    ...constraints.map((constraint) => structuredClone(constraint))
+  ];
+  nextProject.path.constraints[key] =
+    constraints.length > 0 ? null : nextProject.path.constraints[key];
+  return nextProject;
+}
+
 function sameRangedConstraint(
   candidate: RangedConstraint,
   target: RangedConstraint
@@ -714,7 +742,8 @@ function sameRangedConstraint(
     candidate.key === target.key &&
     candidate.value === target.value &&
     candidate.start_ordinal === target.start_ordinal &&
-    candidate.end_ordinal === target.end_ordinal
+    candidate.end_ordinal === target.end_ordinal &&
+    candidate.source === target.source
   );
 }
 

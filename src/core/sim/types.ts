@@ -34,6 +34,26 @@ export interface SimulationOptions {
   dt_s?: number;
 }
 
+export interface SimulationTraceSample {
+  time_s: number;
+  x_m: number;
+  y_m: number;
+  theta_rad: number;
+  segment_index: number;
+  target_anchor_ordinal_1b: number;
+  global_s_m: number;
+  segment_s_m: number;
+  vx_mps: number;
+  vy_mps: number;
+  omega_radps: number;
+  speed_mps: number;
+  ax_mps2: number;
+  ay_mps2: number;
+  acceleration_mps2: number;
+  snapped_position: boolean;
+  snapped_rotation: boolean;
+}
+
 export interface SimResult {
   poses_by_time: Map<number, PoseTuple>;
   global_s_by_time: Map<number, number>;
@@ -41,6 +61,10 @@ export interface SimResult {
   times_sorted: number[];
   total_time_s: number;
   trail_points: PointTuple[];
+}
+
+export interface SimTraceResult extends SimResult {
+  trace: SimulationTraceSample[];
 }
 
 export interface RotationKeyframe {

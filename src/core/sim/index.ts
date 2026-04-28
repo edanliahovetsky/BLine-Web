@@ -6,8 +6,10 @@ export type {
   RotationKeyframe,
   Segment,
   SimResult,
+  SimTraceResult,
   SimulationConfig,
-  SimulationOptions
+  SimulationOptions,
+  SimulationTraceSample
 } from "./types";
 export {
   clamp01,
@@ -24,5 +26,6 @@ export {
   buildRotationDomainEvents,
   buildSegments,
   desiredHeadingForGlobalS,
-  simulatePath
+  simulatePath,
+  simulatePathWithTrace
 } from "./simulatePath";

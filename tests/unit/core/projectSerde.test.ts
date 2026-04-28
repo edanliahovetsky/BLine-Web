@@ -884,6 +884,73 @@ describe("project document serde", () => {
       path_file_name: "top_sweep.json"
     });
   });
+
+  it("keeps auto velocity ownership in workspace metadata but out of BLine path JSON", () => {
+    const autoConstraint: RangedConstraint = {
+      key: "max_velocity_meters_per_sec",
+      value: 1.25,
+      start_ordinal: 2,
+      end_ordinal: 2,
+      source: "auto_velocity",
+      auto_velocity: {
+        velocity_safety_factor: 0.9,
+        acceleration_safety_factor: 0.8,
+        merge_tolerance_meters_per_sec: 0.3
+      }
+    };
+    const project = createProjectDocument({
+      project_id: "project-1",
+      display_name: "Auto Path",
+      path_file_name: "auto_path.json",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+          createTranslationTarget({ x_meters: 1, y_meters: 0 })
+        ],
+        ranged_constraints: [autoConstraint]
+      })
+    });
+
+    expect(serializePath(project.path).constraints).toEqual({
+      max_velocity_meters_per_sec: [
+        {
+          value: 1.25,
+          start_ordinal: 1,
+          end_ordinal: 1
+        }
+      ]
+    });
+
+    const serialized = serializeProjectWorkspaceDocument(
+      projectDocumentToWorkspaceDocument(project)
+    );
+    expect(serialized.paths[0]?.editor_metadata).toEqual({
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 1.25,
+          start_ordinal: 2,
+          end_ordinal: 2,
+          source: "auto_velocity",
+          auto_velocity: {
+            velocity_safety_factor: 0.9,
+            acceleration_safety_factor: 0.8,
+            merge_tolerance_meters_per_sec: 0.3
+          }
+        }
+      ]
+    });
+
+    const restored = deserializeProjectWorkspaceDocument(serialized);
+    expect(restored.paths[0]?.path.ranged_constraints[0]).toMatchObject({
+      source: "auto_velocity",
+      auto_velocity: {
+        velocity_safety_factor: 0.9,
+        acceleration_safety_factor: 0.8,
+        merge_tolerance_meters_per_sec: 0.3
+      }
+    });
+  });
 });
 
 function readFixture(name: string): unknown {
