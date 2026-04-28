@@ -51,7 +51,7 @@ export function ElementList({
     }
 
     selectedRowRef.current?.scrollIntoView({ block: "nearest" });
-  }, [elements.length, open, selectedElementIndex]);
+  }, [elements.length, open]);
 
   const handleMouseDown = (event: MouseEvent<HTMLButtonElement>, index: number) => {
     if (!project || event.button !== 0) {

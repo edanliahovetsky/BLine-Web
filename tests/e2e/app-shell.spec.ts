@@ -587,6 +587,65 @@ test("scrolls selected rows into view", async ({ page }) => {
   expect(selectedBox.y + selectedBox.height).toBeLessThanOrEqual(listBox.y + listBox.height + 1);
 });
 
+test("keeps sidebar scroll position when selecting a canvas element", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 720 });
+  await page.goto("/");
+
+  for (let index = 0; index < 12; index += 1) {
+    await page.getByText("Add element").click();
+    await page.getByRole("menuitem", { name: "Waypoint" }).click();
+  }
+
+  const scrollBefore = await page.evaluate(() => {
+    const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
+    const pathList = document.querySelector<HTMLElement>(".path-element-list");
+
+    if (!sidebar || !pathList) {
+      throw new Error("Expected sidebar and path element list to be present");
+    }
+
+    const sidebarMaxScrollTop = sidebar.scrollHeight - sidebar.clientHeight;
+    sidebar.scrollTop = Math.max(1, Math.min(320, sidebarMaxScrollTop - 80));
+    pathList.scrollTop = Math.max(1, pathList.scrollHeight - pathList.clientHeight);
+
+    return {
+      pathListScrollTop: pathList.scrollTop,
+      sidebarScrollTop: sidebar.scrollTop
+    };
+  });
+
+  expect(scrollBefore.pathListScrollTop).toBeGreaterThan(0);
+  expect(scrollBefore.sidebarScrollTop).toBeGreaterThan(0);
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 5.7,
+    y_meters: 2.5
+  });
+  await page.mouse.click(firstAnchor.x, firstAnchor.y);
+  await expect(page.getByTestId("path-element-row-0")).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+
+  const scrollAfter = await page.evaluate(() => {
+    const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
+    const pathList = document.querySelector<HTMLElement>(".path-element-list");
+
+    if (!sidebar || !pathList) {
+      throw new Error("Expected sidebar and path element list to be present");
+    }
+
+    return {
+      pathListScrollTop: pathList.scrollTop,
+      sidebarScrollTop: sidebar.scrollTop
+    };
+  });
+
+  expect(scrollAfter.pathListScrollTop).toBe(scrollBefore.pathListScrollTop);
+  expect(scrollAfter.sidebarScrollTop).toBe(scrollBefore.sidebarScrollTop);
+});
+
 test("reorders and converts path elements from the inspector", async ({ page }) => {
   await page.goto("/");
 
