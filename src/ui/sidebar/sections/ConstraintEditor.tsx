@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
@@ -230,103 +231,109 @@ export function ConstraintEditor({
     };
   }, [selectedRangedConstraint]);
 
-  return (
-    <SidebarSection
-      actions={
-        <details className="add-element-menu add-constraint-menu" open={menuOpen}>
-          <summary
-            className={project ? 'add-element-button' : 'add-element-button is-disabled'}
-            role="button"
-            onClick={(event) => {
-              event.preventDefault();
-              if (!project) {
-                return;
-              }
-              setMenuOpen((open) => !open);
-            }}
-          >
-            <span className="sidebar-add-icon" data-testid="add-constraint-icon" aria-hidden="true">
-              <PlusIcon size={17} />
-            </span>
-            <span>Add constraint</span>
-          </summary>
-          <div className="add-element-menu__panel" role="menu" aria-label="Add constraint">
-            {availableItems.length === 0 ? (
-              <p className="constraint-empty-state">All constraints are active.</p>
-            ) : (
-              availableItems.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className="add-element-menu__item"
-                  role="menuitem"
-                  onClick={() => {
-                    const added = addConstraint(project, item.key);
-                    if (added) {
-                      setSelectedForKey(added.key, added.index);
-                    }
-                    setMenuOpen(false);
-                  }}
-                >
-                  <ElementIcon type={constraintIconType(item.key)} size={22} />
-                  <span>{item.label}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </details>
-      }
-      className="constraints-section"
-      meta={project ? constraintCountLabel(activeCount) : "No project"}
-      open={open}
-      overlay={
-        popoutOpen && project ? (
+  const popoutOverlay =
+    popoutOpen && project
+      ? createPortal(
           <ConstraintPopout
             project={project}
             selectedByKey={selectedByKey}
             autoSettings={autoSettings}
             onSelect={setSelectedForKey}
             onClose={() => setPopoutOpen(false)}
-          />
-        ) : null
-      }
-      sectionId="constraints"
-      title="Constraints"
-      onToggle={onToggleSection}
-    >
-      <div className="constraint-list">
-        {project ? (
-          <>
-            {rangedConstraintKeys.map((key) => (
-              <RangedConstraintCard
-                key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
-                project={project}
-                constraintKey={key}
-                selectedIndex={selectedByKey[key] ?? null}
-                autoSettings={autoSettings}
-                onAutoSettingsChange={setAutoSettings}
-                onSelect={(index) => setSelectedForKey(key, index)}
-                onOpenPopout={() => setPopoutOpen(true)}
-              />
-            ))}
+          />,
+          document.body
+        )
+      : null;
 
-            <div className="constraint-terminal-group">
-              {terminalToleranceKeys.map((key) =>
-                project.path.constraints[key] !== null ? (
-                  <ScalarConstraintRow key={key} project={project} constraintKey={key} />
-                ) : null
+  return (
+    <>
+      <SidebarSection
+        actions={
+          <details className="add-element-menu add-constraint-menu" open={menuOpen}>
+            <summary
+              className={project ? 'add-element-button' : 'add-element-button is-disabled'}
+              role="button"
+              onClick={(event) => {
+                event.preventDefault();
+                if (!project) {
+                  return;
+                }
+                setMenuOpen((open) => !open);
+              }}
+            >
+              <span className="sidebar-add-icon" data-testid="add-constraint-icon" aria-hidden="true">
+                <PlusIcon size={17} />
+              </span>
+              <span>Add constraint</span>
+            </summary>
+            <div className="add-element-menu__panel" role="menu" aria-label="Add constraint">
+              {availableItems.length === 0 ? (
+                <p className="constraint-empty-state">All constraints are active.</p>
+              ) : (
+                availableItems.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="add-element-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      const added = addConstraint(project, item.key);
+                      if (added) {
+                        setSelectedForKey(added.key, added.index);
+                      }
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <ElementIcon type={constraintIconType(item.key)} size={22} />
+                    <span>{item.label}</span>
+                  </button>
+                ))
               )}
             </div>
+          </details>
+        }
+        className="constraints-section"
+        meta={project ? constraintCountLabel(activeCount) : "No project"}
+        open={open}
+        sectionId="constraints"
+        title="Constraints"
+        onToggle={onToggleSection}
+      >
+        <div className="constraint-list">
+          {project ? (
+            <>
+              {rangedConstraintKeys.map((key) => (
+                <RangedConstraintCard
+                  key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
+                  project={project}
+                  constraintKey={key}
+                  selectedIndex={selectedByKey[key] ?? null}
+                  autoSettings={autoSettings}
+                  onAutoSettingsChange={setAutoSettings}
+                  onSelect={(index) => setSelectedForKey(key, index)}
+                  onOpenPopout={() => setPopoutOpen(true)}
+                />
+              ))}
 
-            {!hasAnyConstraint(project) && domainLabelsForKey(project, autoVelocityKey).length === 0 ? (
-              <p className="constraint-empty-state">No path constraints added.</p>
-            ) : null}
-          </>
-        ) : (
-          <p className="constraint-empty-state">Open or create a project to edit constraints.</p>
-        )}
-      </div>
-    </SidebarSection>
+              <div className="constraint-terminal-group">
+                {terminalToleranceKeys.map((key) =>
+                  project.path.constraints[key] !== null ? (
+                    <ScalarConstraintRow key={key} project={project} constraintKey={key} />
+                  ) : null
+                )}
+              </div>
+
+              {!hasAnyConstraint(project) && domainLabelsForKey(project, autoVelocityKey).length === 0 ? (
+                <p className="constraint-empty-state">No path constraints added.</p>
+              ) : null}
+            </>
+          ) : (
+            <p className="constraint-empty-state">Open or create a project to edit constraints.</p>
+          )}
+        </div>
+      </SidebarSection>
+      {popoutOverlay}
+    </>
   );
 }
 

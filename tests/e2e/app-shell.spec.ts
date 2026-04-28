@@ -321,6 +321,27 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
           bottom: rect.bottom
         };
       });
+      const autoVelocityControlBoxes = Array.from(
+        document.querySelectorAll(".auto-velocity-inline .sidebar-number-control")
+      ).map((control) => {
+        const input = control.querySelector("input");
+        const stepper = control.querySelector(".sidebar-stepper");
+        if (!input || !stepper) {
+          throw new Error("Expected auto velocity number controls to include input and stepper");
+        }
+        const controlRect = control.getBoundingClientRect();
+        const inputRect = input.getBoundingClientRect();
+        const stepperRect = stepper.getBoundingClientRect();
+        return {
+          top: controlRect.top,
+          bottom: controlRect.bottom,
+          height: controlRect.height,
+          inputTop: inputRect.top,
+          inputBottom: inputRect.bottom,
+          stepperTop: stepperRect.top,
+          stepperBottom: stepperRect.bottom
+        };
+      });
 
       return {
         viewportWidth: window.innerWidth,
@@ -334,7 +355,8 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         valueControlBottom: valueBox.bottom,
         valueInputClientWidth: valueInput.clientWidth,
         valueInputScrollWidth: valueInput.scrollWidth,
-        actionButtonBoxes
+        actionButtonBoxes,
+        autoVelocityControlBoxes
       };
     });
 
@@ -351,6 +373,17 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
 
     for (const actionButtonBox of metrics.actionButtonBoxes) {
       expect(Math.abs(actionButtonBox.bottom - metrics.valueControlBottom)).toBeLessThanOrEqual(1);
+    }
+
+    expect(metrics.autoVelocityControlBoxes.length).toBe(3);
+    const autoControlTop = metrics.autoVelocityControlBoxes[0].top;
+    const autoControlBottom = metrics.autoVelocityControlBoxes[0].bottom;
+    for (const controlBox of metrics.autoVelocityControlBoxes) {
+      expect(Math.abs(controlBox.top - autoControlTop)).toBeLessThanOrEqual(1);
+      expect(Math.abs(controlBox.bottom - autoControlBottom)).toBeLessThanOrEqual(1);
+      expect(controlBox.height).toBeGreaterThanOrEqual(28);
+      expect(Math.abs(controlBox.inputTop - controlBox.stepperTop)).toBeLessThanOrEqual(1);
+      expect(Math.abs(controlBox.inputBottom - controlBox.stepperBottom)).toBeLessThanOrEqual(1);
     }
 
     expect(metrics.valueInputScrollWidth).toBeLessThanOrEqual(
@@ -867,6 +900,32 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAttribute("aria-modal", "false");
+  const stackingMetrics = await page.evaluate(() => {
+    const backdrop = document.querySelector(".constraint-popout-backdrop");
+    const dialogElement = document.querySelector(".constraint-popout");
+    const canvas = document.querySelector("[data-testid='path-stage-pixi-canvas']");
+    if (!backdrop || !dialogElement || !canvas) {
+      throw new Error("Expected constraint popout and canvas to be present");
+    }
+
+    const dialogRect = dialogElement.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const x = Math.max(
+      dialogRect.left + 12,
+      Math.min(canvasRect.right - 12, dialogRect.right - 12)
+    );
+    const y = dialogRect.top + 28;
+    const topElement = document.elementFromPoint(x, y);
+
+    return {
+      backdropParent: backdrop.parentElement?.tagName ?? null,
+      popoutAboveCanvas: topElement?.closest(".constraint-popout") === dialogElement,
+      overlapsCanvas: dialogRect.left < canvasRect.right && dialogRect.right > canvasRect.left
+    };
+  });
+  expect(stackingMetrics.backdropParent).toBe("BODY");
+  expect(stackingMetrics.overlapsCanvas).toBe(true);
+  expect(stackingMetrics.popoutAboveCanvas).toBe(true);
   const closeButton = page.getByRole("button", { name: "Close Constraint Editor" });
   await expect(closeButton.locator("svg")).toBeVisible();
   const closeButtonBox = await requiredBox(closeButton);
