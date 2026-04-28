@@ -1126,7 +1126,21 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await expect(page.getByTestId("top-menu-project")).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Workspace" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Import / Export" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Config" })).toBeVisible();
+  const configMenuItem = page.getByRole("menuitem", { name: "Config" });
+  await expect(configMenuItem).toBeVisible();
+  const configLabelMetrics = await configMenuItem.evaluate((element) => {
+    const label = element.querySelector(".top-menu__item-label");
+    const labelStyle = label ? window.getComputedStyle(label) : null;
+
+    return {
+      itemHeight: element.getBoundingClientRect().height,
+      labelHeight: label?.getBoundingClientRect().height ?? 0,
+      lineHeight: labelStyle ? Number.parseFloat(labelStyle.lineHeight) : 0
+    };
+  });
+  expect(configLabelMetrics.itemHeight).toBeGreaterThanOrEqual(32);
+  expect(configLabelMetrics.labelHeight).toBeGreaterThanOrEqual(18);
+  expect(configLabelMetrics.lineHeight).toBeGreaterThanOrEqual(17);
   await expect(page.getByRole("menuitem", { name: "Recent Projects" })).toBeVisible();
 
   await page.getByRole("menuitem", { name: "Workspace" }).click();

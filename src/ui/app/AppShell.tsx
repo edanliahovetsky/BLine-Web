@@ -1846,7 +1846,7 @@ function MenuSubmenu({
         className="top-menu__item"
         onClick={openSubmenu}
       >
-        <span>{label}</span>
+        <span className="top-menu__item-label">{label}</span>
         <span className="top-menu__chevron" aria-hidden="true">
           ›
         </span>
@@ -1892,7 +1892,7 @@ function MenuAction({
       disabled={disabled}
       onClick={onAction}
     >
-      <span>{label}</span>
+      <span className="top-menu__item-label">{label}</span>
       {shortcut ? <kbd>{shortcut}</kbd> : null}
     </button>
   );
@@ -1972,7 +1972,7 @@ function PathMenuList({
           className="top-menu__item top-menu__project"
           onClick={() => void onOpen(path.path_id)}
         >
-          <span>{path.display_name}</span>
+          <span className="top-menu__item-label">{path.display_name}</span>
           <small>{path.file_name}</small>
         </button>
       ))}
@@ -2004,7 +2004,7 @@ function WorkspaceMenuList({
           title={summary.directoryPath}
           onClick={() => void onOpen(summary.id)}
         >
-          <span>{summary.displayName}</span>
+          <span className="top-menu__item-label">{summary.displayName}</span>
           <small>{formatTimestamp(summary.updatedAt)}</small>
         </button>
       ))}
