@@ -1210,6 +1210,110 @@ test("keeps top dropdowns streamlined with right-side path flyouts", async ({ pa
   expect(loadPathMenuBox.x).toBeGreaterThanOrEqual(pathMenuBox.x + pathMenuBox.width);
 });
 
+test("keeps project flyouts stable while hovering between choices", async ({ page }) => {
+  await page.goto("/");
+
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Workspace" }).hover();
+  await expect(page.getByTestId("top-menu-project-workspace")).toBeVisible();
+
+  await page.getByRole("menuitem", { name: "Import / Export" }).hover();
+  const transferMenu = page.getByTestId("top-menu-project-transfer");
+  await expect(page.getByTestId("top-menu-project-workspace")).toHaveCount(0);
+  await expect(transferMenu).toBeVisible();
+
+  const transferBox = await requiredBox(transferMenu);
+  await page.mouse.move(transferBox.x + transferBox.width / 2, transferBox.y + 12);
+  await expect(transferMenu).toBeVisible();
+  await page.waitForTimeout(350);
+  await expect(transferMenu).toBeVisible();
+
+  await page.mouse.move(16, 16);
+  await expect(transferMenu).toHaveCount(0);
+
+  await page.getByRole("menuitem", { name: "Import / Export" }).hover();
+  await expect(transferMenu).toBeVisible();
+  await page.getByRole("menuitem", { name: "Config" }).hover();
+  await expect(transferMenu).toHaveCount(0);
+  await expect(page.getByTestId("top-menu-project-config")).toBeVisible();
+});
+
+test("keeps path flyouts stable and closes them after leaving", async ({ page }) => {
+  await page.goto("/");
+
+  page.once("dialog", (dialog) => void dialog.accept("Second Path"));
+  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("menuitem", { name: "Create New Path" }).click();
+
+  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("menuitem", { name: "Load Path" }).hover();
+  const loadPathMenu = page.getByTestId("top-menu-path-load");
+  await expect(loadPathMenu).toBeVisible();
+
+  const loadPathBox = await requiredBox(loadPathMenu);
+  await page.mouse.move(loadPathBox.x + loadPathBox.width / 2, loadPathBox.y + 12);
+  await expect(loadPathMenu).toBeVisible();
+  await page.waitForTimeout(350);
+  await expect(loadPathMenu).toBeVisible();
+
+  const loadPathTriggerBox = await requiredBox(
+    page.getByRole("menuitem", { name: "Load Path" })
+  );
+  const loadPathBridgePoint = pointBetweenFlyoutAndTrigger(
+    loadPathTriggerBox,
+    loadPathBox
+  );
+  await page.mouse.move(loadPathBridgePoint.x, loadPathBridgePoint.y);
+  await expect(loadPathMenu).toHaveCount(0, { timeout: 500 });
+
+  await page.getByRole("menuitem", { name: "Load Path" }).hover();
+  await expect(loadPathMenu).toBeVisible();
+  await page.mouse.move(16, 16);
+  await expect(loadPathMenu).toHaveCount(0);
+
+  await page.getByRole("menuitem", { name: "Load Path" }).hover();
+  await expect(loadPathMenu).toBeVisible();
+  await page.getByRole("menuitem", { name: "Rename Path..." }).hover();
+  await expect(loadPathMenu).toHaveCount(0);
+});
+
+test("keeps actions flyouts stable and closes them after leaving", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Actions" }).click();
+  await page.getByRole("menuitem", { name: "Import" }).hover();
+  const importMenu = page.getByTestId("top-menu-actions-import");
+  await expect(importMenu).toBeVisible();
+
+  const importBox = await requiredBox(importMenu);
+  await page.mouse.move(importBox.x + importBox.width / 2, importBox.y + 12);
+  await expect(importMenu).toBeVisible();
+  await page.waitForTimeout(350);
+  await expect(importMenu).toBeVisible();
+
+  const actionsMenu = page.getByTestId("top-menu-actions");
+  const importTriggerBox = await requiredBox(
+    actionsMenu.getByRole("menuitem", { name: "Import" })
+  );
+  const importBridgePoint = pointBetweenFlyoutAndTrigger(
+    importTriggerBox,
+    importBox
+  );
+  await page.mouse.move(importBridgePoint.x, importBridgePoint.y);
+  await expect(importMenu).toHaveCount(0, { timeout: 500 });
+
+  await page.getByRole("menuitem", { name: "Import" }).hover();
+  await expect(importMenu).toBeVisible();
+  await page.mouse.move(16, 16);
+  await expect(importMenu).toHaveCount(0);
+
+  await page.getByRole("menuitem", { name: "Import" }).hover();
+  await expect(importMenu).toBeVisible();
+  await page.getByRole("menuitem", { name: "Save" }).hover();
+  await expect(importMenu).toHaveCount(0);
+});
+
 test("closes the open-project panel when using top menus", async ({ page }) => {
   await page.goto("/");
 
@@ -1223,6 +1327,53 @@ test("closes the open-project panel when using top menus", async ({ page }) => {
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByTestId("top-menu-path")).toHaveCount(0);
   await expect(page.getByTestId("top-menu-edit")).toBeVisible();
+});
+
+test("top-right import menu closes the open panel and exposes every import mode", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
+  await expect(page.getByTestId("top-menu-import")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import Project Folder..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import Path..." })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Import Project Archive..." })).toBeVisible();
+});
+
+test("top-right export saves the active path and import path round-trips it", async ({
+  page
+}) => {
+  await installSaveFilePickerSpy(page, { waitForRelease: true });
+  await page.goto("/");
+
+  const exportButton = page.getByRole("button", { name: "Export", exact: true });
+  await exportButton.click();
+  await expect(page.getByRole("button", { name: "Exporting..." })).toBeDisabled();
+
+  await releaseSaveFilePicker(page);
+  await expect.poll(() => savedFileCount(page)).toBe(1);
+  const saved = await savedFile(page, 0);
+  expect(saved.suggestedName).toBe("phase-1-canvas-draft.json");
+  expect(JSON.parse(saved.text)).toMatchObject({
+    path_elements: expect.any(Array)
+  });
+
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Import Path..." }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    buffer: Buffer.from(saved.text),
+    mimeType: "application/json",
+    name: "roundtrip-path.json"
+  });
+
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    "Current Path: roundtrip path"
+  );
 });
 
 test("opens settings from a narrow portrait top bar", async ({ page }) => {
@@ -1500,6 +1651,19 @@ type WorkspaceWriteSpyWindow = Window & {
   __blineWorkspaceWrites?: Array<{ key: string; at: number }>;
 };
 
+type SavedFilePickerWindow = Window & {
+  __blineReleaseSaveFilePicker?: () => void;
+  __blineSavedFiles?: Array<{ suggestedName: string; text: string }>;
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+  }) => Promise<{
+    createWritable(): Promise<{
+      close(): Promise<void>;
+      write(data: Blob | string): Promise<void>;
+    }>;
+  }>;
+};
+
 type PixiDebugWindow = Window & {
   __blinePixiDebug?: {
     canvasMetrics(): {
@@ -1522,6 +1686,29 @@ async function requiredBox(locator: Locator): Promise<Bounds> {
   }
 
   return box;
+}
+
+function pointBetweenFlyoutAndTrigger(
+  triggerBox: Bounds,
+  flyoutBox: Bounds
+): { x: number; y: number } {
+  const triggerLeft = triggerBox.x;
+  const triggerRight = triggerBox.x + triggerBox.width;
+  const flyoutLeft = flyoutBox.x;
+  const flyoutRight = flyoutBox.x + flyoutBox.width;
+  const x =
+    flyoutLeft >= triggerRight
+      ? (triggerRight + flyoutLeft) / 2
+      : triggerLeft >= flyoutRight
+        ? (flyoutRight + triggerLeft) / 2
+        : (Math.max(triggerLeft, flyoutLeft) +
+            Math.min(triggerRight, flyoutRight)) /
+          2;
+
+  return {
+    x,
+    y: triggerBox.y + triggerBox.height / 2
+  };
 }
 
 async function canvasNodePosition(
@@ -1628,6 +1815,64 @@ async function workspaceWriteCount(page: Page): Promise<number> {
   return page.evaluate(
     () => (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites?.length ?? 0
   );
+}
+
+async function installSaveFilePickerSpy(
+  page: Page,
+  { waitForRelease = false }: { waitForRelease?: boolean } = {}
+): Promise<void> {
+  await page.addInitScript(({ shouldWait }) => {
+    const spyWindow = window as SavedFilePickerWindow;
+    spyWindow.__blineSavedFiles = [];
+
+    Object.defineProperty(window, "showSaveFilePicker", {
+      configurable: true,
+      value: async (options?: { suggestedName?: string }) => {
+        if (shouldWait) {
+          await new Promise<void>((resolve) => {
+            spyWindow.__blineReleaseSaveFilePicker = resolve;
+          });
+        }
+
+        return {
+          createWritable: async () => ({
+            close: async () => undefined,
+            write: async (data: Blob | string) => {
+              spyWindow.__blineSavedFiles?.push({
+                suggestedName: options?.suggestedName ?? "",
+                text: data instanceof Blob ? await data.text() : String(data)
+              });
+            }
+          })
+        };
+      }
+    });
+  }, { shouldWait: waitForRelease });
+}
+
+async function releaseSaveFilePicker(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as SavedFilePickerWindow).__blineReleaseSaveFilePicker?.();
+  });
+}
+
+async function savedFileCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as SavedFilePickerWindow).__blineSavedFiles?.length ?? 0
+  );
+}
+
+async function savedFile(
+  page: Page,
+  index: number
+): Promise<{ suggestedName: string; text: string }> {
+  return page.evaluate((fileIndex) => {
+    const file = (window as SavedFilePickerWindow).__blineSavedFiles?.[fileIndex];
+    if (!file) {
+      throw new Error(`Expected saved file at index ${fileIndex}`);
+    }
+    return file;
+  }, index);
 }
 
 async function currentPathName(page: {

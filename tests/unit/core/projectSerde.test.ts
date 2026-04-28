@@ -862,6 +862,28 @@ describe("project document serde", () => {
     ]);
   });
 
+  it("imports a selected paths folder as an autos paths directory", async () => {
+    const restored = await deserializeBLineProjectFolder([
+      textImportFile("paths/new-path.json", {
+        path_elements: [{ type: "translation", x_meters: 2, y_meters: 3 }]
+      }),
+      textImportFile("paths/phase-1-canvas-draft.json", {
+        path_elements: [{ type: "translation", x_meters: 4, y_meters: 5 }]
+      })
+    ]);
+
+    expect(restored.paths.map((path) => path.file_name)).toEqual([
+      "new-path.json",
+      "phase-1-canvas-draft.json"
+    ]);
+    expect(restored.active_path_id).toBe("new-path.json");
+    expect(restored.paths[0].path.path_elements[0]).toMatchObject({
+      type: "translation",
+      x_meters: 2,
+      y_meters: 3
+    });
+  });
+
   it.skipIf(!process.env.BLINE_ROBOT_CODE_FIXTURE_DIR)(
     "imports the local 2026 robot-code autos fixture",
     async () => {
