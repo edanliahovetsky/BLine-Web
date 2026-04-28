@@ -985,6 +985,7 @@ test("warns when ranged constraints exceed the global value", async ({ page }) =
 
 test("keeps the constraint editor movable and modeless", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
 
   await page.getByRole("button", { name: "Show Max Velocity editor" }).click();
 
