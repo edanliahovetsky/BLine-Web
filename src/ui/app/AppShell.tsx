@@ -7,9 +7,14 @@ import {
   useRef,
   useState
 } from "react";
-import type { ChangeEvent, FocusEvent } from "react";
+import type {
+  ChangeEvent,
+  FocusEvent,
+  PointerEvent as ReactPointerEvent
+} from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { PathStage } from "../../canvas/PathStage";
 import type {
   ProjectPathDocument,
@@ -79,11 +84,15 @@ export function AppShell() {
   const [showMobileSupportWarning, setShowMobileSupportWarning] = useState(false);
   const [pendingImportMode, setPendingImportMode] =
     useState<ImportMode>("archive");
+  const [pendingToolbarAction, setPendingToolbarAction] =
+    useState<PendingToolbarAction>(null);
   const [initializing, setInitializing] = useState(true);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
   const [canvasInteractionActive, setCanvasInteractionActive] = useState(false);
   const autosaveRef = useRef<AutosaveCoordinator | null>(null);
   const canvasInteractionActiveRef = useRef(false);
+  const importHandlingRef = useRef(false);
+  const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
@@ -324,6 +333,7 @@ export function AppShell() {
   }, []);
 
   const handleSaveProject = useCallback(async () => {
+    setShowOpenPanel(false);
     autosaveRef.current?.cancel();
 
     try {
@@ -434,6 +444,25 @@ export function AppShell() {
     });
   }, [refreshWorkspaceSummaries]);
 
+  const beginToolbarAction = useCallback((action: Exclude<PendingToolbarAction, null>) => {
+    if (pendingToolbarActionRef.current) {
+      return false;
+    }
+
+    pendingToolbarActionRef.current = action;
+    setPendingToolbarAction(action);
+    setShowOpenPanel(false);
+    setOpenTopMenu(null);
+    return true;
+  }, []);
+
+  const endToolbarAction = useCallback((action: Exclude<PendingToolbarAction, null>) => {
+    if (pendingToolbarActionRef.current === action) {
+      pendingToolbarActionRef.current = null;
+      setPendingToolbarAction(null);
+    }
+  }, []);
+
   const handleOpenProjectPanel = useCallback(() => {
     void refreshWorkspaceSummaries();
     setShowOpenPanel(true);
@@ -466,6 +495,10 @@ export function AppShell() {
   );
 
   const handleOpenWorkspace = useCallback(async () => {
+    if (!beginToolbarAction("open")) {
+      return;
+    }
+
     autosaveRef.current?.cancel();
 
     try {
@@ -476,11 +509,15 @@ export function AppShell() {
     } catch {
       // The project store already records the error for the status bar.
     } finally {
-      setOpenTopMenu(null);
+      endToolbarAction("open");
     }
-  }, [refreshWorkspaceSummaries]);
+  }, [beginToolbarAction, endToolbarAction, refreshWorkspaceSummaries]);
 
   const handleCreateWorkspace = useCallback(async () => {
+    if (!beginToolbarAction("open")) {
+      return;
+    }
+
     autosaveRef.current?.cancel();
 
     try {
@@ -491,9 +528,9 @@ export function AppShell() {
     } catch {
       // The project store already records the error for the status bar.
     } finally {
-      setOpenTopMenu(null);
+      endToolbarAction("open");
     }
-  }, [refreshWorkspaceSummaries]);
+  }, [beginToolbarAction, endToolbarAction, refreshWorkspaceSummaries]);
 
   const handleShowDeleteProjects = useCallback(() => {
     void refreshWorkspaceSummaries();
@@ -551,8 +588,13 @@ export function AppShell() {
   );
 
   const handleExportProjectArchive = useCallback(async () => {
+    if (!beginToolbarAction("export")) {
+      return;
+    }
+
     const activeWorkspace = projectStore.getState().workspace;
     if (!activeWorkspace) {
+      endToolbarAction("export");
       return;
     }
 
@@ -567,11 +609,15 @@ export function AppShell() {
     } catch (caughtError) {
       projectStore.getState().markSaveError(caughtError);
     } finally {
-      setOpenTopMenu(null);
+      endToolbarAction("export");
     }
-  }, []);
+  }, [beginToolbarAction, endToolbarAction]);
 
   const handleExportProjectFolder = useCallback(async () => {
+    if (!beginToolbarAction("export")) {
+      return;
+    }
+
     try {
       const projectFolder = await projectStore.getState().exportProjectFolder();
       if (projectFolder) {
@@ -582,28 +628,40 @@ export function AppShell() {
         projectStore.getState().markSaveError(caughtError);
       }
     } finally {
-      setOpenTopMenu(null);
+      endToolbarAction("export");
     }
-  }, []);
+  }, [beginToolbarAction, endToolbarAction]);
 
   const handleExportPath = useCallback(async () => {
+    if (!beginToolbarAction("export")) {
+      return;
+    }
+
     const activeWorkspace = projectStore.getState().workspace;
     const activePath = activePathDocument(activeWorkspace);
     if (!activePath) {
+      endToolbarAction("export");
       return;
     }
 
     try {
       const blob = await projectStore.getState().exportPath(activePath.path_id);
       if (blob) {
-        downloadBlob(blob, activePath.file_name);
+        await saveBlobAs(blob, activePath.file_name, {
+          title: "Export BLine Path",
+          useNativeSaveDialog: Boolean(
+            projectStore.getState().io?.capabilities.directFileAutosave
+          )
+        });
       }
     } catch (caughtError) {
-      projectStore.getState().markSaveError(caughtError);
+      if (!isAbortError(caughtError)) {
+        projectStore.getState().markSaveError(caughtError);
+      }
     } finally {
-      setOpenTopMenu(null);
+      endToolbarAction("export");
     }
-  }, []);
+  }, [beginToolbarAction, endToolbarAction]);
 
   const handleExportConfig = useCallback(async () => {
     try {
@@ -619,15 +677,51 @@ export function AppShell() {
   }, []);
 
   const queueFileImport = useCallback((mode: ImportMode) => {
+    if (!beginToolbarAction("import")) {
+      return;
+    }
+
     setPendingImportMode(mode);
-    setOpenTopMenu(null);
-    fileInputRef.current?.click();
-  }, []);
+    const input = fileInputRef.current;
+    if (!input) {
+      endToolbarAction("import");
+      return;
+    }
+
+    const clearPendingOnCancel = () => {
+      window.setTimeout(() => {
+        if (!input.files?.length && !importHandlingRef.current) {
+          endToolbarAction("import");
+        }
+      }, 400);
+    };
+
+    window.addEventListener("focus", clearPendingOnCancel, { once: true });
+    input.click();
+  }, [beginToolbarAction, endToolbarAction]);
 
   const queueFolderImport = useCallback(() => {
-    setOpenTopMenu(null);
-    folderInputRef.current?.click();
-  }, []);
+    if (!beginToolbarAction("import")) {
+      return;
+    }
+
+    const input = folderInputRef.current;
+    if (!input) {
+      endToolbarAction("import");
+      return;
+    }
+
+    const clearPendingOnCancel = () => {
+      window.setTimeout(() => {
+        if (!input.files?.length && !importHandlingRef.current) {
+          endToolbarAction("import");
+        }
+      }, 400);
+    };
+
+    window.addEventListener("focus", clearPendingOnCancel, { once: true });
+    input.click();
+  }, [beginToolbarAction, endToolbarAction]);
 
   const handleSavePathAs = useCallback(async () => {
     const activeWorkspace = projectStore.getState().workspace;
@@ -700,13 +794,17 @@ export function AppShell() {
   const handleImportProject = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.currentTarget.files?.[0];
+      importHandlingRef.current = Boolean(file);
       event.currentTarget.value = "";
 
       if (!file) {
+        endToolbarAction("import");
         return;
       }
 
       if (!projectStore.getState().io) {
+        importHandlingRef.current = false;
+        endToolbarAction("import");
         return;
       }
 
@@ -727,17 +825,23 @@ export function AppShell() {
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
+      } finally {
+        importHandlingRef.current = false;
+        endToolbarAction("import");
       }
     },
-    [pendingImportMode, refreshWorkspaceSummaries]
+    [endToolbarAction, pendingImportMode, refreshWorkspaceSummaries]
   );
 
   const handleImportProjectFolder = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.currentTarget.files ?? []);
+      importHandlingRef.current = files.length > 0;
       event.currentTarget.value = "";
 
       if (files.length === 0 || !projectStore.getState().io) {
+        importHandlingRef.current = false;
+        endToolbarAction("import");
         return;
       }
 
@@ -747,9 +851,12 @@ export function AppShell() {
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
+      } finally {
+        importHandlingRef.current = false;
+        endToolbarAction("import");
       }
     },
-    [refreshWorkspaceSummaries]
+    [endToolbarAction, refreshWorkspaceSummaries]
   );
 
   const handleSaveConfig = useCallback((nextConfig: NonNullable<typeof project>["config"]) => {
@@ -789,6 +896,7 @@ export function AppShell() {
     lastSavedAt
   );
   const toolbarActions = ioCapabilities?.primaryToolbarActions ?? [];
+  const toolbarBusy = pendingToolbarAction !== null;
   const projectLabel = workspace?.display_name ?? "No project";
   const pathLabel = activePath?.display_name ?? "No path";
   const currentProjectSummary = `Project: ${projectLabel}`;
@@ -1009,10 +1117,24 @@ export function AppShell() {
         </nav>
         <nav className="toolbar-actions" aria-label="Project actions">
           <div className="toolbar-actions__quick">
-            <button type="button" onClick={() => projectStore.getState().undo()} disabled={!canUndo}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowOpenPanel(false);
+                projectStore.getState().undo();
+              }}
+              disabled={!canUndo || toolbarBusy}
+            >
               Undo
             </button>
-            <button type="button" onClick={() => projectStore.getState().redo()} disabled={!canRedo}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowOpenPanel(false);
+                projectStore.getState().redo();
+              }}
+              disabled={!canRedo || toolbarBusy}
+            >
               Redo
             </button>
             {toolbarActions.includes("open-workspace") ? (
@@ -1020,38 +1142,62 @@ export function AppShell() {
                 type="button"
                 aria-expanded={showOpenPanel}
                 onClick={handleToggleOpenPanel}
-                disabled={!projectIo || workspaceSummaries.length === 0}
+                className={pendingToolbarAction === "open" ? "is-pending" : undefined}
+                disabled={!projectIo || workspaceSummaries.length === 0 || toolbarBusy}
               >
-                Open
+                {pendingToolbarAction === "open" ? "Opening..." : "Open"}
               </button>
             ) : null}
             {toolbarActions.includes("open-folder") ? (
-              <button type="button" onClick={() => void handleOpenWorkspace()} disabled={!projectIo}>
-                Open Folder
+              <button
+                type="button"
+                onClick={() => void handleOpenWorkspace()}
+                className={pendingToolbarAction === "open" ? "is-pending" : undefined}
+                disabled={!projectIo || toolbarBusy}
+              >
+                {pendingToolbarAction === "open" ? "Opening..." : "Open Folder"}
               </button>
             ) : null}
             {toolbarActions.includes("new-path") ? (
-              <button type="button" onClick={() => void handleCreateNewPath()} disabled={!workspace}>
+              <button type="button" onClick={() => void handleCreateNewPath()} disabled={!workspace || toolbarBusy}>
                 New Path
               </button>
             ) : null}
             {toolbarActions.includes("export-project") ? (
               <button
                 type="button"
-                onClick={() => void handleExportProjectFolder()}
-                disabled={!workspace || !projectIo}
+                onClick={() => void handleExportPath()}
+                className={pendingToolbarAction === "export" ? "is-pending" : undefined}
+                disabled={!activePath || !projectIo || toolbarBusy}
               >
-                Export
+                {pendingToolbarAction === "export" ? "Exporting..." : "Export"}
               </button>
             ) : null}
             {toolbarActions.includes("import-project") ? (
-              <button
-                type="button"
-                onClick={queueFolderImport}
-                disabled={!projectIo}
+              <TopMenuButton
+                id="import"
+                label={pendingToolbarAction === "import" ? "Importing..." : "Import"}
+                align="end"
+                openTopMenu={openTopMenu}
+                setOpenTopMenu={setActiveTopMenu}
+                disabled={!projectIo || toolbarBusy}
               >
-                Import
-              </button>
+                <MenuAction
+                  label="Import Project Folder..."
+                  disabled={!projectIo || toolbarBusy}
+                  onAction={queueFolderImport}
+                />
+                <MenuAction
+                  label="Import Path..."
+                  disabled={!workspace || !projectIo || toolbarBusy}
+                  onAction={() => queueFileImport("path")}
+                />
+                <MenuAction
+                  label="Import Project Archive..."
+                  disabled={!projectIo || toolbarBusy}
+                  onAction={() => queueFileImport("archive")}
+                />
+              </TopMenuButton>
             ) : null}
           </div>
           <div className="toolbar-actions__overflow">
@@ -1066,8 +1212,9 @@ export function AppShell() {
               <MenuAction
                 label="Undo"
                 shortcut="Ctrl+Z"
-                disabled={!canUndo}
+                disabled={!canUndo || toolbarBusy}
                 onAction={() => {
+                  setShowOpenPanel(false);
                   projectStore.getState().undo();
                   setOpenTopMenu(null);
                 }}
@@ -1075,8 +1222,9 @@ export function AppShell() {
               <MenuAction
                 label="Redo"
                 shortcut="Ctrl+Y"
-                disabled={!canRedo}
+                disabled={!canRedo || toolbarBusy}
                 onAction={() => {
+                  setShowOpenPanel(false);
                   projectStore.getState().redo();
                   setOpenTopMenu(null);
                 }}
@@ -1085,7 +1233,7 @@ export function AppShell() {
               {supportsProjectFolders ? (
                 <MenuAction
                   label="New Path"
-                  disabled={!projectIo}
+                  disabled={!projectIo || toolbarBusy}
                   onAction={() => {
                     void handleCreateNewPath();
                     setOpenTopMenu(null);
@@ -1094,7 +1242,7 @@ export function AppShell() {
               ) : null}
               <MenuAction
                 label={supportsProjectFolders ? "Open Folder..." : "Open..."}
-                disabled={!projectIo}
+                disabled={!projectIo || toolbarBusy}
                 onAction={() => {
                   if (supportsProjectFolders) {
                     void handleOpenWorkspace();
@@ -1103,41 +1251,35 @@ export function AppShell() {
                   }
                 }}
               />
+              <MenuSubmenu label="Import" testId="top-menu-actions-import">
+                <MenuAction
+                  label="Import Project Folder..."
+                  disabled={!projectIo || toolbarBusy}
+                  onAction={queueFolderImport}
+                />
+                <MenuAction
+                  label="Import Path..."
+                  disabled={!workspace || !projectIo || toolbarBusy}
+                  onAction={() => queueFileImport("path")}
+                />
+                <MenuAction
+                  label="Import Project Archive..."
+                  disabled={!projectIo || toolbarBusy}
+                  onAction={() => queueFileImport("archive")}
+                />
+              </MenuSubmenu>
               <MenuAction
-                label={
-                  supportsProjectFolders
-                    ? "Import Project Archive..."
-                    : "Import Autos Folder..."
-                }
-                disabled={!projectIo}
-                onAction={() => {
-                  if (supportsProjectFolders) {
-                    queueFileImport("archive");
-                  } else {
-                    queueFolderImport();
-                  }
-                }}
-              />
-              <MenuAction
-                label={
-                  supportsProjectFolders
-                    ? "Export Project Archive..."
-                    : "Export Autos Folder..."
-                }
-                disabled={!workspace || !projectIo}
+                label="Export Path..."
+                disabled={!activePath || !projectIo || toolbarBusy}
                 onAction={() => {
                   setOpenTopMenu(null);
-                  if (supportsProjectFolders) {
-                    void handleExportProjectArchive();
-                  } else {
-                    void handleExportProjectFolder();
-                  }
+                  void handleExportPath();
                 }}
               />
               <div className="top-menu__separator" role="separator" />
               <MenuAction
                 label="Save"
-                disabled={!workspace || !projectIo || status === "saving"}
+                disabled={!workspace || !projectIo || status === "saving" || toolbarBusy}
                 onAction={() => {
                   setOpenTopMenu(null);
                   void handleSaveProject();
@@ -1149,7 +1291,7 @@ export function AppShell() {
             type="button"
             className="primary-action"
             onClick={handleSaveProject}
-            disabled={!workspace || !projectIo || status === "saving"}
+            disabled={!workspace || !projectIo || status === "saving" || toolbarBusy}
           >
             Save
           </button>
@@ -1275,13 +1417,15 @@ export function AppShell() {
   );
 }
 
-type TopMenuId = "project" | "path" | "edit" | "actions";
+type TopMenuId = "project" | "path" | "edit" | "actions" | "import";
 type ImportMode = "archive" | "path" | "config";
+type PendingToolbarAction = "open" | "import" | "export" | null;
 const MOBILE_SUPPORT_WARNING_DISMISSED_KEY =
   "bline-web:mobile-support-warning-dismissed";
 
 interface TopMenuSubmenuContextValue {
   activeSubmenuId: string | null;
+  closeDelayMs: number;
   setActiveSubmenuId(id: string | null): void;
 }
 
@@ -1366,6 +1510,7 @@ function TopMenuButton({
   id,
   label,
   active = false,
+  disabled = false,
   openTopMenu,
   setOpenTopMenu,
   onBeforeOpen,
@@ -1375,6 +1520,7 @@ function TopMenuButton({
   id: TopMenuId;
   label: string;
   active?: boolean;
+  disabled?: boolean;
   openTopMenu: TopMenuId | null;
   setOpenTopMenu(menu: TopMenuId | null): void;
   onBeforeOpen?: () => Promise<unknown> | void;
@@ -1383,6 +1529,7 @@ function TopMenuButton({
 }) {
   const open = openTopMenu === id;
   const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
+  const submenuCloseDelayMs = id === "project" ? 220 : 100;
   const className = [
     "top-menu",
     `top-menu--${id}`,
@@ -1398,7 +1545,11 @@ function TopMenuButton({
         className={active ? "is-active" : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
+        disabled={disabled}
         onClick={() => {
+          if (disabled) {
+            return;
+          }
           setActiveSubmenuId(null);
           if (!open) {
             void onBeforeOpen?.();
@@ -1410,7 +1561,11 @@ function TopMenuButton({
       </button>
       {open ? (
         <TopMenuSubmenuContext.Provider
-          value={{ activeSubmenuId, setActiveSubmenuId }}
+          value={{
+            activeSubmenuId,
+            closeDelayMs: submenuCloseDelayMs,
+            setActiveSubmenuId
+          }}
         >
           <div className="top-menu__panel" role="menu" data-testid={`top-menu-${id}`}>
             {children}
@@ -1435,6 +1590,8 @@ function MenuSubmenu({
   const submenuRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
+  const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const activeSubmenuIdRef = useRef<string | null>(null);
   const [localOpen, setLocalOpen] = useState(false);
   const [placement, setPlacement] = useState<{
     left: number;
@@ -1445,17 +1602,30 @@ function MenuSubmenu({
   const open = submenuContext
     ? submenuContext.activeSubmenuId === submenuId
     : localOpen;
+  const closeDelayMs = submenuContext?.closeDelayMs ?? 100;
+  const setActiveSubmenuId = submenuContext?.setActiveSubmenuId;
+
+  useEffect(() => {
+    activeSubmenuIdRef.current = submenuContext?.activeSubmenuId ?? null;
+  }, [submenuContext?.activeSubmenuId]);
 
   const setSubmenuOpen = useCallback(
     (nextOpen: boolean) => {
-      if (submenuContext) {
-        submenuContext.setActiveSubmenuId(nextOpen ? submenuId : null);
+      if (setActiveSubmenuId) {
+        if (nextOpen) {
+          setActiveSubmenuId(submenuId);
+          return;
+        }
+
+        if (activeSubmenuIdRef.current === submenuId) {
+          setActiveSubmenuId(null);
+        }
         return;
       }
 
       setLocalOpen(nextOpen);
     },
-    [submenuContext, submenuId]
+    [setActiveSubmenuId, submenuId]
   );
 
   const clearCloseTimer = useCallback(() => {
@@ -1475,7 +1645,16 @@ function MenuSubmenu({
     const viewportMargin = 8;
     const flyoutGap = 6;
     const width = Math.min(266, Math.max(160, window.innerWidth - viewportMargin * 2));
-    const left = Math.min(rect.right + flyoutGap, window.innerWidth - width - viewportMargin);
+    const rightSpace = window.innerWidth - viewportMargin - rect.right - flyoutGap;
+    const leftSpace = rect.left - viewportMargin - flyoutGap;
+    const shouldOpenLeft = rightSpace < width && leftSpace > rightSpace;
+    const idealLeft = shouldOpenLeft
+      ? rect.left - flyoutGap - width
+      : rect.right + flyoutGap;
+    const left = Math.min(
+      Math.max(viewportMargin, idealLeft),
+      window.innerWidth - width - viewportMargin
+    );
     const top = Math.max(viewportMargin, Math.min(rect.top - 4, window.innerHeight - 128));
     const maxHeight = Math.max(120, window.innerHeight - top - viewportMargin);
 
@@ -1493,23 +1672,105 @@ function MenuSubmenu({
     setSubmenuOpen(true);
   }, [clearCloseTimer, setSubmenuOpen, updatePlacement]);
 
+  const getSubmenuPointerZone = useCallback((x: number, y: number) => {
+    const triggerRect = submenuRef.current?.getBoundingClientRect();
+    const panelRect = panelRef.current?.getBoundingClientRect();
+    const bridgePadding = 4;
+    const surfacePadding = 1;
+
+    if (triggerRect && pointInsideRect(x, y, triggerRect, surfacePadding)) {
+      return "surface";
+    }
+
+    if (panelRect && pointInsideRect(x, y, panelRect, surfacePadding)) {
+      return "surface";
+    }
+
+    if (!triggerRect || !panelRect) {
+      return "outside";
+    }
+
+    const horizontalGap =
+      panelRect.left >= triggerRect.right
+        ? { left: triggerRect.right, right: panelRect.left }
+        : triggerRect.left >= panelRect.right
+          ? { left: panelRect.right, right: triggerRect.left }
+          : {
+              left: Math.min(triggerRect.left, panelRect.left),
+              right: Math.max(triggerRect.right, panelRect.right)
+            };
+    const bridgeRect = {
+      bottom: Math.max(triggerRect.bottom, panelRect.bottom) + bridgePadding,
+      left: horizontalGap.left - bridgePadding,
+      right: horizontalGap.right + bridgePadding,
+      top: Math.min(triggerRect.top, panelRect.top) - bridgePadding
+    };
+
+    if (
+      x >= bridgeRect.left &&
+      x <= bridgeRect.right &&
+      y >= bridgeRect.top &&
+      y <= bridgeRect.bottom
+    ) {
+      return "bridge";
+    }
+
+    return "outside";
+  }, []);
+
+  const isSubmenuHovered = useCallback(() => {
+    return Boolean(
+      submenuRef.current?.matches(":hover") ||
+        panelRef.current?.matches(":hover")
+    );
+  }, []);
+
   const closeSubmenu = useCallback(() => {
     clearCloseTimer();
     closeTimerRef.current = window.setTimeout(() => {
+      const pointerPosition = pointerPositionRef.current;
+      const pointerZone = pointerPosition
+        ? getSubmenuPointerZone(pointerPosition.x, pointerPosition.y)
+        : "outside";
+      if (
+        isSubmenuHovered() ||
+        pointerZone === "surface"
+      ) {
+        clearCloseTimer();
+        return;
+      }
+
       setSubmenuOpen(false);
-    }, 120);
-  }, [clearCloseTimer, setSubmenuOpen]);
+    }, closeDelayMs);
+  }, [
+    clearCloseTimer,
+    closeDelayMs,
+    getSubmenuPointerZone,
+    isSubmenuHovered,
+    setSubmenuOpen
+  ]);
+
+  const isInsideSubmenu = useCallback((target: EventTarget | null) => {
+    return (
+      target instanceof Node &&
+      (Boolean(submenuRef.current?.contains(target)) ||
+        Boolean(panelRef.current?.contains(target)))
+    );
+  }, []);
 
   const handleBlur = (event: FocusEvent<HTMLElement>) => {
-    const nextTarget = event.relatedTarget as Node | null;
-
-    if (
-      nextTarget &&
-      (submenuRef.current?.contains(nextTarget) || panelRef.current?.contains(nextTarget))
-    ) {
+    if (isInsideSubmenu(event.relatedTarget)) {
       return;
     }
 
+    closeSubmenu();
+  };
+
+  const handlePointerLeave = (event: ReactPointerEvent<HTMLElement>) => {
+    pointerPositionRef.current = {
+      x: event.clientX,
+      y: event.clientY
+    };
     closeSubmenu();
   };
 
@@ -1519,15 +1780,51 @@ function MenuSubmenu({
     }
 
     const handleReposition = () => updatePlacement();
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      pointerPositionRef.current = {
+        x: event.clientX,
+        y: event.clientY
+      };
+      const pointerZone = getSubmenuPointerZone(event.clientX, event.clientY);
+
+      if (
+        isInsideSubmenu(event.target) ||
+        pointerZone === "surface"
+      ) {
+        clearCloseTimer();
+        return;
+      }
+
+      closeSubmenu();
+    };
+    const handlePointerOut = (event: globalThis.PointerEvent) => {
+      if (event.relatedTarget !== null) {
+        return;
+      }
+
+      pointerPositionRef.current = null;
+      closeSubmenu();
+    };
 
     window.addEventListener("resize", handleReposition);
     window.addEventListener("scroll", handleReposition, true);
+    window.addEventListener("pointermove", handlePointerMove, true);
+    window.addEventListener("pointerout", handlePointerOut, true);
 
     return () => {
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
+      window.removeEventListener("pointermove", handlePointerMove, true);
+      window.removeEventListener("pointerout", handlePointerOut, true);
     };
-  }, [open, updatePlacement]);
+  }, [
+    clearCloseTimer,
+    closeSubmenu,
+    getSubmenuPointerZone,
+    isInsideSubmenu,
+    open,
+    updatePlacement
+  ]);
 
   useEffect(() => clearCloseTimer, [clearCloseTimer]);
 
@@ -1538,8 +1835,8 @@ function MenuSubmenu({
       role="none"
       onBlur={handleBlur}
       onFocus={openSubmenu}
-      onMouseEnter={openSubmenu}
-      onMouseLeave={closeSubmenu}
+      onPointerEnter={openSubmenu}
+      onPointerLeave={handlePointerLeave}
     >
       <button
         type="button"
@@ -1564,8 +1861,8 @@ function MenuSubmenu({
               style={placement}
               onBlur={handleBlur}
               onFocus={openSubmenu}
-              onMouseEnter={openSubmenu}
-              onMouseLeave={closeSubmenu}
+              onPointerEnter={openSubmenu}
+              onPointerLeave={handlePointerLeave}
             >
               {children}
             </div>,
@@ -1603,6 +1900,20 @@ function MenuAction({
 
 function MenuLabel({ children }: { children: ReactNode }) {
   return <div className="top-menu__label">{children}</div>;
+}
+
+function pointInsideRect(
+  x: number,
+  y: number,
+  rect: Pick<DOMRect, "bottom" | "left" | "right" | "top">,
+  padding = 0
+): boolean {
+  return (
+    x >= rect.left - padding &&
+    x <= rect.right + padding &&
+    y >= rect.top - padding &&
+    y <= rect.bottom + padding
+  );
 }
 
 function hasActiveBlockingSurface({
@@ -2111,6 +2422,48 @@ async function writeProjectFolder(projectFolder: ProjectFolderExport): Promise<v
   }
 }
 
+async function saveBlobAs(
+  blob: Blob,
+  fileName: string,
+  {
+    title,
+    useNativeSaveDialog
+  }: {
+    title: string;
+    useNativeSaveDialog: boolean;
+  }
+): Promise<boolean> {
+  if (useNativeSaveDialog) {
+    return invoke<boolean>("storage_write_text_file_dialog", {
+      contents: await blob.text(),
+      defaultFileName: fileName,
+      title
+    });
+  }
+
+  const saveFilePicker = (window as BrowserSaveWindow).showSaveFilePicker;
+  if (saveFilePicker) {
+    const fileHandle = await saveFilePicker.call(window, {
+      suggestedName: fileName,
+      types: [
+        {
+          accept: {
+            "application/json": [".json"]
+          },
+          description: "JSON files"
+        }
+      ]
+    });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  }
+
+  downloadBlob(blob, fileName);
+  return true;
+}
+
 async function writeFolderFile(
   directory: BrowserDirectoryHandle,
   relativePath: string,
@@ -2163,6 +2516,16 @@ interface BrowserFolderWindow extends Window {
   showDirectoryPicker?: (options?: {
     mode?: "read" | "readwrite";
   }) => Promise<BrowserDirectoryHandle>;
+}
+
+interface BrowserSaveWindow extends Window {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+    types?: Array<{
+      accept: Record<string, string[]>;
+      description: string;
+    }>;
+  }) => Promise<BrowserFileHandle>;
 }
 
 interface BrowserDirectoryHandle {
