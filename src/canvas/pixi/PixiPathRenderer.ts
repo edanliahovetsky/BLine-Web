@@ -1,11 +1,10 @@
 import {
   Application,
-  Assets,
   Container,
   Graphics,
   Sprite,
+  Texture,
   type Renderer,
-  type Texture
 } from "pixi.js";
 import type { ProjectConfig, ProjectDocument } from "../../core/io/projectSchema";
 import {
@@ -138,7 +137,7 @@ export class PixiPathRenderer {
       powerPreference: "high-performance"
     });
     app.ticker.stop();
-    const texture = await Assets.load<Texture>("/assets/field26.png");
+    const texture = await loadFieldTexture();
     return new PixiPathRenderer(app, texture);
   }
 
@@ -1433,6 +1432,32 @@ function getPixiResolution(): number {
     ? window.devicePixelRatio
     : 1;
   return Math.max(1, Math.min(devicePixelRatio, maxPixiResolution));
+}
+
+async function loadFieldTexture(): Promise<Texture> {
+  const image = new Image();
+  const src = "/assets/field26.png";
+  image.decoding = "async";
+
+  await new Promise<void>((resolve, reject) => {
+    image.addEventListener("load", () => resolve(), { once: true });
+    image.addEventListener(
+      "error",
+      () => reject(new Error(`Failed to load field image from ${src}`)),
+      { once: true }
+    );
+    image.src = src;
+  });
+
+  if (typeof image.decode === "function") {
+    try {
+      await image.decode();
+    } catch {
+      // The load event is enough for WebKit-backed Tauri once the image decoded for layout.
+    }
+  }
+
+  return Texture.from(image, true);
 }
 
 const constraintHighlightColor = "#15c915";

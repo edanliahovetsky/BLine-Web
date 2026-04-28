@@ -229,7 +229,7 @@ Node version: 24.6.0
 ```
 
 Every push to `web-deploy` runs the release gate, builds the Vite web bundle,
-builds unsigned Tauri desktop artifacts for testers, and creates or updates a
+builds Tauri desktop artifacts for testers, and creates or updates a
 draft GitHub Release named from `package.json`, for example
 `v0.1.0-alpha.1`.
 

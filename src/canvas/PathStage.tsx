@@ -97,6 +97,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
   const [panOffset, setPanOffsetState] = useState<StagePoint>({ x: 0, y: 0 });
+  const [rendererError, setRendererError] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
@@ -257,21 +258,28 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     let renderer: PixiPathRenderer | null = null;
     let debugApi: ReturnType<PixiPathRenderer["getDebugApi"]> | null = null;
 
-    void PixiPathRenderer.create(fallbackStageSize).then((nextRenderer) => {
-      if (disposed) {
-        nextRenderer.destroy();
-        return;
-      }
+    void PixiPathRenderer.create(fallbackStageSize)
+      .then((nextRenderer) => {
+        if (disposed) {
+          nextRenderer.destroy();
+          return;
+        }
 
-      renderer = nextRenderer;
-      rendererRef.current = nextRenderer;
-      host.prepend(nextRenderer.canvas);
-      debugApi = nextRenderer.getDebugApi();
-      (window as PixiDebugWindow).__blinePixiDebug = debugApi;
-      if (latestRenderInputRef.current) {
-        nextRenderer.update(latestRenderInputRef.current);
-      }
-    });
+        setRendererError(null);
+        renderer = nextRenderer;
+        rendererRef.current = nextRenderer;
+        host.prepend(nextRenderer.canvas);
+        debugApi = nextRenderer.getDebugApi();
+        (window as PixiDebugWindow).__blinePixiDebug = debugApi;
+        if (latestRenderInputRef.current) {
+          nextRenderer.update(latestRenderInputRef.current);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setRendererError(error instanceof Error ? error.message : String(error));
+        }
+      });
 
     return () => {
       disposed = true;
@@ -793,6 +801,11 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         onPointerCancel={handlePointerUp}
         onWheel={handleWheel}
       >
+        {rendererError ? (
+          <div className="path-stage__renderer-error">
+            Canvas renderer failed: {rendererError}
+          </div>
+        ) : null}
         <SimulationTransport
           result={simulationResult}
           currentTimeS={simulationTime}

@@ -496,6 +496,21 @@ select {
   cursor: grab;
 }
 
+.path-stage__renderer-error {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 4;
+  max-width: min(560px, calc(100% - 32px));
+  color: #ffd4d4;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  background: rgba(69, 22, 25, 0.88);
+  border: 1px solid rgba(255, 96, 109, 0.48);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
 .path-stage__canvas.is-panning canvas {
   cursor: grabbing;
 }

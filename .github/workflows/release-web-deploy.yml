@@ -210,6 +210,20 @@ jobs:
       - name: Build Tauri bundle
         run: npm run tauri:build -- ${{ matrix.args }}
 
+      - name: Verify macOS app signature
+        if: startsWith(matrix.asset-prefix, 'macos-')
+        shell: bash
+        run: |
+          app_path="$(
+            find src-tauri/target -path "*/release/bundle/macos/*.app" -type d -print -quit
+          )"
+          if [[ -z "${app_path}" ]]; then
+            echo "No macOS app bundle was produced."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+
       - name: Collect desktop assets
         shell: bash
         run: |
@@ -270,7 +284,7 @@ jobs:
 
           Artifacts:
           - Web static bundle zip
-          - Unsigned Tauri desktop bundles for tester use
+          - Tauri desktop bundles for tester use
           NOTES
 
       - name: Create or update draft release
