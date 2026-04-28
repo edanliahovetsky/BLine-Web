@@ -8,6 +8,7 @@ pub fn run() {
             storage::storage_list_recent_workspaces,
             storage::storage_open_workspace_dialog,
             storage::storage_create_workspace_dialog,
+            storage::storage_write_text_file_dialog,
             storage::storage_switch_workspace,
             storage::storage_read_workspace,
             storage::storage_write_workspace,

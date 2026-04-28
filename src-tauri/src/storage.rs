@@ -129,6 +129,25 @@ pub fn storage_create_workspace_dialog(
 }
 
 #[tauri::command]
+pub fn storage_write_text_file_dialog(
+    title: String,
+    default_file_name: String,
+    contents: String,
+) -> Result<bool, String> {
+    let Some(selected) = rfd::FileDialog::new()
+        .set_title(title)
+        .set_file_name(default_file_name)
+        .add_filter("JSON", &["json"])
+        .save_file()
+    else {
+        return Ok(false);
+    };
+
+    fs::write(selected, contents).map_err(error_string)?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn storage_switch_workspace(
     app: AppHandle,
     id: String,

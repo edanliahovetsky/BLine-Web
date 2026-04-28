@@ -120,6 +120,8 @@ function createImportRecords(
 ): ImportRecord[] {
   const rawPaths = files.map((file) => normalizeImportPath(file));
   const strippedPaths = stripCommonRoot(rawPaths);
+  const selectedRoot = commonRootSegment(rawPaths);
+  const selectedPathsFolder = selectedRoot?.toLowerCase() === "paths";
 
   return files.map((file, index) => {
     const rawPath = rawPaths[index] ?? file.name;
@@ -129,7 +131,7 @@ function createImportRecords(
       file,
       rawPath,
       strippedPath,
-      autosPath: stripAutosRoot(strippedPath)
+      autosPath: normalizeAutosPath(strippedPath, selectedPathsFolder)
     };
   });
 }
@@ -141,8 +143,7 @@ function normalizeImportPath(file: ProjectFolderImportFile): string {
 }
 
 function stripCommonRoot(paths: readonly string[]): string[] {
-  const firstSegments = paths.map((path) => path.split("/")[0]).filter(Boolean);
-  const commonRoot = firstSegments[0];
+  const commonRoot = commonRootSegment(paths);
 
   if (
     !commonRoot ||
@@ -154,7 +155,16 @@ function stripCommonRoot(paths: readonly string[]): string[] {
   return paths.map((path) => path.split("/").slice(1).join("/") || path);
 }
 
-function stripAutosRoot(path: string): string {
+function commonRootSegment(paths: readonly string[]): string | null {
+  const firstSegments = paths.map((path) => path.split("/")[0]).filter(Boolean);
+  return firstSegments[0] ?? null;
+}
+
+function normalizeAutosPath(path: string, selectedPathsFolder: boolean): string {
+  if (selectedPathsFolder) {
+    return `paths/${path}`;
+  }
+
   const parts = path.split("/").filter(Boolean);
   let autosIndex = -1;
   for (let index = parts.length - 1; index >= 0; index -= 1) {
