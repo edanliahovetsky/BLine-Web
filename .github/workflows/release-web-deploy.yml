@@ -54,11 +54,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Checkout BLine-Lib
+        uses: actions/checkout@v6
+        with:
+          repository: edanliahovetsky/BLine-Lib
+          ref: main
+          path: .ci/BLine-Lib
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -83,6 +96,11 @@ jobs:
 
       - name: Parity harness
         run: npm run parity
+
+      - name: BLine-Lib IO compatibility
+        env:
+          BLINE_LIB_DIR: ${{ github.workspace }}/.ci/BLine-Lib
+        run: npm run validate:bline-lib-io
 
       - name: Build web bundle
         run: npm run build

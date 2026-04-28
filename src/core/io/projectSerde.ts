@@ -278,6 +278,8 @@ export function deserializeProjectDocument(
 
 function serializeConstraints(path: PathModel): SerializedConstraints {
   const constraints: SerializedConstraints = {};
+  const anchorCount = countAnchorElements(path.path_elements);
+  const rotationEventCount = countRotationEventElements(path.path_elements);
   const rangedKeys = new Set(
     path.ranged_constraints
       .filter((constraint) => isRangedConstraintKey(constraint.key))
@@ -291,7 +293,24 @@ function serializeConstraints(path: PathModel): SerializedConstraints {
 
     const value = path.constraints[key];
     if (value !== null) {
-      constraints[key] = Number(value);
+      const rangedDomainSize = isTranslationConstraintKey(key)
+        ? anchorCount
+        : isRotationConstraintKey(key)
+          ? rotationEventCount
+          : null;
+
+      constraints[key] =
+        rangedDomainSize === null
+          ? Number(value)
+          : rangedDomainSize > 0
+            ? [
+                {
+                  value: Number(value),
+                  start_ordinal: 0,
+                  end_ordinal: rangedDomainSize - 1
+                }
+              ]
+            : Number(value);
     }
   }
 
