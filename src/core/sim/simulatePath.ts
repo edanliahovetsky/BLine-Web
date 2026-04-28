@@ -15,8 +15,10 @@ import type {
   RotationKeyframe,
   Segment,
   SimResult,
+  SimTraceResult,
   SimulationConfig,
-  SimulationOptions
+  SimulationOptions,
+  SimulationTraceSample
 } from "./types";
 import {
   clamp01,
@@ -58,6 +60,23 @@ export function simulatePath(
   config: SimulationConfig = {},
   options: SimulationOptions = {}
 ): SimResult {
+  return runPathSimulation(path, config, options, false);
+}
+
+export function simulatePathWithTrace(
+  path: PathModel,
+  config: SimulationConfig = {},
+  options: SimulationOptions = {}
+): SimTraceResult {
+  return runPathSimulation(path, config, options, true) as SimTraceResult;
+}
+
+function runPathSimulation(
+  path: PathModel,
+  config: SimulationConfig,
+  options: SimulationOptions,
+  collectTrace: boolean
+): SimTraceResult {
   const dt = options.dt_s ?? 0.02;
   if (!Number.isFinite(dt) || dt <= 0) {
     throw new Error("Simulation dt_s must be a positive finite number");
@@ -69,6 +88,7 @@ export function simulatePath(
   const globalSByTime = new Map<number, number>();
   const timesSorted: number[] = [];
   const trailPoints: PointTuple[] = [];
+  const trace: SimulationTraceSample[] = [];
 
   if (anchors.length < 2 || segments.length === 0) {
     const first = anchors[0];
@@ -92,7 +112,8 @@ export function simulatePath(
       ),
       times_sorted: uniqueTimes,
       total_time_s: 0,
-      trail_points: trailPoints
+      trail_points: trailPoints,
+      trace
     };
   }
 
@@ -150,6 +171,28 @@ export function simulatePath(
     totalPathLength,
     startHeadingBase
   ).desiredTheta;
+
+  if (collectTrace) {
+    trace.push({
+      time_s: 0,
+      x_m: firstSegment.ax,
+      y_m: firstSegment.ay,
+      theta_rad: initialHeading,
+      segment_index: 0,
+      target_anchor_ordinal_1b: 2,
+      global_s_m: 0,
+      segment_s_m: 0,
+      vx_mps: 0,
+      vy_mps: 0,
+      omega_radps: 0,
+      speed_mps: 0,
+      ax_mps2: 0,
+      ay_mps2: 0,
+      acceleration_mps2: 0,
+      snapped_position: false,
+      snapped_rotation: false
+    });
+  }
 
   let x = firstSegment.ax;
   let y = firstSegment.ay;
@@ -272,6 +315,7 @@ export function simulatePath(
       angularError < 0
         ? -Math.min(omegaControl, maxOmega)
         : Math.min(omegaControl, maxOmega);
+    const previousSpeeds = speeds;
     let limited = limitAcceleration(
       {
         vx_mps: vDesScalar * ux,
@@ -290,14 +334,21 @@ export function simulatePath(
         omega_radps: Math.sign(limited.omega_radps) * maxOmega
       };
     }
+    const dynamicsLimited = limited;
+    const axMps2 = (dynamicsLimited.vx_mps - previousSpeeds.vx_mps) / dt;
+    const ayMps2 = (dynamicsLimited.vy_mps - previousSpeeds.vy_mps) / dt;
+    const accelerationMps2 = hypot2(axMps2, ayMps2);
 
     const stepDx = limited.vx_mps * dt;
     const stepDy = limited.vy_mps * dt;
+    let snappedPosition = false;
+    let snappedRotation = false;
     if (segmentIndex === segments.length - 1) {
       if (hypot2(stepDx, stepDy) >= Math.max(0, distToTarget - epsPos)) {
         x = endX;
         y = endY;
         limited = { vx_mps: 0, vy_mps: 0, omega_radps: limited.omega_radps };
+        snappedPosition = true;
       } else {
         x += stepDx;
         y += stepDy;
@@ -338,12 +389,14 @@ export function simulatePath(
         theta = endHeadingTarget;
         rotErr = 0;
         snappedRot = true;
+        snappedRotation = true;
       }
 
       if (snappedPos || snappedRot) {
         posesByTime.set(tKey, [x, y, theta]);
         trailPoints[trailPoints.length - 1] = [x, y];
         if (snappedPos) {
+          snappedPosition = true;
           lastGlobalS = totalPathLength;
           globalSByTime.set(tKey, totalPathLength);
         }
@@ -358,9 +411,38 @@ export function simulatePath(
         }
         if (snappedPos && snappedRot) {
           speeds = { ...emptySpeeds };
-          break;
         }
       }
+    }
+
+    if (collectTrace) {
+      const pose = posesByTime.get(tKey) ?? [x, y, theta];
+      const traceSegment = segments[Math.min(segmentIndex, segments.length - 1)];
+      trace.push({
+        time_s: tKey,
+        x_m: pose[0],
+        y_m: pose[1],
+        theta_rad: pose[2],
+        segment_index: segmentIndex,
+        target_anchor_ordinal_1b: segmentIndex + 2,
+        global_s_m: globalSByTime.get(tKey) ?? poseGlobalS,
+        segment_s_m: traceSegment
+          ? projectedDistanceOnSegment(traceSegment, pose[0], pose[1])
+          : 0,
+        vx_mps: dynamicsLimited.vx_mps,
+        vy_mps: dynamicsLimited.vy_mps,
+        omega_radps: dynamicsLimited.omega_radps,
+        speed_mps: hypot2(dynamicsLimited.vx_mps, dynamicsLimited.vy_mps),
+        ax_mps2: axMps2,
+        ay_mps2: ayMps2,
+        acceleration_mps2: accelerationMps2,
+        snapped_position: snappedPosition,
+        snapped_rotation: snappedRotation
+      });
+    }
+
+    if (snappedPosition && snappedRotation) {
+      break;
     }
 
     tS += dt;
@@ -392,7 +474,8 @@ export function simulatePath(
     ),
     times_sorted: uniqueTimes,
     total_time_s: uniqueTimes[uniqueTimes.length - 1] ?? 0,
-    trail_points: trailPoints
+    trail_points: trailPoints,
+    trace
   };
 }
 

@@ -12,7 +12,8 @@ import {
   buildSegments,
   buildGlobalRotationKeyframes,
   desiredHeadingForGlobalS,
-  simulatePath
+  simulatePath,
+  simulatePathWithTrace
 } from "../../../../src/core/sim";
 
 const defaultConfig = {
@@ -133,6 +134,47 @@ describe("simulatePath", () => {
 
     expect(result.total_time_s).toBeGreaterThan(2);
     expectPose(result.poses_by_time.get(result.total_time_s), [2, 0, 0], 6);
+  });
+
+  it("reports trace samples with segment state and vector acceleration", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 1, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 1, y_meters: 1 })
+      ]
+    });
+
+    const result = simulatePathWithTrace(path, defaultConfig, { dt_s: 0.02 });
+
+    expect(result.trace.length).toBeGreaterThan(2);
+    expect(result.trace[0]).toMatchObject({
+      time_s: 0,
+      x_m: 0,
+      y_m: 0,
+      segment_index: 0,
+      target_anchor_ordinal_1b: 2,
+      speed_mps: 0,
+      acceleration_mps2: 0
+    });
+    expect(result.trace.some((sample) => sample.segment_index === 1)).toBe(true);
+    expect(Math.max(...result.trace.map((sample) => sample.acceleration_mps2)))
+      .toBeLessThanOrEqual(defaultConfig.default_max_acceleration_meters_per_sec2 + 1e-6);
+  });
+
+  it("keeps final snap frames from creating fake trace acceleration spikes", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 0.05, y_meters: 0 })
+      ]
+    });
+
+    const result = simulatePathWithTrace(path, defaultConfig, { dt_s: 0.02 });
+
+    expect(result.trace.at(-1)?.snapped_position).toBe(true);
+    expect(Math.max(...result.trace.map((sample) => sample.acceleration_mps2)))
+      .toBeLessThanOrEqual(defaultConfig.default_max_acceleration_meters_per_sec2 + 1e-6);
   });
 
   it("toggles protrusion visibility from named event triggers", () => {

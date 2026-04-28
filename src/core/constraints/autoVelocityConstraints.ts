@@ -9,8 +9,11 @@ import {
   type AutoVelocityConstraintMetadata,
   type PathElement,
   type PathModel,
+  type RangedConstraintKey,
   type RangedConstraint
 } from "../model/path";
+import { simulatePathWithTrace } from "../sim/simulatePath";
+import type { SimulationTraceSample } from "../sim/types";
 
 export interface AutoVelocityGenerationOptions {
   velocitySafetyFactor?: number;
@@ -74,11 +77,40 @@ interface SegmentGeometry {
   endS: number;
 }
 
+interface AutoVelocitySolverResult {
+  capsByOrdinal: Map<number, number>;
+  trace: SimulationTraceSample[];
+}
+
+interface HandoffEvaluation {
+  corner: AutoVelocityCorner;
+  incomingOrdinal: number;
+  outgoingOrdinal: number;
+  toleranceMeters: number;
+  entryErrorMeters: number;
+  exitErrorMeters: number;
+  combinedErrorMeters: number;
+  passed: boolean;
+}
+
+interface VelocityCapEvaluation {
+  handoffs: HandoffEvaluation[];
+  passed: boolean;
+  trace: SimulationTraceSample[];
+}
+
 const defaultMaxVelocityMps = 4.5;
 const defaultMaxAccelerationMps2 = 7;
 const defaultHandoffRadiusMeters = 0.2;
 const defaultSampleStepMeters = 0.05;
 const defaultFirstOrdinalVelocityRatio = 0.5;
+const solverDtSeconds = 0.02;
+const solverPairPasses = 2;
+const solverRefinementRounds = 1;
+const solverCapToleranceMps = 0.01;
+const solverMinVelocityRatio = 0.05;
+const gateToleranceFloorMeters = 0.05;
+const gateToleranceRatio = 0.25;
 const minPositive = 1e-9;
 
 export function generateAutoVelocityProfile(
@@ -132,18 +164,20 @@ export function generateAutoVelocityProfile(
     cumulative,
     defaultHandoffRadius
   );
-  const samples = solveVelocitySamples(
-    segments,
-    corners,
-    usableMaxVelocityMps,
-    usableMaxAccelerationMps2,
-    settings.sampleStepMeters
-  );
-  const segmentCaps = segmentCapsFromSamples(
+  const solver = solveSegmentCapsWithSimulation(
+    path,
+    config,
     anchors,
     segments,
     corners,
-    samples,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2
+  );
+  const samples = samplesFromTrace(solver.trace, usableMaxVelocityMps);
+  const segmentCaps = segmentCapsFromSolvedCaps(
+    anchors,
+    segments,
+    solver.capsByOrdinal,
     baseMaxVelocity,
     usableMaxVelocityMps
   );
@@ -316,101 +350,305 @@ function buildCorners(
   return corners;
 }
 
-function solveVelocitySamples(
+function solveSegmentCapsWithSimulation(
+  path: PathModel,
+  config: unknown,
+  anchors: readonly AutoVelocityAnchor[],
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
   usableMaxVelocityMps: number,
-  usableMaxAccelerationMps2: number,
-  sampleStepMeters: number
-): AutoVelocitySample[] {
-  const totalLength = segments.at(-1)?.endS ?? 0;
-  if (totalLength <= minPositive) {
-    return [];
+  usableMaxAccelerationMps2: number
+): AutoVelocitySolverResult {
+  const capsByOrdinal = initialCapsByOrdinal(anchors, usableMaxVelocityMps);
+  let evaluation = evaluateVelocityCaps(
+    path,
+    config,
+    segments,
+    corners,
+    capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2
+  );
+
+  if (corners.length === 0 || evaluation.passed) {
+    return { capsByOrdinal, trace: evaluation.trace };
   }
 
-  const sampleS = samplePositions(totalLength, segments, corners, sampleStepMeters);
-  const curvatures = sampleS.map((s) => curvatureAt(s, corners));
-  const qLimits = curvatures.map((curvature) => {
-    if (curvature <= minPositive) {
-      return usableMaxVelocityMps ** 2;
-    }
+  const minCap = minimumSolverCap(usableMaxVelocityMps);
+  for (let pass = 0; pass < solverPairPasses; pass += 1) {
+    let changed = false;
+    const orderedCorners =
+      pass % 2 === 0 ? corners : [...corners].reverse();
 
-    return Math.min(
-      usableMaxVelocityMps ** 2,
-      usableMaxAccelerationMps2 / curvature
-    );
-  });
-  const q = [...qLimits];
-
-  for (let pass = 0; pass < 24; pass += 1) {
-    let maxDelta = 0;
-    for (let index = 1; index < q.length; index += 1) {
-      const ds = Math.max(sampleS[index] - sampleS[index - 1], minPositive);
-      const accel = tangentialAccelerationLimit(
-        q[index - 1],
-        curvatures[index - 1],
-        usableMaxAccelerationMps2
+    for (const corner of orderedCorners) {
+      const handoff = evaluation.handoffs.find(
+        (candidate) => candidate.corner.anchorOrdinal === corner.anchorOrdinal
       );
-      const next = Math.min(q[index], q[index - 1] + 2 * accel * ds);
-      maxDelta = Math.max(maxDelta, Math.abs((q[index] ?? 0) - next));
-      q[index] = next;
-    }
+      if (handoff?.passed) {
+        continue;
+      }
 
-    for (let index = q.length - 2; index >= 0; index -= 1) {
-      const ds = Math.max(sampleS[index + 1] - sampleS[index], minPositive);
-      const accel = tangentialAccelerationLimit(
-        q[index + 1],
-        curvatures[index + 1],
-        usableMaxAccelerationMps2
+      const optimized = optimizeHandoffPair(
+        path,
+        config,
+        segments,
+        corners,
+        capsByOrdinal,
+        corner,
+        minCap,
+        usableMaxVelocityMps,
+        usableMaxAccelerationMps2,
+        evaluation
       );
-      const next = Math.min(q[index], q[index + 1] + 2 * accel * ds);
-      maxDelta = Math.max(maxDelta, Math.abs((q[index] ?? 0) - next));
-      q[index] = next;
+      if (optimized.changed) {
+        capsByOrdinal.set(corner.anchorOrdinal, optimized.incomingCap);
+        capsByOrdinal.set(corner.anchorOrdinal + 1, optimized.outgoingCap);
+        evaluation = optimized.evaluation;
+        changed = true;
+      }
     }
 
-    if (maxDelta < 1e-6) {
+    if (evaluation.passed || !changed) {
       break;
     }
   }
 
-  return sampleS.map((sMeters, index) => ({
-    sMeters,
-    curvature: curvatures[index] ?? 0,
-    velocityLimitMps: Math.sqrt(Math.max(0, qLimits[index] ?? 0)),
-    velocityMps: Math.sqrt(Math.max(0, q[index] ?? 0))
-  }));
+  evaluation = refineVelocityCaps(
+    path,
+    config,
+    anchors,
+    segments,
+    corners,
+    capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+    evaluation
+  );
+
+  return { capsByOrdinal, trace: evaluation.trace };
 }
 
-function samplePositions(
-  totalLength: number,
-  segments: readonly SegmentGeometry[],
-  corners: readonly AutoVelocityCorner[],
-  sampleStepMeters: number
-): number[] {
-  const positions = new Set<number>([0, totalLength]);
-
-  for (let s = sampleStepMeters; s < totalLength; s += sampleStepMeters) {
-    positions.add(roundDistance(s));
+function initialCapsByOrdinal(
+  anchors: readonly AutoVelocityAnchor[],
+  usableMaxVelocityMps: number
+): Map<number, number> {
+  const capsByOrdinal = new Map<number, number>();
+  for (let ordinal = 2; ordinal <= anchors.length; ordinal += 1) {
+    capsByOrdinal.set(ordinal, usableMaxVelocityMps);
   }
-  for (const segment of segments) {
-    positions.add(roundDistance(segment.startS));
-    positions.add(roundDistance(segment.endS));
-  }
-  for (const corner of corners) {
-    positions.add(roundDistance(corner.startS));
-    positions.add(roundDistance(corner.endS));
-  }
-
-  return [...positions]
-    .filter((value) => Number.isFinite(value) && value >= 0 && value <= totalLength)
-    .sort((left, right) => left - right);
+  return capsByOrdinal;
 }
 
-function segmentCapsFromSamples(
+function refineVelocityCaps(
+  path: PathModel,
+  config: unknown,
   anchors: readonly AutoVelocityAnchor[],
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
-  samples: readonly AutoVelocitySample[],
+  capsByOrdinal: Map<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  currentEvaluation: VelocityCapEvaluation
+): VelocityCapEvaluation {
+  let evaluation = currentEvaluation;
+  const ordinals = Array.from({ length: Math.max(0, anchors.length - 1) }, (_, index) => index + 2);
+
+  for (let round = 0; round < solverRefinementRounds; round += 1) {
+    const orders = round % 2 === 0 ? [ordinals, [...ordinals].reverse()] : [[...ordinals].reverse(), ordinals];
+    for (const order of orders) {
+      for (const ordinal of order) {
+        const current = capsByOrdinal.get(ordinal);
+        if (current === undefined || usableMaxVelocityMps - current <= solverCapToleranceMps) {
+          continue;
+        }
+
+        let bestEvaluation = evaluation;
+        let bestValue = current;
+
+        for (const candidate of refinementVelocityGrid(current, usableMaxVelocityMps)) {
+          const trialCaps = new Map(capsByOrdinal);
+          trialCaps.set(ordinal, candidate);
+          const trialEvaluation = evaluateVelocityCaps(
+            path,
+            config,
+            segments,
+            corners,
+            trialCaps,
+            usableMaxVelocityMps,
+            usableMaxAccelerationMps2
+          );
+
+          if (isBetterEvaluation(trialEvaluation, trialCaps, bestEvaluation, capsByOrdinal)) {
+            bestValue = candidate;
+            bestEvaluation = trialEvaluation;
+          }
+        }
+
+        capsByOrdinal.set(ordinal, bestValue);
+        evaluation = bestEvaluation;
+      }
+    }
+  }
+
+  return evaluation;
+}
+
+function optimizeHandoffPair(
+  path: PathModel,
+  config: unknown,
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: ReadonlyMap<number, number>,
+  corner: AutoVelocityCorner,
+  minCap: number,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  currentEvaluation: VelocityCapEvaluation
+): {
+  changed: boolean;
+  incomingCap: number;
+  outgoingCap: number;
+  evaluation: VelocityCapEvaluation;
+} {
+  const incomingOrdinal = corner.anchorOrdinal;
+  const outgoingOrdinal = corner.anchorOrdinal + 1;
+  const currentIncoming = capsByOrdinal.get(incomingOrdinal) ?? usableMaxVelocityMps;
+  const currentOutgoing = capsByOrdinal.get(outgoingOrdinal) ?? usableMaxVelocityMps;
+  let bestIncoming = currentIncoming;
+  let bestOutgoing = currentOutgoing;
+  let bestEvaluation = currentEvaluation;
+  let bestCaps = capsByOrdinal;
+  const incomingCandidates = velocityGrid(currentIncoming, minCap, usableMaxVelocityMps);
+  const outgoingCandidates = velocityGrid(currentOutgoing, minCap, usableMaxVelocityMps);
+
+  // Gate error is not monotonic: going too slowly can miss the exit gate too.
+  // Search the adjacent cap pair and prefer the fastest candidate that passes.
+  for (const incoming of incomingCandidates) {
+    for (const outgoing of outgoingCandidates) {
+      const trialCaps = new Map(capsByOrdinal);
+      trialCaps.set(incomingOrdinal, incoming);
+      trialCaps.set(outgoingOrdinal, outgoing);
+      const trialEvaluation = evaluateVelocityCaps(
+        path,
+        config,
+        segments,
+        corners,
+        trialCaps,
+        usableMaxVelocityMps,
+        usableMaxAccelerationMps2
+      );
+
+      if (isBetterEvaluation(trialEvaluation, trialCaps, bestEvaluation, bestCaps)) {
+        bestIncoming = incoming;
+        bestOutgoing = outgoing;
+        bestEvaluation = trialEvaluation;
+        bestCaps = trialCaps;
+      }
+    }
+  }
+
+  return {
+    changed:
+      Math.abs(bestIncoming - currentIncoming) > solverCapToleranceMps ||
+      Math.abs(bestOutgoing - currentOutgoing) > solverCapToleranceMps,
+    incomingCap: bestIncoming,
+    outgoingCap: bestOutgoing,
+    evaluation: bestEvaluation
+  };
+}
+
+function evaluateVelocityCaps(
+  path: PathModel,
+  config: unknown,
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number
+): VelocityCapEvaluation {
+  const candidate = pathWithVelocityCaps(
+    path,
+    capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2
+  );
+  const result = simulatePathWithTrace(candidate, config, { dt_s: solverDtSeconds });
+  const finalGlobalS = result.global_s_by_time.get(result.times_sorted.at(-1) ?? 0) ?? 0;
+  const totalLength = segments.at(-1)?.endS ?? 0;
+  const reachedEnd = totalLength <= minPositive || finalGlobalS >= totalLength - 0.02;
+  const handoffs = corners.map((corner) =>
+    evaluateHandoff(corner, segments, result.trace)
+  );
+
+  return {
+    handoffs,
+    passed: reachedEnd && handoffs.every((handoff) => handoff.passed),
+    trace: result.trace
+  };
+}
+
+function evaluateHandoff(
+  corner: AutoVelocityCorner,
+  segments: readonly SegmentGeometry[],
+  trace: readonly SimulationTraceSample[]
+): HandoffEvaluation {
+  const incomingSegment = segments[corner.anchorOrdinal - 2];
+  const outgoingSegment = segments[corner.anchorOrdinal - 1];
+  const tolerance = handoffTolerance(corner.handoffDistanceMeters);
+  const entryPoint = sampleTraceAtS(trace, corner.startS);
+  const exitPoint = sampleTraceAtS(trace, corner.endS);
+  const entryError =
+    entryPoint && incomingSegment
+      ? crossTrackError(entryPoint.x, entryPoint.y, incomingSegment)
+      : Number.POSITIVE_INFINITY;
+  const exitError =
+    exitPoint && outgoingSegment
+      ? crossTrackError(exitPoint.x, exitPoint.y, outgoingSegment)
+      : Number.POSITIVE_INFINITY;
+  const combinedError = Math.hypot(entryError, exitError);
+
+  return {
+    corner,
+    incomingOrdinal: corner.anchorOrdinal,
+    outgoingOrdinal: corner.anchorOrdinal + 1,
+    toleranceMeters: tolerance,
+    entryErrorMeters: entryError,
+    exitErrorMeters: exitError,
+    combinedErrorMeters: combinedError,
+    passed: combinedError <= tolerance
+  };
+}
+
+function pathWithVelocityCaps(
+  path: PathModel,
+  capsByOrdinal: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number
+): PathModel {
+  const generated = [...capsByOrdinal.entries()].map(([ordinal, value]) => ({
+    key: "max_velocity_meters_per_sec" as const,
+    value,
+    start_ordinal: ordinal,
+    end_ordinal: ordinal
+  }));
+
+  return {
+    ...path,
+    constraints: {
+      ...path.constraints,
+      max_velocity_meters_per_sec: usableMaxVelocityMps,
+      max_acceleration_meters_per_sec2: usableMaxAccelerationMps2
+    },
+    ranged_constraints: path.ranged_constraints
+      .filter((constraint) => !isTranslationRangedConstraintKey(constraint.key))
+      .concat(generated)
+  };
+}
+
+function segmentCapsFromSolvedCaps(
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  capsByOrdinal: ReadonlyMap<number, number>,
   baseMaxVelocityMps: number,
   usableMaxVelocityMps: number
 ): AutoVelocitySegmentCap[] {
@@ -432,75 +670,196 @@ function segmentCapsFromSamples(
 
   return firstOrdinalCap.concat(segments.map((_, segmentIndex) => {
     const targetOrdinal = segmentIndex + 2;
-    const targetCorner = corners.find(
-      (corner) => corner.anchorOrdinal === targetOrdinal
-    );
-    const targetSample = targetCorner
-      ? sampleAtDistance(samples, targetCorner.startS)
-      : null;
-    const profileVelocity = targetSample?.velocityMps ?? usableMaxVelocityMps;
-    const velocityLimit =
-      targetSample?.velocityLimitMps ?? usableMaxVelocityMps;
+    const value = capsByOrdinal.get(targetOrdinal) ?? usableMaxVelocityMps;
 
     return {
       segmentIndex,
       targetOrdinal,
-      value: roundConstraintValue(Math.min(usableMaxVelocityMps, profileVelocity)),
-      minVelocityLimitMps: roundConstraintValue(
-        Math.min(usableMaxVelocityMps, velocityLimit)
-      )
+      value: roundConstraintValue(Math.min(usableMaxVelocityMps, value)),
+      minVelocityLimitMps: roundConstraintValue(Math.min(usableMaxVelocityMps, value))
     };
   }));
 }
 
-function sampleAtDistance(
-  samples: readonly AutoVelocitySample[],
+function samplesFromTrace(
+  trace: readonly SimulationTraceSample[],
+  usableMaxVelocityMps: number
+): AutoVelocitySample[] {
+  return trace.map((sample) => ({
+    sMeters: roundDistance(sample.global_s_m),
+    curvature: 0,
+    velocityLimitMps: usableMaxVelocityMps,
+    velocityMps: Math.min(sample.speed_mps, usableMaxVelocityMps)
+  }));
+}
+
+function sampleTraceAtS(
+  trace: readonly SimulationTraceSample[],
   sMeters: number
-): AutoVelocitySample | null {
-  if (samples.length === 0) {
+): { x: number; y: number } | null {
+  if (trace.length === 0) {
     return null;
   }
 
   const target = roundDistance(sMeters);
-  let closest = samples[0] ?? null;
-  for (const sample of samples) {
-    if (Math.abs(sample.sMeters - target) <= 1e-6) {
-      return sample;
+  for (let index = 1; index < trace.length; index += 1) {
+    const previous = trace[index - 1];
+    const current = trace[index];
+    if (!previous || !current) {
+      continue;
     }
 
-    if (
-      closest === null ||
-      Math.abs(sample.sMeters - target) < Math.abs(closest.sMeters - target)
-    ) {
-      closest = sample;
+    const lower = Math.min(previous.global_s_m, current.global_s_m);
+    const upper = Math.max(previous.global_s_m, current.global_s_m);
+    if (target < lower - 1e-6 || target > upper + 1e-6) {
+      continue;
     }
+
+    const ds = current.global_s_m - previous.global_s_m;
+    if (Math.abs(ds) <= minPositive) {
+      return { x: current.x_m, y: current.y_m };
+    }
+
+    const alpha = clamp((target - previous.global_s_m) / ds, 0, 1);
+    return {
+      x: previous.x_m + (current.x_m - previous.x_m) * alpha,
+      y: previous.y_m + (current.y_m - previous.y_m) * alpha
+    };
   }
 
-  return closest;
+  return null;
 }
 
-function curvatureAt(
-  sMeters: number,
-  corners: readonly AutoVelocityCorner[]
+function crossTrackError(
+  x: number,
+  y: number,
+  segment: SegmentGeometry
 ): number {
-  let curvature = 0;
-  for (const corner of corners) {
-    if (corner.startS - 1e-9 <= sMeters && sMeters <= corner.endS + 1e-9) {
-      curvature = Math.max(curvature, corner.curvature);
-    }
+  const dx = x - segment.ax;
+  const dy = y - segment.ay;
+  return Math.abs(dx * segment.uy - dy * segment.ux);
+}
+
+function handoffTolerance(handoffDistanceMeters: number): number {
+  return Math.max(
+    gateToleranceFloorMeters,
+    handoffDistanceMeters * gateToleranceRatio
+  );
+}
+
+function minimumSolverCap(usableMaxVelocityMps: number): number {
+  return Math.max(0.05, usableMaxVelocityMps * solverMinVelocityRatio);
+}
+
+function velocityGrid(
+  current: number,
+  minCap: number,
+  usableMaxVelocityMps: number
+): number[] {
+  return uniqueSortedVelocities([
+    current,
+    minCap,
+    usableMaxVelocityMps,
+    usableMaxVelocityMps * 0.2,
+    usableMaxVelocityMps * 0.35,
+    usableMaxVelocityMps * 0.5,
+    usableMaxVelocityMps * 0.7
+  ], minCap, usableMaxVelocityMps);
+}
+
+function refinementVelocityGrid(
+  current: number,
+  usableMaxVelocityMps: number
+): number[] {
+  const delta = usableMaxVelocityMps - current;
+  return uniqueSortedVelocities([
+    current + delta * 0.1,
+    current + delta * 0.25,
+    current + delta * 0.75,
+    usableMaxVelocityMps
+  ], current, usableMaxVelocityMps);
+}
+
+function uniqueSortedVelocities(
+  values: readonly number[],
+  minValue: number,
+  maxValue: number
+): number[] {
+  return [...new Set(values
+    .filter((value) => Number.isFinite(value))
+    .map((value) => roundSolverVelocity(clamp(value, minValue, maxValue))))]
+    .sort((left, right) => left - right);
+}
+
+function isBetterEvaluation(
+  candidate: VelocityCapEvaluation,
+  candidateCaps: ReadonlyMap<number, number>,
+  current: VelocityCapEvaluation,
+  currentCaps: ReadonlyMap<number, number>
+): boolean {
+  const candidateQuality = evaluationQuality(candidate);
+  const currentQuality = evaluationQuality(current);
+
+  if (candidate.passed !== current.passed) {
+    return candidate.passed;
   }
-  return curvature;
+
+  if (!candidate.passed) {
+    if (candidateQuality.maxRatio < currentQuality.maxRatio - 0.02) {
+      return true;
+    }
+    if (candidateQuality.maxRatio > currentQuality.maxRatio + 0.02) {
+      return false;
+    }
+    if (candidateQuality.sumSquaredRatio < currentQuality.sumSquaredRatio - 0.05) {
+      return true;
+    }
+    if (candidateQuality.sumSquaredRatio > currentQuality.sumSquaredRatio + 0.05) {
+      return false;
+    }
+  } else if (
+    candidateQuality.sumSquaredRatio < currentQuality.sumSquaredRatio - 0.05 &&
+    capSum(candidateCaps) >= capSum(currentCaps) - solverCapToleranceMps
+  ) {
+    return true;
+  }
+
+  return capSum(candidateCaps) > capSum(currentCaps) + solverCapToleranceMps;
 }
 
-function tangentialAccelerationLimit(
-  velocitySquared: number,
-  curvature: number,
-  usableMaxAccelerationMps2: number
-): number {
-  const lateralAcceleration = velocitySquared * curvature;
-  const remainingSquared =
-    usableMaxAccelerationMps2 ** 2 - lateralAcceleration ** 2;
-  return Math.sqrt(Math.max(0, remainingSquared));
+function evaluationQuality(evaluation: VelocityCapEvaluation): {
+  maxRatio: number;
+  sumSquaredRatio: number;
+} {
+  if (evaluation.handoffs.length === 0) {
+    return { maxRatio: 0, sumSquaredRatio: 0 };
+  }
+
+  let maxRatio = 0;
+  let sumSquaredRatio = 0;
+  for (const handoff of evaluation.handoffs) {
+    const ratio =
+      handoff.combinedErrorMeters / Math.max(handoff.toleranceMeters, minPositive);
+    maxRatio = Math.max(maxRatio, ratio);
+    sumSquaredRatio += ratio ** 2;
+  }
+
+  return { maxRatio, sumSquaredRatio };
+}
+
+function capSum(caps: ReadonlyMap<number, number>): number {
+  let sum = 0;
+  for (const value of caps.values()) {
+    sum += value;
+  }
+  return sum;
+}
+
+function isTranslationRangedConstraintKey(key: RangedConstraintKey): boolean {
+  return (
+    key === "max_velocity_meters_per_sec" ||
+    key === "max_acceleration_meters_per_sec2"
+  );
 }
 
 function handoffRadiusForAnchor(
@@ -540,6 +899,10 @@ function clamp(value: number, min: number, max: number): number {
 
 function roundDistance(value: number): number {
   return Number(value.toFixed(6));
+}
+
+function roundSolverVelocity(value: number): number {
+  return Number(value.toFixed(3));
 }
 
 function roundConstraintValue(value: number): number {

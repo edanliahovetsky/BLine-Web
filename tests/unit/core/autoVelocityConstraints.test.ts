@@ -20,7 +20,7 @@ const config = {
 };
 
 describe("generateAutoVelocityProfile", () => {
-  it("caps a 90 degree handoff from lateral acceleration", () => {
+  it("limits the incoming cap for a tight 90 degree handoff", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
@@ -35,8 +35,7 @@ describe("generateAutoVelocityProfile", () => {
 
     const profile = generateAutoVelocityProfile(path, config, {
       velocitySafetyFactor: 1,
-      accelerationSafetyFactor: 1,
-      sampleStepMeters: 0.025
+      accelerationSafetyFactor: 1
     });
 
     expect(profile.corners).toHaveLength(1);
@@ -47,7 +46,7 @@ describe("generateAutoVelocityProfile", () => {
     expect(profile.segmentCaps[2]?.value).toBeCloseTo(5, 2);
   });
 
-  it("keeps sharp turns from shrinking below the handoff-radius floor", () => {
+  it("keeps shallow turns faster than sharp turns", () => {
     const shallow = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
@@ -86,9 +85,104 @@ describe("generateAutoVelocityProfile", () => {
       (cap) => cap.targetOrdinal === 2
     )?.value;
 
-    expect(shallowCap).toBeGreaterThan(1);
+    expect(shallowCap).toBeGreaterThan(sharpCap ?? 0);
+    expect(shallowCap).toBeCloseTo(1.4, 1);
     expect(sharpCap).toBeCloseTo(1, 2);
     expect(sharpProfile.corners[0]?.effectiveRadiusMeters).toBeCloseTo(0.25, 3);
+  });
+
+  it("keeps straight paths at usable max velocity after the first ordinal", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 2, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 4, y_meters: 0 })
+      ]
+    });
+
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 0.8,
+      accelerationSafetyFactor: 1
+    });
+
+    expect(profile.corners).toHaveLength(0);
+    expect(profile.usableMaxVelocityMps).toBeCloseTo(4, 2);
+    expect(profile.segmentCaps.map((cap) => cap.value)).toEqual([2.5, 4, 4]);
+  });
+
+  it("matches the preview sim on a wide handoff instead of the circular estimate", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 7.41, y_meters: 2.14 }),
+        createTranslationTarget({
+          x_meters: 10.35,
+          y_meters: 6.47,
+          intermediate_handoff_radius_meters: 1.1
+        }),
+        createTranslationTarget({
+          x_meters: 16.13,
+          y_meters: 4.68,
+          intermediate_handoff_radius_meters: 0.25
+        })
+      ]
+    });
+
+    const profile = generateAutoVelocityProfile(path, {
+      kinematic_constraints: {
+        ...config.kinematic_constraints,
+        default_max_velocity_meters_per_sec: 4.5,
+        default_max_acceleration_meters_per_sec2: 12,
+        default_intermediate_handoff_radius_meters: 0.25
+      }
+    }, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8
+    });
+
+    expect(profile.usableMaxVelocityMps).toBeCloseTo(4.05, 2);
+    expect(profile.segmentCaps.map((cap) => cap.value)).toEqual([2.25, 4.05, 4.05]);
+  });
+
+  it("adjusts adjacent caps independently across chained turns", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({
+          x_meters: 1.4,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.4
+        }),
+        createTranslationTarget({
+          x_meters: 1.4,
+          y_meters: 1.2,
+          intermediate_handoff_radius_meters: 0.4
+        }),
+        createTranslationTarget({
+          x_meters: 2.8,
+          y_meters: 1.2,
+          intermediate_handoff_radius_meters: 0.4
+        }),
+        createTranslationTarget({ x_meters: 2.8, y_meters: 2.4 })
+      ]
+    });
+
+    const profile = generateAutoVelocityProfile(path, {
+      kinematic_constraints: {
+        ...config.kinematic_constraints,
+        default_max_velocity_meters_per_sec: 4.5,
+        default_max_acceleration_meters_per_sec2: 7,
+        default_intermediate_handoff_radius_meters: 0.25
+      }
+    }, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8
+    });
+    const caps = profile.segmentCaps.slice(1).map((cap) => cap.value);
+
+    expect(profile.usableMaxVelocityMps).toBeCloseTo(4.05, 2);
+    expect(caps.some((cap) => cap < 2)).toBe(true);
+    expect(new Set(caps).size).toBeGreaterThan(2);
+    expect(Math.max(...caps)).toBeLessThanOrEqual(4.05);
   });
 
   it("adds a first-ordinal default cap at half of configured max velocity", () => {
