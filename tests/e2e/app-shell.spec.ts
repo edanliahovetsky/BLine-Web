@@ -587,7 +587,7 @@ test("scrolls selected rows into view", async ({ page }) => {
   expect(selectedBox.y + selectedBox.height).toBeLessThanOrEqual(listBox.y + listBox.height + 1);
 });
 
-test("keeps sidebar scroll position when selecting a canvas element", async ({ page }) => {
+test("keeps outer sidebar scroll while selected canvas elements scroll within the path list", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 720 });
   await page.goto("/");
 
@@ -628,6 +628,33 @@ test("keeps sidebar scroll position when selecting a canvas element", async ({ p
     "true"
   );
 
+  await expect
+    .poll(async () => page.evaluate((expectedSidebarScrollTop) => {
+      const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
+      const pathList = document.querySelector<HTMLElement>(".path-element-list");
+      const selectedRow = document.querySelector<HTMLElement>(
+        "[data-testid='path-element-row-0']"
+      );
+
+      if (!sidebar || !pathList || !selectedRow) {
+        throw new Error("Expected sidebar, path element list, and selected row to be present");
+      }
+
+      const listBox = pathList.getBoundingClientRect();
+      const selectedBox = selectedRow.getBoundingClientRect();
+
+      return {
+        selectedRowVisibleInList:
+          selectedBox.top >= listBox.top - 1 &&
+          selectedBox.bottom <= listBox.bottom + 1,
+        sidebarScrollDelta: Math.abs(sidebar.scrollTop - expectedSidebarScrollTop)
+      };
+    }, scrollBefore.sidebarScrollTop))
+    .toMatchObject({
+      selectedRowVisibleInList: true,
+      sidebarScrollDelta: 0
+    });
+
   const scrollAfter = await page.evaluate(() => {
     const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
     const pathList = document.querySelector<HTMLElement>(".path-element-list");
@@ -642,7 +669,7 @@ test("keeps sidebar scroll position when selecting a canvas element", async ({ p
     };
   });
 
-  expect(scrollAfter.pathListScrollTop).toBe(scrollBefore.pathListScrollTop);
+  expect(scrollAfter.pathListScrollTop).toBeLessThan(scrollBefore.pathListScrollTop);
   expect(scrollAfter.sidebarScrollTop).toBe(scrollBefore.sidebarScrollTop);
 });
 

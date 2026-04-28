@@ -39,6 +39,7 @@ export function ElementList({
   onToggleSection
 }: ElementListProps) {
   const elements = project?.path.path_elements ?? [];
+  const listRef = useRef<HTMLOListElement | null>(null);
   const selectedRowRef = useRef<HTMLLIElement | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -50,8 +51,15 @@ export function ElementList({
       return;
     }
 
-    selectedRowRef.current?.scrollIntoView({ block: "nearest" });
-  }, [elements.length, open]);
+    const list = listRef.current;
+    const selectedRow = selectedRowRef.current;
+
+    if (!list || !selectedRow) {
+      return;
+    }
+
+    scrollChildIntoContainerView(list, selectedRow);
+  }, [elements.length, open, selectedElementIndex]);
 
   const handleMouseDown = (event: MouseEvent<HTMLButtonElement>, index: number) => {
     if (!project || event.button !== 0) {
@@ -121,7 +129,7 @@ export function ElementList({
       onToggle={onToggleSection}
     >
       {elements.length > 0 ? (
-        <ol className="path-element-list" aria-label="Path elements">
+        <ol ref={listRef} className="path-element-list" aria-label="Path elements">
           {elements.map((element, index) => {
             const selected = selectedElementIndex === index;
             const position = getElementPosition(elements, index);
@@ -196,4 +204,19 @@ function getDropIndexFromPoint(_clientX: number, clientY: number): number | null
   const rawIndex = target?.dataset.pathElementIndex;
   const index = Number(rawIndex);
   return Number.isInteger(index) && index >= 0 ? index : null;
+}
+
+function scrollChildIntoContainerView(container: HTMLElement, child: HTMLElement): void {
+  const containerRect = container.getBoundingClientRect();
+  const childRect = child.getBoundingClientRect();
+  const childTop = childRect.top - containerRect.top + container.scrollTop;
+  const childBottom = childTop + childRect.height;
+  const viewTop = container.scrollTop;
+  const viewBottom = viewTop + container.clientHeight;
+
+  if (childTop < viewTop) {
+    container.scrollTop = Math.max(0, childTop);
+  } else if (childBottom > viewBottom) {
+    container.scrollTop = Math.max(0, childBottom - container.clientHeight);
+  }
 }
