@@ -9,6 +9,7 @@ The web-first BLine autonomous path editor for FRC holonomic drivetrains.
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-2563eb)](LICENSE)
 
 [Open the hosted app](https://bline-web.pages.dev/) |
+[Releases](https://github.com/edanliahovetsky/BLine-Web/releases) |
 [BLine-Lib](https://github.com/edanliahovetsky/BLine-Lib) |
 [Docs](https://edanliahovetsky.github.io/BLine-Docs/) |
 [Chief Delphi](https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778)
@@ -234,7 +235,8 @@ draft GitHub Release named from `package.json`, for example
 
 Promotion is explicit: merge or push a tested commit to `web-deploy` only when
 it is ready for the public Cloudflare site and draft desktop release artifacts.
-Cloudflare hosts the website; GitHub Releases host desktop installers.
+Cloudflare hosts the website; [GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases)
+host desktop installers.
 
 Version metadata must stay aligned across:
 
