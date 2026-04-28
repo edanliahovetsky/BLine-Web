@@ -136,6 +136,44 @@ describe("simulatePath", () => {
     expectPose(result.poses_by_time.get(result.total_time_s), [2, 0, 0], 6);
   });
 
+  it("caps ranged translation limits at the global simulation limits", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 6, y_meters: 0 })
+      ],
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 10,
+          start_ordinal: 2,
+          end_ordinal: 2
+        },
+        {
+          key: "max_acceleration_meters_per_sec2",
+          value: 10,
+          start_ordinal: 2,
+          end_ordinal: 2
+        }
+      ]
+    });
+
+    const result = simulatePathWithTrace(
+      path,
+      {
+        ...defaultConfig,
+        default_max_velocity_meters_per_sec: 1,
+        default_max_acceleration_meters_per_sec2: 1
+      },
+      { dt_s: 0.02 }
+    );
+
+    expect(Math.max(...result.trace.map((sample) => sample.speed_mps)))
+      .toBeLessThanOrEqual(1 + 1e-6);
+    expect(Math.max(...result.trace.map((sample) => sample.acceleration_mps2)))
+      .toBeLessThanOrEqual(1 + 1e-6);
+  });
+
   it("reports trace samples with segment state and vector acceleration", () => {
     const path = createPathModel({
       path_elements: [

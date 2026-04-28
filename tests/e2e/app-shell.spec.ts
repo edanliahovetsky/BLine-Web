@@ -738,6 +738,22 @@ test("turns dragged auto velocity ranges into manual ranges", async ({ page }) =
   await expect(modeControl.getByRole("button", { name: "Auto" })).toBeEnabled();
 });
 
+test("warns when ranged constraints exceed the global value", async ({ page }) => {
+  await page.goto("/");
+
+  const range = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  await range.click();
+  await expect(page.getByText("Above global")).toHaveCount(0);
+
+  await page.getByLabel("Constraint 1 value").fill("4.6");
+  await expect(page.getByText("Above global")).toBeVisible();
+  await expect(range).toHaveClass(/has-warning/);
+  await expect(range).toHaveAttribute("title", "Above global value");
+
+  await page.getByLabel("Constraint 1 value").fill("4.5");
+  await expect(page.getByText("Above global")).toHaveCount(0);
+});
+
 test("keeps the constraint editor movable and modeless", async ({ page }) => {
   await page.goto("/");
 

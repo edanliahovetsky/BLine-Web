@@ -409,6 +409,7 @@ function RangedConstraintCard({
       ) : null}
 
       <ConstraintSegmentBar
+        project={project}
         constraintKey={constraintKey}
         entries={entries}
         labels={labels}
@@ -619,6 +620,7 @@ function PopoutConstraintPanel({
       </div>
 
       <ConstraintSegmentBar
+        project={project}
         constraintKey={constraintKey}
         entries={entries}
         labels={labels}
@@ -660,6 +662,7 @@ function PopoutConstraintPanel({
 }
 
 function ConstraintSegmentBar({
+  project,
   constraintKey,
   entries,
   labels,
@@ -672,6 +675,7 @@ function ConstraintSegmentBar({
   onGapDoubleClick,
   density = 'sidebar',
 }: {
+  project: ProjectDocument;
   constraintKey: RangedConstraintKey;
   entries: RangedEntry[];
   labels: string[];
@@ -876,11 +880,16 @@ function ConstraintSegmentBar({
         const end = clampOrdinal(constraint.end_ordinal, total);
         const selected = entry.index === selectedIndex;
         const segmentNumber = entries.findIndex((candidate) => candidate.index === entry.index) + 1;
-        const autoState = autoVelocityStateForConstraint(constraint, autoProfile);
+        const constraintState = rangedConstraintStateForConstraint(project, constraint, autoProfile);
         const sourceClass =
           constraint.source === 'auto_velocity'
             ? 'ranged-segment-range--auto'
             : 'ranged-segment-range--manual';
+        const warningTitle = constraintState.globalWarning
+          ? 'Above global value'
+          : constraintState.autoWarning
+            ? 'Above auto value'
+            : undefined;
 
         return (
           <div
@@ -889,8 +898,8 @@ function ConstraintSegmentBar({
               'ranged-segment-range',
               sourceClass,
               selected ? 'is-selected' : '',
-              autoState.stale ? 'is-stale' : '',
-              autoState.warning ? 'has-warning' : '',
+              constraintState.stale ? 'is-stale' : '',
+              constraintState.globalWarning || constraintState.autoWarning ? 'has-warning' : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -899,7 +908,11 @@ function ConstraintSegmentBar({
             data-ranged-constraint-selection={rangedSelectionToken(constraintKey, entry.index)}
             role="option"
             aria-selected={selected}
-            aria-label={`Select ${meta.label} segment ${segmentNumber}`}
+            aria-label={[
+              `Select ${meta.label} segment ${segmentNumber}`,
+              warningTitle,
+            ].filter(Boolean).join(', ')}
+            title={warningTitle}
           >
             {density === 'popout' ? (
               <span className="ranged-segment-range__label">{rangeLabel(labels, constraint)}</span>
@@ -1180,7 +1193,9 @@ function RangedConstraintControls({
   const valueLabel = entry ? `Constraint ${segmentNumber} value` : `${meta.label} value`;
   const selectedActionLabel = entry ? `constraint ${segmentNumber}` : 'selected constraint';
   const showAutoVelocityMode = constraintKey === autoVelocityKey;
-  const autoState = constraint ? autoVelocityStateForConstraint(constraint, autoProfile ?? null) : null;
+  const constraintState = constraint
+    ? rangedConstraintStateForConstraint(project, constraint, autoProfile ?? null)
+    : null;
 
   return (
     <div
@@ -1229,9 +1244,12 @@ function RangedConstraintControls({
             <span>{meta.unit}</span>
           </div>
         </label>
-        {autoState?.stale ? (
+        {constraintState?.globalWarning ? (
+          <span className="auto-velocity-status auto-velocity-status--warning">Above global</span>
+        ) : null}
+        {constraintState?.stale ? (
           <span className="auto-velocity-status">Stale</span>
-        ) : autoState?.warning ? (
+        ) : constraintState?.autoWarning ? (
           <span className="auto-velocity-status auto-velocity-status--warning">Above auto</span>
         ) : null}
       </div>
@@ -1959,6 +1977,46 @@ function autoVelocityStateForConstraint(
   return { stale, warning };
 }
 
+function rangedConstraintStateForConstraint(
+  project: ProjectDocument,
+  constraint: RangedConstraint,
+  autoProfile: AutoVelocityProfile | null | undefined
+): { stale: boolean; autoWarning: boolean; globalWarning: boolean } {
+  const autoState = autoVelocityStateForConstraint(constraint, autoProfile);
+  const globalLimit = globalLimitForRangedConstraint(project, constraint.key);
+  const globalWarning =
+    globalLimit !== null &&
+    constraint.value > globalLimit + constraintWarningTolerance(constraint.key);
+
+  return {
+    stale: autoState.stale,
+    autoWarning: autoState.warning,
+    globalWarning,
+  };
+}
+
+function globalLimitForRangedConstraint(
+  project: ProjectDocument,
+  key: RangedConstraintKey
+): number | null {
+  const pathValue = project.path.constraints[key];
+  if (typeof pathValue === 'number' && Number.isFinite(pathValue) && pathValue > 0) {
+    return pathValue;
+  }
+
+  const configured = getDefaultOptionalConfigValue(project.config, key);
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return configured;
+  }
+
+  const fallback = rangedMeta[key].defaultValue;
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+}
+
+function constraintWarningTolerance(key: RangedConstraintKey): number {
+  return Math.max(rangedMeta[key].step / 20, 1e-6);
+}
+
 function sameAutoVelocityMetadata(
   left: RangedConstraint['auto_velocity'],
   right: RangedConstraint['auto_velocity']
@@ -2215,6 +2273,11 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function defaultFor(project: ProjectDocument, key: ConstraintKey, fallback: number): number {
+  const pathValue = project.path.constraints[key];
+  if (typeof pathValue === 'number' && Number.isFinite(pathValue)) {
+    return pathValue;
+  }
+
   const configured = getDefaultOptionalConfigValue(project.config, key);
   return typeof configured === 'number' ? configured : fallback;
 }

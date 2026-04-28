@@ -280,8 +280,8 @@ function runPathSimulation(
       "max_acceleration_meters_per_sec2",
       nextAnchorOrdinal1b
     );
-    const maxV = maxVEff ?? baseMaxV;
-    const maxA = maxAEff ?? baseMaxA;
+    const maxV = cappedLimit(maxVEff, baseMaxV);
+    const maxA = cappedLimit(maxAEff, baseMaxA);
     const maxOmegaEff = activeRotationLimit(
       path,
       rotationDomainEvents,
@@ -295,9 +295,13 @@ function runPathSimulation(
       globalS
     );
     const maxOmega =
-      maxOmegaEff === null ? baseMaxOmega : degreesToRadians(maxOmegaEff);
+      maxOmegaEff === null
+        ? baseMaxOmega
+        : Math.min(baseMaxOmega, degreesToRadians(maxOmegaEff));
     const maxAlpha =
-      maxAlphaEff === null ? baseMaxAlpha : degreesToRadians(maxAlphaEff);
+      maxAlphaEff === null
+        ? baseMaxAlpha
+        : Math.min(baseMaxAlpha, degreesToRadians(maxAlphaEff));
 
     const vPControl = Math.sqrt(2 * baseMaxA * remaining);
     let vDesScalar = Math.max(0, Math.min(maxV, vPControl));
@@ -728,6 +732,10 @@ function resolveConstraint(
   }
 
   return defaultValue;
+}
+
+function cappedLimit(value: number | null, globalLimit: number): number {
+  return value === null ? globalLimit : Math.min(value, globalLimit);
 }
 
 function activeTranslationLimit(
