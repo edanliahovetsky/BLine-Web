@@ -281,6 +281,11 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     await expect(
       denseConstraintCard.locator(".ranged-constraint-controls__actions button")
     ).toHaveCount(4);
+    const autoVelocityControls = page.getByTestId("auto-velocity-controls");
+    await expect(autoVelocityControls.getByText("Factors", { exact: true })).toBeVisible();
+    await expect(autoVelocityControls.getByText("Merge diff", { exact: true })).toBeVisible();
+    await expect(autoVelocityControls.getByText("Velocity factor", { exact: true })).toHaveCount(0);
+    await expect(autoVelocityControls.getByText("Accel factor", { exact: true })).toHaveCount(0);
 
     const metrics = await page.evaluate(() => {
       const documentScroller = document.scrollingElement ?? document.documentElement;

@@ -1327,54 +1327,62 @@ function AutoVelocityInlineControls({
 }): JSX.Element {
   return (
     <div className="auto-velocity-inline" data-testid="auto-velocity-controls">
-      <label>
-        <span>Velocity factor</span>
-        <NumberStepperControl
-          ariaLabel="Velocity safety factor"
-          value={settings.velocitySafetyFactor}
-          step={0.05}
-          min={0.05}
-          max={1}
-          onChange={(value) =>
-            onSettingsChange({
-              ...settings,
-              velocitySafetyFactor: value ?? settings.velocitySafetyFactor,
-            })
-          }
-        />
-      </label>
-      <label>
-        <span>Accel factor</span>
-        <NumberStepperControl
-          ariaLabel="Acceleration safety factor"
-          value={settings.accelerationSafetyFactor}
-          step={0.05}
-          min={0.05}
-          max={1}
-          onChange={(value) =>
-            onSettingsChange({
-              ...settings,
-              accelerationSafetyFactor: value ?? settings.accelerationSafetyFactor,
-            })
-          }
-        />
-      </label>
-      <label>
-        <span>Merge diff</span>
-        <NumberStepperControl
-          ariaLabel="Auto velocity merge diff"
-          value={settings.mergeToleranceMps}
-          step={0.05}
-          min={0}
-          max={20}
-          onChange={(value) =>
-            onSettingsChange({
-              ...settings,
-              mergeToleranceMps: value ?? settings.mergeToleranceMps,
-            })
-          }
-        />
-      </label>
+      <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--factors">
+        <legend>Factors</legend>
+        <div className="auto-velocity-inline__group-fields">
+          <label>
+            <span>Velocity</span>
+            <NumberStepperControl
+              ariaLabel="Velocity safety factor"
+              value={settings.velocitySafetyFactor}
+              step={0.05}
+              min={0.05}
+              max={1}
+              onChange={(value) =>
+                onSettingsChange({
+                  ...settings,
+                  velocitySafetyFactor: value ?? settings.velocitySafetyFactor,
+                })
+              }
+            />
+          </label>
+          <label>
+            <span>Accel</span>
+            <NumberStepperControl
+              ariaLabel="Acceleration safety factor"
+              value={settings.accelerationSafetyFactor}
+              step={0.05}
+              min={0.05}
+              max={1}
+              onChange={(value) =>
+                onSettingsChange({
+                  ...settings,
+                  accelerationSafetyFactor: value ?? settings.accelerationSafetyFactor,
+                })
+              }
+            />
+          </label>
+        </div>
+      </fieldset>
+      <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--merge">
+        <legend>Merge diff</legend>
+        <label>
+          <span>Tolerance</span>
+          <NumberStepperControl
+            ariaLabel="Auto velocity merge diff"
+            value={settings.mergeToleranceMps}
+            step={0.05}
+            min={0}
+            max={20}
+            onChange={(value) =>
+              onSettingsChange({
+                ...settings,
+                mergeToleranceMps: value ?? settings.mergeToleranceMps,
+              })
+            }
+          />
+        </label>
+      </fieldset>
       <div className="auto-velocity-inline__summary">
         <span>{profile.segmentCaps.length} segment caps</span>
         <span>{formatValue(profile.usableMaxAccelerationMps2)} m/s2 usable accel</span>

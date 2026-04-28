@@ -1596,12 +1596,41 @@ select {
 
 .auto-velocity-inline {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(92px, 1fr);
   gap: 8px;
   padding: 8px;
   border: 1px solid #2e3b43;
   border-radius: 7px;
   background: #141f25;
+}
+
+.auto-velocity-inline__group {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 7px 7px;
+  border: 1px solid #2d3d48;
+  border-radius: 6px;
+  background: #111a20;
+}
+
+.auto-velocity-inline__group legend {
+  min-width: 0;
+  padding: 0 4px;
+  color: #c0ccd6;
+  font-size: 0.68rem;
+  font-weight: 780;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.auto-velocity-inline__group-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
 }
 
 .auto-velocity-inline label {
