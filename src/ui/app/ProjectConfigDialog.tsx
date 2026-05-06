@@ -3,13 +3,13 @@ import {
   useMemo,
   useState,
   type Dispatch,
-  type SetStateAction
+  type SetStateAction,
 } from "react";
 import type { ProjectConfig } from "../../core/io/projectSchema";
 import {
   createProjectConfig,
   type ProtrusionSide,
-  type ProtrusionState
+  type ProtrusionState,
 } from "../../core/config/projectConfig";
 import { NumberStepperControl } from "../controls/SidebarControls";
 
@@ -22,14 +22,18 @@ interface ProjectConfigDialogProps {
 export function ProjectConfigDialog({
   config,
   onCancel,
-  onSave
+  onSave,
 }: ProjectConfigDialogProps) {
   const initialConfig = useMemo(() => createProjectConfig(config), [config]);
-  const [draft, setDraft] = useState<ProjectConfig>(() => createProjectConfig(config));
+  const [draft, setDraft] = useState<ProjectConfig>(() =>
+    createProjectConfig(config),
+  );
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
   const isDirty = !configsEqual(initialConfig, normalizedDraft);
   const protrusionsEnabled = draft.gui.protrusions.enabled;
-  const protrusionDefaultStateOptions = protrusionsEnabled ? ["shown", "hidden"] : [""];
+  const protrusionDefaultStateOptions = protrusionsEnabled
+    ? ["shown", "hidden"]
+    : [""];
 
   const saveDraft = () => {
     if (isDirty) {
@@ -83,8 +87,8 @@ export function ProjectConfigDialog({
                     ...current,
                     gui: {
                       ...current.gui,
-                      robot: { ...current.gui.robot, length_meters: value }
-                    }
+                      robot: { ...current.gui.robot, length_meters: value },
+                    },
                   }))
                 }
               />
@@ -99,8 +103,8 @@ export function ProjectConfigDialog({
                     ...current,
                     gui: {
                       ...current.gui,
-                      robot: { ...current.gui.robot, width_meters: value }
-                    }
+                      robot: { ...current.gui.robot, width_meters: value },
+                    },
                   }))
                 }
               />
@@ -121,9 +125,9 @@ export function ProjectConfigDialog({
                         enabled: checked,
                         default_state: checked
                           ? current.gui.protrusions.default_state || "shown"
-                          : ""
-                      }
-                    }
+                          : "",
+                      },
+                    },
                   }))
                 }
               />
@@ -150,19 +154,23 @@ export function ProjectConfigDialog({
                   disabled={!protrusionsEnabled}
                   options={["none", "left", "right", "front", "back"]}
                   onChange={(value) =>
-                    updateProtrusions(setDraft, { side: value as ProtrusionSide })
+                    updateProtrusions(setDraft, {
+                      side: value as ProtrusionSide,
+                    })
                   }
                 />
                 <SelectRow
                   label="Default Protrusion State"
                   value={
-                    protrusionsEnabled ? draft.gui.protrusions.default_state || "shown" : ""
+                    protrusionsEnabled
+                      ? draft.gui.protrusions.default_state || "shown"
+                      : ""
                   }
                   disabled={!protrusionsEnabled}
                   options={protrusionDefaultStateOptions}
                   onChange={(value) =>
                     updateProtrusions(setDraft, {
-                      default_state: value as ProtrusionState
+                      default_state: value as ProtrusionState,
                     })
                   }
                 />
@@ -173,7 +181,7 @@ export function ProjectConfigDialog({
                   placeholder="event_a, event_b"
                   onChange={(value) =>
                     updateProtrusions(setDraft, {
-                      show_on_event_keys: parseKeyList(value)
+                      show_on_event_keys: parseKeyList(value),
                     })
                   }
                 />
@@ -184,7 +192,7 @@ export function ProjectConfigDialog({
                   placeholder="event_a, event_b"
                   onChange={(value) =>
                     updateProtrusions(setDraft, {
-                      hide_on_event_keys: parseKeyList(value)
+                      hide_on_event_keys: parseKeyList(value),
                     })
                   }
                 />
@@ -315,7 +323,7 @@ function KinematicNumberRow({
   min = 0,
   max = 99999,
   step,
-  setDraft
+  setDraft,
 }: {
   draft: ProjectConfig;
   label: string;
@@ -337,8 +345,8 @@ function KinematicNumberRow({
           ...current,
           kinematic_constraints: {
             ...current.kinematic_constraints,
-            [configKey]: value
-          }
+            [configKey]: value,
+          },
         }))
       }
     />
@@ -352,7 +360,7 @@ function NumberRow({
   max,
   step,
   disabled = false,
-  onChange
+  onChange,
 }: {
   label: string;
   value: number;
@@ -381,7 +389,7 @@ function NumberRow({
 function CheckboxRow({
   label,
   checked,
-  onChange
+  onChange,
 }: {
   label: string;
   checked: boolean;
@@ -408,7 +416,7 @@ function SelectRow({
   value,
   options,
   disabled = false,
-  onChange
+  onChange,
 }: {
   label: string;
   value: string;
@@ -440,7 +448,7 @@ function TextRow({
   value,
   disabled = false,
   placeholder,
-  onChange
+  onChange,
 }: {
   label: string;
   value: string;
@@ -465,7 +473,7 @@ function TextRow({
 
 function updateProtrusions(
   setDraft: Dispatch<SetStateAction<ProjectConfig>>,
-  update: Partial<ProjectConfig["gui"]["protrusions"]>
+  update: Partial<ProjectConfig["gui"]["protrusions"]>,
 ): void {
   setDraft((current) => ({
     ...current,
@@ -473,14 +481,21 @@ function updateProtrusions(
       ...current.gui,
       protrusions: {
         ...current.gui.protrusions,
-        ...update
-      }
-    }
+        ...update,
+      },
+    },
   }));
 }
 
 function parseKeyList(value: string): string[] {
-  return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function configsEqual(left: ProjectConfig, right: ProjectConfig): boolean {

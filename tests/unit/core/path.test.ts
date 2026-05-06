@@ -8,7 +8,7 @@ import {
   createTranslationTarget,
   createWaypoint,
   getPathElement,
-  reorderPathElements
+  reorderPathElements,
 } from "../../../src/core/model/path";
 
 describe("path model", () => {
@@ -22,7 +22,7 @@ describe("path model", () => {
       type: "translation",
       x_meters: 0,
       y_meters: 0,
-      intermediate_handoff_radius_meters: null
+      intermediate_handoff_radius_meters: null,
     });
     expect(rotation).toMatchObject({
       type: "rotation",
@@ -30,12 +30,12 @@ describe("path model", () => {
       t_ratio: 0,
       profiled_rotation: true,
       legacy_position: null,
-      legacy_converted: false
+      legacy_converted: false,
     });
     expect(trigger).toMatchObject({
       type: "event_trigger",
       t_ratio: 0,
-      lib_key: ""
+      lib_key: "",
     });
     expect(waypoint.translation_target.type).toBe("translation");
     expect(waypoint.rotation_target.type).toBe("rotation");
@@ -61,8 +61,8 @@ describe("path model", () => {
         createTranslationTarget(),
         createEventTrigger(),
         createRotationTarget(),
-        createWaypoint()
-      ]
+        createWaypoint(),
+      ],
     });
 
     expect(countAnchorElements(path.path_elements)).toBe(2);

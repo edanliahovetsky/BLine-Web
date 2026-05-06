@@ -5,7 +5,7 @@ import {
   canMovePathElement,
   createMovePathElementCommand,
   createRemovePathElementCommand,
-  createRemoveRangedConstraintCommand
+  createRemoveRangedConstraintCommand,
 } from "./sidebar/sidebarCommands";
 
 const editableSelector = [
@@ -15,7 +15,7 @@ const editableSelector = [
   "[contenteditable]:not([contenteditable='false'])",
   "[role='searchbox']",
   "[role='spinbutton']",
-  "[role='textbox']"
+  "[role='textbox']",
 ].join(",");
 
 const interactiveSelector = [
@@ -28,14 +28,16 @@ const interactiveSelector = [
   "[role='option']",
   "[role='slider']",
   "[role='switch']",
-  "[role='tab']"
+  "[role='tab']",
 ].join(",");
 
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {
   return isElementWithin(target, editableSelector);
 }
 
-export function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
+export function isInteractiveShortcutTarget(
+  target: EventTarget | null,
+): boolean {
   return isElementWithin(target, interactiveSelector);
 }
 
@@ -54,12 +56,14 @@ export function removeSelectedPathElement(): boolean {
 
   projectStore
     .getState()
-    .applyCommand(createRemovePathElementCommand(selectedElementIndex, element));
+    .applyCommand(
+      createRemovePathElementCommand(selectedElementIndex, element),
+    );
   selectionStore
     .getState()
     .selectElement(
       nextSelectionAfterRemoval(project, selectedElementIndex),
-      projectStore.getState().project
+      projectStore.getState().project,
     );
 
   return true;
@@ -80,7 +84,9 @@ export function moveSelectedPathElement(direction: -1 | 1): boolean {
 
   projectStore
     .getState()
-    .applyCommand(createMovePathElementCommand(selectedElementIndex, nextIndex));
+    .applyCommand(
+      createMovePathElementCommand(selectedElementIndex, nextIndex),
+    );
   selectionStore
     .getState()
     .selectElement(nextIndex, projectStore.getState().project);
@@ -90,13 +96,15 @@ export function moveSelectedPathElement(direction: -1 | 1): boolean {
 
 export function removeSelectedRangedConstraint(): boolean {
   const project = projectStore.getState().project;
-  const selectedRangedConstraint = selectionStore.getState().selectedRangedConstraint;
+  const selectedRangedConstraint =
+    selectionStore.getState().selectedRangedConstraint;
 
   if (!project || !selectedRangedConstraint) {
     return false;
   }
 
-  const constraint = project.path.ranged_constraints[selectedRangedConstraint.index];
+  const constraint =
+    project.path.ranged_constraints[selectedRangedConstraint.index];
   if (!constraint || constraint.key !== selectedRangedConstraint.key) {
     return false;
   }
@@ -106,8 +114,8 @@ export function removeSelectedRangedConstraint(): boolean {
     .applyCommand(
       createRemoveRangedConstraintCommand(
         selectedRangedConstraint.index,
-        constraint
-      )
+        constraint,
+      ),
     );
   selectionStore.getState().clearRangedConstraintSelection();
 
@@ -116,13 +124,19 @@ export function removeSelectedRangedConstraint(): boolean {
 
 function nextSelectionAfterRemoval(
   project: ProjectDocument,
-  removedIndex: number
+  removedIndex: number,
 ): number | null {
-  const nextIndex = Math.min(removedIndex, project.path.path_elements.length - 2);
+  const nextIndex = Math.min(
+    removedIndex,
+    project.path.path_elements.length - 2,
+  );
   return nextIndex >= 0 ? nextIndex : null;
 }
 
-function isElementWithin(target: EventTarget | null, selector: string): boolean {
+function isElementWithin(
+  target: EventTarget | null,
+  selector: string,
+): boolean {
   if (!(target instanceof Element)) {
     return false;
   }

@@ -9,7 +9,7 @@ interface UseCanvasInteractionActivityInput {
 export function useCanvasInteractionActivity({
   containerRef,
   semanticActive,
-  onChange
+  onChange,
 }: UseCanvasInteractionActivityInput): void {
   const pointerActiveRef = useRef(false);
   const semanticActiveRef = useRef(semanticActive);
@@ -24,7 +24,7 @@ export function useCanvasInteractionActivity({
       emittedActiveRef.current = active;
       onChange?.(active);
     },
-    [onChange]
+    [onChange],
   );
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function useCanvasInteractionActivity({
 
   useEffect(() => {
     const startPointerInteraction = (
-      event: PointerEvent | MouseEvent | TouchEvent
+      event: PointerEvent | MouseEvent | TouchEvent,
     ) => {
       const target = event.target instanceof Node ? event.target : null;
       if (!target || !containerRef.current?.contains(target)) {

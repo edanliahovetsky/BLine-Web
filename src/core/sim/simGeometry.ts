@@ -11,7 +11,10 @@ export function wrapAngleRadians(theta: number): number {
   return wrapped;
 }
 
-export function shortestAngularDistance(target: number, current: number): number {
+export function shortestAngularDistance(
+  target: number,
+  current: number,
+): number {
   return wrapAngleRadians(target - current);
 }
 
@@ -28,7 +31,7 @@ export function limitAcceleration(
   last: ChassisSpeeds,
   dt: number,
   maxTransAccelMps2: number,
-  maxAngularAccelRadps2: number
+  maxAngularAccelRadps2: number,
 ): ChassisSpeeds {
   if (dt <= 0) {
     return last;
@@ -39,20 +42,19 @@ export function limitAcceleration(
   const desiredAcceleration = hypot2(dvx, dvy) / dt;
   const obtainableAcceleration = Math.max(
     0,
-    Math.min(desiredAcceleration, maxTransAccelMps2)
+    Math.min(desiredAcceleration, maxTransAccelMps2),
   );
-  const theta =
-    Math.abs(dvx) + Math.abs(dvy) > 0 ? Math.atan2(dvy, dvx) : 0;
+  const theta = Math.abs(dvx) + Math.abs(dvy) > 0 ? Math.atan2(dvy, dvx) : 0;
   const desiredAlpha = (desired.omega_radps - last.omega_radps) / dt;
   const obtainableAlpha = Math.max(
     -maxAngularAccelRadps2,
-    Math.min(desiredAlpha, maxAngularAccelRadps2)
+    Math.min(desiredAlpha, maxAngularAccelRadps2),
   );
 
   return {
     vx_mps: last.vx_mps + Math.cos(theta) * obtainableAcceleration * dt,
     vy_mps: last.vy_mps + Math.sin(theta) * obtainableAcceleration * dt,
-    omega_radps: last.omega_radps + obtainableAlpha * dt
+    omega_radps: last.omega_radps + obtainableAlpha * dt,
   };
 }
 

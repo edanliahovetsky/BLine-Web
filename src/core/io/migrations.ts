@@ -14,12 +14,12 @@ export interface MigrationResult {
 
 export function migrateProjectDocument(
   input: unknown,
-  defaults: LegacyPathProjectDefaults
+  defaults: LegacyPathProjectDefaults,
 ): MigrationResult {
   if (isObject(input) && input.schema_version === projectSchemaVersion) {
     return {
       document: input,
-      applied_migrations: []
+      applied_migrations: [],
     };
   }
 
@@ -31,16 +31,18 @@ export function migrateProjectDocument(
         display_name: defaults.display_name,
         path_file_name: defaults.path_file_name ?? null,
         path: input,
-        config: {}
+        config: {},
       },
-      applied_migrations: ["legacy-path-document-to-v1-project"]
+      applied_migrations: ["legacy-path-document-to-v1-project"],
     };
   }
 
   throw new Error("Unsupported project document schema");
 }
 
-function isNativePathDocument(input: unknown): input is JsonObject | JsonValue[] {
+function isNativePathDocument(
+  input: unknown,
+): input is JsonObject | JsonValue[] {
   return (
     Array.isArray(input) ||
     (isObject(input) && Array.isArray(input.path_elements))

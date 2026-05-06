@@ -3,7 +3,7 @@ import {
   createProjectConfig,
   getDefaultOptionalConfigValue,
   needsProjectConfigMigration,
-  projectConfigToFlat
+  projectConfigToFlat,
 } from "../../../src/core/config/projectConfig";
 
 describe("project config", () => {
@@ -12,10 +12,10 @@ describe("project config", () => {
 
     expect(config.gui.robot).toEqual({
       length_meters: 0.8,
-      width_meters: 0.8
+      width_meters: 0.8,
     });
     expect(
-      config.kinematic_constraints.default_max_acceleration_meters_per_sec2
+      config.kinematic_constraints.default_max_acceleration_meters_per_sec2,
     ).toBe(12);
   });
 
@@ -28,25 +28,25 @@ describe("project config", () => {
       default_max_velocity_meters_per_sec: 3,
       default_intermediate_handoff_radius_meters: 0.55,
       default_auto_velocity_velocity_safety_factor: 0.85,
-      default_auto_velocity_merge_tolerance_meters_per_sec: 0.25
+      default_auto_velocity_merge_tolerance_meters_per_sec: 0.25,
     });
 
     expect(config.gui.robot).toEqual({
       length_meters: 0.7,
-      width_meters: 0.6
+      width_meters: 0.6,
     });
     expect(config.gui.protrusions).toMatchObject({
       enabled: true,
       side: "left",
       distance_meters: 0.18,
-      default_state: "shown"
+      default_state: "shown",
     });
     expect(config.kinematic_constraints).toMatchObject({
       default_max_velocity_meters_per_sec: 3,
       default_intermediate_handoff_radius_meters: 0.55,
       default_auto_velocity_velocity_safety_factor: 0.85,
       default_auto_velocity_acceleration_safety_factor: 0.8,
-      default_auto_velocity_merge_tolerance_meters_per_sec: 0.25
+      default_auto_velocity_merge_tolerance_meters_per_sec: 0.25,
     });
   });
 
@@ -61,10 +61,10 @@ describe("project config", () => {
           event_state_overrides: {
             intake: "shown",
             stow: "hidden",
-            blank: ""
-          }
-        }
-      }
+            blank: "",
+          },
+        },
+      },
     });
 
     expect(config.gui.protrusions).toMatchObject({
@@ -73,7 +73,7 @@ describe("project config", () => {
       side: "front",
       default_state: "hidden",
       show_on_event_keys: ["intake"],
-      hide_on_event_keys: ["stow"]
+      hide_on_event_keys: ["stow"],
     });
   });
 
@@ -87,9 +87,9 @@ describe("project config", () => {
           side: "back",
           default_state: "shown",
           show_on_event_keys: "deploy, deploy, intake",
-          hide_on_event_keys: ["stow"]
-        }
-      }
+          hide_on_event_keys: ["stow"],
+        },
+      },
     });
 
     expect(flat).toMatchObject({
@@ -102,22 +102,22 @@ describe("project config", () => {
       protrusion_show_on_event_keys: ["deploy", "intake"],
       protrusion_hide_on_event_keys: ["stow"],
       robot_protrusion_front_meters: 0,
-      robot_protrusion_back_meters: 0.12
+      robot_protrusion_back_meters: 0.12,
     });
   });
 
   it("provides default optional values for path deserialization", () => {
     const config = createProjectConfig({
       kinematic_constraints: {
-        default_intermediate_handoff_radius_meters: 0.42
-      }
+        default_intermediate_handoff_radius_meters: 0.42,
+      },
     });
 
     expect(
       getDefaultOptionalConfigValue(
         config,
-        "intermediate_handoff_radius_meters"
-      )
+        "intermediate_handoff_radius_meters",
+      ),
     ).toBe(0.42);
     expect(getDefaultOptionalConfigValue(config, "not_real")).toBeNull();
   });
@@ -127,23 +127,34 @@ describe("project config", () => {
       kinematic_constraints: {
         default_auto_velocity_velocity_safety_factor: 0.75,
         default_auto_velocity_acceleration_safety_factor: 0.65,
-        default_auto_velocity_merge_tolerance_meters_per_sec: 0.2
-      }
+        default_auto_velocity_merge_tolerance_meters_per_sec: 0.2,
+      },
     });
 
     expect(
-      getDefaultOptionalConfigValue(config, "auto_velocity_velocity_safety_factor")
+      getDefaultOptionalConfigValue(
+        config,
+        "auto_velocity_velocity_safety_factor",
+      ),
     ).toBe(0.75);
     expect(
-      getDefaultOptionalConfigValue(config, "auto_velocity_acceleration_safety_factor")
+      getDefaultOptionalConfigValue(
+        config,
+        "auto_velocity_acceleration_safety_factor",
+      ),
     ).toBe(0.65);
     expect(
-      getDefaultOptionalConfigValue(config, "auto_velocity_merge_tolerance_meters_per_sec")
+      getDefaultOptionalConfigValue(
+        config,
+        "auto_velocity_merge_tolerance_meters_per_sec",
+      ),
     ).toBe(0.2);
   });
 
   it("flags legacy or partial config documents as migration candidates", () => {
-    expect(needsProjectConfigMigration({ robot_length_meters: 0.7 })).toBe(true);
+    expect(needsProjectConfigMigration({ robot_length_meters: 0.7 })).toBe(
+      true,
+    );
     expect(
       needsProjectConfigMigration({
         gui: {
@@ -154,13 +165,13 @@ describe("project config", () => {
             side: "none",
             default_state: "",
             show_on_event_keys: [],
-            hide_on_event_keys: []
-          }
+            hide_on_event_keys: [],
+          },
         },
         kinematic_constraints: {
-          default_max_velocity_meters_per_sec: 4.5
-        }
-      })
+          default_max_velocity_meters_per_sec: 4.5,
+        },
+      }),
     ).toBe(false);
   });
 });

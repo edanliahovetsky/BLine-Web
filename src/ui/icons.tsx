@@ -122,7 +122,12 @@ export function ElementIcon({
   );
 }
 
-function iconProps({ size, width, height, ...props }: IconProps): SVGProps<SVGSVGElement> {
+function iconProps({
+  size,
+  width,
+  height,
+  ...props
+}: IconProps): SVGProps<SVGSVGElement> {
   const iconSize = size ?? 18;
 
   return {
@@ -133,6 +138,6 @@ function iconProps({ size, width, height, ...props }: IconProps): SVGProps<SVGSV
     strokeLinejoin: "round",
     strokeWidth: 2,
     width: width ?? iconSize,
-    ...props
+    ...props,
   };
 }

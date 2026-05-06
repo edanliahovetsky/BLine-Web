@@ -38,7 +38,7 @@ export function createHistoryStore<T>(): HistoryStore<T> {
         undoStack,
         redoStack: [],
         canUndo: undoStack.length > 0,
-        canRedo: false
+        canRedo: false,
       });
 
       return nextValue;
@@ -58,12 +58,12 @@ export function createHistoryStore<T>(): HistoryStore<T> {
         undoStack: nextUndoStack,
         redoStack: nextRedoStack,
         canUndo: nextUndoStack.length > 0,
-        canRedo: nextRedoStack.length > 0
+        canRedo: nextRedoStack.length > 0,
       });
 
       return {
         value: command.revert(value),
-        command
+        command,
       };
     },
     redo(value) {
@@ -81,12 +81,12 @@ export function createHistoryStore<T>(): HistoryStore<T> {
         undoStack: nextUndoStack,
         redoStack: nextRedoStack,
         canUndo: nextUndoStack.length > 0,
-        canRedo: nextRedoStack.length > 0
+        canRedo: nextRedoStack.length > 0,
       });
 
       return {
         value: command.apply(value),
-        command
+        command,
       };
     },
     clear() {
@@ -94,8 +94,8 @@ export function createHistoryStore<T>(): HistoryStore<T> {
         undoStack: [],
         redoStack: [],
         canUndo: false,
-        canRedo: false
+        canRedo: false,
       });
-    }
+    },
   }));
 }

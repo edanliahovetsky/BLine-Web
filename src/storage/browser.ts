@@ -15,7 +15,7 @@ import {
   type StoredProjectRecord,
   type StoredWorkspaceRecord,
   type WorkspaceImportResult,
-  type WriteResult
+  type WriteResult,
 } from "./adapter";
 
 export interface BrowserStorageOptions {
@@ -68,7 +68,10 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   async readWorkspace(id?: string): Promise<ProjectWorkspaceDocument> {
     this.migrateLegacyProjects();
-    const workspaceId = id ?? (await this.getCurrentWorkspaceId()) ?? this.listRecords()[0]?.document.project_id;
+    const workspaceId =
+      id ??
+      (await this.getCurrentWorkspaceId()) ??
+      this.listRecords()[0]?.document.project_id;
     if (!workspaceId) {
       throw new ProjectNotFoundError("workspace");
     }
@@ -78,7 +81,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   async writeWorkspace(
     workspace: ProjectWorkspaceDocument,
-    expectedVersion?: string
+    expectedVersion?: string,
   ): Promise<WriteResult> {
     this.migrateLegacyProjects();
     const existing = this.readRecord(workspace.project_id);
@@ -90,7 +93,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
     this.storage.setItem(
       this.storageKey(workspace.project_id),
-      JSON.stringify(record)
+      JSON.stringify(record),
     );
     await this.setCurrentWorkspaceId(workspace.project_id);
 
@@ -115,7 +118,11 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       throw new ProjectNotFoundError("workspace");
     }
 
-    return createBLineWorkspaceArchive(this, workspaceId, this.now().toISOString());
+    return createBLineWorkspaceArchive(
+      this,
+      workspaceId,
+      this.now().toISOString(),
+    );
   }
 
   async importWorkspaceArchive(archive: Blob): Promise<WorkspaceImportResult> {
@@ -183,11 +190,13 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   private migrateLegacyProjects(): void {
     const legacyKeys = this.storageKeys().filter((key) =>
-      key.startsWith(this.legacyProjectKeyPrefix)
+      key.startsWith(this.legacyProjectKeyPrefix),
     );
 
     for (const key of legacyKeys) {
-      const legacyRecord = this.parseLegacyProjectRecord(this.storage.getItem(key));
+      const legacyRecord = this.parseLegacyProjectRecord(
+        this.storage.getItem(key),
+      );
       if (!legacyRecord) {
         continue;
       }
@@ -203,9 +212,9 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
             createStoredWorkspaceRecord(
               workspace,
               legacyRecord.version,
-              legacyRecord.updatedAt
-            )
-          )
+              legacyRecord.updatedAt,
+            ),
+          ),
         );
       }
 
@@ -213,7 +222,9 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     }
   }
 
-  private parseLegacyProjectRecord(value: string | null): StoredProjectRecord | null {
+  private parseLegacyProjectRecord(
+    value: string | null,
+  ): StoredProjectRecord | null {
     if (value === null) {
       return null;
     }
@@ -228,7 +239,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   private storageKeys(): string[] {
     return Array.from({ length: this.storage.length }, (_, index) =>
-      this.storage.key(index)
+      this.storage.key(index),
     ).filter((key): key is string => key !== null);
   }
 
@@ -239,7 +250,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
 function assertExpectedVersion(
   existing: StoredWorkspaceRecord | null,
-  expectedVersion?: string
+  expectedVersion?: string,
 ): void {
   if (expectedVersion === undefined) {
     return;
@@ -249,19 +260,20 @@ function assertExpectedVersion(
     throw new StorageConflictError(
       "Workspace version does not match expected version",
       expectedVersion,
-      existing?.version
+      existing?.version,
     );
   }
 }
 
 function createBrowserVersion(updatedAt: string): string {
   const random =
-    globalThis.crypto?.randomUUID?.() ??
-    Math.random().toString(36).slice(2);
+    globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
   return `${updatedAt}:${random}`;
 }
 
-function isStoredWorkspaceRecord(input: unknown): input is StoredWorkspaceRecord {
+function isStoredWorkspaceRecord(
+  input: unknown,
+): input is StoredWorkspaceRecord {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return false;
   }

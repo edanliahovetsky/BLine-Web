@@ -1,7 +1,7 @@
 import {
   isRotationTarget,
   isWaypoint,
-  type PathElement
+  type PathElement,
 } from "../core/model/path";
 
 export const elementColors = {
@@ -13,7 +13,7 @@ export const elementColors = {
   handoff: "#ff5cf4",
   simulation: "#62c7ff",
   simulationTrail: "#62c7ff",
-  shadow: "rgba(5, 8, 11, 0.82)"
+  shadow: "rgba(5, 8, 11, 0.82)",
 };
 
 export function rotatableElementAccent(element: PathElement): string {

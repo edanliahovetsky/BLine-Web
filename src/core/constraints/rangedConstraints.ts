@@ -4,14 +4,14 @@ import {
   type PathElement,
   type PathModel,
   type RangedConstraint,
-  type RangedConstraintKey
+  type RangedConstraintKey,
 } from "../model/path";
 
 export function appendRangedConstraintInstance(
   constraints: RangedConstraint[],
   key: RangedConstraintKey,
   value: number,
-  total: number
+  total: number,
 ): RangedConstraint | null {
   const normalizedTotal = Math.max(0, Math.trunc(total));
   if (normalizedTotal <= 0) {
@@ -32,7 +32,7 @@ export function appendRangedConstraintInstance(
         key,
         value,
         start_ordinal: ordinal,
-        end_ordinal: ordinal
+        end_ordinal: ordinal,
       };
       constraints.push(constraint);
       return constraint;
@@ -60,15 +60,15 @@ export function appendRangedConstraintInstance(
 export function splitRangedConstraintInstance(
   constraints: RangedConstraint[],
   constraint: RangedConstraint,
-  value = constraint.value
+  value = constraint.value,
 ): RangedConstraint | null {
   const start = Math.min(
     Math.trunc(constraint.start_ordinal),
-    Math.trunc(constraint.end_ordinal)
+    Math.trunc(constraint.end_ordinal),
   );
   const end = Math.max(
     Math.trunc(constraint.start_ordinal),
-    Math.trunc(constraint.end_ordinal)
+    Math.trunc(constraint.end_ordinal),
   );
 
   if (end <= start) {
@@ -83,7 +83,7 @@ export function splitRangedConstraintInstance(
     key: constraint.key,
     value,
     start_ordinal: midpoint + 1,
-    end_ordinal: end
+    end_ordinal: end,
   };
 
   const index = constraints.indexOf(constraint);
@@ -98,7 +98,7 @@ export function splitRangedConstraintInstance(
 
 export function remapRangedConstraints(
   path: PathModel,
-  oldElements: readonly PathElement[]
+  oldElements: readonly PathElement[],
 ): void {
   const nextElements = path.path_elements;
   const surviving: RangedConstraint[] = [];
@@ -118,11 +118,11 @@ export function remapRangedConstraints(
 
     const oldStart = Math.min(
       Math.trunc(constraint.start_ordinal),
-      Math.trunc(constraint.end_ordinal)
+      Math.trunc(constraint.end_ordinal),
     );
     const oldEnd = Math.max(
       Math.trunc(constraint.start_ordinal),
-      Math.trunc(constraint.end_ordinal)
+      Math.trunc(constraint.end_ordinal),
     );
     const survivingOrdinals: number[] = [];
 
@@ -143,7 +143,7 @@ export function remapRangedConstraints(
     surviving.push({
       ...constraint,
       start_ordinal: survivingOrdinals[0],
-      end_ordinal: survivingOrdinals[survivingOrdinals.length - 1]
+      end_ordinal: survivingOrdinals[survivingOrdinals.length - 1],
     });
   }
 
@@ -151,22 +151,24 @@ export function remapRangedConstraints(
 }
 
 export function translationDomain(
-  elements: readonly PathElement[]
+  elements: readonly PathElement[],
 ): PathElement[] {
   return elements.filter(
-    (element) => element.type === "translation" || element.type === "waypoint"
+    (element) => element.type === "translation" || element.type === "waypoint",
   );
 }
 
-export function rotationDomain(elements: readonly PathElement[]): PathElement[] {
+export function rotationDomain(
+  elements: readonly PathElement[],
+): PathElement[] {
   return elements.filter(
-    (element) => element.type === "rotation" || element.type === "waypoint"
+    (element) => element.type === "rotation" || element.type === "waypoint",
   );
 }
 
 export function domainForKey(
   key: RangedConstraintKey,
-  elements: readonly PathElement[]
+  elements: readonly PathElement[],
 ): PathElement[] {
   if (isTranslationConstraintKey(key)) {
     return translationDomain(elements);
@@ -181,18 +183,18 @@ export function domainForKey(
 
 function constraintsForKey(
   constraints: readonly RangedConstraint[],
-  key: RangedConstraintKey
+  key: RangedConstraintKey,
 ): RangedConstraint[] {
   return constraints.filter((constraint) => constraint.key === key);
 }
 
 function normalizedBounds(
   constraint: RangedConstraint,
-  total: number
+  total: number,
 ): readonly [number, number] {
   const start = Math.max(
     1,
-    Math.min(Math.trunc(constraint.start_ordinal), total)
+    Math.min(Math.trunc(constraint.start_ordinal), total),
   );
   const end = Math.max(1, Math.min(Math.trunc(constraint.end_ordinal), total));
   return start <= end ? [start, end] : [end, start];

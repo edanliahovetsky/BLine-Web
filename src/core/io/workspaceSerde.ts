@@ -1,6 +1,6 @@
 import {
   defaultAutoVelocityMergeToleranceMetersPerSec,
-  projectConfigDefaultLookup
+  projectConfigDefaultLookup,
 } from "../config/projectConfig";
 import {
   createPathModel,
@@ -8,7 +8,7 @@ import {
   type AutoVelocityConstraintMetadata,
   type PathModel,
   type RangedConstraint,
-  type RangedConstraintSource
+  type RangedConstraintSource,
 } from "../model/path";
 import {
   createProjectDocument,
@@ -21,12 +21,12 @@ import {
   type SerializedProjectPathDocument,
   type SerializedPathEditorMetadata,
   type SerializedProjectWorkspaceDocument,
-  type SerializedRangedConstraintMetadata
+  type SerializedRangedConstraintMetadata,
 } from "./projectSchema";
 import {
   deserializePath,
   deserializeProjectDocument,
-  serializePath
+  serializePath,
 } from "./projectSerde";
 
 export interface DeserializeWorkspaceOptions {
@@ -44,7 +44,7 @@ export interface ProjectWorkspaceArchive {
 }
 
 export function serializeProjectWorkspaceDocument(
-  workspace: ProjectWorkspaceDocument
+  workspace: ProjectWorkspaceDocument,
 ): SerializedProjectWorkspaceDocument {
   return {
     schema_version: workspace.schema_version,
@@ -56,29 +56,29 @@ export function serializeProjectWorkspaceDocument(
       display_name: path.display_name,
       file_name: ensureJsonFileName(path.file_name),
       path: serializePath(path.path),
-      editor_metadata: serializePathEditorMetadata(path.path)
+      editor_metadata: serializePathEditorMetadata(path.path),
     })),
-    active_path_id: workspace.active_path_id
+    active_path_id: workspace.active_path_id,
   };
 }
 
 export function deserializeProjectWorkspaceDocument(
   input: unknown,
-  options: DeserializeWorkspaceOptions = {}
+  options: DeserializeWorkspaceOptions = {},
 ): ProjectWorkspaceDocument {
   if (isWorkspaceLike(input)) {
     const projectId = stringOr(
       input.project_id,
-      options.fallbackProjectId ?? createWorkspaceId()
+      options.fallbackProjectId ?? createWorkspaceId(),
     );
     const displayName = stringOr(
       input.display_name,
-      options.fallbackDisplayName ?? "Imported Project"
+      options.fallbackDisplayName ?? "Imported Project",
     );
     const config = readConfig(input.config);
     const defaultLookup = projectConfigDefaultLookup(config);
     const paths = input.paths.map((entry, index) =>
-      deserializeProjectPathDocument(entry, index, defaultLookup)
+      deserializeProjectPathDocument(entry, index, defaultLookup),
     );
 
     return normalizeProjectWorkspaceDocument(
@@ -88,34 +88,36 @@ export function deserializeProjectWorkspaceDocument(
         config,
         paths,
         active_path_id:
-          typeof input.active_path_id === "string" ? input.active_path_id : null
-      })
+          typeof input.active_path_id === "string"
+            ? input.active_path_id
+            : null,
+      }),
     );
   }
 
   return projectDocumentToWorkspaceDocument(
     deserializeProjectDocument(input, {
       fallbackProjectId: options.fallbackProjectId,
-      fallbackDisplayName: options.fallbackDisplayName
-    })
+      fallbackDisplayName: options.fallbackDisplayName,
+    }),
   );
 }
 
 export function deserializeProjectPathDocument(
   input: unknown,
   index = 0,
-  defaultLookup?: Parameters<typeof deserializePath>[1]
+  defaultLookup?: Parameters<typeof deserializePath>[1],
 ): ProjectPathDocument {
   const object = isObject(input) ? input : {};
   const fileName = ensureJsonFileName(
     stringOr(
       object.file_name ?? object.path_file_name,
-      `path-${index + 1}.json`
-    )
+      `path-${index + 1}.json`,
+    ),
   );
   const displayName = stringOr(
     object.display_name,
-    displayNameFromFileName(fileName)
+    displayNameFromFileName(fileName),
   );
   const pathId = stringOr(object.path_id, pathIdFromFileName(fileName, index));
 
@@ -125,23 +127,23 @@ export function deserializeProjectPathDocument(
     file_name: fileName,
     path: applyPathEditorMetadata(
       deserializePath(object.path ?? input, defaultLookup),
-      object.editor_metadata
-    )
+      object.editor_metadata,
+    ),
   });
 }
 
 export function projectDocumentToWorkspaceDocument(
   project: ProjectDocument,
-  options: DeserializeWorkspaceOptions = {}
+  options: DeserializeWorkspaceOptions = {},
 ): ProjectWorkspaceDocument {
   const fileName = ensureJsonFileName(
-    project.path_file_name ?? project.display_name ?? project.project_id
+    project.path_file_name ?? project.display_name ?? project.project_id,
   );
   const path = createProjectPathDocument({
     path_id: project.project_id || pathIdFromFileName(fileName, 0),
     display_name: project.display_name,
     file_name: fileName,
-    path: structuredClone(project.path)
+    path: structuredClone(project.path),
   });
 
   return createProjectWorkspaceDocument({
@@ -149,12 +151,12 @@ export function projectDocumentToWorkspaceDocument(
     display_name: options.fallbackDisplayName ?? project.display_name,
     config: structuredClone(project.config),
     paths: [path],
-    active_path_id: path.path_id
+    active_path_id: path.path_id,
   });
 }
 
 export function activePathFromWorkspace(
-  workspace: ProjectWorkspaceDocument
+  workspace: ProjectWorkspaceDocument,
 ): ProjectPathDocument | null {
   return (
     workspace.paths.find((path) => path.path_id === workspace.active_path_id) ??
@@ -164,7 +166,7 @@ export function activePathFromWorkspace(
 }
 
 export function activeProjectFromWorkspace(
-  workspace: ProjectWorkspaceDocument | null
+  workspace: ProjectWorkspaceDocument | null,
 ): ProjectDocument | null {
   if (!workspace) {
     return null;
@@ -180,13 +182,13 @@ export function activeProjectFromWorkspace(
     display_name: activePath.display_name,
     path_file_name: activePath.file_name,
     path: structuredClone(activePath.path),
-    config: structuredClone(workspace.config)
+    config: structuredClone(workspace.config),
   });
 }
 
 export function replaceActiveProjectInWorkspace(
   workspace: ProjectWorkspaceDocument,
-  project: ProjectDocument
+  project: ProjectDocument,
 ): ProjectWorkspaceDocument {
   const activePath = activePathFromWorkspace(workspace);
   if (!activePath) {
@@ -198,26 +200,28 @@ export function replaceActiveProjectInWorkspace(
       ? {
           ...path,
           display_name: project.display_name,
-          file_name: ensureJsonFileName(project.path_file_name ?? path.file_name),
-          path: structuredClone(project.path)
+          file_name: ensureJsonFileName(
+            project.path_file_name ?? path.file_name,
+          ),
+          path: structuredClone(project.path),
         }
-      : path
+      : path,
   );
 
   return normalizeProjectWorkspaceDocument({
     ...workspace,
     config: structuredClone(project.config),
-    paths: nextPaths
+    paths: nextPaths,
   });
 }
 
 export function normalizeProjectWorkspaceDocument(
-  workspace: ProjectWorkspaceDocument
+  workspace: ProjectWorkspaceDocument,
 ): ProjectWorkspaceDocument {
   const seen = new Set<string>();
   const paths = workspace.paths.map((path, index) => {
     const fallbackFileName = ensureJsonFileName(
-      path.file_name || path.display_name || `path-${index + 1}`
+      path.file_name || path.display_name || `path-${index + 1}`,
     );
     let pathId = path.path_id || pathIdFromFileName(fallbackFileName, index);
     if (seen.has(pathId)) {
@@ -227,45 +231,50 @@ export function normalizeProjectWorkspaceDocument(
 
     return createProjectPathDocument({
       path_id: pathId,
-      display_name: path.display_name || displayNameFromFileName(fallbackFileName),
+      display_name:
+        path.display_name || displayNameFromFileName(fallbackFileName),
       file_name: fallbackFileName,
-      path: structuredClone(path.path)
+      path: structuredClone(path.path),
     });
   });
-  const active_path_id = paths.some((path) => path.path_id === workspace.active_path_id)
+  const active_path_id = paths.some(
+    (path) => path.path_id === workspace.active_path_id,
+  )
     ? workspace.active_path_id
-    : paths[0]?.path_id ?? null;
+    : (paths[0]?.path_id ?? null);
 
   return createProjectWorkspaceDocument({
     project_id: workspace.project_id,
     display_name: workspace.display_name,
     config: workspace.config,
     paths,
-    active_path_id
+    active_path_id,
   });
 }
 
 export function ensureWorkspaceHasActivePath(
   workspace: ProjectWorkspaceDocument,
-  input: Partial<Pick<ProjectPathDocument, "display_name" | "file_name">> = {}
+  input: Partial<Pick<ProjectPathDocument, "display_name" | "file_name">> = {},
 ): ProjectWorkspaceDocument {
   const normalized = normalizeProjectWorkspaceDocument(workspace);
   if (activePathFromWorkspace(normalized)) {
     return normalized;
   }
 
-  const fileName = ensureJsonFileName(input.file_name ?? input.display_name ?? "new_path");
+  const fileName = ensureJsonFileName(
+    input.file_name ?? input.display_name ?? "new_path",
+  );
   const path = createProjectPathDocument({
     path_id: createPathId(),
     display_name: input.display_name ?? displayNameFromFileName(fileName),
     file_name: fileName,
-    path: createPathModel()
+    path: createPathModel(),
   });
 
   return createProjectWorkspaceDocument({
     ...normalized,
     paths: [path],
-    active_path_id: path.path_id
+    active_path_id: path.path_id,
   });
 }
 
@@ -277,34 +286,35 @@ export function addPathToWorkspace(
     path?: ProjectPathDocument["path"];
     path_id?: string;
     makeActive?: boolean;
-  }
+  },
 ): ProjectWorkspaceDocument {
   const fileName = uniquePathFileName(
     workspace.paths,
-    ensureJsonFileName(input.file_name ?? input.display_name)
+    ensureJsonFileName(input.file_name ?? input.display_name),
   );
   const path = createProjectPathDocument({
     path_id: input.path_id ?? createPathId(),
     display_name: input.display_name,
     file_name: fileName,
-    path: structuredClone(input.path ?? createPathModel())
+    path: structuredClone(input.path ?? createPathModel()),
   });
 
   return normalizeProjectWorkspaceDocument({
     ...workspace,
     paths: [...workspace.paths, path],
-    active_path_id: input.makeActive === false ? workspace.active_path_id : path.path_id
+    active_path_id:
+      input.makeActive === false ? workspace.active_path_id : path.path_id,
   });
 }
 
 export function renamePathInWorkspace(
   workspace: ProjectWorkspaceDocument,
   pathId: string,
-  name: string
+  name: string,
 ): ProjectWorkspaceDocument {
   const nextFileName = uniquePathFileName(
     workspace.paths.filter((path) => path.path_id !== pathId),
-    ensureJsonFileName(name)
+    ensureJsonFileName(name),
   );
 
   return normalizeProjectWorkspaceDocument({
@@ -314,17 +324,17 @@ export function renamePathInWorkspace(
         ? {
             ...path,
             display_name: name,
-            file_name: nextFileName
+            file_name: nextFileName,
           }
-        : path
-    )
+        : path,
+    ),
   });
 }
 
 export function duplicatePathInWorkspace(
   workspace: ProjectWorkspaceDocument,
   pathId: string,
-  name: string
+  name: string,
 ): ProjectWorkspaceDocument {
   const source = workspace.paths.find((path) => path.path_id === pathId);
   if (!source) {
@@ -335,29 +345,30 @@ export function duplicatePathInWorkspace(
     display_name: name,
     file_name: ensureJsonFileName(name),
     path: source.path,
-    makeActive: true
+    makeActive: true,
   });
 }
 
 export function deletePathsFromWorkspace(
   workspace: ProjectWorkspaceDocument,
-  pathIds: readonly string[]
+  pathIds: readonly string[],
 ): ProjectWorkspaceDocument {
   const deleted = new Set(pathIds);
   const paths = workspace.paths.filter((path) => !deleted.has(path.path_id));
   const active_path_id = deleted.has(workspace.active_path_id ?? "")
-    ? paths[0]?.path_id ?? null
+    ? (paths[0]?.path_id ?? null)
     : workspace.active_path_id;
 
   return ensureWorkspaceHasActivePath({
     ...workspace,
     paths,
-    active_path_id
+    active_path_id,
   });
 }
 
 export function ensureJsonFileName(value: string): string {
-  const cleaned = safeFileStem(value.replace(/\.json$/i, "")) || "untitled-path";
+  const cleaned =
+    safeFileStem(value.replace(/\.json$/i, "")) || "untitled-path";
   return `${cleaned}.json`;
 }
 
@@ -376,13 +387,13 @@ export function createPathId(): string {
 function deserializeProjectPathDocumentFromArchive(
   input: unknown,
   index: number,
-  defaultLookup?: Parameters<typeof deserializePath>[1]
+  defaultLookup?: Parameters<typeof deserializePath>[1],
 ): ProjectPathDocument {
   return deserializeProjectPathDocument(input, index, defaultLookup);
 }
 
 function serializePathEditorMetadata(
-  path: PathModel
+  path: PathModel,
 ): SerializedPathEditorMetadata | undefined {
   const rangedConstraints = path.ranged_constraints.flatMap((constraint) => {
     const source = normalizeRangedConstraintSource(constraint.source);
@@ -395,9 +406,11 @@ function serializePathEditorMetadata(
       value: Number(constraint.value),
       start_ordinal: Math.trunc(constraint.start_ordinal),
       end_ordinal: Math.trunc(constraint.end_ordinal),
-      source
+      source,
     };
-    const autoVelocity = normalizeAutoVelocityMetadata(constraint.auto_velocity);
+    const autoVelocity = normalizeAutoVelocityMetadata(
+      constraint.auto_velocity,
+    );
     if (autoVelocity) {
       metadata.auto_velocity = autoVelocity;
     }
@@ -417,14 +430,17 @@ function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
 
   const used = new Set<number>();
   for (const entry of metadata) {
-    const exactIndex = path.ranged_constraints.findIndex((constraint, index) =>
-      !used.has(index) && sameMetadataTarget(constraint, entry, true)
+    const exactIndex = path.ranged_constraints.findIndex(
+      (constraint, index) =>
+        !used.has(index) && sameMetadataTarget(constraint, entry, true),
     );
     const index =
       exactIndex >= 0
         ? exactIndex
-        : path.ranged_constraints.findIndex((constraint, candidateIndex) =>
-            !used.has(candidateIndex) && sameMetadataTarget(constraint, entry, false)
+        : path.ranged_constraints.findIndex(
+            (constraint, candidateIndex) =>
+              !used.has(candidateIndex) &&
+              sameMetadataTarget(constraint, entry, false),
           );
 
     if (index < 0) {
@@ -440,7 +456,7 @@ function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
     path.ranged_constraints[index] = {
       ...path.ranged_constraints[index],
       source,
-      auto_velocity: source === "auto_velocity" ? autoVelocity : null
+      auto_velocity: source === "auto_velocity" ? autoVelocity : null,
     };
     used.add(index);
   }
@@ -448,7 +464,9 @@ function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
   return path;
 }
 
-function readPathEditorMetadata(input: unknown): SerializedRangedConstraintMetadata[] {
+function readPathEditorMetadata(
+  input: unknown,
+): SerializedRangedConstraintMetadata[] {
   if (!isObject(input) || !Array.isArray(input.ranged_constraints)) {
     return [];
   }
@@ -463,7 +481,13 @@ function readPathEditorMetadata(input: unknown): SerializedRangedConstraintMetad
     const value = finiteNumber(entry.value);
     const start = finiteInteger(entry.start_ordinal);
     const end = finiteInteger(entry.end_ordinal);
-    if (!isRangedConstraintKey(key) || source === null || value === null || start === null || end === null) {
+    if (
+      !isRangedConstraintKey(key) ||
+      source === null ||
+      value === null ||
+      start === null ||
+      end === null
+    ) {
       return [];
     }
 
@@ -474,8 +498,8 @@ function readPathEditorMetadata(input: unknown): SerializedRangedConstraintMetad
         start_ordinal: start,
         end_ordinal: end,
         source,
-        auto_velocity: normalizeAutoVelocityMetadata(entry.auto_velocity)
-      }
+        auto_velocity: normalizeAutoVelocityMetadata(entry.auto_velocity),
+      },
     ];
   });
 }
@@ -483,24 +507,26 @@ function readPathEditorMetadata(input: unknown): SerializedRangedConstraintMetad
 function sameMetadataTarget(
   constraint: RangedConstraint,
   metadata: SerializedRangedConstraintMetadata,
-  includeValue: boolean
+  includeValue: boolean,
 ): boolean {
   return (
     constraint.key === metadata.key &&
-    Math.trunc(constraint.start_ordinal) === Math.trunc(metadata.start_ordinal) &&
+    Math.trunc(constraint.start_ordinal) ===
+      Math.trunc(metadata.start_ordinal) &&
     Math.trunc(constraint.end_ordinal) === Math.trunc(metadata.end_ordinal) &&
-    (!includeValue || Math.abs(Number(constraint.value) - metadata.value) < 1e-9)
+    (!includeValue ||
+      Math.abs(Number(constraint.value) - metadata.value) < 1e-9)
   );
 }
 
 function normalizeRangedConstraintSource(
-  value: unknown
+  value: unknown,
 ): RangedConstraintSource | null {
   return value === "manual" || value === "auto_velocity" ? value : null;
 }
 
 function normalizeAutoVelocityMetadata(
-  value: unknown
+  value: unknown,
 ): AutoVelocityConstraintMetadata | null {
   if (!isObject(value)) {
     return null;
@@ -517,7 +543,7 @@ function normalizeAutoVelocityMetadata(
     velocity_safety_factor: velocity,
     acceleration_safety_factor: acceleration,
     merge_tolerance_meters_per_sec:
-      mergeTolerance ?? defaultAutoVelocityMergeToleranceMetersPerSec
+      mergeTolerance ?? defaultAutoVelocityMergeToleranceMetersPerSec,
   };
 }
 
@@ -541,13 +567,13 @@ function readConfig(input: unknown): ProjectConfig {
   return createProjectWorkspaceDocument({
     project_id: "config-reader",
     display_name: "Config Reader",
-    config: input
+    config: input,
   }).config;
 }
 
 function uniquePathFileName(
   paths: readonly ProjectPathDocument[],
-  requestedFileName: string
+  requestedFileName: string,
 ): string {
   const existing = new Set(paths.map((path) => path.file_name.toLowerCase()));
   if (!existing.has(requestedFileName.toLowerCase())) {
@@ -578,14 +604,16 @@ function isObject(input: unknown): input is Record<string, unknown> {
 }
 
 function safeFileStem(value: string): string {
-  return value
-    .trim()
-    .replace(/\\/g, "/")
-    .split("/")
-    .filter(Boolean)
-    .at(-1)
-    ?.replace(/[^a-zA-Z0-9_.-]+/g, "_")
-    .replace(/^_+|_+$/g, "") ?? "";
+  return (
+    value
+      .trim()
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter(Boolean)
+      .at(-1)
+      ?.replace(/[^a-zA-Z0-9_.-]+/g, "_")
+      .replace(/^_+|_+$/g, "") ?? ""
+  );
 }
 
 function randomId(): string {

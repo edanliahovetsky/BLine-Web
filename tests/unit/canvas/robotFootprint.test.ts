@@ -1,25 +1,29 @@
 import { describe, expect, it } from "vitest";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
-import { fieldCoordinateOffsetMeters, fieldLengthMeters, fieldWidthMeters } from "../../../src/canvas/constants";
+import {
+  fieldCoordinateOffsetMeters,
+  fieldLengthMeters,
+  fieldWidthMeters,
+} from "../../../src/canvas/constants";
 import { clampModelPoint } from "../../../src/canvas/geometry";
 import {
   centeredRobotBounds,
   robotBoundsWithProtrusion,
   robotProtrusionOutlineGeometry,
   robotSizeFromConfig,
-  strokedRectInsideBounds
+  strokedRectInsideBounds,
 } from "../../../src/canvas/robotFootprint";
 
 describe("robot footprint geometry", () => {
   it("reads robot dimensions from project config", () => {
     const config = createProjectConfig({
       robot_length_meters: 0.82,
-      robot_width_meters: 0.98
+      robot_width_meters: 0.98,
     });
 
     expect(robotSizeFromConfig(config)).toEqual({
       lengthMeters: 0.82,
-      widthMeters: 0.98
+      widthMeters: 0.98,
     });
   });
 
@@ -29,12 +33,12 @@ describe("robot footprint geometry", () => {
 
     expect(outline.rect.x - outline.strokeWidth / 2).toBeCloseTo(bounds.x);
     expect(outline.rect.y - outline.strokeWidth / 2).toBeCloseTo(bounds.y);
-    expect(outline.rect.x + outline.rect.width + outline.strokeWidth / 2).toBeCloseTo(
-      bounds.x + bounds.width
-    );
-    expect(outline.rect.y + outline.rect.height + outline.strokeWidth / 2).toBeCloseTo(
-      bounds.y + bounds.height
-    );
+    expect(
+      outline.rect.x + outline.rect.width + outline.strokeWidth / 2,
+    ).toBeCloseTo(bounds.x + bounds.width);
+    expect(
+      outline.rect.y + outline.rect.height + outline.strokeWidth / 2,
+    ).toBeCloseTo(bounds.y + bounds.height);
   });
 
   it("caps stroke width for tiny configured robot sizes", () => {
@@ -44,12 +48,12 @@ describe("robot footprint geometry", () => {
     expect(outline.strokeWidth).toBe(0.75);
     expect(outline.rect.x - outline.strokeWidth / 2).toBeCloseTo(bounds.x);
     expect(outline.rect.y - outline.strokeWidth / 2).toBeCloseTo(bounds.y);
-    expect(outline.rect.x + outline.rect.width + outline.strokeWidth / 2).toBeCloseTo(
-      bounds.x + bounds.width
-    );
-    expect(outline.rect.y + outline.rect.height + outline.strokeWidth / 2).toBeCloseTo(
-      bounds.y + bounds.height
-    );
+    expect(
+      outline.rect.x + outline.rect.width + outline.strokeWidth / 2,
+    ).toBeCloseTo(bounds.x + bounds.width);
+    expect(
+      outline.rect.y + outline.rect.height + outline.strokeWidth / 2,
+    ).toBeCloseTo(bounds.y + bounds.height);
   });
 
   it("extends protrusion bounds from the configured robot edge", () => {
@@ -59,13 +63,13 @@ describe("robot footprint geometry", () => {
         widthPx: 40,
         protrusionVisible: true,
         protrusionDistancePx: 12,
-        protrusionSide: "front"
-      })
+        protrusionSide: "front",
+      }),
     ).toEqual({
       x: -25,
       y: -20,
       width: 62,
-      height: 40
+      height: 40,
     });
   });
 
@@ -73,20 +77,20 @@ describe("robot footprint geometry", () => {
     const cases = [
       {
         protrusionSide: "front",
-        expected: { x: -25, y: -20, width: 62, height: 40 }
+        expected: { x: -25, y: -20, width: 62, height: 40 },
       },
       {
         protrusionSide: "back",
-        expected: { x: -37, y: -20, width: 62, height: 40 }
+        expected: { x: -37, y: -20, width: 62, height: 40 },
       },
       {
         protrusionSide: "left",
-        expected: { x: -25, y: -32, width: 50, height: 52 }
+        expected: { x: -25, y: -32, width: 50, height: 52 },
       },
       {
         protrusionSide: "right",
-        expected: { x: -25, y: -20, width: 50, height: 52 }
-      }
+        expected: { x: -25, y: -20, width: 50, height: 52 },
+      },
     ] as const;
 
     for (const { protrusionSide, expected } of cases) {
@@ -96,8 +100,8 @@ describe("robot footprint geometry", () => {
           widthPx: 40,
           protrusionVisible: true,
           protrusionDistancePx: 12,
-          protrusionSide
-        })
+          protrusionSide,
+        }),
       ).toEqual(expected);
     }
   });
@@ -109,7 +113,7 @@ describe("robot footprint geometry", () => {
       protrusionVisible: true,
       protrusionDistancePx: 12,
       protrusionSide: "front",
-      strokeWidth: 4
+      strokeWidth: 4,
     });
 
     expect(frontOutline).not.toBeNull();
@@ -117,10 +121,12 @@ describe("robot footprint geometry", () => {
       x: 25,
       y: -20,
       width: 12,
-      height: 40
+      height: 40,
     });
 
-    expect(frontOutline?.pathPoints).toEqual([25, -18, 35, -18, 35, 18, 25, 18]);
+    expect(frontOutline?.pathPoints).toEqual([
+      25, -18, 35, -18, 35, 18, 25, 18,
+    ]);
     expect(frontOutline?.pathData).toContain("Q");
     expect((frontOutline?.pathPoints[2] ?? 0) + 2).toBeCloseTo(37);
     expect((frontOutline?.pathPoints[3] ?? 0) - 2).toBeCloseTo(-20);
@@ -132,7 +138,7 @@ describe("robot footprint geometry", () => {
       protrusionVisible: true,
       protrusionDistancePx: 8,
       protrusionSide: "right",
-      strokeWidth: 4
+      strokeWidth: 4,
     });
 
     expect(rightOutline).not.toBeNull();
@@ -140,10 +146,12 @@ describe("robot footprint geometry", () => {
       x: -25,
       y: 20,
       width: 50,
-      height: 8
+      height: 8,
     });
 
-    expect(rightOutline?.pathPoints).toEqual([-23, 20, -23, 26, 23, 26, 23, 20]);
+    expect(rightOutline?.pathPoints).toEqual([
+      -23, 20, -23, 26, 23, 26, 23, 20,
+    ]);
     expect(rightOutline?.pathData).toContain("Q");
     expect((rightOutline?.pathPoints[3] ?? 0) + 2).toBeCloseTo(28);
     expect((rightOutline?.pathPoints[0] ?? 0) - 2).toBeCloseTo(-25);
@@ -163,7 +171,7 @@ describe("robot footprint geometry", () => {
         minCrossIndexes: [1, 3],
         minCrossValue: -18,
         maxCrossIndexes: [5, 7],
-        maxCrossValue: 18
+        maxCrossValue: 18,
       },
       {
         protrusionSide: "back",
@@ -176,7 +184,7 @@ describe("robot footprint geometry", () => {
         minCrossIndexes: [1, 3],
         minCrossValue: -18,
         maxCrossIndexes: [5, 7],
-        maxCrossValue: 18
+        maxCrossValue: 18,
       },
       {
         protrusionSide: "left",
@@ -189,7 +197,7 @@ describe("robot footprint geometry", () => {
         minCrossIndexes: [0, 2],
         minCrossValue: -23,
         maxCrossIndexes: [4, 6],
-        maxCrossValue: 23
+        maxCrossValue: 23,
       },
       {
         protrusionSide: "right",
@@ -202,8 +210,8 @@ describe("robot footprint geometry", () => {
         minCrossIndexes: [0, 2],
         minCrossValue: -23,
         maxCrossIndexes: [4, 6],
-        maxCrossValue: 23
-      }
+        maxCrossValue: 23,
+      },
     ] as const;
 
     for (const testCase of cases) {
@@ -214,7 +222,7 @@ describe("robot footprint geometry", () => {
         protrusionDistancePx: 12,
         protrusionSide: testCase.protrusionSide,
         strokeWidth: 4,
-        rootInsetPx: 0
+        rootInsetPx: 0,
       });
 
       expect(outline).not.toBeNull();
@@ -245,7 +253,7 @@ describe("robot footprint geometry", () => {
       protrusionSide: "front",
       strokeWidth: 4,
       cornerRadiusPx: 4,
-      rootInsetPx: 2
+      rootInsetPx: 2,
     });
 
     expect(outline?.pathPoints).toHaveLength(8);
@@ -258,22 +266,22 @@ describe("robot footprint geometry", () => {
   it("clamps model points by configured robot half extents", () => {
     const clamped = clampModelPoint(
       { x_meters: -1, y_meters: -1 },
-      { lengthMeters: 0.82, widthMeters: 0.98 }
+      { lengthMeters: 0.82, widthMeters: 0.98 },
     );
 
     expect(clamped).toEqual({
       x_meters: 0.41,
-      y_meters: 0.49
+      y_meters: 0.49,
     });
 
     const maxClamped = clampModelPoint(
       { x_meters: 100, y_meters: 100 },
-      { lengthMeters: 0.82, widthMeters: 0.98 }
+      { lengthMeters: 0.82, widthMeters: 0.98 },
     );
 
     expect(maxClamped).toEqual({
       x_meters: fieldLengthMeters - fieldCoordinateOffsetMeters * 2 - 0.41,
-      y_meters: fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - 0.49
+      y_meters: fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - 0.49,
     });
   });
 });

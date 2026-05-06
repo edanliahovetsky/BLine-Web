@@ -5,12 +5,12 @@ import {
   useEffect,
   useId,
   useRef,
-  useState
+  useState,
 } from "react";
 import type {
   ChangeEvent,
   FocusEvent,
-  PointerEvent as ReactPointerEvent
+  PointerEvent as ReactPointerEvent,
 } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -18,7 +18,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { PathStage } from "../../canvas/PathStage";
 import type {
   ProjectPathDocument,
-  ProjectWorkspaceDocument
+  ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
@@ -26,12 +26,12 @@ import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
   createProjectIoService,
   type ProjectFolderExport,
-  type ProjectIoCapabilities
+  type ProjectIoCapabilities,
 } from "../../platform/projectIo";
 import {
   createProjectAutosaveCoordinator,
   type AutosaveCoordinator,
-  type AutosaveStatus
+  type AutosaveStatus,
 } from "../../state/autosave";
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
@@ -41,7 +41,7 @@ import {
   isInteractiveShortcutTarget,
   moveSelectedPathElement,
   removeSelectedPathElement,
-  removeSelectedRangedConstraint
+  removeSelectedRangedConstraint,
 } from "../keyboardShortcuts";
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
@@ -50,7 +50,7 @@ import { createUpdateProjectConfigCommand } from "./configCommands";
 import {
   createBlankCanvasPath,
   createInitialCanvasWorkspace,
-  createNewCanvasWorkspace
+  createNewCanvasWorkspace,
 } from "./initialProject";
 import { ProjectConfigDialog } from "./ProjectConfigDialog";
 
@@ -61,27 +61,36 @@ export function AppShell() {
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
   const status = useStoreSelector(projectStore, (state) => state.status);
   const error = useStoreSelector(projectStore, (state) => state.error);
-  const currentVersion = useStoreSelector(projectStore, (state) => state.version);
-  const lastSavedAt = useStoreSelector(projectStore, (state) => state.lastSavedAt);
+  const currentVersion = useStoreSelector(
+    projectStore,
+    (state) => state.version,
+  );
+  const lastSavedAt = useStoreSelector(
+    projectStore,
+    (state) => state.lastSavedAt,
+  );
   const selectedElementIndex = useStoreSelector(
     selectionStore,
-    (state) => state.selectedElementIndex
+    (state) => state.selectedElementIndex,
   );
   const canUndo = useStoreSelector(
     projectStore,
-    (state) => state.history.getState().canUndo
+    (state) => state.history.getState().canUndo,
   );
   const canRedo = useStoreSelector(
     projectStore,
-    (state) => state.history.getState().canRedo
+    (state) => state.history.getState().canRedo,
   );
-  const [workspaceSummaries, setWorkspaceSummaries] = useState<ProjectWorkspaceSummary[]>([]);
+  const [workspaceSummaries, setWorkspaceSummaries] = useState<
+    ProjectWorkspaceSummary[]
+  >([]);
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
-  const [showMobileSupportWarning, setShowMobileSupportWarning] = useState(false);
+  const [showMobileSupportWarning, setShowMobileSupportWarning] =
+    useState(false);
   const [pendingImportMode, setPendingImportMode] =
     useState<ImportMode>("archive");
   const [pendingToolbarAction, setPendingToolbarAction] =
@@ -115,7 +124,7 @@ export function AppShell() {
       setWorkspaceSummaries(summaries);
       return summaries;
     },
-    []
+    [],
   );
 
   const attachFolderInput = useCallback((element: HTMLInputElement | null) => {
@@ -147,7 +156,7 @@ export function AppShell() {
           .initializeWorkspace(
             service.capabilities.supportsProjectFolders
               ? undefined
-              : createInitialCanvasWorkspace()
+              : createInitialCanvasWorkspace(),
           );
         if (!cancelled) {
           await refreshWorkspaceSummaries(service);
@@ -173,12 +182,12 @@ export function AppShell() {
 
   useEffect(() => {
     const mobileQuery = window.matchMedia(
-      "(max-width: 767px), (pointer: coarse) and (max-width: 980px)"
+      "(max-width: 767px), (pointer: coarse) and (max-width: 980px)",
     );
 
     const syncMobileWarning = () => {
       setShowMobileSupportWarning(
-        mobileQuery.matches && !hasDismissedMobileSupportWarning()
+        mobileQuery.matches && !hasDismissedMobileSupportWarning(),
       );
     };
 
@@ -198,11 +207,15 @@ export function AppShell() {
     }
 
     autosaveRef.current?.cancel();
-    autosaveRef.current = createProjectAutosaveCoordinator(projectStore, projectIo, {
-      delayMs: 300,
-      onStatusChange: setAutosaveStatus,
-      shouldDefer: () => canvasInteractionActiveRef.current
-    });
+    autosaveRef.current = createProjectAutosaveCoordinator(
+      projectStore,
+      projectIo,
+      {
+        delayMs: 300,
+        onStatusChange: setAutosaveStatus,
+        shouldDefer: () => canvasInteractionActiveRef.current,
+      },
+    );
 
     return () => {
       autosaveRef.current?.cancel();
@@ -325,7 +338,7 @@ export function AppShell() {
     projectStore.getState().createPath({
       displayName,
       fileName: ensureJsonFileName(displayName),
-      path: createBlankCanvasPath()
+      path: createBlankCanvasPath(),
     });
     selectionStore.getState().clearSelection();
     setShowOpenPanel(false);
@@ -395,14 +408,12 @@ export function AppShell() {
           showDeletePathDialog,
           showDeleteProjectDialog,
           showMobileSupportWarning,
-          showOpenPanel
+          showOpenPanel,
         }) ||
         isEditableShortcutTarget(event.target) ||
-        (
-          isInteractiveShortcutTarget(event.target) &&
+        (isInteractiveShortcutTarget(event.target) &&
           !isPathElementShortcutTarget(event.target) &&
-          !isRangedConstraintShortcutTarget(event.target)
-        )
+          !isRangedConstraintShortcutTarget(event.target))
       ) {
         return;
       }
@@ -431,7 +442,7 @@ export function AppShell() {
     showDeletePathDialog,
     showDeleteProjectDialog,
     showMobileSupportWarning,
-    showOpenPanel
+    showOpenPanel,
   ]);
 
   const handleToggleOpenPanel = useCallback(() => {
@@ -444,24 +455,30 @@ export function AppShell() {
     });
   }, [refreshWorkspaceSummaries]);
 
-  const beginToolbarAction = useCallback((action: Exclude<PendingToolbarAction, null>) => {
-    if (pendingToolbarActionRef.current) {
-      return false;
-    }
+  const beginToolbarAction = useCallback(
+    (action: Exclude<PendingToolbarAction, null>) => {
+      if (pendingToolbarActionRef.current) {
+        return false;
+      }
 
-    pendingToolbarActionRef.current = action;
-    setPendingToolbarAction(action);
-    setShowOpenPanel(false);
-    setOpenTopMenu(null);
-    return true;
-  }, []);
+      pendingToolbarActionRef.current = action;
+      setPendingToolbarAction(action);
+      setShowOpenPanel(false);
+      setOpenTopMenu(null);
+      return true;
+    },
+    [],
+  );
 
-  const endToolbarAction = useCallback((action: Exclude<PendingToolbarAction, null>) => {
-    if (pendingToolbarActionRef.current === action) {
-      pendingToolbarActionRef.current = null;
-      setPendingToolbarAction(null);
-    }
-  }, []);
+  const endToolbarAction = useCallback(
+    (action: Exclude<PendingToolbarAction, null>) => {
+      if (pendingToolbarActionRef.current === action) {
+        pendingToolbarActionRef.current = null;
+        setPendingToolbarAction(null);
+      }
+    },
+    [],
+  );
 
   const handleOpenProjectPanel = useCallback(() => {
     void refreshWorkspaceSummaries();
@@ -483,7 +500,7 @@ export function AppShell() {
         // The project store already records the error for the status bar.
       }
     },
-    [refreshWorkspaceSummaries]
+    [refreshWorkspaceSummaries],
   );
 
   const handleOpenWorkspaceFromMenu = useCallback(
@@ -491,7 +508,7 @@ export function AppShell() {
       setOpenTopMenu(null);
       await handleOpenWorkspaceById(id);
     },
-    [handleOpenWorkspaceById]
+    [handleOpenWorkspaceById],
   );
 
   const handleOpenWorkspace = useCallback(async () => {
@@ -548,10 +565,11 @@ export function AppShell() {
       autosaveRef.current?.cancel();
 
       try {
-        const currentProjectId = projectStore.getState().workspace?.project_id ?? null;
+        const currentProjectId =
+          projectStore.getState().workspace?.project_id ?? null;
         const orderedIds = [
           ...ids.filter((id) => id !== currentProjectId),
-          ...ids.filter((id) => id === currentProjectId)
+          ...ids.filter((id) => id === currentProjectId),
         ];
 
         for (const id of orderedIds) {
@@ -566,7 +584,7 @@ export function AppShell() {
         projectStore.getState().markSaveError(caughtError);
       }
     },
-    [refreshWorkspaceSummaries]
+    [refreshWorkspaceSummaries],
   );
 
   const handleSwitchWorkspace = useCallback(
@@ -584,7 +602,7 @@ export function AppShell() {
         setOpenTopMenu(null);
       }
     },
-    [refreshWorkspaceSummaries]
+    [refreshWorkspaceSummaries],
   );
 
   const handleExportProjectArchive = useCallback(async () => {
@@ -603,7 +621,7 @@ export function AppShell() {
       if (bundle) {
         downloadBlob(
           bundle,
-          `${safeDownloadName(activeWorkspace.display_name)}.bline-project.json`
+          `${safeDownloadName(activeWorkspace.display_name)}.bline-project.json`,
         );
       }
     } catch (caughtError) {
@@ -650,8 +668,8 @@ export function AppShell() {
         await saveBlobAs(blob, activePath.file_name, {
           title: "Export BLine Path",
           useNativeSaveDialog: Boolean(
-            projectStore.getState().io?.capabilities.directFileAutosave
-          )
+            projectStore.getState().io?.capabilities.directFileAutosave,
+          ),
         });
       }
     } catch (caughtError) {
@@ -676,29 +694,32 @@ export function AppShell() {
     }
   }, []);
 
-  const queueFileImport = useCallback((mode: ImportMode) => {
-    if (!beginToolbarAction("import")) {
-      return;
-    }
+  const queueFileImport = useCallback(
+    (mode: ImportMode) => {
+      if (!beginToolbarAction("import")) {
+        return;
+      }
 
-    setPendingImportMode(mode);
-    const input = fileInputRef.current;
-    if (!input) {
-      endToolbarAction("import");
-      return;
-    }
+      setPendingImportMode(mode);
+      const input = fileInputRef.current;
+      if (!input) {
+        endToolbarAction("import");
+        return;
+      }
 
-    const clearPendingOnCancel = () => {
-      window.setTimeout(() => {
-        if (!input.files?.length && !importHandlingRef.current) {
-          endToolbarAction("import");
-        }
-      }, 400);
-    };
+      const clearPendingOnCancel = () => {
+        window.setTimeout(() => {
+          if (!input.files?.length && !importHandlingRef.current) {
+            endToolbarAction("import");
+          }
+        }, 400);
+      };
 
-    window.addEventListener("focus", clearPendingOnCancel, { once: true });
-    input.click();
-  }, [beginToolbarAction, endToolbarAction]);
+      window.addEventListener("focus", clearPendingOnCancel, { once: true });
+      input.click();
+    },
+    [beginToolbarAction, endToolbarAction],
+  );
 
   const queueFolderImport = useCallback(() => {
     if (!beginToolbarAction("import")) {
@@ -730,10 +751,7 @@ export function AppShell() {
       return;
     }
 
-    const rawName = window.prompt(
-      "Save Path As",
-      activePath.display_name
-    );
+    const rawName = window.prompt("Save Path As", activePath.display_name);
     const displayName = rawName?.trim();
     if (!displayName) {
       setOpenTopMenu(null);
@@ -773,23 +791,20 @@ export function AppShell() {
     setOpenTopMenu(null);
   }, []);
 
-  const handleDeletePaths = useCallback(
-    async (ids: string[]) => {
-      if (ids.length === 0) {
-        setShowDeletePathDialog(false);
-        return;
-      }
+  const handleDeletePaths = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) {
+      setShowDeletePathDialog(false);
+      return;
+    }
 
-      try {
-        projectStore.getState().deletePaths(ids);
-        selectionStore.getState().clearSelection();
-        setShowDeletePathDialog(false);
-      } catch (caughtError) {
-        projectStore.getState().markSaveError(caughtError);
-      }
-    },
-    []
-  );
+    try {
+      projectStore.getState().deletePaths(ids);
+      selectionStore.getState().clearSelection();
+      setShowDeletePathDialog(false);
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    }
+  }, []);
 
   const handleImportProject = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -830,7 +845,7 @@ export function AppShell() {
         endToolbarAction("import");
       }
     },
-    [endToolbarAction, pendingImportMode, refreshWorkspaceSummaries]
+    [endToolbarAction, pendingImportMode, refreshWorkspaceSummaries],
   );
 
   const handleImportProjectFolder = useCallback(
@@ -856,22 +871,25 @@ export function AppShell() {
         endToolbarAction("import");
       }
     },
-    [endToolbarAction, refreshWorkspaceSummaries]
+    [endToolbarAction, refreshWorkspaceSummaries],
   );
 
-  const handleSaveConfig = useCallback((nextConfig: NonNullable<typeof project>["config"]) => {
-    const activeProject = projectStore.getState().project;
-    if (!activeProject) {
-      return;
-    }
+  const handleSaveConfig = useCallback(
+    (nextConfig: NonNullable<typeof project>["config"]) => {
+      const activeProject = projectStore.getState().project;
+      if (!activeProject) {
+        return;
+      }
 
-    projectStore
-      .getState()
-      .applyCommand(
-        createUpdateProjectConfigCommand(activeProject.config, nextConfig)
-      );
-    setShowConfigDialog(false);
-  }, []);
+      projectStore
+        .getState()
+        .applyCommand(
+          createUpdateProjectConfigCommand(activeProject.config, nextConfig),
+        );
+      setShowConfigDialog(false);
+    },
+    [],
+  );
 
   const selectedElement =
     project && selectedElementIndex !== null
@@ -886,14 +904,16 @@ export function AppShell() {
       ? `Selected: ${getElementLabel(selectedElement)} #${selectedElementIndex + 1} ${formatPointMeters(selectedPosition)}`
       : "Selected: none";
   const ioCapabilities = projectIo?.capabilities;
-  const supportsProjectFolders = Boolean(ioCapabilities?.supportsProjectFolders);
+  const supportsProjectFolders = Boolean(
+    ioCapabilities?.supportsProjectFolders,
+  );
   const activePath = activePathDocument(workspace);
   const pathDocuments = workspace?.paths ?? [];
   const projectSummaries = ensureCurrentWorkspaceSummary(
     workspaceSummaries,
     workspace,
     currentVersion,
-    lastSavedAt
+    lastSavedAt,
   );
   const toolbarActions = ioCapabilities?.primaryToolbarActions ?? [];
   const toolbarBusy = pendingToolbarAction !== null;
@@ -908,7 +928,7 @@ export function AppShell() {
     error,
     initializing,
     lastSavedAt,
-    status
+    status,
   });
   const saveStatusTone = getSaveStatusTone({
     autosaveStatus,
@@ -916,7 +936,7 @@ export function AppShell() {
     error,
     initializing,
     lastSavedAt,
-    status
+    status,
   });
 
   return (
@@ -947,7 +967,10 @@ export function AppShell() {
               </>
             ) : (
               <>
-                <MenuSubmenu label="Workspace" testId="top-menu-project-workspace">
+                <MenuSubmenu
+                  label="Workspace"
+                  testId="top-menu-project-workspace"
+                >
                   <MenuAction
                     label="New Project"
                     disabled={!projectIo}
@@ -966,7 +989,10 @@ export function AppShell() {
                 </MenuSubmenu>
               </>
             )}
-            <MenuSubmenu label="Import / Export" testId="top-menu-project-transfer">
+            <MenuSubmenu
+              label="Import / Export"
+              testId="top-menu-project-transfer"
+            >
               {!supportsProjectFolders ? (
                 <>
                   <MenuAction
@@ -1009,15 +1035,25 @@ export function AppShell() {
               />
             </MenuSubmenu>
             <MenuSubmenu
-              label={supportsProjectFolders ? "Recent Project Folders" : "Recent Projects"}
+              label={
+                supportsProjectFolders
+                  ? "Recent Project Folders"
+                  : "Recent Projects"
+              }
               testId="top-menu-project-recent"
             >
               <WorkspaceMenuList
                 emptyLabel={
-                  supportsProjectFolders ? "(No recent folders)" : "(No saved projects)"
+                  supportsProjectFolders
+                    ? "(No recent folders)"
+                    : "(No saved projects)"
                 }
                 workspaces={projectSummaries}
-                onOpen={supportsProjectFolders ? handleSwitchWorkspace : handleOpenWorkspaceFromMenu}
+                onOpen={
+                  supportsProjectFolders
+                    ? handleSwitchWorkspace
+                    : handleOpenWorkspaceFromMenu
+                }
               />
             </MenuSubmenu>
           </TopMenuButton>
@@ -1034,7 +1070,7 @@ export function AppShell() {
               <PathMenuList
                 emptyLabel="(No paths)"
                 paths={pathDocuments.filter(
-                  (path) => path.path_id !== workspace?.active_path_id
+                  (path) => path.path_id !== workspace?.active_path_id,
                 )}
                 onOpen={async (pathId) => {
                   projectStore.getState().setActivePath(pathId);
@@ -1142,8 +1178,12 @@ export function AppShell() {
                 type="button"
                 aria-expanded={showOpenPanel}
                 onClick={handleToggleOpenPanel}
-                className={pendingToolbarAction === "open" ? "is-pending" : undefined}
-                disabled={!projectIo || workspaceSummaries.length === 0 || toolbarBusy}
+                className={
+                  pendingToolbarAction === "open" ? "is-pending" : undefined
+                }
+                disabled={
+                  !projectIo || workspaceSummaries.length === 0 || toolbarBusy
+                }
               >
                 {pendingToolbarAction === "open" ? "Opening..." : "Open"}
               </button>
@@ -1152,14 +1192,20 @@ export function AppShell() {
               <button
                 type="button"
                 onClick={() => void handleOpenWorkspace()}
-                className={pendingToolbarAction === "open" ? "is-pending" : undefined}
+                className={
+                  pendingToolbarAction === "open" ? "is-pending" : undefined
+                }
                 disabled={!projectIo || toolbarBusy}
               >
                 {pendingToolbarAction === "open" ? "Opening..." : "Open Folder"}
               </button>
             ) : null}
             {toolbarActions.includes("new-path") ? (
-              <button type="button" onClick={() => void handleCreateNewPath()} disabled={!workspace || toolbarBusy}>
+              <button
+                type="button"
+                onClick={() => void handleCreateNewPath()}
+                disabled={!workspace || toolbarBusy}
+              >
                 New Path
               </button>
             ) : null}
@@ -1167,7 +1213,9 @@ export function AppShell() {
               <button
                 type="button"
                 onClick={() => void handleExportPath()}
-                className={pendingToolbarAction === "export" ? "is-pending" : undefined}
+                className={
+                  pendingToolbarAction === "export" ? "is-pending" : undefined
+                }
                 disabled={!activePath || !projectIo || toolbarBusy}
               >
                 {pendingToolbarAction === "export" ? "Exporting..." : "Export"}
@@ -1176,7 +1224,9 @@ export function AppShell() {
             {toolbarActions.includes("import-project") ? (
               <TopMenuButton
                 id="import"
-                label={pendingToolbarAction === "import" ? "Importing..." : "Import"}
+                label={
+                  pendingToolbarAction === "import" ? "Importing..." : "Import"
+                }
                 align="end"
                 openTopMenu={openTopMenu}
                 setOpenTopMenu={setActiveTopMenu}
@@ -1279,7 +1329,9 @@ export function AppShell() {
               <div className="top-menu__separator" role="separator" />
               <MenuAction
                 label="Save"
-                disabled={!workspace || !projectIo || status === "saving" || toolbarBusy}
+                disabled={
+                  !workspace || !projectIo || status === "saving" || toolbarBusy
+                }
                 onAction={() => {
                   setOpenTopMenu(null);
                   void handleSaveProject();
@@ -1291,7 +1343,9 @@ export function AppShell() {
             type="button"
             className="primary-action"
             onClick={handleSaveProject}
-            disabled={!workspace || !projectIo || status === "saving" || toolbarBusy}
+            disabled={
+              !workspace || !projectIo || status === "saving" || toolbarBusy
+            }
           >
             Save
           </button>
@@ -1313,7 +1367,10 @@ export function AppShell() {
             onChange={handleImportProjectFolder}
           />
           {showOpenPanel ? (
-            <div className="project-open-panel" data-testid="open-project-panel">
+            <div
+              className="project-open-panel"
+              data-testid="open-project-panel"
+            >
               <strong>Saved Workspaces</strong>
               <div className="project-open-panel__list">
                 {projectSummaries.map((summary) => (
@@ -1334,10 +1391,15 @@ export function AppShell() {
 
       <div className="workspace">
         <section className="canvas-region" aria-label="Editor canvas">
-          <PathStage onInteractionStateChange={handleCanvasInteractionStateChange} />
+          <PathStage
+            onInteractionStateChange={handleCanvasInteractionStateChange}
+          />
         </section>
 
-        <Sidebar project={project} selectedElementIndex={selectedElementIndex} />
+        <Sidebar
+          project={project}
+          selectedElementIndex={selectedElementIndex}
+        />
       </div>
 
       <footer className="status-bar" aria-label="Workspace status">
@@ -1411,7 +1473,9 @@ export function AppShell() {
         />
       ) : null}
       {showMobileSupportWarning ? (
-        <MobileSupportWarningDialog onDismiss={handleDismissMobileSupportWarning} />
+        <MobileSupportWarningDialog
+          onDismiss={handleDismissMobileSupportWarning}
+        />
       ) : null}
     </main>
   );
@@ -1430,7 +1494,7 @@ interface TopMenuSubmenuContextValue {
 }
 
 const TopMenuSubmenuContext = createContext<TopMenuSubmenuContextValue | null>(
-  null
+  null,
 );
 
 function hasDismissedMobileSupportWarning(): boolean {
@@ -1488,8 +1552,8 @@ function MobileSupportWarningDialog({ onDismiss }: { onDismiss(): void }) {
           <h2 id="mobile-warning-title">Mobile support warning</h2>
         </header>
         <p id="mobile-warning-description">
-          Mobile support is very limited and may be buggy. For full path editing,
-          use BLine Web on a desktop or laptop browser.
+          Mobile support is very limited and may be buggy. For full path
+          editing, use BLine Web on a desktop or laptop browser.
         </p>
         <footer className="mobile-warning-dialog__footer">
           <button
@@ -1515,7 +1579,7 @@ function TopMenuButton({
   setOpenTopMenu,
   onBeforeOpen,
   align = "start",
-  children
+  children,
 }: {
   id: TopMenuId;
   label: string;
@@ -1533,7 +1597,7 @@ function TopMenuButton({
   const className = [
     "top-menu",
     `top-menu--${id}`,
-    align === "end" ? "top-menu--align-end" : null
+    align === "end" ? "top-menu--align-end" : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -1564,10 +1628,14 @@ function TopMenuButton({
           value={{
             activeSubmenuId,
             closeDelayMs: submenuCloseDelayMs,
-            setActiveSubmenuId
+            setActiveSubmenuId,
           }}
         >
-          <div className="top-menu__panel" role="menu" data-testid={`top-menu-${id}`}>
+          <div
+            className="top-menu__panel"
+            role="menu"
+            data-testid={`top-menu-${id}`}
+          >
             {children}
           </div>
         </TopMenuSubmenuContext.Provider>
@@ -1579,7 +1647,7 @@ function TopMenuButton({
 function MenuSubmenu({
   label,
   testId,
-  children
+  children,
 }: {
   label: string;
   testId: string;
@@ -1625,7 +1693,7 @@ function MenuSubmenu({
 
       setLocalOpen(nextOpen);
     },
-    [setActiveSubmenuId, submenuId]
+    [setActiveSubmenuId, submenuId],
   );
 
   const clearCloseTimer = useCallback(() => {
@@ -1644,8 +1712,12 @@ function MenuSubmenu({
 
     const viewportMargin = 8;
     const flyoutGap = 6;
-    const width = Math.min(266, Math.max(160, window.innerWidth - viewportMargin * 2));
-    const rightSpace = window.innerWidth - viewportMargin - rect.right - flyoutGap;
+    const width = Math.min(
+      266,
+      Math.max(160, window.innerWidth - viewportMargin * 2),
+    );
+    const rightSpace =
+      window.innerWidth - viewportMargin - rect.right - flyoutGap;
     const leftSpace = rect.left - viewportMargin - flyoutGap;
     const shouldOpenLeft = rightSpace < width && leftSpace > rightSpace;
     const idealLeft = shouldOpenLeft
@@ -1653,16 +1725,19 @@ function MenuSubmenu({
       : rect.right + flyoutGap;
     const left = Math.min(
       Math.max(viewportMargin, idealLeft),
-      window.innerWidth - width - viewportMargin
+      window.innerWidth - width - viewportMargin,
     );
-    const top = Math.max(viewportMargin, Math.min(rect.top - 4, window.innerHeight - 128));
+    const top = Math.max(
+      viewportMargin,
+      Math.min(rect.top - 4, window.innerHeight - 128),
+    );
     const maxHeight = Math.max(120, window.innerHeight - top - viewportMargin);
 
     setPlacement({
       left,
       maxHeight,
       top,
-      width
+      width,
     });
   }, []);
 
@@ -1697,13 +1772,13 @@ function MenuSubmenu({
           ? { left: panelRect.right, right: triggerRect.left }
           : {
               left: Math.min(triggerRect.left, panelRect.left),
-              right: Math.max(triggerRect.right, panelRect.right)
+              right: Math.max(triggerRect.right, panelRect.right),
             };
     const bridgeRect = {
       bottom: Math.max(triggerRect.bottom, panelRect.bottom) + bridgePadding,
       left: horizontalGap.left - bridgePadding,
       right: horizontalGap.right + bridgePadding,
-      top: Math.min(triggerRect.top, panelRect.top) - bridgePadding
+      top: Math.min(triggerRect.top, panelRect.top) - bridgePadding,
     };
 
     if (
@@ -1721,7 +1796,7 @@ function MenuSubmenu({
   const isSubmenuHovered = useCallback(() => {
     return Boolean(
       submenuRef.current?.matches(":hover") ||
-        panelRef.current?.matches(":hover")
+      panelRef.current?.matches(":hover"),
     );
   }, []);
 
@@ -1732,10 +1807,7 @@ function MenuSubmenu({
       const pointerZone = pointerPosition
         ? getSubmenuPointerZone(pointerPosition.x, pointerPosition.y)
         : "outside";
-      if (
-        isSubmenuHovered() ||
-        pointerZone === "surface"
-      ) {
+      if (isSubmenuHovered() || pointerZone === "surface") {
         clearCloseTimer();
         return;
       }
@@ -1747,7 +1819,7 @@ function MenuSubmenu({
     closeDelayMs,
     getSubmenuPointerZone,
     isSubmenuHovered,
-    setSubmenuOpen
+    setSubmenuOpen,
   ]);
 
   const isInsideSubmenu = useCallback((target: EventTarget | null) => {
@@ -1769,7 +1841,7 @@ function MenuSubmenu({
   const handlePointerLeave = (event: ReactPointerEvent<HTMLElement>) => {
     pointerPositionRef.current = {
       x: event.clientX,
-      y: event.clientY
+      y: event.clientY,
     };
     closeSubmenu();
   };
@@ -1783,14 +1855,11 @@ function MenuSubmenu({
     const handlePointerMove = (event: globalThis.PointerEvent) => {
       pointerPositionRef.current = {
         x: event.clientX,
-        y: event.clientY
+        y: event.clientY,
       };
       const pointerZone = getSubmenuPointerZone(event.clientX, event.clientY);
 
-      if (
-        isInsideSubmenu(event.target) ||
-        pointerZone === "surface"
-      ) {
+      if (isInsideSubmenu(event.target) || pointerZone === "surface") {
         clearCloseTimer();
         return;
       }
@@ -1823,7 +1892,7 @@ function MenuSubmenu({
     getSubmenuPointerZone,
     isInsideSubmenu,
     open,
-    updatePlacement
+    updatePlacement,
   ]);
 
   useEffect(() => clearCloseTimer, [clearCloseTimer]);
@@ -1866,7 +1935,7 @@ function MenuSubmenu({
             >
               {children}
             </div>,
-            document.body
+            document.body,
           )
         : null}
     </div>
@@ -1877,7 +1946,7 @@ function MenuAction({
   label,
   shortcut,
   disabled = false,
-  onAction
+  onAction,
 }: {
   label: string;
   shortcut?: string;
@@ -1906,7 +1975,7 @@ function pointInsideRect(
   x: number,
   y: number,
   rect: Pick<DOMRect, "bottom" | "left" | "right" | "top">,
-  padding = 0
+  padding = 0,
 ): boolean {
   return (
     x >= rect.left - padding &&
@@ -1922,7 +1991,7 @@ function hasActiveBlockingSurface({
   showDeletePathDialog,
   showDeleteProjectDialog,
   showMobileSupportWarning,
-  showOpenPanel
+  showOpenPanel,
 }: {
   openTopMenu: TopMenuId | null;
   showConfigDialog: boolean;
@@ -1933,26 +2002,32 @@ function hasActiveBlockingSurface({
 }): boolean {
   return Boolean(
     openTopMenu ||
-      showConfigDialog ||
-      showDeletePathDialog ||
-      showDeleteProjectDialog ||
-      showMobileSupportWarning ||
-      showOpenPanel
+    showConfigDialog ||
+    showDeletePathDialog ||
+    showDeleteProjectDialog ||
+    showMobileSupportWarning ||
+    showOpenPanel,
   );
 }
 
 function isPathElementShortcutTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(target.closest("[data-path-element-index]"));
+  return (
+    target instanceof Element &&
+    Boolean(target.closest("[data-path-element-index]"))
+  );
 }
 
 function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(target.closest("[data-ranged-constraint-selection]"));
+  return (
+    target instanceof Element &&
+    Boolean(target.closest("[data-ranged-constraint-selection]"))
+  );
 }
 
 function PathMenuList({
   paths,
   emptyLabel,
-  onOpen
+  onOpen,
 }: {
   paths: ProjectPathDocument[];
   emptyLabel: string;
@@ -1983,7 +2058,7 @@ function PathMenuList({
 function WorkspaceMenuList({
   workspaces,
   emptyLabel,
-  onOpen
+  onOpen,
 }: {
   workspaces: ProjectWorkspaceSummary[];
   emptyLabel: string;
@@ -2016,7 +2091,7 @@ function DeleteProjectsDialog({
   activeWorkspaceId,
   workspaces,
   onCancel,
-  onDelete
+  onDelete,
 }: {
   activeWorkspaceId: string | null;
   workspaces: ProjectWorkspaceSummary[];
@@ -2027,7 +2102,7 @@ function DeleteProjectsDialog({
   const [confirming, setConfirming] = useState(false);
   const selectedCount = selectedIds.size;
   const selectedProjects = workspaces.filter((workspaceSummary) =>
-    selectedIds.has(workspaceSummary.id)
+    selectedIds.has(workspaceSummary.id),
   );
 
   return (
@@ -2048,7 +2123,11 @@ function DeleteProjectsDialog({
       >
         <header className="config-dialog__header">
           <strong>Delete Projects</strong>
-          <button type="button" aria-label="Close delete projects" onClick={onCancel}>
+          <button
+            type="button"
+            aria-label="Close delete projects"
+            onClick={onCancel}
+          >
             x
           </button>
         </header>
@@ -2058,60 +2137,66 @@ function DeleteProjectsDialog({
             aria-label="Confirm project deletion"
           >
             <strong>
-              Delete {selectedCount} selected project{selectedCount === 1 ? "" : "s"}?
+              Delete {selectedCount} selected project
+              {selectedCount === 1 ? "" : "s"}?
             </strong>
             <p>
-              This removes the selected project{selectedCount === 1 ? "" : "s"} from
-              browser storage. Exported autos folders and downloaded archives are not
-              deleted.
+              This removes the selected project{selectedCount === 1 ? "" : "s"}{" "}
+              from browser storage. Exported autos folders and downloaded
+              archives are not deleted.
             </p>
             <ul>
               {selectedProjects.map((workspaceSummary) => (
-                <li key={workspaceSummary.id}>{workspaceSummary.displayName}</li>
+                <li key={workspaceSummary.id}>
+                  {workspaceSummary.displayName}
+                </li>
               ))}
             </ul>
           </section>
         ) : (
-          <section className="delete-projects-dialog__list" aria-label="Saved projects">
-          {workspaces.length === 0 ? (
-            <div className="delete-projects-dialog__empty">
-              No projects found to delete.
-            </div>
-          ) : (
-            workspaces.map((workspaceSummary) => {
-              const checked = selectedIds.has(workspaceSummary.id);
-              const isCurrent = workspaceSummary.id === activeWorkspaceId;
-              return (
-                <label
-                  key={workspaceSummary.id}
-                  className={
-                    isCurrent
-                      ? "delete-project-row is-current"
-                      : "delete-project-row"
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(event) => {
-                      const nextChecked = event.currentTarget.checked;
-                      setSelectedIds((current) => {
-                        const next = new Set(current);
-                        if (nextChecked) {
-                          next.add(workspaceSummary.id);
-                        } else {
-                          next.delete(workspaceSummary.id);
-                        }
-                        return next;
-                      });
-                    }}
-                  />
-                  <span>{workspaceSummary.displayName}</span>
-                  {isCurrent ? <small>Current</small> : null}
-                </label>
-              );
-            })
-          )}
+          <section
+            className="delete-projects-dialog__list"
+            aria-label="Saved projects"
+          >
+            {workspaces.length === 0 ? (
+              <div className="delete-projects-dialog__empty">
+                No projects found to delete.
+              </div>
+            ) : (
+              workspaces.map((workspaceSummary) => {
+                const checked = selectedIds.has(workspaceSummary.id);
+                const isCurrent = workspaceSummary.id === activeWorkspaceId;
+                return (
+                  <label
+                    key={workspaceSummary.id}
+                    className={
+                      isCurrent
+                        ? "delete-project-row is-current"
+                        : "delete-project-row"
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => {
+                        const nextChecked = event.currentTarget.checked;
+                        setSelectedIds((current) => {
+                          const next = new Set(current);
+                          if (nextChecked) {
+                            next.add(workspaceSummary.id);
+                          } else {
+                            next.delete(workspaceSummary.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span>{workspaceSummary.displayName}</span>
+                    {isCurrent ? <small>Current</small> : null}
+                  </label>
+                );
+              })
+            )}
           </section>
         )}
         <footer className="config-dialog__footer">
@@ -2124,7 +2209,9 @@ function DeleteProjectsDialog({
               <button
                 type="button"
                 onClick={() =>
-                  setSelectedIds(new Set(workspaces.map((summary) => summary.id)))
+                  setSelectedIds(
+                    new Set(workspaces.map((summary) => summary.id)),
+                  )
                 }
                 disabled={workspaces.length === 0}
               >
@@ -2160,7 +2247,7 @@ function DeletePathsDialog({
   activePathId,
   paths,
   onCancel,
-  onDelete
+  onDelete,
 }: {
   activePathId: string | null;
   paths: ProjectPathDocument[];
@@ -2184,13 +2271,19 @@ function DeletePathsDialog({
       >
         <header className="config-dialog__header">
           <strong>Delete Paths</strong>
-          <button type="button" aria-label="Close delete paths" onClick={onCancel}>
+          <button
+            type="button"
+            aria-label="Close delete paths"
+            onClick={onCancel}
+          >
             x
           </button>
         </header>
         <section className="delete-paths-dialog__list" aria-label="Saved paths">
           {paths.length === 0 ? (
-            <div className="delete-paths-dialog__empty">No paths found to delete.</div>
+            <div className="delete-paths-dialog__empty">
+              No paths found to delete.
+            </div>
           ) : (
             paths.map((path) => {
               const checked = selectedIds.has(path.path_id);
@@ -2220,7 +2313,9 @@ function DeletePathsDialog({
                     }}
                   />
                   <span>{path.display_name}</span>
-                  {path.path_id === activePathId ? <small>Current</small> : null}
+                  {path.path_id === activePathId ? (
+                    <small>Current</small>
+                  ) : null}
                 </label>
               );
             })
@@ -2229,7 +2324,9 @@ function DeletePathsDialog({
         <footer className="config-dialog__footer">
           <button
             type="button"
-            onClick={() => setSelectedIds(new Set(paths.map((path) => path.path_id)))}
+            onClick={() =>
+              setSelectedIds(new Set(paths.map((path) => path.path_id)))
+            }
             disabled={paths.length === 0}
           >
             Select All
@@ -2273,7 +2370,7 @@ function formatSaveStatus({
   error,
   initializing,
   lastSavedAt,
-  status
+  status,
 }: SaveStatusInput): string {
   if (initializing || status === "loading") {
     return "Loading";
@@ -2305,7 +2402,7 @@ function getSaveStatusTone({
   dirty,
   error,
   initializing,
-  status
+  status,
 }: SaveStatusInput): SaveStatusTone {
   if (initializing || status === "loading") {
     return "loading";
@@ -2327,12 +2424,13 @@ function getSaveStatusTone({
 }
 
 function ensureJsonFileName(value: string): string {
-  const base = safeDownloadName(value.replace(/\.json$/i, "")) || "untitled-path";
+  const base =
+    safeDownloadName(value.replace(/\.json$/i, "")) || "untitled-path";
   return `${base}.json`;
 }
 
 function activePathDocument(
-  workspace: ProjectWorkspaceDocument | null
+  workspace: ProjectWorkspaceDocument | null,
 ): ProjectPathDocument | null {
   if (!workspace) {
     return null;
@@ -2349,9 +2447,12 @@ function ensureCurrentWorkspaceSummary(
   summaries: ProjectWorkspaceSummary[],
   workspace: ProjectWorkspaceDocument | null,
   version: string | undefined,
-  lastSavedAt: string | null
+  lastSavedAt: string | null,
 ): ProjectWorkspaceSummary[] {
-  if (!workspace || summaries.some((summary) => summary.id === workspace.project_id)) {
+  if (
+    !workspace ||
+    summaries.some((summary) => summary.id === workspace.project_id)
+  ) {
     return summaries;
   }
 
@@ -2360,15 +2461,15 @@ function ensureCurrentWorkspaceSummary(
       id: workspace.project_id,
       displayName: workspace.display_name,
       updatedAt: lastSavedAt ?? new Date().toISOString(),
-      version: version ?? ""
+      version: version ?? "",
     },
-    ...summaries
+    ...summaries,
   ];
 }
 
 function formatStorageLabel(
   workspace: ProjectWorkspaceDocument | null,
-  capabilities: ProjectIoCapabilities | undefined
+  capabilities: ProjectIoCapabilities | undefined,
 ): string {
   if (!capabilities) {
     return "Storage: unavailable";
@@ -2390,22 +2491,25 @@ function formatTimestamp(value: string): string {
 
   return timestamp.toLocaleTimeString([], {
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
   });
 }
 
-async function writeProjectFolder(projectFolder: ProjectFolderExport): Promise<void> {
+async function writeProjectFolder(
+  projectFolder: ProjectFolderExport,
+): Promise<void> {
   const directoryPicker = (window as BrowserFolderWindow).showDirectoryPicker;
 
   if (directoryPicker) {
     const selectedDirectory = await directoryPicker.call(window, {
-      mode: "readwrite"
+      mode: "readwrite",
     });
     const autosDirectory =
-      selectedDirectory.name.toLowerCase() === projectFolder.folderName.toLowerCase()
+      selectedDirectory.name.toLowerCase() ===
+      projectFolder.folderName.toLowerCase()
         ? selectedDirectory
         : await selectedDirectory.getDirectoryHandle(projectFolder.folderName, {
-            create: true
+            create: true,
           });
 
     for (const file of projectFolder.files) {
@@ -2417,7 +2521,7 @@ async function writeProjectFolder(projectFolder: ProjectFolderExport): Promise<v
   for (const file of projectFolder.files) {
     downloadBlob(
       file.blob,
-      `${projectFolder.folderName}-${file.relativePath.replace(/\//g, "-")}`
+      `${projectFolder.folderName}-${file.relativePath.replace(/\//g, "-")}`,
     );
   }
 }
@@ -2427,17 +2531,17 @@ async function saveBlobAs(
   fileName: string,
   {
     title,
-    useNativeSaveDialog
+    useNativeSaveDialog,
   }: {
     title: string;
     useNativeSaveDialog: boolean;
-  }
+  },
 ): Promise<boolean> {
   if (useNativeSaveDialog) {
     return invoke<boolean>("storage_write_text_file_dialog", {
       contents: await blob.text(),
       defaultFileName: fileName,
-      title
+      title,
     });
   }
 
@@ -2448,11 +2552,11 @@ async function saveBlobAs(
       types: [
         {
           accept: {
-            "application/json": [".json"]
+            "application/json": [".json"],
           },
-          description: "JSON files"
-        }
-      ]
+          description: "JSON files",
+        },
+      ],
     });
     const writable = await fileHandle.createWritable();
     await writable.write(blob);
@@ -2467,7 +2571,7 @@ async function saveBlobAs(
 async function writeFolderFile(
   directory: BrowserDirectoryHandle,
   relativePath: string,
-  blob: Blob
+  blob: Blob,
 ): Promise<void> {
   const segments = relativePath.split("/").filter(Boolean);
   const fileName = segments.at(-1);
@@ -2479,12 +2583,12 @@ async function writeFolderFile(
   let currentDirectory = directory;
   for (const segment of segments.slice(0, -1)) {
     currentDirectory = await currentDirectory.getDirectoryHandle(segment, {
-      create: true
+      create: true,
     });
   }
 
   const fileHandle = await currentDirectory.getFileHandle(fileName, {
-    create: true
+    create: true,
   });
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
@@ -2505,11 +2609,13 @@ function downloadBlob(blob: Blob, fileName: string): void {
 }
 
 function safeDownloadName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "") || "bline-project";
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "bline-project"
+  );
 }
 
 interface BrowserFolderWindow extends Window {
@@ -2532,11 +2638,11 @@ interface BrowserDirectoryHandle {
   name: string;
   getDirectoryHandle(
     name: string,
-    options?: { create?: boolean }
+    options?: { create?: boolean },
   ): Promise<BrowserDirectoryHandle>;
   getFileHandle(
     name: string,
-    options?: { create?: boolean }
+    options?: { create?: boolean },
   ): Promise<BrowserFileHandle>;
 }
 

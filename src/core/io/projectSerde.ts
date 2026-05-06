@@ -15,11 +15,11 @@ import {
   type PathElement,
   type PathModel,
   type RangedConstraint,
-  type RotationTarget
+  type RotationTarget,
 } from "../model/path";
 import {
   createProjectConfig,
-  projectConfigDefaultLookup
+  projectConfigDefaultLookup,
 } from "../config/projectConfig";
 import {
   type JsonObject,
@@ -29,7 +29,7 @@ import {
   type SerializedPathDocument,
   type SerializedPathElement,
   type SerializedProjectDocument,
-  createProjectDocument
+  createProjectDocument,
 } from "./projectSchema";
 import { migrateProjectDocument } from "./migrations";
 
@@ -41,7 +41,7 @@ const scalarConstraintKeys: readonly ConstraintKey[] = [
   "end_translation_tolerance_meters",
   "max_velocity_deg_per_sec",
   "max_acceleration_deg_per_sec2",
-  "end_rotation_tolerance_deg"
+  "end_rotation_tolerance_deg",
 ];
 
 export function serializePath(path: PathModel): SerializedPathDocument {
@@ -52,7 +52,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
       const entry = {
         type: "translation" as const,
         x_meters: Number(element.x_meters),
-        y_meters: Number(element.y_meters)
+        y_meters: Number(element.y_meters),
       };
 
       pathElements.push(
@@ -61,9 +61,9 @@ export function serializePath(path: PathModel): SerializedPathDocument {
           : {
               ...entry,
               intermediate_handoff_radius_meters: Number(
-                element.intermediate_handoff_radius_meters
-              )
-            }
+                element.intermediate_handoff_radius_meters,
+              ),
+            },
       );
       continue;
     }
@@ -73,7 +73,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
         type: "rotation",
         rotation_radians: Number(element.rotation_radians),
         t_ratio: Number(element.t_ratio),
-        profiled_rotation: Boolean(element.profiled_rotation)
+        profiled_rotation: Boolean(element.profiled_rotation),
       });
       continue;
     }
@@ -82,14 +82,14 @@ export function serializePath(path: PathModel): SerializedPathDocument {
       pathElements.push({
         type: "event_trigger",
         t_ratio: Number(element.t_ratio),
-        lib_key: String(element.lib_key)
+        lib_key: String(element.lib_key),
       });
       continue;
     }
 
     const translationData = {
       x_meters: Number(element.translation_target.x_meters),
-      y_meters: Number(element.translation_target.y_meters)
+      y_meters: Number(element.translation_target.y_meters),
     };
 
     pathElements.push({
@@ -100,13 +100,13 @@ export function serializePath(path: PathModel): SerializedPathDocument {
           : {
               ...translationData,
               intermediate_handoff_radius_meters: Number(
-                element.translation_target.intermediate_handoff_radius_meters
-              )
+                element.translation_target.intermediate_handoff_radius_meters,
+              ),
             },
       rotation_target: {
         rotation_radians: Number(element.rotation_target.rotation_radians),
-        profiled_rotation: Boolean(element.rotation_target.profiled_rotation)
-      }
+        profiled_rotation: Boolean(element.rotation_target.profiled_rotation),
+      },
     });
   }
 
@@ -119,7 +119,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
 
 export function deserializePath(
   input: unknown,
-  defaultLookup?: DefaultLookup
+  defaultLookup?: DefaultLookup,
 ): PathModel {
   const { items, rangedBlock, constraints } = readPathInput(input);
   const path = createPathModel({ constraints });
@@ -139,9 +139,9 @@ export function deserializePath(
             y_meters: numberValue(item.y_meters, 0),
             intermediate_handoff_radius_meters: handoffDefault(
               item.intermediate_handoff_radius_meters,
-              defaultLookup
-            )
-          })
+              defaultLookup,
+            ),
+          }),
         );
         continue;
       }
@@ -151,7 +151,7 @@ export function deserializePath(
           rotation_radians: numberValue(item.rotation_radians, 0),
           t_ratio:
             item.t_ratio === undefined ? 0 : numberValue(item.t_ratio, 0),
-          profiled_rotation: booleanValue(item.profiled_rotation, true)
+          profiled_rotation: booleanValue(item.profiled_rotation, true),
         });
 
         if (item.t_ratio === undefined) {
@@ -170,8 +170,8 @@ export function deserializePath(
           createEventTrigger({
             t_ratio:
               item.t_ratio === undefined ? 0 : numberValue(item.t_ratio, 0),
-            lib_key: String(item.lib_key ?? "")
-          })
+            lib_key: String(item.lib_key ?? ""),
+          }),
         );
         continue;
       }
@@ -190,7 +190,7 @@ export function deserializePath(
             rotationData.t_ratio === undefined
               ? 0
               : numberValue(rotationData.t_ratio, 0),
-          profiled_rotation: booleanValue(rotationData.profiled_rotation, true)
+          profiled_rotation: booleanValue(rotationData.profiled_rotation, true),
         });
 
         if (rotationData.t_ratio === undefined) {
@@ -207,11 +207,11 @@ export function deserializePath(
               y_meters: numberValue(translationData.y_meters, 0),
               intermediate_handoff_radius_meters: handoffDefault(
                 translationData.intermediate_handoff_radius_meters,
-                defaultLookup
-              )
+                defaultLookup,
+              ),
             }),
-            rotation_target: rotation
-          })
+            rotation_target: rotation,
+          }),
         );
       }
     } catch {
@@ -233,7 +233,7 @@ export interface DeserializeProjectOptions {
 }
 
 export function serializeProjectDocument(
-  project: ProjectDocument
+  project: ProjectDocument,
 ): SerializedProjectDocument {
   return {
     schema_version: project.schema_version,
@@ -241,18 +241,18 @@ export function serializeProjectDocument(
     display_name: project.display_name,
     path_file_name: project.path_file_name,
     path: serializePath(project.path),
-    config: project.config
+    config: project.config,
   };
 }
 
 export function deserializeProjectDocument(
   input: unknown,
-  options: DeserializeProjectOptions = {}
+  options: DeserializeProjectOptions = {},
 ): ProjectDocument {
   const migration = migrateProjectDocument(input, {
     project_id: options.fallbackProjectId ?? "imported-project",
     display_name: options.fallbackDisplayName ?? "Imported Project",
-    path_file_name: options.fallbackPathFileName ?? null
+    path_file_name: options.fallbackPathFileName ?? null,
   });
   const document = migration.document;
 
@@ -272,7 +272,7 @@ export function deserializeProjectDocument(
         ? document.path_file_name
         : null,
     path: deserializePath(document.path, defaultLookup),
-    config
+    config,
   });
 }
 
@@ -283,7 +283,7 @@ function serializeConstraints(path: PathModel): SerializedConstraints {
   const rangedKeys = new Set(
     path.ranged_constraints
       .filter((constraint) => isRangedConstraintKey(constraint.key))
-      .map((constraint) => constraint.key)
+      .map((constraint) => constraint.key),
   );
 
   for (const key of scalarConstraintKeys) {
@@ -307,8 +307,8 @@ function serializeConstraints(path: PathModel): SerializedConstraints {
                 {
                   value: Number(value),
                   start_ordinal: 0,
-                  end_ordinal: rangedDomainSize - 1
-                }
+                  end_ordinal: rangedDomainSize - 1,
+                },
               ]
             : Number(value);
     }
@@ -320,7 +320,7 @@ function serializeConstraints(path: PathModel): SerializedConstraints {
       .map((constraint) => ({
         value: Number(constraint.value),
         start_ordinal: Math.max(Math.trunc(constraint.start_ordinal) - 1, 0),
-        end_ordinal: Math.max(Math.trunc(constraint.end_ordinal) - 1, 0)
+        end_ordinal: Math.max(Math.trunc(constraint.end_ordinal) - 1, 0),
       }));
 
     if (values.length > 0) {
@@ -362,7 +362,7 @@ function readPathInput(input: unknown): {
   return {
     items: Array.isArray(input.path_elements) ? input.path_elements : [],
     rangedBlock,
-    constraints: readConstraints(constraintsBlock)
+    constraints: readConstraints(constraintsBlock),
   };
 }
 
@@ -424,7 +424,7 @@ function loadRangedConstraints(path: PathModel, rangedBlock: unknown): void {
       key,
       value,
       start_ordinal: start,
-      end_ordinal: end
+      end_ordinal: end,
     });
   }
 
@@ -478,8 +478,14 @@ function repairLoadedRangedConstraints(path: PathModel): void {
       continue;
     }
 
-    let start = Math.max(1, Math.min(Math.trunc(constraint.start_ordinal), domainSize));
-    let end = Math.max(1, Math.min(Math.trunc(constraint.end_ordinal), domainSize));
+    let start = Math.max(
+      1,
+      Math.min(Math.trunc(constraint.start_ordinal), domainSize),
+    );
+    let end = Math.max(
+      1,
+      Math.min(Math.trunc(constraint.end_ordinal), domainSize),
+    );
 
     if (end < start) {
       [start, end] = [end, start];
@@ -521,7 +527,7 @@ function repairLoadedRangedConstraints(path: PathModel): void {
     repaired.push({
       ...constraint,
       start_ordinal: repairedStart,
-      end_ordinal: repairedEnd
+      end_ordinal: repairedEnd,
     });
   }
 
@@ -530,7 +536,7 @@ function repairLoadedRangedConstraints(path: PathModel): void {
 
 function chooseLongerRun(
   current: readonly [number, number] | null,
-  candidate: readonly [number, number]
+  candidate: readonly [number, number],
 ): readonly [number, number] {
   if (current === null) {
     return candidate;
@@ -565,7 +571,9 @@ function convertLegacyPositions(path: PathModel): void {
       const dy = by - ay;
       const denominator = dx * dx + dy * dy;
       rotation.t_ratio =
-        denominator <= 0 ? 0 : clamp(((rx - ax) * dx + (ry - ay) * dy) / denominator);
+        denominator <= 0
+          ? 0
+          : clamp(((rx - ax) * dx + (ry - ay) * dy) / denominator);
     }
 
     rotation.legacy_position = null;
@@ -573,7 +581,9 @@ function convertLegacyPositions(path: PathModel): void {
   });
 }
 
-function rotationTargetForLegacyConversion(element: PathElement): RotationTarget | null {
+function rotationTargetForLegacyConversion(
+  element: PathElement,
+): RotationTarget | null {
   if (element.type === "rotation") {
     return element;
   }
@@ -588,7 +598,7 @@ function rotationTargetForLegacyConversion(element: PathElement): RotationTarget
 function findNeighbor(
   elements: readonly PathElement[],
   startIndex: number,
-  reverse: boolean
+  reverse: boolean,
 ): readonly [number, number] | null {
   const nextIndex = reverse
     ? (index: number) => index - 1
@@ -597,7 +607,11 @@ function findNeighbor(
     ? (index: number) => index >= 0
     : (index: number) => index < elements.length;
 
-  for (let index = nextIndex(startIndex); inBounds(index); index = nextIndex(index)) {
+  for (
+    let index = nextIndex(startIndex);
+    inBounds(index);
+    index = nextIndex(index)
+  ) {
     const element = elements[index];
     if (element.type === "translation") {
       return [element.x_meters, element.y_meters];
@@ -605,7 +619,7 @@ function findNeighbor(
     if (element.type === "waypoint") {
       return [
         element.translation_target.x_meters,
-        element.translation_target.y_meters
+        element.translation_target.y_meters,
       ];
     }
   }
@@ -613,7 +627,10 @@ function findNeighbor(
   return null;
 }
 
-function handoffDefault(value: unknown, defaultLookup?: DefaultLookup): number | null {
+function handoffDefault(
+  value: unknown,
+  defaultLookup?: DefaultLookup,
+): number | null {
   const option = optionalNumber(value);
   if (option !== null) {
     return option;
@@ -622,7 +639,9 @@ function handoffDefault(value: unknown, defaultLookup?: DefaultLookup): number |
   return defaultLookup?.("intermediate_handoff_radius_meters") ?? null;
 }
 
-function legacyPositionFrom(input: JsonObject): readonly [number, number] | null {
+function legacyPositionFrom(
+  input: JsonObject,
+): readonly [number, number] | null {
   const x = optionalNumber(input.x_meters);
   const y = optionalNumber(input.y_meters);
   return x === null || y === null ? null : [x, y];

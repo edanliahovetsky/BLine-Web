@@ -36,7 +36,7 @@ export interface AutosaveCoordinator {
 }
 
 export function createAutosaveCoordinator<
-  TimerHandle = ReturnType<typeof setTimeout>
+  TimerHandle = ReturnType<typeof setTimeout>,
 >(options: AutosaveCoordinatorOptions<TimerHandle>): AutosaveCoordinator {
   const delayMs = options.delayMs ?? 750;
   const scheduler = options.scheduler ?? defaultScheduler<TimerHandle>();
@@ -87,7 +87,7 @@ export function createAutosaveCoordinator<
       try {
         const result = await options.io.saveWorkspace(
           snapshot.workspace,
-          snapshot.expectedVersion
+          snapshot.expectedVersion,
         );
         setStatus("idle");
         options.onSaved?.(result);
@@ -105,7 +105,7 @@ export function createAutosaveCoordinator<
       }
 
       setStatus("idle");
-    }
+    },
   };
 }
 
@@ -115,7 +115,7 @@ export function createProjectAutosaveCoordinator(
   options: Omit<
     AutosaveCoordinatorOptions,
     "io" | "getSnapshot" | "onSaved" | "onError"
-  > = {}
+  > = {},
 ): AutosaveCoordinator {
   return createAutosaveCoordinator({
     ...options,
@@ -125,11 +125,11 @@ export function createProjectAutosaveCoordinator(
       return {
         workspace: state.workspace,
         expectedVersion: state.version,
-        dirty: state.dirty
+        dirty: state.dirty,
       };
     },
     onSaved: (result) => projectStore.getState().markSaved(result),
-    onError: (error) => projectStore.getState().markSaveError(error)
+    onError: (error) => projectStore.getState().markSaveError(error),
   });
 }
 
@@ -140,6 +140,6 @@ function defaultScheduler<TimerHandle>(): AutosaveScheduler<TimerHandle> {
     },
     clearTimeout(handle) {
       globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>);
-    }
+    },
   };
 }

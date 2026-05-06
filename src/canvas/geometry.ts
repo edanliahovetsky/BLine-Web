@@ -1,7 +1,7 @@
 import {
   fieldCoordinateOffsetMeters,
   fieldLengthMeters,
-  fieldWidthMeters
+  fieldWidthMeters,
 } from "./constants";
 import { defaultRobotSizeMeters, type RobotSizeMeters } from "./robotFootprint";
 import {
@@ -10,7 +10,7 @@ import {
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
-  type PathElement
+  type PathElement,
 } from "../core/model/path";
 
 export interface CanvasSize {
@@ -41,7 +41,7 @@ export type RotationOverrides = ReadonlyMap<number, number>;
 
 export function createFieldViewport(
   size: CanvasSize,
-  preferredPaddingPx = 24
+  preferredPaddingPx = 24,
 ): FieldViewport {
   const safeWidth = Math.max(1, size.width);
   const safeHeight = Math.max(1, size.height);
@@ -50,7 +50,10 @@ export function createFieldViewport(
   const availableHeight = Math.max(1, safeHeight - padding * 2);
   const scale = Math.max(
     1,
-    Math.min(availableWidth / fieldLengthMeters, availableHeight / fieldWidthMeters)
+    Math.min(
+      availableWidth / fieldLengthMeters,
+      availableHeight / fieldWidthMeters,
+    ),
   );
   const width = fieldLengthMeters * scale;
   const height = fieldWidthMeters * scale;
@@ -60,37 +63,37 @@ export function createFieldViewport(
     y: (safeHeight - height) / 2,
     width,
     height,
-    scale
+    scale,
   };
 }
 
 export function fieldSceneToStagePoint(
   scenePoint: PointMeters,
-  viewport: FieldViewport
+  viewport: FieldViewport,
 ): StagePoint {
   return {
     x: viewport.x + scenePoint.x_meters * viewport.scale,
-    y: viewport.y + scenePoint.y_meters * viewport.scale
+    y: viewport.y + scenePoint.y_meters * viewport.scale,
   };
 }
 
 export function modelToStagePoint(
   point: PointMeters,
-  viewport: FieldViewport
+  viewport: FieldViewport,
 ): StagePoint {
   return fieldSceneToStagePoint(
     {
       x_meters: point.x_meters + fieldCoordinateOffsetMeters,
-      y_meters: fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters
+      y_meters: fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters,
     },
-    viewport
+    viewport,
   );
 }
 
 export function stageToModelPoint(
   point: StagePoint,
   viewport: FieldViewport,
-  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters
+  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters,
 ): PointMeters {
   const sceneX = (point.x - viewport.x) / viewport.scale;
   const sceneY = (point.y - viewport.y) / viewport.scale;
@@ -98,31 +101,33 @@ export function stageToModelPoint(
   return clampModelPoint(
     {
       x_meters: sceneX - fieldCoordinateOffsetMeters,
-      y_meters: fieldWidthMeters - sceneY - fieldCoordinateOffsetMeters
+      y_meters: fieldWidthMeters - sceneY - fieldCoordinateOffsetMeters,
     },
-    robotSizeMeters
+    robotSizeMeters,
   );
 }
 
 export function clampModelPoint(
   point: PointMeters,
-  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters
+  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters,
 ): PointMeters {
   const halfRobotLength = robotSizeMeters.lengthMeters / 2;
   const halfRobotWidth = robotSizeMeters.widthMeters / 2;
-  const maxX = fieldLengthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotLength;
-  const maxY = fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotWidth;
+  const maxX =
+    fieldLengthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotLength;
+  const maxY =
+    fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotWidth;
 
   return {
     x_meters: clamp(point.x_meters, halfRobotLength, maxX),
-    y_meters: clamp(point.y_meters, halfRobotWidth, maxY)
+    y_meters: clamp(point.y_meters, halfRobotWidth, maxY),
   };
 }
 
 export function getElementPosition(
   elements: readonly PathElement[],
   index: number,
-  overrides: PositionOverrides = emptyOverrides
+  overrides: PositionOverrides = emptyOverrides,
 ): PointMeters | null {
   const override = overrides.get(index);
   if (override) {
@@ -137,14 +142,14 @@ export function getElementPosition(
   if (isTranslationTarget(element)) {
     return {
       x_meters: element.x_meters,
-      y_meters: element.y_meters
+      y_meters: element.y_meters,
     };
   }
 
   if (isWaypoint(element)) {
     return {
       x_meters: element.translation_target.x_meters,
-      y_meters: element.translation_target.y_meters
+      y_meters: element.translation_target.y_meters,
     };
   }
 
@@ -159,8 +164,10 @@ export function getElementPosition(
     const tRatio = clamp(element.t_ratio, 0, 1);
 
     return {
-      x_meters: previous.x_meters + (next.x_meters - previous.x_meters) * tRatio,
-      y_meters: previous.y_meters + (next.y_meters - previous.y_meters) * tRatio
+      x_meters:
+        previous.x_meters + (next.x_meters - previous.x_meters) * tRatio,
+      y_meters:
+        previous.y_meters + (next.y_meters - previous.y_meters) * tRatio,
     };
   }
 
@@ -169,7 +176,7 @@ export function getElementPosition(
 
 export function getAnchorPositions(
   elements: readonly PathElement[],
-  overrides: PositionOverrides = emptyOverrides
+  overrides: PositionOverrides = emptyOverrides,
 ): Array<{ index: number; position: PointMeters }> {
   return elements.flatMap((element, index) => {
     if (!isAnchorElement(element)) {
@@ -183,7 +190,7 @@ export function getAnchorPositions(
 
 export function getRenderableElementPositions(
   elements: readonly PathElement[],
-  overrides: PositionOverrides = emptyOverrides
+  overrides: PositionOverrides = emptyOverrides,
 ): Array<{ index: number; position: PointMeters }> {
   return elements.flatMap((_element, index) => {
     const position = getElementPosition(elements, index, overrides);
@@ -206,7 +213,7 @@ export function getRotationRadians(element: PathElement): number | null {
 export function getElementHeadingRadians(
   elements: readonly PathElement[],
   index: number,
-  overrides: RotationOverrides = emptyRotationOverrides
+  overrides: RotationOverrides = emptyRotationOverrides,
 ): number | null {
   const override = overrides.get(index);
   if (override !== undefined) {
@@ -227,7 +234,11 @@ export function getElementHeadingRadians(
   }
 
   if (isTranslationTarget(element)) {
-    for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+    for (
+      let previousIndex = index - 1;
+      previousIndex >= 0;
+      previousIndex -= 1
+    ) {
       const previous = elements[previousIndex];
       if (isRotationTarget(previous) || isWaypoint(previous)) {
         return getRotationRadians(previous);
@@ -245,7 +256,7 @@ export function getHandoffRadiusMeters(element: PathElement): number | null {
 
   if (isWaypoint(element)) {
     return positiveRadiusOrNull(
-      element.translation_target.intermediate_handoff_radius_meters
+      element.translation_target.intermediate_handoff_radius_meters,
     );
   }
 
@@ -255,7 +266,7 @@ export function getHandoffRadiusMeters(element: PathElement): number | null {
 export function getNeighborAnchorPositions(
   elements: readonly PathElement[],
   index: number,
-  overrides: PositionOverrides = emptyOverrides
+  overrides: PositionOverrides = emptyOverrides,
 ): { previous: PointMeters; next: PointMeters } | null {
   const previous = findNeighborAnchorPosition(elements, index, -1, overrides);
   const next = findNeighborAnchorPosition(elements, index, 1, overrides);
@@ -266,7 +277,7 @@ export function getNeighborAnchorPositions(
 export function projectPointToSegmentRatio(
   point: PointMeters,
   previous: PointMeters,
-  next: PointMeters
+  next: PointMeters,
 ): number {
   const dx = next.x_meters - previous.x_meters;
   const dy = next.y_meters - previous.y_meters;
@@ -280,19 +291,19 @@ export function projectPointToSegmentRatio(
       (point.y_meters - previous.y_meters) * dy) /
       denominator,
     0,
-    1
+    1,
   );
 }
 
 export function interpolateSegmentPosition(
   previous: PointMeters,
   next: PointMeters,
-  tRatio: number
+  tRatio: number,
 ): PointMeters {
   const t = clamp(tRatio, 0, 1);
   return {
     x_meters: previous.x_meters + (next.x_meters - previous.x_meters) * t,
-    y_meters: previous.y_meters + (next.y_meters - previous.y_meters) * t
+    y_meters: previous.y_meters + (next.y_meters - previous.y_meters) * t,
   };
 }
 
@@ -300,7 +311,7 @@ function findNeighborAnchorPosition(
   elements: readonly PathElement[],
   startIndex: number,
   direction: -1 | 1,
-  overrides: PositionOverrides
+  overrides: PositionOverrides,
 ): PointMeters | null {
   for (
     let index = startIndex + direction;
@@ -318,9 +329,14 @@ function findNeighborAnchorPosition(
 function getSegmentHeadingRadians(
   elements: readonly PathElement[],
   index: number,
-  offsetRadians = 0
+  offsetRadians = 0,
 ): number | null {
-  const previous = findNeighborAnchorPosition(elements, index, -1, emptyOverrides);
+  const previous = findNeighborAnchorPosition(
+    elements,
+    index,
+    -1,
+    emptyOverrides,
+  );
   const next = findNeighborAnchorPosition(elements, index, 1, emptyOverrides);
 
   if (!previous || !next) {
@@ -328,8 +344,10 @@ function getSegmentHeadingRadians(
   }
 
   return (
-    Math.atan2(next.y_meters - previous.y_meters, next.x_meters - previous.x_meters) +
-    offsetRadians
+    Math.atan2(
+      next.y_meters - previous.y_meters,
+      next.x_meters - previous.x_meters,
+    ) + offsetRadians
   );
 }
 

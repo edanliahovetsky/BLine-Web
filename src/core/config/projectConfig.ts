@@ -63,7 +63,7 @@ const defaultConfig: CanonicalProjectConfig = {
   gui: {
     robot: {
       length_meters: 0.8,
-      width_meters: 0.8
+      width_meters: 0.8,
     },
     protrusions: {
       enabled: false,
@@ -71,8 +71,8 @@ const defaultConfig: CanonicalProjectConfig = {
       side: "none",
       default_state: "",
       show_on_event_keys: [],
-      hide_on_event_keys: []
-    }
+      hide_on_event_keys: [],
+    },
   },
   kinematic_constraints: {
     default_max_velocity_meters_per_sec: 4.5,
@@ -87,8 +87,8 @@ const defaultConfig: CanonicalProjectConfig = {
     default_auto_velocity_acceleration_safety_factor:
       defaultAutoVelocityAccelerationSafetyFactor,
     default_auto_velocity_merge_tolerance_meters_per_sec:
-      defaultAutoVelocityMergeToleranceMetersPerSec
-  }
+      defaultAutoVelocityMergeToleranceMetersPerSec,
+  },
 };
 
 export function createProjectConfig(input?: unknown): CanonicalProjectConfig {
@@ -104,7 +104,7 @@ export function projectConfigToFlat(input: unknown): FlatProjectConfig {
   const side = normalizeProtrusionSide(config.gui.protrusions.side, "none");
   const distance = nonNegativeNumber(
     config.gui.protrusions.distance_meters,
-    defaultConfig.gui.protrusions.distance_meters
+    defaultConfig.gui.protrusions.distance_meters,
   );
   const enabled = Boolean(config.gui.protrusions.enabled);
   const defaultState = enabled
@@ -119,22 +119,22 @@ export function projectConfigToFlat(input: unknown): FlatProjectConfig {
     protrusion_side: side,
     protrusion_default_state: defaultState,
     protrusion_show_on_event_keys: normalizeKeyList(
-      config.gui.protrusions.show_on_event_keys
+      config.gui.protrusions.show_on_event_keys,
     ),
     protrusion_hide_on_event_keys: normalizeKeyList(
-      config.gui.protrusions.hide_on_event_keys
+      config.gui.protrusions.hide_on_event_keys,
     ),
     robot_protrusion_front_meters: enabled && side === "front" ? distance : 0,
     robot_protrusion_back_meters: enabled && side === "back" ? distance : 0,
     robot_protrusion_left_meters: enabled && side === "left" ? distance : 0,
     robot_protrusion_right_meters: enabled && side === "right" ? distance : 0,
-    ...config.kinematic_constraints
+    ...config.kinematic_constraints,
   };
 }
 
 export function getDefaultOptionalConfigValue(
   config: unknown,
-  key: string
+  key: string,
 ): number | null {
   const canonical = createProjectConfig(config);
   const constraints = canonical.kinematic_constraints;
@@ -152,7 +152,7 @@ export function getDefaultOptionalConfigValue(
 }
 
 export function projectConfigDefaultLookup(
-  config: unknown
+  config: unknown,
 ): (key: string) => number | null {
   return (key: string) => getDefaultOptionalConfigValue(config, key);
 }
@@ -180,76 +180,76 @@ export function needsProjectConfigMigration(input: unknown): boolean {
 
 function updateProjectConfig(
   config: CanonicalProjectConfig,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
 ): void {
   const robotLength = lookupAny(input, [
     ["robot_length_meters"],
-    ["gui", "robot", "length_meters"]
+    ["gui", "robot", "length_meters"],
   ]);
   if (robotLength.found) {
     config.gui.robot.length_meters = nonNegativeNumber(
       robotLength.value,
-      config.gui.robot.length_meters
+      config.gui.robot.length_meters,
     );
   }
 
   const robotWidth = lookupAny(input, [
     ["robot_width_meters"],
-    ["gui", "robot", "width_meters"]
+    ["gui", "robot", "width_meters"],
   ]);
   if (robotWidth.found) {
     config.gui.robot.width_meters = nonNegativeNumber(
       robotWidth.value,
-      config.gui.robot.width_meters
+      config.gui.robot.width_meters,
     );
   }
 
   const enabled = lookupAny(input, [
     ["protrusion_enabled"],
-    ["gui", "protrusions", "enabled"]
+    ["gui", "protrusions", "enabled"],
   ]);
   if (enabled.found) {
     config.gui.protrusions.enabled = coerceBoolean(
       enabled.value,
-      config.gui.protrusions.enabled
+      config.gui.protrusions.enabled,
     );
   }
 
   const distance = lookupAny(input, [
     ["protrusion_distance_meters"],
-    ["gui", "protrusions", "distance_meters"]
+    ["gui", "protrusions", "distance_meters"],
   ]);
   if (distance.found) {
     config.gui.protrusions.distance_meters = nonNegativeNumber(
       distance.value,
-      config.gui.protrusions.distance_meters
+      config.gui.protrusions.distance_meters,
     );
   }
 
   const side = lookupAny(input, [
     ["protrusion_side"],
-    ["gui", "protrusions", "side"]
+    ["gui", "protrusions", "side"],
   ]);
   if (side.found) {
     config.gui.protrusions.side = normalizeProtrusionSide(
       side.value,
-      config.gui.protrusions.side
+      config.gui.protrusions.side,
     );
   }
 
   const defaultState = lookupAny(input, [
     ["protrusion_default_state"],
-    ["gui", "protrusions", "default_state"]
+    ["gui", "protrusions", "default_state"],
   ]);
   if (defaultState.found) {
     config.gui.protrusions.default_state = normalizeProtrusionState(
       defaultState.value,
-      config.gui.protrusions.default_state
+      config.gui.protrusions.default_state,
     );
   }
 
   const eventOverrides = lookupAny(input, [
-    ["gui", "protrusions", "event_state_overrides"]
+    ["gui", "protrusions", "event_state_overrides"],
   ]);
   if (eventOverrides.found && isRecord(eventOverrides.value)) {
     const showKeys: string[] = [];
@@ -272,18 +272,22 @@ function updateProjectConfig(
 
   const showKeys = lookupAny(input, [
     ["protrusion_show_on_event_keys"],
-    ["gui", "protrusions", "show_on_event_keys"]
+    ["gui", "protrusions", "show_on_event_keys"],
   ]);
   if (showKeys.found) {
-    config.gui.protrusions.show_on_event_keys = normalizeKeyList(showKeys.value);
+    config.gui.protrusions.show_on_event_keys = normalizeKeyList(
+      showKeys.value,
+    );
   }
 
   const hideKeys = lookupAny(input, [
     ["protrusion_hide_on_event_keys"],
-    ["gui", "protrusions", "hide_on_event_keys"]
+    ["gui", "protrusions", "hide_on_event_keys"],
   ]);
   if (hideKeys.found) {
-    config.gui.protrusions.hide_on_event_keys = normalizeKeyList(hideKeys.value);
+    config.gui.protrusions.hide_on_event_keys = normalizeKeyList(
+      hideKeys.value,
+    );
   }
 
   const legacyPresent = legacyProtrusionKeys.some((key) => key in input);
@@ -305,31 +309,31 @@ function updateProjectConfig(
     config.gui.protrusions.hide_on_event_keys = [];
   }
 
-  const defaultNumericKeys = Object.keys(
-    config.kinematic_constraints
-  ) as Array<keyof CanonicalProjectConfig["kinematic_constraints"]>;
+  const defaultNumericKeys = Object.keys(config.kinematic_constraints) as Array<
+    keyof CanonicalProjectConfig["kinematic_constraints"]
+  >;
   for (const key of defaultNumericKeys) {
     const value = lookupAny(input, [[key], ["kinematic_constraints", key]]);
     if (value.found) {
       config.kinematic_constraints[key] = nonNegativeNumber(
         value.value,
-        config.kinematic_constraints[key]
+        config.kinematic_constraints[key],
       );
     }
   }
 
   config.gui.protrusions.side = normalizeProtrusionSide(
     config.gui.protrusions.side,
-    "none"
+    "none",
   );
   config.gui.protrusions.default_state = config.gui.protrusions.enabled
     ? normalizeProtrusionState(config.gui.protrusions.default_state, "")
     : "";
   config.gui.protrusions.show_on_event_keys = normalizeKeyList(
-    config.gui.protrusions.show_on_event_keys
+    config.gui.protrusions.show_on_event_keys,
   );
   config.gui.protrusions.hide_on_event_keys = normalizeKeyList(
-    config.gui.protrusions.hide_on_event_keys
+    config.gui.protrusions.hide_on_event_keys,
   );
 }
 
@@ -337,7 +341,7 @@ const legacyProtrusionKeys = [
   "robot_protrusion_front_meters",
   "robot_protrusion_back_meters",
   "robot_protrusion_left_meters",
-  "robot_protrusion_right_meters"
+  "robot_protrusion_right_meters",
 ] as const;
 
 function legacyProtrusionConversion(input: Record<string, unknown>): {
@@ -349,13 +353,13 @@ function legacyProtrusionConversion(input: Record<string, unknown>): {
     front: nonNegativeNumber(input.robot_protrusion_front_meters, 0),
     back: nonNegativeNumber(input.robot_protrusion_back_meters, 0),
     left: nonNegativeNumber(input.robot_protrusion_left_meters, 0),
-    right: nonNegativeNumber(input.robot_protrusion_right_meters, 0)
+    right: nonNegativeNumber(input.robot_protrusion_right_meters, 0),
   };
   const priority: Array<Exclude<ProtrusionSide, "none">> = [
     "front",
     "back",
     "left",
-    "right"
+    "right",
   ];
 
   if (!Object.values(values).some((value) => value > 0)) {
@@ -377,13 +381,13 @@ function legacyProtrusionConversion(input: Record<string, unknown>): {
   return {
     enabled: true,
     distance: values[bestSide],
-    side: bestSide
+    side: bestSide,
   };
 }
 
 function lookupAny(
   input: Record<string, unknown>,
-  paths: string[][]
+  paths: string[][],
 ): { found: boolean; value: unknown } {
   for (const path of paths) {
     const result = lookupPath(input, path);
@@ -396,7 +400,7 @@ function lookupAny(
 
 function lookupPath(
   input: Record<string, unknown>,
-  path: string[]
+  path: string[],
 ): { found: boolean; value: unknown } {
   let current: unknown = input;
   for (const key of path) {
@@ -437,7 +441,7 @@ function coerceBoolean(value: unknown, fallback: boolean): boolean {
 
 function normalizeProtrusionSide(
   value: unknown,
-  fallback: ProtrusionSide
+  fallback: ProtrusionSide,
 ): ProtrusionSide {
   const normalized = String(value).trim().toLowerCase();
   return normalized === "none" ||
@@ -451,13 +455,15 @@ function normalizeProtrusionSide(
 
 function normalizeProtrusionState(
   value: unknown,
-  fallback: ProtrusionState
+  fallback: ProtrusionState,
 ): ProtrusionState {
   const normalized = String(value).trim().toLowerCase();
   if (["shown", "show", "visible", "on", "true", "1"].includes(normalized)) {
     return "shown";
   }
-  if (["hidden", "hide", "invisible", "off", "false", "0"].includes(normalized)) {
+  if (
+    ["hidden", "hide", "invisible", "off", "false", "0"].includes(normalized)
+  ) {
     return "hidden";
   }
   if (normalized === "" || normalized === "none") {

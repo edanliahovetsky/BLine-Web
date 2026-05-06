@@ -11,24 +11,32 @@ const addOptions: Array<{ type: AddableElementType; label: string }> = [
   { type: "waypoint", label: "Waypoint" },
   { type: "translation", label: "Translation" },
   { type: "rotation", label: "Rotation" },
-  { type: "event_trigger", label: "Event Trigger" }
+  { type: "event_trigger", label: "Event Trigger" },
 ];
 
 export function AddElementMenu({
   disabled = false,
   options,
-  onAdd
+  onAdd,
 }: AddElementMenuProps) {
-  const visibleOptions = addOptions.filter((option) => options.includes(option.type));
+  const visibleOptions = addOptions.filter((option) =>
+    options.includes(option.type),
+  );
 
   return (
     <details className="add-element-menu">
       <summary
         aria-disabled={disabled || visibleOptions.length === 0}
-        className={disabled || visibleOptions.length === 0 ? "is-disabled" : undefined}
+        className={
+          disabled || visibleOptions.length === 0 ? "is-disabled" : undefined
+        }
         role="button"
       >
-        <span className="sidebar-add-icon" data-testid="add-element-icon" aria-hidden="true">
+        <span
+          className="sidebar-add-icon"
+          data-testid="add-element-icon"
+          aria-hidden="true"
+        >
           <PlusIcon size={17} />
         </span>
         <span>Add element</span>
@@ -45,7 +53,10 @@ export function AddElementMenu({
                 event.currentTarget.closest("details")?.removeAttribute("open");
               }}
             >
-              <span aria-hidden="true" className={`element-type-mark type-${option.type}`}>
+              <span
+                aria-hidden="true"
+                className={`element-type-mark type-${option.type}`}
+              >
                 <ElementIcon type={option.type} />
               </span>
               <span>{option.label}</span>

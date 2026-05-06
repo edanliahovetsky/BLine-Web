@@ -4,7 +4,7 @@ import {
   isWaypoint,
   type PathElement,
   type PathModel,
-  type RangedConstraintKey
+  type RangedConstraintKey,
 } from "../model/path";
 import { createProjectConfig } from "../config/projectConfig";
 import type {
@@ -18,7 +18,7 @@ import type {
   SimTraceResult,
   SimulationConfig,
   SimulationOptions,
-  SimulationTraceSample
+  SimulationTraceSample,
 } from "./types";
 import {
   clamp01,
@@ -28,7 +28,7 @@ import {
   limitAcceleration,
   radiansToDegrees,
   shortestAngularDistance,
-  wrapAngleRadians
+  wrapAngleRadians,
 } from "./simGeometry";
 
 interface Anchor {
@@ -52,13 +52,13 @@ interface ProtrusionTrigger {
 const emptySpeeds: ChassisSpeeds = {
   vx_mps: 0,
   vy_mps: 0,
-  omega_radps: 0
+  omega_radps: 0,
 };
 
 export function simulatePath(
   path: PathModel,
   config: SimulationConfig = {},
-  options: SimulationOptions = {}
+  options: SimulationOptions = {},
 ): SimResult {
   return runPathSimulation(path, config, options, false);
 }
@@ -66,7 +66,7 @@ export function simulatePath(
 export function simulatePathWithTrace(
   path: PathModel,
   config: SimulationConfig = {},
-  options: SimulationOptions = {}
+  options: SimulationOptions = {},
 ): SimTraceResult {
   return runPathSimulation(path, config, options, true) as SimTraceResult;
 }
@@ -75,7 +75,7 @@ function runPathSimulation(
   path: PathModel,
   config: SimulationConfig,
   options: SimulationOptions,
-  collectTrace: boolean
+  collectTrace: boolean,
 ): SimTraceResult {
   const dt = options.dt_s ?? 0.02;
   if (!Number.isFinite(dt) || dt <= 0) {
@@ -108,12 +108,12 @@ function runPathSimulation(
         anchors,
         cumulativeLengths,
         globalSByTime,
-        uniqueTimes
+        uniqueTimes,
       ),
       times_sorted: uniqueTimes,
       total_time_s: 0,
       trail_points: trailPoints,
-      trace
+      trace,
     };
   }
 
@@ -121,31 +121,31 @@ function runPathSimulation(
   const baseMaxV = resolveConstraint(
     constraints.max_velocity_meters_per_sec,
     cfg.default_max_velocity_meters_per_sec,
-    3
+    3,
   );
   const baseMaxA = resolveConstraint(
     constraints.max_acceleration_meters_per_sec2,
     cfg.default_max_acceleration_meters_per_sec2,
-    2.5
+    2.5,
   );
   const baseMaxOmega = degreesToRadians(
     resolveConstraint(
       constraints.max_velocity_deg_per_sec,
       cfg.default_max_velocity_deg_per_sec,
-      180
-    )
+      180,
+    ),
   );
   const baseMaxAlpha = degreesToRadians(
     resolveConstraint(
       constraints.max_acceleration_deg_per_sec2,
       cfg.default_max_acceleration_deg_per_sec2,
-      360
-    )
+      360,
+    ),
   );
   const defaultHandoffRadius = resolveConstraint(
     null,
     cfg.default_intermediate_handoff_radius_meters,
-    0.05
+    0.05,
   );
 
   const totalPathLength = cumulativeLengths[cumulativeLengths.length - 1] ?? 0;
@@ -154,22 +154,22 @@ function runPathSimulation(
   const globalKeyframes = buildGlobalRotationKeyframes(
     path,
     anchors,
-    cumulativeLengths
+    cumulativeLengths,
   );
   const rotationDomainEvents = buildRotationDomainEvents(
     path,
     anchors,
-    cumulativeLengths
+    cumulativeLengths,
   );
   const initialHeading = desiredHeadingForGlobalS(
     globalKeyframes,
     0,
-    startHeadingBase
+    startHeadingBase,
   ).desiredTheta;
   const endHeadingTarget = desiredHeadingForGlobalS(
     globalKeyframes,
     totalPathLength,
-    startHeadingBase
+    startHeadingBase,
   ).desiredTheta;
 
   if (collectTrace) {
@@ -190,7 +190,7 @@ function runPathSimulation(
       ay_mps2: 0,
       acceleration_mps2: 0,
       snapped_position: false,
-      snapped_rotation: false
+      snapped_rotation: false,
     });
   }
 
@@ -206,12 +206,12 @@ function runPathSimulation(
   const minTransV = minimumPositiveConstraint(
     path,
     "max_velocity_meters_per_sec",
-    baseMaxV
+    baseMaxV,
   );
   const minRotOmegaDeg = minimumPositiveConstraint(
     path,
     "max_velocity_deg_per_sec",
-    radiansToDegrees(baseMaxOmega)
+    radiansToDegrees(baseMaxOmega),
   );
   const minRotOmega = degreesToRadians(Math.max(0.001, minRotOmegaDeg));
   const estTransTime = totalPathLength / Math.max(0.1, minTransV);
@@ -235,7 +235,7 @@ function runPathSimulation(
       path,
       segmentIndex,
       anchors,
-      defaultHandoffRadius
+      defaultHandoffRadius,
     );
 
     while (
@@ -252,7 +252,7 @@ function runPathSimulation(
         path,
         segmentIndex,
         anchors,
-        defaultHandoffRadius
+        defaultHandoffRadius,
       );
     }
 
@@ -266,19 +266,19 @@ function runPathSimulation(
     const desiredTheta = desiredHeadingForGlobalS(
       globalKeyframes,
       globalS,
-      startHeadingBase
+      startHeadingBase,
     ).desiredTheta;
     const remaining = remainingDistanceFrom(segments, segmentIndex, x, y);
     const nextAnchorOrdinal1b = segmentIndex + 2;
     const maxVEff = activeTranslationLimit(
       path,
       "max_velocity_meters_per_sec",
-      nextAnchorOrdinal1b
+      nextAnchorOrdinal1b,
     );
     const maxAEff = activeTranslationLimit(
       path,
       "max_acceleration_meters_per_sec2",
-      nextAnchorOrdinal1b
+      nextAnchorOrdinal1b,
     );
     const maxV = cappedLimit(maxVEff, baseMaxV);
     const maxA = cappedLimit(maxAEff, baseMaxA);
@@ -286,13 +286,13 @@ function runPathSimulation(
       path,
       rotationDomainEvents,
       "max_velocity_deg_per_sec",
-      globalS
+      globalS,
     );
     const maxAlphaEff = activeRotationLimit(
       path,
       rotationDomainEvents,
       "max_acceleration_deg_per_sec2",
-      globalS
+      globalS,
     );
     const maxOmega =
       maxOmegaEff === null
@@ -324,18 +324,18 @@ function runPathSimulation(
       {
         vx_mps: vDesScalar * ux,
         vy_mps: vDesScalar * uy,
-        omega_radps: omegaDes
+        omega_radps: omegaDes,
       },
       speeds,
       dt,
       maxA,
-      maxAlpha
+      maxAlpha,
     );
 
     if (Math.abs(limited.omega_radps) > maxOmega && maxOmega > 0) {
       limited = {
         ...limited,
-        omega_radps: Math.sign(limited.omega_radps) * maxOmega
+        omega_radps: Math.sign(limited.omega_radps) * maxOmega,
       };
     }
     const dynamicsLimited = limited;
@@ -368,8 +368,8 @@ function runPathSimulation(
       totalPathLength,
       Math.max(
         lastGlobalS,
-        projectPointToGlobalS(x, y, segments, cumulativeLengths, lastGlobalS)
-      )
+        projectPointToGlobalS(x, y, segments, cumulativeLengths, lastGlobalS),
+      ),
     );
     lastGlobalS = poseGlobalS;
     posesByTime.set(tKey, [x, y, theta]);
@@ -421,7 +421,8 @@ function runPathSimulation(
 
     if (collectTrace) {
       const pose = posesByTime.get(tKey) ?? [x, y, theta];
-      const traceSegment = segments[Math.min(segmentIndex, segments.length - 1)];
+      const traceSegment =
+        segments[Math.min(segmentIndex, segments.length - 1)];
       trace.push({
         time_s: tKey,
         x_m: pose[0],
@@ -441,7 +442,7 @@ function runPathSimulation(
         ay_mps2: ayMps2,
         acceleration_mps2: accelerationMps2,
         snapped_position: snappedPosition,
-        snapped_rotation: snappedRotation
+        snapped_rotation: snappedRotation,
       });
     }
 
@@ -455,10 +456,13 @@ function runPathSimulation(
 
   const lastTime = round3(tS);
   if (!posesByTime.has(lastTime) && timesSorted.length > 0) {
-    posesByTime.set(lastTime, posesByTime.get(timesSorted[timesSorted.length - 1])!);
+    posesByTime.set(
+      lastTime,
+      posesByTime.get(timesSorted[timesSorted.length - 1])!,
+    );
     globalSByTime.set(
       lastTime,
-      globalSByTime.get(timesSorted[timesSorted.length - 1]) ?? lastGlobalS
+      globalSByTime.get(timesSorted[timesSorted.length - 1]) ?? lastGlobalS,
     );
     timesSorted.push(lastTime);
   }
@@ -474,12 +478,12 @@ function runPathSimulation(
       anchors,
       cumulativeLengths,
       globalSByTime,
-      uniqueTimes
+      uniqueTimes,
     ),
     times_sorted: uniqueTimes,
     total_time_s: uniqueTimes[uniqueTimes.length - 1] ?? 0,
     trail_points: trailPoints,
-    trace
+    trace,
   };
 }
 
@@ -509,7 +513,7 @@ export function buildSegments(path: PathModel): SegmentBuildResult {
             by: end.y,
             length_m: 0,
             ux: 1,
-            uy: 0
+            uy: 0,
           }
         : {
             ax: start.x,
@@ -518,10 +522,12 @@ export function buildSegments(path: PathModel): SegmentBuildResult {
             by: end.y,
             length_m: length,
             ux: dx / length,
-            uy: dy / length
+            uy: dy / length,
           };
     segments.push(segment);
-    cumulativeLengths.push(cumulativeLengths[cumulativeLengths.length - 1] + length);
+    cumulativeLengths.push(
+      cumulativeLengths[cumulativeLengths.length - 1] + length,
+    );
   }
 
   return { anchors, segments, cumulativeLengths };
@@ -530,14 +536,18 @@ export function buildSegments(path: PathModel): SegmentBuildResult {
 export function buildGlobalRotationKeyframes(
   path: PathModel,
   anchors: readonly Anchor[],
-  cumulativeLengths: readonly number[]
+  cumulativeLengths: readonly number[],
 ): RotationKeyframe[] {
   const keyframes: RotationKeyframe[] = [];
   let rotationOrdinal = 0;
 
   for (const [pathIndex, element] of path.path_elements.entries()) {
     if (isRotationTarget(element)) {
-      const bracket = surroundingAnchorOrdinals(path.path_elements, anchors, pathIndex);
+      const bracket = surroundingAnchorOrdinals(
+        path.path_elements,
+        anchors,
+        pathIndex,
+      );
       if (!bracket) {
         continue;
       }
@@ -548,13 +558,15 @@ export function buildGlobalRotationKeyframes(
         s_m: s0 + clamp01(element.t_ratio) * Math.max(s1 - s0, 1e-9),
         theta_target: element.rotation_radians,
         event_ordinal_1b: rotationOrdinal,
-        profiled_rotation: element.profiled_rotation
+        profiled_rotation: element.profiled_rotation,
       });
       continue;
     }
 
     if (isWaypoint(element)) {
-      const anchorOrdinal = anchors.findIndex((anchor) => anchor.pathIndex === pathIndex);
+      const anchorOrdinal = anchors.findIndex(
+        (anchor) => anchor.pathIndex === pathIndex,
+      );
       if (anchorOrdinal === -1) {
         continue;
       }
@@ -563,7 +575,7 @@ export function buildGlobalRotationKeyframes(
         s_m: cumulativeLengths[anchorOrdinal] ?? 0,
         theta_target: element.rotation_target.rotation_radians,
         event_ordinal_1b: rotationOrdinal,
-        profiled_rotation: element.rotation_target.profiled_rotation
+        profiled_rotation: element.rotation_target.profiled_rotation,
       });
     }
   }
@@ -574,27 +586,33 @@ export function buildGlobalRotationKeyframes(
 export function buildRotationDomainEvents(
   path: PathModel,
   anchors: readonly Anchor[],
-  cumulativeLengths: readonly number[]
+  cumulativeLengths: readonly number[],
 ): RotationDomainEvent[] {
   const events: RotationDomainEvent[] = [];
   let ordinal = 0;
 
   for (const [pathIndex, element] of path.path_elements.entries()) {
     if (isWaypoint(element)) {
-      const anchorOrdinal = anchors.findIndex((anchor) => anchor.pathIndex === pathIndex);
+      const anchorOrdinal = anchors.findIndex(
+        (anchor) => anchor.pathIndex === pathIndex,
+      );
       if (anchorOrdinal === -1) {
         continue;
       }
       ordinal += 1;
       events.push({
         event_ordinal_1b: ordinal,
-        s_m: cumulativeLengths[anchorOrdinal] ?? 0
+        s_m: cumulativeLengths[anchorOrdinal] ?? 0,
       });
       continue;
     }
 
     if (isRotationTarget(element)) {
-      const bracket = surroundingAnchorOrdinals(path.path_elements, anchors, pathIndex);
+      const bracket = surroundingAnchorOrdinals(
+        path.path_elements,
+        anchors,
+        pathIndex,
+      );
       if (!bracket) {
         continue;
       }
@@ -603,7 +621,7 @@ export function buildRotationDomainEvents(
       ordinal += 1;
       events.push({
         event_ordinal_1b: ordinal,
-        s_m: s0 + clamp01(element.t_ratio) * Math.max(s1 - s0, 1e-9)
+        s_m: s0 + clamp01(element.t_ratio) * Math.max(s1 - s0, 1e-9),
       });
     }
   }
@@ -614,7 +632,7 @@ export function buildRotationDomainEvents(
 export function desiredHeadingForGlobalS(
   globalFrames: readonly RotationKeyframe[],
   sM: number,
-  startHeading: number
+  startHeading: number,
 ): {
   desiredTheta: number;
   dthetaDs: number;
@@ -624,7 +642,7 @@ export function desiredHeadingForGlobalS(
     return {
       desiredTheta: startHeading,
       dthetaDs: 0,
-      profiledRotation: true
+      profiledRotation: true,
     };
   }
 
@@ -640,7 +658,7 @@ export function desiredHeadingForGlobalS(
     frames.push({
       s: keyframe.s_m,
       theta: keyframe.theta_target,
-      profiledRotation: keyframe.profiled_rotation
+      profiledRotation: keyframe.profiled_rotation,
     });
   }
 
@@ -654,7 +672,7 @@ export function desiredHeadingForGlobalS(
       return {
         desiredTheta: current.theta,
         dthetaDs,
-        profiledRotation: next.profiledRotation
+        profiledRotation: next.profiledRotation,
       };
     }
 
@@ -663,7 +681,7 @@ export function desiredHeadingForGlobalS(
         return {
           desiredTheta: next.theta,
           dthetaDs: 0,
-          profiledRotation: next.profiledRotation
+          profiledRotation: next.profiledRotation,
         };
       }
 
@@ -671,7 +689,7 @@ export function desiredHeadingForGlobalS(
       return {
         desiredTheta: wrapAngleRadians(current.theta + delta * alpha),
         dthetaDs,
-        profiledRotation: next.profiledRotation
+        profiledRotation: next.profiledRotation,
       };
     }
   }
@@ -680,7 +698,7 @@ export function desiredHeadingForGlobalS(
   return {
     desiredTheta: last.theta,
     dthetaDs: 0,
-    profiledRotation: last.profiledRotation
+    profiledRotation: last.profiledRotation,
   };
 }
 
@@ -695,31 +713,31 @@ function normalizeSimulationConfig(input: unknown): SimulationConfig {
   return {
     default_max_velocity_meters_per_sec: numericOption(
       input.default_max_velocity_meters_per_sec ??
-        nested.default_max_velocity_meters_per_sec
+        nested.default_max_velocity_meters_per_sec,
     ),
     default_max_acceleration_meters_per_sec2: numericOption(
       input.default_max_acceleration_meters_per_sec2 ??
-        nested.default_max_acceleration_meters_per_sec2
+        nested.default_max_acceleration_meters_per_sec2,
     ),
     default_intermediate_handoff_radius_meters: numericOption(
       input.default_intermediate_handoff_radius_meters ??
-        nested.default_intermediate_handoff_radius_meters
+        nested.default_intermediate_handoff_radius_meters,
     ),
     default_max_velocity_deg_per_sec: numericOption(
       input.default_max_velocity_deg_per_sec ??
-        nested.default_max_velocity_deg_per_sec
+        nested.default_max_velocity_deg_per_sec,
     ),
     default_max_acceleration_deg_per_sec2: numericOption(
       input.default_max_acceleration_deg_per_sec2 ??
-        nested.default_max_acceleration_deg_per_sec2
-    )
+        nested.default_max_acceleration_deg_per_sec2,
+    ),
   };
 }
 
 function resolveConstraint(
   value: unknown,
   fallback: unknown,
-  defaultValue: number
+  defaultValue: number,
 ): number {
   const primary = numericOption(value);
   if (primary !== null && primary > 0) {
@@ -741,7 +759,7 @@ function cappedLimit(value: number | null, globalLimit: number): number {
 function activeTranslationLimit(
   path: PathModel,
   key: RangedConstraintKey,
-  nextAnchorOrdinal: number
+  nextAnchorOrdinal: number,
 ): number | null {
   let best: number | null = null;
   for (const constraint of path.ranged_constraints) {
@@ -766,9 +784,12 @@ function activeRotationLimit(
   path: PathModel,
   rotationDomainEvents: readonly RotationDomainEvent[],
   key: RangedConstraintKey,
-  globalSNow: number
+  globalSNow: number,
 ): number | null {
-  const eventOrdinal = rotationTargetEventOrdinal(rotationDomainEvents, globalSNow);
+  const eventOrdinal = rotationTargetEventOrdinal(
+    rotationDomainEvents,
+    globalSNow,
+  );
   if (eventOrdinal === null || eventOrdinal <= 0) {
     return null;
   }
@@ -794,7 +815,7 @@ function activeRotationLimit(
 
 function rotationTargetEventOrdinal(
   events: readonly RotationDomainEvent[],
-  globalSNow: number
+  globalSNow: number,
 ): number | null {
   if (events.length === 0) {
     return null;
@@ -817,7 +838,7 @@ function rotationTargetEventOrdinal(
 function minimumPositiveConstraint(
   path: PathModel,
   key: RangedConstraintKey,
-  fallback: number
+  fallback: number,
 ): number {
   let best = fallback;
   for (const constraint of path.ranged_constraints) {
@@ -836,7 +857,7 @@ function handoffRadiusForSegment(
   path: PathModel,
   segmentIndex: number,
   anchors: readonly Anchor[],
-  defaultRadius: number
+  defaultRadius: number,
 ): number {
   const targetAnchor = anchors[segmentIndex + 1];
   if (!targetAnchor) {
@@ -858,7 +879,7 @@ function remainingDistanceFrom(
   segments: readonly Segment[],
   segmentIndex: number,
   currentX: number,
-  currentY: number
+  currentY: number,
 ): number {
   let remaining = 0;
   let previousX = currentX;
@@ -877,7 +898,7 @@ function remainingDistanceFrom(
 function projectedDistanceOnSegment(
   segment: Segment,
   x: number,
-  y: number
+  y: number,
 ): number {
   const projected = dot(x - segment.ax, y - segment.ay, segment.ux, segment.uy);
   return Math.max(0, Math.min(projected, segment.length_m));
@@ -888,7 +909,7 @@ function projectPointToGlobalS(
   y: number,
   segments: readonly Segment[],
   cumulativeLengths: readonly number[],
-  fallbackS: number
+  fallbackS: number,
 ): number {
   let bestS = fallbackS;
   let bestDist2: number | null = null;
@@ -914,7 +935,7 @@ function buildProtrusionVisibilityByTime(
   anchors: readonly Anchor[],
   cumulativeLengths: readonly number[],
   globalSByTime: ReadonlyMap<number, number>,
-  timesSorted: readonly number[]
+  timesSorted: readonly number[],
 ): Map<number, boolean> {
   const visibilityByTime = new Map<number, boolean>();
   const protrusions = createProjectConfig(rawConfig).gui.protrusions;
@@ -931,7 +952,7 @@ function buildProtrusionVisibilityByTime(
     anchors,
     cumulativeLengths,
     protrusions.show_on_event_keys,
-    protrusions.hide_on_event_keys
+    protrusions.hide_on_event_keys,
   );
   let visible = protrusions.default_state === "shown";
   let scheduleIndex = 0;
@@ -956,7 +977,7 @@ function buildProtrusionTriggerSchedule(
   anchors: readonly Anchor[],
   cumulativeLengths: readonly number[],
   showOnEventKeys: readonly string[],
-  hideOnEventKeys: readonly string[]
+  hideOnEventKeys: readonly string[],
 ): ProtrusionTrigger[] {
   const showKeys = new Set(showOnEventKeys);
   const hideKeys = new Set(hideOnEventKeys);
@@ -975,16 +996,16 @@ function buildProtrusionTriggerSchedule(
       continue;
     }
 
-    const visible = showKeys.has(key)
-      ? true
-      : hideKeys.has(key)
-        ? false
-        : null;
+    const visible = showKeys.has(key) ? true : hideKeys.has(key) ? false : null;
     if (visible === null) {
       continue;
     }
 
-    const bracket = surroundingAnchorOrdinals(path.path_elements, anchors, pathIndex);
+    const bracket = surroundingAnchorOrdinals(
+      path.path_elements,
+      anchors,
+      pathIndex,
+    );
     if (!bracket) {
       continue;
     }
@@ -994,11 +1015,13 @@ function buildProtrusionTriggerSchedule(
     triggerSchedule.push({
       s_m: s0 + clamp01(element.t_ratio) * Math.max(s1 - s0, 0),
       path_index: pathIndex,
-      visible
+      visible,
     });
   }
 
-  return triggerSchedule.sort((a, b) => a.s_m - b.s_m || a.path_index - b.path_index);
+  return triggerSchedule.sort(
+    (a, b) => a.s_m - b.s_m || a.path_index - b.path_index,
+  );
 }
 
 function defaultHeading(segment: Segment): number {
@@ -1012,7 +1035,7 @@ function anchorPoint(element: PathElement): { x: number; y: number } | null {
   if (element.type === "waypoint") {
     return {
       x: element.translation_target.x_meters,
-      y: element.translation_target.y_meters
+      y: element.translation_target.y_meters,
     };
   }
   return null;
@@ -1021,14 +1044,16 @@ function anchorPoint(element: PathElement): { x: number; y: number } | null {
 function surroundingAnchorOrdinals(
   elements: readonly PathElement[],
   anchors: readonly Anchor[],
-  pathIndex: number
+  pathIndex: number,
 ): { previous: number; next: number } | null {
   let previous: number | null = null;
   let next: number | null = null;
 
   for (let index = pathIndex - 1; index >= 0; index -= 1) {
     if (anchorPoint(elements[index]) !== null) {
-      const anchorIndex = anchors.findIndex((anchor) => anchor.pathIndex === index);
+      const anchorIndex = anchors.findIndex(
+        (anchor) => anchor.pathIndex === index,
+      );
       if (anchorIndex !== -1) {
         previous = anchorIndex;
         break;
@@ -1038,7 +1063,9 @@ function surroundingAnchorOrdinals(
 
   for (let index = pathIndex + 1; index < elements.length; index += 1) {
     if (anchorPoint(elements[index]) !== null) {
-      const anchorIndex = anchors.findIndex((anchor) => anchor.pathIndex === index);
+      const anchorIndex = anchors.findIndex(
+        (anchor) => anchor.pathIndex === index,
+      );
       if (anchorIndex !== -1) {
         next = anchorIndex;
         break;
@@ -1050,7 +1077,7 @@ function surroundingAnchorOrdinals(
 }
 
 function dedupeRotationKeyframes(
-  keyframes: RotationKeyframe[]
+  keyframes: RotationKeyframe[],
 ): RotationKeyframe[] {
   const sorted = [...keyframes].sort((a, b) => a.s_m - b.s_m);
   const deduped: RotationKeyframe[] = [];

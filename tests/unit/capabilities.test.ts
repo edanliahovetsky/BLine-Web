@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   browserWebCapabilities,
-  tauriCapabilities
+  tauriCapabilities,
 } from "../../src/env/capabilities";
 
 describe("Phase 1 shell capabilities", () => {
@@ -10,7 +10,7 @@ describe("Phase 1 shell capabilities", () => {
       shell: "browser-web",
       canUseNativeDialogs: false,
       canWriteRealFiles: false,
-      canUseSharedProjectStore: false
+      canUseSharedProjectStore: false,
     });
   });
 
@@ -19,7 +19,7 @@ describe("Phase 1 shell capabilities", () => {
       shell: "tauri",
       canUseNativeDialogs: true,
       canWriteRealFiles: true,
-      canUseSharedProjectStore: false
+      canUseSharedProjectStore: false,
     });
   });
 });

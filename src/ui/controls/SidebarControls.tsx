@@ -1,4 +1,10 @@
-import { useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon } from "../icons";
 
@@ -11,7 +17,7 @@ export function SidebarSelectControl<T extends string>({
   ariaLabel,
   value,
   options,
-  onChange
+  onChange,
 }: {
   ariaLabel: string;
   value: T;
@@ -47,7 +53,7 @@ export function NumberStepperControl({
   allowEmpty = false,
   disabled = false,
   precision = 2,
-  onChange
+  onChange,
 }: {
   ariaLabel: string;
   value: number | null;
@@ -59,7 +65,8 @@ export function NumberStepperControl({
   precision?: number;
   onChange(value: number | null): void;
 }) {
-  const formattedValue = value === null ? "" : formatNumericValue(value, precision);
+  const formattedValue =
+    value === null ? "" : formatNumericValue(value, precision);
   const [draftValue, setDraftValue] = useState(formattedValue);
   const [editing, setEditing] = useState(false);
   const skipBlurCommitRef = useRef(false);
@@ -69,7 +76,14 @@ export function NumberStepperControl({
 
   const applyStep = (direction: 1 | -1) => {
     const baseValue = parseDraftNumber(draftValue) ?? value ?? 0;
-    const nextValue = stepNumber(baseValue, step, direction, min, max, precision);
+    const nextValue = stepNumber(
+      baseValue,
+      step,
+      direction,
+      min,
+      max,
+      precision,
+    );
     setDraftValue(formatNumericValue(nextValue, precision));
     onChange(nextValue);
   };
@@ -87,7 +101,11 @@ export function NumberStepperControl({
       return;
     }
 
-    const nextValue = clampToBounds(roundToPrecision(parsed, precision), min, max);
+    const nextValue = clampToBounds(
+      roundToPrecision(parsed, precision),
+      min,
+      max,
+    );
     setDraftValue(formatNumericValue(nextValue, precision));
     onChange(nextValue);
   };
@@ -134,12 +152,18 @@ export function NumberStepperControl({
         value={inputValue}
         disabled={disabled}
         onChange={(event) => {
-          const nextDraft = sanitizeNumberInput(event.currentTarget.value, precision, min);
+          const nextDraft = sanitizeNumberInput(
+            event.currentTarget.value,
+            precision,
+            min,
+          );
           const parsed = parseDraftNumber(nextDraft);
           setDraftValue(nextDraft);
 
           if (parsed !== null) {
-            onChange(clampToBounds(roundToPrecision(parsed, precision), min, max));
+            onChange(
+              clampToBounds(roundToPrecision(parsed, precision), min, max),
+            );
           } else if (allowEmpty && nextDraft.trim() === "") {
             onChange(null);
           }
@@ -219,10 +243,16 @@ function formatNumericValue(value: number, precision: number): string {
     return "";
   }
 
-  return Number(roundToPrecision(value, precision).toFixed(Math.max(0, precision))).toString();
+  return Number(
+    roundToPrecision(value, precision).toFixed(Math.max(0, precision)),
+  ).toString();
 }
 
-function sanitizeNumberInput(value: string, precision: number, min?: number): string {
+function sanitizeNumberInput(
+  value: string,
+  precision: number,
+  min?: number,
+): string {
   const allowNegative = min === undefined || min < 0;
   const normalizedPrecision = Math.max(0, precision);
   let sanitized = value.replace(/[^\d.-]/g, "");
@@ -245,7 +275,10 @@ function sanitizeNumberInput(value: string, precision: number, min?: number): st
   }
 
   const integerPart = sanitized.slice(0, decimalIndex + 1);
-  const decimalPart = sanitized.slice(decimalIndex + 1).replace(/\./g, "").slice(0, normalizedPrecision);
+  const decimalPart = sanitized
+    .slice(decimalIndex + 1)
+    .replace(/\./g, "")
+    .slice(0, normalizedPrecision);
   return `${integerPart}${decimalPart}`;
 }
 
@@ -265,7 +298,7 @@ function stepNumber(
   direction: 1 | -1,
   min: number | undefined,
   max: number | undefined,
-  precision: number
+  precision: number,
 ): number {
   const nextValue = roundToPrecision(value + step * direction, precision);
   return clampToBounds(nextValue, min, max);
@@ -275,7 +308,11 @@ function roundToPrecision(value: number, precision: number): number {
   const normalizedPrecision = Math.max(0, precision);
   const factor = 10 ** normalizedPrecision;
   const epsilon = value >= 0 ? Number.EPSILON : -Number.EPSILON;
-  return Number((Math.round((value + epsilon) * factor) / factor).toFixed(normalizedPrecision));
+  return Number(
+    (Math.round((value + epsilon) * factor) / factor).toFixed(
+      normalizedPrecision,
+    ),
+  );
 }
 
 function clampToBounds(value: number, min?: number, max?: number): number {

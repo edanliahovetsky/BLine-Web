@@ -1,4 +1,7 @@
-import { createProjectConfig, type ProtrusionSide } from "../core/config/projectConfig";
+import {
+  createProjectConfig,
+  type ProtrusionSide,
+} from "../core/config/projectConfig";
 import type { ProjectConfig } from "../core/io/projectSchema";
 
 export interface RobotSizeMeters {
@@ -30,43 +33,43 @@ const defaultRobotConfig = createProjectConfig().gui.robot;
 
 export const defaultRobotSizeMeters: RobotSizeMeters = {
   lengthMeters: defaultRobotConfig.length_meters,
-  widthMeters: defaultRobotConfig.width_meters
+  widthMeters: defaultRobotConfig.width_meters,
 };
 
 export function robotSizeFromConfig(
-  config: ProjectConfig | null | undefined
+  config: ProjectConfig | null | undefined,
 ): RobotSizeMeters {
   return {
     lengthMeters: Math.max(
       0,
-      config?.gui.robot.length_meters ?? defaultRobotSizeMeters.lengthMeters
+      config?.gui.robot.length_meters ?? defaultRobotSizeMeters.lengthMeters,
     ),
     widthMeters: Math.max(
       0,
-      config?.gui.robot.width_meters ?? defaultRobotSizeMeters.widthMeters
-    )
+      config?.gui.robot.width_meters ?? defaultRobotSizeMeters.widthMeters,
+    ),
   };
 }
 
 export function robotSizeToPixels(
   size: RobotSizeMeters,
-  metersToPixels: number
+  metersToPixels: number,
 ): { lengthPx: number; widthPx: number } {
   return {
     lengthPx: size.lengthMeters * metersToPixels,
-    widthPx: size.widthMeters * metersToPixels
+    widthPx: size.widthMeters * metersToPixels,
   };
 }
 
 export function centeredRobotBounds(
   lengthPx: number,
-  widthPx: number
+  widthPx: number,
 ): RobotLocalBounds {
   return {
     x: -lengthPx / 2,
     y: -widthPx / 2,
     width: lengthPx,
-    height: widthPx
+    height: widthPx,
   };
 }
 
@@ -75,7 +78,7 @@ export function robotBoundsWithProtrusion({
   widthPx,
   protrusionVisible,
   protrusionDistancePx,
-  protrusionSide
+  protrusionSide,
 }: {
   lengthPx: number;
   widthPx: number;
@@ -89,7 +92,7 @@ export function robotBoundsWithProtrusion({
     widthPx,
     protrusionVisible,
     protrusionDistancePx,
-    protrusionSide
+    protrusionSide,
   });
 
   if (!protrusionBounds) {
@@ -100,18 +103,18 @@ export function robotBoundsWithProtrusion({
   const yMin = Math.min(baseBounds.y, protrusionBounds.y);
   const xMax = Math.max(
     baseBounds.x + baseBounds.width,
-    protrusionBounds.x + protrusionBounds.width
+    protrusionBounds.x + protrusionBounds.width,
   );
   const yMax = Math.max(
     baseBounds.y + baseBounds.height,
-    protrusionBounds.y + protrusionBounds.height
+    protrusionBounds.y + protrusionBounds.height,
   );
 
   return {
     x: xMin,
     y: yMin,
     width: xMax - xMin,
-    height: yMax - yMin
+    height: yMax - yMin,
   };
 }
 
@@ -120,7 +123,7 @@ export function robotProtrusionBounds({
   widthPx,
   protrusionVisible,
   protrusionDistancePx,
-  protrusionSide
+  protrusionSide,
 }: {
   lengthPx: number;
   widthPx: number;
@@ -137,7 +140,7 @@ export function robotProtrusionBounds({
       x: lengthPx / 2,
       y: -widthPx / 2,
       width: protrusionDistancePx,
-      height: widthPx
+      height: widthPx,
     };
   }
   if (protrusionSide === "back") {
@@ -145,7 +148,7 @@ export function robotProtrusionBounds({
       x: -lengthPx / 2 - protrusionDistancePx,
       y: -widthPx / 2,
       width: protrusionDistancePx,
-      height: widthPx
+      height: widthPx,
     };
   }
   if (protrusionSide === "left") {
@@ -153,7 +156,7 @@ export function robotProtrusionBounds({
       x: -lengthPx / 2,
       y: -widthPx / 2 - protrusionDistancePx,
       width: lengthPx,
-      height: protrusionDistancePx
+      height: protrusionDistancePx,
     };
   }
   if (protrusionSide === "right") {
@@ -161,7 +164,7 @@ export function robotProtrusionBounds({
       x: -lengthPx / 2,
       y: widthPx / 2,
       width: lengthPx,
-      height: protrusionDistancePx
+      height: protrusionDistancePx,
     };
   }
 
@@ -176,7 +179,7 @@ export function robotProtrusionOutlineGeometry({
   protrusionSide,
   strokeWidth,
   cornerRadiusPx,
-  rootInsetPx
+  rootInsetPx,
 }: {
   lengthPx: number;
   widthPx: number;
@@ -192,7 +195,7 @@ export function robotProtrusionOutlineGeometry({
     widthPx,
     protrusionVisible,
     protrusionDistancePx,
-    protrusionSide
+    protrusionSide,
   });
 
   if (!bounds) {
@@ -203,7 +206,11 @@ export function robotProtrusionOutlineGeometry({
   const yMin = bounds.y;
   const xMax = bounds.x + bounds.width;
   const yMax = bounds.y + bounds.height;
-  const normalizedStrokeWidth = clamp(strokeWidth, 0, Math.min(bounds.width, bounds.height));
+  const normalizedStrokeWidth = clamp(
+    strokeWidth,
+    0,
+    Math.min(bounds.width, bounds.height),
+  );
   const xInset = Math.min(normalizedStrokeWidth / 2, bounds.width / 2);
   const yInset = Math.min(normalizedStrokeWidth / 2, bounds.height / 2);
   const leftStrokeX = xMin + xInset;
@@ -222,9 +229,14 @@ export function robotProtrusionOutlineGeometry({
   const filletRadius = Math.min(
     Math.max(0, cornerRadiusPx ?? Math.min(lengthPx, widthPx) * 0.08),
     bounds.width / 2,
-    bounds.height / 2
+    bounds.height / 2,
   );
-  const rootFilletRadius = Math.min(filletRadius, rootInset, bounds.width, bounds.height / 2);
+  const rootFilletRadius = Math.min(
+    filletRadius,
+    rootInset,
+    bounds.width,
+    bounds.height / 2,
+  );
   const pathPoints = protrusionOutlinePathPoints({
     protrusionSide,
     leftStrokeX,
@@ -234,7 +246,7 @@ export function robotProtrusionOutlineGeometry({
     robotFrontX,
     robotBackX,
     robotLeftY,
-    robotRightY
+    robotRightY,
   });
   const pathCommands = protrusionOutlinePathCommands({
     protrusionSide,
@@ -247,7 +259,7 @@ export function robotProtrusionOutlineGeometry({
     rootLeftY,
     rootRightY,
     filletRadius,
-    rootFilletRadius
+    rootFilletRadius,
   });
 
   return {
@@ -255,15 +267,19 @@ export function robotProtrusionOutlineGeometry({
     strokeWidth: normalizedStrokeWidth,
     pathData: pathData(pathCommands),
     pathCommands,
-    pathPoints
+    pathPoints,
   };
 }
 
 export function strokedRectInsideBounds(
   bounds: RobotLocalBounds,
-  requestedStrokeWidth: number
+  requestedStrokeWidth: number,
 ): { rect: RobotLocalBounds; strokeWidth: number } {
-  const strokeWidth = clamp(requestedStrokeWidth, 0, Math.min(bounds.width, bounds.height));
+  const strokeWidth = clamp(
+    requestedStrokeWidth,
+    0,
+    Math.min(bounds.width, bounds.height),
+  );
   const inset = strokeWidth / 2;
 
   return {
@@ -271,9 +287,9 @@ export function strokedRectInsideBounds(
       x: bounds.x + inset,
       y: bounds.y + inset,
       width: Math.max(0, bounds.width - strokeWidth),
-      height: Math.max(0, bounds.height - strokeWidth)
+      height: Math.max(0, bounds.height - strokeWidth),
     },
-    strokeWidth
+    strokeWidth,
   };
 }
 
@@ -286,7 +302,7 @@ function protrusionOutlinePathPoints({
   robotFrontX,
   robotBackX,
   robotLeftY,
-  robotRightY
+  robotRightY,
 }: {
   protrusionSide: ProtrusionSide;
   leftStrokeX: number;
@@ -307,7 +323,7 @@ function protrusionOutlinePathPoints({
       rightStrokeX,
       bottomStrokeY,
       robotFrontX,
-      bottomStrokeY
+      bottomStrokeY,
     ];
   }
   if (protrusionSide === "back") {
@@ -319,7 +335,7 @@ function protrusionOutlinePathPoints({
       leftStrokeX,
       bottomStrokeY,
       robotBackX,
-      bottomStrokeY
+      bottomStrokeY,
     ];
   }
   if (protrusionSide === "left") {
@@ -331,7 +347,7 @@ function protrusionOutlinePathPoints({
       rightStrokeX,
       topStrokeY,
       rightStrokeX,
-      robotLeftY
+      robotLeftY,
     ];
   }
   if (protrusionSide === "right") {
@@ -343,7 +359,7 @@ function protrusionOutlinePathPoints({
       rightStrokeX,
       bottomStrokeY,
       rightStrokeX,
-      robotRightY
+      robotRightY,
     ];
   }
 
@@ -361,7 +377,7 @@ function protrusionOutlinePathCommands({
   rootLeftY,
   rootRightY,
   filletRadius,
-  rootFilletRadius
+  rootFilletRadius,
 }: {
   protrusionSide: ProtrusionSide;
   leftStrokeX: number;
@@ -386,7 +402,7 @@ function protrusionOutlinePathCommands({
       ["L", rightStrokeX, bottomStrokeY - r],
       ["Q", rightStrokeX, bottomStrokeY, rightStrokeX - r, bottomStrokeY],
       ["L", rootFrontX + rootR, bottomStrokeY],
-      ["Q", rootFrontX, bottomStrokeY, rootFrontX, bottomStrokeY - rootR]
+      ["Q", rootFrontX, bottomStrokeY, rootFrontX, bottomStrokeY - rootR],
     ];
   }
   if (protrusionSide === "back") {
@@ -398,7 +414,7 @@ function protrusionOutlinePathCommands({
       ["L", leftStrokeX, bottomStrokeY - r],
       ["Q", leftStrokeX, bottomStrokeY, leftStrokeX + r, bottomStrokeY],
       ["L", rootBackX - rootR, bottomStrokeY],
-      ["Q", rootBackX, bottomStrokeY, rootBackX, bottomStrokeY - rootR]
+      ["Q", rootBackX, bottomStrokeY, rootBackX, bottomStrokeY - rootR],
     ];
   }
   if (protrusionSide === "left") {
@@ -410,7 +426,7 @@ function protrusionOutlinePathCommands({
       ["L", rightStrokeX - r, topStrokeY],
       ["Q", rightStrokeX, topStrokeY, rightStrokeX, topStrokeY + r],
       ["L", rightStrokeX, rootLeftY - rootR],
-      ["Q", rightStrokeX, rootLeftY, rightStrokeX - rootR, rootLeftY]
+      ["Q", rightStrokeX, rootLeftY, rightStrokeX - rootR, rootLeftY],
     ];
   }
   if (protrusionSide === "right") {
@@ -422,7 +438,7 @@ function protrusionOutlinePathCommands({
       ["L", rightStrokeX - r, bottomStrokeY],
       ["Q", rightStrokeX, bottomStrokeY, rightStrokeX, bottomStrokeY - r],
       ["L", rightStrokeX, rootRightY + rootR],
-      ["Q", rightStrokeX, rootRightY, rightStrokeX - rootR, rootRightY]
+      ["Q", rightStrokeX, rootRightY, rightStrokeX - rootR, rootRightY],
     ];
   }
 
@@ -431,7 +447,10 @@ function protrusionOutlinePathCommands({
 
 function pathData(commands: RobotProtrusionPathCommand[]): string {
   return commands
-    .map(([command, ...values]) => `${command} ${values.map(formatPathNumber).join(" ")}`)
+    .map(
+      ([command, ...values]) =>
+        `${command} ${values.map(formatPathNumber).join(" ")}`,
+    )
     .join(" ");
 }
 
