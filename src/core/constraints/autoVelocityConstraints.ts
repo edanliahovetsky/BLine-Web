@@ -13,7 +13,7 @@ import {
   type RangedConstraint,
 } from "../model/path";
 import { simulatePathWithTrace } from "../sim/simulatePath";
-import type { SimulationTraceSample } from "../sim/types";
+import type { SimulationConfig, SimulationTraceSample } from "../sim/types";
 
 export interface AutoVelocityGenerationOptions {
   velocitySafetyFactor?: number;
@@ -117,7 +117,7 @@ const minPositive = 1e-9;
 
 export function generateAutoVelocityProfile(
   path: PathModel,
-  config: unknown,
+  config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): AutoVelocityProfile {
   const anchors = translationAnchors(path.path_elements);
@@ -372,7 +372,7 @@ function buildCorners(
 
 function solveSegmentCapsWithSimulation(
   path: PathModel,
-  config: unknown,
+  config: SimulationConfig,
   anchors: readonly AutoVelocityAnchor[],
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
@@ -460,7 +460,7 @@ function initialCapsByOrdinal(
 
 function refineVelocityCaps(
   path: PathModel,
-  config: unknown,
+  config: SimulationConfig,
   anchors: readonly AutoVelocityAnchor[],
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
@@ -533,7 +533,7 @@ function refineVelocityCaps(
 
 function optimizeHandoffPair(
   path: PathModel,
-  config: unknown,
+  config: SimulationConfig,
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
   capsByOrdinal: ReadonlyMap<number, number>,
@@ -609,7 +609,7 @@ function optimizeHandoffPair(
 
 function evaluateVelocityCaps(
   path: PathModel,
-  config: unknown,
+  config: SimulationConfig,
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
   capsByOrdinal: ReadonlyMap<number, number>,

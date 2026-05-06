@@ -2209,7 +2209,7 @@ async function canvasSceneMetrics(page: Page): Promise<{
 }> {
   return page.evaluate(() => {
     const ratios = Array.from(
-      document.querySelectorAll(".path-stage canvas"),
+      document.querySelectorAll<HTMLCanvasElement>(".path-stage canvas"),
     ).map((canvas) => {
       const rect = canvas.getBoundingClientRect();
       return Number((canvas.width / rect.width).toFixed(2));

@@ -590,13 +590,11 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
 
   if (isTranslationTarget(input.element)) {
     if (selected) {
-      graphics
-        .circle(point.x, point.y, circleRadius + 8)
-        .stroke({
-          color: elementColors.selected,
-          width: selectionStrokeWidthPx,
-          alpha: selectionOpacity,
-        });
+      graphics.circle(point.x, point.y, circleRadius + 8).stroke({
+        color: elementColors.selected,
+        width: selectionStrokeWidthPx,
+        alpha: selectionOpacity,
+      });
     }
     graphics
       .circle(

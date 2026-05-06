@@ -157,7 +157,7 @@ export function ConstraintEditor({
   project: ProjectDocument | null;
   open: boolean;
   onToggleSection(): void;
-}): JSX.Element {
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [popoutOpen, setPopoutOpen] = useState(false);
   const [selectedByKey, setSelectedByKey] = useState<
@@ -311,6 +311,9 @@ export function ConstraintEditor({
                     className="add-element-menu__item"
                     role="menuitem"
                     onClick={() => {
+                      if (!project) {
+                        return;
+                      }
                       const added = addConstraint(project, item.key);
                       if (added) {
                         setSelectedForKey(added.key, added.index);
@@ -399,7 +402,7 @@ function RangedConstraintCard({
   onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onSelect: (index: number) => void;
   onOpenPopout: () => void;
-}): JSX.Element | null {
+}) {
   const meta = rangedMeta[constraintKey];
   const entries = getRangedEntries(project, constraintKey);
   const labels = useMemo(
@@ -532,7 +535,7 @@ function ConstraintPopout({
   autoSettings: AutoVelocitySettings;
   onSelect: (key: RangedConstraintKey, index: number) => void;
   onClose: () => void;
-}): JSX.Element {
+}) {
   const activeKeys = rangedConstraintKeys.filter((key) => {
     if (getRangedEntries(project, key).length > 0) {
       return true;
@@ -661,7 +664,7 @@ function PopoutConstraintPanel({
   selectedIndex: number | null;
   autoSettings: AutoVelocitySettings;
   onSelect: (index: number) => void;
-}): JSX.Element {
+}) {
   const meta = rangedMeta[constraintKey];
   const entries = getRangedEntries(project, constraintKey);
   const labels = useMemo(
@@ -791,7 +794,7 @@ function ConstraintSegmentBar({
   onRangesChange: (updates: RangeUpdate[]) => void;
   onGapDoubleClick: (start: number, end: number) => void;
   density?: "sidebar" | "popout";
-}): JSX.Element {
+}) {
   const meta = rangedMeta[constraintKey];
   const total = labels.length;
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -1367,7 +1370,7 @@ function RangedConstraintControls({
   onSelect: (index: number) => void;
   onOpenPopout?: () => void;
   compact?: boolean;
-}): JSX.Element {
+}) {
   const meta = rangedMeta[constraintKey];
   const constraint = entry?.constraint ?? null;
   const constraintSelectionToken = entry
@@ -1536,7 +1539,7 @@ function AutoVelocityInlineControls({
   profile: AutoVelocityProfile;
   settings: AutoVelocitySettings;
   onSettingsChange(settings: AutoVelocitySettings): void;
-}): JSX.Element {
+}) {
   return (
     <div className="auto-velocity-inline" data-testid="auto-velocity-controls">
       <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--factors">
@@ -1614,7 +1617,7 @@ function AutoVelocityModeControl({
   mode: "auto" | "manual" | null;
   disabled: boolean;
   onModeChange(mode: "auto" | "manual"): void;
-}): JSX.Element {
+}) {
   return (
     <div
       className="auto-velocity-mode"
@@ -1642,7 +1645,7 @@ function ScalarConstraintRow({
 }: {
   project: ProjectDocument;
   constraintKey: (typeof terminalToleranceKeys)[number];
-}): JSX.Element {
+}) {
   const meta = scalarMeta[constraintKey];
   const currentValue = project.path.constraints[constraintKey];
   const value =
@@ -1699,25 +1702,27 @@ function ScalarConstraintRow({
 function buildConstraintMenuItems(
   project: ProjectDocument,
 ): Array<{ key: ConstraintKey; label: string }> {
-  return addConstraintMenuOrder.flatMap((key) => {
-    if (isRangedKey(key)) {
-      const active = getRangedEntries(project, key).length > 0;
+  return addConstraintMenuOrder.flatMap<{ key: ConstraintKey; label: string }>(
+    (key) => {
+      if (isRangedKey(key)) {
+        const active = getRangedEntries(project, key).length > 0;
 
-      if (!active) {
-        return [{ key, label: rangedMeta[key].label }];
+        if (!active) {
+          return [{ key, label: rangedMeta[key].label }];
+        }
+
+        return canAddMoreRanged(project, key)
+          ? [{ key, label: `${rangedMeta[key].label} (+)` }]
+          : [];
       }
 
-      return canAddMoreRanged(project, key)
-        ? [{ key, label: `${rangedMeta[key].label} (+)` }]
-        : [];
-    }
+      if (project.path.constraints[key] !== null) {
+        return [];
+      }
 
-    if (project.path.constraints[key] !== null) {
-      return [];
-    }
-
-    return [{ key, label: scalarMeta[key].label }];
-  });
+      return [{ key, label: scalarMeta[key].label }];
+    },
+  );
 }
 
 function hasAnyConstraint(project: ProjectDocument): boolean {
@@ -2459,8 +2464,6 @@ function domainLabelsForKey(
         return `R${counts.rotation}`;
       case "event_trigger":
         return `E${counts.event_trigger}`;
-      default:
-        return `${counts[element.type]}`;
     }
   });
 }

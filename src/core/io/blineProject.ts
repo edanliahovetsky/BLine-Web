@@ -127,10 +127,16 @@ export function isBLineProjectArchive(
   );
 }
 
+function isProjectDocumentArray(
+  val: unknown,
+): val is readonly ProjectDocument[] {
+  return Array.isArray(val);
+}
+
 function workspaceFromArchiveSource(
   source: ArchiveSource,
 ): ProjectWorkspaceDocument {
-  if (Array.isArray(source)) {
+  if (isProjectDocumentArray(source)) {
     const first = source[0];
     return first
       ? {
@@ -154,7 +160,7 @@ function workspaceFromArchiveSource(
           config: undefined,
           paths: [],
         });
+  } else {
+    return source;
   }
-
-  return source;
 }

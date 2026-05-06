@@ -16,7 +16,6 @@ import {
   createStorageAdapter,
   createStoredProjectRecord,
   type StorageLike,
-  type TauriInvoke,
   TauriStorage,
 } from "../../../src/storage";
 import {
@@ -161,7 +160,10 @@ describe("TauriStorage", () => {
       [];
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
     const serialized = serializeProjectWorkspaceDocument(workspace);
-    const invoke: TauriInvoke = async (command, args) => {
+    const invoke = (
+      command: string,
+      args: Record<string, unknown> | undefined,
+    ) => {
       calls.push({ command, args });
 
       if (command === "storage_write_workspace") {
@@ -186,7 +188,12 @@ describe("TauriStorage", () => {
 
       return undefined;
     };
-    const storage = new TauriStorage({ invoke });
+    const storage = new TauriStorage({
+      invoke: async <T>(
+        command: string,
+        args: Record<string, unknown> | undefined,
+      ) => invoke(command, args) as T,
+    });
 
     await expect(storage.writeWorkspace(workspace, "v0")).resolves.toEqual({
       version: "v1",

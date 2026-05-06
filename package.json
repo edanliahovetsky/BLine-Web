@@ -7,12 +7,12 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"*.config.ts\" --max-warnings=0",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --emitDeclarationOnly",
     "test": "vitest run",
     "parity": "vitest run parity-harness",
     "validate:bline-lib-io": "vitest run --config vitest.bline-lib-io.config.ts",
     "test:e2e": "playwright test",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc -b --emitDeclarationOnly && vite build",
     "release:check": "node scripts/release-check.mjs",
     "release:windows-msi-config": "node scripts/write-windows-msi-config.mjs",
     "tauri:dev": "tauri dev",
@@ -28,7 +28,7 @@
   "devDependencies": {
     "@playwright/test": "1.59.1",
     "@tauri-apps/cli": "2.10.1",
-    "@types/node": "25.6.0",
+    "@types/node": "^25.6.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.1",

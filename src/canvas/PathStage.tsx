@@ -249,7 +249,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     updateSize();
 
     if (!("ResizeObserver" in window)) {
-      window.addEventListener("resize", updateSize);
+      (window as Window).addEventListener("resize", updateSize);
       return () => window.removeEventListener("resize", updateSize);
     }
 
