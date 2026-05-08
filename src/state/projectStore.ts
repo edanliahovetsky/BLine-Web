@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type {
   ProjectDocument,
-  ProjectWorkspaceDocument
+  ProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
 import type { PathModel } from "../core/model/path";
 import {
@@ -11,14 +11,17 @@ import {
   duplicatePathInWorkspace,
   ensureWorkspaceHasActivePath,
   renamePathInWorkspace,
-  replaceActiveProjectInWorkspace
+  replaceActiveProjectInWorkspace,
 } from "../core/io/workspaceSerde";
-import type { ProjectFolderExport, ProjectIoService } from "../platform/projectIo";
+import type {
+  ProjectFolderExport,
+  ProjectIoService,
+} from "../platform/projectIo";
 import type { WriteResult } from "../storage/adapter";
 import {
   createHistoryStore,
   type HistoryCommand,
-  type HistoryStore
+  type HistoryStore,
 } from "./historyStore";
 
 export type ProjectStatus = "idle" | "loading" | "saving" | "error";
@@ -34,14 +37,22 @@ export interface ProjectStoreState {
   lastSavedAt: string | null;
   history: HistoryStore<ProjectWorkspaceDocument>;
   setProjectIoService(io: ProjectIoService | null): void;
-  initializeWorkspace(fallback?: ProjectWorkspaceDocument): Promise<ProjectWorkspaceDocument | null>;
-  createWorkspace(workspace: ProjectWorkspaceDocument): Promise<ProjectWorkspaceDocument>;
+  initializeWorkspace(
+    fallback?: ProjectWorkspaceDocument,
+  ): Promise<ProjectWorkspaceDocument | null>;
+  createWorkspace(
+    workspace: ProjectWorkspaceDocument,
+  ): Promise<ProjectWorkspaceDocument>;
   openWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null>;
   deleteWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null>;
   switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
   saveWorkspace(): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
-  createPath(input: { displayName: string; fileName?: string; path?: PathModel }): void;
+  createPath(input: {
+    displayName: string;
+    fileName?: string;
+    path?: PathModel;
+  }): void;
   renamePath(pathId: string, name: string): void;
   duplicatePath(pathId: string, name: string): void;
   deletePaths(pathIds: readonly string[]): void;
@@ -49,7 +60,9 @@ export interface ProjectStoreState {
   exportPath(pathId?: string): Promise<Blob | null>;
   importConfig(file: File): Promise<ProjectWorkspaceDocument>;
   exportConfig(): Promise<Blob | null>;
-  importProjectFolder(files: readonly File[]): Promise<ProjectWorkspaceDocument>;
+  importProjectFolder(
+    files: readonly File[],
+  ): Promise<ProjectWorkspaceDocument>;
   exportProjectFolder(): Promise<ProjectFolderExport | null>;
   importProjectArchive(file: File): Promise<ProjectWorkspaceDocument>;
   exportProjectArchive(): Promise<Blob | null>;
@@ -64,7 +77,7 @@ export interface ProjectStoreState {
 export type ProjectStore = StoreApi<ProjectStoreState>;
 
 export function createProjectStore(
-  history = createHistoryStore<ProjectWorkspaceDocument>()
+  history = createHistoryStore<ProjectWorkspaceDocument>(),
 ): ProjectStore {
   return createStore<ProjectStoreState>((set, get) => ({
     workspace: null,
@@ -92,7 +105,7 @@ export function createProjectStore(
         if (!workspace) {
           set({
             status: "idle",
-            error: null
+            error: null,
           });
           return null;
         }
@@ -102,7 +115,7 @@ export function createProjectStore(
       } catch (error) {
         set({
           status: "error",
-          error: errorMessage(error)
+          error: errorMessage(error),
         });
         throw error;
       }
@@ -118,7 +131,7 @@ export function createProjectStore(
       } catch (error) {
         set({
           status: "error",
-          error: errorMessage(error)
+          error: errorMessage(error),
         });
         throw error;
       }
@@ -138,7 +151,7 @@ export function createProjectStore(
       } catch (error) {
         set({
           status: "error",
-          error: errorMessage(error)
+          error: errorMessage(error),
         });
         throw error;
       }
@@ -163,14 +176,14 @@ export function createProjectStore(
             dirty: false,
             status: "idle",
             error: null,
-            lastSavedAt: null
+            lastSavedAt: null,
           });
         }
         return workspace;
       } catch (error) {
         set({
           status: "error",
-          error: errorMessage(error)
+          error: errorMessage(error),
         });
         throw error;
       }
@@ -188,7 +201,7 @@ export function createProjectStore(
       } catch (error) {
         set({
           status: "error",
-          error: errorMessage(error)
+          error: errorMessage(error),
         });
         throw error;
       }
@@ -215,7 +228,7 @@ export function createProjectStore(
       const workspace = requireWorkspace(get().workspace);
       const nextWorkspace = ensureWorkspaceHasActivePath({
         ...workspace,
-        active_path_id: pathId
+        active_path_id: pathId,
       });
       history.getState().clear();
       setWorkspace(set, nextWorkspace, true);
@@ -226,7 +239,7 @@ export function createProjectStore(
         display_name: input.displayName,
         file_name: input.fileName,
         path: input.path,
-        makeActive: true
+        makeActive: true,
       });
       history.getState().clear();
       setWorkspace(set, nextWorkspace, true);
@@ -338,9 +351,7 @@ export function createProjectStore(
         return;
       }
 
-      const transition = history
-        .getState()
-        .undo(cloneWorkspace(workspace));
+      const transition = history.getState().undo(cloneWorkspace(workspace));
 
       if (transition.command) {
         setWorkspace(set, transition.value, true);
@@ -352,9 +363,7 @@ export function createProjectStore(
         return;
       }
 
-      const transition = history
-        .getState()
-        .redo(cloneWorkspace(workspace));
+      const transition = history.getState().redo(cloneWorkspace(workspace));
 
       if (transition.command) {
         setWorkspace(set, transition.value, true);
@@ -366,13 +375,13 @@ export function createProjectStore(
         dirty: false,
         status: "idle",
         error: null,
-        lastSavedAt: result.updatedAt
+        lastSavedAt: result.updatedAt,
       });
     },
     markSaveError(error) {
       set({
         status: "error",
-        error: errorMessage(error)
+        error: errorMessage(error),
       });
     },
     reset() {
@@ -384,9 +393,9 @@ export function createProjectStore(
         dirty: false,
         status: "idle",
         error: null,
-        lastSavedAt: null
+        lastSavedAt: null,
       });
-    }
+    },
   }));
 }
 
@@ -395,7 +404,7 @@ export const projectStore = createProjectStore();
 function setWorkspace(
   set: StoreApi<ProjectStoreState>["setState"],
   workspace: ProjectWorkspaceDocument,
-  dirty: boolean
+  dirty: boolean,
 ): void {
   const normalized = ensureWorkspaceHasActivePath(workspace);
   set({
@@ -403,7 +412,7 @@ function setWorkspace(
     project: activeProjectFromWorkspace(normalized),
     dirty,
     status: "idle",
-    error: null
+    error: null,
   });
 }
 
@@ -412,7 +421,7 @@ function adoptWorkspace(
   history: HistoryStore<ProjectWorkspaceDocument>,
   io: ProjectIoService,
   workspace: ProjectWorkspaceDocument,
-  dirty: boolean
+  dirty: boolean,
 ): void {
   history.getState().clear();
   const normalized = ensureWorkspaceHasActivePath(workspace);
@@ -423,12 +432,12 @@ function adoptWorkspace(
     dirty,
     status: "idle",
     error: null,
-    lastSavedAt: io.getLastSavedAt()
+    lastSavedAt: io.getLastSavedAt(),
   });
 }
 
 function workspaceCommand(
-  command: HistoryCommand<ProjectDocument>
+  command: HistoryCommand<ProjectDocument>,
 ): HistoryCommand<ProjectWorkspaceDocument> {
   return {
     description: command.description,
@@ -444,8 +453,11 @@ function workspaceCommand(
       if (!project) {
         return workspace;
       }
-      return replaceActiveProjectInWorkspace(workspace, command.revert(project));
-    }
+      return replaceActiveProjectInWorkspace(
+        workspace,
+        command.revert(project),
+      );
+    },
   };
 }
 
@@ -457,7 +469,7 @@ function requireProjectIo(io: ProjectIoService | null): ProjectIoService {
 }
 
 function requireWorkspace(
-  workspace: ProjectWorkspaceDocument | null
+  workspace: ProjectWorkspaceDocument | null,
 ): ProjectWorkspaceDocument {
   if (!workspace) {
     throw new Error("No active project workspace");
@@ -466,7 +478,7 @@ function requireWorkspace(
 }
 
 function cloneWorkspace(
-  workspace: ProjectWorkspaceDocument
+  workspace: ProjectWorkspaceDocument,
 ): ProjectWorkspaceDocument {
   return structuredClone(workspace);
 }

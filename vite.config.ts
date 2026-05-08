@@ -14,19 +14,19 @@ export default defineConfig({
       ? {
           protocol: "ws",
           host: tauriDevHost,
-          port: 1421
+          port: 1421,
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"]
-    }
+      ignored: ["**/src-tauri/**"],
+    },
   },
   test: {
     environment: "node",
     include: [
       "tests/unit/**/*.test.ts",
       "tests/unit/**/*.test.tsx",
-      "parity-harness/parity.test.ts"
-    ]
-  }
+      "parity-harness/parity.test.ts",
+    ],
+  },
 });

@@ -23,7 +23,7 @@ export function SidebarSection({
   open,
   overlay,
   sectionId,
-  title
+  title,
 }: SidebarSectionProps) {
   const bodyId = `sidebar-section-${sectionId}-body`;
 
@@ -50,7 +50,9 @@ export function SidebarSection({
           </button>
           {meta ? <span className="sidebar-section-meta">{meta}</span> : null}
         </div>
-        {actions ? <div className="sidebar-section-actions">{actions}</div> : null}
+        {actions ? (
+          <div className="sidebar-section-actions">{actions}</div>
+        ) : null}
       </header>
       <div
         id={bodyId}

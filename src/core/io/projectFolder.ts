@@ -1,22 +1,22 @@
 import { projectConfigDefaultLookup } from "../config/projectConfig";
 import type {
   ProjectPathDocument,
-  ProjectWorkspaceDocument
+  ProjectWorkspaceDocument,
 } from "./projectSchema";
 import {
   createProjectPathDocument,
-  createProjectWorkspaceDocument
+  createProjectWorkspaceDocument,
 } from "./projectSchema";
 import {
   deserializeProjectConfig,
-  serializeProjectConfig
+  serializeProjectConfig,
 } from "./blineProject";
 import { stringifyBLineJson } from "./blineJson";
 import { deserializePath, serializePath } from "./projectSerde";
 import {
   createWorkspaceId,
   displayNameFromFileName,
-  ensureJsonFileName
+  ensureJsonFileName,
 } from "./workspaceSerde";
 
 export interface ProjectFolderExportFile {
@@ -43,24 +43,27 @@ interface ImportRecord {
 }
 
 export function serializeBLineProjectFolder(
-  workspace: ProjectWorkspaceDocument
+  workspace: ProjectWorkspaceDocument,
 ): ProjectFolderExport {
   return {
     folderName: "autos",
     files: [
       jsonFile("config.json", serializeProjectConfig(workspace.config)),
       ...workspace.paths.map((path) =>
-        jsonFile(`paths/${ensureJsonFileName(path.file_name)}`, serializePath(path.path))
-      )
-    ]
+        jsonFile(
+          `paths/${ensureJsonFileName(path.file_name)}`,
+          serializePath(path.path),
+        ),
+      ),
+    ],
   };
 }
 
 export async function deserializeBLineProjectFolder(
-  files: readonly ProjectFolderImportFile[]
+  files: readonly ProjectFolderImportFile[],
 ): Promise<ProjectWorkspaceDocument> {
   const records = createImportRecords(files).filter((record) =>
-    record.rawPath.toLowerCase().endsWith(".json")
+    record.rawPath.toLowerCase().endsWith(".json"),
   );
 
   if (records.length === 0) {
@@ -68,15 +71,15 @@ export async function deserializeBLineProjectFolder(
   }
 
   const configRecord = records.find(
-    (record) => record.autosPath.toLowerCase() === "config.json"
+    (record) => record.autosPath.toLowerCase() === "config.json",
   );
   const config = deserializeProjectConfig(
-    configRecord ? JSON.parse(await configRecord.file.text()) : undefined
+    configRecord ? JSON.parse(await configRecord.file.text()) : undefined,
   );
   const defaultLookup = projectConfigDefaultLookup(config);
-  const pathRecords = records.filter((record) =>
-    /^paths\/[^/]+\.json$/i.test(record.autosPath)
-  ).sort((a, b) => a.autosPath.localeCompare(b.autosPath));
+  const pathRecords = records
+    .filter((record) => /^paths\/[^/]+\.json$/i.test(record.autosPath))
+    .sort((a, b) => a.autosPath.localeCompare(b.autosPath));
 
   if (pathRecords.length === 0) {
     throw new Error("The selected folder must contain paths/*.json files");
@@ -85,16 +88,19 @@ export async function deserializeBLineProjectFolder(
   const paths: ProjectPathDocument[] = await Promise.all(
     pathRecords.map(async (record) => {
       const parsed = JSON.parse(await record.file.text()) as unknown;
-      const fileName = ensureJsonFileName(record.autosPath.split("/").at(-1) ?? record.file.name);
-      const pathObject = isObject(parsed) && "path" in parsed ? parsed.path : parsed;
+      const fileName = ensureJsonFileName(
+        record.autosPath.split("/").at(-1) ?? record.file.name,
+      );
+      const pathObject =
+        isObject(parsed) && "path" in parsed ? parsed.path : parsed;
 
       return createProjectPathDocument({
         path_id: fileName,
         display_name: displayNameFromFileName(fileName),
         file_name: fileName,
-        path: deserializePath(pathObject, defaultLookup)
+        path: deserializePath(pathObject, defaultLookup),
       });
-    })
+    }),
   );
 
   return createProjectWorkspaceDocument({
@@ -102,21 +108,24 @@ export async function deserializeBLineProjectFolder(
     display_name: inferDisplayName(records),
     config,
     paths,
-    active_path_id: paths[0]?.path_id ?? null
+    active_path_id: paths[0]?.path_id ?? null,
   });
 }
 
-function jsonFile(relativePath: string, value: unknown): ProjectFolderExportFile {
+function jsonFile(
+  relativePath: string,
+  value: unknown,
+): ProjectFolderExportFile {
   return {
     relativePath,
     blob: new Blob([stringifyBLineJson(value)], {
-      type: "application/json"
-    })
+      type: "application/json",
+    }),
   };
 }
 
 function createImportRecords(
-  files: readonly ProjectFolderImportFile[]
+  files: readonly ProjectFolderImportFile[],
 ): ImportRecord[] {
   const rawPaths = files.map((file) => normalizeImportPath(file));
   const strippedPaths = stripCommonRoot(rawPaths);
@@ -131,7 +140,7 @@ function createImportRecords(
       file,
       rawPath,
       strippedPath,
-      autosPath: normalizeAutosPath(strippedPath, selectedPathsFolder)
+      autosPath: normalizeAutosPath(strippedPath, selectedPathsFolder),
     };
   });
 }
@@ -147,7 +156,9 @@ function stripCommonRoot(paths: readonly string[]): string[] {
 
   if (
     !commonRoot ||
-    paths.some((path) => !path.includes("/") || path.split("/")[0] !== commonRoot)
+    paths.some(
+      (path) => !path.includes("/") || path.split("/")[0] !== commonRoot,
+    )
   ) {
     return [...paths];
   }
@@ -160,7 +171,10 @@ function commonRootSegment(paths: readonly string[]): string | null {
   return firstSegments[0] ?? null;
 }
 
-function normalizeAutosPath(path: string, selectedPathsFolder: boolean): string {
+function normalizeAutosPath(
+  path: string,
+  selectedPathsFolder: boolean,
+): string {
   if (selectedPathsFolder) {
     return `paths/${path}`;
   }
@@ -174,7 +188,9 @@ function normalizeAutosPath(path: string, selectedPathsFolder: boolean): string 
     }
   }
 
-  return autosIndex >= 0 ? parts.slice(autosIndex + 1).join("/") : parts.join("/");
+  return autosIndex >= 0
+    ? parts.slice(autosIndex + 1).join("/")
+    : parts.join("/");
 }
 
 function inferDisplayName(records: readonly ImportRecord[]): string {

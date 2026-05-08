@@ -2,20 +2,35 @@ import { describe, expect, it } from "vitest";
 import {
   createProjectDocument,
   type ProjectDocument,
-  type ProjectWorkspaceDocument
+  type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
-import { createPathModel, createTranslationTarget } from "../../../src/core/model/path";
-import { createAutosaveCoordinator, createProjectAutosaveCoordinator } from "../../../src/state/autosave";
-import { createHistoryStore, type HistoryCommand } from "../../../src/state/historyStore";
+import {
+  createPathModel,
+  createTranslationTarget,
+} from "../../../src/core/model/path";
+import {
+  createAutosaveCoordinator,
+  createProjectAutosaveCoordinator,
+} from "../../../src/state/autosave";
+import {
+  createHistoryStore,
+  type HistoryCommand,
+} from "../../../src/state/historyStore";
 import { createProjectStore } from "../../../src/state/projectStore";
 import {
   createSelectionStore,
   normalizeElementSelection,
-  normalizeRangedConstraintSelection
+  normalizeRangedConstraintSelection,
 } from "../../../src/state/selectionStore";
-import type { ProjectIoCapabilities, ProjectIoService } from "../../../src/platform/projectIo";
-import type { ProjectWorkspaceSummary, WriteResult } from "../../../src/storage";
+import type {
+  ProjectIoCapabilities,
+  ProjectIoService,
+} from "../../../src/platform/projectIo";
+import type {
+  ProjectWorkspaceSummary,
+  WriteResult,
+} from "../../../src/storage";
 
 describe("history store", () => {
   it("executes commands and supports undo/redo", () => {
@@ -23,7 +38,7 @@ describe("history store", () => {
     const increment: HistoryCommand<number> = {
       description: "increment",
       apply: (value) => value + 1,
-      revert: (value) => value - 1
+      revert: (value) => value - 1,
     };
 
     let value = history.getState().execute(0, increment);
@@ -31,7 +46,7 @@ describe("history store", () => {
     expect(value).toBe(1);
     expect(history.getState()).toMatchObject({
       canUndo: true,
-      canRedo: false
+      canRedo: false,
     });
 
     value = history.getState().undo(value).value;
@@ -39,7 +54,7 @@ describe("history store", () => {
     expect(value).toBe(0);
     expect(history.getState()).toMatchObject({
       canUndo: false,
-      canRedo: true
+      canRedo: true,
     });
 
     value = history.getState().redo(value).value;
@@ -47,7 +62,7 @@ describe("history store", () => {
     expect(value).toBe(1);
     expect(history.getState()).toMatchObject({
       canUndo: true,
-      canRedo: false
+      canRedo: false,
     });
   });
 });
@@ -90,7 +105,7 @@ describe("project store", () => {
       version: initialWrite.version,
       dirty: false,
       status: "idle",
-      lastSavedAt: initialWrite.updatedAt
+      lastSavedAt: initialWrite.updatedAt,
     });
 
     store.getState().applyCommand(renameCommand("Beta", "Alpha"));
@@ -99,12 +114,12 @@ describe("project store", () => {
     expect(secondWrite).toMatchObject({ version: "v2" });
     expect(io.writes.at(-1)).toMatchObject({
       expectedVersion: initialWrite.version,
-      pathName: "Beta"
+      pathName: "Beta",
     });
     expect(store.getState()).toMatchObject({
       version: "v2",
       dirty: false,
-      status: "idle"
+      status: "idle",
     });
   });
 });
@@ -136,17 +151,17 @@ describe("selection store", () => {
       path: createPathModel({
         path_elements: [
           createTranslationTarget({ x_meters: 1, y_meters: 1 }),
-          createTranslationTarget({ x_meters: 2, y_meters: 2 })
+          createTranslationTarget({ x_meters: 2, y_meters: 2 }),
         ],
         ranged_constraints: [
           {
             key: "max_velocity_meters_per_sec",
             value: 2,
             start_ordinal: 1,
-            end_ordinal: 2
-          }
-        ]
-      })
+            end_ordinal: 2,
+          },
+        ],
+      }),
     });
 
     store.getState().selectRangedConstraint(
@@ -154,9 +169,9 @@ describe("selection store", () => {
         key: "max_velocity_meters_per_sec",
         index: 0,
         startOrdinal: 0,
-        endOrdinal: 2
+        endOrdinal: 2,
       },
-      project
+      project,
     );
 
     expect(store.getState().selectedElementIndex).toBeNull();
@@ -164,7 +179,7 @@ describe("selection store", () => {
       key: "max_velocity_meters_per_sec",
       index: 0,
       startOrdinal: 1,
-      endOrdinal: 2
+      endOrdinal: 2,
     });
 
     store.getState().selectElement(1, project);
@@ -176,15 +191,15 @@ describe("selection store", () => {
         key: "max_acceleration_meters_per_sec2",
         index: 0,
         startOrdinal: 1,
-        endOrdinal: 1
-      })
+        endOrdinal: 1,
+      }),
     ).toBeNull();
 
     store.getState().selectRangedConstraint({
       key: "max_velocity_meters_per_sec",
       index: 0,
       startOrdinal: 0,
-      endOrdinal: 1
+      endOrdinal: 1,
     });
     expect(store.getState().selectedRangedConstraint?.startOrdinal).toBe(0);
   });
@@ -206,12 +221,12 @@ describe("autosave coordinator", () => {
     expect(io.writes).toHaveLength(1);
     expect(io.writes[0]).toMatchObject({
       workspaceId: "project-a",
-      expectedVersion: io.initialVersion
+      expectedVersion: io.initialVersion,
     });
     expect(store.getState()).toMatchObject({
       dirty: false,
       version: "v1",
-      status: "idle"
+      status: "idle",
     });
   });
 
@@ -225,8 +240,8 @@ describe("autosave coordinator", () => {
       getSnapshot: () => ({
         workspace: exampleWorkspace("project-a", "Alpha", 1),
         expectedVersion: "v0",
-        dirty: false
-      })
+        dirty: false,
+      }),
     });
 
     coordinator.schedule();
@@ -253,8 +268,8 @@ describe("autosave coordinator", () => {
       getSnapshot: () => ({
         workspace,
         expectedVersion: "v0",
-        dirty: true
-      })
+        dirty: true,
+      }),
     });
 
     coordinator.schedule();
@@ -276,43 +291,43 @@ describe("autosave coordinator", () => {
 function exampleProject(
   project_id: string,
   display_name: string,
-  elementCount: number
+  elementCount: number,
 ): ProjectDocument {
   return createProjectDocument({
     project_id,
     display_name,
     path: createPathModel({
       path_elements: Array.from({ length: elementCount }, (_, index) =>
-        createTranslationTarget({ x_meters: index, y_meters: index + 1 })
-      )
-    })
+        createTranslationTarget({ x_meters: index, y_meters: index + 1 }),
+      ),
+    }),
   });
 }
 
 function exampleWorkspace(
   project_id: string,
   display_name: string,
-  elementCount: number
+  elementCount: number,
 ): ProjectWorkspaceDocument {
   return projectDocumentToWorkspaceDocument(
-    exampleProject(project_id, display_name, elementCount)
+    exampleProject(project_id, display_name, elementCount),
   );
 }
 
 function renameCommand(
   nextName: string,
-  previousName: string
+  previousName: string,
 ): HistoryCommand<ProjectDocument> {
   return {
     description: `Rename project to ${nextName}`,
     apply: (project) => ({
       ...project,
-      display_name: nextName
+      display_name: nextName,
     }),
     revert: (project) => ({
       ...project,
-      display_name: previousName
-    })
+      display_name: previousName,
+    }),
   };
 }
 
@@ -328,7 +343,7 @@ class RecordingIo implements ProjectIoService {
     supportsPortableImportExport: true,
     supportsUrlSharing: false,
     supportsRemoteSync: false,
-    primaryToolbarActions: ["save"]
+    primaryToolbarActions: ["save"],
   };
   readonly initialVersion = "v0";
   readonly writes: Array<{
@@ -382,12 +397,12 @@ class RecordingIo implements ProjectIoService {
 
   async saveWorkspace(
     workspace: ProjectWorkspaceDocument,
-    expectedVersion?: string
+    expectedVersion?: string,
   ): Promise<WriteResult> {
     this.writes.push({
       workspaceId: workspace.project_id,
       pathName: workspace.paths[0]?.display_name ?? "",
-      expectedVersion
+      expectedVersion,
     });
 
     const version = `v${this.writes.length}`;
@@ -406,8 +421,8 @@ class RecordingIo implements ProjectIoService {
             id: this.workspace.project_id,
             displayName: this.workspace.display_name,
             updatedAt: this.updatedAt ?? "",
-            version: this.version ?? ""
-          }
+            version: this.version ?? "",
+          },
         ]
       : [];
   }
@@ -459,7 +474,7 @@ class RecordingIo implements ProjectIoService {
   async exportProjectFolder() {
     return {
       folderName: "autos",
-      files: []
+      files: [],
     };
   }
 

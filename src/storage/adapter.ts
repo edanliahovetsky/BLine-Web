@@ -2,21 +2,21 @@ import type {
   ProjectDocument,
   ProjectWorkspaceDocument,
   SerializedProjectDocument,
-  SerializedProjectWorkspaceDocument
+  SerializedProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
 import {
   deserializeBLineProjectArchive,
   isBLineProjectArchive,
-  serializeBLineProjectArchive
+  serializeBLineProjectArchive,
 } from "../core/io/blineProject";
 import {
   deserializeProjectDocument,
-  serializeProjectDocument
+  serializeProjectDocument,
 } from "../core/io/projectSerde";
 import {
   deserializeProjectWorkspaceDocument,
   projectDocumentToWorkspaceDocument,
-  serializeProjectWorkspaceDocument
+  serializeProjectWorkspaceDocument,
 } from "../core/io/workspaceSerde";
 
 export interface ProjectWorkspaceSummary {
@@ -72,7 +72,7 @@ export interface StorageAdapter {
   readWorkspace(id?: string): Promise<ProjectWorkspaceDocument>;
   writeWorkspace(
     workspace: ProjectWorkspaceDocument,
-    expectedVersion?: string
+    expectedVersion?: string,
   ): Promise<WriteResult>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
   exportWorkspaceArchive?(id?: string): Promise<Blob>;
@@ -96,7 +96,11 @@ export class StorageConflictError extends Error {
   readonly expectedVersion: string | undefined;
   readonly actualVersion: string | undefined;
 
-  constructor(message: string, expectedVersion?: string, actualVersion?: string) {
+  constructor(
+    message: string,
+    expectedVersion?: string,
+    actualVersion?: string,
+  ) {
     super(message);
     this.name = "StorageConflictError";
     this.expectedVersion = expectedVersion;
@@ -114,28 +118,28 @@ export class ProjectNotFoundError extends Error {
 export function createStoredWorkspaceRecord(
   workspace: ProjectWorkspaceDocument,
   version: string,
-  updatedAt: string
+  updatedAt: string,
 ): StoredWorkspaceRecord {
   return {
     document: serializeProjectWorkspaceDocument(workspace),
     version,
-    updatedAt
+    updatedAt,
   };
 }
 
 export function workspaceSummaryFromRecord(
-  record: StoredWorkspaceRecord
+  record: StoredWorkspaceRecord,
 ): ProjectWorkspaceSummary {
   return {
     id: record.document.project_id,
     displayName: record.document.display_name,
     updatedAt: record.updatedAt,
-    version: record.version
+    version: record.version,
   };
 }
 
 export function workspaceFromRecord(
-  record: StoredWorkspaceRecord
+  record: StoredWorkspaceRecord,
 ): ProjectWorkspaceDocument {
   return deserializeProjectWorkspaceDocument(record.document);
 }
@@ -143,48 +147,53 @@ export function workspaceFromRecord(
 export async function createWorkspaceBundle(
   adapter: Pick<StorageAdapter, "readWorkspace">,
   ids: readonly string[],
-  exportedAt: string
+  exportedAt: string,
 ): Promise<Blob> {
   const workspaces = await Promise.all(
     ids.map(async (id) =>
-      serializeProjectWorkspaceDocument(await adapter.readWorkspace(id))
-    )
+      serializeProjectWorkspaceDocument(await adapter.readWorkspace(id)),
+    ),
   );
 
   const bundle: WorkspaceBundle = {
     bundle_schema_version: 2,
     exported_at: exportedAt,
-    workspaces
+    workspaces,
   };
 
   return new Blob([JSON.stringify(bundle, null, 2)], {
-    type: "application/json"
+    type: "application/json",
   });
 }
 
 export async function createBLineWorkspaceArchive(
   adapter: Pick<StorageAdapter, "readWorkspace">,
   id: string,
-  exportedAt: string
+  exportedAt: string,
 ): Promise<Blob> {
-  return serializeBLineProjectArchive(await adapter.readWorkspace(id), exportedAt);
+  return serializeBLineProjectArchive(
+    await adapter.readWorkspace(id),
+    exportedAt,
+  );
 }
 
 export async function importWorkspaceArchive(
   adapter: Pick<StorageAdapter, "writeWorkspace" | "listWorkspaces">,
-  archive: Blob
+  archive: Blob,
 ): Promise<WorkspaceImportResult> {
   const workspace = await decodeWorkspaceArchive(archive);
   await adapter.writeWorkspace(workspace);
   const summaries = await adapter.listWorkspaces();
 
   return {
-    imported: summaries.filter((summary) => summary.id === workspace.project_id)
+    imported: summaries.filter(
+      (summary) => summary.id === workspace.project_id,
+    ),
   };
 }
 
 export async function decodeWorkspaceArchive(
-  archive: Blob
+  archive: Blob,
 ): Promise<ProjectWorkspaceDocument> {
   const parsed = JSON.parse(await archive.text()) as unknown;
 
@@ -209,7 +218,7 @@ export async function decodeWorkspaceArchive(
 
 export function compareWorkspaceSummaries(
   a: ProjectWorkspaceSummary,
-  b: ProjectWorkspaceSummary
+  b: ProjectWorkspaceSummary,
 ): number {
   return (
     b.updatedAt.localeCompare(a.updatedAt) ||
@@ -219,7 +228,7 @@ export function compareWorkspaceSummaries(
 }
 
 export function isCurrentWorkspaceAdapter(
-  adapter: StorageAdapter
+  adapter: StorageAdapter,
 ): adapter is CurrentWorkspaceAdapter {
   const candidate = adapter as Partial<CurrentWorkspaceAdapter>;
   return (
@@ -229,7 +238,7 @@ export function isCurrentWorkspaceAdapter(
 }
 
 export function isProjectFolderAdapter(
-  adapter: StorageAdapter
+  adapter: StorageAdapter,
 ): adapter is ProjectFolderAdapter {
   const candidate = adapter as Partial<ProjectFolderAdapter>;
   return (
@@ -244,20 +253,20 @@ export function isProjectFolderAdapter(
 export function createStoredProjectRecord(
   project: ProjectDocument,
   version: string,
-  updatedAt: string
+  updatedAt: string,
 ): StoredProjectRecord {
   return {
     document: serializeProjectDocument(project),
     version,
-    updatedAt
+    updatedAt,
   };
 }
 
 function legacyProjectBundleToWorkspace(
-  bundle: ProjectBundle
+  bundle: ProjectBundle,
 ): ProjectWorkspaceDocument {
   const projects = bundle.projects.map((project) =>
-    deserializeProjectDocument(project)
+    deserializeProjectDocument(project),
   );
   const first = projects[0];
 
@@ -268,15 +277,15 @@ function legacyProjectBundleToWorkspace(
   return {
     ...projectDocumentToWorkspaceDocument(first, {
       fallbackProjectId: first.project_id,
-      fallbackDisplayName: first.display_name
+      fallbackDisplayName: first.display_name,
     }),
     paths: projects.map((project) => ({
       path_id: project.project_id,
       display_name: project.display_name,
       file_name: project.path_file_name ?? `${project.project_id}.json`,
-      path: project.path
+      path: project.path,
     })),
-    active_path_id: first.project_id
+    active_path_id: first.project_id,
   };
 }
 

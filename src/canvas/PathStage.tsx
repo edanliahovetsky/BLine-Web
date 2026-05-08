@@ -7,13 +7,13 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
-  type WheelEvent
+  type WheelEvent,
 } from "react";
 import {
   isEventTrigger,
   isRotationTarget,
   isWaypoint,
-  type PathElement
+  type PathElement,
 } from "../core/model/path";
 import { simulatePath, type SimResult } from "../core/sim";
 import { projectStore } from "../state/projectStore";
@@ -23,7 +23,7 @@ import { SkipBackIcon, SkipForwardIcon } from "../ui/icons";
 import {
   isInteractiveShortcutTarget,
   removeSelectedPathElement,
-  removeSelectedRangedConstraint
+  removeSelectedRangedConstraint,
 } from "../ui/keyboardShortcuts";
 import { fieldAspectRatio } from "./constants";
 import {
@@ -40,21 +40,25 @@ import {
   type PointMeters,
   type PositionOverrides,
   type RotationOverrides,
-  type StagePoint
+  type StagePoint,
 } from "./geometry";
 import {
   createMoveElementCommand,
   createSetElementRatioCommand,
   createSetElementRotationCommand,
-  isTranslationBearingElement
+  isTranslationBearingElement,
 } from "./modelSync";
-import { PixiPathRenderer, type PixiDebugWindow, type PixiRenderInput } from "./pixi/PixiPathRenderer";
+import {
+  PixiPathRenderer,
+  type PixiDebugWindow,
+  type PixiRenderInput,
+} from "./pixi/PixiPathRenderer";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
-  height: Math.round(960 / fieldAspectRatio)
+  height: Math.round(960 / fieldAspectRatio),
 };
 
 interface PathStageProps {
@@ -104,16 +108,17 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const [activeRotationDrag, setActiveRotationDragState] =
     useState<ActiveRotationDrag | null>(null);
-  const [dragPreview, setDragPreview] = useState<PositionOverrides>(emptyPreview);
+  const [dragPreview, setDragPreview] =
+    useState<PositionOverrides>(emptyPreview);
   const [selectedPulse, setSelectedPulse] = useState(0);
   const project = useStoreSelector(projectStore, (state) => state.project);
   const selectedElementIndex = useStoreSelector(
     selectionStore,
-    (state) => state.selectedElementIndex
+    (state) => state.selectedElementIndex,
   );
   const selectedRangedConstraint = useStoreSelector(
     selectionStore,
-    (state) => state.selectedRangedConstraint
+    (state) => state.selectedRangedConstraint,
   );
 
   useEffect(() => {
@@ -149,7 +154,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       }
       setPanOffsetState(nextOffset);
     },
-    [flushPanOffset]
+    [flushPanOffset],
   );
 
   const flushDragPreview = useCallback(() => {
@@ -160,7 +165,10 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   }, []);
 
   const setActiveDrag = useCallback(
-    (nextDrag: ActiveDrag | null, sync: "immediate" | "frame" = "immediate") => {
+    (
+      nextDrag: ActiveDrag | null,
+      sync: "immediate" | "frame" = "immediate",
+    ) => {
       activeDragRef.current = nextDrag;
 
       if (sync === "frame") {
@@ -175,9 +183,11 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         dragFrameRef.current = null;
       }
       setActiveDragState(nextDrag);
-      setDragPreview(nextDrag ? new Map([[nextDrag.index, nextDrag.current]]) : emptyPreview);
+      setDragPreview(
+        nextDrag ? new Map([[nextDrag.index, nextDrag.current]]) : emptyPreview,
+      );
     },
-    [flushDragPreview]
+    [flushDragPreview],
   );
 
   const flushRotationPreview = useCallback(() => {
@@ -188,13 +198,14 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const setActiveRotationDrag = useCallback(
     (
       nextDrag: ActiveRotationDrag | null,
-      sync: "immediate" | "frame" = "immediate"
+      sync: "immediate" | "frame" = "immediate",
     ) => {
       activeRotationDragRef.current = nextDrag;
 
       if (sync === "frame") {
         if (rotationFrameRef.current === null) {
-          rotationFrameRef.current = window.requestAnimationFrame(flushRotationPreview);
+          rotationFrameRef.current =
+            window.requestAnimationFrame(flushRotationPreview);
         }
         return;
       }
@@ -205,7 +216,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       }
       setActiveRotationDragState(nextDrag);
     },
-    [flushRotationPreview]
+    [flushRotationPreview],
   );
 
   useEffect(
@@ -216,7 +227,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         }
       }
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -230,7 +241,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       const width = Math.max(320, Math.floor(rect.width));
       const height = Math.max(
         260,
-        Math.floor(rect.height) || Math.round(width / fieldAspectRatio)
+        Math.floor(rect.height) || Math.round(width / fieldAspectRatio),
       );
       setStageSize({ width, height });
     };
@@ -238,7 +249,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     updateSize();
 
     if (!("ResizeObserver" in window)) {
-      window.addEventListener("resize", updateSize);
+      (window as Window).addEventListener("resize", updateSize);
       return () => window.removeEventListener("resize", updateSize);
     }
 
@@ -277,7 +288,9 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       })
       .catch((error: unknown) => {
         if (!disposed) {
-          setRendererError(error instanceof Error ? error.message : String(error));
+          setRendererError(
+            error instanceof Error ? error.message : String(error),
+          );
         }
       });
 
@@ -291,7 +304,10 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     };
   }, []);
 
-  const baseViewport = useMemo(() => createFieldViewport(stageSize), [stageSize]);
+  const baseViewport = useMemo(
+    () => createFieldViewport(stageSize),
+    [stageSize],
+  );
   const viewport = useMemo(
     () => ({
       ...baseViewport,
@@ -299,9 +315,9 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       y: baseViewport.y + panOffset.y,
       width: baseViewport.width * viewScale,
       height: baseViewport.height * viewScale,
-      scale: baseViewport.scale * viewScale
+      scale: baseViewport.scale * viewScale,
     }),
-    [baseViewport, panOffset, viewScale]
+    [baseViewport, panOffset, viewScale],
   );
 
   const simulationResult: SimResult | null = useMemo(() => {
@@ -321,17 +337,23 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const rotationPreview: RotationOverrides = useMemo(
     () =>
       activeRotationDrag
-        ? new Map([[activeRotationDrag.index, activeRotationDrag.currentRadians]])
+        ? new Map([
+            [activeRotationDrag.index, activeRotationDrag.currentRadians],
+          ])
         : emptyRotationPreview,
-    [activeRotationDrag]
+    [activeRotationDrag],
   );
   const selectedPulseValue =
-    selectedElementIndex === null ? 0 : canvasInteractionActive ? 0.72 : selectedPulse;
+    selectedElementIndex === null
+      ? 0
+      : canvasInteractionActive
+        ? 0.72
+        : selectedPulse;
 
   useCanvasInteractionActivity({
     containerRef,
     semanticActive: canvasInteractionActive,
-    onChange: onInteractionStateChange
+    onChange: onInteractionStateChange,
   });
 
   useEffect(() => {
@@ -342,7 +364,9 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     const startedAt = window.performance.now();
     const timer = window.setInterval(() => {
       const elapsed = window.performance.now() - startedAt;
-      setSelectedPulse((Math.sin((elapsed / selectionPulsePeriodMs) * Math.PI * 2) + 1) / 2);
+      setSelectedPulse(
+        (Math.sin((elapsed / selectionPulsePeriodMs) * Math.PI * 2) + 1) / 2,
+      );
     }, selectionPulseIntervalMs);
 
     return () => window.clearInterval(timer);
@@ -435,7 +459,8 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     };
 
     window.addEventListener("keydown", handleSimulationShortcut);
-    return () => window.removeEventListener("keydown", handleSimulationShortcut);
+    return () =>
+      window.removeEventListener("keydown", handleSimulationShortcut);
   }, [finishSimulation, resetSimulation, toggleSimulationPlaying]);
 
   const renderInput = useMemo<PixiRenderInput>(
@@ -451,7 +476,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       simulationResult,
       simulationTimeS: simulationTime,
       simulationPlaying,
-      config: project?.config ?? null
+      config: project?.config ?? null,
     }),
     [
       dragPreview,
@@ -464,8 +489,8 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       simulationResult,
       simulationTime,
       stageSize,
-      viewport
-    ]
+      viewport,
+    ],
   );
 
   useEffect(() => {
@@ -518,7 +543,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
 
       const scenePoint = {
         x: (stagePoint.x - viewport.x) / viewport.scale,
-        y: (stagePoint.y - viewport.y) / viewport.scale
+        y: (stagePoint.y - viewport.y) / viewport.scale,
       };
       const nextViewportScale = baseViewport.scale * nextScale;
       const nextViewportX = stagePoint.x - scenePoint.x * nextViewportScale;
@@ -529,15 +554,15 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         clampPanOffset(
           {
             x: nextViewportX - baseViewport.x,
-            y: nextViewportY - baseViewport.y
+            y: nextViewportY - baseViewport.y,
           },
           baseViewport,
           stageSize,
-          nextScale
-        )
+          nextScale,
+        ),
       );
     },
-    [baseViewport, setPanOffset, stageSize, viewScale, viewport]
+    [baseViewport, setPanOffset, stageSize, viewScale, viewport],
   );
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -569,7 +594,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       viewport,
       dragPreview,
       rotationPreview,
-      pointer
+      pointer,
     );
     if (rotationHit !== null) {
       const startRadians =
@@ -577,12 +602,18 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       setActiveRotationDrag({
         index: rotationHit,
         startRadians,
-        currentRadians: startRadians
+        currentRadians: startRadians,
       });
       return;
     }
 
-    const nodeHit = hitTestPathElement(project, viewport, dragPreview, pointer, selectedElementIndex);
+    const nodeHit = hitTestPathElement(
+      project,
+      viewport,
+      dragPreview,
+      pointer,
+      selectedElementIndex,
+    );
     if (nodeHit !== null) {
       selectionStore.getState().selectElement(nodeHit, project);
       const element = project.path.path_elements[nodeHit];
@@ -600,7 +631,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         start,
         current: start,
         startRatio,
-        currentRatio: startRatio
+        currentRatio: startRatio,
       });
       return;
     }
@@ -609,7 +640,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     activePanDragRef.current = {
       pointerId: event.pointerId,
       startPointer: pointer,
-      startPanOffset: panOffsetRef.current
+      startPanOffset: panOffsetRef.current,
     };
     setIsPanning(true);
   };
@@ -628,15 +659,15 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         viewport,
         robotSizeFromConfig(project.config),
         drag.index,
-        pointer
+        pointer,
       );
       setActiveDrag(
         {
           ...drag,
           current: projected.position,
-          currentRatio: projected.ratio
+          currentRatio: projected.ratio,
         },
-        "frame"
+        "frame",
       );
       return;
     }
@@ -648,7 +679,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         project,
         rotationDrag.index,
         viewport,
-        pointer
+        pointer,
       );
       if (nextRadians === null) {
         return;
@@ -656,9 +687,9 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       setActiveRotationDrag(
         {
           ...rotationDrag,
-          currentRadians: nextRadians
+          currentRadians: nextRadians,
         },
-        "frame"
+        "frame",
       );
       return;
     }
@@ -673,13 +704,13 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       clampPanOffset(
         {
           x: panDrag.startPanOffset.x + pointer.x - panDrag.startPointer.x,
-          y: panDrag.startPanOffset.y + pointer.y - panDrag.startPointer.y
+          y: panDrag.startPanOffset.y + pointer.y - panDrag.startPointer.y,
         },
         baseViewport,
         stageSize,
-        viewScale
+        viewScale,
       ),
-      "frame"
+      "frame",
     );
   };
 
@@ -706,17 +737,20 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     const element = project.path.path_elements[drag.index];
 
     if (element && (isRotationTarget(element) || isEventTrigger(element))) {
-      const segment = getNeighborAnchorPositions(project.path.path_elements, drag.index);
+      const segment = getNeighborAnchorPositions(
+        project.path.path_elements,
+        drag.index,
+      );
       if (segment) {
         nextRatio = projectPointToSegmentRatio(
           nextPosition,
           segment.previous,
-          segment.next
+          segment.next,
         );
         nextPosition = interpolateSegmentPosition(
           segment.previous,
           segment.next,
-          nextRatio
+          nextRatio,
         );
       }
     }
@@ -728,9 +762,15 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
         projectStore
           .getState()
           .applyCommand(
-            createSetElementRatioCommand(drag.index, drag.startRatio, nextRatio)
+            createSetElementRatioCommand(
+              drag.index,
+              drag.startRatio,
+              nextRatio,
+            ),
           );
-        selectionStore.getState().selectElement(drag.index, projectStore.getState().project);
+        selectionStore
+          .getState()
+          .selectElement(drag.index, projectStore.getState().project);
       }
       return;
     }
@@ -738,8 +778,12 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     if (!pointsAlmostEqual(drag.start, nextPosition)) {
       projectStore
         .getState()
-        .applyCommand(createMoveElementCommand(drag.index, drag.start, nextPosition));
-      selectionStore.getState().selectElement(drag.index, projectStore.getState().project);
+        .applyCommand(
+          createMoveElementCommand(drag.index, drag.start, nextPosition),
+        );
+      selectionStore
+        .getState()
+        .selectElement(drag.index, projectStore.getState().project);
     }
   };
 
@@ -755,15 +799,17 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       rotationDrag.currentRadians;
     setActiveRotationDrag(null);
 
-    if (Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001) {
+    if (
+      Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001
+    ) {
       projectStore
         .getState()
         .applyCommand(
           createSetElementRotationCommand(
             rotationDrag.index,
             rotationDrag.startRadians,
-            nextRadians
-          )
+            nextRadians,
+          ),
         );
       selectionStore
         .getState()
@@ -830,7 +876,7 @@ function SimulationTransport({
   onReset,
   onTogglePlaying,
   onFinish,
-  onSeek
+  onSeek,
 }: {
   result: SimResult | null;
   currentTimeS: number;
@@ -845,7 +891,7 @@ function SimulationTransport({
   const disabled = !result || total <= 0;
   const progress = total > 0 ? (safeCurrent / total) * 100 : 0;
   const timelineStyle = {
-    "--transport-progress": `${progress}%`
+    "--transport-progress": `${progress}%`,
   } as CSSProperties;
 
   return (
@@ -867,11 +913,15 @@ function SimulationTransport({
           className="transport-play-button"
           aria-label={playing ? "Pause simulation" : "Play simulation"}
           aria-keyshortcuts="Space K"
-          title={playing ? "Pause simulation (Space)" : "Play simulation (Space)"}
+          title={
+            playing ? "Pause simulation (Space)" : "Play simulation (Space)"
+          }
           onClick={onTogglePlaying}
           disabled={disabled}
         >
-          <span className={playing ? "transport-icon pause" : "transport-icon play"} />
+          <span
+            className={playing ? "transport-icon pause" : "transport-icon play"}
+          />
         </button>
         <button
           type="button"
@@ -914,7 +964,7 @@ function hitTestRotationHandle(
   viewport: FieldViewport,
   positionPreview: PositionOverrides,
   rotationPreview: RotationOverrides,
-  pointer: StagePoint
+  pointer: StagePoint,
 ): number | null {
   if (selectedElementIndex === null) {
     return null;
@@ -926,11 +976,15 @@ function hitTestRotationHandle(
     return null;
   }
 
-  const position = getElementPosition(elements, selectedElementIndex, positionPreview);
+  const position = getElementPosition(
+    elements,
+    selectedElementIndex,
+    positionPreview,
+  );
   const rotationRadians = getElementHeadingRadians(
     elements,
     selectedElementIndex,
-    rotationPreview
+    rotationPreview,
   );
   if (!position || rotationRadians === null) {
     return null;
@@ -948,23 +1002,33 @@ function hitTestPathElement(
   viewport: FieldViewport,
   positionPreview: PositionOverrides,
   pointer: StagePoint,
-  selectedElementIndex: number | null
+  selectedElementIndex: number | null,
 ): number | null {
   const elements = project.path.path_elements;
   const renderedNodes = elements.flatMap((element, index) => {
     const position = getElementPosition(elements, index, positionPreview);
-    return position ? [{ element, index, point: modelToStagePoint(position, viewport) }] : [];
+    return position
+      ? [{ element, index, point: modelToStagePoint(position, viewport) }]
+      : [];
   });
   const orderedNodes =
     selectedElementIndex === null
       ? renderedNodes
       : [
-          ...renderedNodes.filter(({ index }) => index !== selectedElementIndex),
-          ...renderedNodes.filter(({ index }) => index === selectedElementIndex)
+          ...renderedNodes.filter(
+            ({ index }) => index !== selectedElementIndex,
+          ),
+          ...renderedNodes.filter(
+            ({ index }) => index === selectedElementIndex,
+          ),
         ];
   const robotSizeMeters = robotSizeFromConfig(project.config);
 
-  for (let nodeIndex = orderedNodes.length - 1; nodeIndex >= 0; nodeIndex -= 1) {
+  for (
+    let nodeIndex = orderedNodes.length - 1;
+    nodeIndex >= 0;
+    nodeIndex -= 1
+  ) {
     const { element, index, point } = orderedNodes[nodeIndex];
     if (
       hitTestElementShape(
@@ -973,7 +1037,7 @@ function hitTestPathElement(
         pointer,
         getElementHeadingRadians(elements, index),
         viewport,
-        robotSizeMeters
+        robotSizeMeters,
       )
     ) {
       return index;
@@ -989,7 +1053,7 @@ function hitTestElementShape(
   pointer: StagePoint,
   headingRadians: number | null,
   viewport: FieldViewport,
-  robotSizeMeters: ReturnType<typeof robotSizeFromConfig>
+  robotSizeMeters: ReturnType<typeof robotSizeFromConfig>,
 ): boolean {
   if (isTranslationBearingElement(element)) {
     const radius = Math.max(7, 0.1 * viewport.scale) + 14;
@@ -1015,7 +1079,8 @@ function hitTestElementShape(
 
   if (isEventTrigger(element)) {
     const local = toLocalRobotPoint(point, pointer, headingRadians);
-    const halfLength = Math.max(32, eventTriggerLengthMetersFallback * viewport.scale) / 2;
+    const halfLength =
+      Math.max(32, eventTriggerLengthMetersFallback * viewport.scale) / 2;
     return Math.abs(local.y) <= 18 && Math.abs(local.x) <= halfLength + 12;
   }
 
@@ -1027,7 +1092,7 @@ function projectDragStagePoint(
   viewport: FieldViewport,
   robotSizeMeters: ReturnType<typeof robotSizeFromConfig>,
   index: number,
-  stagePoint: StagePoint
+  stagePoint: StagePoint,
 ): { position: PointMeters; ratio: number | null; stagePoint: StagePoint } {
   let position = stageToModelPoint(stagePoint, viewport, robotSizeMeters);
   let ratio: number | null = null;
@@ -1035,17 +1100,28 @@ function projectDragStagePoint(
 
   if (element && (isRotationTarget(element) || isEventTrigger(element))) {
     ratio = element.t_ratio;
-    const segment = getNeighborAnchorPositions(project.path.path_elements, index);
+    const segment = getNeighborAnchorPositions(
+      project.path.path_elements,
+      index,
+    );
     if (segment) {
-      ratio = projectPointToSegmentRatio(position, segment.previous, segment.next);
-      position = interpolateSegmentPosition(segment.previous, segment.next, ratio);
+      ratio = projectPointToSegmentRatio(
+        position,
+        segment.previous,
+        segment.next,
+      );
+      position = interpolateSegmentPosition(
+        segment.previous,
+        segment.next,
+        ratio,
+      );
     }
   }
 
   return {
     position,
     ratio,
-    stagePoint: modelToStagePoint(position, viewport)
+    stagePoint: modelToStagePoint(position, viewport),
   };
 }
 
@@ -1057,23 +1133,28 @@ function isDragEnabled(element: PathElement): boolean {
   );
 }
 
-function stagePointFromEvent(event: PointerEvent<HTMLDivElement> | WheelEvent<HTMLDivElement>): StagePoint {
+function stagePointFromEvent(
+  event: PointerEvent<HTMLDivElement> | WheelEvent<HTMLDivElement>,
+): StagePoint {
   const rect = event.currentTarget.getBoundingClientRect();
   return {
     x: event.clientX - rect.left,
-    y: event.clientY - rect.top
+    y: event.clientY - rect.top,
   };
 }
 
 function isTransportEventTarget(target: EventTarget): boolean {
-  return target instanceof Element && Boolean(target.closest(".simulation-transport"));
+  return (
+    target instanceof Element &&
+    Boolean(target.closest(".simulation-transport"))
+  );
 }
 
 function rotationFromStagePoint(
   project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
   index: number,
   viewport: FieldViewport,
-  point: StagePoint
+  point: StagePoint,
 ): number | null {
   const position = getElementPosition(project.path.path_elements, index);
   if (!position) {
@@ -1087,19 +1168,19 @@ function rotationFromStagePoint(
 function rotationHandlePoint(
   center: StagePoint,
   viewport: FieldViewport,
-  rotationRadians: number
+  rotationRadians: number,
 ): StagePoint {
   const radius = Math.max(42, Math.min(64, viewport.scale * 0.36));
   return {
     x: center.x + Math.cos(rotationRadians) * radius,
-    y: center.y - Math.sin(rotationRadians) * radius
+    y: center.y - Math.sin(rotationRadians) * radius,
   };
 }
 
 function toLocalRobotPoint(
   center: StagePoint,
   point: StagePoint,
-  headingRadians: number | null
+  headingRadians: number | null,
 ): StagePoint {
   const stageRadians = headingRadians === null ? 0 : -headingRadians;
   const dx = point.x - center.x;
@@ -1108,7 +1189,7 @@ function toLocalRobotPoint(
   const sin = Math.sin(-stageRadians);
   return {
     x: dx * cos - dy * sin,
-    y: dx * sin + dy * cos
+    y: dx * sin + dy * cos,
   };
 }
 
@@ -1146,14 +1227,14 @@ function clampPanOffset(
   offset: StagePoint,
   baseViewport: FieldViewport,
   stageSize: CanvasSize,
-  scale: number
+  scale: number,
 ): StagePoint {
   const scaledWidth = baseViewport.width * scale;
   const scaledHeight = baseViewport.height * scale;
 
   return {
     x: clampAxisPan(offset.x, baseViewport.x, scaledWidth, stageSize.width),
-    y: clampAxisPan(offset.y, baseViewport.y, scaledHeight, stageSize.height)
+    y: clampAxisPan(offset.y, baseViewport.y, scaledHeight, stageSize.height),
   };
 }
 
@@ -1161,7 +1242,7 @@ function clampAxisPan(
   offset: number,
   basePosition: number,
   scaledSize: number,
-  stageSize: number
+  stageSize: number,
 ): number {
   if (scaledSize <= stageSize) {
     return 0;

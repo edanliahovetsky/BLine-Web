@@ -4,7 +4,10 @@ import { deriveWindowsMsiVersion } from "./release-version.mjs";
 
 const outputPath = readOutputPath(process.argv.slice(2));
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
-const packageVersion = assertString(packageJson.version, "package.json version");
+const packageVersion = assertString(
+  packageJson.version,
+  "package.json version",
+);
 const windowsMsiVersion = deriveWindowsMsiVersion(packageVersion);
 
 const config = {
@@ -21,7 +24,7 @@ mkdirSync(dirname(outputPath), { recursive: true });
 writeFileSync(outputPath, `${JSON.stringify(config, null, 2)}\n`);
 
 console.log(
-  `windows-msi-config: ${packageVersion} -> ${windowsMsiVersion} (${outputPath})`
+  `windows-msi-config: ${packageVersion} -> ${windowsMsiVersion} (${outputPath})`,
 );
 
 function readOutputPath(args) {
@@ -33,7 +36,9 @@ function readOutputPath(args) {
     return args[1];
   }
 
-  throw new Error("Usage: node scripts/write-windows-msi-config.mjs [--output PATH]");
+  throw new Error(
+    "Usage: node scripts/write-windows-msi-config.mjs [--output PATH]",
+  );
 }
 
 function assertString(value, label) {

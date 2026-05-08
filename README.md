@@ -113,25 +113,28 @@ packages used by the release workflow.
 
 ## Scripts
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Start Vite on `127.0.0.1:1420` |
-| `npm run lint` | Run ESLint over source, tests, and config files |
-| `npm run typecheck` | Run TypeScript with `--noEmit` |
-| `npm run test` | Run Vitest unit tests |
-| `npm run parity` | Run parity tests against reference fixtures |
-| `npm run validate:bline-lib-io` | Validate generated autos files against BLine-Lib |
-| `npm run test:e2e` | Run Playwright browser tests |
-| `npm run build` | Typecheck and build the Vite bundle |
-| `npm run release:check` | Verify package, Tauri, Cargo, and optional tag versions |
-| `npm run tauri:dev` | Start the Tauri desktop development shell |
-| `npm run tauri:build` | Build Tauri desktop artifacts |
+| Command                         | Purpose                                                 |
+| ------------------------------- | ------------------------------------------------------- |
+| `npm run dev`                   | Start Vite on `127.0.0.1:1420`                          |
+| `npm run lint`                  | Run ESLint over source, tests, and config files         |
+| `npm run format`                | Format tracked source and config files with Prettier    |
+| `npm run format:check`          | Check Prettier formatting without writing files         |
+| `npm run typecheck`             | Run TypeScript project-reference type checks            |
+| `npm run test`                  | Run Vitest unit tests                                   |
+| `npm run parity`                | Run parity tests against reference fixtures             |
+| `npm run validate:bline-lib-io` | Validate generated autos files against BLine-Lib        |
+| `npm run test:e2e`              | Run Playwright browser tests                            |
+| `npm run build`                 | Typecheck and build the Vite bundle                     |
+| `npm run release:check`         | Verify package, Tauri, Cargo, and optional tag versions |
+| `npm run tauri:dev`             | Start the Tauri desktop development shell               |
+| `npm run tauri:build`           | Build Tauri desktop artifacts                           |
 
 Recommended pre-PR check:
 
 ```sh
 npm run release:check
 npm run lint
+npm run format:check
 npm run typecheck
 npm run test
 npm run parity

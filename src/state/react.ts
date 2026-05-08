@@ -3,13 +3,16 @@ import type { StoreApi } from "zustand/vanilla";
 
 export function useStoreSelector<TState, TSelected>(
   store: StoreApi<TState>,
-  selector: (state: TState) => TSelected
+  selector: (state: TState) => TSelected,
 ): TSelected {
   const subscribe = useCallback(
     (onStoreChange: () => void) => store.subscribe(() => onStoreChange()),
-    [store]
+    [store],
   );
-  const getSnapshot = useCallback(() => selector(store.getState()), [selector, store]);
+  const getSnapshot = useCallback(
+    () => selector(store.getState()),
+    [selector, store],
+  );
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

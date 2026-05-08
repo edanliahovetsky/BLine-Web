@@ -4,7 +4,7 @@ import {
   remapRangedConstraints,
   rotationDomain,
   splitRangedConstraintInstance,
-  translationDomain
+  translationDomain,
 } from "../../../src/core/constraints/rangedConstraints";
 import {
   createEventTrigger,
@@ -12,21 +12,18 @@ import {
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
-  type RangedConstraint
+  type RangedConstraint,
 } from "../../../src/core/model/path";
 
 describe("ranged constraint edit operations", () => {
   it("appends into the first free ordinal", () => {
-    const constraints: RangedConstraint[] = [
-      ranged(2, 1, 1),
-      ranged(3, 3, 3)
-    ];
+    const constraints: RangedConstraint[] = [ranged(2, 1, 1), ranged(3, 3, 3)];
 
     const added = appendRangedConstraintInstance(
       constraints,
       "max_velocity_meters_per_sec",
       4,
-      3
+      3,
     );
 
     expect(added).toEqual(ranged(4, 2, 2));
@@ -39,7 +36,7 @@ describe("ranged constraint edit operations", () => {
       constraints,
       "max_velocity_meters_per_sec",
       5,
-      3
+      3,
     );
 
     expect(added).toEqual(ranged(5, 3, 3));
@@ -47,16 +44,13 @@ describe("ranged constraint edit operations", () => {
   });
 
   it("returns null when fully covered ranges cannot be split", () => {
-    const constraints: RangedConstraint[] = [
-      ranged(2, 1, 1),
-      ranged(3, 2, 2)
-    ];
+    const constraints: RangedConstraint[] = [ranged(2, 1, 1), ranged(3, 2, 2)];
 
     const added = appendRangedConstraintInstance(
       constraints,
       "max_velocity_meters_per_sec",
       4,
-      2
+      2,
     );
 
     expect(added).toBeNull();
@@ -82,13 +76,12 @@ describe("ranged constraint ordinal remap", () => {
     const rotation = createRotationTarget();
     const event = createEventTrigger();
 
-    expect(translationDomain([translation, rotation, waypoint, event])).toEqual([
-      translation,
-      waypoint
-    ]);
+    expect(translationDomain([translation, rotation, waypoint, event])).toEqual(
+      [translation, waypoint],
+    );
     expect(rotationDomain([translation, rotation, waypoint, event])).toEqual([
       rotation,
-      waypoint
+      waypoint,
     ]);
   });
 
@@ -98,7 +91,7 @@ describe("ranged constraint ordinal remap", () => {
     const inserted = createTranslationTarget();
     const path = createPathModel({
       path_elements: [inserted, first, second],
-      ranged_constraints: [ranged(2, 1, 2)]
+      ranged_constraints: [ranged(2, 1, 2)],
     });
 
     remapRangedConstraints(path, [first, second]);
@@ -111,7 +104,7 @@ describe("ranged constraint ordinal remap", () => {
     const second = createTranslationTarget();
     const path = createPathModel({
       path_elements: [second],
-      ranged_constraints: [ranged(2, 1, 1)]
+      ranged_constraints: [ranged(2, 1, 1)],
     });
 
     remapRangedConstraints(path, [first, second]);
@@ -130,9 +123,9 @@ describe("ranged constraint ordinal remap", () => {
           key: "max_velocity_deg_per_sec",
           value: 50,
           start_ordinal: 1,
-          end_ordinal: 2
-        }
-      ]
+          end_ordinal: 2,
+        },
+      ],
     });
 
     remapRangedConstraints(path, [eventA, eventB]);
@@ -144,12 +137,12 @@ describe("ranged constraint ordinal remap", () => {
 function ranged(
   value: number,
   start_ordinal: number,
-  end_ordinal: number
+  end_ordinal: number,
 ): RangedConstraint {
   return {
     key: "max_velocity_meters_per_sec",
     value,
     start_ordinal,
-    end_ordinal
+    end_ordinal,
   };
 }

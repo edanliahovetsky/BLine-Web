@@ -8,10 +8,13 @@ const packageJson = readJson("package.json");
 const tauriConfig = readJson("src-tauri/tauri.conf.json");
 const cargoToml = readText("src-tauri/Cargo.toml");
 
-const packageVersion = assertString(packageJson.version, "package.json version");
+const packageVersion = assertString(
+  packageJson.version,
+  "package.json version",
+);
 const tauriVersion = assertString(
   tauriConfig.version,
-  "src-tauri/tauri.conf.json version"
+  "src-tauri/tauri.conf.json version",
 );
 const cargoVersion = readCargoPackageVersion(cargoToml);
 const expectedTag = `v${packageVersion}`;
@@ -32,18 +35,20 @@ if (!isReleaseVersion(packageVersion)) {
 
 if (tauriVersion !== packageVersion) {
   failures.push(
-    `src-tauri/tauri.conf.json version ${tauriVersion} does not match package.json ${packageVersion}`
+    `src-tauri/tauri.conf.json version ${tauriVersion} does not match package.json ${packageVersion}`,
   );
 }
 
 if (cargoVersion !== packageVersion) {
   failures.push(
-    `src-tauri/Cargo.toml version ${cargoVersion} does not match package.json ${packageVersion}`
+    `src-tauri/Cargo.toml version ${cargoVersion} does not match package.json ${packageVersion}`,
   );
 }
 
 if (suppliedTag && suppliedTag !== expectedTag) {
-  failures.push(`release tag ${suppliedTag} does not match expected ${expectedTag}`);
+  failures.push(
+    `release tag ${suppliedTag} does not match expected ${expectedTag}`,
+  );
 }
 
 if (failures.length > 0) {
@@ -54,7 +59,7 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `release-check: ${packageVersion} (${expectedTag}); windows-msi ${windowsMsiVersion}`
+  `release-check: ${packageVersion} (${expectedTag}); windows-msi ${windowsMsiVersion}`,
 );
 
 function readJson(path) {
@@ -88,9 +93,7 @@ function readCargoPackageVersion(toml) {
     packageLines.push(line);
   }
 
-  const version = packageLines
-    .join("\n")
-    .match(/^version\s*=\s*"([^"]+)"$/m);
+  const version = packageLines.join("\n").match(/^version\s*=\s*"([^"]+)"$/m);
 
   if (!version) {
     throw new Error("src-tauri/Cargo.toml [package] is missing a version");

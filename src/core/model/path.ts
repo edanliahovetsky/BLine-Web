@@ -1,30 +1,31 @@
 export const translationConstraintKeys = [
   "max_velocity_meters_per_sec",
-  "max_acceleration_meters_per_sec2"
+  "max_acceleration_meters_per_sec2",
 ] as const;
 
 export const rotationConstraintKeys = [
   "max_velocity_deg_per_sec",
-  "max_acceleration_deg_per_sec2"
+  "max_acceleration_deg_per_sec2",
 ] as const;
 
 export const terminalToleranceKeys = [
   "end_translation_tolerance_meters",
-  "end_rotation_tolerance_deg"
+  "end_rotation_tolerance_deg",
 ] as const;
 
 export const rangedConstraintKeys = [
   ...translationConstraintKeys,
-  ...rotationConstraintKeys
+  ...rotationConstraintKeys,
 ] as const;
 
 export const constraintKeys = [
   ...translationConstraintKeys,
   ...terminalToleranceKeys,
-  ...rotationConstraintKeys
+  ...rotationConstraintKeys,
 ] as const;
 
-export type TranslationConstraintKey = (typeof translationConstraintKeys)[number];
+export type TranslationConstraintKey =
+  (typeof translationConstraintKeys)[number];
 export type RotationConstraintKey = (typeof rotationConstraintKeys)[number];
 export type RangedConstraintKey = (typeof rangedConstraintKeys)[number];
 export type ConstraintKey = (typeof constraintKeys)[number];
@@ -94,7 +95,9 @@ export interface PathModel {
   ranged_constraints: RangedConstraint[];
 }
 
-export function createConstraints(overrides: Partial<Constraints> = {}): Constraints {
+export function createConstraints(
+  overrides: Partial<Constraints> = {},
+): Constraints {
   return {
     max_velocity_meters_per_sec: null,
     max_acceleration_meters_per_sec2: null,
@@ -102,24 +105,24 @@ export function createConstraints(overrides: Partial<Constraints> = {}): Constra
     max_acceleration_deg_per_sec2: null,
     end_translation_tolerance_meters: null,
     end_rotation_tolerance_deg: null,
-    ...overrides
+    ...overrides,
   };
 }
 
 export function createTranslationTarget(
-  overrides: Partial<Omit<TranslationTarget, "type">> = {}
+  overrides: Partial<Omit<TranslationTarget, "type">> = {},
 ): TranslationTarget {
   return {
     type: "translation",
     x_meters: 0,
     y_meters: 0,
     intermediate_handoff_radius_meters: null,
-    ...overrides
+    ...overrides,
   };
 }
 
 export function createRotationTarget(
-  overrides: Partial<Omit<RotationTarget, "type">> = {}
+  overrides: Partial<Omit<RotationTarget, "type">> = {},
 ): RotationTarget {
   return {
     type: "rotation",
@@ -128,29 +131,29 @@ export function createRotationTarget(
     profiled_rotation: true,
     legacy_position: null,
     legacy_converted: false,
-    ...overrides
+    ...overrides,
   };
 }
 
 export function createEventTrigger(
-  overrides: Partial<Omit<EventTrigger, "type">> = {}
+  overrides: Partial<Omit<EventTrigger, "type">> = {},
 ): EventTrigger {
   return {
     type: "event_trigger",
     t_ratio: 0,
     lib_key: "",
-    ...overrides
+    ...overrides,
   };
 }
 
 export function createWaypoint(
-  overrides: Partial<Omit<Waypoint, "type">> = {}
+  overrides: Partial<Omit<Waypoint, "type">> = {},
 ): Waypoint {
   return {
     type: "waypoint",
     translation_target: createTranslationTarget(),
     rotation_target: createRotationTarget(),
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -159,18 +162,25 @@ export function createPathModel(overrides: Partial<PathModel> = {}): PathModel {
     path_elements: [],
     constraints: createConstraints(),
     ranged_constraints: [],
-    ...overrides
+    ...overrides,
   };
 }
 
 export function getPathElement(path: PathModel, index: number): PathElement {
-  if (Number.isInteger(index) && index >= 0 && index < path.path_elements.length) {
+  if (
+    Number.isInteger(index) &&
+    index >= 0 &&
+    index < path.path_elements.length
+  ) {
     return path.path_elements[index];
   }
   throw new RangeError("Index out of range");
 }
 
-export function reorderPathElements(path: PathModel, newOrder: readonly number[]): PathModel {
+export function reorderPathElements(
+  path: PathModel,
+  newOrder: readonly number[],
+): PathModel {
   if (newOrder.length !== path.path_elements.length) {
     throw new Error("New order must match elements length");
   }
@@ -190,15 +200,19 @@ export function reorderPathElements(path: PathModel, newOrder: readonly number[]
 
   return {
     ...path,
-    path_elements: newOrder.map((index) => path.path_elements[index])
+    path_elements: newOrder.map((index) => path.path_elements[index]),
   };
 }
 
-export function isTranslationTarget(element: PathElement): element is TranslationTarget {
+export function isTranslationTarget(
+  element: PathElement,
+): element is TranslationTarget {
   return element.type === "translation";
 }
 
-export function isRotationTarget(element: PathElement): element is RotationTarget {
+export function isRotationTarget(
+  element: PathElement,
+): element is RotationTarget {
   return element.type === "rotation";
 }
 
@@ -210,12 +224,14 @@ export function isWaypoint(element: PathElement): element is Waypoint {
   return element.type === "waypoint";
 }
 
-export function isAnchorElement(element: PathElement): element is TranslationTarget | Waypoint {
+export function isAnchorElement(
+  element: PathElement,
+): element is TranslationTarget | Waypoint {
   return isTranslationTarget(element) || isWaypoint(element);
 }
 
 export function isRotationEventElement(
-  element: PathElement
+  element: PathElement,
 ): element is RotationTarget | Waypoint {
   return isRotationTarget(element) || isWaypoint(element);
 }
@@ -224,11 +240,15 @@ export function isRangedConstraintKey(key: string): key is RangedConstraintKey {
   return (rangedConstraintKeys as readonly string[]).includes(key);
 }
 
-export function isTranslationConstraintKey(key: string): key is TranslationConstraintKey {
+export function isTranslationConstraintKey(
+  key: string,
+): key is TranslationConstraintKey {
   return (translationConstraintKeys as readonly string[]).includes(key);
 }
 
-export function isRotationConstraintKey(key: string): key is RotationConstraintKey {
+export function isRotationConstraintKey(
+  key: string,
+): key is RotationConstraintKey {
   return (rotationConstraintKeys as readonly string[]).includes(key);
 }
 
@@ -236,6 +256,8 @@ export function countAnchorElements(elements: readonly PathElement[]): number {
   return elements.filter(isAnchorElement).length;
 }
 
-export function countRotationEventElements(elements: readonly PathElement[]): number {
+export function countRotationEventElements(
+  elements: readonly PathElement[],
+): number {
   return elements.filter(isRotationEventElement).length;
 }

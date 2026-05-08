@@ -10,7 +10,7 @@ export interface CreateStorageAdapterOptions {
 
 export function createStorageAdapter(
   capabilities: EnvironmentCapabilities,
-  options: CreateStorageAdapterOptions = {}
+  options: CreateStorageAdapterOptions = {},
 ): StorageAdapter {
   if (capabilities.shell === "tauri") {
     return new TauriStorage(options.tauri);

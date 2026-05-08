@@ -4,9 +4,12 @@ import {
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
-  type PathElement
+  type PathElement,
 } from "../../../core/model/path";
-import { NumberStepperControl, SidebarSelectControl } from "../../controls/SidebarControls";
+import {
+  NumberStepperControl,
+  SidebarSelectControl,
+} from "../../controls/SidebarControls";
 import { SidebarSection } from "../SidebarSection";
 import {
   type AddableElementType,
@@ -14,7 +17,7 @@ import {
   updateEventTrigger,
   updateRotationTarget,
   updateTranslationTarget,
-  updateWaypoint
+  updateWaypoint,
 } from "../sidebarCommands";
 
 interface PropertyEditorProps {
@@ -34,7 +37,7 @@ export function PropertyEditor({
   typeOptions,
   onToggleSection,
   onChangeType,
-  onUpdateElement
+  onUpdateElement,
 }: PropertyEditorProps) {
   if (!element) {
     return null;
@@ -91,7 +94,7 @@ export function PropertyEditor({
 function TypeField({
   element,
   options,
-  onChangeType
+  onChangeType,
 }: {
   element: PathElement;
   options: readonly AddableElementType[];
@@ -108,7 +111,10 @@ function TypeField({
       <SidebarSelectControl
         ariaLabel="Type"
         value={currentType}
-        options={visibleOptions.map((type) => ({ label: typeOptionLabel(type), value: type }))}
+        options={visibleOptions.map((type) => ({
+          label: typeOptionLabel(type),
+          value: type,
+        }))}
         onChange={onChangeType}
       />
     </label>
@@ -117,7 +123,7 @@ function TypeField({
 
 function TranslationFields({
   element,
-  onUpdateElement
+  onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "translation" }>;
   onUpdateElement(element: PathElement): void;
@@ -151,8 +157,8 @@ function TranslationFields({
         onChange={(value) =>
           onUpdateElement(
             updateTranslationTarget(element, {
-              intermediate_handoff_radius_meters: value
-            })
+              intermediate_handoff_radius_meters: value,
+            }),
           )
         }
       />
@@ -162,7 +168,7 @@ function TranslationFields({
 
 function WaypointFields({
   element,
-  onUpdateElement
+  onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "waypoint" }>;
   onUpdateElement(element: PathElement): void;
@@ -176,8 +182,8 @@ function WaypointFields({
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              rotation: { rotation_radians: degreesToRadians(value) }
-            })
+              rotation: { rotation_radians: degreesToRadians(value) },
+            }),
           )
         }
       />
@@ -190,8 +196,8 @@ function WaypointFields({
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              translation: { x_meters: value }
-            })
+              translation: { x_meters: value },
+            }),
           )
         }
       />
@@ -204,8 +210,8 @@ function WaypointFields({
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              translation: { y_meters: value }
-            })
+              translation: { y_meters: value },
+            }),
           )
         }
       />
@@ -216,8 +222,8 @@ function WaypointFields({
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              translation: { intermediate_handoff_radius_meters: value }
-            })
+              translation: { intermediate_handoff_radius_meters: value },
+            }),
           )
         }
       />
@@ -227,8 +233,8 @@ function WaypointFields({
         onChange={(checked) =>
           onUpdateElement(
             updateWaypoint(element, {
-              rotation: { profiled_rotation: checked }
-            })
+              rotation: { profiled_rotation: checked },
+            }),
           )
         }
       />
@@ -238,7 +244,7 @@ function WaypointFields({
 
 function RotationFields({
   element,
-  onUpdateElement
+  onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "rotation" }>;
   onUpdateElement(element: PathElement): void;
@@ -251,7 +257,9 @@ function RotationFields({
         step={1}
         onChange={(value) =>
           onUpdateElement(
-            updateRotationTarget(element, { rotation_radians: degreesToRadians(value) })
+            updateRotationTarget(element, {
+              rotation_radians: degreesToRadians(value),
+            }),
           )
         }
       />
@@ -262,14 +270,18 @@ function RotationFields({
         min={0}
         max={1}
         onChange={(value) =>
-          onUpdateElement(updateRotationTarget(element, { t_ratio: clamp01(value) }))
+          onUpdateElement(
+            updateRotationTarget(element, { t_ratio: clamp01(value) }),
+          )
         }
       />
       <BooleanField
         label="Profiled Rotation"
         checked={element.profiled_rotation}
         onChange={(checked) =>
-          onUpdateElement(updateRotationTarget(element, { profiled_rotation: checked }))
+          onUpdateElement(
+            updateRotationTarget(element, { profiled_rotation: checked }),
+          )
         }
       />
     </>
@@ -278,7 +290,7 @@ function RotationFields({
 
 function EventFields({
   element,
-  onUpdateElement
+  onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "event_trigger" }>;
   onUpdateElement(element: PathElement): void;
@@ -292,7 +304,9 @@ function EventFields({
         min={0}
         max={1}
         onChange={(value) =>
-          onUpdateElement(updateEventTrigger(element, { t_ratio: clamp01(value) }))
+          onUpdateElement(
+            updateEventTrigger(element, { t_ratio: clamp01(value) }),
+          )
         }
       />
       <label className="property-row">
@@ -303,7 +317,9 @@ function EventFields({
           value={element.lib_key}
           onChange={(event) =>
             onUpdateElement(
-              updateEventTrigger(element, { lib_key: event.currentTarget.value })
+              updateEventTrigger(element, {
+                lib_key: event.currentTarget.value,
+              }),
             )
           }
         />
@@ -318,7 +334,7 @@ function NumberField({
   step,
   min,
   max,
-  onChange
+  onChange,
 }: {
   label: string;
   value: number;
@@ -346,7 +362,7 @@ function OptionalNumberField({
   label,
   value,
   step,
-  onChange
+  onChange,
 }: {
   label: string;
   value: number | null;
@@ -371,7 +387,7 @@ function OptionalNumberField({
 function BooleanField({
   label,
   checked,
-  onChange
+  onChange,
 }: {
   label: string;
   checked: boolean;
@@ -418,7 +434,10 @@ function typeOptionLabel(type: AddableElementType): string {
   return "Waypoint";
 }
 
-function propertySectionMeta(element: PathElement | null, selectedElementIndex: number | null): string {
+function propertySectionMeta(
+  element: PathElement | null,
+  selectedElementIndex: number | null,
+): string {
   if (!element || selectedElementIndex === null) {
     return "No selection";
   }

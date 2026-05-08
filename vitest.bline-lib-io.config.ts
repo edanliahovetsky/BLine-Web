@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["parity-harness/bline-lib-io.test.ts"],
-    testTimeout: 360_000
-  }
+    testTimeout: 360_000,
+  },
 });

@@ -1,18 +1,18 @@
 import {
   createProjectConfig,
-  type CanonicalProjectConfig
+  type CanonicalProjectConfig,
 } from "../core/config/projectConfig";
 import {
   isAnchorElement,
   isEventTrigger,
   isRotationTarget,
   isWaypoint,
-  type PathElement
+  type PathElement,
 } from "../core/model/path";
 import {
   getElementPosition,
   type PointMeters,
-  type PositionOverrides
+  type PositionOverrides,
 } from "./geometry";
 
 interface AnchorProgress {
@@ -29,7 +29,7 @@ interface ProtrusionTrigger {
 export function buildElementProtrusionVisibilityByIndex(
   elements: readonly PathElement[],
   rawConfig: unknown,
-  positionOverrides: PositionOverrides = emptyPositionOverrides
+  positionOverrides: PositionOverrides = emptyPositionOverrides,
 ): Map<number, boolean> {
   const visibilityByIndex = new Map<number, boolean>();
   const protrusions = createProjectConfig(rawConfig).gui.protrusions;
@@ -48,16 +48,24 @@ export function buildElementProtrusionVisibilityByIndex(
   const schedule = buildProtrusionTriggerSchedule(
     elements,
     protrusions,
-    geometry.anchorSByPathIndex
+    geometry.anchorSByPathIndex,
   );
 
   for (const index of visibilityByIndex.keys()) {
-    const sMeters = elementProgressMeters(elements, index, geometry.anchorSByPathIndex);
+    const sMeters = elementProgressMeters(
+      elements,
+      index,
+      geometry.anchorSByPathIndex,
+    );
     visibilityByIndex.set(
       index,
       sMeters === null
         ? protrusions.default_state === "shown"
-        : protrusionVisibleAtS(sMeters, protrusions.default_state === "shown", schedule)
+        : protrusionVisibleAtS(
+            sMeters,
+            protrusions.default_state === "shown",
+            schedule,
+          ),
     );
   }
 
@@ -66,7 +74,7 @@ export function buildElementProtrusionVisibilityByIndex(
 
 function buildAnchorProgressGeometry(
   elements: readonly PathElement[],
-  positionOverrides: PositionOverrides
+  positionOverrides: PositionOverrides,
 ): {
   anchors: AnchorProgress[];
   anchorSByPathIndex: ReadonlyMap<number, number>;
@@ -104,7 +112,7 @@ function buildAnchorProgressGeometry(
 function buildProtrusionTriggerSchedule(
   elements: readonly PathElement[],
   protrusions: CanonicalProjectConfig["gui"]["protrusions"],
-  anchorSByPathIndex: ReadonlyMap<number, number>
+  anchorSByPathIndex: ReadonlyMap<number, number>,
 ): ProtrusionTrigger[] {
   const showKeys = new Set(protrusions.show_on_event_keys);
   const hideKeys = new Set(protrusions.hide_on_event_keys);
@@ -119,16 +127,16 @@ function buildProtrusionTriggerSchedule(
     }
 
     const key = element.lib_key.trim();
-    const visible = showKeys.has(key)
-      ? true
-      : hideKeys.has(key)
-        ? false
-        : null;
+    const visible = showKeys.has(key) ? true : hideKeys.has(key) ? false : null;
     if (!key || visible === null) {
       continue;
     }
 
-    const sMeters = elementProgressMeters(elements, pathIndex, anchorSByPathIndex);
+    const sMeters = elementProgressMeters(
+      elements,
+      pathIndex,
+      anchorSByPathIndex,
+    );
     if (sMeters === null) {
       continue;
     }
@@ -136,13 +144,15 @@ function buildProtrusionTriggerSchedule(
     schedule.push({ sMeters, pathIndex, visible });
   }
 
-  return schedule.sort((a, b) => a.sMeters - b.sMeters || a.pathIndex - b.pathIndex);
+  return schedule.sort(
+    (a, b) => a.sMeters - b.sMeters || a.pathIndex - b.pathIndex,
+  );
 }
 
 function protrusionVisibleAtS(
   sMeters: number,
   defaultVisible: boolean,
-  schedule: readonly ProtrusionTrigger[]
+  schedule: readonly ProtrusionTrigger[],
 ): boolean {
   let visible = defaultVisible;
   for (const trigger of schedule) {
@@ -158,7 +168,7 @@ function protrusionVisibleAtS(
 function elementProgressMeters(
   elements: readonly PathElement[],
   index: number,
-  anchorSByPathIndex: ReadonlyMap<number, number>
+  anchorSByPathIndex: ReadonlyMap<number, number>,
 ): number | null {
   const element = elements[index];
   if (!element) {
@@ -189,7 +199,7 @@ function elementProgressMeters(
 
 function neighborAnchorIndexes(
   elements: readonly PathElement[],
-  index: number
+  index: number,
 ): { previous: number; next: number } | null {
   let previous: number | null = null;
   let next: number | null = null;

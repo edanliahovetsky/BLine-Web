@@ -15,14 +15,17 @@ export function deriveWindowsMsiVersion(version) {
     return `${major}.${minor}.${patch}`;
   }
 
-  const prereleaseNumber = readPrereleaseBuildNumber(parsed.prerelease, version);
+  const prereleaseNumber = readPrereleaseBuildNumber(
+    parsed.prerelease,
+    version,
+  );
   const build = readMsiField(prereleaseNumber, "build", 65535);
   return `${major}.${minor}.${patch}.${build}`;
 }
 
 function parseReleaseVersion(version) {
   const match = version.match(
-    /^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<prerelease>[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?(?:\+(?<build>[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?$/
+    /^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<prerelease>[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?(?:\+(?<build>[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?$/,
   );
 
   if (!match?.groups) {
@@ -39,7 +42,7 @@ function readPrereleaseBuildNumber(prerelease, version) {
 
   if (!numericPart) {
     throw new Error(
-      `release version ${version} has prerelease "${prerelease}", but Windows MSI needs a numeric prerelease identifier such as alpha.1`
+      `release version ${version} has prerelease "${prerelease}", but Windows MSI needs a numeric prerelease identifier such as alpha.1`,
     );
   }
 
@@ -51,7 +54,7 @@ function readMsiField(value, label, max) {
 
   if (!Number.isSafeInteger(number) || number < 0 || number > max) {
     throw new Error(
-      `Windows MSI ${label} version field ${value} must be between 0 and ${max}`
+      `Windows MSI ${label} version field ${value} must be between 0 and ${max}`,
     );
   }
 

@@ -5,7 +5,7 @@ import {
   createPathModel,
   createRotationTarget,
   createTranslationTarget,
-  createWaypoint
+  createWaypoint,
 } from "../../../src/core/model/path";
 import {
   createFieldViewport,
@@ -17,7 +17,7 @@ import {
   projectPointToSegmentRatio,
   getRenderableElementPositions,
   modelToStagePoint,
-  stageToModelPoint
+  stageToModelPoint,
 } from "../../../src/canvas/geometry";
 import {
   createMoveElementCommand,
@@ -25,12 +25,12 @@ import {
   createSetElementRatioCommand,
   updateProjectElementRatio,
   updateProjectElementRotation,
-  updateProjectElementPosition
+  updateProjectElementPosition,
 } from "../../../src/canvas/modelSync";
 import {
   coveredDomainIndexesForConstraint,
   firstDomainIndexForConstraintRange,
-  pathIndexesForConstraintRange
+  pathIndexesForConstraintRange,
 } from "../../../src/canvas/constraintRange";
 
 describe("canvas geometry", () => {
@@ -49,19 +49,22 @@ describe("canvas geometry", () => {
       createTranslationTarget({ x_meters: 1, y_meters: 1 }),
       createRotationTarget({ t_ratio: 0.25 }),
       createWaypoint({
-        translation_target: createTranslationTarget({ x_meters: 5, y_meters: 3 })
+        translation_target: createTranslationTarget({
+          x_meters: 5,
+          y_meters: 3,
+        }),
       }),
       createEventTrigger({ t_ratio: 0.5 }),
-      createTranslationTarget({ x_meters: 9, y_meters: 5 })
+      createTranslationTarget({ x_meters: 9, y_meters: 5 }),
     ];
 
     expect(getElementPosition(elements, 1)).toEqual({
       x_meters: 2,
-      y_meters: 1.5
+      y_meters: 1.5,
     });
     expect(getElementPosition(elements, 3)).toEqual({
       x_meters: 7,
-      y_meters: 4
+      y_meters: 4,
     });
   });
 
@@ -70,15 +73,18 @@ describe("canvas geometry", () => {
       createTranslationTarget({ x_meters: 1, y_meters: 1 }),
       createRotationTarget({ t_ratio: 0.25 }),
       createWaypoint({
-        translation_target: createTranslationTarget({ x_meters: 5, y_meters: 3 })
+        translation_target: createTranslationTarget({
+          x_meters: 5,
+          y_meters: 3,
+        }),
       }),
       createEventTrigger({ t_ratio: 0.5 }),
-      createTranslationTarget({ x_meters: 9, y_meters: 5 })
+      createTranslationTarget({ x_meters: 9, y_meters: 5 }),
     ];
 
-    expect(getRenderableElementPositions(elements).map(({ index }) => index)).toEqual([
-      0, 1, 2, 3, 4
-    ]);
+    expect(
+      getRenderableElementPositions(elements).map(({ index }) => index),
+    ).toEqual([0, 1, 2, 3, 4]);
   });
 
   it("maps selected ranged constraints to the highlighted path span", () => {
@@ -87,7 +93,7 @@ describe("canvas geometry", () => {
       createRotationTarget(),
       createWaypoint(),
       createEventTrigger(),
-      createTranslationTarget()
+      createTranslationTarget(),
     ];
 
     expect(
@@ -95,40 +101,40 @@ describe("canvas geometry", () => {
         key: "max_velocity_meters_per_sec",
         value: 2,
         start_ordinal: 2,
-        end_ordinal: 2
-      })
+        end_ordinal: 2,
+      }),
     ).toEqual([2]);
     expect(
       pathIndexesForConstraintRange(elements, {
         key: "max_velocity_meters_per_sec",
         value: 2,
         start_ordinal: 2,
-        end_ordinal: 2
-      })
+        end_ordinal: 2,
+      }),
     ).toEqual([0, 1, 2]);
     expect(
       coveredDomainIndexesForConstraint(elements, {
         key: "max_velocity_deg_per_sec",
         value: 90,
         start_ordinal: 1,
-        end_ordinal: 2
-      })
+        end_ordinal: 2,
+      }),
     ).toEqual([1, 2]);
     expect(
       pathIndexesForConstraintRange(elements, {
         key: "max_velocity_deg_per_sec",
         value: 90,
         start_ordinal: 2,
-        end_ordinal: 3
-      })
+        end_ordinal: 3,
+      }),
     ).toEqual([1, 2]);
     expect(
       firstDomainIndexForConstraintRange(elements, {
         key: "max_velocity_meters_per_sec",
         value: 2,
         start_ordinal: 0,
-        end_ordinal: 3
-      })
+        end_ordinal: 3,
+      }),
     ).toBe(0);
   });
 
@@ -136,7 +142,7 @@ describe("canvas geometry", () => {
     const elements = [
       createTranslationTarget({ x_meters: 1, y_meters: 1 }),
       createEventTrigger({ t_ratio: 0.5 }),
-      createTranslationTarget({ x_meters: 5, y_meters: 1 })
+      createTranslationTarget({ x_meters: 5, y_meters: 1 }),
     ];
     const segment = getNeighborAnchorPositions(elements, 1);
 
@@ -149,12 +155,14 @@ describe("canvas geometry", () => {
       projectPointToSegmentRatio(
         { x_meters: 3, y_meters: 3 },
         segment.previous,
-        segment.next
-      )
+        segment.next,
+      ),
     ).toBeCloseTo(0.5, 6);
-    expect(interpolateSegmentPosition(segment.previous, segment.next, 0.25)).toEqual({
+    expect(
+      interpolateSegmentPosition(segment.previous, segment.next, 0.25),
+    ).toEqual({
       x_meters: 2,
-      y_meters: 1
+      y_meters: 1,
     });
   });
 
@@ -163,19 +171,21 @@ describe("canvas geometry", () => {
       createTranslationTarget({
         x_meters: 1,
         y_meters: 1,
-        intermediate_handoff_radius_meters: 0.6
+        intermediate_handoff_radius_meters: 0.6,
       }),
       createRotationTarget({ rotation_radians: Math.PI / 4, t_ratio: 0.25 }),
       createWaypoint({
         translation_target: createTranslationTarget({
           x_meters: 5,
           y_meters: 3,
-          intermediate_handoff_radius_meters: 0.25
+          intermediate_handoff_radius_meters: 0.25,
         }),
-        rotation_target: createRotationTarget({ rotation_radians: Math.PI / 2 })
+        rotation_target: createRotationTarget({
+          rotation_radians: Math.PI / 2,
+        }),
       }),
       createEventTrigger({ t_ratio: 0.5 }),
-      createTranslationTarget({ x_meters: 9, y_meters: 3 })
+      createTranslationTarget({ x_meters: 9, y_meters: 3 }),
     ];
 
     expect(getElementHeadingRadians(elements, 0)).toBeCloseTo(0, 6);
@@ -183,10 +193,9 @@ describe("canvas geometry", () => {
     expect(getElementHeadingRadians(elements, 2)).toBeCloseTo(Math.PI / 2, 6);
     expect(getElementHeadingRadians(elements, 3)).toBeCloseTo(Math.PI / 2, 6);
     expect(getElementHeadingRadians(elements, 4)).toBeCloseTo(Math.PI / 2, 6);
-    expect(getElementHeadingRadians(elements, 2, new Map([[2, Math.PI]]))).toBeCloseTo(
-      Math.PI,
-      6
-    );
+    expect(
+      getElementHeadingRadians(elements, 2, new Map([[2, Math.PI]])),
+    ).toBeCloseTo(Math.PI, 6);
     expect(getHandoffRadiusMeters(elements[0])).toBe(0.6);
     expect(getHandoffRadiusMeters(elements[2])).toBe(0.25);
     expect(getHandoffRadiusMeters(elements[1])).toBeNull();
@@ -202,27 +211,30 @@ describe("canvas model sync", () => {
         path_elements: [
           createTranslationTarget({ x_meters: 1, y_meters: 2 }),
           createWaypoint({
-            translation_target: createTranslationTarget({ x_meters: 3, y_meters: 4 })
-          })
-        ]
-      })
+            translation_target: createTranslationTarget({
+              x_meters: 3,
+              y_meters: 4,
+            }),
+          }),
+        ],
+      }),
     });
     const move = createMoveElementCommand(
       1,
       { x_meters: 3, y_meters: 4 },
-      { x_meters: 6, y_meters: 7 }
+      { x_meters: 6, y_meters: 7 },
     );
 
     const moved = move.apply(project);
     expect(getElementPosition(moved.path.path_elements, 1)).toEqual({
       x_meters: 6,
-      y_meters: 7
+      y_meters: 7,
     });
 
     const reverted = move.revert(moved);
     expect(getElementPosition(reverted.path.path_elements, 1)).toEqual({
       x_meters: 3,
-      y_meters: 4
+      y_meters: 4,
     });
     expect(project.path.path_elements).not.toBe(moved.path.path_elements);
   });
@@ -232,12 +244,12 @@ describe("canvas model sync", () => {
       project_id: "project-a",
       display_name: "Alpha",
       path: createPathModel({
-        path_elements: [createRotationTarget()]
-      })
+        path_elements: [createRotationTarget()],
+      }),
     });
 
     expect(() =>
-      updateProjectElementPosition(project, 0, { x_meters: 2, y_meters: 3 })
+      updateProjectElementPosition(project, 0, { x_meters: 2, y_meters: 3 }),
     ).toThrow("does not have an editable translation position");
   });
 
@@ -250,15 +262,15 @@ describe("canvas model sync", () => {
           createTranslationTarget({ x_meters: 0, y_meters: 0 }),
           createEventTrigger({ t_ratio: 0.25, lib_key: "event" }),
           createRotationTarget({ t_ratio: 0.5 }),
-          createTranslationTarget({ x_meters: 4, y_meters: 0 })
-        ]
-      })
+          createTranslationTarget({ x_meters: 4, y_meters: 0 }),
+        ],
+      }),
     });
 
     const moved = updateProjectElementRatio(project, 1, 0.75);
     expect(moved.path.path_elements[1]).toMatchObject({
       type: "event_trigger",
-      t_ratio: 0.75
+      t_ratio: 0.75,
     });
 
     const command = createSetElementRatioCommand(2, 0.5, 0.1);
@@ -267,11 +279,11 @@ describe("canvas model sync", () => {
 
     expect(updated.path.path_elements[2]).toMatchObject({
       type: "rotation",
-      t_ratio: 0.1
+      t_ratio: 0.1,
     });
     expect(reverted.path.path_elements[2]).toMatchObject({
       type: "rotation",
-      t_ratio: 0.5
+      t_ratio: 0.5,
     });
   });
 
@@ -282,30 +294,35 @@ describe("canvas model sync", () => {
       path: createPathModel({
         path_elements: [
           createWaypoint({
-            rotation_target: createRotationTarget({ rotation_radians: 0 })
+            rotation_target: createRotationTarget({ rotation_radians: 0 }),
           }),
-          createRotationTarget({ rotation_radians: Math.PI / 4 })
-        ]
-      })
+          createRotationTarget({ rotation_radians: Math.PI / 4 }),
+        ],
+      }),
     });
 
-    const updatedWaypoint = updateProjectElementRotation(project, 0, Math.PI / 2);
-    expect(getElementHeadingRadians(updatedWaypoint.path.path_elements, 0)).toBeCloseTo(
+    const updatedWaypoint = updateProjectElementRotation(
+      project,
+      0,
       Math.PI / 2,
-      6
     );
+    expect(
+      getElementHeadingRadians(updatedWaypoint.path.path_elements, 0),
+    ).toBeCloseTo(Math.PI / 2, 6);
 
-    const command = createSetElementRotationCommand(1, Math.PI / 4, -Math.PI / 2);
+    const command = createSetElementRotationCommand(
+      1,
+      Math.PI / 4,
+      -Math.PI / 2,
+    );
     const updatedRotation = command.apply(project);
     const reverted = command.revert(updatedRotation);
 
-    expect(getElementHeadingRadians(updatedRotation.path.path_elements, 1)).toBeCloseTo(
-      -Math.PI / 2,
-      6
-    );
-    expect(getElementHeadingRadians(reverted.path.path_elements, 1)).toBeCloseTo(
-      Math.PI / 4,
-      6
-    );
+    expect(
+      getElementHeadingRadians(updatedRotation.path.path_elements, 1),
+    ).toBeCloseTo(-Math.PI / 2, 6);
+    expect(
+      getElementHeadingRadians(reverted.path.path_elements, 1),
+    ).toBeCloseTo(Math.PI / 4, 6);
   });
 });

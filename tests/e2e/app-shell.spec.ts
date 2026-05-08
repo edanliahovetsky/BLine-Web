@@ -5,26 +5,44 @@ test("boots the Phase 1 shell", async ({ page }) => {
 
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
-  await expect(page.getByRole("navigation", { name: "Top menu" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Top menu" }),
+  ).toBeVisible();
   await expect(page.getByLabel("Editor canvas")).toBeVisible();
   await expect(page.getByTestId("path-stage")).toBeVisible();
-  await expect(page.getByText("Current Path: Phase 1 Canvas Draft")).toBeVisible();
+  await expect(
+    page.getByText("Current Path: Phase 1 Canvas Draft"),
+  ).toBeVisible();
   await expect(page.getByText("Path Elements")).toBeVisible();
   await expect(page.getByText("6 elements")).toBeVisible();
-  await expect(page.getByTestId("path-element-row-0")).toContainText("1. Waypoint");
-  await expect(page.getByTestId("path-element-row-0")).toContainText("5.70, 2.50 m");
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
-  await expect(page.getByTestId("path-element-row-5")).toContainText("10.90, 5.50 m");
-  await expect(page.getByRole("heading", { name: "Max Velocity" })).toBeVisible();
+  await expect(page.getByTestId("path-element-row-0")).toContainText(
+    "1. Waypoint",
+  );
+  await expect(page.getByTestId("path-element-row-0")).toContainText(
+    "5.70, 2.50 m",
+  );
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Waypoint",
+  );
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "10.90, 5.50 m",
+  );
   await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    page.getByRole("heading", { name: "Max Velocity" }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
   ).toHaveText("3 m/s");
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
   await expect(page.getByText("Element Properties")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Zoom in" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Fit view" })).toHaveCount(0);
-  await expect(page.getByRole("complementary", { name: "Canvas tools" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Select tool" })).toHaveCount(0);
+  await expect(
+    page.getByRole("complementary", { name: "Canvas tools" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Select tool" })).toHaveCount(
+    0,
+  );
 });
 
 test("warns mobile users that support is limited", async ({ page }) => {
@@ -46,20 +64,22 @@ test("warns mobile users that support is limited", async ({ page }) => {
 test.describe("Pixi canvas rendering", () => {
   test.use({
     deviceScaleFactor: 2,
-    viewport: { width: 1180, height: 860 }
+    viewport: { width: 1180, height: 860 },
   });
 
   test("keeps the WebGL overlay sharp while panning @webkit-canvas", async ({
-    page
+    page,
   }) => {
     await page.goto("/");
 
     const canvas = page.getByTestId("path-stage-canvas");
     await expect(canvas).toBeVisible();
-    await expect.poll(() => canvasSceneMetrics(page)).toMatchObject({
-      count: 1,
-      ratios: [2]
-    });
+    await expect
+      .poll(() => canvasSceneMetrics(page))
+      .toMatchObject({
+        count: 1,
+        ratios: [2],
+      });
     await expect
       .poll(async () => (await canvasSceneMetrics(page)).renderer.toLowerCase())
       .toContain("webgl");
@@ -70,24 +90,32 @@ test.describe("Pixi canvas rendering", () => {
       await page.mouse.wheel(0, -400);
     }
 
-    await expect.poll(() => canvasSceneMetrics(page)).toMatchObject({
-      count: 1,
-      ratios: [2]
-    });
+    await expect
+      .poll(() => canvasSceneMetrics(page))
+      .toMatchObject({
+        count: 1,
+        ratios: [2],
+      });
 
     const nodeBeforePan = await canvasNodePosition(page, "path-element-node-0");
     box = await requiredBox(canvas);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 96, box.y + box.height / 2 + 72, {
-      steps: 4
-    });
+    await page.mouse.move(
+      box.x + box.width / 2 + 96,
+      box.y + box.height / 2 + 72,
+      {
+        steps: 4,
+      },
+    );
     await page.mouse.up();
 
-    await expect.poll(() => canvasSceneMetrics(page)).toMatchObject({
-      count: 1,
-      ratios: [2]
-    });
+    await expect
+      .poll(() => canvasSceneMetrics(page))
+      .toMatchObject({
+        count: 1,
+        ratios: [2],
+      });
     const nodeAfterPan = await canvasNodePosition(page, "path-element-node-0");
     expect(pointDistance(nodeBeforePan, nodeAfterPan)).toBeGreaterThan(8);
   });
@@ -102,7 +130,7 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 5.7,
-    y_meters: 2.5
+    y_meters: 2.5,
   });
 
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
@@ -117,11 +145,13 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   await page.mouse.up();
 
   await expect(selectedRow).not.toContainText("5.70, 2.50 m");
-  await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
+  await expect(page.getByTestId("save-status")).toContainText(
+    /Autosave pending|Saved/,
+  );
 });
 
 test("keeps the rotation handle attached while dragging selected elements", async ({
-  page
+  page,
 }) => {
   await page.goto("/");
 
@@ -130,24 +160,38 @@ test("keeps the rotation handle attached while dragging selected elements", asyn
   const canvas = page.getByTestId("path-stage-canvas");
   const center = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 8.3,
-    y_meters: 4.0
+    y_meters: 4.0,
   });
-  const selectedNodeBefore = await canvasNodePosition(page, "path-element-node-2");
-  const handleRootBefore = await canvasNodePosition(page, "rotation-handle-root");
+  const selectedNodeBefore = await canvasNodePosition(
+    page,
+    "path-element-node-2",
+  );
+  const handleRootBefore = await canvasNodePosition(
+    page,
+    "rotation-handle-root",
+  );
   expect(pointDistance(selectedNodeBefore, handleRootBefore)).toBeLessThan(0.5);
 
   await page.mouse.move(center.x, center.y);
   await page.mouse.down();
   await page.mouse.move(center.x + 72, center.y - 36);
 
-  const selectedNodeDuring = await canvasNodePosition(page, "path-element-node-2");
-  const handleRootDuring = await canvasNodePosition(page, "rotation-handle-root");
+  const selectedNodeDuring = await canvasNodePosition(
+    page,
+    "path-element-node-2",
+  );
+  const handleRootDuring = await canvasNodePosition(
+    page,
+    "rotation-handle-root",
+  );
   expect(pointDistance(selectedNodeDuring, handleRootDuring)).toBeLessThan(0.5);
 
   await page.mouse.up();
 });
 
-test("defers autosave while a dirty canvas drag is active", async ({ page }) => {
+test("defers autosave while a dirty canvas drag is active", async ({
+  page,
+}) => {
   await installWorkspaceWriteSpy(page);
   await page.goto("/");
 
@@ -156,7 +200,7 @@ test("defers autosave while a dirty canvas drag is active", async ({ page }) => 
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 5.7,
-    y_meters: 2.5
+    y_meters: 2.5,
   });
 
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
@@ -168,7 +212,7 @@ test("defers autosave while a dirty canvas drag is active", async ({ page }) => 
 
   const movedAnchor = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 5.75,
-    y_meters: 2.5
+    y_meters: 2.5,
   });
   await page.mouse.move(movedAnchor.x, movedAnchor.y);
   await page.mouse.down();
@@ -180,7 +224,7 @@ test("defers autosave while a dirty canvas drag is active", async ({ page }) => 
 
   await page.mouse.up();
   await expect(page.getByTestId("save-status")).toContainText("Saved", {
-    timeout: 3_000
+    timeout: 3_000,
   });
   expect(await workspaceWriteCount(page)).toBeGreaterThan(0);
 });
@@ -191,7 +235,9 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
 
   await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
 
-  const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+  const documentHeight = await page.evaluate(
+    () => document.documentElement.scrollHeight,
+  );
   const stageBox = await requiredBox(page.getByTestId("path-stage"));
 
   expect(documentHeight).toBeLessThan(1_850);
@@ -203,13 +249,14 @@ test("locks document scrolling to the viewport", async ({ page }) => {
   for (const viewport of [
     { width: 1200, height: 900 },
     { width: 390, height: 900 },
-    { width: 320, height: 360 }
+    { width: 320, height: 360 },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto("/");
 
     const metrics = await page.evaluate(() => {
-      const documentScroller = document.scrollingElement ?? document.documentElement;
+      const documentScroller =
+        document.scrollingElement ?? document.documentElement;
       const shell = document.querySelector(".app-shell");
       const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
 
@@ -230,20 +277,22 @@ test("locks document scrolling to the viewport", async ({ page }) => {
         sidebarClientHeight: sidebar.clientHeight,
         sidebarScrollHeight: sidebar.scrollHeight,
         sidebarScrollTop: sidebar.scrollTop,
-        viewportHeight: window.innerHeight
+        viewportHeight: window.innerHeight,
       };
     });
 
     expect(metrics.htmlOverflowY).toBe("hidden");
     expect(metrics.bodyOverflowY).toBe("hidden");
     expect(metrics.documentScrollHeight).toBeLessThanOrEqual(
-      metrics.documentClientHeight + 1
+      metrics.documentClientHeight + 1,
     );
     expect(metrics.shellTop).toBe(0);
     expect(metrics.shellBottom).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 
     if (viewport.width < 980) {
-      expect(metrics.sidebarScrollHeight).toBeGreaterThan(metrics.sidebarClientHeight);
+      expect(metrics.sidebarScrollHeight).toBeGreaterThan(
+        metrics.sidebarClientHeight,
+      );
       expect(metrics.sidebarScrollTop).toBeGreaterThan(0);
     }
 
@@ -254,10 +303,12 @@ test("locks document scrolling to the viewport", async ({ page }) => {
   }
 });
 
-test("keeps dense sidebar content inside the viewport without horizontal sidebar scroll", async ({ page }) => {
+test("keeps dense sidebar content inside the viewport without horizontal sidebar scroll", async ({
+  page,
+}) => {
   for (const viewport of [
     { width: 390, height: 900 },
-    { width: 1200, height: 900 }
+    { width: 1200, height: 900 },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto("/");
@@ -273,38 +324,56 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     await page.getByText("Add constraint").click();
     await page.getByRole("menuitem", { name: "Max Rot Acceleration" }).click();
     await expect(
-      page.getByRole("button", { name: "Show Max Rot Acceleration editor" })
+      page.getByRole("button", { name: "Show Max Rot Acceleration editor" }),
     ).toBeVisible();
     const denseConstraintCard = page.getByTestId(
-      "constraint-card-max_acceleration_deg_per_sec2"
+      "constraint-card-max_acceleration_deg_per_sec2",
     );
     await expect(
-      denseConstraintCard.locator(".ranged-constraint-controls__actions button")
+      denseConstraintCard.locator(
+        ".ranged-constraint-controls__actions button",
+      ),
     ).toHaveCount(4);
     const autoVelocityControls = page.getByTestId("auto-velocity-controls");
-    await expect(autoVelocityControls.getByText("Factors", { exact: true })).toBeVisible();
-    await expect(autoVelocityControls.getByText("Merge diff", { exact: true })).toBeVisible();
-    await expect(autoVelocityControls.getByText("Velocity factor", { exact: true })).toHaveCount(0);
-    await expect(autoVelocityControls.getByText("Accel factor", { exact: true })).toHaveCount(0);
+    await expect(
+      autoVelocityControls.getByText("Factors", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      autoVelocityControls.getByText("Merge diff", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      autoVelocityControls.getByText("Velocity factor", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      autoVelocityControls.getByText("Accel factor", { exact: true }),
+    ).toHaveCount(0);
 
     const metrics = await page.evaluate(() => {
-      const documentScroller = document.scrollingElement ?? document.documentElement;
+      const documentScroller =
+        document.scrollingElement ?? document.documentElement;
       const sidebar = document.querySelector(".inspector-sidebar");
       const denseCard = document.querySelector(
-        "[data-testid='constraint-card-max_acceleration_deg_per_sec2']"
+        "[data-testid='constraint-card-max_acceleration_deg_per_sec2']",
       );
       const valueControl = denseCard?.querySelector(
-        ".ranged-constraint-controls .sidebar-number-control"
+        ".ranged-constraint-controls .sidebar-number-control",
       );
       const valueInput = denseCard?.querySelector<HTMLInputElement>(
-        ".ranged-constraint-controls input[role='spinbutton']"
+        ".ranged-constraint-controls input[role='spinbutton']",
       );
       const actionButtons = Array.from(
-        denseCard?.querySelectorAll(".ranged-constraint-controls__actions button") ??
-          []
+        denseCard?.querySelectorAll(
+          ".ranged-constraint-controls__actions button",
+        ) ?? [],
       );
 
-      if (!sidebar || !denseCard || !valueControl || !valueInput || actionButtons.length !== 4) {
+      if (
+        !sidebar ||
+        !denseCard ||
+        !valueControl ||
+        !valueInput ||
+        actionButtons.length !== 4
+      ) {
         throw new Error("Expected dense sidebar ranged controls to be present");
       }
 
@@ -316,23 +385,27 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
           left: rect.left,
           right: rect.right,
           scrollWidth: child.scrollWidth,
-          clientWidth: child.clientWidth
+          clientWidth: child.clientWidth,
         };
       });
       const actionButtonBoxes = actionButtons.map((button) => {
         const rect = button.getBoundingClientRect();
         return {
           top: rect.top,
-          bottom: rect.bottom
+          bottom: rect.bottom,
         };
       });
       const autoVelocityControlBoxes = Array.from(
-        document.querySelectorAll(".auto-velocity-inline .sidebar-number-control")
+        document.querySelectorAll(
+          ".auto-velocity-inline .sidebar-number-control",
+        ),
       ).map((control) => {
         const input = control.querySelector("input");
         const stepper = control.querySelector(".sidebar-stepper");
         if (!input || !stepper) {
-          throw new Error("Expected auto velocity number controls to include input and stepper");
+          throw new Error(
+            "Expected auto velocity number controls to include input and stepper",
+          );
         }
         const controlRect = control.getBoundingClientRect();
         const inputRect = input.getBoundingClientRect();
@@ -344,7 +417,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
           inputTop: inputRect.top,
           inputBottom: inputRect.bottom,
           stepperTop: stepperRect.top,
-          stepperBottom: stepperRect.bottom
+          stepperBottom: stepperRect.bottom,
         };
       });
 
@@ -361,23 +434,31 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         valueInputClientWidth: valueInput.clientWidth,
         valueInputScrollWidth: valueInput.scrollWidth,
         actionButtonBoxes,
-        autoVelocityControlBoxes
+        autoVelocityControlBoxes,
       };
     });
 
-    expect(metrics.documentScrollWidth).toBeLessThanOrEqual(metrics.documentClientWidth + 1);
-    expect(metrics.sidebarScrollWidth).toBeLessThanOrEqual(metrics.sidebarClientWidth + 1);
+    expect(metrics.documentScrollWidth).toBeLessThanOrEqual(
+      metrics.documentClientWidth + 1,
+    );
+    expect(metrics.sidebarScrollWidth).toBeLessThanOrEqual(
+      metrics.sidebarClientWidth + 1,
+    );
     expect(metrics.sidebarLeft).toBeGreaterThanOrEqual(-1);
     expect(metrics.sidebarRight).toBeLessThanOrEqual(metrics.viewportWidth + 1);
 
     for (const childBox of metrics.childBoxes) {
       expect(childBox.left).toBeGreaterThanOrEqual(-1);
       expect(childBox.right).toBeLessThanOrEqual(metrics.viewportWidth + 1);
-      expect(childBox.scrollWidth).toBeLessThanOrEqual(childBox.clientWidth + 1);
+      expect(childBox.scrollWidth).toBeLessThanOrEqual(
+        childBox.clientWidth + 1,
+      );
     }
 
     for (const actionButtonBox of metrics.actionButtonBoxes) {
-      expect(Math.abs(actionButtonBox.bottom - metrics.valueControlBottom)).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(actionButtonBox.bottom - metrics.valueControlBottom),
+      ).toBeLessThanOrEqual(1);
     }
 
     expect(metrics.autoVelocityControlBoxes.length).toBe(3);
@@ -385,14 +466,20 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     const autoControlBottom = metrics.autoVelocityControlBoxes[0].bottom;
     for (const controlBox of metrics.autoVelocityControlBoxes) {
       expect(Math.abs(controlBox.top - autoControlTop)).toBeLessThanOrEqual(1);
-      expect(Math.abs(controlBox.bottom - autoControlBottom)).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(controlBox.bottom - autoControlBottom),
+      ).toBeLessThanOrEqual(1);
       expect(controlBox.height).toBeGreaterThanOrEqual(28);
-      expect(Math.abs(controlBox.inputTop - controlBox.stepperTop)).toBeLessThanOrEqual(1);
-      expect(Math.abs(controlBox.inputBottom - controlBox.stepperBottom)).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(controlBox.inputTop - controlBox.stepperTop),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(controlBox.inputBottom - controlBox.stepperBottom),
+      ).toBeLessThanOrEqual(1);
     }
 
     expect(metrics.valueInputScrollWidth).toBeLessThanOrEqual(
-      metrics.valueInputClientWidth + 1
+      metrics.valueInputClientWidth + 1,
     );
   }
 });
@@ -403,17 +490,24 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   const transport = page.getByTestId("simulation-transport");
   await expect(transport).toBeVisible();
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
-  await expect(transport.getByRole("button", { name: "Reset simulation" })).toBeDisabled();
-  await expect(transport.getByRole("button", { name: "Fast forward simulation" })).toBeEnabled();
-  await expect(transport.getByRole("button", { name: "Play simulation" })).toHaveText("");
-  await expect(transport.getByRole("button", { name: "Play simulation" })).toHaveAttribute(
-    "aria-keyshortcuts",
-    "Space K"
-  );
+  await expect(
+    transport.getByRole("button", { name: "Reset simulation" }),
+  ).toBeDisabled();
+  await expect(
+    transport.getByRole("button", { name: "Fast forward simulation" }),
+  ).toBeEnabled();
+  await expect(
+    transport.getByRole("button", { name: "Play simulation" }),
+  ).toHaveText("");
+  await expect(
+    transport.getByRole("button", { name: "Play simulation" }),
+  ).toHaveAttribute("aria-keyshortcuts", "Space K");
 
   await page.getByTestId("path-stage").focus();
   await page.keyboard.press("Space");
-  await expect(transport.getByRole("button", { name: "Pause simulation" })).toBeVisible();
+  await expect(
+    transport.getByRole("button", { name: "Pause simulation" }),
+  ).toBeVisible();
   await expect
     .poll(async () => page.getByTestId("simulation-time").innerText())
     .not.toMatch(/^0\.00 /);
@@ -431,9 +525,11 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 
   await page.getByTestId("path-stage").focus();
   await page.keyboard.press("ArrowRight");
-  await expect.poll(() => simulationProgress(page)).toMatchObject({
-    atEnd: true
-  });
+  await expect
+    .poll(() => simulationProgress(page))
+    .toMatchObject({
+      atEnd: true,
+    });
 
   await page.keyboard.press("ArrowLeft");
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
@@ -449,7 +545,9 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
 });
 
-test("adds edits and removes path elements from the inspector", async ({ page }) => {
+test("adds edits and removes path elements from the inspector", async ({
+  page,
+}) => {
   await page.goto("/");
 
   const addElementIcon = page.getByTestId("add-element-icon");
@@ -459,10 +557,12 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
-  await expect(page.getByTestId("path-element-row-6")).toContainText("7. Waypoint");
+  await expect(page.getByTestId("path-element-row-6")).toContainText(
+    "7. Waypoint",
+  );
   await expect(page.getByTestId("path-element-row-6")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
 
   const typeSelect = page.getByLabel("Type");
@@ -481,31 +581,47 @@ test("adds edits and removes path elements from the inspector", async ({ page })
   const decreaseX = xRow.getByRole("button", { name: "Decrease value" });
   await expect(increaseX.locator("svg")).toBeVisible();
   await expect(decreaseX.locator("svg")).toBeVisible();
-  expect((await requiredBox(increaseX.locator("svg"))).width).toBeGreaterThan(6);
-  expect((await requiredBox(decreaseX.locator("svg"))).width).toBeGreaterThan(6);
+  expect((await requiredBox(increaseX.locator("svg"))).width).toBeGreaterThan(
+    6,
+  );
+  expect((await requiredBox(decreaseX.locator("svg"))).width).toBeGreaterThan(
+    6,
+  );
 
   await increaseX.click();
   await expect(xInput).toHaveValue("6.3");
   await decreaseX.click();
   await expect(xInput).toHaveValue("6.25");
 
-  await expect(page.getByTestId("path-element-row-6")).toContainText("6.25, 3.75 m");
-  await expect(page.getByTestId("save-status")).toContainText(/Autosave pending|Saved/);
+  await expect(page.getByTestId("path-element-row-6")).toContainText(
+    "6.25, 3.75 m",
+  );
+  await expect(page.getByTestId("save-status")).toContainText(
+    /Autosave pending|Saved/,
+  );
 
   await page.getByRole("button", { name: "Remove Waypoint 7" }).click();
 
   await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
 });
 
-test("collapses sidebar sections persistently while keeping header actions available", async ({ page }) => {
+test("collapses sidebar sections persistently while keeping header actions available", async ({
+  page,
+}) => {
   await page.goto("/");
   await page.getByTestId("path-element-row-0").click();
 
   const pathToggle = page.getByTestId("sidebar-section-path-elements-toggle");
-  const propertiesToggle = page.getByTestId("sidebar-section-element-properties-toggle");
-  const constraintsToggle = page.getByTestId("sidebar-section-constraints-toggle");
+  const propertiesToggle = page.getByTestId(
+    "sidebar-section-element-properties-toggle",
+  );
+  const constraintsToggle = page.getByTestId(
+    "sidebar-section-constraints-toggle",
+  );
   const pathBody = page.getByTestId("sidebar-section-path-elements-body");
-  const propertiesBody = page.getByTestId("sidebar-section-element-properties-body");
+  const propertiesBody = page.getByTestId(
+    "sidebar-section-element-properties-body",
+  );
   const constraintsBody = page.getByTestId("sidebar-section-constraints-body");
 
   await expect(pathToggle).toHaveAttribute("aria-expanded", "true");
@@ -520,7 +636,9 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await expect(pathBody).toBeHidden();
   await pathToggle.click();
-  await expect(page.getByTestId("path-element-row-1")).toContainText("2. Waypoint");
+  await expect(page.getByTestId("path-element-row-1")).toContainText(
+    "2. Waypoint",
+  );
 
   await pathToggle.click();
   await propertiesToggle.click();
@@ -529,15 +647,19 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await expect(constraintsBody).toBeHidden();
 
   await page.getByText("Add constraint").click();
-  await expect(page.locator(".add-constraint-menu [role='menuitem']")).toHaveText([
+  await expect(
+    page.locator(".add-constraint-menu [role='menuitem']"),
+  ).toHaveText([
     "Max Velocity (+)",
     "Max Acceleration",
     "Max Rot Velocity",
     "Max Rot Acceleration",
     "End Translation Tolerance",
-    "End Rotation Tolerance"
+    "End Rotation Tolerance",
   ]);
-  await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
+  await page
+    .getByRole("menuitem", { name: "End Translation Tolerance" })
+    .click();
   await expect(constraintsBody).toBeHidden();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
@@ -545,7 +667,7 @@ test("collapses sidebar sections persistently while keeping header actions avail
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 5.7,
-    y_meters: 2.5
+    y_meters: 2.5,
   });
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
 
@@ -557,7 +679,9 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await expect(constraintsBody).toBeHidden();
 
   await constraintsToggle.click();
-  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
+  await expect(
+    page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
+  ).toHaveValue("0.03");
 });
 
 test("scrolls selected rows into view", async ({ page }) => {
@@ -568,7 +692,7 @@ test("scrolls selected rows into view", async ({ page }) => {
   await page.getByTestId("path-element-row-4").click();
   await expect(page.getByTestId("path-element-row-4")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
 
   for (let index = 0; index < 12; index += 1) {
@@ -584,10 +708,14 @@ test("scrolls selected rows into view", async ({ page }) => {
   const listBox = await requiredBox(pathList);
   const selectedBox = await requiredBox(selectedRow);
   expect(selectedBox.y).toBeGreaterThanOrEqual(listBox.y - 1);
-  expect(selectedBox.y + selectedBox.height).toBeLessThanOrEqual(listBox.y + listBox.height + 1);
+  expect(selectedBox.y + selectedBox.height).toBeLessThanOrEqual(
+    listBox.y + listBox.height + 1,
+  );
 });
 
-test("keeps outer sidebar scroll while selected canvas elements scroll within the path list", async ({ page }) => {
+test("keeps outer sidebar scroll while selected canvas elements scroll within the path list", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1200, height: 720 });
   await page.goto("/");
 
@@ -606,11 +734,14 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
 
     const sidebarMaxScrollTop = sidebar.scrollHeight - sidebar.clientHeight;
     sidebar.scrollTop = Math.max(1, Math.min(320, sidebarMaxScrollTop - 80));
-    pathList.scrollTop = Math.max(1, pathList.scrollHeight - pathList.clientHeight);
+    pathList.scrollTop = Math.max(
+      1,
+      pathList.scrollHeight - pathList.clientHeight,
+    );
 
     return {
       pathListScrollTop: pathList.scrollTop,
-      sidebarScrollTop: sidebar.scrollTop
+      sidebarScrollTop: sidebar.scrollTop,
     };
   });
 
@@ -620,39 +751,47 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 5.7,
-    y_meters: 2.5
+    y_meters: 2.5,
   });
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
   await expect(page.getByTestId("path-element-row-0")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
 
   await expect
-    .poll(async () => page.evaluate((expectedSidebarScrollTop) => {
-      const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
-      const pathList = document.querySelector<HTMLElement>(".path-element-list");
-      const selectedRow = document.querySelector<HTMLElement>(
-        "[data-testid='path-element-row-0']"
-      );
+    .poll(async () =>
+      page.evaluate((expectedSidebarScrollTop) => {
+        const sidebar =
+          document.querySelector<HTMLElement>(".inspector-sidebar");
+        const pathList =
+          document.querySelector<HTMLElement>(".path-element-list");
+        const selectedRow = document.querySelector<HTMLElement>(
+          "[data-testid='path-element-row-0']",
+        );
 
-      if (!sidebar || !pathList || !selectedRow) {
-        throw new Error("Expected sidebar, path element list, and selected row to be present");
-      }
+        if (!sidebar || !pathList || !selectedRow) {
+          throw new Error(
+            "Expected sidebar, path element list, and selected row to be present",
+          );
+        }
 
-      const listBox = pathList.getBoundingClientRect();
-      const selectedBox = selectedRow.getBoundingClientRect();
+        const listBox = pathList.getBoundingClientRect();
+        const selectedBox = selectedRow.getBoundingClientRect();
 
-      return {
-        selectedRowVisibleInList:
-          selectedBox.top >= listBox.top - 1 &&
-          selectedBox.bottom <= listBox.bottom + 1,
-        sidebarScrollDelta: Math.abs(sidebar.scrollTop - expectedSidebarScrollTop)
-      };
-    }, scrollBefore.sidebarScrollTop))
+        return {
+          selectedRowVisibleInList:
+            selectedBox.top >= listBox.top - 1 &&
+            selectedBox.bottom <= listBox.bottom + 1,
+          sidebarScrollDelta: Math.abs(
+            sidebar.scrollTop - expectedSidebarScrollTop,
+          ),
+        };
+      }, scrollBefore.sidebarScrollTop),
+    )
     .toMatchObject({
       selectedRowVisibleInList: true,
-      sidebarScrollDelta: 0
+      sidebarScrollDelta: 0,
     });
 
   const scrollAfter = await page.evaluate(() => {
@@ -665,68 +804,96 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
 
     return {
       pathListScrollTop: pathList.scrollTop,
-      sidebarScrollTop: sidebar.scrollTop
+      sidebarScrollTop: sidebar.scrollTop,
     };
   });
 
-  expect(scrollAfter.pathListScrollTop).toBeLessThan(scrollBefore.pathListScrollTop);
+  expect(scrollAfter.pathListScrollTop).toBeLessThan(
+    scrollBefore.pathListScrollTop,
+  );
   expect(scrollAfter.sidebarScrollTop).toBe(scrollBefore.sidebarScrollTop);
 });
 
-test("reorders and converts path elements from the inspector", async ({ page }) => {
+test("reorders and converts path elements from the inspector", async ({
+  page,
+}) => {
   await page.goto("/");
 
-  await expect(page.getByRole("button", { name: "Move Waypoint 3 down" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Move Waypoint 3 down" }),
+  ).toHaveCount(0);
 
   const sourceBox = await requiredBox(page.getByTestId("path-element-row-2"));
   const targetBox = await requiredBox(page.getByTestId("path-element-row-3"));
-  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  );
   await page.mouse.down();
-  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
-    steps: 8
-  });
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    {
+      steps: 8,
+    },
+  );
   await page.mouse.up();
 
   await expect(page.getByTestId("path-element-row-2")).toContainText(
-    "3. Translation"
+    "3. Translation",
   );
-  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Rotation");
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Rotation",
+  );
 
   await page.getByTestId("path-element-row-3").click();
   await page.getByLabel("Type").selectOption("translation");
   await expect(page.getByTestId("path-element-row-3")).toContainText(
-    "4. Translation"
+    "4. Translation",
   );
 
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Rotation");
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Rotation",
+  );
 });
 
-test("drags path elements in the inspector while preserving selection", async ({ page }) => {
+test("drags path elements in the inspector while preserving selection", async ({
+  page,
+}) => {
   await page.goto("/");
 
   await page.getByTestId("path-element-row-4").click();
   await expect(page.getByTestId("path-element-row-4")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
 
   const sourceBox = await requiredBox(page.getByTestId("path-element-row-4"));
   const targetBox = await requiredBox(page.getByTestId("path-element-row-1"));
-  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  );
   await page.mouse.down();
-  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
-    steps: 8
-  });
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    {
+      steps: 8,
+    },
+  );
   await page.mouse.up();
 
   await expect(page.getByTestId("path-element-row-1")).toContainText(
-    "2. Event Trigger"
+    "2. Event Trigger",
   );
-  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Translation");
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Translation",
+  );
   await expect(page.getByTestId("path-element-row-1")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
 });
 
@@ -739,7 +906,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
   const canvas = page.getByTestId("path-stage-canvas");
   const center = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 8.3,
-    y_meters: 4.0
+    y_meters: 4.0,
   });
 
   await page.mouse.move(center.x + 30, center.y - 30);
@@ -748,16 +915,22 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
   await page.mouse.up();
 
   await expect
-    .poll(async () => Number(await page.getByLabel("Rotation (deg)").inputValue()))
+    .poll(async () =>
+      Number(await page.getByLabel("Rotation (deg)").inputValue()),
+    )
     .toBeGreaterThan(-5);
   await expect
-    .poll(async () => Number(await page.getByLabel("Rotation (deg)").inputValue()))
+    .poll(async () =>
+      Number(await page.getByLabel("Rotation (deg)").inputValue()),
+    )
     .toBeLessThan(5);
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
 });
 
-test("keeps rotation handles hidden until an element is selected", async ({ page }) => {
+test("keeps rotation handles hidden until an element is selected", async ({
+  page,
+}) => {
   await page.goto("/");
 
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
@@ -765,7 +938,7 @@ test("keeps rotation handles hidden until an element is selected", async ({ page
   const canvas = page.getByTestId("path-stage-canvas");
   const center = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 8.3,
-    y_meters: 4.0
+    y_meters: 4.0,
   });
 
   await page.mouse.move(center.x, center.y - 42);
@@ -781,69 +954,107 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
   await page.getByText("Add constraint").click();
-  await page.getByRole("menuitem", { name: "End Translation Tolerance" }).click();
-  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveValue("0.03");
-  await page.getByRole("button", { name: "Remove End Translation Tolerance" }).click();
-  await expect(page.getByRole("spinbutton", { name: "End Translation Tolerance" })).toHaveCount(0);
+  await page
+    .getByRole("menuitem", { name: "End Translation Tolerance" })
+    .click();
+  await expect(
+    page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
+  ).toHaveValue("0.03");
+  await page
+    .getByRole("button", { name: "Remove End Translation Tolerance" })
+    .click();
+  await expect(
+    page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
+  ).toHaveCount(0);
 
   const addConstraintIcon = page.getByTestId("add-constraint-icon");
   await expect(addConstraintIcon).toBeVisible();
-  expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(24);
+  expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(
+    24,
+  );
 
-  await page.getByTestId("constraint-range-max_velocity_meters_per_sec-0").click();
+  await page
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    .click();
   await page.getByLabel("Delete constraint 1").click();
-  await expect(page.getByTestId("constraint-card-max_velocity_meters_per_sec")).toBeVisible();
-  await expect(page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")).toHaveCount(0);
   await expect(
-    page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty")
+    page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty"),
   ).toBeVisible();
 
   await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "Max Velocity" }).click();
 
   await expect(
-    page.getByTestId("constraint-card-max_velocity_meters_per_sec")
+    page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
   ).toBeVisible();
   await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
   ).toContainText("4.500 m/s");
 
   await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
-  const addSegmentIcon = page.getByLabel("Add Max Velocity segment").locator("svg");
-  const deleteSegmentIcon = page.getByLabel("Delete constraint 1").locator("svg");
+  const addSegmentIcon = page
+    .getByLabel("Add Max Velocity segment")
+    .locator("svg");
+  const deleteSegmentIcon = page
+    .getByLabel("Delete constraint 1")
+    .locator("svg");
   await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
   ).toHaveAttribute("aria-keyshortcuts", "Delete Backspace");
   await expect(page.getByLabel("Delete constraint 1")).toHaveAttribute(
     "aria-keyshortcuts",
-    "Delete Backspace"
+    "Delete Backspace",
   );
   await expect(addSegmentIcon).toBeVisible();
   await expect(deleteSegmentIcon).toBeVisible();
-  await expect(page.getByLabel("Add Max Velocity segment")).toHaveCSS("color", "rgb(88, 166, 255)");
-  await expect(page.getByLabel("Delete constraint 1")).toHaveCSS("color", "rgb(255, 77, 77)");
+  await expect(page.getByLabel("Add Max Velocity segment")).toHaveCSS(
+    "color",
+    "rgb(88, 166, 255)",
+  );
+  await expect(page.getByLabel("Delete constraint 1")).toHaveCSS(
+    "color",
+    "rgb(255, 77, 77)",
+  );
   expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
   expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
 
-  await page.getByTestId("constraint-range-max_velocity_meters_per_sec-0").click();
+  await page
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    .click();
   await page.keyboard.press("Delete");
-  await expect(page.getByTestId("constraint-card-max_velocity_meters_per_sec")).toBeVisible();
-  await expect(page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")).toHaveCount(0);
   await expect(
-    page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty")
+    page.getByTestId("constraint-card-max_velocity_meters_per_sec"),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty"),
   ).toBeVisible();
   await page.keyboard.press(`${shortcut}+Z`);
   await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
   ).toBeVisible();
 
   const firstConstraintRow = page.getByTestId("ranged-constraint-row-1");
   const firstConstraintInput = page.getByLabel("Constraint 1 value");
-  const firstConstraintStepper = firstConstraintRow.locator(".sidebar-number-control");
+  const firstConstraintStepper = firstConstraintRow.locator(
+    ".sidebar-number-control",
+  );
   await expect(firstConstraintStepper).toBeVisible();
   expect((await requiredBox(firstConstraintStepper)).width).toBeLessThan(120);
-  const increaseConstraint = firstConstraintRow.getByRole("button", { name: "Increase value" });
-  const decreaseConstraint = firstConstraintRow.getByRole("button", { name: "Decrease value" });
+  const increaseConstraint = firstConstraintRow.getByRole("button", {
+    name: "Increase value",
+  });
+  const decreaseConstraint = firstConstraintRow.getByRole("button", {
+    name: "Decrease value",
+  });
   await expect(increaseConstraint.locator("svg")).toBeVisible();
   await expect(decreaseConstraint.locator("svg")).toBeVisible();
   await increaseConstraint.click();
@@ -859,118 +1070,210 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(firstConstraintInput).toHaveValue("2.45");
   await firstConstraintInput.fill("2.4");
   await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
   ).toContainText("2.400 m/s");
 
-  const firstCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1");
-  const secondCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2");
-  const firstRange = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  const firstCell = page.getByTestId(
+    "constraint-cell-max_velocity_meters_per_sec-1",
+  );
+  const secondCell = page.getByTestId(
+    "constraint-cell-max_velocity_meters_per_sec-2",
+  );
+  const firstRange = page.getByTestId(
+    "constraint-range-max_velocity_meters_per_sec-0",
+  );
   const firstBox = await requiredBox(firstCell);
   const secondBox = await requiredBox(secondCell);
-  await page.mouse.move(firstBox.x + firstBox.width - 2, firstBox.y + firstBox.height / 2);
+  await page.mouse.move(
+    firstBox.x + firstBox.width - 2,
+    firstBox.y + firstBox.height / 2,
+  );
   await page.mouse.down();
-  await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, {
-    steps: 6
-  });
+  await page.mouse.move(
+    secondBox.x + secondBox.width / 2,
+    secondBox.y + secondBox.height / 2,
+    {
+      steps: 6,
+    },
+  );
   await page.mouse.up();
   await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
   ).toContainText("2.400 m/s");
   await expect(firstRange).toHaveText("2.4 m/s");
-  expect((await requiredBox(firstRange)).width).toBeGreaterThan(firstBox.width * 1.6);
+  expect((await requiredBox(firstRange)).width).toBeGreaterThan(
+    firstBox.width * 1.6,
+  );
 
   await page
     .getByTestId("constraint-card-max_velocity_meters_per_sec")
     .getByRole("heading", { name: "Max Velocity" })
     .click();
-  const emptyConstraintRow = page.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty");
+  const emptyConstraintRow = page.getByTestId(
+    "ranged-constraint-row-max_velocity_meters_per_sec-empty",
+  );
   await expect(emptyConstraintRow).toBeVisible();
-  await expect(emptyConstraintRow.getByLabel("Max Velocity value")).toHaveValue("");
-  await expect(emptyConstraintRow.getByRole("button", { name: "Delete selected constraint" })).toBeDisabled();
-  await expect(emptyConstraintRow.getByRole("button", { name: "Split selected constraint" })).toBeDisabled();
-  await expect(emptyConstraintRow.getByRole("button", { name: "Add Max Velocity segment" })).toBeVisible();
-  await expect(emptyConstraintRow.getByRole("button", { name: "Show Max Velocity editor" })).toBeVisible();
+  await expect(emptyConstraintRow.getByLabel("Max Velocity value")).toHaveValue(
+    "",
+  );
+  await expect(
+    emptyConstraintRow.getByRole("button", {
+      name: "Delete selected constraint",
+    }),
+  ).toBeDisabled();
+  await expect(
+    emptyConstraintRow.getByRole("button", {
+      name: "Split selected constraint",
+    }),
+  ).toBeDisabled();
+  await expect(
+    emptyConstraintRow.getByRole("button", {
+      name: "Add Max Velocity segment",
+    }),
+  ).toBeVisible();
+  await expect(
+    emptyConstraintRow.getByRole("button", {
+      name: "Show Max Velocity editor",
+    }),
+  ).toBeVisible();
   await firstRange.click();
 
   await page.getByRole("button", { name: "Split constraint 1" }).click();
   await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
   ).toContainText("2.400 m/s");
 
   await page.getByLabel("Add Max Velocity segment").click();
   await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3")
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3"),
   ).toContainText("4.500 m/s");
 
-  await page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2").click();
+  await page
+    .getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+    .click();
   await page.getByRole("button", { name: "Show Max Velocity editor" }).click();
   const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
   await expect(dialog).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: "Apply auto velocity to open segments" })
+    dialog.getByRole("button", {
+      name: "Apply auto velocity to open segments",
+    }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: "Clear auto velocity segments" })
+    dialog.getByRole("button", { name: "Clear auto velocity segments" }),
   ).toBeVisible();
-  await expect(dialog.getByLabel("Add Max Velocity segment in popout", { exact: true })).toHaveCount(0);
+  await expect(
+    dialog.getByLabel("Add Max Velocity segment in popout", { exact: true }),
+  ).toHaveCount(0);
   const dialogConstraintRow = dialog.getByTestId("ranged-constraint-row-2");
   const dialogConstraintInput = dialog.getByLabel("Constraint 2 value");
-  const dialogConstraintStepper = dialogConstraintRow.locator(".sidebar-number-control");
+  const dialogConstraintStepper = dialogConstraintRow.locator(
+    ".sidebar-number-control",
+  );
   await expect(dialogConstraintInput).toHaveValue("2.4");
   await expect(dialogConstraintStepper).toBeVisible();
   expect((await requiredBox(dialogConstraintStepper)).width).toBeLessThan(120);
-  await expect(dialogConstraintRow.getByRole("button", { name: "Increase value" }).locator("svg")).toBeVisible();
-  await expect(dialogConstraintRow.getByRole("button", { name: "Decrease value" }).locator("svg")).toBeVisible();
+  await expect(
+    dialogConstraintRow
+      .getByRole("button", { name: "Increase value" })
+      .locator("svg"),
+  ).toBeVisible();
+  await expect(
+    dialogConstraintRow
+      .getByRole("button", { name: "Decrease value" })
+      .locator("svg"),
+  ).toBeVisible();
   await page.getByTestId("constraint-popout-drag-handle").click();
-  const emptyDialogConstraintRow = dialog.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty");
+  const emptyDialogConstraintRow = dialog.getByTestId(
+    "ranged-constraint-row-max_velocity_meters_per_sec-empty",
+  );
   await expect(emptyDialogConstraintRow).toBeVisible();
-  await expect(emptyDialogConstraintRow.getByLabel("Max Velocity value")).toHaveValue("");
-  await expect(emptyDialogConstraintRow.getByRole("button", { name: "Delete selected constraint" })).toBeDisabled();
-  await expect(emptyDialogConstraintRow.getByRole("button", { name: "Split selected constraint" })).toBeDisabled();
+  await expect(
+    emptyDialogConstraintRow.getByLabel("Max Velocity value"),
+  ).toHaveValue("");
+  await expect(
+    emptyDialogConstraintRow.getByRole("button", {
+      name: "Delete selected constraint",
+    }),
+  ).toBeDisabled();
+  await expect(
+    emptyDialogConstraintRow.getByRole("button", {
+      name: "Split selected constraint",
+    }),
+  ).toBeDisabled();
   await page.getByRole("button", { name: "Close Constraint Editor" }).click();
 
-  await page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2").click();
+  await page
+    .getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+    .click();
   await page.getByLabel("Delete constraint 2").click();
   await expect(
-    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+    page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
   ).toContainText("Open");
-  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
+  await expect(page.getByTestId("save-status")).toContainText(
+    "Autosave pending",
+  );
 });
 
-test("turns dragged auto velocity ranges into manual ranges", async ({ page }) => {
+test("turns dragged auto velocity ranges into manual ranges", async ({
+  page,
+}) => {
   await page.goto("/");
 
-  const firstRange = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  const firstRange = page.getByTestId(
+    "constraint-range-max_velocity_meters_per_sec-0",
+  );
   await firstRange.click();
   await page.getByLabel("Delete constraint 1").click();
   await expect(firstRange).toHaveCount(0);
 
   await page.getByLabel("Auto velocity merge diff").fill("20");
-  await page.getByRole("button", { name: "Apply auto velocity to open segments" }).click();
+  await page
+    .getByRole("button", { name: "Apply auto velocity to open segments" })
+    .click();
 
-  const autoRange = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  const autoRange = page.getByTestId(
+    "constraint-range-max_velocity_meters_per_sec-0",
+  );
   await expect(autoRange).toHaveClass(/ranged-segment-range--auto/);
 
-  const secondCell = page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2");
+  const secondCell = page.getByTestId(
+    "constraint-cell-max_velocity_meters_per_sec-2",
+  );
   const autoBox = await requiredBox(autoRange);
   const secondBox = await requiredBox(secondCell);
-  await page.mouse.move(autoBox.x + autoBox.width - 2, autoBox.y + autoBox.height / 2);
+  await page.mouse.move(
+    autoBox.x + autoBox.width - 2,
+    autoBox.y + autoBox.height / 2,
+  );
   await page.mouse.down();
-  await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, {
-    steps: 6
-  });
+  await page.mouse.move(
+    secondBox.x + secondBox.width / 2,
+    secondBox.y + secondBox.height / 2,
+    {
+      steps: 6,
+    },
+  );
   await page.mouse.up();
 
   await expect(autoRange).toHaveClass(/ranged-segment-range--manual/);
-  const modeControl = page.getByRole("group", { name: "Velocity constraint mode" });
-  await expect(modeControl.getByRole("button", { name: "Manual" })).toBeDisabled();
+  const modeControl = page.getByRole("group", {
+    name: "Velocity constraint mode",
+  });
+  await expect(
+    modeControl.getByRole("button", { name: "Manual" }),
+  ).toBeDisabled();
   await expect(modeControl.getByRole("button", { name: "Auto" })).toBeEnabled();
 });
 
-test("warns when ranged constraints exceed the global value", async ({ page }) => {
+test("warns when ranged constraints exceed the global value", async ({
+  page,
+}) => {
   await page.goto("/");
 
-  const range = page.getByTestId("constraint-range-max_velocity_meters_per_sec-0");
+  const range = page.getByTestId(
+    "constraint-range-max_velocity_meters_per_sec-0",
+  );
   await range.click();
   await expect(page.getByText("Above global")).toHaveCount(0);
 
@@ -995,7 +1298,9 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
   const stackingMetrics = await page.evaluate(() => {
     const backdrop = document.querySelector(".constraint-popout-backdrop");
     const dialogElement = document.querySelector(".constraint-popout");
-    const canvas = document.querySelector("[data-testid='path-stage-pixi-canvas']");
+    const canvas = document.querySelector(
+      "[data-testid='path-stage-pixi-canvas']",
+    );
     if (!backdrop || !dialogElement || !canvas) {
       throw new Error("Expected constraint popout and canvas to be present");
     }
@@ -1004,36 +1309,43 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
     const canvasRect = canvas.getBoundingClientRect();
     const x = Math.max(
       dialogRect.left + 12,
-      Math.min(canvasRect.right - 12, dialogRect.right - 12)
+      Math.min(canvasRect.right - 12, dialogRect.right - 12),
     );
     const y = dialogRect.top + 28;
     const topElement = document.elementFromPoint(x, y);
 
     return {
       backdropParent: backdrop.parentElement?.tagName ?? null,
-      popoutAboveCanvas: topElement?.closest(".constraint-popout") === dialogElement,
-      overlapsCanvas: dialogRect.left < canvasRect.right && dialogRect.right > canvasRect.left
+      popoutAboveCanvas:
+        topElement?.closest(".constraint-popout") === dialogElement,
+      overlapsCanvas:
+        dialogRect.left < canvasRect.right &&
+        dialogRect.right > canvasRect.left,
     };
   });
   expect(stackingMetrics.backdropParent).toBe("BODY");
   expect(stackingMetrics.overlapsCanvas).toBe(true);
   expect(stackingMetrics.popoutAboveCanvas).toBe(true);
-  const closeButton = page.getByRole("button", { name: "Close Constraint Editor" });
+  const closeButton = page.getByRole("button", {
+    name: "Close Constraint Editor",
+  });
   await expect(closeButton.locator("svg")).toBeVisible();
   const closeButtonBox = await requiredBox(closeButton);
-  expect(Math.abs(closeButtonBox.width - closeButtonBox.height)).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(closeButtonBox.width - closeButtonBox.height),
+  ).toBeLessThanOrEqual(1);
 
   const initialDialogBox = await requiredBox(dialog);
   const dragHandle = page.getByTestId("constraint-popout-drag-handle");
   await expect(dragHandle).toBeVisible();
   const edgeDragStart = {
     x: initialDialogBox.x + 6,
-    y: initialDialogBox.y + 6
+    y: initialDialogBox.y + 6,
   };
   await page.mouse.move(edgeDragStart.x, edgeDragStart.y);
   await page.mouse.down();
   await page.mouse.move(edgeDragStart.x - 120, edgeDragStart.y + 70, {
-    steps: 8
+    steps: 8,
   });
   await page.mouse.up();
 
@@ -1044,21 +1356,23 @@ test("keeps the constraint editor movable and modeless", async ({ page }) => {
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
     x_meters: 5.7,
-    y_meters: 2.5
+    y_meters: 2.5,
   });
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
 
   await expect(dialog).toBeVisible();
   await expect(page.getByTestId("path-element-row-0")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
   await expect(dialog.getByTestId("ranged-constraint-row-1")).toHaveCount(0);
 
-  await dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1").click();
+  await dialog
+    .getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+    .click();
   await dialog.getByLabel("Constraint 1 value").fill("3.25");
   await expect(
-    dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
+    dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
   ).toContainText("3.250 m/s");
 });
 
@@ -1070,30 +1384,36 @@ test("edits project config with undo support", async ({ page }) => {
   const saveButton = dialog.getByRole("button", { name: "Save" });
   await expect(dialog).toBeVisible();
   await expect(saveButton).toBeDisabled();
-  await expect(dialog.getByRole("heading", { name: "Auto Velocity" })).toHaveCount(0);
-  await expect(dialog.getByRole("heading", { name: "Auto Constrain" })).toBeVisible();
+  await expect(
+    dialog.getByRole("heading", { name: "Auto Velocity" }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("heading", { name: "Auto Constrain" }),
+  ).toBeVisible();
   await expect(dialog.locator("h2").last()).toHaveText("Auto Constrain");
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
   await expect(
-    dialog.getByTitle("Increase Protrusion Distance (m)")
+    dialog.getByTitle("Increase Protrusion Distance (m)"),
   ).toBeDisabled();
   await expect(dialog.getByLabel("Protrusion Side")).toBeDisabled();
-  await expect(
-    dialog.getByTitle("Increase Robot Length (m)")
-  ).toBeVisible();
+  await expect(dialog.getByTitle("Increase Robot Length (m)")).toBeVisible();
   await page.getByLabel("Robot Length (m)").fill("0.825");
   await expect(saveButton).toBeEnabled();
   await page.getByLabel("Enable Protrusions").check();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeEnabled();
   await expect(
-    dialog.getByTitle("Increase Protrusion Distance (m)")
+    dialog.getByTitle("Increase Protrusion Distance (m)"),
   ).toBeEnabled();
   await expect(dialog.getByLabel("Protrusion Side")).toBeEnabled();
-  await expect(page.getByLabel("Default Protrusion State")).toHaveValue("shown");
+  await expect(page.getByLabel("Default Protrusion State")).toHaveValue(
+    "shown",
+  );
   await page.getByLabel("Protrusion Side").selectOption("front");
   await page.getByLabel("Show On Event Keys").fill("intake, deploy");
   await saveButton.click();
-  await expect(page.getByTestId("save-status")).toContainText("Autosave pending");
+  await expect(page.getByTestId("save-status")).toContainText(
+    "Autosave pending",
+  );
 
   await page.getByRole("button", { name: "Undo" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
@@ -1126,7 +1446,9 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await openProjectMenu(page);
   await expect(page.getByTestId("top-menu-project")).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Workspace" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import / Export" })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import / Export" }),
+  ).toBeVisible();
   const configMenuItem = page.getByRole("menuitem", { name: "Config" });
   await expect(configMenuItem).toBeVisible();
   const configLabelMetrics = await configMenuItem.evaluate((element) => {
@@ -1136,54 +1458,92 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
     return {
       itemHeight: element.getBoundingClientRect().height,
       labelHeight: label?.getBoundingClientRect().height ?? 0,
-      lineHeight: labelStyle ? Number.parseFloat(labelStyle.lineHeight) : 0
+      lineHeight: labelStyle ? Number.parseFloat(labelStyle.lineHeight) : 0,
     };
   });
   expect(configLabelMetrics.itemHeight).toBeGreaterThanOrEqual(32);
   expect(configLabelMetrics.labelHeight).toBeGreaterThanOrEqual(18);
   expect(configLabelMetrics.lineHeight).toBeGreaterThanOrEqual(17);
-  await expect(page.getByRole("menuitem", { name: "Recent Projects" })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Recent Projects" }),
+  ).toBeVisible();
 
   await page.getByRole("menuitem", { name: "Workspace" }).click();
   await expect(page.getByTestId("top-menu-project-workspace")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "New Project" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Open Project..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Delete Projects..." })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "New Project" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Open Project..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Delete Projects..." }),
+  ).toBeVisible();
 
   await page.getByRole("menuitem", { name: "Delete Projects..." }).click();
-  await expect(page.getByRole("dialog", { name: "Delete Projects" })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Delete Projects" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Select All" }).click();
-  await page.getByRole("button", { name: "Delete Selected", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Delete Selected", exact: true })
+    .click();
   await expect(page.getByText("Delete 1 selected project?")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Confirm Delete" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Confirm Delete" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import Autos Folder..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Export Autos Folder..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import Project Archive..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Export Project Archive..." })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import Autos Folder..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Export Autos Folder..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import Project Archive..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Export Project Archive..." }),
+  ).toBeVisible();
 
   await page.getByRole("menuitem", { name: "Config" }).click();
   await expect(page.getByTestId("top-menu-project-config")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import Config..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Export Config..." })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import Config..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Export Config..." }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Path" }).click();
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
   await expect(page.getByText("Current: Phase 1 Canvas Draft")).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Load Path" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Create New Path" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Save Path As..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Rename Path..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Delete Paths..." })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Create New Path" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Save Path As..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Rename Path..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Delete Paths..." }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByTestId("top-menu-edit")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Undo Ctrl+Z" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Redo Ctrl+Y" })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Undo Ctrl+Z" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Redo Ctrl+Y" }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
@@ -1191,7 +1551,9 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
-test("keeps top dropdowns streamlined with right-side path flyouts", async ({ page }) => {
+test("keeps top dropdowns streamlined with right-side path flyouts", async ({
+  page,
+}) => {
   await page.goto("/");
 
   await openProjectMenu(page);
@@ -1205,7 +1567,9 @@ test("keeps top dropdowns streamlined with right-side path flyouts", async ({ pa
   const projectMenuBox = await requiredBox(projectMenu);
   const recentMenuBox = await requiredBox(recentMenu);
   expect(recentMenuBox.width).toBeLessThanOrEqual(285);
-  expect(recentMenuBox.x).toBeGreaterThanOrEqual(projectMenuBox.x + projectMenuBox.width);
+  expect(recentMenuBox.x).toBeGreaterThanOrEqual(
+    projectMenuBox.x + projectMenuBox.width,
+  );
 
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await expect(recentMenu).toHaveCount(0);
@@ -1222,10 +1586,14 @@ test("keeps top dropdowns streamlined with right-side path flyouts", async ({ pa
   const pathMenuBox = await requiredBox(pathMenu);
   const loadPathMenuBox = await requiredBox(loadPathMenu);
   expect(loadPathMenuBox.width).toBeLessThanOrEqual(285);
-  expect(loadPathMenuBox.x).toBeGreaterThanOrEqual(pathMenuBox.x + pathMenuBox.width);
+  expect(loadPathMenuBox.x).toBeGreaterThanOrEqual(
+    pathMenuBox.x + pathMenuBox.width,
+  );
 });
 
-test("keeps project flyouts stable while hovering between choices", async ({ page }) => {
+test("keeps project flyouts stable while hovering between choices", async ({
+  page,
+}) => {
   await page.goto("/");
 
   await openProjectMenu(page);
@@ -1238,7 +1606,10 @@ test("keeps project flyouts stable while hovering between choices", async ({ pag
   await expect(transferMenu).toBeVisible();
 
   const transferBox = await requiredBox(transferMenu);
-  await page.mouse.move(transferBox.x + transferBox.width / 2, transferBox.y + 12);
+  await page.mouse.move(
+    transferBox.x + transferBox.width / 2,
+    transferBox.y + 12,
+  );
   await expect(transferMenu).toBeVisible();
   await page.waitForTimeout(350);
   await expect(transferMenu).toBeVisible();
@@ -1253,7 +1624,9 @@ test("keeps project flyouts stable while hovering between choices", async ({ pag
   await expect(page.getByTestId("top-menu-project-config")).toBeVisible();
 });
 
-test("keeps path flyouts stable and closes them after leaving", async ({ page }) => {
+test("keeps path flyouts stable and closes them after leaving", async ({
+  page,
+}) => {
   await page.goto("/");
 
   page.once("dialog", (dialog) => void dialog.accept("Second Path"));
@@ -1266,17 +1639,20 @@ test("keeps path flyouts stable and closes them after leaving", async ({ page })
   await expect(loadPathMenu).toBeVisible();
 
   const loadPathBox = await requiredBox(loadPathMenu);
-  await page.mouse.move(loadPathBox.x + loadPathBox.width / 2, loadPathBox.y + 12);
+  await page.mouse.move(
+    loadPathBox.x + loadPathBox.width / 2,
+    loadPathBox.y + 12,
+  );
   await expect(loadPathMenu).toBeVisible();
   await page.waitForTimeout(350);
   await expect(loadPathMenu).toBeVisible();
 
   const loadPathTriggerBox = await requiredBox(
-    page.getByRole("menuitem", { name: "Load Path" })
+    page.getByRole("menuitem", { name: "Load Path" }),
   );
   const loadPathBridgePoint = pointBetweenFlyoutAndTrigger(
     loadPathTriggerBox,
-    loadPathBox
+    loadPathBox,
   );
   await page.mouse.move(loadPathBridgePoint.x, loadPathBridgePoint.y);
   await expect(loadPathMenu).toHaveCount(0, { timeout: 500 });
@@ -1292,7 +1668,9 @@ test("keeps path flyouts stable and closes them after leaving", async ({ page })
   await expect(loadPathMenu).toHaveCount(0);
 });
 
-test("keeps actions flyouts stable and closes them after leaving", async ({ page }) => {
+test("keeps actions flyouts stable and closes them after leaving", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 800, height: 700 });
   await page.goto("/");
 
@@ -1309,11 +1687,11 @@ test("keeps actions flyouts stable and closes them after leaving", async ({ page
 
   const actionsMenu = page.getByTestId("top-menu-actions");
   const importTriggerBox = await requiredBox(
-    actionsMenu.getByRole("menuitem", { name: "Import" })
+    actionsMenu.getByRole("menuitem", { name: "Import" }),
   );
   const importBridgePoint = pointBetweenFlyoutAndTrigger(
     importTriggerBox,
-    importBox
+    importBox,
   );
   await page.mouse.move(importBridgePoint.x, importBridgePoint.y);
   await expect(importMenu).toHaveCount(0, { timeout: 500 });
@@ -1344,7 +1722,9 @@ test("closes the open-project panel when using top menus", async ({ page }) => {
   await expect(page.getByTestId("top-menu-edit")).toBeVisible();
 });
 
-test("top-right import menu closes the open panel and exposes every import mode", async ({ page }) => {
+test("top-right import menu closes the open panel and exposes every import mode", async ({
+  page,
+}) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Open", exact: true }).click();
@@ -1353,27 +1733,38 @@ test("top-right import menu closes the open panel and exposes every import mode"
   await page.getByRole("button", { name: "Import", exact: true }).click();
   await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
   await expect(page.getByTestId("top-menu-import")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import Project Folder..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import Path..." })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Import Project Archive..." })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import Project Folder..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import Path..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import Project Archive..." }),
+  ).toBeVisible();
 });
 
 test("top-right export saves the active path and import path round-trips it", async ({
-  page
+  page,
 }) => {
   await installSaveFilePickerSpy(page, { waitForRelease: true });
   await page.goto("/");
 
-  const exportButton = page.getByRole("button", { name: "Export", exact: true });
+  const exportButton = page.getByRole("button", {
+    name: "Export",
+    exact: true,
+  });
   await exportButton.click();
-  await expect(page.getByRole("button", { name: "Exporting..." })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Exporting..." }),
+  ).toBeDisabled();
 
   await releaseSaveFilePicker(page);
   await expect.poll(() => savedFileCount(page)).toBe(1);
   const saved = await savedFile(page, 0);
   expect(saved.suggestedName).toBe("phase-1-canvas-draft.json");
   expect(JSON.parse(saved.text)).toMatchObject({
-    path_elements: expect.any(Array)
+    path_elements: expect.any(Array),
   });
 
   const chooserPromise = page.waitForEvent("filechooser");
@@ -1383,11 +1774,11 @@ test("top-right export saves the active path and import path round-trips it", as
   await chooser.setFiles({
     buffer: Buffer.from(saved.text),
     mimeType: "application/json",
-    name: "roundtrip-path.json"
+    name: "roundtrip-path.json",
   });
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
-    "Current Path: roundtrip path"
+    "Current Path: roundtrip path",
   );
 });
 
@@ -1402,22 +1793,24 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
 });
 
-test("keeps the compact top menu scrollable instead of wrapping", async ({ page }) => {
+test("keeps the compact top menu scrollable instead of wrapping", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 320, height: 360 });
   await page.goto("/");
   await dismissMobileSupportWarning(page);
 
   const topMenu = page.getByRole("navigation", { name: "Top menu" });
   const metrics = await topMenu.evaluate((element) => {
-    const buttonRows = Array.from(element.querySelectorAll("button")).map((button) =>
-      Math.round(button.getBoundingClientRect().top)
+    const buttonRows = Array.from(element.querySelectorAll("button")).map(
+      (button) => Math.round(button.getBoundingClientRect().top),
     );
 
     return {
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
       rowCount: new Set(buttonRows).size,
-      overflowX: getComputedStyle(element).overflowX
+      overflowX: getComputedStyle(element).overflowX,
     };
   });
 
@@ -1436,17 +1829,19 @@ test("bounds compact dropdown panels to the viewport", async ({ page }) => {
 
   await page.getByRole("button", { name: "Path" }).click();
 
-  const panelMetrics = await page.getByTestId("top-menu-path").evaluate((element) => {
-    const rect = element.getBoundingClientRect();
+  const panelMetrics = await page
+    .getByTestId("top-menu-path")
+    .evaluate((element) => {
+      const rect = element.getBoundingClientRect();
 
-    return {
-      bottom: rect.bottom,
-      clientHeight: element.clientHeight,
-      overflowY: getComputedStyle(element).overflowY,
-      scrollHeight: element.scrollHeight,
-      viewportHeight: window.innerHeight
-    };
-  });
+      return {
+        bottom: rect.bottom,
+        clientHeight: element.clientHeight,
+        overflowY: getComputedStyle(element).overflowY,
+        scrollHeight: element.scrollHeight,
+        viewportHeight: window.innerHeight,
+      };
+    });
 
   expect(panelMetrics.overflowY).toBe("auto");
   expect(panelMetrics.bottom).toBeLessThanOrEqual(panelMetrics.viewportHeight);
@@ -1467,18 +1862,28 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
 
   await page.getByRole("button", { name: "Path" }).click();
   await page.getByRole("menuitem", { name: "Delete Paths..." }).click();
-  await expect(page.getByRole("dialog", { name: "Delete Paths" })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Delete Paths" }),
+  ).toBeVisible();
 
   await page.getByRole("checkbox", { name: "Phase 1 Canvas Draft" }).check();
-  await expect(page.getByRole("button", { name: "Delete Selected", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Delete Selected", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Delete Selected", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Delete Selected", exact: true })
+    .click();
 
-  await expect(page.getByRole("dialog", { name: "Delete Paths" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Delete Paths" })).toHaveCount(
+    0,
+  );
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await page.getByRole("button", { name: "Path" }).click();
   await page.getByRole("menuitem", { name: "Load Path" }).click();
   await expect(page.getByTestId("top-menu-path-load")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Phase 1 Canvas Draft" })).toHaveCount(0);
+  await expect(
+    page.getByRole("menuitem", { name: "Phase 1 Canvas Draft" }),
+  ).toHaveCount(0);
 });
 
 test("creates saves and reloads a local project", async ({ page }) => {
@@ -1493,7 +1898,9 @@ test("creates saves and reloads a local project", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
 
   await expect(page.getByTestId("save-status")).toContainText("Saved");
-  const currentPath = await page.getByTestId("current-path-status").textContent();
+  const currentPath = await page
+    .getByTestId("current-path-status")
+    .textContent();
 
   await page.reload();
 
@@ -1502,7 +1909,9 @@ test("creates saves and reloads a local project", async ({ page }) => {
   }
 
   await expect(page.getByTestId("current-path-status")).toHaveText(currentPath);
-  await expect(page.getByTestId("path-element-row-0")).toContainText("6.50, 3.90 m");
+  await expect(page.getByTestId("path-element-row-0")).toContainText(
+    "6.50, 3.90 m",
+  );
 });
 
 test("recovers autosaved edits after reload", async ({ page }) => {
@@ -1512,12 +1921,14 @@ test("recovers autosaved edits after reload", async ({ page }) => {
   await page.getByLabel("X (m)").fill("7.50");
 
   await expect(page.getByTestId("save-status")).toContainText("Saved", {
-    timeout: 5_000
+    timeout: 5_000,
   });
 
   await page.reload();
 
-  await expect(page.getByTestId("path-element-row-1")).toContainText("7.50, 4.00 m");
+  await expect(page.getByTestId("path-element-row-1")).toContainText(
+    "7.50, 4.00 m",
+  );
 });
 
 test("opens a saved project from the project list", async ({ page }) => {
@@ -1539,7 +1950,7 @@ test("opens a saved project from the project list", async ({ page }) => {
   await page.getByText(firstPath, { exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
-    `Current Path: ${firstPath}`
+    `Current Path: ${firstPath}`,
   );
   await expect(page.getByTestId("path-element-row-0")).toHaveCount(0);
 });
@@ -1569,24 +1980,32 @@ test("opens a saved project from the mobile project list", async ({ page }) => {
   await page.getByText(firstPath, { exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
-    `Current Path: ${firstPath}`
+    `Current Path: ${firstPath}`,
   );
   await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
 });
 
-test("supports undo and redo for structural sidebar edits", async ({ page }) => {
+test("supports undo and redo for structural sidebar edits", async ({
+  page,
+}) => {
   await page.goto("/");
 
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Event Trigger",
+  );
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Waypoint",
+  );
 
   await page.getByRole("button", { name: "Redo" }).click();
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Event Trigger",
+  );
 });
 
 test("moves selected path elements with arrow shortcuts", async ({ page }) => {
@@ -1595,29 +2014,39 @@ test("moves selected path elements with arrow shortcuts", async ({ page }) => {
   await page.getByTestId("path-element-row-2").click();
   await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
     "aria-keyshortcuts",
-    "ArrowUp ArrowDown Delete Backspace"
+    "ArrowUp ArrowDown Delete Backspace",
   );
 
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Translation");
-  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Rotation");
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Translation",
+  );
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Rotation",
+  );
   await expect(page.getByTestId("path-element-row-3")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
 
   await page.keyboard.press("ArrowUp");
-  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Rotation",
+  );
   await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
     "aria-pressed",
-    "true"
+    "true",
   );
 
   await page.getByLabel("Rotation (deg)").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("44");
-  await expect(page.getByTestId("path-element-row-2")).toContainText("3. Rotation");
-  await expect(page.getByTestId("path-element-row-3")).toContainText("4. Translation");
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Rotation",
+  );
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Translation",
+  );
 });
 
 test("supports common keyboard shortcuts", async ({ page }) => {
@@ -1625,26 +2054,38 @@ test("supports common keyboard shortcuts", async ({ page }) => {
 
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Event Trigger",
+  );
 
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.press(`${shortcut}+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Waypoint",
+  );
 
   await page.keyboard.press(`${shortcut}+Shift+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Event Trigger",
+  );
 
   await page.getByTestId("path-element-row-0").click();
   await page.getByLabel("X (m)").focus();
   await page.keyboard.press(`${shortcut}+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Event Trigger",
+  );
 
   await page.getByTestId("path-element-row-5").click();
   await page.keyboard.press("Delete");
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Waypoint");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Waypoint",
+  );
 
   await page.keyboard.press(`${shortcut}+Z`);
-  await expect(page.getByTestId("path-element-row-5")).toContainText("6. Event Trigger");
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Event Trigger",
+  );
 
   await page.keyboard.press(`${shortcut}+S`);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
@@ -1669,9 +2110,7 @@ type WorkspaceWriteSpyWindow = Window & {
 type SavedFilePickerWindow = Window & {
   __blineReleaseSaveFilePicker?: () => void;
   __blineSavedFiles?: Array<{ suggestedName: string; text: string }>;
-  showSaveFilePicker?: (options?: {
-    suggestedName?: string;
-  }) => Promise<{
+  showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<{
     createWritable(): Promise<{
       close(): Promise<void>;
       write(data: Blob | string): Promise<void>;
@@ -1705,7 +2144,7 @@ async function requiredBox(locator: Locator): Promise<Bounds> {
 
 function pointBetweenFlyoutAndTrigger(
   triggerBox: Bounds,
-  flyoutBox: Bounds
+  flyoutBox: Bounds,
 ): { x: number; y: number } {
   const triggerLeft = triggerBox.x;
   const triggerRight = triggerBox.x + triggerBox.width;
@@ -1722,26 +2161,30 @@ function pointBetweenFlyoutAndTrigger(
 
   return {
     x,
-    y: triggerBox.y + triggerBox.height / 2
+    y: triggerBox.y + triggerBox.height / 2,
   };
 }
 
 async function canvasNodePosition(
   page: Page,
-  testId: string
+  testId: string,
 ): Promise<{ x: number; y: number }> {
   let position: { x: number; y: number } | null = null;
   await expect
     .poll(
       async () => {
         position = await page.evaluate((nodeTestId) => {
-          return (window as PixiDebugWindow).__blinePixiDebug?.nodePosition(nodeTestId) ?? null;
+          return (
+            (window as PixiDebugWindow).__blinePixiDebug?.nodePosition(
+              nodeTestId,
+            ) ?? null
+          );
         }, testId);
         return position;
       },
       {
-        message: `Expected canvas node "${testId}" to exist`
-      }
+        message: `Expected canvas node "${testId}" to exist`,
+      },
     )
     .not.toBeNull();
 
@@ -1754,7 +2197,7 @@ async function canvasNodePosition(
 
 function pointDistance(
   first: { x: number; y: number },
-  second: { x: number; y: number }
+  second: { x: number; y: number },
 ): number {
   return Math.hypot(first.x - second.x, first.y - second.y);
 }
@@ -1765,18 +2208,20 @@ async function canvasSceneMetrics(page: Page): Promise<{
   renderer: string;
 }> {
   return page.evaluate(() => {
-    const ratios = Array.from(document.querySelectorAll(".path-stage canvas")).map(
-      (canvas) => {
-        const rect = canvas.getBoundingClientRect();
-        return Number((canvas.width / rect.width).toFixed(2));
-      }
-    );
-    const debugMetrics = (window as PixiDebugWindow).__blinePixiDebug?.canvasMetrics();
+    const ratios = Array.from(
+      document.querySelectorAll<HTMLCanvasElement>(".path-stage canvas"),
+    ).map((canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      return Number((canvas.width / rect.width).toFixed(2));
+    });
+    const debugMetrics = (
+      window as PixiDebugWindow
+    ).__blinePixiDebug?.canvasMetrics();
 
     return {
       count: ratios.length,
       ratios,
-      renderer: debugMetrics?.renderer ?? ""
+      renderer: debugMetrics?.renderer ?? "",
     };
   });
 }
@@ -1793,7 +2238,7 @@ async function simulationProgress(page: Page): Promise<{
   return {
     atEnd: total > 0 && Math.abs(total - current) < 0.011,
     current,
-    total
+    total,
   };
 }
 
@@ -1806,12 +2251,12 @@ async function installWorkspaceWriteSpy(page: Page): Promise<void> {
     Storage.prototype.setItem = function setItemWithWorkspaceWriteSpy(
       this: Storage,
       key: string,
-      value: string
+      value: string,
     ) {
       if (key.startsWith("bline-web:workspace:")) {
         spyWindow.__blineWorkspaceWrites?.push({
           key,
-          at: performance.now()
+          at: performance.now(),
         });
       }
 
@@ -1828,41 +2273,45 @@ async function resetWorkspaceWriteSpy(page: Page): Promise<void> {
 
 async function workspaceWriteCount(page: Page): Promise<number> {
   return page.evaluate(
-    () => (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites?.length ?? 0
+    () =>
+      (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites?.length ?? 0,
   );
 }
 
 async function installSaveFilePickerSpy(
   page: Page,
-  { waitForRelease = false }: { waitForRelease?: boolean } = {}
+  { waitForRelease = false }: { waitForRelease?: boolean } = {},
 ): Promise<void> {
-  await page.addInitScript(({ shouldWait }) => {
-    const spyWindow = window as SavedFilePickerWindow;
-    spyWindow.__blineSavedFiles = [];
+  await page.addInitScript(
+    ({ shouldWait }) => {
+      const spyWindow = window as SavedFilePickerWindow;
+      spyWindow.__blineSavedFiles = [];
 
-    Object.defineProperty(window, "showSaveFilePicker", {
-      configurable: true,
-      value: async (options?: { suggestedName?: string }) => {
-        if (shouldWait) {
-          await new Promise<void>((resolve) => {
-            spyWindow.__blineReleaseSaveFilePicker = resolve;
-          });
-        }
+      Object.defineProperty(window, "showSaveFilePicker", {
+        configurable: true,
+        value: async (options?: { suggestedName?: string }) => {
+          if (shouldWait) {
+            await new Promise<void>((resolve) => {
+              spyWindow.__blineReleaseSaveFilePicker = resolve;
+            });
+          }
 
-        return {
-          createWritable: async () => ({
-            close: async () => undefined,
-            write: async (data: Blob | string) => {
-              spyWindow.__blineSavedFiles?.push({
-                suggestedName: options?.suggestedName ?? "",
-                text: data instanceof Blob ? await data.text() : String(data)
-              });
-            }
-          })
-        };
-      }
-    });
-  }, { shouldWait: waitForRelease });
+          return {
+            createWritable: async () => ({
+              close: async () => undefined,
+              write: async (data: Blob | string) => {
+                spyWindow.__blineSavedFiles?.push({
+                  suggestedName: options?.suggestedName ?? "",
+                  text: data instanceof Blob ? await data.text() : String(data),
+                });
+              },
+            }),
+          };
+        },
+      });
+    },
+    { shouldWait: waitForRelease },
+  );
 }
 
 async function releaseSaveFilePicker(page: Page): Promise<void> {
@@ -1873,16 +2322,18 @@ async function releaseSaveFilePicker(page: Page): Promise<void> {
 
 async function savedFileCount(page: Page): Promise<number> {
   return page.evaluate(
-    () => (window as SavedFilePickerWindow).__blineSavedFiles?.length ?? 0
+    () => (window as SavedFilePickerWindow).__blineSavedFiles?.length ?? 0,
   );
 }
 
 async function savedFile(
   page: Page,
-  index: number
+  index: number,
 ): Promise<{ suggestedName: string; text: string }> {
   return page.evaluate((fileIndex) => {
-    const file = (window as SavedFilePickerWindow).__blineSavedFiles?.[fileIndex];
+    const file = (window as SavedFilePickerWindow).__blineSavedFiles?.[
+      fileIndex
+    ];
     if (!file) {
       throw new Error(`Expected saved file at index ${fileIndex}`);
     }
@@ -1893,7 +2344,9 @@ async function savedFile(
 async function currentPathName(page: {
   getByTestId(testId: string): Locator;
 }): Promise<string> {
-  const currentPath = await page.getByTestId("current-path-status").textContent();
+  const currentPath = await page
+    .getByTestId("current-path-status")
+    .textContent();
   if (!currentPath?.startsWith("Current Path: ")) {
     throw new Error("Expected current path status to include a project name");
   }
@@ -1927,7 +2380,10 @@ function modelToCanvasPoint(box: Bounds, point: PointMeters) {
   const availableHeight = Math.max(1, box.height - padding * 2);
   const scale = Math.max(
     1,
-    Math.min(availableWidth / fieldLengthMeters, availableHeight / fieldWidthMeters)
+    Math.min(
+      availableWidth / fieldLengthMeters,
+      availableHeight / fieldWidthMeters,
+    ),
   );
   const viewportWidth = fieldLengthMeters * scale;
   const viewportHeight = fieldWidthMeters * scale;
@@ -1938,6 +2394,6 @@ function modelToCanvasPoint(box: Bounds, point: PointMeters) {
     x: viewportX + (point.x_meters + fieldCoordinateOffsetMeters) * scale,
     y:
       viewportY +
-      (fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters) * scale
+      (fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters) * scale,
   };
 }

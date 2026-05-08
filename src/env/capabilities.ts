@@ -17,7 +17,7 @@ export const browserWebCapabilities: EnvironmentCapabilities = {
   canWriteRealFiles: false,
   canUseSharedProjectStore: false,
   canUseUrlSharing: false,
-  canAttemptRobotNTConnection: false
+  canAttemptRobotNTConnection: false,
 };
 
 export const tauriCapabilities: EnvironmentCapabilities = {
@@ -26,7 +26,7 @@ export const tauriCapabilities: EnvironmentCapabilities = {
   canWriteRealFiles: true,
   canUseSharedProjectStore: false,
   canUseUrlSharing: false,
-  canAttemptRobotNTConnection: false
+  canAttemptRobotNTConnection: false,
 };
 
 export function detectEnvironmentCapabilities(): EnvironmentCapabilities {

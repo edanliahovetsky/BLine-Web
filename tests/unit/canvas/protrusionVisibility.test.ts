@@ -3,7 +3,7 @@ import {
   createEventTrigger,
   createRotationTarget,
   createTranslationTarget,
-  createWaypoint
+  createWaypoint,
 } from "../../../src/core/model/path";
 import { buildElementProtrusionVisibilityByIndex } from "../../../src/canvas/protrusionVisibility";
 
@@ -15,8 +15,11 @@ describe("canvas protrusion visibility", () => {
       createRotationTarget({ t_ratio: 0.5 }),
       createEventTrigger({ t_ratio: 0.75, lib_key: "stow" }),
       createWaypoint({
-        translation_target: createTranslationTarget({ x_meters: 4, y_meters: 0 })
-      })
+        translation_target: createTranslationTarget({
+          x_meters: 4,
+          y_meters: 0,
+        }),
+      }),
     ];
 
     const visibility = buildElementProtrusionVisibilityByIndex(elements, {
@@ -27,9 +30,9 @@ describe("canvas protrusion visibility", () => {
           side: "front",
           default_state: "hidden",
           show_on_event_keys: ["deploy"],
-          hide_on_event_keys: ["stow"]
-        }
-      }
+          hide_on_event_keys: ["stow"],
+        },
+      },
     });
 
     expect(visibility.get(2)).toBe(true);
@@ -42,7 +45,7 @@ describe("canvas protrusion visibility", () => {
       createTranslationTarget({ x_meters: 0, y_meters: 0 }),
       createEventTrigger({ t_ratio: 0.25, lib_key: "Deploy" }),
       createRotationTarget({ t_ratio: 0.5 }),
-      createTranslationTarget({ x_meters: 2, y_meters: 0 })
+      createTranslationTarget({ x_meters: 2, y_meters: 0 }),
     ];
 
     expect(
@@ -51,10 +54,10 @@ describe("canvas protrusion visibility", () => {
           protrusions: {
             enabled: true,
             default_state: "hidden",
-            show_on_event_keys: ["deploy"]
-          }
-        }
-      }).get(2)
+            show_on_event_keys: ["deploy"],
+          },
+        },
+      }).get(2),
     ).toBe(false);
 
     expect(
@@ -64,10 +67,10 @@ describe("canvas protrusion visibility", () => {
             enabled: true,
             default_state: "hidden",
             show_on_event_keys: ["Deploy"],
-            hide_on_event_keys: ["Deploy"]
-          }
-        }
-      }).get(2)
+            hide_on_event_keys: ["Deploy"],
+          },
+        },
+      }).get(2),
     ).toBe(true);
   });
 });

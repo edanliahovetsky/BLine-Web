@@ -12,15 +12,15 @@ import {
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
-  type RangedConstraint
+  type RangedConstraint,
 } from "../src/core/model/path";
 import {
   createProjectPathDocument,
-  createProjectWorkspaceDocument
+  createProjectWorkspaceDocument,
 } from "../src/core/io/projectSchema";
 import {
   serializeBLineProjectFolder,
-  type ProjectFolderExport
+  type ProjectFolderExport,
 } from "../src/core/io/projectFolder";
 
 interface ConstraintRangeReport {
@@ -79,105 +79,104 @@ interface CompatibilityReport {
 const defaultBLineLibDir = "/Users/edan/FRC/BLine-Lib";
 
 describe("BLine-Lib IO compatibility", () => {
-  it(
-    "loads BLine-Web exported autos folders through BLine-Lib JsonUtils",
-    async () => {
-      const tempRoot = await mkdtemp(join(tmpdir(), "bline-web-lib-io-"));
-      const autosDir = join(tempRoot, "autos");
+  it("loads BLine-Web exported autos folders through BLine-Lib JsonUtils", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "bline-web-lib-io-"));
+    const autosDir = join(tempRoot, "autos");
 
-      try {
-        await writeAutosFolder(serializeBLineProjectFolder(createCompatibilityWorkspace()), autosDir);
-        const report = await runBLineLibValidation(autosDir, tempRoot);
+    try {
+      await writeAutosFolder(
+        serializeBLineProjectFolder(createCompatibilityWorkspace()),
+        autosDir,
+      );
+      const report = await runBLineLibValidation(autosDir, tempRoot);
 
-        expect(report.globals).toEqual({
-          default_max_velocity_meters_per_sec: 5.5,
-          default_max_acceleration_meters_per_sec2: 11.2,
-          default_intermediate_handoff_radius_meters: 0.27,
-          default_max_velocity_deg_per_sec: 610,
-          default_max_acceleration_deg_per_sec2: 1900,
-          default_end_translation_tolerance_meters: 0.025,
-          default_end_rotation_tolerance_deg: 1.8
-        });
+      expect(report.globals).toEqual({
+        default_max_velocity_meters_per_sec: 5.5,
+        default_max_acceleration_meters_per_sec2: 11.2,
+        default_intermediate_handoff_radius_meters: 0.27,
+        default_max_velocity_deg_per_sec: 610,
+        default_max_acceleration_deg_per_sec2: 1900,
+        default_end_translation_tolerance_meters: 0.025,
+        default_end_rotation_tolerance_deg: 1.8,
+      });
 
-        expect(report.paths.map((path) => path.file_name)).toEqual([
-          "mixed_auto.json",
-          "scalar_limits.json"
-        ]);
+      expect(report.paths.map((path) => path.file_name)).toEqual([
+        "mixed_auto.json",
+        "scalar_limits.json",
+      ]);
 
-        const mixed = requirePathReport(report, "mixed_auto.json");
-        expect(mixed.valid).toBe(true);
-        expect(mixed.elements.map((element) => element.type)).toEqual([
-          "Waypoint",
-          "EventTrigger",
-          "RotationTarget",
-          "TranslationTarget",
-          "Waypoint"
-        ]);
-        expect(mixed.elements[0]?.translation_target).toMatchObject({
-          x_meters: 1,
-          y_meters: 2,
-          intermediate_handoff_radius_meters: 0.31
-        });
-        expect(mixed.elements[1]).toMatchObject({
-          type: "EventTrigger",
-          t_ratio: 0.25,
-          lib_key: "intake"
-        });
-        expect(mixed.elements[2]).toMatchObject({
-          type: "RotationTarget",
-          t_ratio: 0.55,
-          rotation_radians: 1.1,
-          profiled_rotation: false
-        });
-        expect(mixed.end_translation_tolerance_meters).toBeCloseTo(0.07);
-        expect(mixed.end_rotation_tolerance_deg).toBeCloseTo(1.25);
-        expect(mixed.constraints).toMatchObject({
-          max_velocity_meters_per_sec: [
-            { value: 2.2, start_ordinal: 0, end_ordinal: 1 }
-          ],
-          max_acceleration_meters_per_sec2: [
-            { value: 3.4, start_ordinal: 1, end_ordinal: 2 }
-          ],
-          max_velocity_deg_per_sec: [
-            { value: 520, start_ordinal: 0, end_ordinal: 1 }
-          ],
-          max_acceleration_deg_per_sec2: [
-            { value: 1000, start_ordinal: 1, end_ordinal: 1 }
-          ],
-          end_translation_tolerance_meters: 0.07,
-          end_rotation_tolerance_deg: 1.25
-        });
+      const mixed = requirePathReport(report, "mixed_auto.json");
+      expect(mixed.valid).toBe(true);
+      expect(mixed.elements.map((element) => element.type)).toEqual([
+        "Waypoint",
+        "EventTrigger",
+        "RotationTarget",
+        "TranslationTarget",
+        "Waypoint",
+      ]);
+      expect(mixed.elements[0]?.translation_target).toMatchObject({
+        x_meters: 1,
+        y_meters: 2,
+        intermediate_handoff_radius_meters: 0.31,
+      });
+      expect(mixed.elements[1]).toMatchObject({
+        type: "EventTrigger",
+        t_ratio: 0.25,
+        lib_key: "intake",
+      });
+      expect(mixed.elements[2]).toMatchObject({
+        type: "RotationTarget",
+        t_ratio: 0.55,
+        rotation_radians: 1.1,
+        profiled_rotation: false,
+      });
+      expect(mixed.end_translation_tolerance_meters).toBeCloseTo(0.07);
+      expect(mixed.end_rotation_tolerance_deg).toBeCloseTo(1.25);
+      expect(mixed.constraints).toMatchObject({
+        max_velocity_meters_per_sec: [
+          { value: 2.2, start_ordinal: 0, end_ordinal: 1 },
+        ],
+        max_acceleration_meters_per_sec2: [
+          { value: 3.4, start_ordinal: 1, end_ordinal: 2 },
+        ],
+        max_velocity_deg_per_sec: [
+          { value: 520, start_ordinal: 0, end_ordinal: 1 },
+        ],
+        max_acceleration_deg_per_sec2: [
+          { value: 1000, start_ordinal: 1, end_ordinal: 1 },
+        ],
+        end_translation_tolerance_meters: 0.07,
+        end_rotation_tolerance_deg: 1.25,
+      });
 
-        const scalar = requirePathReport(report, "scalar_limits.json");
-        expect(scalar.valid).toBe(true);
-        expect(scalar.elements.map((element) => element.type)).toEqual([
-          "Waypoint",
-          "TranslationTarget",
-          "RotationTarget",
-          "Waypoint"
-        ]);
-        expect(scalar.constraints).toMatchObject({
-          max_velocity_meters_per_sec: [
-            { value: 3.3, start_ordinal: 0, end_ordinal: 2 }
-          ],
-          max_acceleration_meters_per_sec2: [
-            { value: 4.4, start_ordinal: 0, end_ordinal: 2 }
-          ],
-          max_velocity_deg_per_sec: [
-            { value: 500, start_ordinal: 0, end_ordinal: 2 }
-          ],
-          max_acceleration_deg_per_sec2: [
-            { value: 900, start_ordinal: 0, end_ordinal: 2 }
-          ],
-          end_translation_tolerance_meters: 0.05,
-          end_rotation_tolerance_deg: 2.5
-        });
-      } finally {
-        await rm(tempRoot, { recursive: true, force: true });
-      }
-    },
-    360_000
-  );
+      const scalar = requirePathReport(report, "scalar_limits.json");
+      expect(scalar.valid).toBe(true);
+      expect(scalar.elements.map((element) => element.type)).toEqual([
+        "Waypoint",
+        "TranslationTarget",
+        "RotationTarget",
+        "Waypoint",
+      ]);
+      expect(scalar.constraints).toMatchObject({
+        max_velocity_meters_per_sec: [
+          { value: 3.3, start_ordinal: 0, end_ordinal: 2 },
+        ],
+        max_acceleration_meters_per_sec2: [
+          { value: 4.4, start_ordinal: 0, end_ordinal: 2 },
+        ],
+        max_velocity_deg_per_sec: [
+          { value: 500, start_ordinal: 0, end_ordinal: 2 },
+        ],
+        max_acceleration_deg_per_sec2: [
+          { value: 900, start_ordinal: 0, end_ordinal: 2 },
+        ],
+        end_translation_tolerance_meters: 0.05,
+        end_rotation_tolerance_deg: 2.5,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  }, 360_000);
 });
 
 function createCompatibilityWorkspace() {
@@ -188,7 +187,7 @@ function createCompatibilityWorkspace() {
       gui: {
         robot: {
           length_meters: 0.8255,
-          width_meters: 0.9779
+          width_meters: 0.9779,
         },
         protrusions: {
           enabled: true,
@@ -196,8 +195,8 @@ function createCompatibilityWorkspace() {
           side: "front",
           default_state: "hidden",
           show_on_event_keys: ["intake", "deploy"],
-          hide_on_event_keys: ["stow"]
-        }
+          hide_on_event_keys: ["stow"],
+        },
       },
       kinematic_constraints: {
         default_max_velocity_meters_per_sec: 5.5,
@@ -206,8 +205,8 @@ function createCompatibilityWorkspace() {
         default_max_velocity_deg_per_sec: 610,
         default_max_acceleration_deg_per_sec2: 1900,
         default_end_translation_tolerance_meters: 0.025,
-        default_end_rotation_tolerance_deg: 1.8
-      }
+        default_end_rotation_tolerance_deg: 1.8,
+      },
     },
     paths: [
       createProjectPathDocument({
@@ -217,50 +216,50 @@ function createCompatibilityWorkspace() {
         path: createPathModel({
           constraints: createConstraints({
             end_translation_tolerance_meters: 0.07,
-            end_rotation_tolerance_deg: 1.25
+            end_rotation_tolerance_deg: 1.25,
           }),
           path_elements: [
             createWaypoint({
               translation_target: createTranslationTarget({
                 x_meters: 1,
                 y_meters: 2,
-                intermediate_handoff_radius_meters: 0.31
+                intermediate_handoff_radius_meters: 0.31,
               }),
               rotation_target: createRotationTarget({
                 rotation_radians: 0.2,
-                profiled_rotation: true
-              })
+                profiled_rotation: true,
+              }),
             }),
             createEventTrigger({ t_ratio: 0.25, lib_key: "intake" }),
             createRotationTarget({
               rotation_radians: 1.1,
               t_ratio: 0.55,
-              profiled_rotation: false
+              profiled_rotation: false,
             }),
             createTranslationTarget({
               x_meters: 2.4,
               y_meters: 2.8,
-              intermediate_handoff_radius_meters: 0.4
+              intermediate_handoff_radius_meters: 0.4,
             }),
             createWaypoint({
               translation_target: createTranslationTarget({
                 x_meters: 3.2,
                 y_meters: 3,
-                intermediate_handoff_radius_meters: 0.22
+                intermediate_handoff_radius_meters: 0.22,
               }),
               rotation_target: createRotationTarget({
                 rotation_radians: 2.2,
-                profiled_rotation: true
-              })
-            })
+                profiled_rotation: true,
+              }),
+            }),
           ],
           ranged_constraints: [
             ranged("max_velocity_meters_per_sec", 2.2, 1, 2),
             ranged("max_acceleration_meters_per_sec2", 3.4, 2, 3),
             ranged("max_velocity_deg_per_sec", 520, 1, 2),
-            ranged("max_acceleration_deg_per_sec2", 1000, 2, 2)
-          ]
-        })
+            ranged("max_acceleration_deg_per_sec2", 1000, 2, 2),
+          ],
+        }),
       }),
       createProjectPathDocument({
         path_id: "scalar",
@@ -273,24 +272,30 @@ function createCompatibilityWorkspace() {
             max_velocity_deg_per_sec: 500,
             max_acceleration_deg_per_sec2: 900,
             end_translation_tolerance_meters: 0.05,
-            end_rotation_tolerance_deg: 2.5
+            end_rotation_tolerance_deg: 2.5,
           }),
           path_elements: [
             createWaypoint({
-              translation_target: createTranslationTarget({ x_meters: 0, y_meters: 0 }),
-              rotation_target: createRotationTarget({ rotation_radians: 0 })
+              translation_target: createTranslationTarget({
+                x_meters: 0,
+                y_meters: 0,
+              }),
+              rotation_target: createRotationTarget({ rotation_radians: 0 }),
             }),
             createTranslationTarget({ x_meters: 1, y_meters: 0 }),
             createRotationTarget({ rotation_radians: 1.5, t_ratio: 0.5 }),
             createWaypoint({
-              translation_target: createTranslationTarget({ x_meters: 2, y_meters: 1 }),
-              rotation_target: createRotationTarget({ rotation_radians: 3.14 })
-            })
-          ]
-        })
-      })
+              translation_target: createTranslationTarget({
+                x_meters: 2,
+                y_meters: 1,
+              }),
+              rotation_target: createRotationTarget({ rotation_radians: 3.14 }),
+            }),
+          ],
+        }),
+      }),
     ],
-    active_path_id: "mixed"
+    active_path_id: "mixed",
   });
 }
 
@@ -298,14 +303,14 @@ function ranged(
   key: RangedConstraint["key"],
   value: number,
   start_ordinal: number,
-  end_ordinal: number
+  end_ordinal: number,
 ): RangedConstraint {
   return { key, value, start_ordinal, end_ordinal };
 }
 
 async function writeAutosFolder(
   folder: ProjectFolderExport,
-  autosDir: string
+  autosDir: string,
 ): Promise<void> {
   for (const file of folder.files) {
     const outputPath = join(autosDir, file.relativePath);
@@ -316,22 +321,22 @@ async function writeAutosFolder(
 
 async function runBLineLibValidation(
   autosDir: string,
-  tempRoot: string
+  tempRoot: string,
 ): Promise<CompatibilityReport> {
   const blineLibDir = resolve(
-    process.env.BLINE_LIB_DIR?.trim() || defaultBLineLibDir
+    process.env.BLINE_LIB_DIR?.trim() || defaultBLineLibDir,
   );
   const gradleWrapper = join(
     blineLibDir,
-    process.platform === "win32" ? "gradlew.bat" : "gradlew"
+    process.platform === "win32" ? "gradlew.bat" : "gradlew",
   );
 
   if (!existsSync(gradleWrapper)) {
     throw new Error(
       [
         `BLine-Lib Gradle wrapper was not found at ${gradleWrapper}.`,
-        "Set BLINE_LIB_DIR to a BLine-Lib checkout, or let CI checkout edanliahovetsky/BLine-Lib into .ci/BLine-Lib."
-      ].join(" ")
+        "Set BLINE_LIB_DIR to a BLine-Lib checkout, or let CI checkout edanliahovetsky/BLine-Lib into .ci/BLine-Lib.",
+      ].join(" "),
     );
   }
 
@@ -352,13 +357,13 @@ async function runBLineLibValidation(
       initScriptPath,
       "validateBLineWebAutos",
       `-PautosDir=${autosDir}`,
-      `-PcompatReport=${reportPath}`
+      `-PcompatReport=${reportPath}`,
     ],
     {
       cwd: blineLibDir,
       encoding: "utf8",
-      timeout: 300_000
-    }
+      timeout: 300_000,
+    },
   );
 
   if (result.error) {
@@ -370,10 +375,10 @@ async function runBLineLibValidation(
       [
         "BLine-Lib IO compatibility validation failed.",
         result.stdout.trim(),
-        result.stderr.trim()
+        result.stderr.trim(),
       ]
         .filter(Boolean)
-        .join("\n")
+        .join("\n"),
     );
   }
 
@@ -512,8 +517,13 @@ allprojects { p ->
 `;
 }
 
-function requirePathReport(report: CompatibilityReport, fileName: string): PathReport {
-  const path = report.paths.find((candidate) => candidate.file_name === fileName);
+function requirePathReport(
+  report: CompatibilityReport,
+  fileName: string,
+): PathReport {
+  const path = report.paths.find(
+    (candidate) => candidate.file_name === fileName,
+  );
   if (!path) {
     throw new Error(`Missing BLine-Lib compatibility report for ${fileName}`);
   }

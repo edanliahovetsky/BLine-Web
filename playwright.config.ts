@@ -7,29 +7,29 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
   expect: {
-    timeout: 5_000
+    timeout: 5_000,
   },
   fullyParallel: true,
   reporter: [["list"]],
   use: {
     baseURL,
-    trace: "on-first-retry"
+    trace: "on-first-retry",
   },
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`,
     url: baseURL,
     reuseExistingServer: !process.env.CI && !process.env.PLAYWRIGHT_PORT,
-    timeout: 120_000
+    timeout: 120_000,
   },
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] }
+      use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "webkit-canvas",
       grep: /@webkit-canvas/,
-      use: { ...devices["Desktop Safari"] }
-    }
-  ]
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
 });

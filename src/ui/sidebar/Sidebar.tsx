@@ -17,7 +17,7 @@ import {
   createUpdatePathElementCommand,
   getInsertionIndex,
   getSwitchableElementTypes,
-  type AddableElementType
+  type AddableElementType,
 } from "./sidebarCommands";
 
 type SidebarSectionKey = "pathElements" | "properties" | "constraints";
@@ -28,7 +28,7 @@ const sidebarSectionStorageKey = "bline.sidebar.sections.v1";
 const defaultSidebarSectionState: SidebarSectionState = {
   pathElements: true,
   properties: true,
-  constraints: true
+  constraints: true,
 };
 
 interface SidebarProps {
@@ -38,11 +38,11 @@ interface SidebarProps {
 
 export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
   const [sectionState, setSectionState] = useState<SidebarSectionState>(() =>
-    readSidebarSectionState()
+    readSidebarSectionState(),
   );
   const selectedElement =
     project && selectedElementIndex !== null
-      ? project.path.path_elements[selectedElementIndex] ?? null
+      ? (project.path.path_elements[selectedElementIndex] ?? null)
       : null;
 
   const handleSelectElement = (index: number) => {
@@ -54,12 +54,18 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       return;
     }
 
-    const insertionIndex = getInsertionIndex(project, type, selectedElementIndex);
+    const insertionIndex = getInsertionIndex(
+      project,
+      type,
+      selectedElementIndex,
+    );
     const element = createDefaultElement(project, type, selectedElementIndex);
     projectStore
       .getState()
       .applyCommand(createInsertPathElementCommand(insertionIndex, element));
-    selectionStore.getState().selectElement(insertionIndex, projectStore.getState().project);
+    selectionStore
+      .getState()
+      .selectElement(insertionIndex, projectStore.getState().project);
   };
 
   const handleRemoveElement = (index: number) => {
@@ -77,7 +83,10 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       .applyCommand(createRemovePathElementCommand(index, element));
     selectionStore
       .getState()
-      .selectElement(nextSelectionAfterRemoval(index, selectedElementIndex), projectStore.getState().project);
+      .selectElement(
+        nextSelectionAfterRemoval(index, selectedElementIndex),
+        projectStore.getState().project,
+      );
   };
 
   const handleMoveElement = (fromIndex: number, toIndex: number) => {
@@ -88,12 +97,14 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
     const nextSelection = selectionAfterMove(
       selectedElementIndex,
       fromIndex,
-      toIndex
+      toIndex,
     );
     projectStore
       .getState()
       .applyCommand(createMovePathElementCommand(fromIndex, toIndex));
-    selectionStore.getState().selectElement(nextSelection, projectStore.getState().project);
+    selectionStore
+      .getState()
+      .selectElement(nextSelection, projectStore.getState().project);
   };
 
   const handleChangeElementType = (type: AddableElementType) => {
@@ -104,7 +115,7 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
     const convertedElement = createConvertedElement(
       project,
       selectedElementIndex,
-      type
+      type,
     );
     if (!convertedElement) {
       return;
@@ -116,8 +127,8 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
         createChangePathElementTypeCommand(
           selectedElementIndex,
           selectedElement,
-          convertedElement
-        )
+          convertedElement,
+        ),
       );
     selectionStore
       .getState()
@@ -132,7 +143,11 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
     projectStore
       .getState()
       .applyCommand(
-        createUpdatePathElementCommand(selectedElementIndex, selectedElement, nextElement)
+        createUpdatePathElementCommand(
+          selectedElementIndex,
+          selectedElement,
+          nextElement,
+        ),
       );
     selectionStore
       .getState()
@@ -184,7 +199,7 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
 function selectionAfterMove(
   selectedElementIndex: number | null,
   fromIndex: number,
-  toIndex: number
+  toIndex: number,
 ): number | null {
   if (selectedElementIndex === null) {
     return null;
@@ -207,7 +222,7 @@ function selectionAfterMove(
 
 function nextSelectionAfterRemoval(
   removedIndex: number,
-  selectedElementIndex: number | null
+  selectedElementIndex: number | null,
 ): number | null {
   if (selectedElementIndex === null) {
     return null;
@@ -244,7 +259,7 @@ function readSidebarSectionState(): SidebarSectionState {
       constraints:
         typeof parsed.constraints === "boolean"
           ? parsed.constraints
-          : defaultSidebarSectionState.constraints
+          : defaultSidebarSectionState.constraints,
     };
   } catch {
     return defaultSidebarSectionState;
@@ -257,7 +272,10 @@ function writeSidebarSectionState(state: SidebarSectionState): void {
   }
 
   try {
-    window.localStorage.setItem(sidebarSectionStorageKey, JSON.stringify(state));
+    window.localStorage.setItem(
+      sidebarSectionStorageKey,
+      JSON.stringify(state),
+    );
   } catch {
     // Local UI preferences should never block editing.
   }

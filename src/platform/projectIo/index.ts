@@ -4,12 +4,12 @@ import {
   TauriStorage,
   type BrowserStorageOptions,
   type StorageAdapter,
-  type TauriStorageOptions
+  type TauriStorageOptions,
 } from "../../storage";
 import {
   StorageProjectIoService,
   createBrowserProjectIoCapabilities,
-  createDesktopProjectIoCapabilities
+  createDesktopProjectIoCapabilities,
 } from "./service";
 import type { ProjectIoService } from "./types";
 
@@ -21,27 +21,27 @@ export interface CreateProjectIoServiceOptions {
 
 export function createProjectIoService(
   environment: EnvironmentCapabilities,
-  options: CreateProjectIoServiceOptions = {}
+  options: CreateProjectIoServiceOptions = {},
 ): ProjectIoService {
   if (options.storage) {
     return new StorageProjectIoService(
       options.storage,
       environment.canWriteRealFiles
         ? createDesktopProjectIoCapabilities()
-        : createBrowserProjectIoCapabilities()
+        : createBrowserProjectIoCapabilities(),
     );
   }
 
   if (environment.canWriteRealFiles) {
     return new StorageProjectIoService(
       new TauriStorage(options.tauri),
-      createDesktopProjectIoCapabilities()
+      createDesktopProjectIoCapabilities(),
     );
   }
 
   return new StorageProjectIoService(
     new BrowserStorage(options.browser),
-    createBrowserProjectIoCapabilities()
+    createBrowserProjectIoCapabilities(),
   );
 }
 

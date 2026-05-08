@@ -3,11 +3,11 @@ import type {
   ConstraintKey,
   PathModel,
   RangedConstraintKey,
-  RangedConstraintSource
+  RangedConstraintSource,
 } from "../model/path";
 import {
   createProjectConfig,
-  type CanonicalProjectConfig
+  type CanonicalProjectConfig,
 } from "../config/projectConfig";
 
 export const projectSchemaVersion = 1;
@@ -68,7 +68,9 @@ export interface SerializedPathEditorMetadata {
 }
 
 export type SerializedConstraintValue = number | SerializedRangedConstraint[];
-export type SerializedConstraints = Partial<Record<ConstraintKey, SerializedConstraintValue>>;
+export type SerializedConstraints = Partial<
+  Record<ConstraintKey, SerializedConstraintValue>
+>;
 
 export interface SerializedTranslationTarget {
   type: "translation";
@@ -172,7 +174,7 @@ export function createProjectDocument({
   display_name,
   path_file_name = null,
   path,
-  config
+  config,
 }: CreateProjectDocumentInput): ProjectDocument {
   return {
     schema_version: projectSchemaVersion,
@@ -180,7 +182,7 @@ export function createProjectDocument({
     display_name,
     path_file_name,
     path,
-    config: createProjectConfig(config)
+    config: createProjectConfig(config),
   };
 }
 
@@ -188,13 +190,13 @@ export function createProjectPathDocument({
   path_id,
   display_name,
   file_name,
-  path
+  path,
 }: CreateProjectPathDocumentInput): ProjectPathDocument {
   return {
     path_id,
     display_name,
     file_name,
-    path
+    path,
   };
 }
 
@@ -203,9 +205,11 @@ export function createProjectWorkspaceDocument({
   display_name,
   config,
   paths = [],
-  active_path_id = paths[0]?.path_id ?? null
+  active_path_id = paths[0]?.path_id ?? null,
 }: CreateProjectWorkspaceDocumentInput): ProjectWorkspaceDocument {
-  const activePathExists = paths.some((path) => path.path_id === active_path_id);
+  const activePathExists = paths.some(
+    (path) => path.path_id === active_path_id,
+  );
 
   return {
     schema_version: projectSchemaVersion,
@@ -213,6 +217,8 @@ export function createProjectWorkspaceDocument({
     display_name,
     config: createProjectConfig(config),
     paths,
-    active_path_id: activePathExists ? active_path_id : paths[0]?.path_id ?? null
+    active_path_id: activePathExists
+      ? active_path_id
+      : (paths[0]?.path_id ?? null),
   };
 }

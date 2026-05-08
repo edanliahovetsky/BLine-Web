@@ -4,7 +4,7 @@ import {
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
-  type PathElement
+  type PathElement,
 } from "../core/model/path";
 import type { HistoryCommand } from "../state/historyStore";
 import type { PointMeters } from "./geometry";
@@ -16,45 +16,48 @@ export function isTranslationBearingElement(element: PathElement): boolean {
 export function createMoveElementCommand(
   index: number,
   previousPosition: PointMeters,
-  nextPosition: PointMeters
+  nextPosition: PointMeters,
 ): HistoryCommand<ProjectDocument> {
   return {
     description: `Move element ${index + 1}`,
-    apply: (project) => updateProjectElementPosition(project, index, nextPosition),
-    revert: (project) => updateProjectElementPosition(project, index, previousPosition)
+    apply: (project) =>
+      updateProjectElementPosition(project, index, nextPosition),
+    revert: (project) =>
+      updateProjectElementPosition(project, index, previousPosition),
   };
 }
 
 export function createSetElementRatioCommand(
   index: number,
   previousRatio: number,
-  nextRatio: number
+  nextRatio: number,
 ): HistoryCommand<ProjectDocument> {
   return {
     description: `Move projected element ${index + 1}`,
     apply: (project) => updateProjectElementRatio(project, index, nextRatio),
-    revert: (project) => updateProjectElementRatio(project, index, previousRatio)
+    revert: (project) =>
+      updateProjectElementRatio(project, index, previousRatio),
   };
 }
 
 export function createSetElementRotationCommand(
   index: number,
   previousRotationRadians: number,
-  nextRotationRadians: number
+  nextRotationRadians: number,
 ): HistoryCommand<ProjectDocument> {
   return {
     description: `Rotate element ${index + 1}`,
     apply: (project) =>
       updateProjectElementRotation(project, index, nextRotationRadians),
     revert: (project) =>
-      updateProjectElementRotation(project, index, previousRotationRadians)
+      updateProjectElementRotation(project, index, previousRotationRadians),
   };
 }
 
 export function updateProjectElementPosition(
   project: ProjectDocument,
   index: number,
-  position: PointMeters
+  position: PointMeters,
 ): ProjectDocument {
   const nextProject = structuredClone(project);
   const element = nextProject.path.path_elements[index];
@@ -71,13 +74,15 @@ export function updateProjectElementPosition(
     return nextProject;
   }
 
-  throw new Error(`Element ${index} does not have an editable translation position`);
+  throw new Error(
+    `Element ${index} does not have an editable translation position`,
+  );
 }
 
 export function updateProjectElementRotation(
   project: ProjectDocument,
   index: number,
-  rotationRadians: number
+  rotationRadians: number,
 ): ProjectDocument {
   const nextProject = structuredClone(project);
   const element = nextProject.path.path_elements[index];
@@ -99,7 +104,7 @@ export function updateProjectElementRotation(
 export function updateProjectElementRatio(
   project: ProjectDocument,
   index: number,
-  tRatio: number
+  tRatio: number,
 ): ProjectDocument {
   const nextProject = structuredClone(project);
   const element = nextProject.path.path_elements[index];

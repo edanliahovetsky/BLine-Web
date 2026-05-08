@@ -33,7 +33,7 @@ function writeJsonValue(value: unknown, depth: number, key?: string): string {
 
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>).filter(
-      ([, entryValue]) => entryValue !== undefined
+      ([, entryValue]) => entryValue !== undefined,
     );
     if (entries.length === 0) {
       return "{}";
@@ -46,8 +46,8 @@ function writeJsonValue(value: unknown, depth: number, key?: string): string {
           `${indent(nextDepth)}${JSON.stringify(entryKey)}: ${writeJsonValue(
             entryValue,
             nextDepth,
-            entryKey
-          )}`
+            entryKey,
+          )}`,
       )
       .join(",\n");
     return `{\n${items}\n${indent(depth)}}`;
@@ -92,7 +92,7 @@ const integerKeys = new Set([
   "bline_project_schema_version",
   "bundle_schema_version",
   "start_ordinal",
-  "end_ordinal"
+  "end_ordinal",
 ]);
 
 const blineDecimalPlaces = 5;

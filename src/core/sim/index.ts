@@ -9,7 +9,7 @@ export type {
   SimTraceResult,
   SimulationConfig,
   SimulationOptions,
-  SimulationTraceSample
+  SimulationTraceSample,
 } from "./types";
 export {
   clamp01,
@@ -19,7 +19,7 @@ export {
   limitAcceleration,
   radiansToDegrees,
   shortestAngularDistance,
-  wrapAngleRadians
+  wrapAngleRadians,
 } from "./simGeometry";
 export {
   buildGlobalRotationKeyframes,
@@ -27,5 +27,5 @@ export {
   buildSegments,
   desiredHeadingForGlobalS,
   simulatePath,
-  simulatePathWithTrace
+  simulatePathWithTrace,
 } from "./simulatePath";

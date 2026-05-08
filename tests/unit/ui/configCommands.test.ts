@@ -8,19 +8,22 @@ describe("config commands", () => {
     const project = createProjectDocument({
       project_id: "project-a",
       display_name: "Alpha",
-      path: createPathModel()
+      path: createPathModel(),
     });
     const nextConfig = structuredClone(project.config);
     nextConfig.gui.robot.length_meters = 0.8255;
     nextConfig.kinematic_constraints.default_max_velocity_meters_per_sec = 5.5;
 
-    const command = createUpdateProjectConfigCommand(project.config, nextConfig);
+    const command = createUpdateProjectConfigCommand(
+      project.config,
+      nextConfig,
+    );
     const updated = command.apply(project);
     const reverted = command.revert(updated);
 
     expect(updated.config.gui.robot.length_meters).toBe(0.8255);
     expect(
-      updated.config.kinematic_constraints.default_max_velocity_meters_per_sec
+      updated.config.kinematic_constraints.default_max_velocity_meters_per_sec,
     ).toBe(5.5);
     expect(reverted.config).toEqual(project.config);
   });

@@ -2,12 +2,12 @@ import {
   isRotationConstraintKey,
   isTranslationConstraintKey,
   type PathElement,
-  type RangedConstraint
+  type RangedConstraint,
 } from "../core/model/path";
 
 export function domainIndexesForConstraint(
   elements: readonly PathElement[],
-  constraint: Pick<RangedConstraint, "key">
+  constraint: Pick<RangedConstraint, "key">,
 ): number[] {
   return elements.flatMap((element, index) => {
     if (
@@ -30,7 +30,7 @@ export function domainIndexesForConstraint(
 
 export function coveredDomainIndexesForConstraint(
   elements: readonly PathElement[],
-  constraint: RangedConstraint
+  constraint: RangedConstraint,
 ): number[] {
   const domain = domainIndexesForConstraint(elements, constraint);
   if (domain.length === 0) {
@@ -43,7 +43,7 @@ export function coveredDomainIndexesForConstraint(
 
 export function pathIndexesForConstraintRange(
   elements: readonly PathElement[],
-  constraint: RangedConstraint
+  constraint: RangedConstraint,
 ): number[] {
   const domain = domainIndexesForConstraint(elements, constraint);
   if (domain.length === 0) {
@@ -63,13 +63,13 @@ export function pathIndexesForConstraintRange(
   const lower = Math.min(startGlobalIndex, endGlobalIndex);
   const upper = Math.max(startGlobalIndex, endGlobalIndex);
   return elements.flatMap((_element, index) =>
-    index >= lower && index <= upper ? [index] : []
+    index >= lower && index <= upper ? [index] : [],
   );
 }
 
 export function firstDomainIndexForConstraintRange(
   elements: readonly PathElement[],
-  constraint: RangedConstraint
+  constraint: RangedConstraint,
 ): number | null {
   const startOrdinal = Number.isFinite(constraint.start_ordinal)
     ? Math.trunc(constraint.start_ordinal)
@@ -84,7 +84,7 @@ export function firstDomainIndexForConstraintRange(
 
 function normalizedRange(
   constraint: Pick<RangedConstraint, "start_ordinal" | "end_ordinal">,
-  total: number
+  total: number,
 ): readonly [number, number] {
   const start = clampOrdinal(constraint.start_ordinal, total);
   const end = clampOrdinal(constraint.end_ordinal, total);

@@ -2,11 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { formatPointMeters } from "../../../canvas/modelSync";
-import {
-  ElementIcon,
-  GripIcon,
-  RemoveIcon
-} from "../../icons";
+import { ElementIcon, GripIcon, RemoveIcon } from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
 import { SidebarSection } from "../SidebarSection";
 import {
@@ -14,7 +10,7 @@ import {
   elementTypeLabel,
   elementTypeValue,
   getAddableElementTypes,
-  type AddableElementType
+  type AddableElementType,
 } from "../sidebarCommands";
 
 interface ElementListProps {
@@ -36,7 +32,7 @@ export function ElementList({
   onSelectElement,
   onRemoveElement,
   onMoveElement,
-  onToggleSection
+  onToggleSection,
 }: ElementListProps) {
   const elements = project?.path.path_elements ?? [];
   const listRef = useRef<HTMLOListElement | null>(null);
@@ -61,7 +57,10 @@ export function ElementList({
     scrollChildIntoContainerView(list, selectedRow);
   }, [elements.length, open, selectedElementIndex]);
 
-  const handleMouseDown = (event: MouseEvent<HTMLButtonElement>, index: number) => {
+  const handleMouseDown = (
+    event: MouseEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
     if (!project || event.button !== 0) {
       return;
     }
@@ -72,7 +71,10 @@ export function ElementList({
     let currentDropIndex: number | null = null;
 
     const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
-      const movement = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
+      const movement = Math.hypot(
+        moveEvent.clientX - startX,
+        moveEvent.clientY - startY,
+      );
       if (!active && movement < 5) {
         return;
       }
@@ -83,9 +85,13 @@ export function ElementList({
         setDragIndex(index);
       }
 
-      const nextDropIndex = getDropIndexFromPoint(moveEvent.clientX, moveEvent.clientY);
+      const nextDropIndex = getDropIndexFromPoint(
+        moveEvent.clientX,
+        moveEvent.clientY,
+      );
       currentDropIndex =
-        nextDropIndex !== null && canMovePathElement(project, index, nextDropIndex)
+        nextDropIndex !== null &&
+        canMovePathElement(project, index, nextDropIndex)
           ? nextDropIndex
           : null;
       setDragOverIndex(currentDropIndex);
@@ -100,7 +106,11 @@ export function ElementList({
         suppressClickRef.current = false;
       }, 0);
 
-      if (!active || currentDropIndex === null || !canMovePathElement(project, index, currentDropIndex)) {
+      if (
+        !active ||
+        currentDropIndex === null ||
+        !canMovePathElement(project, index, currentDropIndex)
+      ) {
         return;
       }
 
@@ -129,7 +139,11 @@ export function ElementList({
       onToggle={onToggleSection}
     >
       {elements.length > 0 ? (
-        <ol ref={listRef} className="path-element-list" aria-label="Path elements">
+        <ol
+          ref={listRef}
+          className="path-element-list"
+          aria-label="Path elements"
+        >
           {elements.map((element, index) => {
             const selected = selectedElementIndex === index;
             const position = getElementPosition(elements, index);
@@ -142,8 +156,10 @@ export function ElementList({
                 className={[
                   selected ? "is-selected" : "",
                   dragIndex === index ? "is-dragging" : "",
-                  dragOverIndex === index ? "is-drop-target" : ""
-                ].filter(Boolean).join(" ")}
+                  dragOverIndex === index ? "is-drop-target" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 data-testid={`path-element-item-${index}`}
                 data-path-element-index={index}
               >
@@ -165,7 +181,10 @@ export function ElementList({
                   <span className="drag-grip" aria-hidden="true">
                     <GripIcon />
                   </span>
-                  <span aria-hidden="true" className={`element-type-mark type-${type}`}>
+                  <span
+                    aria-hidden="true"
+                    className={`element-type-mark type-${type}`}
+                  >
                     <ElementIcon type={type} />
                   </span>
                   <span className="path-element-row__label">
@@ -194,9 +213,12 @@ export function ElementList({
   );
 }
 
-function getDropIndexFromPoint(_clientX: number, clientY: number): number | null {
+function getDropIndexFromPoint(
+  _clientX: number,
+  clientY: number,
+): number | null {
   const target = Array.from(
-    document.querySelectorAll<HTMLElement>("[data-path-element-index]")
+    document.querySelectorAll<HTMLElement>("[data-path-element-index]"),
   ).find((element) => {
     const rect = element.getBoundingClientRect();
     return clientY >= rect.top && clientY <= rect.bottom;
@@ -206,7 +228,10 @@ function getDropIndexFromPoint(_clientX: number, clientY: number): number | null
   return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
-function scrollChildIntoContainerView(container: HTMLElement, child: HTMLElement): void {
+function scrollChildIntoContainerView(
+  container: HTMLElement,
+  child: HTMLElement,
+): void {
   const containerRect = container.getBoundingClientRect();
   const childRect = child.getBoundingClientRect();
   const childTop = childRect.top - containerRect.top + container.scrollTop;
