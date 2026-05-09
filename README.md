@@ -9,9 +9,9 @@ The web-first BLine autonomous path editor for FRC holonomic drivetrains.
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-2563eb)](LICENSE)
 
 [Open the hosted app](https://bline-web.pages.dev/) |
-[Releases](https://github.com/edanliahovetsky/BLine-Web/releases) |
+[Desktop downloads](#desktop-downloads) |
 [BLine-Lib](https://github.com/edanliahovetsky/BLine-Lib) |
-[Docs](https://edanliahovetsky.github.io/BLine-Docs/) |
+[Docs](https://bline-docs.pages.dev/) |
 [Chief Delphi](https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778)
 
 </div>
@@ -36,6 +36,17 @@ desktop workflows are implemented and tested against the existing GUI's core
 behavior.
 
 The current app is useful for browser and desktop editing.
+
+## Desktop Downloads
+
+Latest desktop builds:
+
+- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/windows-x64?source=readme-top)
+- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/macos-aarch64?source=readme-top)
+- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/macos-x64?source=readme-top)
+- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/linux-x64?source=readme-top)
+
+Fallback: [GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/latest).
 
 ## For Existing BLine Users
 
@@ -237,8 +248,10 @@ draft GitHub Release named from `package.json`, for example
 
 Promotion is explicit: merge or push a tested commit to `web-deploy` only when
 it is ready for the public Cloudflare site and draft desktop release artifacts.
-Cloudflare hosts the website; [GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases)
-host desktop installers.
+Cloudflare hosts the website; latest desktop installers are available through
+the [desktop download links](#desktop-downloads), with
+[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/latest)
+as a direct fallback.
 
 Version metadata must stay aligned across:
 
@@ -253,7 +266,7 @@ Use `npm run release:check` to verify that alignment.
 - [BLine-Lib](https://github.com/edanliahovetsky/BLine-Lib): Java robot library.
 - [BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI): original PySide6
   desktop editor.
-- [BLine Docs](https://edanliahovetsky.github.io/BLine-Docs/): user-facing
+- [BLine Docs](https://bline-docs.pages.dev/): user-facing
   documentation for the BLine ecosystem.
 - [Chief Delphi thread](https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778):
   discussion, feedback, and announcements.
