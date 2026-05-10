@@ -245,6 +245,9 @@ Every push to `web-deploy` runs the release gate, builds the Vite web bundle,
 builds Tauri desktop artifacts for testers, and creates or updates a
 draft GitHub Release named from `package.json`, for example
 `v0.1.0-alpha.1`.
+The generated draft release notes include BLine Metrics Worker redirect links
+for both the exact release tag and the rolling latest release, plus an attached
+asset checklist for the web bundle and desktop platform artifacts.
 
 Promotion is explicit: merge or push a tested commit to `web-deploy` only when
 it is ready for the public Cloudflare site and draft desktop release artifacts.

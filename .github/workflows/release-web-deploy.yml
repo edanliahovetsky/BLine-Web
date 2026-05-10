@@ -268,6 +268,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
       - name: Download release assets
         uses: actions/download-artifact@v8
         with:
@@ -276,16 +281,11 @@ jobs:
           merge-multiple: true
 
       - name: Create release notes
-        run: |
-          cat > release-notes.md <<'NOTES'
-          Draft release generated from the `web-deploy` branch.
-
-          Cloudflare Pages deploys this same commit as the production web build.
-
-          Artifacts:
-          - Web static bundle zip
-          - Tauri desktop bundles for tester use
-          NOTES
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          RELEASE_NOTES_PATH: release-notes.md
+        run: npm run release:notes
 
       - name: Create or update draft release
         env:
