@@ -42,9 +42,13 @@ These links go through the BLine Metrics Worker so download clicks are counted w
 
 ${downloadTable(releaseTag, "github-release-version")}
 
-### Latest Release
+### Stable Channel
 
-${downloadTable("latest", "github-release-latest")}
+${downloadTable("stable", "github-release-stable")}
+
+### Pre-release Channel
+
+${downloadTable("prerelease", "github-release-prerelease")}
 
 ## Attached Assets
 

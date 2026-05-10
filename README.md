@@ -39,14 +39,21 @@ The current app is useful for browser and desktop editing.
 
 ## Desktop Downloads
 
-Latest desktop builds:
+Stable desktop builds:
 
-- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/windows-x64?source=readme-top)
-- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/macos-aarch64?source=readme-top)
-- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/macos-x64?source=readme-top)
-- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/latest/linux-x64?source=readme-top)
+- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/windows-x64?source=readme-stable)
+- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/macos-aarch64?source=readme-stable)
+- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/macos-x64?source=readme-stable)
+- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/linux-x64?source=readme-stable)
 
-Fallback: [GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/latest).
+Pre-release desktop builds:
+
+- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/windows-x64?source=readme-prerelease)
+- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/macos-aarch64?source=readme-prerelease)
+- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/macos-x64?source=readme-prerelease)
+- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/linux-x64?source=readme-prerelease)
+
+Fallback: [GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases).
 
 ## For Existing BLine Users
 
@@ -246,15 +253,16 @@ builds Tauri desktop artifacts for testers, and creates or updates a
 draft GitHub Release named from `package.json`, for example
 `v0.1.0-alpha.1`.
 The generated draft release notes include BLine Metrics Worker redirect links
-for both the exact release tag and the rolling latest release, plus an attached
-asset checklist for the web bundle and desktop platform artifacts.
+for the exact release tag, the stable channel, and the pre-release channel,
+plus an attached asset checklist for the web bundle and desktop platform
+artifacts.
 
 Promotion is explicit: merge or push a tested commit to `web-deploy` only when
 it is ready for the public Cloudflare site and draft desktop release artifacts.
-Cloudflare hosts the website; latest desktop installers are available through
-the [desktop download links](#desktop-downloads), with
-[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/latest)
-as a direct fallback.
+Cloudflare hosts the website; stable and pre-release desktop installers are
+available through the [desktop download links](#desktop-downloads), with
+[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases) as a
+direct fallback.
 
 Version metadata must stay aligned across:
 
