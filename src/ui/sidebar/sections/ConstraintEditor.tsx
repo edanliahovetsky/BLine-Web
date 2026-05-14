@@ -22,6 +22,8 @@ import {
   type AutoVelocityConstraintMetadata,
   type RangedConstraint,
   type RangedConstraintKey,
+  ConstraintValue,
+  constraintDimensions,
 } from "../../../core/model/path";
 import { projectStore } from "../../../state/projectStore";
 import { selectionStore } from "../../../state/selectionStore";
@@ -43,15 +45,17 @@ import {
   createUpdateRangedConstraintCommand,
   createUpdateRangedConstraintsCommand,
 } from "../sidebarCommands";
+import { ExpressionInput } from "../../controls/ExpressionControls";
+import { isUnitExpression, units } from "../../../core/math/units";
 
-type RangedEntry = {
-  constraint: RangedConstraint;
+type RangedEntry<K extends RangedConstraintKey = RangedConstraintKey> = {
+  constraint: RangedConstraint<K>;
   index: number;
 };
 
-type RangeUpdate = {
+type RangeUpdate<K extends RangedConstraintKey = RangedConstraintKey> = {
   index: number;
-  next: RangedConstraint;
+  next: RangedConstraint<K>;
 };
 
 type AddedRangedConstraintSelection = {
@@ -59,19 +63,9 @@ type AddedRangedConstraintSelection = {
   index: number;
 };
 
-type RangedMeta = {
+type ConstraintMeta<K extends ConstraintKey> = {
   label: string;
-  unit: string;
-  defaultValue: number;
-  step: number;
-  min: number;
-  max: number;
-};
-
-type ScalarMeta = {
-  label: string;
-  unit: string;
-  defaultValue: number;
+  defaultValue: ConstraintValue<K>;
   step: number;
   min: number;
   max: number;
@@ -83,66 +77,65 @@ type AutoVelocitySettings = {
   mergeToleranceMps: number;
 };
 
-const rangedMeta: Record<RangedConstraintKey, RangedMeta> = {
-  max_velocity_meters_per_sec: {
+const rangedMeta = {
+  max_velocity: {
     label: "Max Velocity",
-    unit: "m/s",
-    defaultValue: 4.5,
+    defaultValue: units.MeterPerSecond.of(4.5),
     step: 0.1,
     min: 0,
     max: 20,
   },
-  max_acceleration_meters_per_sec2: {
+  max_acceleration: {
     label: "Max Acceleration",
-    unit: "m/s2",
-    defaultValue: 12,
+    defaultValue: units.MeterPerSecondSquared.of(12),
     step: 0.1,
     min: 0,
     max: 50,
   },
-  max_velocity_deg_per_sec: {
+  max_angular_velocity: {
     label: "Max Rot Velocity",
-    unit: "deg/s",
-    defaultValue: 600,
+    defaultValue: units.DegreePerSecond.of(600),
     step: 1,
     min: 0,
     max: 1440,
   },
-  max_acceleration_deg_per_sec2: {
+  max_angular_acceleration: {
     label: "Max Rot Acceleration",
-    unit: "deg/s2",
-    defaultValue: 2000,
+    defaultValue: units.DegreePerSecondSquared.of(2000),
     step: 1,
     min: 0,
     max: 5000,
   },
+} as const satisfies {
+  [K in RangedConstraintKey]: ConstraintMeta<K>;
 };
 
-const scalarMeta: Record<(typeof terminalToleranceKeys)[number], ScalarMeta> = {
-  end_translation_tolerance_meters: {
+const scalarMeta = {
+  end_translation_tolerance: {
     label: "End Translation Tolerance",
-    unit: "m",
-    defaultValue: 0.1,
+    defaultValue: units.Meter.of(0.1),
     step: 0.01,
     min: 0,
     max: 10,
   },
-  end_rotation_tolerance_deg: {
+  end_rotation_tolerance: {
     label: "End Rotation Tolerance",
-    unit: "deg",
-    defaultValue: 5,
+    defaultValue: units.Degree.of(5),
     step: 0.1,
     min: 0,
     max: 180,
   },
-};
+} as const satisfies Record<
+  (typeof terminalToleranceKeys)[number],
+  ConstraintMeta<ConstraintKey>
+>;
 
 const addConstraintMenuOrder: readonly ConstraintKey[] = [
   ...rangedConstraintKeys,
   ...terminalToleranceKeys,
 ];
 
-const autoVelocityKey = "max_velocity_meters_per_sec";
+const autoVelocityKey = "max_velocity";
 const defaultAutoVelocitySettings: AutoVelocitySettings = {
   velocitySafetyFactor: defaultAutoVelocityVelocitySafetyFactor,
   accelerationSafetyFactor: defaultAutoVelocityAccelerationSafetyFactor,
@@ -487,7 +480,6 @@ function RangedConstraintCard({
         constraintKey={constraintKey}
         entries={entries}
         labels={labels}
-        unit={meta.unit}
         autoProfile={autoProfile}
         selectedIndex={selectedEntry?.index ?? null}
         onSelect={onSelect}
@@ -501,7 +493,7 @@ function RangedConstraintCard({
             constraintKey,
             start,
             end,
-            defaultFor(project, constraintKey, meta.defaultValue),
+            defaultConstraintValue(project, constraintKey, meta.defaultValue),
           );
           if (insertedIndex !== null) {
             onSelect(insertedIndex);
@@ -731,7 +723,6 @@ function PopoutConstraintPanel({
         constraintKey={constraintKey}
         entries={entries}
         labels={labels}
-        unit={meta.unit}
         autoProfile={autoProfile}
         selectedIndex={selectedEntry?.index ?? null}
         onSelect={onSelect}
@@ -745,7 +736,7 @@ function PopoutConstraintPanel({
             constraintKey,
             start,
             end,
-            defaultFor(project, constraintKey, meta.defaultValue),
+            defaultConstraintValue(project, constraintKey, meta.defaultValue),
           );
           if (insertedIndex !== null) {
             onSelect(insertedIndex);
@@ -773,7 +764,6 @@ function ConstraintSegmentBar({
   constraintKey,
   entries,
   labels,
-  unit,
   autoProfile,
   selectedIndex,
   onSelect,
@@ -786,7 +776,6 @@ function ConstraintSegmentBar({
   constraintKey: RangedConstraintKey;
   entries: RangedEntry[];
   labels: string[];
-  unit: string;
   autoProfile?: AutoVelocityProfile | null;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
@@ -980,9 +969,7 @@ function ConstraintSegmentBar({
           >
             <span>{label}</span>
             <span className="visually-hidden">
-              {entry
-                ? `${formatValue(entry.constraint.value)} ${unit}`
-                : "Open"}
+              {entry ? `${entry.constraint.value.formattedValue}` : "Open"}
             </span>
           </div>
         );
@@ -1079,7 +1066,7 @@ function ConstraintSegmentBar({
               </span>
             ) : null}
             <span className="ranged-segment-range__value">
-              {formatSegmentValue(constraint.value, unit)}
+              {constraint.value.formattedValue}
             </span>
           </div>
         );
@@ -1350,7 +1337,7 @@ function manualizeChangedAutoVelocityEntries(
   });
 }
 
-function RangedConstraintControls({
+function RangedConstraintControls<K extends RangedConstraintKey>({
   project,
   constraintKey,
   entry,
@@ -1362,7 +1349,7 @@ function RangedConstraintControls({
   compact = true,
 }: {
   project: ProjectDocument;
-  constraintKey: RangedConstraintKey;
+  constraintKey: K;
   entry: RangedEntry | null;
   segmentNumber: number;
   autoProfile?: AutoVelocityProfile | null;
@@ -1433,13 +1420,13 @@ function RangedConstraintControls({
         <label className="ranged-constraint-controls__value">
           <span>Value</span>
           <div className="constraint-value-input">
-            <NumberStepperControl
-              allowEmpty
+            <ExpressionInput
               ariaLabel={valueLabel}
               value={constraint?.value ?? null}
-              step={meta.step}
-              min={meta.min}
-              max={meta.max}
+              dimension={meta.defaultValue.dimension}
+              //step={meta.step}
+              //min={meta.min}
+              //max={meta.max}
               disabled={!constraint}
               onChange={(value) => {
                 if (!entry || !constraint) {
@@ -1460,7 +1447,6 @@ function RangedConstraintControls({
                 });
               }}
             />
-            <span>{meta.unit}</span>
           </div>
         </label>
         {constraintState?.globalWarning ? (
@@ -1602,7 +1588,8 @@ function AutoVelocityInlineControls({
       <div className="auto-velocity-inline__summary">
         <span>{profile.segmentCaps.length} segment caps</span>
         <span>
-          {formatValue(profile.usableMaxAccelerationMps2)} m/s2 usable accel
+          {formatNumberValue(profile.usableMaxAccelerationMps2)} m/s2 usable
+          accel
         </span>
       </div>
     </div>
@@ -1649,7 +1636,8 @@ function ScalarConstraintRow({
   const meta = scalarMeta[constraintKey];
   const currentValue = project.path.constraints[constraintKey];
   const value =
-    currentValue ?? defaultFor(project, constraintKey, meta.defaultValue);
+    currentValue ??
+    defaultConstraintValue(project, constraintKey, meta.defaultValue);
 
   return (
     <div className="scalar-constraint-row">
@@ -1657,12 +1645,10 @@ function ScalarConstraintRow({
         <span>{meta.label}</span>
       </label>
       <div className="constraint-value-input">
-        <NumberStepperControl
+        <ExpressionInput
           ariaLabel={meta.label}
           value={value}
-          step={meta.step}
-          min={meta.min}
-          max={meta.max}
+          dimension={value.dimension}
           onChange={(nextValue) => {
             projectStore
               .getState()
@@ -1675,7 +1661,6 @@ function ScalarConstraintRow({
               );
           }}
         />
-        <span>{meta.unit}</span>
       </div>
       <SidebarIconButton
         className="sidebar-icon-button--remove"
@@ -1790,7 +1775,7 @@ function addConstraint(
       createSetScalarConstraintCommand(
         key,
         project.path.constraints[key],
-        defaultFor(project, key, scalarMeta[key].defaultValue),
+        defaultConstraintValue(project, key, scalarMeta[key].defaultValue),
       ),
     );
   return null;
@@ -1810,7 +1795,7 @@ function addRangedConstraint(
           key,
           ordinal,
           ordinal,
-          defaultFor(project, key, rangedMeta[key].defaultValue),
+          defaultConstraintValue(project, key, rangedMeta[key].defaultValue),
         );
   }
 
@@ -1820,7 +1805,7 @@ function addRangedConstraint(
     .applyCommand(
       createAddRangedConstraintCommand(
         key,
-        defaultFor(project, key, rangedMeta[key].defaultValue),
+        defaultConstraintValue(project, key, rangedMeta[key].defaultValue),
         domainLabelsForKey(project, key).length,
       ),
     );
@@ -1858,10 +1843,10 @@ function selectRangedConstraint(
   );
 }
 
-function previewRangedConstraint(
-  key: RangedConstraintKey,
+function previewRangedConstraint<K extends RangedConstraintKey>(
+  key: K,
   index: number,
-  constraint: RangedConstraint,
+  constraint: RangedConstraint<K>,
 ): void {
   if (constraint.key !== key) {
     return;
@@ -1875,12 +1860,12 @@ function previewRangedConstraint(
   });
 }
 
-function insertRangedConstraint(
+function insertRangedConstraint<K extends RangedConstraintKey>(
   project: ProjectDocument,
-  key: RangedConstraintKey,
+  key: K,
   startOrdinal: number,
   endOrdinal: number,
-  value: number,
+  value: ConstraintValue<K>,
 ): number | null {
   const total = domainLabelsForKey(project, key).length;
   const start = clampOrdinal(startOrdinal, total);
@@ -1903,10 +1888,10 @@ function insertRangedConstraint(
     : null;
 }
 
-function updateRangedConstraint(
+function updateRangedConstraint<K extends RangedConstraintKey>(
   project: ProjectDocument,
   index: number,
-  next: RangedConstraint,
+  next: RangedConstraint<K>,
 ): void {
   const total = domainLabelsForKey(project, next.key).length;
   const previous = project.path.ranged_constraints[index];
@@ -2180,7 +2165,8 @@ function canMergeOrdinalConstraint(
     previous.source === "auto_velocity" &&
     next.source === "auto_velocity" &&
     previous.key === autoVelocityKey
-      ? Math.abs(previous.value - next.value) <= autoMergeToleranceMps
+      ? Math.abs(previous.value.baseUnitValue - next.value.baseUnitValue) <=
+        autoMergeToleranceMps
       : previous.value === next.value;
 
   return (
@@ -2192,12 +2178,14 @@ function canMergeOrdinalConstraint(
   );
 }
 
-function mergedOrdinalConstraintValue(
-  previous: RangedConstraint,
-  next: RangedConstraint,
-): number {
-  return previous.source === "auto_velocity" && next.source === "auto_velocity"
-    ? Math.min(previous.value, next.value)
+function mergedOrdinalConstraintValue<K extends RangedConstraintKey>(
+  previous: RangedConstraint<K>,
+  next: RangedConstraint<K>,
+): ConstraintValue<K> {
+  return previous.source === "auto_velocity" &&
+    next.source === "auto_velocity" &&
+    next.value.baseUnitValue < previous.value.baseUnitValue
+    ? next.value
     : previous.value;
 }
 
@@ -2298,10 +2286,10 @@ function autoVelocityStateForConstraint(
   const safeValue = Math.min(...caps.map((cap) => cap.value));
   const stale =
     constraint.source === "auto_velocity" &&
-    Math.abs(constraint.value - safeValue) > 0.015;
+    Math.abs(constraint.value.baseUnitValue - safeValue) > 0.015;
   const warning =
     constraint.source !== "auto_velocity" &&
-    constraint.value > safeValue + 0.015;
+    constraint.value.baseUnitValue > safeValue + 0.015;
   return { stale, warning };
 }
 
@@ -2314,7 +2302,8 @@ function rangedConstraintStateForConstraint(
   const globalLimit = globalLimitForRangedConstraint(project, constraint.key);
   const globalWarning =
     globalLimit !== null &&
-    constraint.value > globalLimit + constraintWarningTolerance(constraint.key);
+    constraint.value.baseUnitValue >
+      globalLimit.baseUnitValue + constraintWarningTolerance(constraint.key);
 
   return {
     stale: autoState.stale,
@@ -2323,30 +2312,29 @@ function rangedConstraintStateForConstraint(
   };
 }
 
-function globalLimitForRangedConstraint(
+function globalLimitForRangedConstraint<K extends RangedConstraintKey>(
   project: ProjectDocument,
-  key: RangedConstraintKey,
-): number | null {
+  key: K,
+): ConstraintValue<K> | null {
   const pathValue = project.path.constraints[key];
   if (
-    typeof pathValue === "number" &&
-    Number.isFinite(pathValue) &&
-    pathValue > 0
+    isUnitExpression(pathValue, constraintDimensions[key]) &&
+    pathValue.baseUnitValue > 0
   ) {
     return pathValue;
   }
 
   const configured = getDefaultOptionalConfigValue(project.config, key);
   if (
-    typeof configured === "number" &&
-    Number.isFinite(configured) &&
-    configured > 0
+    isUnitExpression(configured, constraintDimensions[key]) &&
+    configured.baseUnitValue > 0
   ) {
     return configured;
   }
 
-  const fallback = rangedMeta[key].defaultValue;
-  return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+  const fallback: ConstraintValue<K> = (rangedMeta[key] as ConstraintMeta<K>)
+    .defaultValue;
+  return fallback.baseUnitValue > 0 ? fallback : null;
 }
 
 function constraintWarningTolerance(key: RangedConstraintKey): number {
@@ -2666,18 +2654,20 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function defaultFor(
+function defaultConstraintValue<K extends ConstraintKey>(
   project: ProjectDocument,
-  key: ConstraintKey,
-  fallback: number,
-): number {
+  key: K,
+  fallback: ConstraintValue<K>,
+): ConstraintValue<K> {
   const pathValue = project.path.constraints[key];
   if (typeof pathValue === "number" && Number.isFinite(pathValue)) {
     return pathValue;
   }
 
   const configured = getDefaultOptionalConfigValue(project.config, key);
-  return typeof configured === "number" ? configured : fallback;
+  return isUnitExpression(configured, constraintDimensions[key])
+    ? configured
+    : fallback;
 }
 
 function isRangedKey(key: ConstraintKey): key is RangedConstraintKey {
@@ -2687,39 +2677,21 @@ function isRangedKey(key: ConstraintKey): key is RangedConstraintKey {
 function constraintIconType(
   key: ConstraintKey,
 ): "translation" | "waypoint" | "rotation" {
-  if (
-    key === "max_velocity_deg_per_sec" ||
-    key === "max_acceleration_deg_per_sec2"
-  ) {
+  if (key === "max_angular_velocity" || key === "max_angular_acceleration") {
     return "rotation";
   }
 
-  if (
-    key === "end_translation_tolerance_meters" ||
-    key === "end_rotation_tolerance_deg"
-  ) {
+  if (key === "end_translation_tolerance" || key === "end_rotation_tolerance") {
     return "waypoint";
   }
 
   return "translation";
 }
 
-function formatValue(value: number): string {
+function formatNumberValue(value: number): string {
   if (!Number.isFinite(value)) {
     return "0.000";
   }
 
   return Number.isInteger(value) ? String(value) : value.toFixed(3);
-}
-
-function formatSegmentValue(value: number, unit: string): string {
-  return `${formatSegmentNumber(value)} ${unit}`;
-}
-
-function formatSegmentNumber(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "0";
-  }
-
-  return Number(value.toFixed(2)).toString();
 }

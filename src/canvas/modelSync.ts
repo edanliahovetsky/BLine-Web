@@ -63,14 +63,14 @@ export function updateProjectElementPosition(
   const element = nextProject.path.path_elements[index];
 
   if (isTranslationTarget(element)) {
-    element.x_meters = position.x_meters;
-    element.y_meters = position.y_meters;
+    element.x.meters = position.x_meters;
+    element.y.meters = position.y_meters;
     return nextProject;
   }
 
   if (isWaypoint(element)) {
-    element.translation_target.x_meters = position.x_meters;
-    element.translation_target.y_meters = position.y_meters;
+    element.translation_target.x.meters = position.x_meters;
+    element.translation_target.y.meters = position.y_meters;
     return nextProject;
   }
 
@@ -89,12 +89,12 @@ export function updateProjectElementRotation(
   const nextRotation = normalizeRadians(rotationRadians);
 
   if (isRotationTarget(element)) {
-    element.rotation_radians = nextRotation;
+    element.rotation.radians = nextRotation;
     return nextProject;
   }
 
   if (isWaypoint(element)) {
-    element.rotation_target.rotation_radians = nextRotation;
+    element.rotation_target.rotation.radians = nextRotation;
     return nextProject;
   }
 

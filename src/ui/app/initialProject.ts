@@ -3,6 +3,7 @@ import {
   createProjectPathDocument,
   createProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
+import { units } from "../../core/math/units";
 import {
   createEventTrigger,
   createPathModel,
@@ -89,8 +90,8 @@ export function createExampleCanvasPath() {
     ],
     ranged_constraints: [
       {
-        key: "max_velocity_meters_per_sec",
-        value: 3,
+        key: "max_velocity",
+        value: units.MeterPerSecond.of(3),
         start_ordinal: 1,
         end_ordinal: 4,
       },

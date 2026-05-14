@@ -1,4 +1,3 @@
-import { fieldLengthMeters, fieldWidthMeters } from "../../../canvas/constants";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -19,6 +18,12 @@ import {
   updateTranslationTarget,
   updateWaypoint,
 } from "../sidebarCommands";
+import {
+  DimensionName,
+  dimensions,
+  UnitExpression,
+} from "../../../core/math/units";
+import { ExpressionInput } from "../../controls/ExpressionControls";
 
 interface PropertyEditorProps {
   element: PathElement | null;
@@ -130,34 +135,28 @@ function TranslationFields({
 }) {
   return (
     <>
-      <NumberField
-        label="X (m)"
-        value={element.x_meters}
-        step={0.05}
-        min={0}
-        max={fieldLengthMeters}
+      <ExpressionField
+        label="X"
+        value={element.x}
         onChange={(value) =>
-          onUpdateElement(updateTranslationTarget(element, { x_meters: value }))
+          onUpdateElement(updateTranslationTarget(element, { x: value }))
         }
       />
-      <NumberField
-        label="Y (m)"
-        value={element.y_meters}
-        step={0.05}
-        min={0}
-        max={fieldWidthMeters}
+      <ExpressionField
+        label="Y"
+        value={element.y}
         onChange={(value) =>
-          onUpdateElement(updateTranslationTarget(element, { y_meters: value }))
+          onUpdateElement(updateTranslationTarget(element, { y: value }))
         }
       />
-      <OptionalNumberField
-        label="Handoff Radius (m)"
-        value={element.intermediate_handoff_radius_meters}
-        step={0.05}
+      <OptionalExpressionField
+        label="Handoff Radius"
+        value={element.intermediate_handoff_radius}
+        dimension={"Length"}
         onChange={(value) =>
           onUpdateElement(
             updateTranslationTarget(element, {
-              intermediate_handoff_radius_meters: value,
+              intermediate_handoff_radius: value,
             }),
           )
         }
@@ -175,54 +174,47 @@ function WaypointFields({
 }) {
   return (
     <>
-      <NumberField
-        label="Rotation (deg)"
-        value={radiansToDegrees(element.rotation_target.rotation_radians)}
-        step={1}
+      <ExpressionField
+        label="Rotation"
+        value={element.rotation_target.rotation}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              rotation: { rotation_radians: degreesToRadians(value) },
+              rotation: { rotation: value },
             }),
           )
         }
       />
-      <NumberField
-        label="X (m)"
-        value={element.translation_target.x_meters}
-        step={0.05}
-        min={0}
-        max={fieldLengthMeters}
+      <ExpressionField
+        label="X"
+        value={element.translation_target.x}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              translation: { x_meters: value },
+              translation: { x: value },
             }),
           )
         }
       />
-      <NumberField
-        label="Y (m)"
-        value={element.translation_target.y_meters}
-        step={0.05}
-        min={0}
-        max={fieldWidthMeters}
+      <ExpressionField
+        label="Y"
+        value={element.translation_target.y}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              translation: { y_meters: value },
+              translation: { y: value },
             }),
           )
         }
       />
-      <OptionalNumberField
-        label="Handoff Radius (m)"
-        value={element.translation_target.intermediate_handoff_radius_meters}
-        step={0.05}
+      <OptionalExpressionField
+        label="Handoff Radius"
+        value={element.translation_target.intermediate_handoff_radius}
+        dimension={"Length"}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
-              translation: { intermediate_handoff_radius_meters: value },
+              translation: { intermediate_handoff_radius: value },
             }),
           )
         }
@@ -251,16 +243,11 @@ function RotationFields({
 }) {
   return (
     <>
-      <NumberField
-        label="Rotation (deg)"
-        value={radiansToDegrees(element.rotation_radians)}
-        step={1}
+      <ExpressionField
+        label="Rotation"
+        value={element.rotation}
         onChange={(value) =>
-          onUpdateElement(
-            updateRotationTarget(element, {
-              rotation_radians: degreesToRadians(value),
-            }),
-          )
+          onUpdateElement(updateRotationTarget(element, { rotation: value }))
         }
       />
       <NumberField
@@ -358,7 +345,7 @@ function NumberField({
   );
 }
 
-function OptionalNumberField({
+/*function OptionalNumberField({
   label,
   value,
   step,
@@ -382,7 +369,7 @@ function OptionalNumberField({
       />
     </label>
   );
-}
+}*/
 
 function BooleanField({
   label,
@@ -406,12 +393,51 @@ function BooleanField({
   );
 }
 
-function radiansToDegrees(radians: number): number {
-  return radians * (180 / Math.PI);
+export function ExpressionField<D extends DimensionName>({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: UnitExpression<D>;
+  onChange(value: UnitExpression<D>): void;
+}) {
+  return (
+    <label className="property-row">
+      <span>{label}</span>
+      <ExpressionInput
+        ariaLabel={`${dimensions[value.dimension].name} Expression`}
+        value={value}
+        dimension={value.dimension}
+        onChange={onChange}
+      />
+    </label>
+  );
 }
 
-function degreesToRadians(degrees: number): number {
-  return degrees * (Math.PI / 180);
+export function OptionalExpressionField<D extends DimensionName>({
+  label,
+  value,
+  dimension,
+  onChange,
+}: {
+  label: string;
+  value: UnitExpression<D> | null;
+  dimension: D;
+  onChange(value: UnitExpression<D> | null): void;
+}) {
+  return (
+    <label className="property-row">
+      <span>{label}</span>
+      <ExpressionInput
+        allowEmpty
+        ariaLabel={`${dimensions[dimension].name} Expression`}
+        value={value}
+        dimension={dimension}
+        onChange={onChange}
+      />
+    </label>
+  );
 }
 
 function clamp01(value: number): number {

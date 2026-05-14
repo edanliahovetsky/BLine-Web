@@ -141,15 +141,15 @@ export function getElementPosition(
 
   if (isTranslationTarget(element)) {
     return {
-      x_meters: element.x_meters,
-      y_meters: element.y_meters,
+      x_meters: element.x.meters,
+      y_meters: element.y.meters,
     };
   }
 
   if (isWaypoint(element)) {
     return {
-      x_meters: element.translation_target.x_meters,
-      y_meters: element.translation_target.y_meters,
+      x_meters: element.translation_target.x.meters,
+      y_meters: element.translation_target.y.meters,
     };
   }
 
@@ -200,11 +200,11 @@ export function getRenderableElementPositions(
 
 export function getRotationRadians(element: PathElement): number | null {
   if (isRotationTarget(element)) {
-    return element.rotation_radians;
+    return element.rotation.radians;
   }
 
   if (isWaypoint(element)) {
-    return element.rotation_target.rotation_radians;
+    return element.rotation_target.rotation.radians;
   }
 
   return null;
@@ -251,12 +251,14 @@ export function getElementHeadingRadians(
 
 export function getHandoffRadiusMeters(element: PathElement): number | null {
   if (isTranslationTarget(element)) {
-    return positiveRadiusOrNull(element.intermediate_handoff_radius_meters);
+    return positiveRadiusOrNull(
+      element.intermediate_handoff_radius?.meters ?? null,
+    );
   }
 
   if (isWaypoint(element)) {
     return positiveRadiusOrNull(
-      element.translation_target.intermediate_handoff_radius_meters,
+      element.translation_target.intermediate_handoff_radius?.meters ?? null,
     );
   }
 

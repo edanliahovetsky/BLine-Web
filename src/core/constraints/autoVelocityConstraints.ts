@@ -3,6 +3,7 @@ import {
   defaultAutoVelocityVelocitySafetyFactor,
   getDefaultOptionalConfigValue,
 } from "../config/projectConfig";
+import { units } from "../math/units";
 import {
   isTranslationTarget,
   isWaypoint,
@@ -143,12 +144,12 @@ export function generateAutoVelocityProfile(
     ),
   };
   const baseMaxVelocity = resolvePositive(
-    path.constraints.max_velocity_meters_per_sec,
+    path.constraints.max_velocity?.meters_per_sec,
     getDefaultOptionalConfigValue(config, "max_velocity_meters_per_sec"),
     defaultMaxVelocityMps,
   );
   const baseMaxAcceleration = resolvePositive(
-    path.constraints.max_acceleration_meters_per_sec2,
+    path.constraints.max_acceleration?.meters_per_sec2,
     getDefaultOptionalConfigValue(config, "max_acceleration_meters_per_sec2"),
     defaultMaxAccelerationMps2,
   );
@@ -216,10 +217,10 @@ export function autoVelocityMetadata(
 export function autoVelocityConstraintForCap(
   cap: AutoVelocitySegmentCap,
   metadata: AutoVelocityConstraintMetadata,
-): RangedConstraint {
+): RangedConstraint<"max_velocity"> {
   return {
-    key: "max_velocity_meters_per_sec",
-    value: cap.value,
+    key: "max_velocity",
+    value: units.MeterPerSecond.of(cap.value),
     start_ordinal: cap.targetOrdinal,
     end_ordinal: cap.targetOrdinal,
     source: "auto_velocity",
@@ -232,14 +233,14 @@ function translationAnchors(
 ): AutoVelocityAnchor[] {
   return elements.flatMap((element, pathIndex) => {
     if (isTranslationTarget(element)) {
-      return [{ x: element.x_meters, y: element.y_meters, pathIndex }];
+      return [{ x: element.x.meters, y: element.y.meters, pathIndex }];
     }
 
     if (isWaypoint(element)) {
       return [
         {
-          x: element.translation_target.x_meters,
-          y: element.translation_target.y_meters,
+          x: element.translation_target.x.meters,
+          y: element.translation_target.y.meters,
           pathIndex,
         },
       ];
@@ -679,9 +680,11 @@ function pathWithVelocityCaps(
   usableMaxVelocityMps: number,
   usableMaxAccelerationMps2: number,
 ): PathModel {
-  const generated = [...capsByOrdinal.entries()].map(([ordinal, value]) => ({
-    key: "max_velocity_meters_per_sec" as const,
-    value,
+  const generated: RangedConstraint<"max_velocity">[] = [
+    ...capsByOrdinal.entries(),
+  ].map(([ordinal, value]) => ({
+    key: "max_velocity" as const,
+    value: units.MeterPerSecond.of(value),
     start_ordinal: ordinal,
     end_ordinal: ordinal,
   }));
@@ -690,8 +693,10 @@ function pathWithVelocityCaps(
     ...path,
     constraints: {
       ...path.constraints,
-      max_velocity_meters_per_sec: usableMaxVelocityMps,
-      max_acceleration_meters_per_sec2: usableMaxAccelerationMps2,
+      max_velocity: units.MeterPerSecond.of(usableMaxVelocityMps),
+      max_acceleration: units.MeterPerSecondSquared.of(
+        usableMaxAccelerationMps2,
+      ),
     },
     ranged_constraints: path.ranged_constraints
       .filter((constraint) => !isTranslationRangedConstraintKey(constraint.key))
@@ -932,10 +937,7 @@ function capSum(caps: ReadonlyMap<number, number>): number {
 }
 
 function isTranslationRangedConstraintKey(key: RangedConstraintKey): boolean {
-  return (
-    key === "max_velocity_meters_per_sec" ||
-    key === "max_acceleration_meters_per_sec2"
-  );
+  return key === "max_velocity" || key === "max_acceleration";
 }
 
 function handoffRadiusForAnchor(
@@ -944,9 +946,9 @@ function handoffRadiusForAnchor(
 ): number {
   const value =
     element && isTranslationTarget(element)
-      ? element.intermediate_handoff_radius_meters
+      ? element.intermediate_handoff_radius?.meters
       : element && isWaypoint(element)
-        ? element.translation_target.intermediate_handoff_radius_meters
+        ? element.translation_target.intermediate_handoff_radius?.meters
         : null;
   return resolvePositive(value, null, defaultHandoffRadius);
 }
