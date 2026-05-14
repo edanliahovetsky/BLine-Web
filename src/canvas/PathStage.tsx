@@ -30,9 +30,14 @@ import {
   createFieldViewport,
   getElementHeadingRadians,
   getElementPosition,
+  getElementPositionMeters,
   getNeighborAnchorPositions,
+  getRotation,
   interpolateSegmentPosition,
   modelToStagePoint,
+  PointExpression,
+  pointToExpression,
+  pointToMeters,
   projectPointToSegmentRatio,
   stageToModelPoint,
   type CanvasSize,
@@ -55,6 +60,7 @@ import {
 } from "./pixi/PixiPathRenderer";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
+import { UnitExpression, units } from "../core/math/units";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
@@ -67,7 +73,7 @@ interface PathStageProps {
 
 interface ActiveDrag {
   index: number;
-  start: PointMeters;
+  start: PointExpression | null;
   current: PointMeters;
   startRatio: number | null;
   currentRatio: number | null;
@@ -75,7 +81,7 @@ interface ActiveDrag {
 
 interface ActiveRotationDrag {
   index: number;
-  startRadians: number;
+  start: UnitExpression<"Angle">;
   currentRadians: number;
 }
 
@@ -597,12 +603,13 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       pointer,
     );
     if (rotationHit !== null) {
-      const startRadians =
-        getElementHeadingRadians(project.path.path_elements, rotationHit) ?? 0;
+      const startRotation =
+        getRotation(project.path.path_elements[rotationHit]) ??
+        units.Radian.of(0);
       setActiveRotationDrag({
         index: rotationHit,
-        startRadians,
-        currentRadians: startRadians,
+        start: startRotation,
+        currentRadians: startRotation.radians,
       });
       return;
     }
@@ -617,7 +624,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     if (nodeHit !== null) {
       selectionStore.getState().selectElement(nodeHit, project);
       const element = project.path.path_elements[nodeHit];
-      const start = getElementPosition(project.path.path_elements, nodeHit);
+      const start = getElementPosition(project.path.path_elements[nodeHit]);
       if (!element || !start || !isDragEnabled(element)) {
         return;
       }
@@ -629,7 +636,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       setActiveDrag({
         index: nodeHit,
         start,
-        current: start,
+        current: pointToMeters(start),
         startRatio,
         currentRatio: startRatio,
       });
@@ -775,11 +782,18 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       return;
     }
 
-    if (!pointsAlmostEqual(drag.start, nextPosition)) {
+    if (
+      drag.start !== null &&
+      !pointsAlmostEqual(pointToMeters(drag.start), nextPosition)
+    ) {
       projectStore
         .getState()
         .applyCommand(
-          createMoveElementCommand(drag.index, drag.start, nextPosition),
+          createMoveElementCommand(
+            drag.index,
+            drag.start,
+            pointToExpression(nextPosition),
+          ),
         );
       selectionStore
         .getState()
@@ -800,15 +814,15 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     setActiveRotationDrag(null);
 
     if (
-      Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001
+      Math.abs(angularDelta(rotationDrag.start.radians, nextRadians)) >= 0.001
     ) {
       projectStore
         .getState()
         .applyCommand(
           createSetElementRotationCommand(
             rotationDrag.index,
-            rotationDrag.startRadians,
-            nextRadians,
+            rotationDrag.start,
+            units.Radian.of(normalizeRadians(nextRadians)),
           ),
         );
       selectionStore
@@ -976,7 +990,7 @@ function hitTestRotationHandle(
     return null;
   }
 
-  const position = getElementPosition(
+  const position = getElementPositionMeters(
     elements,
     selectedElementIndex,
     positionPreview,
@@ -1006,7 +1020,7 @@ function hitTestPathElement(
 ): number | null {
   const elements = project.path.path_elements;
   const renderedNodes = elements.flatMap((element, index) => {
-    const position = getElementPosition(elements, index, positionPreview);
+    const position = getElementPositionMeters(elements, index, positionPreview);
     return position
       ? [{ element, index, point: modelToStagePoint(position, viewport) }]
       : [];
@@ -1156,7 +1170,7 @@ function rotationFromStagePoint(
   viewport: FieldViewport,
   point: StagePoint,
 ): number | null {
-  const position = getElementPosition(project.path.path_elements, index);
+  const position = getElementPositionMeters(project.path.path_elements, index);
   if (!position) {
     return null;
   }

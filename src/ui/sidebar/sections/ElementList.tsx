@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { getElementPosition } from "../../../canvas/geometry";
+import { getElementPositionMeters } from "../../../canvas/geometry";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { formatPointMeters } from "../../../canvas/modelSync";
 import { ElementIcon, GripIcon, RemoveIcon } from "../../icons";
@@ -146,7 +146,7 @@ export function ElementList({
         >
           {elements.map((element, index) => {
             const selected = selectedElementIndex === index;
-            const position = getElementPosition(elements, index);
+            const position = getElementPositionMeters(elements, index);
             const type = elementTypeValue(element);
 
             return (

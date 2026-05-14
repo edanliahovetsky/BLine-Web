@@ -9,7 +9,7 @@ import {
 } from "../../canvas/constants";
 import {
   getElementHeadingRadians,
-  getElementPosition,
+  getElementPositionMeters,
 } from "../../canvas/geometry";
 import { robotSizeFromConfig } from "../../canvas/robotFootprint";
 import { remapRangedConstraints } from "../../core/constraints/rangedConstraints";
@@ -499,7 +499,7 @@ export function createConvertedElement(
     return null;
   }
 
-  const position = getElementPosition(project.path.path_elements, index);
+  const position = getElementPositionMeters(project.path.path_elements, index);
   const headingRadians =
     getElementHeadingRadians(project.path.path_elements, index) ?? 0;
   const handoffRadius = getExistingHandoffRadius(element);
@@ -821,10 +821,10 @@ function defaultPosition(
   const selectedPosition =
     selectedIndex === null
       ? null
-      : getElementPosition(project.path.path_elements, selectedIndex);
+      : getElementPositionMeters(project.path.path_elements, selectedIndex);
   const fallbackPosition =
     selectedPosition ??
-    getElementPosition(
+    getElementPositionMeters(
       project.path.path_elements,
       Math.max(0, project.path.path_elements.length - 1),
     );

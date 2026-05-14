@@ -12,6 +12,7 @@ import {
   isWaypoint,
   type PathElement,
 } from "../core/model/path";
+import { UnitExpression, units } from "../core/math/units";
 
 export interface CanvasSize {
   width: number;
@@ -34,6 +35,25 @@ export interface StagePoint {
 export interface PointMeters {
   x_meters: number;
   y_meters: number;
+}
+
+export interface PointExpression {
+  x: UnitExpression<"Length">;
+  y: UnitExpression<"Length">;
+}
+
+export function pointToExpression(point: PointMeters): PointExpression {
+  return {
+    x: units.Meter.of(point.x_meters),
+    y: units.Meter.of(point.y_meters),
+  };
+}
+
+export function pointToMeters(point: PointExpression): PointMeters {
+  return {
+    x_meters: point.x.meters,
+    y_meters: point.y.meters,
+  };
 }
 
 export type PositionOverrides = ReadonlyMap<number, PointMeters>;
@@ -125,6 +145,30 @@ export function clampModelPoint(
 }
 
 export function getElementPosition(
+  element: PathElement,
+): PointExpression | null {
+  if (!element) {
+    return null;
+  }
+
+  if (isTranslationTarget(element)) {
+    return {
+      x: element.x,
+      y: element.y,
+    };
+  }
+
+  if (isWaypoint(element)) {
+    return {
+      x: element.translation_target.x,
+      y: element.translation_target.y,
+    };
+  }
+
+  return null;
+}
+
+export function getElementPositionMeters(
   elements: readonly PathElement[],
   index: number,
   overrides: PositionOverrides = emptyOverrides,
@@ -183,7 +227,7 @@ export function getAnchorPositions(
       return [];
     }
 
-    const position = getElementPosition(elements, index, overrides);
+    const position = getElementPositionMeters(elements, index, overrides);
     return position ? [{ index, position }] : [];
   });
 }
@@ -193,21 +237,27 @@ export function getRenderableElementPositions(
   overrides: PositionOverrides = emptyOverrides,
 ): Array<{ index: number; position: PointMeters }> {
   return elements.flatMap((_element, index) => {
-    const position = getElementPosition(elements, index, overrides);
+    const position = getElementPositionMeters(elements, index, overrides);
     return position ? [{ index, position }] : [];
   });
 }
 
-export function getRotationRadians(element: PathElement): number | null {
+export function getRotation(
+  element: PathElement,
+): UnitExpression<"Angle"> | null {
   if (isRotationTarget(element)) {
-    return element.rotation.radians;
+    return element.rotation;
   }
 
   if (isWaypoint(element)) {
-    return element.rotation_target.rotation.radians;
+    return element.rotation_target.rotation;
   }
 
   return null;
+}
+
+export function getRotationRadians(element: PathElement): number | null {
+  return getRotation(element)?.radians ?? null;
 }
 
 export function getElementHeadingRadians(
@@ -321,7 +371,7 @@ function findNeighborAnchorPosition(
     index += direction
   ) {
     if (isAnchorElement(elements[index])) {
-      return getElementPosition(elements, index, overrides);
+      return getElementPositionMeters(elements, index, overrides);
     }
   }
 

@@ -32,7 +32,7 @@ import {
 import { elementColors, rotatableElementAccent } from "../elementStyle";
 import {
   getElementHeadingRadians,
-  getElementPosition,
+  getElementPositionMeters,
   getHandoffRadiusMeters,
   getRenderableElementPositions,
   modelToStagePoint,
@@ -284,7 +284,7 @@ export class PixiPathRenderer {
     const elements = project.path.path_elements;
     const covered = pathIndexesForConstraintRange(elements, constraint).flatMap(
       (index) => {
-        const position = getElementPosition(
+        const position = getElementPositionMeters(
           elements,
           index,
           input.positionPreview,
@@ -308,7 +308,11 @@ export class PixiPathRenderer {
     const firstPosition =
       firstDomainIndex === null
         ? null
-        : getElementPosition(elements, firstDomainIndex, input.positionPreview);
+        : getElementPositionMeters(
+            elements,
+            firstDomainIndex,
+            input.positionPreview,
+          );
     if (firstDomainIndex === null || !firstPosition) {
       return;
     }
@@ -343,7 +347,7 @@ export class PixiPathRenderer {
       input.positionPreview,
     );
     const renderedNodes = elements.flatMap((element, index) => {
-      const position = getElementPosition(
+      const position = getElementPositionMeters(
         elements,
         index,
         input.positionPreview,
@@ -408,7 +412,7 @@ export class PixiPathRenderer {
       return;
     }
 
-    const position = getElementPosition(
+    const position = getElementPositionMeters(
       elements,
       selectedElementIndex,
       input.positionPreview,

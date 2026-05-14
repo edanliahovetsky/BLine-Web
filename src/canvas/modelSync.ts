@@ -1,4 +1,5 @@
 import type { ProjectDocument } from "../core/io/projectSchema";
+import { UnitExpression } from "../core/math/units";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -7,7 +8,7 @@ import {
   type PathElement,
 } from "../core/model/path";
 import type { HistoryCommand } from "../state/historyStore";
-import type { PointMeters } from "./geometry";
+import type { PointExpression, PointMeters } from "./geometry";
 
 export function isTranslationBearingElement(element: PathElement): boolean {
   return isTranslationTarget(element) || isWaypoint(element);
@@ -15,8 +16,8 @@ export function isTranslationBearingElement(element: PathElement): boolean {
 
 export function createMoveElementCommand(
   index: number,
-  previousPosition: PointMeters,
-  nextPosition: PointMeters,
+  previousPosition: PointExpression,
+  nextPosition: PointExpression,
 ): HistoryCommand<ProjectDocument> {
   return {
     description: `Move element ${index + 1}`,
@@ -42,35 +43,35 @@ export function createSetElementRatioCommand(
 
 export function createSetElementRotationCommand(
   index: number,
-  previousRotationRadians: number,
-  nextRotationRadians: number,
+  previousRotation: UnitExpression<"Angle">,
+  nextRotation: UnitExpression<"Angle">,
 ): HistoryCommand<ProjectDocument> {
   return {
     description: `Rotate element ${index + 1}`,
     apply: (project) =>
-      updateProjectElementRotation(project, index, nextRotationRadians),
+      updateProjectElementRotation(project, index, nextRotation),
     revert: (project) =>
-      updateProjectElementRotation(project, index, previousRotationRadians),
+      updateProjectElementRotation(project, index, previousRotation),
   };
 }
 
 export function updateProjectElementPosition(
   project: ProjectDocument,
   index: number,
-  position: PointMeters,
+  position: PointExpression,
 ): ProjectDocument {
   const nextProject = structuredClone(project);
   const element = nextProject.path.path_elements[index];
 
   if (isTranslationTarget(element)) {
-    element.x.meters = position.x_meters;
-    element.y.meters = position.y_meters;
+    element.x = position.x;
+    element.y = position.y;
     return nextProject;
   }
 
   if (isWaypoint(element)) {
-    element.translation_target.x.meters = position.x_meters;
-    element.translation_target.y.meters = position.y_meters;
+    element.translation_target.x = position.x;
+    element.translation_target.y = position.y;
     return nextProject;
   }
 
@@ -82,19 +83,18 @@ export function updateProjectElementPosition(
 export function updateProjectElementRotation(
   project: ProjectDocument,
   index: number,
-  rotationRadians: number,
+  rotation: UnitExpression<"Angle">,
 ): ProjectDocument {
   const nextProject = structuredClone(project);
   const element = nextProject.path.path_elements[index];
-  const nextRotation = normalizeRadians(rotationRadians);
 
   if (isRotationTarget(element)) {
-    element.rotation.radians = nextRotation;
+    element.rotation = rotation;
     return nextProject;
   }
 
   if (isWaypoint(element)) {
-    element.rotation_target.rotation.radians = nextRotation;
+    element.rotation_target.rotation = rotation;
     return nextProject;
   }
 
@@ -144,19 +144,4 @@ export function formatPointMeters(point: PointMeters | null): string {
   }
 
   return `${point.x_meters.toFixed(2)}, ${point.y_meters.toFixed(2)} m`;
-}
-
-function normalizeRadians(radians: number): number {
-  if (!Number.isFinite(radians)) {
-    return 0;
-  }
-
-  let normalized = radians;
-  while (normalized <= -Math.PI) {
-    normalized += Math.PI * 2;
-  }
-  while (normalized > Math.PI) {
-    normalized -= Math.PI * 2;
-  }
-  return normalized;
 }

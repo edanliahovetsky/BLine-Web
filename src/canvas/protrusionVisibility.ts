@@ -10,7 +10,7 @@ import {
   type PathElement,
 } from "../core/model/path";
 import {
-  getElementPosition,
+  getElementPositionMeters,
   type PointMeters,
   type PositionOverrides,
 } from "./geometry";
@@ -85,7 +85,11 @@ function buildAnchorProgressGeometry(
       continue;
     }
 
-    const position = getElementPosition(elements, index, positionOverrides);
+    const position = getElementPositionMeters(
+      elements,
+      index,
+      positionOverrides,
+    );
     if (position) {
       anchors.push({ index, position });
     }

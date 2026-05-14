@@ -10,7 +10,7 @@ import {
 import {
   createFieldViewport,
   getElementHeadingRadians,
-  getElementPosition,
+  getElementPositionMeters,
   getHandoffRadiusMeters,
   getNeighborAnchorPositions,
   interpolateSegmentPosition,
@@ -58,11 +58,11 @@ describe("canvas geometry", () => {
       createTranslationTarget({ x_meters: 9, y_meters: 5 }),
     ];
 
-    expect(getElementPosition(elements, 1)).toEqual({
+    expect(getElementPositionMeters(elements, 1)).toEqual({
       x_meters: 2,
       y_meters: 1.5,
     });
-    expect(getElementPosition(elements, 3)).toEqual({
+    expect(getElementPositionMeters(elements, 3)).toEqual({
       x_meters: 7,
       y_meters: 4,
     });
@@ -226,13 +226,13 @@ describe("canvas model sync", () => {
     );
 
     const moved = move.apply(project);
-    expect(getElementPosition(moved.path.path_elements, 1)).toEqual({
+    expect(getElementPositionMeters(moved.path.path_elements, 1)).toEqual({
       x_meters: 6,
       y_meters: 7,
     });
 
     const reverted = move.revert(moved);
-    expect(getElementPosition(reverted.path.path_elements, 1)).toEqual({
+    expect(getElementPositionMeters(reverted.path.path_elements, 1)).toEqual({
       x_meters: 3,
       y_meters: 4,
     });
