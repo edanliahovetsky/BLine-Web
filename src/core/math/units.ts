@@ -9,7 +9,7 @@ interface BaseUnit {
 function mkBaseUnit<S extends string>(
   unitDef: string,
   valueFieldName: S,
-): BaseUnit {
+): BaseUnit & { valueFieldName: S } {
   const unit = mathjs.unit(unitDef);
   return {
     unit,
