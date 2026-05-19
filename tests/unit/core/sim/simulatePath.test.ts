@@ -6,6 +6,7 @@ import {
   createPathModel,
   createRotationTarget,
   createTranslationTarget,
+  createWaypoint,
   type RangedConstraint,
 } from "../../../../src/core/model/path";
 import {
@@ -152,7 +153,7 @@ describe("simulatePath", () => {
     expectPose(result.poses_by_time.get(result.total_time_s), [2, 0, 0], 6);
   });
 
-  it("caps ranged translation limits at the global simulation limits", () => {
+  it("lets ranged translation limits exceed global simulation limits", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
@@ -186,10 +187,59 @@ describe("simulatePath", () => {
 
     expect(
       Math.max(...result.trace.map((sample) => sample.speed_mps)),
-    ).toBeLessThanOrEqual(1 + 1e-6);
+    ).toBeGreaterThan(1.5);
     expect(
       Math.max(...result.trace.map((sample) => sample.acceleration_mps2)),
-    ).toBeLessThanOrEqual(1 + 1e-6);
+    ).toBeGreaterThan(1.5);
+  });
+
+  it("lets ranged rotation limits exceed global simulation limits", () => {
+    const path = createPathModel({
+      path_elements: [
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 0,
+            y_meters: 0,
+          }),
+          rotation_target: createRotationTarget({ rotation_radians: 0 }),
+        }),
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 4,
+            y_meters: 0,
+          }),
+          rotation_target: createRotationTarget({ rotation_radians: Math.PI }),
+        }),
+      ],
+      ranged_constraints: [
+        {
+          key: "max_velocity_deg_per_sec",
+          value: 180,
+          start_ordinal: 2,
+          end_ordinal: 2,
+        },
+        {
+          key: "max_acceleration_deg_per_sec2",
+          value: 720,
+          start_ordinal: 2,
+          end_ordinal: 2,
+        },
+      ],
+    });
+
+    const result = simulatePathWithTrace(
+      path,
+      {
+        ...defaultConfig,
+        default_max_velocity_deg_per_sec: 10,
+        default_max_acceleration_deg_per_sec2: 30,
+      },
+      { dt_s: 0.02 },
+    );
+
+    expect(
+      Math.max(...result.trace.map((sample) => Math.abs(sample.omega_radps))),
+    ).toBeGreaterThan((10 * Math.PI) / 180 + 1e-3);
   });
 
   it("reports trace samples with segment state and vector acceleration", () => {
