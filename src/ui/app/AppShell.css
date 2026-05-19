@@ -780,11 +780,13 @@ select {
   min-height: 39px;
   padding: 7px 9px;
   border-bottom: 1px solid #2c333a;
+  border-radius: 7px 7px 0 0;
   background: #20262b;
 }
 
 .inspector-section.is-collapsed .inspector-section__header {
   border-bottom: 0;
+  border-radius: 7px;
 }
 
 .sidebar-section-heading {
