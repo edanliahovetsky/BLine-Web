@@ -37,9 +37,11 @@ export type DefaultLookup = (key: string) => number | null | undefined;
 
 const scalarConstraintKeys: readonly ConstraintKey[] = [
   "max_velocity_meters_per_sec",
+  "min_velocity_meters_per_sec",
   "max_acceleration_meters_per_sec2",
   "end_translation_tolerance_meters",
   "max_velocity_deg_per_sec",
+  "min_velocity_deg_per_sec",
   "max_acceleration_deg_per_sec2",
   "end_rotation_tolerance_deg",
 ];

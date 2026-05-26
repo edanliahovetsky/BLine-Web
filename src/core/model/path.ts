@@ -1,10 +1,12 @@
 export const translationConstraintKeys = [
   "max_velocity_meters_per_sec",
+  "min_velocity_meters_per_sec",
   "max_acceleration_meters_per_sec2",
 ] as const;
 
 export const rotationConstraintKeys = [
   "max_velocity_deg_per_sec",
+  "min_velocity_deg_per_sec",
   "max_acceleration_deg_per_sec2",
 ] as const;
 
@@ -39,8 +41,10 @@ export interface AutoVelocityConstraintMetadata {
 
 export interface Constraints {
   max_velocity_meters_per_sec: number | null;
+  min_velocity_meters_per_sec: number | null;
   max_acceleration_meters_per_sec2: number | null;
   max_velocity_deg_per_sec: number | null;
+  min_velocity_deg_per_sec: number | null;
   max_acceleration_deg_per_sec2: number | null;
   end_translation_tolerance_meters: number | null;
   end_rotation_tolerance_deg: number | null;
@@ -100,8 +104,10 @@ export function createConstraints(
 ): Constraints {
   return {
     max_velocity_meters_per_sec: null,
+    min_velocity_meters_per_sec: null,
     max_acceleration_meters_per_sec2: null,
     max_velocity_deg_per_sec: null,
+    min_velocity_deg_per_sec: null,
     max_acceleration_deg_per_sec2: null,
     end_translation_tolerance_meters: null,
     end_rotation_tolerance_deg: null,

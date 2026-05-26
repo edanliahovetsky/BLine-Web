@@ -242,6 +242,66 @@ describe("simulatePath", () => {
     ).toBeGreaterThan((10 * Math.PI) / 180 + 1e-3);
   });
 
+  it("applies ranged minimum translation velocity baselines", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 1, y_meters: 0 }),
+      ],
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 1,
+          start_ordinal: 2,
+          end_ordinal: 2,
+        },
+        {
+          key: "min_velocity_meters_per_sec",
+          value: 0.8,
+          start_ordinal: 2,
+          end_ordinal: 2,
+        },
+      ],
+    });
+
+    const result = simulatePathWithTrace(path, defaultConfig, { dt_s: 0.02 });
+    const firstMovingSample = result.trace.find(
+      (sample) => sample.speed_mps > 0,
+    );
+
+    expect(firstMovingSample?.speed_mps).toBeCloseTo(0.8, 6);
+  });
+
+  it("disables ranged minimum translation baselines that exceed the paired maximum", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 1, y_meters: 0 }),
+      ],
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 0.4,
+          start_ordinal: 2,
+          end_ordinal: 2,
+        },
+        {
+          key: "min_velocity_meters_per_sec",
+          value: 0.8,
+          start_ordinal: 2,
+          end_ordinal: 2,
+        },
+      ],
+    });
+
+    const result = simulatePathWithTrace(path, defaultConfig, { dt_s: 0.02 });
+    const firstMovingSample = result.trace.find(
+      (sample) => sample.time_s > 0 && sample.speed_mps > 0,
+    );
+
+    expect(firstMovingSample?.speed_mps).toBeLessThan(0.8);
+  });
+
   it("reports trace samples with segment state and vector acceleration", () => {
     const path = createPathModel({
       path_elements: [

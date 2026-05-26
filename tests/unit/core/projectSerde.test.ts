@@ -300,8 +300,10 @@ describe("project path serde", () => {
     const path = createPathModel({
       constraints: createConstraints({
         max_velocity_meters_per_sec: 4,
+        min_velocity_meters_per_sec: 0.4,
         max_acceleration_meters_per_sec2: 8,
         max_velocity_deg_per_sec: 720,
+        min_velocity_deg_per_sec: 45,
         max_acceleration_deg_per_sec2: 1500,
       }),
       path_elements: [
@@ -324,6 +326,12 @@ describe("project path serde", () => {
           end_ordinal: 2,
         },
         {
+          key: "min_velocity_meters_per_sec",
+          value: 0.6,
+          start_ordinal: 2,
+          end_ordinal: 2,
+        },
+        {
           key: "max_acceleration_meters_per_sec2",
           value: 6,
           start_ordinal: 2,
@@ -334,6 +342,12 @@ describe("project path serde", () => {
           value: 90,
           start_ordinal: 1,
           end_ordinal: 2,
+        },
+        {
+          key: "min_velocity_deg_per_sec",
+          value: 55,
+          start_ordinal: 1,
+          end_ordinal: 1,
         },
         {
           key: "max_acceleration_deg_per_sec2",
@@ -348,11 +362,17 @@ describe("project path serde", () => {
       max_velocity_meters_per_sec: [
         { value: 2, start_ordinal: 0, end_ordinal: 1 },
       ],
+      min_velocity_meters_per_sec: [
+        { value: 0.6, start_ordinal: 1, end_ordinal: 1 },
+      ],
       max_acceleration_meters_per_sec2: [
         { value: 6, start_ordinal: 1, end_ordinal: 1 },
       ],
       max_velocity_deg_per_sec: [
         { value: 90, start_ordinal: 0, end_ordinal: 1 },
+      ],
+      min_velocity_deg_per_sec: [
+        { value: 55, start_ordinal: 0, end_ordinal: 0 },
       ],
       max_acceleration_deg_per_sec2: [
         { value: 180, start_ordinal: 1, end_ordinal: 1 },
@@ -364,8 +384,10 @@ describe("project path serde", () => {
     const path = createPathModel({
       constraints: createConstraints({
         max_velocity_meters_per_sec: 3.2,
+        min_velocity_meters_per_sec: 0.5,
         max_acceleration_meters_per_sec2: 6.4,
         max_velocity_deg_per_sec: 540,
+        min_velocity_deg_per_sec: 60,
         max_acceleration_deg_per_sec2: 1200,
         end_translation_tolerance_meters: 0.04,
       }),
@@ -393,12 +415,18 @@ describe("project path serde", () => {
       max_velocity_meters_per_sec: [
         { value: 3.2, start_ordinal: 0, end_ordinal: 2 },
       ],
+      min_velocity_meters_per_sec: [
+        { value: 0.5, start_ordinal: 0, end_ordinal: 2 },
+      ],
       max_acceleration_meters_per_sec2: [
         { value: 6.4, start_ordinal: 0, end_ordinal: 2 },
       ],
       end_translation_tolerance_meters: 0.04,
       max_velocity_deg_per_sec: [
         { value: 540, start_ordinal: 0, end_ordinal: 2 },
+      ],
+      min_velocity_deg_per_sec: [
+        { value: 60, start_ordinal: 0, end_ordinal: 2 },
       ],
       max_acceleration_deg_per_sec2: [
         { value: 1200, start_ordinal: 0, end_ordinal: 2 },
@@ -436,8 +464,14 @@ describe("project path serde", () => {
         max_velocity_meters_per_sec: [
           { value: 2, start_ordinal: 1, end_ordinal: 1 },
         ],
+        min_velocity_meters_per_sec: [
+          { value: 0.7, start_ordinal: 0, end_ordinal: 0 },
+        ],
         max_velocity_deg_per_sec: [
           { value: 90, start_ordinal: 0, end_ordinal: 0 },
+        ],
+        min_velocity_deg_per_sec: [
+          { value: 45, start_ordinal: 0, end_ordinal: 0 },
         ],
       },
     });
@@ -450,8 +484,20 @@ describe("project path serde", () => {
         end_ordinal: 2,
       },
       {
+        key: "min_velocity_meters_per_sec",
+        value: 0.7,
+        start_ordinal: 1,
+        end_ordinal: 1,
+      },
+      {
         key: "max_velocity_deg_per_sec",
         value: 90,
+        start_ordinal: 1,
+        end_ordinal: 1,
+      },
+      {
+        key: "min_velocity_deg_per_sec",
+        value: 45,
         start_ordinal: 1,
         end_ordinal: 1,
       },

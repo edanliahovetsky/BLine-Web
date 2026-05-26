@@ -55,8 +55,10 @@ interface PathReport {
   elements: ElementReport[];
   constraints: {
     max_velocity_meters_per_sec: ConstraintRangeReport[];
+    min_velocity_meters_per_sec: ConstraintRangeReport[];
     max_acceleration_meters_per_sec2: ConstraintRangeReport[];
     max_velocity_deg_per_sec: ConstraintRangeReport[];
+    min_velocity_deg_per_sec: ConstraintRangeReport[];
     max_acceleration_deg_per_sec2: ConstraintRangeReport[];
     end_translation_tolerance_meters: number | null;
     end_rotation_tolerance_deg: number | null;
@@ -136,11 +138,17 @@ describe("BLine-Lib IO compatibility", () => {
         max_velocity_meters_per_sec: [
           { value: 2.2, start_ordinal: 0, end_ordinal: 1 },
         ],
+        min_velocity_meters_per_sec: [
+          { value: 0.6, start_ordinal: 1, end_ordinal: 1 },
+        ],
         max_acceleration_meters_per_sec2: [
           { value: 3.4, start_ordinal: 1, end_ordinal: 2 },
         ],
         max_velocity_deg_per_sec: [
           { value: 520, start_ordinal: 0, end_ordinal: 1 },
+        ],
+        min_velocity_deg_per_sec: [
+          { value: 55, start_ordinal: 0, end_ordinal: 0 },
         ],
         max_acceleration_deg_per_sec2: [
           { value: 1000, start_ordinal: 1, end_ordinal: 1 },
@@ -161,11 +169,17 @@ describe("BLine-Lib IO compatibility", () => {
         max_velocity_meters_per_sec: [
           { value: 3.3, start_ordinal: 0, end_ordinal: 2 },
         ],
+        min_velocity_meters_per_sec: [
+          { value: 0.4, start_ordinal: 0, end_ordinal: 2 },
+        ],
         max_acceleration_meters_per_sec2: [
           { value: 4.4, start_ordinal: 0, end_ordinal: 2 },
         ],
         max_velocity_deg_per_sec: [
           { value: 500, start_ordinal: 0, end_ordinal: 2 },
+        ],
+        min_velocity_deg_per_sec: [
+          { value: 40, start_ordinal: 0, end_ordinal: 2 },
         ],
         max_acceleration_deg_per_sec2: [
           { value: 900, start_ordinal: 0, end_ordinal: 2 },
@@ -255,8 +269,10 @@ function createCompatibilityWorkspace() {
           ],
           ranged_constraints: [
             ranged("max_velocity_meters_per_sec", 2.2, 1, 2),
+            ranged("min_velocity_meters_per_sec", 0.6, 2, 2),
             ranged("max_acceleration_meters_per_sec2", 3.4, 2, 3),
             ranged("max_velocity_deg_per_sec", 520, 1, 2),
+            ranged("min_velocity_deg_per_sec", 55, 1, 1),
             ranged("max_acceleration_deg_per_sec2", 1000, 2, 2),
           ],
         }),
@@ -268,8 +284,10 @@ function createCompatibilityWorkspace() {
         path: createPathModel({
           constraints: createConstraints({
             max_velocity_meters_per_sec: 3.3,
+            min_velocity_meters_per_sec: 0.4,
             max_acceleration_meters_per_sec2: 4.4,
             max_velocity_deg_per_sec: 500,
+            min_velocity_deg_per_sec: 40,
             max_acceleration_deg_per_sec2: 900,
             end_translation_tolerance_meters: 0.05,
             end_rotation_tolerance_deg: 2.5,
@@ -494,8 +512,10 @@ allprojects { p ->
               elements: path.getPathElements().collect { elementReport(it) },
               constraints: [
                 max_velocity_meters_per_sec: rangeReport(constraints.getMaxVelocityMetersPerSec()),
+                min_velocity_meters_per_sec: rangeReport(constraints.getMinVelocityMetersPerSec()),
                 max_acceleration_meters_per_sec2: rangeReport(constraints.getMaxAccelerationMetersPerSec2()),
                 max_velocity_deg_per_sec: rangeReport(constraints.getMaxVelocityDegPerSec()),
+                min_velocity_deg_per_sec: rangeReport(constraints.getMinVelocityDegPerSec()),
                 max_acceleration_deg_per_sec2: rangeReport(constraints.getMaxAccelerationDegPerSec2()),
                 end_translation_tolerance_meters: optionalValue(constraints.getEndTranslationToleranceMeters()),
                 end_rotation_tolerance_deg: optionalValue(constraints.getEndRotationToleranceDeg())

@@ -280,7 +280,18 @@ function runPathSimulation(
       "max_acceleration_meters_per_sec2",
       nextAnchorOrdinal1b,
     );
-    const maxV = maxVEff ?? baseMaxV;
+    const minVEff = activeTranslationLimit(
+      path,
+      "min_velocity_meters_per_sec",
+      nextAnchorOrdinal1b,
+    );
+    const translationVelocity = resolveVelocityBaseline(
+      maxVEff ?? baseMaxV,
+      minVEff ?? 0,
+      baseMaxV,
+    );
+    const maxV = translationVelocity.max;
+    const minV = translationVelocity.min;
     const maxA = maxAEff ?? baseMaxA;
     const maxOmegaEff = activeRotationLimit(
       path,
@@ -294,8 +305,19 @@ function runPathSimulation(
       "max_acceleration_deg_per_sec2",
       globalS,
     );
-    const maxOmega =
-      maxOmegaEff === null ? baseMaxOmega : degreesToRadians(maxOmegaEff);
+    const minOmegaEff = activeRotationLimit(
+      path,
+      rotationDomainEvents,
+      "min_velocity_deg_per_sec",
+      globalS,
+    );
+    const rotationVelocity = resolveVelocityBaseline(
+      maxOmegaEff ?? radiansToDegrees(baseMaxOmega),
+      minOmegaEff ?? 0,
+      radiansToDegrees(baseMaxOmega),
+    );
+    const maxOmega = degreesToRadians(rotationVelocity.max);
+    const minOmega = degreesToRadians(rotationVelocity.min);
     const maxAlpha =
       maxAlphaEff === null ? baseMaxAlpha : degreesToRadians(maxAlphaEff);
 
@@ -334,6 +356,19 @@ function runPathSimulation(
         omega_radps: Math.sign(limited.omega_radps) * maxOmega,
       };
     }
+    limited = applyTranslationMinimumBaseline(
+      limited,
+      ux,
+      uy,
+      minV,
+      distToTarget,
+    );
+    limited = applyRotationMinimumBaseline(
+      limited,
+      minOmega,
+      Math.abs(angularError),
+      angularError,
+    );
     const dynamicsLimited = limited;
     const axMps2 = (dynamicsLimited.vx_mps - previousSpeeds.vx_mps) / dt;
     const ayMps2 = (dynamicsLimited.vy_mps - previousSpeeds.vy_mps) / dt;
@@ -746,6 +781,80 @@ function resolveConstraint(
   }
 
   return defaultValue;
+}
+
+function resolveVelocityBaseline(
+  maxValue: number,
+  minValue: number,
+  globalMaxValue: number,
+): { max: number; min: number } {
+  const max = maxValue > 0 ? maxValue : globalMaxValue;
+  const min = minValue > 0 ? minValue : 0;
+
+  if (min > max) {
+    return { max: globalMaxValue, min: 0 };
+  }
+
+  return { max, min };
+}
+
+function applyTranslationMinimumBaseline(
+  speeds: ChassisSpeeds,
+  ux: number,
+  uy: number,
+  minimumSpeed: number,
+  distanceToTarget: number,
+): ChassisSpeeds {
+  if (minimumSpeed <= 0 || distanceToTarget <= 1e-3) {
+    return speeds;
+  }
+
+  const speed = hypot2(speeds.vx_mps, speeds.vy_mps);
+  if (speed >= minimumSpeed) {
+    return speeds;
+  }
+
+  if (speed <= 1e-9) {
+    return {
+      ...speeds,
+      vx_mps: ux * minimumSpeed,
+      vy_mps: uy * minimumSpeed,
+    };
+  }
+
+  const scale = minimumSpeed / speed;
+  return {
+    ...speeds,
+    vx_mps: speeds.vx_mps * scale,
+    vy_mps: speeds.vy_mps * scale,
+  };
+}
+
+function applyRotationMinimumBaseline(
+  speeds: ChassisSpeeds,
+  minimumOmega: number,
+  angularErrorMagnitude: number,
+  angularError: number,
+): ChassisSpeeds {
+  if (minimumOmega <= 0 || angularErrorMagnitude <= degreesToRadians(0.5)) {
+    return speeds;
+  }
+
+  if (Math.abs(speeds.omega_radps) >= minimumOmega) {
+    return speeds;
+  }
+
+  const sign =
+    Math.abs(speeds.omega_radps) > 1e-9
+      ? Math.sign(speeds.omega_radps)
+      : angularError < 0
+        ? -1
+        : 1;
+
+  return {
+    ...speeds,
+    omega_radps: sign * minimumOmega,
+  };
 }
 
 function activeTranslationLimit(
