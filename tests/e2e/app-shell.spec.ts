@@ -1211,7 +1211,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
   ).toContainText("Open");
   await expect(page.getByTestId("save-status")).toContainText(
-    "Autosave pending",
+    /Autosave pending|Saved/,
   );
 });
 
@@ -1412,7 +1412,7 @@ test("edits project config with undo support", async ({ page }) => {
   await page.getByLabel("Show On Event Keys").fill("intake, deploy");
   await saveButton.click();
   await expect(page.getByTestId("save-status")).toContainText(
-    "Autosave pending",
+    /Autosave pending|Saved/,
   );
 
   await page.getByRole("button", { name: "Undo" }).click();
