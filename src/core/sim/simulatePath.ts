@@ -119,25 +119,25 @@ function runPathSimulation(
 
   const constraints = path.constraints;
   const baseMaxV = resolveConstraint(
-    constraints.max_velocity_meters_per_sec,
+    constraints.max_velocity?.meters_per_sec,
     cfg.default_max_velocity_meters_per_sec,
     3,
   );
   const baseMaxA = resolveConstraint(
-    constraints.max_acceleration_meters_per_sec2,
+    constraints.max_acceleration?.meters_per_sec2,
     cfg.default_max_acceleration_meters_per_sec2,
     2.5,
   );
   const baseMaxOmega = degreesToRadians(
     resolveConstraint(
-      constraints.max_velocity_deg_per_sec,
+      constraints.max_angular_velocity?.radians_per_sec,
       cfg.default_max_velocity_deg_per_sec,
       180,
     ),
   );
   const baseMaxAlpha = degreesToRadians(
     resolveConstraint(
-      constraints.max_acceleration_deg_per_sec2,
+      constraints.max_angular_acceleration?.radians_per_sec2,
       cfg.default_max_acceleration_deg_per_sec2,
       360,
     ),
@@ -203,14 +203,10 @@ function runPathSimulation(
   const endX = anchors[anchors.length - 1].x;
   const endY = anchors[anchors.length - 1].y;
 
-  const minTransV = minimumPositiveConstraint(
-    path,
-    "max_velocity_meters_per_sec",
-    baseMaxV,
-  );
+  const minTransV = minimumPositiveConstraint(path, "max_velocity", baseMaxV);
   const minRotOmegaDeg = minimumPositiveConstraint(
     path,
-    "max_velocity_deg_per_sec",
+    "max_angular_velocity",
     radiansToDegrees(baseMaxOmega),
   );
   const minRotOmega = degreesToRadians(Math.max(0.001, minRotOmegaDeg));
@@ -272,12 +268,12 @@ function runPathSimulation(
     const nextAnchorOrdinal1b = segmentIndex + 2;
     const maxVEff = activeTranslationLimit(
       path,
-      "max_velocity_meters_per_sec",
+      "max_velocity",
       nextAnchorOrdinal1b,
     );
     const maxAEff = activeTranslationLimit(
       path,
-      "max_acceleration_meters_per_sec2",
+      "max_acceleration",
       nextAnchorOrdinal1b,
     );
     const maxV = maxVEff ?? baseMaxV;
@@ -285,13 +281,13 @@ function runPathSimulation(
     const maxOmegaEff = activeRotationLimit(
       path,
       rotationDomainEvents,
-      "max_velocity_deg_per_sec",
+      "max_angular_velocity",
       globalS,
     );
     const maxAlphaEff = activeRotationLimit(
       path,
       rotationDomainEvents,
-      "max_acceleration_deg_per_sec2",
+      "max_angular_acceleration",
       globalS,
     );
     const maxOmega =
@@ -552,7 +548,7 @@ export function buildGlobalRotationKeyframes(
       rotationOrdinal += 1;
       keyframes.push({
         s_m: s0 + clamp01(element.t_ratio) * Math.max(s1 - s0, 1e-9),
-        theta_target: element.rotation_radians,
+        theta_target: element.rotation.radians,
         event_ordinal_1b: rotationOrdinal,
         profiled_rotation: element.profiled_rotation,
       });
@@ -569,7 +565,7 @@ export function buildGlobalRotationKeyframes(
       rotationOrdinal += 1;
       keyframes.push({
         s_m: cumulativeLengths[anchorOrdinal] ?? 0,
-        theta_target: element.rotation_target.rotation_radians,
+        theta_target: element.rotation_target.rotation.radians,
         event_ordinal_1b: rotationOrdinal,
         profiled_rotation: element.rotation_target.profiled_rotation,
       });
@@ -859,9 +855,9 @@ function handoffRadiusForSegment(
   const target = path.path_elements[targetAnchor.pathIndex];
   const radius =
     target?.type === "translation"
-      ? target.intermediate_handoff_radius_meters
+      ? target.intermediate_handoff_radius?.meters
       : target?.type === "waypoint"
-        ? target.translation_target.intermediate_handoff_radius_meters
+        ? target.translation_target.intermediate_handoff_radius?.meters
         : null;
   const parsed = numericOption(radius);
   return parsed !== null && parsed > 0 ? parsed : defaultRadius;
@@ -1022,12 +1018,12 @@ function defaultHeading(segment: Segment): number {
 
 function anchorPoint(element: PathElement): { x: number; y: number } | null {
   if (element.type === "translation") {
-    return { x: element.x_meters, y: element.y_meters };
+    return { x: element.x.meters, y: element.y.meters };
   }
   if (element.type === "waypoint") {
     return {
-      x: element.translation_target.x_meters,
-      y: element.translation_target.y_meters,
+      x: element.translation_target.x.meters,
+      y: element.translation_target.y.meters,
     };
   }
   return null;

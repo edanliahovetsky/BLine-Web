@@ -1,16 +1,18 @@
+import { DimensionName, UnitExpression, units } from "../math/units";
+
 export const translationConstraintKeys = [
-  "max_velocity_meters_per_sec",
-  "max_acceleration_meters_per_sec2",
+  "max_velocity",
+  "max_acceleration",
 ] as const;
 
 export const rotationConstraintKeys = [
-  "max_velocity_deg_per_sec",
-  "max_acceleration_deg_per_sec2",
+  "max_angular_velocity",
+  "max_angular_acceleration",
 ] as const;
 
 export const terminalToleranceKeys = [
-  "end_translation_tolerance_meters",
-  "end_rotation_tolerance_deg",
+  "end_translation_tolerance",
+  "end_rotation_tolerance",
 ] as const;
 
 export const rangedConstraintKeys = [
@@ -37,18 +39,28 @@ export interface AutoVelocityConstraintMetadata {
   merge_tolerance_meters_per_sec?: number;
 }
 
-export interface Constraints {
-  max_velocity_meters_per_sec: number | null;
-  max_acceleration_meters_per_sec2: number | null;
-  max_velocity_deg_per_sec: number | null;
-  max_acceleration_deg_per_sec2: number | null;
-  end_translation_tolerance_meters: number | null;
-  end_rotation_tolerance_deg: number | null;
-}
+export const constraintDimensions = {
+  max_velocity: "LinearVelocity",
+  max_acceleration: "LinearAcceleration",
+  max_angular_velocity: "AngularVelocity",
+  max_angular_acceleration: "AngularAcceleration",
+  end_translation_tolerance: "Length",
+  end_rotation_tolerance: "Angle",
+} as const satisfies Record<ConstraintKey, DimensionName>;
 
-export interface RangedConstraint {
-  key: RangedConstraintKey;
-  value: number;
+export type ConstraintValue<K extends ConstraintKey> = UnitExpression<
+  (typeof constraintDimensions)[K]
+>;
+
+export type Constraints = {
+  [K in ConstraintKey]: ConstraintValue<K> | null;
+};
+
+export interface RangedConstraint<
+  K extends RangedConstraintKey = RangedConstraintKey,
+> {
+  key: K;
+  value: ConstraintValue<K>;
   start_ordinal: number;
   end_ordinal: number;
   source?: RangedConstraintSource;
@@ -57,14 +69,14 @@ export interface RangedConstraint {
 
 export interface TranslationTarget {
   type: "translation";
-  x_meters: number;
-  y_meters: number;
-  intermediate_handoff_radius_meters: number | null;
+  x: UnitExpression<"Length">;
+  y: UnitExpression<"Length">;
+  intermediate_handoff_radius: UnitExpression<"Length"> | null;
 }
 
 export interface RotationTarget {
   type: "rotation";
-  rotation_radians: number;
+  rotation: UnitExpression<"Angle">;
   t_ratio: number;
   profiled_rotation: boolean;
   legacy_position: readonly [number, number] | null;
@@ -92,41 +104,75 @@ export type PathElement =
 export interface PathModel {
   path_elements: PathElement[];
   constraints: Constraints;
-  ranged_constraints: RangedConstraint[];
+  ranged_constraints: RangedConstraint<RangedConstraintKey>[];
 }
 
 export function createConstraints(
   overrides: Partial<Constraints> = {},
 ): Constraints {
   return {
-    max_velocity_meters_per_sec: null,
-    max_acceleration_meters_per_sec2: null,
-    max_velocity_deg_per_sec: null,
-    max_acceleration_deg_per_sec2: null,
-    end_translation_tolerance_meters: null,
-    end_rotation_tolerance_deg: null,
+    max_velocity: null,
+    max_acceleration: null,
+    max_angular_velocity: null,
+    max_angular_acceleration: null,
+    end_translation_tolerance: null,
+    end_rotation_tolerance: null,
     ...overrides,
+  };
+}
+
+interface TranslationTargetOverridesMeters {
+  x_meters?: number;
+  y_meters?: number;
+  intermediate_handoff_radius_meters?: number | null;
+}
+
+function applyTranslationTargetOverridesMeters(
+  overrides: TranslationTargetOverridesMeters,
+): {
+  x: UnitExpression<"Length">;
+  y: UnitExpression<"Length">;
+  intermediate_handoff_radius: UnitExpression<"Length"> | null;
+} {
+  return {
+    x: units.Meter.of(overrides.x_meters ?? 0),
+    y: units.Meter.of(overrides.y_meters ?? 0),
+    intermediate_handoff_radius: overrides.intermediate_handoff_radius_meters
+      ? units.Meter.of(overrides.intermediate_handoff_radius_meters)
+      : null,
   };
 }
 
 export function createTranslationTarget(
-  overrides: Partial<Omit<TranslationTarget, "type">> = {},
+  overrides: Partial<Omit<TranslationTarget, "type">> &
+    TranslationTargetOverridesMeters = {},
 ): TranslationTarget {
   return {
     type: "translation",
-    x_meters: 0,
-    y_meters: 0,
-    intermediate_handoff_radius_meters: null,
+    ...applyTranslationTargetOverridesMeters(overrides),
     ...overrides,
   };
 }
 
+interface RotationTargetOverridesMeters {
+  rotation_radians?: number;
+}
+
+function applyRotationTargetOverridesMeters(
+  overrides: RotationTargetOverridesMeters,
+): { rotation: UnitExpression<"Angle"> } {
+  return {
+    rotation: units.Radian.of(overrides.rotation_radians ?? 0),
+  };
+}
+
 export function createRotationTarget(
-  overrides: Partial<Omit<RotationTarget, "type">> = {},
+  overrides: Partial<Omit<RotationTarget, "type">> &
+    RotationTargetOverridesMeters = {},
 ): RotationTarget {
   return {
     type: "rotation",
-    rotation_radians: 0,
+    ...applyRotationTargetOverridesMeters(overrides),
     t_ratio: 0,
     profiled_rotation: true,
     legacy_position: null,
@@ -147,12 +193,17 @@ export function createEventTrigger(
 }
 
 export function createWaypoint(
-  overrides: Partial<Omit<Waypoint, "type">> = {},
+  overrides: Partial<
+    Omit<Waypoint, "type"> & {
+      translation_target: TranslationTargetOverridesMeters;
+      rotation_target: RotationTargetOverridesMeters;
+    }
+  > = {},
 ): Waypoint {
   return {
     type: "waypoint",
-    translation_target: createTranslationTarget(),
-    rotation_target: createRotationTarget(),
+    translation_target: createTranslationTarget(overrides.translation_target),
+    rotation_target: createRotationTarget(overrides.rotation_target),
     ...overrides,
   };
 }

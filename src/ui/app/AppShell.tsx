@@ -20,7 +20,7 @@ import type {
   ProjectPathDocument,
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
-import { getElementPosition } from "../../canvas/geometry";
+import { getElementPositionMeters } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
@@ -897,7 +897,10 @@ export function AppShell() {
       : null;
   const selectedPosition =
     project && selectedElementIndex !== null
-      ? getElementPosition(project.path.path_elements, selectedElementIndex)
+      ? getElementPositionMeters(
+          project.path.path_elements,
+          selectedElementIndex,
+        )
       : null;
   const selectedSummary =
     selectedElement && selectedElementIndex !== null

@@ -36,12 +36,12 @@ import { migrateProjectDocument } from "./migrations";
 export type DefaultLookup = (key: string) => number | null | undefined;
 
 const scalarConstraintKeys: readonly ConstraintKey[] = [
-  "max_velocity_meters_per_sec",
-  "max_acceleration_meters_per_sec2",
-  "end_translation_tolerance_meters",
-  "max_velocity_deg_per_sec",
-  "max_acceleration_deg_per_sec2",
-  "end_rotation_tolerance_deg",
+  "max_velocity",
+  "max_acceleration",
+  "end_translation_tolerance",
+  "max_angular_velocity",
+  "max_angular_acceleration",
+  "end_rotation_tolerance",
 ];
 
 export function serializePath(path: PathModel): SerializedPathDocument {
@@ -51,17 +51,17 @@ export function serializePath(path: PathModel): SerializedPathDocument {
     if (element.type === "translation") {
       const entry = {
         type: "translation" as const,
-        x_meters: Number(element.x_meters),
-        y_meters: Number(element.y_meters),
+        x_meters: Number(element.x.meters),
+        y_meters: Number(element.y.meters),
       };
 
       pathElements.push(
-        element.intermediate_handoff_radius_meters === null
+        element.intermediate_handoff_radius === null
           ? entry
           : {
               ...entry,
               intermediate_handoff_radius_meters: Number(
-                element.intermediate_handoff_radius_meters,
+                element.intermediate_handoff_radius.meters,
               ),
             },
       );
@@ -71,7 +71,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
     if (element.type === "rotation") {
       pathElements.push({
         type: "rotation",
-        rotation_radians: Number(element.rotation_radians),
+        rotation_radians: Number(element.rotation.radians),
         t_ratio: Number(element.t_ratio),
         profiled_rotation: Boolean(element.profiled_rotation),
       });
@@ -88,23 +88,23 @@ export function serializePath(path: PathModel): SerializedPathDocument {
     }
 
     const translationData = {
-      x_meters: Number(element.translation_target.x_meters),
-      y_meters: Number(element.translation_target.y_meters),
+      x_meters: Number(element.translation_target.x.meters),
+      y_meters: Number(element.translation_target.y.meters),
     };
 
     pathElements.push({
       type: "waypoint",
       translation_target:
-        element.translation_target.intermediate_handoff_radius_meters === null
+        element.translation_target.intermediate_handoff_radius === null
           ? translationData
           : {
               ...translationData,
               intermediate_handoff_radius_meters: Number(
-                element.translation_target.intermediate_handoff_radius_meters,
+                element.translation_target.intermediate_handoff_radius.meters,
               ),
             },
       rotation_target: {
-        rotation_radians: Number(element.rotation_target.rotation_radians),
+        rotation_radians: Number(element.rotation_target.rotation.radians),
         profiled_rotation: Boolean(element.rotation_target.profiled_rotation),
       },
     });
@@ -614,12 +614,12 @@ function findNeighbor(
   ) {
     const element = elements[index];
     if (element.type === "translation") {
-      return [element.x_meters, element.y_meters];
+      return [element.x.meters, element.y.meters];
     }
     if (element.type === "waypoint") {
       return [
-        element.translation_target.x_meters,
-        element.translation_target.y_meters,
+        element.translation_target.x.meters,
+        element.translation_target.y.meters,
       ];
     }
   }

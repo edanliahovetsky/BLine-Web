@@ -9,7 +9,7 @@ import {
 } from "../../canvas/constants";
 import {
   getElementHeadingRadians,
-  getElementPosition,
+  getElementPositionMeters,
 } from "../../canvas/geometry";
 import { robotSizeFromConfig } from "../../canvas/robotFootprint";
 import { remapRangedConstraints } from "../../core/constraints/rangedConstraints";
@@ -33,8 +33,11 @@ import {
   type RotationTarget,
   type TranslationTarget,
   type Waypoint,
+  Constraints,
+  ConstraintValue,
 } from "../../core/model/path";
 import type { HistoryCommand } from "../../state/historyStore";
+import { UnitExpression, units } from "../../core/math/units";
 
 export type AddableElementType = PathElement["type"];
 
@@ -224,10 +227,10 @@ export function createMovePathElementCommand(
   };
 }
 
-export function createSetScalarConstraintCommand(
-  key: ConstraintKey,
-  previousValue: number | null,
-  nextValue: number | null,
+export function createSetScalarConstraintCommand<K extends ConstraintKey>(
+  key: K,
+  previousValue: Constraints[K],
+  nextValue: Constraints[K],
 ): HistoryCommand<ProjectDocument> {
   return {
     description: `Set ${key}`,
@@ -236,9 +239,9 @@ export function createSetScalarConstraintCommand(
   };
 }
 
-export function createAddRangedConstraintCommand(
-  key: RangedConstraintKey,
-  value: number,
+export function createAddRangedConstraintCommand<K extends RangedConstraintKey>(
+  key: K,
+  value: ConstraintValue<K>,
   total: number,
 ): HistoryCommand<ProjectDocument> {
   let addedSnapshot: RangedConstraint | null = null;
@@ -332,10 +335,12 @@ export function createUpdateRangedConstraintsCommand(
   };
 }
 
-export function createReplaceRangedConstraintsForKeyCommand(
-  key: RangedConstraintKey,
-  previous: readonly RangedConstraint[],
-  next: readonly RangedConstraint[],
+export function createReplaceRangedConstraintsForKeyCommand<
+  K extends RangedConstraintKey,
+>(
+  key: K,
+  previous: readonly RangedConstraint<K>[],
+  next: readonly RangedConstraint<K>[],
   description = `Set ranged ${key}`,
 ): HistoryCommand<ProjectDocument> {
   return {
@@ -494,7 +499,7 @@ export function createConvertedElement(
     return null;
   }
 
-  const position = getElementPosition(project.path.path_elements, index);
+  const position = getElementPositionMeters(project.path.path_elements, index);
   const headingRadians =
     getElementHeadingRadians(project.path.path_elements, index) ?? 0;
   const handoffRadius = getExistingHandoffRadius(element);
@@ -504,7 +509,7 @@ export function createConvertedElement(
     return createTranslationTarget({
       x_meters: position?.x_meters ?? fieldLengthMeters / 2,
       y_meters: position?.y_meters ?? fieldWidthMeters / 2,
-      intermediate_handoff_radius_meters: handoffRadius,
+      intermediate_handoff_radius: handoffRadius,
     });
   }
 
@@ -513,7 +518,7 @@ export function createConvertedElement(
       translation_target: createTranslationTarget({
         x_meters: position?.x_meters ?? fieldLengthMeters / 2,
         y_meters: position?.y_meters ?? fieldWidthMeters / 2,
-        intermediate_handoff_radius_meters: handoffRadius,
+        intermediate_handoff_radius: handoffRadius,
       }),
       rotation_target: createRotationTarget({
         rotation_radians: headingRadians,
@@ -724,16 +729,18 @@ function isValidElementOrder(elements: readonly PathElement[]): boolean {
   });
 }
 
-function getExistingHandoffRadius(element: PathElement): number | null {
+function getExistingHandoffRadius(
+  element: PathElement,
+): UnitExpression<"Length"> | null {
   if (isTranslationTarget(element)) {
-    return element.intermediate_handoff_radius_meters;
+    return element.intermediate_handoff_radius;
   }
 
   if (isWaypoint(element)) {
-    return element.translation_target.intermediate_handoff_radius_meters;
+    return element.translation_target.intermediate_handoff_radius;
   }
 
-  return 0.25;
+  return units.Meter.of(0.25);
 }
 
 function getExistingRatio(element: PathElement): number | null {
@@ -748,10 +755,10 @@ function getExistingRatio(element: PathElement): number | null {
   return null;
 }
 
-function updateScalarConstraint(
+function updateScalarConstraint<K extends ConstraintKey>(
   project: ProjectDocument,
-  key: ConstraintKey,
-  value: number | null,
+  key: K,
+  value: Constraints[K],
 ): ProjectDocument {
   const nextProject = structuredClone(project);
   nextProject.path.constraints[key] = value;
@@ -777,9 +784,9 @@ function replaceRangedConstraint(
   return nextProject;
 }
 
-function replaceRangedConstraintsForKey(
+function replaceRangedConstraintsForKey<K extends RangedConstraintKey>(
   project: ProjectDocument,
-  key: RangedConstraintKey,
+  key: K,
   constraints: readonly RangedConstraint[],
 ): ProjectDocument {
   const nextProject = structuredClone(project);
@@ -814,10 +821,10 @@ function defaultPosition(
   const selectedPosition =
     selectedIndex === null
       ? null
-      : getElementPosition(project.path.path_elements, selectedIndex);
+      : getElementPositionMeters(project.path.path_elements, selectedIndex);
   const fallbackPosition =
     selectedPosition ??
-    getElementPosition(
+    getElementPositionMeters(
       project.path.path_elements,
       Math.max(0, project.path.path_elements.length - 1),
     );

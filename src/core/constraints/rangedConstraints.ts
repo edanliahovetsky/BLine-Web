@@ -1,4 +1,5 @@
 import {
+  ConstraintValue,
   isRotationConstraintKey,
   isTranslationConstraintKey,
   type PathElement,
@@ -7,10 +8,10 @@ import {
   type RangedConstraintKey,
 } from "../model/path";
 
-export function appendRangedConstraintInstance(
+export function appendRangedConstraintInstance<K extends RangedConstraintKey>(
   constraints: RangedConstraint[],
-  key: RangedConstraintKey,
-  value: number,
+  key: K,
+  value: ConstraintValue<K>,
   total: number,
 ): RangedConstraint | null {
   const normalizedTotal = Math.max(0, Math.trunc(total));

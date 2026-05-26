@@ -9,6 +9,6 @@
     "isolatedModules": true,
     "esModuleInterop": true
   },
-  "include": ["tests/unit", "tests/e2e"],
+  "include": ["tests/unit", "tests/e2e", "parity-harness/"],
   "references": [{ "path": "./tsconfig.app.json" }]
 }
