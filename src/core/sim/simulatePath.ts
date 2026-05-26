@@ -295,13 +295,9 @@ function runPathSimulation(
       globalS,
     );
     const maxOmega =
-      maxOmegaEff === null
-        ? baseMaxOmega
-        : degreesToRadians(maxOmegaEff);
+      maxOmegaEff === null ? baseMaxOmega : degreesToRadians(maxOmegaEff);
     const maxAlpha =
-      maxAlphaEff === null
-        ? baseMaxAlpha
-        : degreesToRadians(maxAlphaEff);
+      maxAlphaEff === null ? baseMaxAlpha : degreesToRadians(maxAlphaEff);
 
     const vPControl = Math.sqrt(2 * baseMaxA * remaining);
     let vDesScalar = Math.max(0, Math.min(maxV, vPControl));
