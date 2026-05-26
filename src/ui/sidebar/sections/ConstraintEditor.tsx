@@ -12,6 +12,7 @@ import {
   autoVelocityInputSignature,
   generateAutoVelocityProfile,
   type AutoVelocityProfile,
+  type AutoVelocitySegmentCap,
 } from "../../../core/constraints/autoVelocityConstraints";
 import { domainForKey } from "../../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
@@ -453,23 +454,18 @@ function RangedConstraintCard({
         </div>
         {isAutoVelocityCard && autoStatus ? (
           <div className="constraint-card__actions constraint-card__actions--auto">
-            <span
-              className={[
-                "auto-velocity-status",
-                autoStatus.stale ? "" : "auto-velocity-status--current",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              {autoVelocityStatusLabel(autoStatus)}
-            </span>
+            <AutoVelocityStatusIndicator
+              status={autoStatus}
+              onClick={() => runAutoVelocityAll(project, autoSettings)}
+              disabled={total === 0}
+            />
             <SidebarActionButton
               onClick={() => runAutoVelocityAll(project, autoSettings)}
               disabled={total === 0}
               aria-label="Apply auto velocity to open segments"
-              title="Run optimizer and apply auto velocity to open and auto segments"
+              title="Apply auto velocity to open and auto segments"
             >
-              Run optimizer
+              Auto all
             </SidebarActionButton>
             <SidebarActionButton
               onClick={() => clearAutoVelocity(project)}
@@ -705,23 +701,18 @@ function PopoutConstraintPanel({
         </div>
         {isAutoVelocityPanel && autoStatus ? (
           <div className="constraint-card__actions constraint-card__actions--auto">
-            <span
-              className={[
-                "auto-velocity-status",
-                autoStatus.stale ? "" : "auto-velocity-status--current",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              {autoVelocityStatusLabel(autoStatus)}
-            </span>
+            <AutoVelocityStatusIndicator
+              status={autoStatus}
+              onClick={() => runAutoVelocityAll(project, autoSettings)}
+              disabled={labels.length === 0}
+            />
             <SidebarActionButton
               onClick={() => runAutoVelocityAll(project, autoSettings)}
               disabled={labels.length === 0}
               aria-label="Apply auto velocity to open segments"
-              title="Run optimizer and apply auto velocity to open and auto segments"
+              title="Apply auto velocity to open and auto segments"
             >
-              Run optimizer
+              Auto all
             </SidebarActionButton>
             <SidebarActionButton
               onClick={() => clearAutoVelocity(project)}
@@ -1603,9 +1594,37 @@ function AutoVelocityInlineControls({
       </fieldset>
       <div className="auto-velocity-inline__summary">
         <span>{status.autoConstraintCount} auto caps</span>
-        <span>{autoVelocityStatusSummary(status)}</span>
       </div>
     </div>
+  );
+}
+
+function AutoVelocityStatusIndicator({
+  status,
+  onClick,
+  disabled,
+}: {
+  status: AutoVelocityStatus;
+  onClick(): void;
+  disabled: boolean;
+}) {
+  const isCurrent = autoVelocityStatusIsCurrent(status);
+  return (
+    <button
+      type="button"
+      className={[
+        "auto-velocity-status",
+        isCurrent ? "auto-velocity-status--current" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={isCurrent ? "Optimizer up to date" : "Optimizer stale"}
+      title={autoVelocityStatusTooltip(status)}
+    >
+      Optimizer
+    </button>
   );
 }
 
@@ -1629,7 +1648,7 @@ function AutoVelocityModeControl({
           key={option}
           type="button"
           className={mode === option ? "is-active" : ""}
-          disabled={disabled || mode === option}
+          disabled={disabled}
           onClick={() => onModeChange(option)}
         >
           {option === "auto" ? "Auto" : "Manual"}
@@ -2036,8 +2055,24 @@ function applyVelocityMode(
   const total = domainLabelsForKey(project, autoVelocityKey).length;
   const existing = ordinalConstraintMap(project, autoVelocityKey, total);
   const ordinals = ordinalsForConstraint(entry.constraint, total);
+  const selectedOrdinals = new Set(ordinals);
+  const profile = generateAutoVelocityProfile(
+    project.path,
+    project.config,
+    autoVelocityOptionsFromSettings(settings),
+  );
+  const metadata = autoVelocityMetadataFromSettings(project, settings);
+  const capsByOrdinal = new Map(
+    profile.segmentCaps.map((cap) => [cap.targetOrdinal, cap]),
+  );
 
   if (mode === "manual") {
+    refreshExistingAutoVelocityCaps(
+      existing,
+      capsByOrdinal,
+      metadata,
+      selectedOrdinals,
+    );
     for (const ordinal of ordinals) {
       existing.set(ordinal, {
         key: autoVelocityKey,
@@ -2048,22 +2083,14 @@ function applyVelocityMode(
     }
     replaceVelocityConstraints(
       project,
-      constraintsFromOrdinalMap(existing, total),
+      constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
       "Set manual velocity",
     );
     selectOrdinalAfterReplace(autoVelocityKey, ordinals[0], onSelect);
     return;
   }
 
-  const profile = generateAutoVelocityProfile(
-    project.path,
-    project.config,
-    autoVelocityOptionsFromSettings(settings),
-  );
-  const metadata = autoVelocityMetadataFromSettings(project, settings);
-  const capsByOrdinal = new Map(
-    profile.segmentCaps.map((cap) => [cap.targetOrdinal, cap]),
-  );
+  refreshExistingAutoVelocityCaps(existing, capsByOrdinal, metadata);
   for (const ordinal of ordinals) {
     const cap = capsByOrdinal.get(ordinal);
     if (cap) {
@@ -2076,6 +2103,24 @@ function applyVelocityMode(
     "Set auto velocity",
   );
   selectOrdinalAfterReplace(autoVelocityKey, ordinals[0], onSelect);
+}
+
+function refreshExistingAutoVelocityCaps(
+  existing: Map<number, RangedConstraint>,
+  capsByOrdinal: ReadonlyMap<number, AutoVelocitySegmentCap>,
+  metadata: AutoVelocityConstraintMetadata,
+  skippedOrdinals = new Set<number>(),
+): void {
+  for (const [ordinal, constraint] of existing) {
+    if (constraint.source !== "auto_velocity" || skippedOrdinals.has(ordinal)) {
+      continue;
+    }
+
+    const cap = capsByOrdinal.get(ordinal);
+    if (cap) {
+      existing.set(ordinal, autoVelocityConstraintForCap(cap, metadata));
+    }
+  }
 }
 
 function replaceVelocityConstraints(
@@ -2309,7 +2354,7 @@ function autoVelocityStatusForProject(
       constraint.source === "auto_velocity",
   );
   const stale =
-    autoConstraints.length > 0 &&
+    autoConstraints.length === 0 ||
     autoConstraints.some(
       (constraint) =>
         !currentSignature ||
@@ -2329,18 +2374,15 @@ function autoVelocityStatusForProject(
   };
 }
 
-function autoVelocityStatusLabel(status: AutoVelocityStatus): string {
-  if (!status.hasAutoConstraints) {
-    return "Not run";
-  }
-  return status.stale ? "Optimizer stale" : "Optimizer current";
+function autoVelocityStatusIsCurrent(status: AutoVelocityStatus): boolean {
+  return status.hasAutoConstraints && !status.stale;
 }
 
-function autoVelocityStatusSummary(status: AutoVelocityStatus): string {
-  if (!status.hasAutoConstraints) {
-    return "Run optimizer to generate caps";
+function autoVelocityStatusTooltip(status: AutoVelocityStatus): string {
+  if (autoVelocityStatusIsCurrent(status)) {
+    return "Optimizer is up to date for the current path, handoff radii, rotation constraints, and auto-velocity settings. Click to rerun it.";
   }
-  return status.stale ? "Path/settings changed" : "Last run matches inputs";
+  return "Optimizer is stale or has not been run for the current path/settings. Click to rerun it and update auto velocity caps.";
 }
 
 function autoVelocityMetadataFromSettings(

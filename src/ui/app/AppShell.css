@@ -1784,6 +1784,7 @@ select {
 }
 
 .auto-velocity-status {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   width: fit-content;
@@ -1795,6 +1796,15 @@ select {
   background: #312412;
   font-size: 0.66rem;
   font-weight: 760;
+}
+
+button.auto-velocity-status {
+  cursor: pointer;
+}
+
+button.auto-velocity-status:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .auto-velocity-status--warning {
