@@ -55,13 +55,8 @@ const benchmarkOptions = {
 describe("auto velocity benchmark", () => {
   it("generates safe caps that stay close to a slow local oracle", () => {
     const results = benchmarkCases().map((benchmark) => {
-      const profile = generateAutoVelocityProfile(
-        benchmark.path,
-        benchmarkConfig,
-        benchmarkOptions,
-      );
       const startedAt = performance.now();
-      const cachedProfile = generateAutoVelocityProfile(
+      const profile = generateAutoVelocityProfile(
         benchmark.path,
         benchmarkConfig,
         benchmarkOptions,
@@ -69,6 +64,11 @@ describe("auto velocity benchmark", () => {
       const runtimeMs = benchmark.typicalRuntimePath
         ? performance.now() - startedAt
         : 0;
+      const cachedProfile = generateAutoVelocityProfile(
+        benchmark.path,
+        benchmarkConfig,
+        benchmarkOptions,
+      );
       expect(cachedProfile).toBe(profile);
       const auto = evaluateProfileCaps(benchmark.path, profile);
       const oracle = benchmark.compareOracle
@@ -119,7 +119,7 @@ describe("auto velocity benchmark", () => {
         .filter((result) => result.typicalRuntimePath)
         .map((result) => result.runtimeMs),
     );
-    expect(worstTypicalRuntime).toBeLessThan(100);
+    expect(worstTypicalRuntime).toBeLessThan(150);
   }, 120_000);
 });
 
