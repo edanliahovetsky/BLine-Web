@@ -18,8 +18,10 @@ import {
 } from "../../../core/config/projectConfig";
 import {
   autoVelocityConstraintForCap,
+  autoVelocityInputSignature,
   generateAutoVelocityProfile,
   type AutoVelocityProfile,
+  type AutoVelocitySegmentCap,
 } from "../../../core/constraints/autoVelocityConstraints";
 import { domainForKey } from "../../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
@@ -108,6 +110,16 @@ type AddConstraintMenuSection = {
   label: string;
   keys: readonly ConstraintKey[];
 };
+
+type AutoVelocityStatus = {
+  currentSignature: string | null;
+  expectedMetadata: AutoVelocityConstraintMetadata;
+  autoConstraintCount: number;
+  hasAutoConstraints: boolean;
+  stale: boolean;
+};
+
+type AutoVelocityTaskRunner = (task: () => void) => void;
 
 const rangedMeta: Record<RangedConstraintKey, RangedMeta> = {
   max_velocity_meters_per_sec: {
@@ -235,6 +247,8 @@ export function ConstraintEditor({
   const [selectedByKey, setSelectedByKey] = useState<
     Partial<Record<RangedConstraintKey, number>>
   >({});
+  const [autoVelocityRunning, setAutoVelocityRunning] = useState(false);
+  const autoVelocityRunningRef = useRef(false);
   const projectAutoVelocitySettings = project
     ? autoVelocitySettingsFromProject(project)
     : defaultAutoVelocitySettings;
@@ -265,6 +279,18 @@ export function ConstraintEditor({
     setAutoSettingsState({
       resetKey: autoSettingsResetKey,
       settings,
+    });
+  };
+  const runAutoVelocityTask: AutoVelocityTaskRunner = (task) => {
+    if (autoVelocityRunningRef.current) {
+      return;
+    }
+
+    autoVelocityRunningRef.current = true;
+    setAutoVelocityRunning(true);
+    runAfterBrowserPaint(task, () => {
+      autoVelocityRunningRef.current = false;
+      setAutoVelocityRunning(false);
     });
   };
   const selectedRangedConstraint = useStoreSelector(
@@ -409,6 +435,8 @@ export function ConstraintEditor({
             project={project}
             selectedByKey={selectedByKey}
             autoSettings={autoSettings}
+            autoVelocityRunning={autoVelocityRunning}
+            runAutoVelocityTask={runAutoVelocityTask}
             onSelect={setSelectedForKey}
             onClose={() => setPopoutOpen(false)}
           />,
@@ -524,6 +552,8 @@ export function ConstraintEditor({
                   constraintKey={key}
                   selectedIndex={selectedByKey[key] ?? null}
                   autoSettings={autoSettings}
+                  autoVelocityRunning={autoVelocityRunning}
+                  runAutoVelocityTask={runAutoVelocityTask}
                   onAutoSettingsChange={setAutoSettings}
                   onSelect={(index) => setSelectedForKey(key, index)}
                   onOpenPopout={() => setPopoutOpen(true)}
@@ -566,6 +596,8 @@ function RangedConstraintCard({
   constraintKey,
   selectedIndex,
   autoSettings,
+  autoVelocityRunning,
+  runAutoVelocityTask,
   onAutoSettingsChange,
   onSelect,
   onOpenPopout,
@@ -574,6 +606,8 @@ function RangedConstraintCard({
   constraintKey: RangedConstraintKey;
   selectedIndex: number | null;
   autoSettings: AutoVelocitySettings;
+  autoVelocityRunning: boolean;
+  runAutoVelocityTask: AutoVelocityTaskRunner;
   onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onSelect: (index: number) => void;
   onOpenPopout: () => void;
@@ -585,20 +619,12 @@ function RangedConstraintCard({
     [project, constraintKey],
   );
   const isAutoVelocityCard = constraintKey === autoVelocityKey;
-  const autoProfile = useMemo(
+  const autoStatus = useMemo(
     () =>
       isAutoVelocityCard
-        ? generateAutoVelocityProfile(project.path, project.config, {
-            velocitySafetyFactor: autoSettings.velocitySafetyFactor,
-            accelerationSafetyFactor: autoSettings.accelerationSafetyFactor,
-          })
+        ? autoVelocityStatusForProject(project, autoSettings)
         : null,
-    [
-      autoSettings.accelerationSafetyFactor,
-      autoSettings.velocitySafetyFactor,
-      isAutoVelocityCard,
-      project,
-    ],
+    [autoSettings, isAutoVelocityCard, project],
   );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
   const selectedLocalIndex = selectedEntry
@@ -630,13 +656,25 @@ function RangedConstraintCard({
             {constraintCardMeta(constraintKey, entries.length, total)}
           </span>
         </div>
-        {isAutoVelocityCard && autoProfile ? (
+        {isAutoVelocityCard && autoStatus ? (
           <div className="constraint-card__actions constraint-card__actions--auto">
+            <AutoVelocityStatusIndicator
+              status={autoStatus}
+              running={autoVelocityRunning}
+              onClick={() =>
+                runAutoVelocityTask(() =>
+                  runAutoVelocityAll(project, autoSettings),
+                )
+              }
+              disabled={total === 0 || autoVelocityRunning}
+            />
             <SidebarActionButton
               onClick={() =>
-                applyAutoVelocityAll(project, autoProfile, autoSettings)
+                runAutoVelocityTask(() =>
+                  runAutoVelocityAll(project, autoSettings),
+                )
               }
-              disabled={autoProfile.segmentCaps.length === 0}
+              disabled={total === 0 || autoVelocityRunning}
               aria-label="Apply auto velocity to open segments"
               title="Apply auto velocity to open and auto segments"
             >
@@ -644,7 +682,9 @@ function RangedConstraintCard({
             </SidebarActionButton>
             <SidebarActionButton
               onClick={() => clearAutoVelocity(project)}
-              disabled={!hasAutoVelocityConstraints(project)}
+              disabled={
+                autoVelocityRunning || !hasAutoVelocityConstraints(project)
+              }
               aria-label="Clear auto velocity segments"
               title="Clear auto velocity segments"
             >
@@ -654,9 +694,9 @@ function RangedConstraintCard({
         ) : null}
       </div>
 
-      {isAutoVelocityCard && autoProfile ? (
+      {isAutoVelocityCard && autoStatus ? (
         <AutoVelocityInlineControls
-          profile={autoProfile}
+          status={autoStatus}
           settings={autoSettings}
           onSettingsChange={onAutoSettingsChange}
         />
@@ -668,7 +708,7 @@ function RangedConstraintCard({
         entries={entries}
         labels={labels}
         unit={meta.unit}
-        autoProfile={autoProfile}
+        autoStatus={autoStatus}
         selectedIndex={selectedEntry?.index ?? null}
         onSelect={onSelect}
         onPreview={(index, constraint) => {
@@ -694,8 +734,10 @@ function RangedConstraintCard({
         constraintKey={constraintKey}
         entry={selectedEntry}
         segmentNumber={selectedSegmentNumber}
-        autoProfile={autoProfile}
+        autoStatus={autoStatus}
         autoSettings={autoSettings}
+        autoVelocityRunning={autoVelocityRunning}
+        runAutoVelocityTask={runAutoVelocityTask}
         onSelect={onSelect}
         onOpenPopout={onOpenPopout}
       />
@@ -707,12 +749,16 @@ function ConstraintPopout({
   project,
   selectedByKey,
   autoSettings,
+  autoVelocityRunning,
+  runAutoVelocityTask,
   onSelect,
   onClose,
 }: {
   project: ProjectDocument;
   selectedByKey: Partial<Record<RangedConstraintKey, number>>;
   autoSettings: AutoVelocitySettings;
+  autoVelocityRunning: boolean;
+  runAutoVelocityTask: AutoVelocityTaskRunner;
   onSelect: (key: RangedConstraintKey, index: number) => void;
   onClose: () => void;
 }) {
@@ -822,6 +868,8 @@ function ConstraintPopout({
                 constraintKey={key}
                 selectedIndex={selectedByKey[key] ?? null}
                 autoSettings={autoSettings}
+                autoVelocityRunning={autoVelocityRunning}
+                runAutoVelocityTask={runAutoVelocityTask}
                 onSelect={(index) => onSelect(key, index)}
               />
             ))
@@ -837,12 +885,16 @@ function PopoutConstraintPanel({
   constraintKey,
   selectedIndex,
   autoSettings,
+  autoVelocityRunning,
+  runAutoVelocityTask,
   onSelect,
 }: {
   project: ProjectDocument;
   constraintKey: RangedConstraintKey;
   selectedIndex: number | null;
   autoSettings: AutoVelocitySettings;
+  autoVelocityRunning: boolean;
+  runAutoVelocityTask: AutoVelocityTaskRunner;
   onSelect: (index: number) => void;
 }) {
   const meta = rangedMeta[constraintKey];
@@ -857,20 +909,12 @@ function PopoutConstraintPanel({
     : -1;
   const segmentNumber = selectedLocalIndex >= 0 ? selectedLocalIndex + 1 : 1;
   const isAutoVelocityPanel = constraintKey === autoVelocityKey;
-  const autoProfile = useMemo(
+  const autoStatus = useMemo(
     () =>
       isAutoVelocityPanel
-        ? generateAutoVelocityProfile(project.path, project.config, {
-            velocitySafetyFactor: autoSettings.velocitySafetyFactor,
-            accelerationSafetyFactor: autoSettings.accelerationSafetyFactor,
-          })
+        ? autoVelocityStatusForProject(project, autoSettings)
         : null,
-    [
-      autoSettings.accelerationSafetyFactor,
-      autoSettings.velocitySafetyFactor,
-      isAutoVelocityPanel,
-      project,
-    ],
+    [autoSettings, isAutoVelocityPanel, project],
   );
 
   return (
@@ -887,13 +931,25 @@ function PopoutConstraintPanel({
             {entries.length} {entries.length === 1 ? "segment" : "segments"}
           </span>
         </div>
-        {isAutoVelocityPanel && autoProfile ? (
+        {isAutoVelocityPanel && autoStatus ? (
           <div className="constraint-card__actions constraint-card__actions--auto">
+            <AutoVelocityStatusIndicator
+              status={autoStatus}
+              running={autoVelocityRunning}
+              onClick={() =>
+                runAutoVelocityTask(() =>
+                  runAutoVelocityAll(project, autoSettings),
+                )
+              }
+              disabled={labels.length === 0 || autoVelocityRunning}
+            />
             <SidebarActionButton
               onClick={() =>
-                applyAutoVelocityAll(project, autoProfile, autoSettings)
+                runAutoVelocityTask(() =>
+                  runAutoVelocityAll(project, autoSettings),
+                )
               }
-              disabled={autoProfile.segmentCaps.length === 0}
+              disabled={labels.length === 0 || autoVelocityRunning}
               aria-label="Apply auto velocity to open segments"
               title="Apply auto velocity to open and auto segments"
             >
@@ -901,7 +957,9 @@ function PopoutConstraintPanel({
             </SidebarActionButton>
             <SidebarActionButton
               onClick={() => clearAutoVelocity(project)}
-              disabled={!hasAutoVelocityConstraints(project)}
+              disabled={
+                autoVelocityRunning || !hasAutoVelocityConstraints(project)
+              }
               aria-label="Clear auto velocity segments"
               title="Clear auto velocity segments"
             >
@@ -917,7 +975,7 @@ function PopoutConstraintPanel({
         entries={entries}
         labels={labels}
         unit={meta.unit}
-        autoProfile={autoProfile}
+        autoStatus={autoStatus}
         selectedIndex={selectedEntry?.index ?? null}
         onSelect={onSelect}
         onPreview={(index, constraint) => {
@@ -944,8 +1002,10 @@ function PopoutConstraintPanel({
         constraintKey={constraintKey}
         entry={selectedEntry}
         segmentNumber={segmentNumber}
-        autoProfile={autoProfile}
+        autoStatus={autoStatus}
         autoSettings={autoSettings}
+        autoVelocityRunning={autoVelocityRunning}
+        runAutoVelocityTask={runAutoVelocityTask}
         onSelect={onSelect}
         compact={false}
       />
@@ -1075,7 +1135,7 @@ function ConstraintSegmentBar({
   entries,
   labels,
   unit,
-  autoProfile,
+  autoStatus,
   selectedIndex,
   onSelect,
   onPreview,
@@ -1088,7 +1148,7 @@ function ConstraintSegmentBar({
   entries: RangedEntry[];
   labels: string[];
   unit: string;
-  autoProfile?: AutoVelocityProfile | null;
+  autoStatus?: AutoVelocityStatus | null;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
   onPreview?: (index: number, constraint: RangedConstraint) => void;
@@ -1328,7 +1388,7 @@ function ConstraintSegmentBar({
         const constraintState = rangedConstraintStateForConstraint(
           project,
           constraint,
-          autoProfile,
+          autoStatus,
         );
         const sourceClass =
           constraint.source === "auto_velocity"
@@ -1654,8 +1714,10 @@ function RangedConstraintControls({
   constraintKey,
   entry,
   segmentNumber,
-  autoProfile,
+  autoStatus,
   autoSettings,
+  autoVelocityRunning = false,
+  runAutoVelocityTask,
   onSelect,
   onOpenPopout,
   compact = true,
@@ -1664,8 +1726,10 @@ function RangedConstraintControls({
   constraintKey: RangedConstraintKey;
   entry: RangedEntry | null;
   segmentNumber: number;
-  autoProfile?: AutoVelocityProfile | null;
+  autoStatus?: AutoVelocityStatus | null;
   autoSettings?: AutoVelocitySettings;
+  autoVelocityRunning?: boolean;
+  runAutoVelocityTask?: AutoVelocityTaskRunner;
   onSelect: (index: number) => void;
   onOpenPopout?: () => void;
   compact?: boolean;
@@ -1689,7 +1753,7 @@ function RangedConstraintControls({
     ? rangedConstraintStateForConstraint(
         project,
         constraint,
-        autoProfile ?? null,
+        autoStatus ?? null,
       )
     : null;
 
@@ -1706,7 +1770,7 @@ function RangedConstraintControls({
       <div className="ranged-constraint-controls__fields">
         {showAutoVelocityMode ? (
           <AutoVelocityModeControl
-            disabled={!entry || !constraint}
+            disabled={!entry || !constraint || autoVelocityRunning}
             mode={
               constraint?.source === "auto_velocity"
                 ? "auto"
@@ -1715,16 +1779,16 @@ function RangedConstraintControls({
                   : null
             }
             onModeChange={(mode) => {
-              if (!entry || !constraint || !autoProfile || !autoSettings) {
+              if (
+                !entry ||
+                !constraint ||
+                !autoSettings ||
+                !runAutoVelocityTask
+              ) {
                 return;
               }
-              applyVelocityMode(
-                project,
-                entry,
-                mode,
-                autoProfile,
-                autoSettings,
-                onSelect,
+              runAutoVelocityTask(() =>
+                applyVelocityMode(project, entry, mode, autoSettings, onSelect),
               );
             }}
           />
@@ -1739,7 +1803,9 @@ function RangedConstraintControls({
               step={meta.step}
               min={meta.min}
               max={meta.max}
-              disabled={!constraint}
+              disabled={
+                !constraint || (showAutoVelocityMode && autoVelocityRunning)
+              }
               onChange={(value) => {
                 if (!entry || !constraint) {
                   return;
@@ -1792,7 +1858,10 @@ function RangedConstraintControls({
               onSelect(addedIndex);
             }
           }}
-          disabled={!canAddMoreRanged(project, constraintKey)}
+          disabled={
+            !canAddMoreRanged(project, constraintKey) ||
+            (showAutoVelocityMode && autoVelocityRunning)
+          }
           aria-label={`Add ${meta.label} segment`}
           title="Add segment"
         >
@@ -1805,7 +1874,7 @@ function RangedConstraintControls({
               deleteRangedConstraint(project, entry.index);
             }
           }}
-          disabled={!entry}
+          disabled={!entry || (showAutoVelocityMode && autoVelocityRunning)}
           aria-label={`Delete ${selectedActionLabel}`}
           aria-keyshortcuts={entry ? "Delete Backspace" : undefined}
           title={`Delete ${selectedActionLabel}`}
@@ -1818,7 +1887,11 @@ function RangedConstraintControls({
               splitRangedConstraint(project, entry.index);
             }
           }}
-          disabled={!constraint || !canSplit(constraint)}
+          disabled={
+            !constraint ||
+            !canSplit(constraint) ||
+            (showAutoVelocityMode && autoVelocityRunning)
+          }
           aria-label={`Split ${selectedActionLabel}`}
         >
           Split
@@ -1839,11 +1912,11 @@ function RangedConstraintControls({
 }
 
 function AutoVelocityInlineControls({
-  profile,
+  status,
   settings,
   onSettingsChange,
 }: {
-  profile: AutoVelocityProfile;
+  status: AutoVelocityStatus;
   settings: AutoVelocitySettings;
   onSettingsChange(settings: AutoVelocitySettings): void;
 }) {
@@ -1907,12 +1980,51 @@ function AutoVelocityInlineControls({
         </label>
       </fieldset>
       <div className="auto-velocity-inline__summary">
-        <span>{profile.segmentCaps.length} segment caps</span>
-        <span>
-          {formatValue(profile.usableMaxAccelerationMps2)} m/s2 usable accel
-        </span>
+        <span>{status.autoConstraintCount} auto caps</span>
       </div>
     </div>
+  );
+}
+
+function AutoVelocityStatusIndicator({
+  status,
+  running,
+  onClick,
+  disabled,
+}: {
+  status: AutoVelocityStatus;
+  running: boolean;
+  onClick(): void;
+  disabled: boolean;
+}) {
+  const isCurrent = autoVelocityStatusIsCurrent(status);
+  return (
+    <button
+      type="button"
+      className={[
+        "auto-velocity-status",
+        running
+          ? "auto-velocity-status--running"
+          : isCurrent
+            ? "auto-velocity-status--current"
+            : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      disabled={disabled}
+      onClick={onClick}
+      aria-busy={running}
+      aria-label={
+        running
+          ? "Optimizer running"
+          : isCurrent
+            ? "Optimizer up to date"
+            : "Optimizer stale"
+      }
+      title={autoVelocityStatusTooltip(status, running)}
+    >
+      {running ? "Running" : "Optimizer"}
+    </button>
   );
 }
 
@@ -1936,7 +2048,7 @@ function AutoVelocityModeControl({
           key={option}
           type="button"
           className={mode === option ? "is-active" : ""}
-          disabled={disabled || mode === option}
+          disabled={disabled}
           onClick={() => onModeChange(option)}
         >
           {option === "auto" ? "Auto" : "Manual"}
@@ -2284,6 +2396,37 @@ function splitRangedConstraint(project: ProjectDocument, index: number): void {
     .applyCommand(createSplitRangedConstraintCommand(index));
 }
 
+function runAfterBrowserPaint(task: () => void, onComplete: () => void): void {
+  const runTask = () => {
+    try {
+      task();
+    } finally {
+      onComplete();
+    }
+  };
+
+  if (typeof window === "undefined") {
+    runTask();
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    window.setTimeout(runTask, 0);
+  });
+}
+
+function runAutoVelocityAll(
+  project: ProjectDocument,
+  settings: AutoVelocitySettings,
+): void {
+  const profile = generateAutoVelocityProfile(
+    project.path,
+    project.config,
+    autoVelocityOptionsFromSettings(settings),
+  );
+  applyAutoVelocityAll(project, profile, settings);
+}
+
 function applyAutoVelocityAll(
   project: ProjectDocument,
   profile: AutoVelocityProfile,
@@ -2291,7 +2434,7 @@ function applyAutoVelocityAll(
 ): void {
   const total = domainLabelsForKey(project, autoVelocityKey).length;
   const existing = ordinalConstraintMap(project, autoVelocityKey, total);
-  const metadata = autoVelocityMetadataFromSettings(settings);
+  const metadata = autoVelocityMetadataFromSettings(project, settings);
 
   for (const cap of profile.segmentCaps) {
     const current = existing.get(cap.targetOrdinal);
@@ -2334,15 +2477,30 @@ function applyVelocityMode(
   project: ProjectDocument,
   entry: RangedEntry,
   mode: "auto" | "manual",
-  profile: AutoVelocityProfile,
   settings: AutoVelocitySettings,
   onSelect: (index: number) => void,
 ): void {
   const total = domainLabelsForKey(project, autoVelocityKey).length;
   const existing = ordinalConstraintMap(project, autoVelocityKey, total);
   const ordinals = ordinalsForConstraint(entry.constraint, total);
+  const selectedOrdinals = new Set(ordinals);
+  const profile = generateAutoVelocityProfile(
+    project.path,
+    project.config,
+    autoVelocityOptionsFromSettings(settings),
+  );
+  const metadata = autoVelocityMetadataFromSettings(project, settings);
+  const capsByOrdinal = new Map(
+    profile.segmentCaps.map((cap) => [cap.targetOrdinal, cap]),
+  );
 
   if (mode === "manual") {
+    refreshExistingAutoVelocityCaps(
+      existing,
+      capsByOrdinal,
+      metadata,
+      selectedOrdinals,
+    );
     for (const ordinal of ordinals) {
       existing.set(ordinal, {
         key: autoVelocityKey,
@@ -2353,17 +2511,14 @@ function applyVelocityMode(
     }
     replaceVelocityConstraints(
       project,
-      constraintsFromOrdinalMap(existing, total),
+      constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
       "Set manual velocity",
     );
     selectOrdinalAfterReplace(autoVelocityKey, ordinals[0], onSelect);
     return;
   }
 
-  const metadata = autoVelocityMetadataFromSettings(settings);
-  const capsByOrdinal = new Map(
-    profile.segmentCaps.map((cap) => [cap.targetOrdinal, cap]),
-  );
+  refreshExistingAutoVelocityCaps(existing, capsByOrdinal, metadata);
   for (const ordinal of ordinals) {
     const cap = capsByOrdinal.get(ordinal);
     if (cap) {
@@ -2376,6 +2531,24 @@ function applyVelocityMode(
     "Set auto velocity",
   );
   selectOrdinalAfterReplace(autoVelocityKey, ordinals[0], onSelect);
+}
+
+function refreshExistingAutoVelocityCaps(
+  existing: Map<number, RangedConstraint>,
+  capsByOrdinal: ReadonlyMap<number, AutoVelocitySegmentCap>,
+  metadata: AutoVelocityConstraintMetadata,
+  skippedOrdinals = new Set<number>(),
+): void {
+  for (const [ordinal, constraint] of existing) {
+    if (constraint.source !== "auto_velocity" || skippedOrdinals.has(ordinal)) {
+      continue;
+    }
+
+    const cap = capsByOrdinal.get(ordinal);
+    if (cap) {
+      existing.set(ordinal, autoVelocityConstraintForCap(cap, metadata));
+    }
+  }
 }
 
 function replaceVelocityConstraints(
@@ -2586,52 +2759,145 @@ function autoVelocitySettingsFromConfig(
   };
 }
 
+function autoVelocityOptionsFromSettings(settings: AutoVelocitySettings) {
+  return {
+    velocitySafetyFactor: settings.velocitySafetyFactor,
+    accelerationSafetyFactor: settings.accelerationSafetyFactor,
+  };
+}
+
+function autoVelocityStatusForProject(
+  project: ProjectDocument,
+  settings: AutoVelocitySettings,
+): AutoVelocityStatus {
+  const currentSignature = autoVelocityInputSignature(
+    project.path,
+    project.config,
+    autoVelocityOptionsFromSettings(settings),
+  );
+  const expectedMetadata = autoVelocityMetadataFromSettings(project, settings);
+  const autoConstraints = project.path.ranged_constraints.filter(
+    (constraint) =>
+      constraint.key === autoVelocityKey &&
+      constraint.source === "auto_velocity",
+  );
+  const stale =
+    autoConstraints.length === 0 ||
+    autoConstraints.some(
+      (constraint) =>
+        !currentSignature ||
+        constraint.auto_velocity?.input_signature !== currentSignature ||
+        !autoVelocityMetadataMatchesSettings(
+          constraint.auto_velocity,
+          expectedMetadata,
+        ),
+    );
+
+  return {
+    currentSignature,
+    expectedMetadata,
+    autoConstraintCount: autoConstraints.length,
+    hasAutoConstraints: autoConstraints.length > 0,
+    stale,
+  };
+}
+
+function autoVelocityStatusIsCurrent(status: AutoVelocityStatus): boolean {
+  return status.hasAutoConstraints && !status.stale;
+}
+
+function autoVelocityStatusTooltip(
+  status: AutoVelocityStatus,
+  running: boolean,
+): string {
+  if (running) {
+    return "Optimizer is running. Auto velocity caps will update when it finishes.";
+  }
+
+  if (autoVelocityStatusIsCurrent(status)) {
+    return "Optimizer is up to date for the current path, handoff radii, rotation constraints, and auto-velocity settings. Click to rerun it.";
+  }
+  return "Optimizer is stale or has not been run for the current path/settings. Click to rerun it and update auto velocity caps.";
+}
+
 function autoVelocityMetadataFromSettings(
+  project: ProjectDocument,
   settings: AutoVelocitySettings,
 ): AutoVelocityConstraintMetadata {
   return {
     velocity_safety_factor: settings.velocitySafetyFactor,
     acceleration_safety_factor: settings.accelerationSafetyFactor,
     merge_tolerance_meters_per_sec: settings.mergeToleranceMps,
+    input_signature:
+      autoVelocityInputSignature(
+        project.path,
+        project.config,
+        autoVelocityOptionsFromSettings(settings),
+      ) ?? undefined,
   };
 }
 
 function autoVelocityStateForConstraint(
   constraint: RangedConstraint,
-  profile: AutoVelocityProfile | null | undefined,
+  status: AutoVelocityStatus | null | undefined,
 ): { stale: boolean; warning: boolean } {
-  if (constraint.key !== autoVelocityKey || !profile) {
+  if (
+    constraint.key !== autoVelocityKey ||
+    constraint.source !== "auto_velocity"
+  ) {
     return { stale: false, warning: false };
   }
 
-  const caps = profile.segmentCaps.filter((cap) =>
-    ordinalInRange(cap.targetOrdinal, constraint),
-  );
-  if (caps.length === 0) {
-    return { stale: constraint.source === "auto_velocity", warning: false };
-  }
+  return {
+    stale:
+      !status?.currentSignature ||
+      constraint.auto_velocity?.input_signature !== status.currentSignature ||
+      !autoVelocityMetadataMatchesSettings(
+        constraint.auto_velocity,
+        status.expectedMetadata,
+      ),
+    warning: false,
+  };
+}
 
-  const safeValue = Math.min(...caps.map((cap) => cap.value));
-  const stale =
-    constraint.source === "auto_velocity" &&
-    Math.abs(constraint.value - safeValue) > 0.015;
-  const warning =
-    constraint.source !== "auto_velocity" &&
-    constraint.value > safeValue + 0.015;
-  return { stale, warning };
+function autoVelocityMetadataMatchesSettings(
+  metadata: AutoVelocityConstraintMetadata | null | undefined,
+  expected: AutoVelocityConstraintMetadata,
+): boolean {
+  return (
+    !!metadata &&
+    nearlyEqual(
+      metadata.velocity_safety_factor,
+      expected.velocity_safety_factor,
+    ) &&
+    nearlyEqual(
+      metadata.acceleration_safety_factor,
+      expected.acceleration_safety_factor,
+    ) &&
+    nearlyEqual(
+      metadata.merge_tolerance_meters_per_sec ??
+        defaultAutoVelocityMergeToleranceMetersPerSec,
+      expected.merge_tolerance_meters_per_sec ??
+        defaultAutoVelocityMergeToleranceMetersPerSec,
+    )
+  );
+}
+
+function nearlyEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 1e-9;
 }
 
 function rangedConstraintStateForConstraint(
   project: ProjectDocument,
   constraint: RangedConstraint,
-  autoProfile: AutoVelocityProfile | null | undefined,
+  autoStatus: AutoVelocityStatus | null | undefined,
 ): {
   stale: boolean;
   autoWarning: boolean;
   globalWarning: boolean;
   minMaxWarning: boolean;
 } {
-  const autoState = autoVelocityStateForConstraint(constraint, autoProfile);
+  const autoState = autoVelocityStateForConstraint(constraint, autoStatus);
   const globalLimit = globalLimitForRangedConstraint(project, constraint.key);
   const globalWarning =
     globalLimit !== null &&

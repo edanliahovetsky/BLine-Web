@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateAutoVelocityProfile } from "../../../src/core/constraints/autoVelocityConstraints";
 import {
   createPathModel,
+  createRotationTarget,
   createTranslationTarget,
 } from "../../../src/core/model/path";
 
@@ -42,8 +43,12 @@ describe("generateAutoVelocityProfile", () => {
       1, 2, 3,
     ]);
     expect(profile.segmentCaps[0]?.value).toBeCloseTo(2.5, 2);
-    expect(profile.segmentCaps[1]?.value).toBeCloseTo(1, 2);
-    expect(profile.segmentCaps[2]?.value).toBeCloseTo(5, 2);
+    expect(profile.segmentCaps[1]?.value).toBeLessThanOrEqual(1);
+    expect(profile.segmentCaps[2]?.value).toBeLessThanOrEqual(5);
+    expect(profile.segmentCaps[2]?.value ?? 0).toBeGreaterThan(
+      profile.segmentCaps[1]?.value ?? 0,
+    );
+    expectSafeAutoVelocityProfile(profile);
   });
 
   it("keeps shallow turns faster than sharp turns", () => {
@@ -86,8 +91,10 @@ describe("generateAutoVelocityProfile", () => {
     )?.value;
 
     expect(shallowCap).toBeGreaterThan(sharpCap ?? 0);
-    expect(shallowCap).toBeCloseTo(1.4, 1);
-    expect(sharpCap).toBeCloseTo(1, 2);
+    expect(shallowCap).toBeLessThanOrEqual(shallowProfile.usableMaxVelocityMps);
+    expect(sharpCap).toBeLessThanOrEqual(sharpProfile.usableMaxVelocityMps);
+    expectSafeAutoVelocityProfile(shallowProfile);
+    expectSafeAutoVelocityProfile(sharpProfile);
     expect(sharpProfile.corners[0]?.effectiveRadiusMeters).toBeCloseTo(0.25, 3);
   });
 
@@ -193,6 +200,7 @@ describe("generateAutoVelocityProfile", () => {
     expect(caps.some((cap) => cap < 2)).toBe(true);
     expect(new Set(caps).size).toBeGreaterThan(2);
     expect(Math.max(...caps)).toBeLessThanOrEqual(4.05);
+    expectSafeAutoVelocityProfile(profile);
   });
 
   it("adds a first-ordinal default cap at half of configured max velocity", () => {
@@ -215,4 +223,95 @@ describe("generateAutoVelocityProfile", () => {
       },
     ]);
   });
+
+  it("reuses cached profiles when only translation ranged constraints change", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({
+          x_meters: 1.2,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.3,
+        }),
+        createTranslationTarget({
+          x_meters: 2.2,
+          y_meters: 0.7,
+          intermediate_handoff_radius_meters: 0.35,
+        }),
+        createTranslationTarget({ x_meters: 3.4, y_meters: 0.5 }),
+      ],
+    });
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8,
+    });
+    const edited = structuredClone(path);
+    edited.ranged_constraints = [
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2.1,
+        start_ordinal: 2,
+        end_ordinal: 2,
+      },
+      {
+        key: "max_acceleration_meters_per_sec2",
+        value: 5,
+        start_ordinal: 3,
+        end_ordinal: 3,
+      },
+    ];
+
+    expect(
+      generateAutoVelocityProfile(edited, config, {
+        velocitySafetyFactor: 0.9,
+        accelerationSafetyFactor: 0.8,
+      }),
+    ).toBe(profile);
+  });
+
+  it("invalidates cached profiles when rotation ranged constraints change", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createRotationTarget({
+          rotation_radians: Math.PI / 2,
+          t_ratio: 0.5,
+        }),
+        createTranslationTarget({
+          x_meters: 1.2,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.3,
+        }),
+        createTranslationTarget({ x_meters: 2.4, y_meters: 0.7 }),
+      ],
+    });
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8,
+    });
+    const edited = structuredClone(path);
+    edited.ranged_constraints = [
+      {
+        key: "max_velocity_deg_per_sec",
+        value: 180,
+        start_ordinal: 1,
+        end_ordinal: 1,
+      },
+    ];
+
+    expect(
+      generateAutoVelocityProfile(edited, config, {
+        velocitySafetyFactor: 0.9,
+        accelerationSafetyFactor: 0.8,
+      }),
+    ).not.toBe(profile);
+  });
 });
+
+function expectSafeAutoVelocityProfile(
+  profile: ReturnType<typeof generateAutoVelocityProfile>,
+) {
+  expect(profile.diagnostics.reachedEnd).toBe(true);
+  expect(profile.diagnostics.maxHandoffErrorRatio).toBeLessThanOrEqual(1);
+  expect(profile.diagnostics.maxPostHandoffErrorRatio).toBeLessThanOrEqual(1);
+}

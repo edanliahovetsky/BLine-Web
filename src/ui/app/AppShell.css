@@ -1455,7 +1455,7 @@ select {
 }
 
 .constraint-card__actions--auto {
-  max-width: 188px;
+  max-width: 260px;
 }
 
 .sidebar-icon-button,
@@ -1875,6 +1875,7 @@ select {
 }
 
 .auto-velocity-status {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   width: fit-content;
@@ -1888,10 +1889,35 @@ select {
   font-weight: 760;
 }
 
+button.auto-velocity-status {
+  cursor: pointer;
+}
+
+button.auto-velocity-status:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.auto-velocity-status--running {
+  border-color: #438fca;
+  color: #b9dcff;
+  background: #12283a;
+}
+
+button.auto-velocity-status--running:disabled {
+  opacity: 1;
+}
+
 .auto-velocity-status--warning {
   border-color: #c94f4f;
   color: #ffb4b4;
   background: #321719;
+}
+
+.auto-velocity-status--current {
+  border-color: #4f9f6f;
+  color: #b7f0cf;
+  background: #143021;
 }
 
 .ranged-constraint-controls:not(.ranged-constraint-controls--wide)

@@ -37,6 +37,7 @@ export interface AutoVelocityConstraintMetadata {
   velocity_safety_factor: number;
   acceleration_safety_factor: number;
   merge_tolerance_meters_per_sec?: number;
+  input_signature?: string;
 }
 
 export interface Constraints {
