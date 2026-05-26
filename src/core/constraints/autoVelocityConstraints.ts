@@ -4,6 +4,8 @@ import {
   getDefaultOptionalConfigValue,
 } from "../config/projectConfig";
 import {
+  isEventTrigger,
+  isRotationTarget,
   isTranslationTarget,
   isWaypoint,
   type AutoVelocityConstraintMetadata,
@@ -327,10 +329,103 @@ function autoVelocityProfileCacheKey(
   options: AutoVelocityGenerationOptions,
 ): string | null {
   try {
-    return JSON.stringify({ path, config, options });
+    return JSON.stringify({
+      pathElements: path.path_elements.map(autoVelocityElementCacheSignature),
+      scalarConstraints: {
+        maxVelocityMps: path.constraints.max_velocity_meters_per_sec,
+        maxAccelerationMps2: path.constraints.max_acceleration_meters_per_sec2,
+        maxVelocityDegPerSec: path.constraints.max_velocity_deg_per_sec,
+        maxAccelerationDegPerSec:
+          path.constraints.max_acceleration_deg_per_sec2,
+      },
+      rotationRangedConstraints: path.ranged_constraints
+        .filter((constraint) => isRotationRangedConstraintKey(constraint.key))
+        .map((constraint) => ({
+          key: constraint.key,
+          value: constraint.value,
+          startOrdinal: constraint.start_ordinal,
+          endOrdinal: constraint.end_ordinal,
+        })),
+      config: {
+        maxVelocityMps: getDefaultOptionalConfigValue(
+          config,
+          "max_velocity_meters_per_sec",
+        ),
+        maxAccelerationMps2: getDefaultOptionalConfigValue(
+          config,
+          "max_acceleration_meters_per_sec2",
+        ),
+        handoffRadiusMeters: getDefaultOptionalConfigValue(
+          config,
+          "intermediate_handoff_radius_meters",
+        ),
+        maxVelocityDegPerSec: getDefaultOptionalConfigValue(
+          config,
+          "max_velocity_deg_per_sec",
+        ),
+        maxAccelerationDegPerSec: getDefaultOptionalConfigValue(
+          config,
+          "max_acceleration_deg_per_sec2",
+        ),
+        autoVelocityVelocitySafetyFactor: getDefaultOptionalConfigValue(
+          config,
+          "auto_velocity_velocity_safety_factor",
+        ),
+        autoVelocityAccelerationSafetyFactor: getDefaultOptionalConfigValue(
+          config,
+          "auto_velocity_acceleration_safety_factor",
+        ),
+      },
+      options: {
+        velocitySafetyFactor: options.velocitySafetyFactor ?? null,
+        accelerationSafetyFactor: options.accelerationSafetyFactor ?? null,
+        sampleStepMeters: options.sampleStepMeters ?? null,
+      },
+    });
   } catch {
     return null;
   }
+}
+
+function autoVelocityElementCacheSignature(element: PathElement): unknown {
+  if (isTranslationTarget(element)) {
+    return {
+      type: element.type,
+      xMeters: element.x_meters,
+      yMeters: element.y_meters,
+      handoffRadiusMeters: element.intermediate_handoff_radius_meters,
+    };
+  }
+
+  if (isRotationTarget(element)) {
+    return {
+      type: element.type,
+      rotationRadians: element.rotation_radians,
+      tRatio: element.t_ratio,
+      profiledRotation: element.profiled_rotation,
+    };
+  }
+
+  if (isEventTrigger(element)) {
+    return {
+      type: element.type,
+      tRatio: element.t_ratio,
+    };
+  }
+
+  if (isWaypoint(element)) {
+    return {
+      type: element.type,
+      xMeters: element.translation_target.x_meters,
+      yMeters: element.translation_target.y_meters,
+      handoffRadiusMeters:
+        element.translation_target.intermediate_handoff_radius_meters,
+      rotationRadians: element.rotation_target.rotation_radians,
+      profiledRotation: element.rotation_target.profiled_rotation,
+    };
+  }
+
+  return element;
 }
 
 function buildSegmentGeometry(
@@ -1635,6 +1730,13 @@ function isTranslationRangedConstraintKey(key: RangedConstraintKey): boolean {
   return (
     key === "max_velocity_meters_per_sec" ||
     key === "max_acceleration_meters_per_sec2"
+  );
+}
+
+function isRotationRangedConstraintKey(key: RangedConstraintKey): boolean {
+  return (
+    key === "max_velocity_deg_per_sec" ||
+    key === "max_acceleration_deg_per_sec2"
   );
 }
 

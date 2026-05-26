@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateAutoVelocityProfile } from "../../../src/core/constraints/autoVelocityConstraints";
 import {
   createPathModel,
+  createRotationTarget,
   createTranslationTarget,
 } from "../../../src/core/model/path";
 
@@ -221,6 +222,89 @@ describe("generateAutoVelocityProfile", () => {
         minVelocityLimitMps: 2.5,
       },
     ]);
+  });
+
+  it("reuses cached profiles when only translation ranged constraints change", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({
+          x_meters: 1.2,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.3,
+        }),
+        createTranslationTarget({
+          x_meters: 2.2,
+          y_meters: 0.7,
+          intermediate_handoff_radius_meters: 0.35,
+        }),
+        createTranslationTarget({ x_meters: 3.4, y_meters: 0.5 }),
+      ],
+    });
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8,
+    });
+    const edited = structuredClone(path);
+    edited.ranged_constraints = [
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2.1,
+        start_ordinal: 2,
+        end_ordinal: 2,
+      },
+      {
+        key: "max_acceleration_meters_per_sec2",
+        value: 5,
+        start_ordinal: 3,
+        end_ordinal: 3,
+      },
+    ];
+
+    expect(
+      generateAutoVelocityProfile(edited, config, {
+        velocitySafetyFactor: 0.9,
+        accelerationSafetyFactor: 0.8,
+      }),
+    ).toBe(profile);
+  });
+
+  it("invalidates cached profiles when rotation ranged constraints change", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createRotationTarget({
+          rotation_radians: Math.PI / 2,
+          t_ratio: 0.5,
+        }),
+        createTranslationTarget({
+          x_meters: 1.2,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.3,
+        }),
+        createTranslationTarget({ x_meters: 2.4, y_meters: 0.7 }),
+      ],
+    });
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8,
+    });
+    const edited = structuredClone(path);
+    edited.ranged_constraints = [
+      {
+        key: "max_velocity_deg_per_sec",
+        value: 180,
+        start_ordinal: 1,
+        end_ordinal: 1,
+      },
+    ];
+
+    expect(
+      generateAutoVelocityProfile(edited, config, {
+        velocitySafetyFactor: 0.9,
+        accelerationSafetyFactor: 0.8,
+      }),
+    ).not.toBe(profile);
   });
 });
 
