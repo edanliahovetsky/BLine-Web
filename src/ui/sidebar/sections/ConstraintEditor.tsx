@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -27,11 +36,17 @@ import { projectStore } from "../../../state/projectStore";
 import { selectionStore } from "../../../state/selectionStore";
 import { useStoreSelector } from "../../../state/react";
 import {
-  NumberStepperControl,
   SidebarActionButton,
   SidebarIconButton,
+  NumberStepperControl,
 } from "../../controls/SidebarControls";
-import { ElementIcon, PlusIcon, RemoveIcon, XIcon } from "../../icons";
+import {
+  ElementIcon,
+  PlusIcon,
+  RemoveIcon,
+  WarningIcon,
+  XIcon,
+} from "../../icons";
 import { SidebarSection } from "../SidebarSection";
 import {
   createAddRangedConstraintCommand,
@@ -83,12 +98,31 @@ type AutoVelocitySettings = {
   mergeToleranceMps: number;
 };
 
+type AddConstraintMenuItem = {
+  key: ConstraintKey;
+  label: string;
+};
+
+type AddConstraintMenuSection = {
+  id: string;
+  label: string;
+  keys: readonly ConstraintKey[];
+};
+
 const rangedMeta: Record<RangedConstraintKey, RangedMeta> = {
   max_velocity_meters_per_sec: {
     label: "Max Velocity",
     unit: "m/s",
     defaultValue: 4.5,
     step: 0.1,
+    min: 0,
+    max: 20,
+  },
+  min_velocity_meters_per_sec: {
+    label: "Min Velocity",
+    unit: "m/s",
+    defaultValue: 0.5,
+    step: 0.05,
     min: 0,
     max: 20,
   },
@@ -104,6 +138,14 @@ const rangedMeta: Record<RangedConstraintKey, RangedMeta> = {
     label: "Max Rot Velocity",
     unit: "deg/s",
     defaultValue: 600,
+    step: 1,
+    min: 0,
+    max: 1440,
+  },
+  min_velocity_deg_per_sec: {
+    label: "Min Rot Velocity",
+    unit: "deg/s",
+    defaultValue: 45,
     step: 1,
     min: 0,
     max: 1440,
@@ -137,12 +179,38 @@ const scalarMeta: Record<(typeof terminalToleranceKeys)[number], ScalarMeta> = {
   },
 };
 
-const addConstraintMenuOrder: readonly ConstraintKey[] = [
-  ...rangedConstraintKeys,
-  ...terminalToleranceKeys,
+const addConstraintMenuSections: readonly AddConstraintMenuSection[] = [
+  {
+    id: "translation",
+    label: "Translation",
+    keys: [
+      "max_velocity_meters_per_sec",
+      "max_acceleration_meters_per_sec2",
+      "min_velocity_meters_per_sec",
+    ],
+  },
+  {
+    id: "rotation",
+    label: "Rotation",
+    keys: [
+      "max_velocity_deg_per_sec",
+      "max_acceleration_deg_per_sec2",
+      "min_velocity_deg_per_sec",
+    ],
+  },
+  {
+    id: "terminal",
+    label: "Terminal",
+    keys: [...terminalToleranceKeys],
+  },
 ];
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
+const minimumConstraintWarning =
+  "Minimum constraints are an advanced tuning feature for paths where the translation PID controller may be undertuned near the end of a path. They are not recommended for most users.";
+const minimumConflictWarningTitle =
+  "Above max constraint; BLine will use the global default and disable the minimum baseline.";
+const minimumConstraintTooltipDelayMs = 1000;
 const defaultAutoVelocitySettings: AutoVelocitySettings = {
   velocitySafetyFactor: defaultAutoVelocityVelocitySafetyFactor,
   accelerationSafetyFactor: defaultAutoVelocityAccelerationSafetyFactor,
@@ -159,6 +227,10 @@ export function ConstraintEditor({
   onToggleSection(): void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRootRef = useRef<HTMLDetailsElement | null>(null);
+  const menuSummaryRef = useRef<HTMLElement | null>(null);
+  const menuPanelRef = useRef<HTMLDivElement | null>(null);
+  const [menuPanelStyle, setMenuPanelStyle] = useState<CSSProperties>();
   const [popoutOpen, setPopoutOpen] = useState(false);
   const [selectedByKey, setSelectedByKey] = useState<
     Partial<Record<RangedConstraintKey, number>>
@@ -199,11 +271,93 @@ export function ConstraintEditor({
     selectionStore,
     (state) => state.selectedRangedConstraint,
   );
-  const availableItems = useMemo(
-    () => (project ? buildConstraintMenuItems(project) : []),
+  const availableSections = useMemo(
+    () => (project ? buildConstraintMenuSections(project) : []),
     [project],
   );
+  const availableItemCount = availableSections.reduce(
+    (total, section) => total + section.items.length,
+    0,
+  );
   const activeCount = project ? countActiveConstraints(project) : 0;
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const summary = menuSummaryRef.current;
+    const panel = menuPanelRef.current;
+    if (!summary || !panel) {
+      return;
+    }
+
+    const updatePanelPosition = () => {
+      const viewportPadding = 12;
+      const menuGap = 6;
+      const maxMenuHeight = 360;
+      const minimumUsableHeight = 96;
+      const summaryRect = summary.getBoundingClientRect();
+      const preferredHeight = Math.min(panel.scrollHeight, maxMenuHeight);
+      const spaceBelow =
+        window.innerHeight - summaryRect.bottom - menuGap - viewportPadding;
+      const spaceAbove = summaryRect.top - menuGap - viewportPadding;
+      const openBelow =
+        spaceBelow >= preferredHeight || spaceBelow >= spaceAbove;
+      const availableSpace = Math.max(
+        minimumUsableHeight,
+        Math.min(maxMenuHeight, openBelow ? spaceBelow : spaceAbove),
+      );
+      const panelHeight = Math.min(preferredHeight, availableSpace);
+      const top = openBelow
+        ? Math.min(
+            summaryRect.bottom + menuGap,
+            window.innerHeight - viewportPadding - panelHeight,
+          )
+        : Math.max(viewportPadding, summaryRect.top - menuGap - panelHeight);
+      const right = Math.max(
+        viewportPadding,
+        window.innerWidth - summaryRect.right,
+      );
+
+      setMenuPanelStyle({
+        maxHeight: `${Math.round(availableSpace)}px`,
+        right: `${Math.round(right)}px`,
+        top: `${Math.round(top)}px`,
+      });
+    };
+
+    const animationFrame = window.requestAnimationFrame(updatePanelPosition);
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
+    };
+  }, [availableItemCount, menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const closeMenuIfOutside = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && menuRootRef.current?.contains(target)) {
+        return;
+      }
+
+      setMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeMenuIfOutside, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeMenuIfOutside, true);
+    };
+  }, [menuOpen]);
+
   const setSelectedForKey = (key: RangedConstraintKey, index: number) => {
     setSelectedByKey((selected) => ({ ...selected, [key]: index }));
     const latestProject = projectStore.getState().project ?? project;
@@ -267,10 +421,12 @@ export function ConstraintEditor({
       <SidebarSection
         actions={
           <details
+            ref={menuRootRef}
             className="add-element-menu add-constraint-menu"
             open={menuOpen}
           >
             <summary
+              ref={menuSummaryRef}
               className={
                 project
                   ? "add-element-button"
@@ -295,38 +451,57 @@ export function ConstraintEditor({
               <span>Add constraint</span>
             </summary>
             <div
+              ref={menuPanelRef}
               className="add-element-menu__panel"
               role="menu"
               aria-label="Add constraint"
+              style={menuPanelStyle}
             >
-              {availableItems.length === 0 ? (
+              {availableItemCount === 0 ? (
                 <p className="constraint-empty-state">
                   All constraints are active.
                 </p>
               ) : (
-                availableItems.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className="add-element-menu__item"
-                    role="menuitem"
-                    onClick={() => {
-                      if (!project) {
-                        return;
-                      }
-                      const added = addConstraint(project, item.key);
-                      if (added) {
-                        setSelectedForKey(added.key, added.index);
-                      }
-                      setMenuOpen(false);
-                    }}
+                availableSections.map((section) => (
+                  <div
+                    key={section.id}
+                    className="add-constraint-menu__section"
+                    role="group"
+                    aria-labelledby={`add-constraint-menu-${section.id}`}
                   >
-                    <ElementIcon
-                      type={constraintIconType(item.key)}
-                      size={22}
-                    />
-                    <span>{item.label}</span>
-                  </button>
+                    <div
+                      className="add-constraint-menu__section-label"
+                      id={`add-constraint-menu-${section.id}`}
+                    >
+                      {section.label}
+                    </div>
+                    <div className="add-constraint-menu__section-items">
+                      {section.items.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          className="add-element-menu__item"
+                          role="menuitem"
+                          onClick={() => {
+                            if (!project) {
+                              return;
+                            }
+                            const added = addConstraint(project, item.key);
+                            if (added) {
+                              setSelectedForKey(added.key, added.index);
+                            }
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <ElementIcon
+                            type={constraintIconType(item.key)}
+                            size={22}
+                          />
+                          <span>{item.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))
               )}
             </div>
@@ -445,7 +620,12 @@ function RangedConstraintCard({
     >
       <div className="constraint-card__header">
         <div>
-          <h3>{meta.label}</h3>
+          <div className="constraint-heading-row">
+            <h3>{meta.label}</h3>
+            {isMinimumVelocityConstraintKey(constraintKey) ? (
+              <MinimumConstraintTooltip />
+            ) : null}
+          </div>
           <span>
             {constraintCardMeta(constraintKey, entries.length, total)}
           </span>
@@ -697,7 +877,12 @@ function PopoutConstraintPanel({
     <article className="constraint-popout-card">
       <div className="constraint-popout-card__header">
         <div>
-          <h3>{meta.label}</h3>
+          <div className="constraint-heading-row">
+            <h3>{meta.label}</h3>
+            {isMinimumVelocityConstraintKey(constraintKey) ? (
+              <MinimumConstraintTooltip />
+            ) : null}
+          </div>
           <span>
             {entries.length} {entries.length === 1 ? "segment" : "segments"}
           </span>
@@ -765,6 +950,122 @@ function PopoutConstraintPanel({
         compact={false}
       />
     </article>
+  );
+}
+
+function MinimumConstraintTooltip() {
+  const tooltipId = useId();
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const showTimerRef = useRef<number | null>(null);
+  const [tooltipStyle, setTooltipStyle] = useState<CSSProperties | null>(null);
+
+  const clearShowTimer = () => {
+    if (showTimerRef.current !== null) {
+      window.clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+  };
+
+  const openTooltip = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) {
+      return;
+    }
+
+    const viewportPadding = 12;
+    const gap = 8;
+    const maxWidth = Math.min(280, window.innerWidth - viewportPadding * 2);
+    const triggerRect = trigger.getBoundingClientRect();
+    const left = Math.min(
+      window.innerWidth - viewportPadding - maxWidth,
+      Math.max(
+        viewportPadding,
+        triggerRect.left + triggerRect.width / 2 - maxWidth / 2,
+      ),
+    );
+    const top = Math.min(
+      window.innerHeight - viewportPadding - 72,
+      triggerRect.bottom + gap,
+    );
+
+    setTooltipStyle({
+      left: Math.round(left),
+      maxWidth: Math.round(maxWidth),
+      top: Math.max(viewportPadding, Math.round(top)),
+    });
+  };
+
+  const showTooltip = () => {
+    clearShowTimer();
+    showTimerRef.current = window.setTimeout(() => {
+      openTooltip();
+      showTimerRef.current = null;
+    }, minimumConstraintTooltipDelayMs);
+  };
+
+  const showTooltipImmediately = () => {
+    clearShowTimer();
+    openTooltip();
+  };
+
+  const hideTooltip = () => {
+    clearShowTimer();
+    setTooltipStyle(null);
+  };
+
+  useEffect(
+    () => () => {
+      clearShowTimer();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!tooltipStyle) {
+      return;
+    }
+
+    window.addEventListener("resize", hideTooltip);
+    window.addEventListener("scroll", hideTooltip, true);
+
+    return () => {
+      window.removeEventListener("resize", hideTooltip);
+      window.removeEventListener("scroll", hideTooltip, true);
+    };
+  });
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        className="minimum-constraint-tooltip"
+        tabIndex={0}
+        role="img"
+        aria-describedby={tooltipStyle ? tooltipId : undefined}
+        aria-label="Minimum constraint warning"
+        data-testid="minimum-constraint-tooltip"
+        onBlur={hideTooltip}
+        onClick={showTooltipImmediately}
+        onFocus={showTooltip}
+        onPointerEnter={showTooltip}
+        onPointerLeave={hideTooltip}
+      >
+        <WarningIcon className="minimum-constraint-tooltip__icon" size={14} />
+      </span>
+      {tooltipStyle
+        ? createPortal(
+            <div
+              className="minimum-constraint-tooltip__bubble"
+              id={tooltipId}
+              role="tooltip"
+              style={tooltipStyle}
+            >
+              {minimumConstraintWarning}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -1033,11 +1334,7 @@ function ConstraintSegmentBar({
           constraint.source === "auto_velocity"
             ? "ranged-segment-range--auto"
             : "ranged-segment-range--manual";
-        const warningTitle = constraintState.globalWarning
-          ? "Above global value"
-          : constraintState.autoWarning
-            ? "Above auto value"
-            : undefined;
+        const warningTitle = warningTitleForConstraintState(constraintState);
 
         return (
           <div
@@ -1047,7 +1344,9 @@ function ConstraintSegmentBar({
               sourceClass,
               selected ? "is-selected" : "",
               constraintState.stale ? "is-stale" : "",
-              constraintState.globalWarning || constraintState.autoWarning
+              constraintState.globalWarning ||
+              constraintState.autoWarning ||
+              constraintState.minMaxWarning
                 ? "has-warning"
                 : "",
             ]
@@ -1468,6 +1767,14 @@ function RangedConstraintControls({
             Above global
           </span>
         ) : null}
+        {constraintState?.minMaxWarning ? (
+          <span
+            className="auto-velocity-status auto-velocity-status--warning"
+            title={minimumConflictWarningTitle}
+          >
+            Above max constraint
+          </span>
+        ) : null}
         {constraintState?.stale ? (
           <span className="auto-velocity-status">Stale</span>
         ) : constraintState?.autoWarning ? (
@@ -1699,30 +2006,39 @@ function ScalarConstraintRow({
   );
 }
 
-function buildConstraintMenuItems(
+function buildConstraintMenuSections(
   project: ProjectDocument,
-): Array<{ key: ConstraintKey; label: string }> {
-  return addConstraintMenuOrder.flatMap<{ key: ConstraintKey; label: string }>(
-    (key) => {
-      if (isRangedKey(key)) {
-        const active = getRangedEntries(project, key).length > 0;
+): Array<{ id: string; label: string; items: AddConstraintMenuItem[] }> {
+  return addConstraintMenuSections.flatMap((section) => {
+    const items = section.keys.flatMap((key) =>
+      buildConstraintMenuItem(project, key),
+    );
 
-        if (!active) {
-          return [{ key, label: rangedMeta[key].label }];
-        }
+    return items.length > 0 ? [{ ...section, items }] : [];
+  });
+}
 
-        return canAddMoreRanged(project, key)
-          ? [{ key, label: `${rangedMeta[key].label} (+)` }]
-          : [];
-      }
+function buildConstraintMenuItem(
+  project: ProjectDocument,
+  key: ConstraintKey,
+): AddConstraintMenuItem[] {
+  if (isRangedKey(key)) {
+    const active = getRangedEntries(project, key).length > 0;
 
-      if (project.path.constraints[key] !== null) {
-        return [];
-      }
+    if (!active) {
+      return [{ key, label: rangedMeta[key].label }];
+    }
 
-      return [{ key, label: scalarMeta[key].label }];
-    },
-  );
+    return canAddMoreRanged(project, key)
+      ? [{ key, label: `${rangedMeta[key].label} (+)` }]
+      : [];
+  }
+
+  if (project.path.constraints[key] !== null) {
+    return [];
+  }
+
+  return [{ key, label: scalarMeta[key].label }];
 }
 
 function hasAnyConstraint(project: ProjectDocument): boolean {
@@ -2309,24 +2625,55 @@ function rangedConstraintStateForConstraint(
   project: ProjectDocument,
   constraint: RangedConstraint,
   autoProfile: AutoVelocityProfile | null | undefined,
-): { stale: boolean; autoWarning: boolean; globalWarning: boolean } {
+): {
+  stale: boolean;
+  autoWarning: boolean;
+  globalWarning: boolean;
+  minMaxWarning: boolean;
+} {
   const autoState = autoVelocityStateForConstraint(constraint, autoProfile);
   const globalLimit = globalLimitForRangedConstraint(project, constraint.key);
   const globalWarning =
     globalLimit !== null &&
     constraint.value > globalLimit + constraintWarningTolerance(constraint.key);
+  const minMaxWarning = minimumExceedsPairedMaximum(project, constraint);
 
   return {
     stale: autoState.stale,
     autoWarning: autoState.warning,
     globalWarning,
+    minMaxWarning,
   };
+}
+
+function warningTitleForConstraintState(state: {
+  autoWarning: boolean;
+  globalWarning: boolean;
+  minMaxWarning: boolean;
+}): string | undefined {
+  if (state.minMaxWarning) {
+    return minimumConflictWarningTitle;
+  }
+
+  if (state.globalWarning) {
+    return "Above global value";
+  }
+
+  if (state.autoWarning) {
+    return "Above auto value";
+  }
+
+  return undefined;
 }
 
 function globalLimitForRangedConstraint(
   project: ProjectDocument,
   key: RangedConstraintKey,
 ): number | null {
+  if (isMinimumVelocityConstraintKey(key)) {
+    return null;
+  }
+
   const pathValue = project.path.constraints[key];
   if (
     typeof pathValue === "number" &&
@@ -2351,6 +2698,60 @@ function globalLimitForRangedConstraint(
 
 function constraintWarningTolerance(key: RangedConstraintKey): number {
   return Math.max(rangedMeta[key].step / 20, 1e-6);
+}
+
+function minimumExceedsPairedMaximum(
+  project: ProjectDocument,
+  constraint: RangedConstraint,
+): boolean {
+  const maxKey = maximumKeyForMinimumKey(constraint.key);
+  if (!maxKey) {
+    return false;
+  }
+
+  const minValue = constraint.value;
+  if (!Number.isFinite(minValue) || minValue <= 0) {
+    return false;
+  }
+
+  const total = domainLabelsForKey(project, constraint.key).length;
+  for (const ordinal of ordinalsForConstraint(constraint, total)) {
+    const maxValue = pairedMaximumForOrdinal(project, maxKey, ordinal);
+    if (
+      maxValue !== null &&
+      minValue > maxValue + constraintWarningTolerance(constraint.key)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function pairedMaximumForOrdinal(
+  project: ProjectDocument,
+  maxKey: RangedConstraintKey,
+  ordinal: number,
+): number | null {
+  const rangedValue = getRangedEntries(project, maxKey).find(({ constraint }) =>
+    ordinalInRange(ordinal, constraint),
+  )?.constraint.value;
+  if (typeof rangedValue === "number" && Number.isFinite(rangedValue)) {
+    return rangedValue;
+  }
+
+  const pathValue = project.path.constraints[maxKey];
+  if (typeof pathValue === "number" && Number.isFinite(pathValue)) {
+    return pathValue;
+  }
+
+  const configured = getDefaultOptionalConfigValue(project.config, maxKey);
+  if (typeof configured === "number" && Number.isFinite(configured)) {
+    return configured;
+  }
+
+  const fallback = rangedMeta[maxKey].defaultValue;
+  return Number.isFinite(fallback) ? fallback : null;
 }
 
 function sameAutoVelocityMetadata(
@@ -2684,11 +3085,34 @@ function isRangedKey(key: ConstraintKey): key is RangedConstraintKey {
   return rangedConstraintKeys.includes(key as RangedConstraintKey);
 }
 
+function isMinimumVelocityConstraintKey(
+  key: RangedConstraintKey,
+): key is "min_velocity_meters_per_sec" | "min_velocity_deg_per_sec" {
+  return (
+    key === "min_velocity_meters_per_sec" || key === "min_velocity_deg_per_sec"
+  );
+}
+
+function maximumKeyForMinimumKey(
+  key: RangedConstraintKey,
+): RangedConstraintKey | null {
+  if (key === "min_velocity_meters_per_sec") {
+    return "max_velocity_meters_per_sec";
+  }
+
+  if (key === "min_velocity_deg_per_sec") {
+    return "max_velocity_deg_per_sec";
+  }
+
+  return null;
+}
+
 function constraintIconType(
   key: ConstraintKey,
 ): "translation" | "waypoint" | "rotation" {
   if (
     key === "max_velocity_deg_per_sec" ||
+    key === "min_velocity_deg_per_sec" ||
     key === "max_acceleration_deg_per_sec2"
   ) {
     return "rotation";

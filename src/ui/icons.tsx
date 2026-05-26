@@ -30,6 +30,16 @@ export function XIcon(props: IconProps) {
   );
 }
 
+export function WarningIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <path d="M12 3 2.5 20h19L12 3Z" />
+      <path d="M12 9v5" />
+      <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
 export function GripIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>

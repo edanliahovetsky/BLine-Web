@@ -938,8 +938,41 @@ select {
 }
 
 .add-constraint-menu .add-element-menu__panel {
-  top: auto;
-  bottom: calc(100% + 6px);
+  position: fixed;
+  top: 12px;
+  bottom: auto;
+  max-height: 360px;
+  min-width: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.add-constraint-menu__section {
+  display: grid;
+  gap: 3px;
+  padding-top: 7px;
+  border-top: 1px solid #27323c;
+}
+
+.add-constraint-menu__section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.add-constraint-menu__section-label {
+  min-height: 16px;
+  padding: 0 8px 1px;
+  color: #91a0ae;
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.add-constraint-menu__section-items {
+  display: grid;
+  gap: 1px;
 }
 
 .add-element-menu__panel button {
@@ -1345,9 +1378,67 @@ select {
   line-height: 1.2;
 }
 
-.constraint-card__header span,
-.constraint-popout-card__header span,
-.constraint-popout__header span {
+.constraint-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.minimum-constraint-tooltip {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 0;
+  border: 1px solid #8b6a28;
+  border-radius: 50%;
+  color: #f6c45c;
+  background: #2a2113;
+  cursor: help;
+  line-height: 0;
+  place-items: center;
+}
+
+.minimum-constraint-tooltip:hover,
+.minimum-constraint-tooltip:focus-visible {
+  border-color: #d6a741;
+  color: #ffe19a;
+  outline: 0;
+  background: #352812;
+}
+
+.minimum-constraint-tooltip__icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 13px;
+  height: 13px;
+  transform: translate(-50%, -52%);
+}
+
+.minimum-constraint-tooltip__bubble {
+  position: fixed;
+  z-index: 90;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid #4c5b68;
+  border-radius: 6px;
+  color: #eef3f7;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: left;
+  background: #11171c;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+
+.constraint-card__header > div > span,
+.constraint-popout-card__header > div > span,
+.constraint-popout__header > div > span {
   display: block;
   margin-top: 2px;
   color: #9eadb9;

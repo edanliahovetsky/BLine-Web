@@ -652,11 +652,25 @@ test("collapses sidebar sections persistently while keeping header actions avail
   ).toHaveText([
     "Max Velocity (+)",
     "Max Acceleration",
+    "Min Velocity",
     "Max Rot Velocity",
     "Max Rot Acceleration",
+    "Min Rot Velocity",
     "End Translation Tolerance",
     "End Rotation Tolerance",
   ]);
+  await page
+    .getByTestId("path-stage-canvas")
+    .click({ position: { x: 8, y: 8 } });
+  await expect(page.locator(".add-constraint-menu")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await expect(
+    page.locator(".add-constraint-menu .add-element-menu__panel"),
+  ).toBeHidden();
+
+  await page.getByText("Add constraint").click();
   await page
     .getByRole("menuitem", { name: "End Translation Tolerance" })
     .click();
@@ -1284,6 +1298,52 @@ test("warns when ranged constraints exceed the global value", async ({
 
   await page.getByLabel("Constraint 1 value").fill("4.5");
   await expect(page.getByText("Above global")).toHaveCount(0);
+});
+
+test("warns when minimum constraints exceed their paired maximum", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await page.getByText("Add constraint").click();
+  await page.getByRole("menuitem", { name: "Min Velocity" }).click();
+
+  const minCard = page.getByTestId(
+    "constraint-card-min_velocity_meters_per_sec",
+  );
+  const minimumTooltipText =
+    "Minimum constraints are an advanced tuning feature for paths where the translation PID controller may be undertuned near the end of a path. They are not recommended for most users.";
+  const tooltip = minCard.getByTestId("minimum-constraint-tooltip");
+  await expect(tooltip).not.toHaveAttribute("title", /.*/);
+  await tooltip.hover();
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await page.waitForTimeout(1100);
+  await expect(page.getByRole("tooltip")).toHaveText(minimumTooltipText);
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await tooltip.click();
+  await expect(page.getByRole("tooltip")).toHaveText(minimumTooltipText, {
+    timeout: 300,
+  });
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  const minRange = page.getByTestId(
+    "constraint-range-min_velocity_meters_per_sec-1",
+  );
+  await expect(minRange).toHaveText("0.5 m/s");
+  await minRange.click();
+  await page.getByLabel("Constraint 1 value").fill("3.1");
+
+  await expect(page.getByText("Above max constraint")).toBeVisible();
+  await expect(minRange).toHaveClass(/has-warning/);
+  await expect(minRange).toHaveAttribute(
+    "title",
+    "Above max constraint; BLine will use the global default and disable the minimum baseline.",
+  );
+
+  await page.getByLabel("Constraint 1 value").fill("2.9");
+  await expect(page.getByText("Above max constraint")).toHaveCount(0);
 });
 
 test("keeps the constraint editor movable and modeless", async ({ page }) => {
