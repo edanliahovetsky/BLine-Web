@@ -1,6 +1,6 @@
 [package]
 name = "bline-web"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 description = "BLine Web desktop shell"
 authors = ["BLine"]
 license = "BSD-3-Clause"
