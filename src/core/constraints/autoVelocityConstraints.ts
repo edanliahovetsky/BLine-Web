@@ -52,11 +52,35 @@ export interface AutoVelocitySegmentCap {
   minVelocityLimitMps: number;
 }
 
+export interface AutoVelocityHandoffDiagnostic {
+  anchorOrdinal: number;
+  incomingOrdinal: number;
+  outgoingOrdinal: number;
+  toleranceMeters: number;
+  postHandoffToleranceMeters: number;
+  entryErrorMeters: number;
+  exitErrorMeters: number;
+  combinedErrorMeters: number;
+  postHandoffPeakErrorMeters: number;
+  passed: boolean;
+}
+
+export interface AutoVelocityDiagnostics {
+  reachedEnd: boolean;
+  totalTimeS: number;
+  finalGlobalSMeters: number;
+  totalLengthMeters: number;
+  maxHandoffErrorRatio: number;
+  maxPostHandoffErrorRatio: number;
+  handoffs: AutoVelocityHandoffDiagnostic[];
+}
+
 export interface AutoVelocityProfile {
   anchors: AutoVelocityAnchor[];
   corners: AutoVelocityCorner[];
   samples: AutoVelocitySample[];
   segmentCaps: AutoVelocitySegmentCap[];
+  diagnostics: AutoVelocityDiagnostics;
   settings: Required<
     Pick<
       AutoVelocityGenerationOptions,
@@ -81,6 +105,7 @@ interface SegmentGeometry {
 
 interface AutoVelocitySolverResult {
   capsByOrdinal: Map<number, number>;
+  evaluation: VelocityCapEvaluation;
   trace: SimulationTraceSample[];
 }
 
@@ -89,8 +114,10 @@ interface HandoffEvaluation {
   incomingOrdinal: number;
   outgoingOrdinal: number;
   toleranceMeters: number;
+  postHandoffToleranceMeters: number;
   entryErrorMeters: number;
   exitErrorMeters: number;
+  postHandoffPeakErrorMeters: number;
   combinedErrorMeters: number;
   passed: boolean;
 }
@@ -98,6 +125,10 @@ interface HandoffEvaluation {
 interface VelocityCapEvaluation {
   handoffs: HandoffEvaluation[];
   passed: boolean;
+  reachedEnd: boolean;
+  totalTimeS: number;
+  finalGlobalSMeters: number;
+  totalLengthMeters: number;
   trace: SimulationTraceSample[];
 }
 
@@ -107,19 +138,33 @@ const defaultHandoffRadiusMeters = 0.2;
 const defaultSampleStepMeters = 0.05;
 const defaultFirstOrdinalVelocityRatio = 0.5;
 const solverDtSeconds = 0.02;
-const solverPairPasses = 2;
-const solverRefinementRounds = 1;
+const solverPairPasses = 3;
+const solverRefinementRounds = 3;
+const solverWindowPasses = 2;
 const solverCapToleranceMps = 0.01;
 const solverMinVelocityRatio = 0.05;
 const gateToleranceFloorMeters = 0.05;
 const gateToleranceRatio = 0.25;
+const postHandoffLookaheadMeters = 0.6;
+const postHandoffToleranceFloorMeters = 0.08;
+const postHandoffToleranceRatio = 0.35;
+const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
+const profileCache = new Map<string, AutoVelocityProfile>();
 
 export function generateAutoVelocityProfile(
   path: PathModel,
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): AutoVelocityProfile {
+  const cacheKey = autoVelocityProfileCacheKey(path, config, options);
+  const cached = cacheKey === null ? undefined : profileCache.get(cacheKey);
+  if (cacheKey !== null && cached) {
+    profileCache.delete(cacheKey);
+    profileCache.set(cacheKey, cached);
+    return cached;
+  }
+
   const anchors = translationAnchors(path.path_elements);
   const segments = buildSegmentGeometry(anchors);
   const settings = {
@@ -178,7 +223,6 @@ export function generateAutoVelocityProfile(
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
   );
-  const samples = samplesFromTrace(solver.trace, usableMaxVelocityMps);
   const segmentCaps = segmentCapsFromSolvedCaps(
     anchors,
     segments,
@@ -186,16 +230,44 @@ export function generateAutoVelocityProfile(
     baseMaxVelocity,
     usableMaxVelocityMps,
   );
+  const generatedCapsByOrdinal = capsByOrdinalFromSegmentCaps(segmentCaps);
+  const generatedEvaluation = evaluateVelocityCaps(
+    path,
+    config,
+    segments,
+    corners,
+    generatedCapsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+  );
+  const samples = samplesFromTrace(
+    generatedEvaluation.trace,
+    usableMaxVelocityMps,
+  );
 
-  return {
+  const profile = {
     anchors,
     corners,
     samples,
     segmentCaps,
+    diagnostics: diagnosticsFromEvaluation(generatedEvaluation),
     settings,
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
   };
+
+  if (cacheKey !== null) {
+    profileCache.set(cacheKey, profile);
+    while (profileCache.size > maxProfileCacheEntries) {
+      const oldestKey = profileCache.keys().next().value;
+      if (oldestKey === undefined) {
+        break;
+      }
+      profileCache.delete(oldestKey);
+    }
+  }
+
+  return profile;
 }
 
 export function autoVelocityMetadata(
@@ -247,6 +319,18 @@ function translationAnchors(
 
     return [];
   });
+}
+
+function autoVelocityProfileCacheKey(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+): string | null {
+  try {
+    return JSON.stringify({ path, config, options });
+  } catch {
+    return null;
+  }
 }
 
 function buildSegmentGeometry(
@@ -391,7 +475,7 @@ function solveSegmentCapsWithSimulation(
   );
 
   if (corners.length === 0 || evaluation.passed) {
-    return { capsByOrdinal, trace: evaluation.trace };
+    return { capsByOrdinal, evaluation, trace: evaluation.trace };
   }
 
   const minCap = minimumSolverCap(usableMaxVelocityMps);
@@ -432,6 +516,20 @@ function solveSegmentCapsWithSimulation(
     }
   }
 
+  if (!evaluation.passed) {
+    evaluation = applyGlobalVelocitySeeds(
+      path,
+      config,
+      anchors,
+      segments,
+      corners,
+      capsByOrdinal,
+      usableMaxVelocityMps,
+      usableMaxAccelerationMps2,
+      evaluation,
+    );
+  }
+
   evaluation = refineVelocityCaps(
     path,
     config,
@@ -444,7 +542,68 @@ function solveSegmentCapsWithSimulation(
     evaluation,
   );
 
-  return { capsByOrdinal, trace: evaluation.trace };
+  if (!evaluation.passed) {
+    evaluation = applyGlobalVelocitySeeds(
+      path,
+      config,
+      anchors,
+      segments,
+      corners,
+      capsByOrdinal,
+      usableMaxVelocityMps,
+      usableMaxAccelerationMps2,
+      evaluation,
+    );
+    evaluation = refineVelocityCaps(
+      path,
+      config,
+      anchors,
+      segments,
+      corners,
+      capsByOrdinal,
+      usableMaxVelocityMps,
+      usableMaxAccelerationMps2,
+      evaluation,
+    );
+  }
+
+  evaluation = optimizeVelocityWindows(
+    path,
+    config,
+    anchors,
+    segments,
+    corners,
+    capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+    evaluation,
+  );
+
+  evaluation = relaxVelocityWindowDipsWithinTimeBudget(
+    path,
+    config,
+    anchors,
+    segments,
+    corners,
+    capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+    evaluation,
+  );
+
+  evaluation = liftVelocityCapsWithinTimeBudget(
+    path,
+    config,
+    anchors,
+    segments,
+    corners,
+    capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+    evaluation,
+  );
+
+  return { capsByOrdinal, evaluation, trace: evaluation.trace };
 }
 
 function initialCapsByOrdinal(
@@ -456,6 +615,312 @@ function initialCapsByOrdinal(
     capsByOrdinal.set(ordinal, usableMaxVelocityMps);
   }
   return capsByOrdinal;
+}
+
+function applyGlobalVelocitySeeds(
+  path: PathModel,
+  config: SimulationConfig,
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: Map<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  currentEvaluation: VelocityCapEvaluation,
+): VelocityCapEvaluation {
+  let bestCaps = new Map(capsByOrdinal);
+  let bestEvaluation = currentEvaluation;
+  const minCap = minimumSolverCap(usableMaxVelocityMps);
+  const ratios = [0.9, 0.8, 0.65, 0.5, 0.35, 0.25, 0.18, 0.12, 0.08];
+
+  for (const ratio of ratios) {
+    const value = clamp(
+      usableMaxVelocityMps * ratio,
+      minCap,
+      usableMaxVelocityMps,
+    );
+    const trialCaps = new Map<number, number>();
+    for (let ordinal = 2; ordinal <= anchors.length; ordinal += 1) {
+      trialCaps.set(ordinal, value);
+    }
+    const trialEvaluation = evaluateVelocityCaps(
+      path,
+      config,
+      segments,
+      corners,
+      trialCaps,
+      usableMaxVelocityMps,
+      usableMaxAccelerationMps2,
+    );
+
+    if (
+      isBetterEvaluation(trialEvaluation, trialCaps, bestEvaluation, bestCaps)
+    ) {
+      bestCaps = trialCaps;
+      bestEvaluation = trialEvaluation;
+    }
+  }
+
+  capsByOrdinal.clear();
+  for (const [ordinal, value] of bestCaps) {
+    capsByOrdinal.set(ordinal, value);
+  }
+  return bestEvaluation;
+}
+
+function liftVelocityCapsWithinTimeBudget(
+  path: PathModel,
+  config: SimulationConfig,
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: Map<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  currentEvaluation: VelocityCapEvaluation,
+): VelocityCapEvaluation {
+  if (!currentEvaluation.passed) {
+    return currentEvaluation;
+  }
+
+  let evaluation = currentEvaluation;
+  const maxAllowedTimeS = currentEvaluation.totalTimeS * 1.05 + solverDtSeconds;
+  const ordinals = Array.from(
+    { length: Math.max(0, anchors.length - 1) },
+    (_, index) => index + 2,
+  );
+
+  for (const order of [ordinals, [...ordinals].reverse()]) {
+    for (const ordinal of order) {
+      const current = capsByOrdinal.get(ordinal);
+      if (
+        current === undefined ||
+        usableMaxVelocityMps - current <= solverCapToleranceMps
+      ) {
+        continue;
+      }
+
+      let bestValue = current;
+      let bestEvaluation = evaluation;
+      for (const candidate of liftVelocityGrid(current, usableMaxVelocityMps)) {
+        const trialCaps = new Map(capsByOrdinal);
+        trialCaps.set(ordinal, candidate);
+        const trialEvaluation = evaluateVelocityCaps(
+          path,
+          config,
+          segments,
+          corners,
+          trialCaps,
+          usableMaxVelocityMps,
+          usableMaxAccelerationMps2,
+        );
+
+        if (
+          trialEvaluation.passed &&
+          trialEvaluation.totalTimeS <= maxAllowedTimeS
+        ) {
+          bestValue = candidate;
+          bestEvaluation = trialEvaluation;
+          break;
+        }
+      }
+
+      capsByOrdinal.set(ordinal, bestValue);
+      evaluation = bestEvaluation;
+    }
+  }
+
+  return evaluation;
+}
+
+function optimizeVelocityWindows(
+  path: PathModel,
+  config: SimulationConfig,
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: Map<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  currentEvaluation: VelocityCapEvaluation,
+): VelocityCapEvaluation {
+  let evaluation = currentEvaluation;
+  const ordinals = Array.from(
+    { length: Math.max(0, anchors.length - 1) },
+    (_, index) => index + 2,
+  );
+  if (ordinals.length < 3) {
+    return evaluation;
+  }
+
+  for (let pass = 0; pass < solverWindowPasses; pass += 1) {
+    const starts =
+      pass % 2 === 0 ? ordinals.slice(0, -2) : ordinals.slice(0, -2).reverse();
+
+    for (const startOrdinal of starts) {
+      const windowOrdinals = [startOrdinal, startOrdinal + 1, startOrdinal + 2];
+      const candidates = windowOrdinals.map((ordinal) =>
+        windowVelocityGrid(
+          capsByOrdinal.get(ordinal) ?? usableMaxVelocityMps,
+          minimumSolverCap(usableMaxVelocityMps),
+          usableMaxVelocityMps,
+        ),
+      );
+      let bestCaps = new Map(capsByOrdinal);
+      let bestEvaluation = evaluation;
+
+      for (const first of candidates[0] ?? []) {
+        for (const second of candidates[1] ?? []) {
+          for (const third of candidates[2] ?? []) {
+            const trialCaps = new Map(capsByOrdinal);
+            trialCaps.set(windowOrdinals[0], first);
+            trialCaps.set(windowOrdinals[1], second);
+            trialCaps.set(windowOrdinals[2], third);
+            const trialEvaluation = evaluateVelocityCaps(
+              path,
+              config,
+              segments,
+              corners,
+              trialCaps,
+              usableMaxVelocityMps,
+              usableMaxAccelerationMps2,
+            );
+
+            if (
+              isBetterEvaluation(
+                trialEvaluation,
+                trialCaps,
+                bestEvaluation,
+                bestCaps,
+              )
+            ) {
+              bestCaps = trialCaps;
+              bestEvaluation = trialEvaluation;
+            }
+          }
+        }
+      }
+
+      if (bestEvaluation !== evaluation) {
+        for (const ordinal of windowOrdinals) {
+          const value = bestCaps.get(ordinal);
+          if (value !== undefined) {
+            capsByOrdinal.set(ordinal, value);
+          }
+        }
+        evaluation = bestEvaluation;
+      }
+    }
+  }
+
+  return evaluation;
+}
+
+function relaxVelocityWindowDipsWithinTimeBudget(
+  path: PathModel,
+  config: SimulationConfig,
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: Map<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  currentEvaluation: VelocityCapEvaluation,
+): VelocityCapEvaluation {
+  if (!currentEvaluation.passed) {
+    return currentEvaluation;
+  }
+
+  let evaluation = currentEvaluation;
+  const maxAllowedTimeS = currentEvaluation.totalTimeS * 1.03 + solverDtSeconds;
+  const ordinals = Array.from(
+    { length: Math.max(0, anchors.length - 1) },
+    (_, index) => index + 2,
+  );
+  if (ordinals.length < 3) {
+    return evaluation;
+  }
+
+  for (const centerOrdinal of ordinals.slice(1, -1)) {
+    const windowOrdinals = [
+      centerOrdinal - 1,
+      centerOrdinal,
+      centerOrdinal + 1,
+    ];
+    const centerCurrent = capsByOrdinal.get(centerOrdinal);
+    if (
+      centerCurrent === undefined ||
+      usableMaxVelocityMps - centerCurrent <= solverCapToleranceMps
+    ) {
+      continue;
+    }
+
+    const candidates = windowOrdinals.map((ordinal) =>
+      windowVelocityGrid(
+        capsByOrdinal.get(ordinal) ?? usableMaxVelocityMps,
+        minimumSolverCap(usableMaxVelocityMps),
+        usableMaxVelocityMps,
+      ),
+    );
+    let bestCaps = new Map(capsByOrdinal);
+    let bestEvaluation = evaluation;
+    let bestCenter = centerCurrent;
+    let bestWindowSum = windowCapSum(bestCaps, windowOrdinals);
+
+    for (const first of candidates[0] ?? []) {
+      for (const second of candidates[1] ?? []) {
+        if (second < bestCenter + solverCapToleranceMps) {
+          continue;
+        }
+        for (const third of candidates[2] ?? []) {
+          const trialCaps = new Map(capsByOrdinal);
+          trialCaps.set(windowOrdinals[0], first);
+          trialCaps.set(windowOrdinals[1], second);
+          trialCaps.set(windowOrdinals[2], third);
+          const trialEvaluation = evaluateVelocityCaps(
+            path,
+            config,
+            segments,
+            corners,
+            trialCaps,
+            usableMaxVelocityMps,
+            usableMaxAccelerationMps2,
+          );
+
+          if (
+            !trialEvaluation.passed ||
+            trialEvaluation.totalTimeS > maxAllowedTimeS
+          ) {
+            continue;
+          }
+
+          const trialWindowSum = windowCapSum(trialCaps, windowOrdinals);
+          if (
+            second > bestCenter + solverCapToleranceMps ||
+            (Math.abs(second - bestCenter) <= solverCapToleranceMps &&
+              trialWindowSum > bestWindowSum + solverCapToleranceMps)
+          ) {
+            bestCaps = trialCaps;
+            bestEvaluation = trialEvaluation;
+            bestCenter = second;
+            bestWindowSum = trialWindowSum;
+          }
+        }
+      }
+    }
+
+    if (bestCenter > centerCurrent + solverCapToleranceMps) {
+      for (const ordinal of windowOrdinals) {
+        const value = bestCaps.get(ordinal);
+        if (value !== undefined) {
+          capsByOrdinal.set(ordinal, value);
+        }
+      }
+      evaluation = bestEvaluation;
+    }
+  }
+
+  return evaluation;
 }
 
 function refineVelocityCaps(
@@ -492,9 +957,11 @@ function refineVelocityCaps(
 
         let bestEvaluation = evaluation;
         let bestValue = current;
+        let bestCaps = new Map(capsByOrdinal);
 
         for (const candidate of refinementVelocityGrid(
           current,
+          minimumSolverCap(usableMaxVelocityMps),
           usableMaxVelocityMps,
         )) {
           const trialCaps = new Map(capsByOrdinal);
@@ -514,11 +981,12 @@ function refineVelocityCaps(
               trialEvaluation,
               trialCaps,
               bestEvaluation,
-              capsByOrdinal,
+              bestCaps,
             )
           ) {
             bestValue = candidate;
             bestEvaluation = trialEvaluation;
+            bestCaps = trialCaps;
           }
         }
 
@@ -637,6 +1105,10 @@ function evaluateVelocityCaps(
   return {
     handoffs,
     passed: reachedEnd && handoffs.every((handoff) => handoff.passed),
+    reachedEnd,
+    totalTimeS: result.total_time_s,
+    finalGlobalSMeters: finalGlobalS,
+    totalLengthMeters: totalLength,
     trace: result.trace,
   };
 }
@@ -649,6 +1121,9 @@ function evaluateHandoff(
   const incomingSegment = segments[corner.anchorOrdinal - 2];
   const outgoingSegment = segments[corner.anchorOrdinal - 1];
   const tolerance = handoffTolerance(corner.handoffDistanceMeters);
+  const postHandoffTolerance = postHandoffToleranceMeters(
+    corner.handoffDistanceMeters,
+  );
   const entryPoint = sampleTraceAtS(trace, corner.startS);
   const exitPoint = sampleTraceAtS(trace, corner.endS);
   const entryError =
@@ -659,6 +1134,9 @@ function evaluateHandoff(
     exitPoint && outgoingSegment
       ? crossTrackError(exitPoint.x, exitPoint.y, outgoingSegment)
       : Number.POSITIVE_INFINITY;
+  const postHandoffPeakError = outgoingSegment
+    ? postHandoffPeakCrossTrackError(corner, outgoingSegment, trace)
+    : Number.POSITIVE_INFINITY;
   const combinedError = Math.hypot(entryError, exitError);
 
   return {
@@ -666,10 +1144,61 @@ function evaluateHandoff(
     incomingOrdinal: corner.anchorOrdinal,
     outgoingOrdinal: corner.anchorOrdinal + 1,
     toleranceMeters: tolerance,
+    postHandoffToleranceMeters: postHandoffTolerance,
     entryErrorMeters: entryError,
     exitErrorMeters: exitError,
+    postHandoffPeakErrorMeters: postHandoffPeakError,
     combinedErrorMeters: combinedError,
-    passed: combinedError <= tolerance,
+    passed:
+      combinedError <= tolerance &&
+      postHandoffPeakError <= postHandoffTolerance,
+  };
+}
+
+function diagnosticsFromEvaluation(
+  evaluation: VelocityCapEvaluation,
+): AutoVelocityDiagnostics {
+  let maxHandoffErrorRatio = 0;
+  let maxPostHandoffErrorRatio = 0;
+  const handoffs = evaluation.handoffs.map((handoff) => {
+    const handoffRatio =
+      handoff.combinedErrorMeters /
+      Math.max(handoff.toleranceMeters, minPositive);
+    const postHandoffRatio =
+      handoff.postHandoffPeakErrorMeters /
+      Math.max(handoff.postHandoffToleranceMeters, minPositive);
+    maxHandoffErrorRatio = Math.max(maxHandoffErrorRatio, handoffRatio);
+    maxPostHandoffErrorRatio = Math.max(
+      maxPostHandoffErrorRatio,
+      postHandoffRatio,
+    );
+
+    return {
+      anchorOrdinal: handoff.corner.anchorOrdinal,
+      incomingOrdinal: handoff.incomingOrdinal,
+      outgoingOrdinal: handoff.outgoingOrdinal,
+      toleranceMeters: roundDistance(handoff.toleranceMeters),
+      postHandoffToleranceMeters: roundDistance(
+        handoff.postHandoffToleranceMeters,
+      ),
+      entryErrorMeters: roundDistance(handoff.entryErrorMeters),
+      exitErrorMeters: roundDistance(handoff.exitErrorMeters),
+      combinedErrorMeters: roundDistance(handoff.combinedErrorMeters),
+      postHandoffPeakErrorMeters: roundDistance(
+        handoff.postHandoffPeakErrorMeters,
+      ),
+      passed: handoff.passed,
+    };
+  });
+
+  return {
+    reachedEnd: evaluation.reachedEnd,
+    totalTimeS: roundDistance(evaluation.totalTimeS),
+    finalGlobalSMeters: roundDistance(evaluation.finalGlobalSMeters),
+    totalLengthMeters: roundDistance(evaluation.totalLengthMeters),
+    maxHandoffErrorRatio: roundDistance(maxHandoffErrorRatio),
+    maxPostHandoffErrorRatio: roundDistance(maxPostHandoffErrorRatio),
+    handoffs,
   };
 }
 
@@ -681,7 +1210,7 @@ function pathWithVelocityCaps(
 ): PathModel {
   const generated = [...capsByOrdinal.entries()].map(([ordinal, value]) => ({
     key: "max_velocity_meters_per_sec" as const,
-    value,
+    value: roundConstraintValue(value),
     start_ordinal: ordinal,
     end_ordinal: ordinal,
   }));
@@ -737,6 +1266,18 @@ function segmentCapsFromSolvedCaps(
       };
     }),
   );
+}
+
+function capsByOrdinalFromSegmentCaps(
+  segmentCaps: readonly AutoVelocitySegmentCap[],
+): Map<number, number> {
+  const capsByOrdinal = new Map<number, number>();
+  for (const cap of segmentCaps) {
+    if (cap.targetOrdinal > 1) {
+      capsByOrdinal.set(cap.targetOrdinal, cap.value);
+    }
+  }
+  return capsByOrdinal;
 }
 
 function samplesFromTrace(
@@ -798,10 +1339,53 @@ function crossTrackError(
   return Math.abs(dx * segment.uy - dy * segment.ux);
 }
 
+function postHandoffPeakCrossTrackError(
+  corner: AutoVelocityCorner,
+  outgoingSegment: SegmentGeometry,
+  trace: readonly SimulationTraceSample[],
+): number {
+  const startS = corner.endS;
+  const endS = Math.min(
+    outgoingSegment.endS,
+    startS + postHandoffLookaheadMeters,
+  );
+  let peak = 0;
+  let foundSample = false;
+
+  for (const sMeters of [startS, endS]) {
+    const point = sampleTraceAtS(trace, sMeters);
+    if (point) {
+      peak = Math.max(peak, crossTrackError(point.x, point.y, outgoingSegment));
+      foundSample = true;
+    }
+  }
+
+  for (const sample of trace) {
+    if (sample.global_s_m < startS - 1e-6 || sample.global_s_m > endS + 1e-6) {
+      continue;
+    }
+
+    peak = Math.max(
+      peak,
+      crossTrackError(sample.x_m, sample.y_m, outgoingSegment),
+    );
+    foundSample = true;
+  }
+
+  return foundSample ? peak : Number.POSITIVE_INFINITY;
+}
+
 function handoffTolerance(handoffDistanceMeters: number): number {
   return Math.max(
     gateToleranceFloorMeters,
     handoffDistanceMeters * gateToleranceRatio,
+  );
+}
+
+function postHandoffToleranceMeters(handoffDistanceMeters: number): number {
+  return Math.max(
+    postHandoffToleranceFloorMeters,
+    handoffDistanceMeters * postHandoffToleranceRatio,
   );
 }
 
@@ -819,10 +1403,14 @@ function velocityGrid(
       current,
       minCap,
       usableMaxVelocityMps,
-      usableMaxVelocityMps * 0.2,
+      usableMaxVelocityMps * 0.12,
+      usableMaxVelocityMps * 0.18,
+      usableMaxVelocityMps * 0.25,
       usableMaxVelocityMps * 0.35,
       usableMaxVelocityMps * 0.5,
-      usableMaxVelocityMps * 0.7,
+      usableMaxVelocityMps * 0.65,
+      usableMaxVelocityMps * 0.8,
+      usableMaxVelocityMps * 0.9,
     ],
     minCap,
     usableMaxVelocityMps,
@@ -831,17 +1419,87 @@ function velocityGrid(
 
 function refinementVelocityGrid(
   current: number,
+  minCap: number,
   usableMaxVelocityMps: number,
 ): number[] {
   const delta = usableMaxVelocityMps - current;
   return uniqueSortedVelocities(
     [
+      current - usableMaxVelocityMps * 0.2,
+      current - usableMaxVelocityMps * 0.1,
+      current - usableMaxVelocityMps * 0.05,
+      current,
       current + delta * 0.1,
-      current + delta * 0.25,
-      current + delta * 0.75,
+      current + delta * 0.2,
+      current + delta * 0.35,
+      current + delta * 0.5,
+      current + delta * 0.7,
+      current + delta * 0.85,
+      usableMaxVelocityMps * 0.12,
+      usableMaxVelocityMps * 0.18,
+      usableMaxVelocityMps * 0.25,
+      usableMaxVelocityMps * 0.35,
+      usableMaxVelocityMps * 0.5,
+      usableMaxVelocityMps * 0.65,
+      usableMaxVelocityMps * 0.8,
+      usableMaxVelocityMps * 0.9,
       usableMaxVelocityMps,
     ],
+    minCap,
+    usableMaxVelocityMps,
+  );
+}
+
+function liftVelocityGrid(
+  current: number,
+  usableMaxVelocityMps: number,
+): number[] {
+  return uniqueSortedVelocities(
+    [
+      usableMaxVelocityMps,
+      usableMaxVelocityMps * 0.95,
+      usableMaxVelocityMps * 0.9,
+      usableMaxVelocityMps * 0.85,
+      usableMaxVelocityMps * 0.8,
+      usableMaxVelocityMps * 0.75,
+      usableMaxVelocityMps * 0.65,
+      usableMaxVelocityMps * 0.5,
+      current + (usableMaxVelocityMps - current) * 0.2,
+      current + (usableMaxVelocityMps - current) * 0.15,
+      current + (usableMaxVelocityMps - current) * 0.1,
+      current + (usableMaxVelocityMps - current) * 0.85,
+      current + (usableMaxVelocityMps - current) * 0.7,
+      current + (usableMaxVelocityMps - current) * 0.5,
+      current + (usableMaxVelocityMps - current) * 0.3,
+      current,
+    ],
     current,
+    usableMaxVelocityMps,
+  ).reverse();
+}
+
+function windowVelocityGrid(
+  current: number,
+  minCap: number,
+  usableMaxVelocityMps: number,
+): number[] {
+  return uniqueSortedVelocities(
+    [
+      current,
+      current - usableMaxVelocityMps * 0.2,
+      current - usableMaxVelocityMps * 0.1,
+      current + usableMaxVelocityMps * 0.1,
+      current + usableMaxVelocityMps * 0.2,
+      usableMaxVelocityMps * 0.35,
+      usableMaxVelocityMps * 0.5,
+      usableMaxVelocityMps * 0.65,
+      usableMaxVelocityMps * 0.75,
+      usableMaxVelocityMps * 0.85,
+      usableMaxVelocityMps * 0.865,
+      usableMaxVelocityMps * 0.9,
+      usableMaxVelocityMps,
+    ],
+    minCap,
     usableMaxVelocityMps,
   );
 }
@@ -892,11 +1550,26 @@ function isBetterEvaluation(
     ) {
       return false;
     }
+    if (candidate.totalTimeS < current.totalTimeS - solverDtSeconds) {
+      return true;
+    }
+    if (candidate.totalTimeS > current.totalTimeS + solverDtSeconds) {
+      return false;
+    }
+  } else if (candidate.totalTimeS < current.totalTimeS - solverDtSeconds) {
+    return true;
+  } else if (candidate.totalTimeS > current.totalTimeS + solverDtSeconds) {
+    return false;
   } else if (
-    candidateQuality.sumSquaredRatio < currentQuality.sumSquaredRatio - 0.05 &&
-    capSum(candidateCaps) >= capSum(currentCaps) - solverCapToleranceMps
+    candidateQuality.sumSquaredRatio <
+    currentQuality.sumSquaredRatio - 0.05
   ) {
     return true;
+  } else if (
+    candidateQuality.sumSquaredRatio >
+    currentQuality.sumSquaredRatio + 0.05
+  ) {
+    return false;
   }
 
   return capSum(candidateCaps) > capSum(currentCaps) + solverCapToleranceMps;
@@ -907,26 +1580,53 @@ function evaluationQuality(evaluation: VelocityCapEvaluation): {
   sumSquaredRatio: number;
 } {
   if (evaluation.handoffs.length === 0) {
-    return { maxRatio: 0, sumSquaredRatio: 0 };
+    const reachedRatio = reachedEndRatio(evaluation);
+    return { maxRatio: reachedRatio, sumSquaredRatio: reachedRatio ** 2 };
   }
 
-  let maxRatio = 0;
-  let sumSquaredRatio = 0;
+  let maxRatio = reachedEndRatio(evaluation);
+  let sumSquaredRatio = maxRatio ** 2;
   for (const handoff of evaluation.handoffs) {
-    const ratio =
+    const gateRatio =
       handoff.combinedErrorMeters /
       Math.max(handoff.toleranceMeters, minPositive);
-    maxRatio = Math.max(maxRatio, ratio);
-    sumSquaredRatio += ratio ** 2;
+    const postHandoffRatio =
+      handoff.postHandoffPeakErrorMeters /
+      Math.max(handoff.postHandoffToleranceMeters, minPositive);
+    maxRatio = Math.max(maxRatio, gateRatio, postHandoffRatio);
+    sumSquaredRatio += gateRatio ** 2 + postHandoffRatio ** 2;
   }
 
   return { maxRatio, sumSquaredRatio };
+}
+
+function reachedEndRatio(evaluation: VelocityCapEvaluation): number {
+  if (evaluation.reachedEnd) {
+    return 0;
+  }
+
+  const remainingMeters = Math.max(
+    0,
+    evaluation.totalLengthMeters - evaluation.finalGlobalSMeters,
+  );
+  return 1 + remainingMeters / 0.02;
 }
 
 function capSum(caps: ReadonlyMap<number, number>): number {
   let sum = 0;
   for (const value of caps.values()) {
     sum += value;
+  }
+  return sum;
+}
+
+function windowCapSum(
+  caps: ReadonlyMap<number, number>,
+  ordinals: readonly number[],
+): number {
+  let sum = 0;
+  for (const ordinal of ordinals) {
+    sum += caps.get(ordinal) ?? 0;
   }
   return sum;
 }
@@ -982,5 +1682,5 @@ function roundSolverVelocity(value: number): number {
 }
 
 function roundConstraintValue(value: number): number {
-  return Number(Math.max(0.01, value).toFixed(2));
+  return Number(Math.max(0.01, Math.floor(value * 100) / 100).toFixed(2));
 }

@@ -42,8 +42,12 @@ describe("generateAutoVelocityProfile", () => {
       1, 2, 3,
     ]);
     expect(profile.segmentCaps[0]?.value).toBeCloseTo(2.5, 2);
-    expect(profile.segmentCaps[1]?.value).toBeCloseTo(1, 2);
-    expect(profile.segmentCaps[2]?.value).toBeCloseTo(5, 2);
+    expect(profile.segmentCaps[1]?.value).toBeLessThanOrEqual(1);
+    expect(profile.segmentCaps[2]?.value).toBeLessThanOrEqual(5);
+    expect(profile.segmentCaps[2]?.value ?? 0).toBeGreaterThan(
+      profile.segmentCaps[1]?.value ?? 0,
+    );
+    expectSafeAutoVelocityProfile(profile);
   });
 
   it("keeps shallow turns faster than sharp turns", () => {
@@ -86,8 +90,10 @@ describe("generateAutoVelocityProfile", () => {
     )?.value;
 
     expect(shallowCap).toBeGreaterThan(sharpCap ?? 0);
-    expect(shallowCap).toBeCloseTo(1.4, 1);
-    expect(sharpCap).toBeCloseTo(1, 2);
+    expect(shallowCap).toBeLessThanOrEqual(shallowProfile.usableMaxVelocityMps);
+    expect(sharpCap).toBeLessThanOrEqual(sharpProfile.usableMaxVelocityMps);
+    expectSafeAutoVelocityProfile(shallowProfile);
+    expectSafeAutoVelocityProfile(sharpProfile);
     expect(sharpProfile.corners[0]?.effectiveRadiusMeters).toBeCloseTo(0.25, 3);
   });
 
@@ -193,6 +199,7 @@ describe("generateAutoVelocityProfile", () => {
     expect(caps.some((cap) => cap < 2)).toBe(true);
     expect(new Set(caps).size).toBeGreaterThan(2);
     expect(Math.max(...caps)).toBeLessThanOrEqual(4.05);
+    expectSafeAutoVelocityProfile(profile);
   });
 
   it("adds a first-ordinal default cap at half of configured max velocity", () => {
@@ -216,3 +223,11 @@ describe("generateAutoVelocityProfile", () => {
     ]);
   });
 });
+
+function expectSafeAutoVelocityProfile(
+  profile: ReturnType<typeof generateAutoVelocityProfile>,
+) {
+  expect(profile.diagnostics.reachedEnd).toBe(true);
+  expect(profile.diagnostics.maxHandoffErrorRatio).toBeLessThanOrEqual(1);
+  expect(profile.diagnostics.maxPostHandoffErrorRatio).toBeLessThanOrEqual(1);
+}
