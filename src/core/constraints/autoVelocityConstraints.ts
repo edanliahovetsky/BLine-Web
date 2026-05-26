@@ -159,7 +159,7 @@ export function generateAutoVelocityProfile(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): AutoVelocityProfile {
-  const cacheKey = autoVelocityProfileCacheKey(path, config, options);
+  const cacheKey = autoVelocityInputSignature(path, config, options);
   const cached = cacheKey === null ? undefined : profileCache.get(cacheKey);
   if (cacheKey !== null && cached) {
     profileCache.delete(cacheKey);
@@ -278,13 +278,18 @@ export function autoVelocityMetadata(
     | "velocity_safety_factor"
     | "acceleration_safety_factor"
     | "merge_tolerance_meters_per_sec"
+    | "input_signature"
   >,
 ): AutoVelocityConstraintMetadata {
-  return {
+  const metadata: AutoVelocityConstraintMetadata = {
     velocity_safety_factor: settings.velocity_safety_factor,
     acceleration_safety_factor: settings.acceleration_safety_factor,
     merge_tolerance_meters_per_sec: settings.merge_tolerance_meters_per_sec,
   };
+  if (settings.input_signature) {
+    metadata.input_signature = settings.input_signature;
+  }
+  return metadata;
 }
 
 export function autoVelocityConstraintForCap(
@@ -323,7 +328,7 @@ function translationAnchors(
   });
 }
 
-function autoVelocityProfileCacheKey(
+export function autoVelocityInputSignature(
   path: PathModel,
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions,

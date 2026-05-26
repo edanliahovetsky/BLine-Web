@@ -1364,7 +1364,7 @@ select {
 }
 
 .constraint-card__actions--auto {
-  max-width: 188px;
+  max-width: 260px;
 }
 
 .sidebar-icon-button,
@@ -1801,6 +1801,12 @@ select {
   border-color: #c94f4f;
   color: #ffb4b4;
   background: #321719;
+}
+
+.auto-velocity-status--current {
+  border-color: #4f9f6f;
+  color: #b7f0cf;
+  background: #143021;
 }
 
 .ranged-constraint-controls:not(.ranged-constraint-controls--wide)

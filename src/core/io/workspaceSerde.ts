@@ -535,16 +535,22 @@ function normalizeAutoVelocityMetadata(
   const velocity = finiteNumber(value.velocity_safety_factor);
   const acceleration = finiteNumber(value.acceleration_safety_factor);
   const mergeTolerance = finiteNumber(value.merge_tolerance_meters_per_sec);
+  const inputSignature =
+    typeof value.input_signature === "string" ? value.input_signature : null;
   if (velocity === null || acceleration === null) {
     return null;
   }
 
-  return {
+  const metadata: AutoVelocityConstraintMetadata = {
     velocity_safety_factor: velocity,
     acceleration_safety_factor: acceleration,
     merge_tolerance_meters_per_sec:
       mergeTolerance ?? defaultAutoVelocityMergeToleranceMetersPerSec,
   };
+  if (inputSignature) {
+    metadata.input_signature = inputSignature;
+  }
+  return metadata;
 }
 
 function finiteNumber(value: unknown): number | null {
