@@ -11,6 +11,7 @@ import {
   deserializeProjectWorkspaceDocument,
   ensureJsonFileName,
   projectDocumentToWorkspaceDocument,
+  serializePathGroupsFile,
 } from "./workspaceSerde";
 
 export const blineProjectArchiveSchemaVersion = 1;
@@ -26,6 +27,7 @@ export interface SerializedProjectArchive {
   exported_at: string;
   config: ProjectConfig;
   paths: SerializedProjectArchivePath[];
+  path_groups?: ReturnType<typeof serializePathGroupsFile>["groups"];
 }
 
 type ArchiveSource = ProjectWorkspaceDocument | readonly ProjectDocument[];
@@ -53,6 +55,7 @@ export function createBLineProjectArchive(
       display_name: path.display_name,
       path: serializePath(path.path),
     })),
+    path_groups: serializePathGroupsFile(workspace).groups,
   };
 }
 
@@ -92,6 +95,7 @@ export function deserializeBLineProjectArchive(
         path: entry.path,
       })),
       active_path_id: input.paths[0]?.file_name ?? null,
+      path_groups: input.path_groups,
     },
     options,
   );

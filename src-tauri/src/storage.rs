@@ -222,10 +222,8 @@ pub fn storage_read_workspace(app: AppHandle, id: Option<String>) -> Result<Valu
 
     let state = read_state(&app)?;
     let dir_string = dir.to_string_lossy().to_string();
-    let stored_active = state
-        .active_path_by_project_dir
-        .get(&dir_string)
-        .cloned();
+    let path_groups = read_path_groups(&dir, &paths)?;
+    let stored_active = state.active_path_by_project_dir.get(&dir_string).cloned();
     let active_path_id = stored_active
         .filter(|active| {
             paths.iter().any(|path| {
@@ -248,7 +246,8 @@ pub fn storage_read_workspace(app: AppHandle, id: Option<String>) -> Result<Valu
         "display_name": workspace_display_name(&dir),
         "config": config,
         "paths": paths,
-        "active_path_id": active_path_id
+        "active_path_id": active_path_id,
+        "path_groups": path_groups
     }))
 }
 
@@ -300,6 +299,7 @@ pub fn storage_write_workspace(
     }
 
     write_path_metadata(&dir, &metadata_by_file)?;
+    write_path_groups(&dir, workspace.get("path_groups"), paths)?;
 
     for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
         let entry = entry.map_err(error_string)?;
@@ -495,7 +495,9 @@ fn set_workspace_dir(
     let mut state = read_state(app)?;
     let dir_string = effective_dir.to_string_lossy().to_string();
     state.current_project_dir = Some(dir_string.clone());
-    state.recent_project_dirs.retain(|entry| entry != &dir_string);
+    state
+        .recent_project_dirs
+        .retain(|entry| entry != &dir_string);
     state.recent_project_dirs.insert(0, dir_string);
     state.recent_project_dirs.truncate(10);
     write_state(app, &state)?;
@@ -614,7 +616,7 @@ fn write_path_metadata(
     for (file_name, editor_metadata) in metadata_by_file {
         paths.insert(
             file_name.clone(),
-            json!({ "editor_metadata": editor_metadata })
+            json!({ "editor_metadata": editor_metadata }),
         );
     }
 
@@ -623,6 +625,164 @@ fn write_path_metadata(
 
 fn path_metadata_file(project_dir: &Path) -> PathBuf {
     project_dir.join(".bline-web").join("path-metadata.json")
+}
+
+fn read_path_groups(project_dir: &Path, paths: &[Value]) -> Result<Vec<Value>, String> {
+    let path = path_groups_file(project_dir);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let parsed = read_json_file(&path)?;
+    let Some(groups) = parsed.get("groups").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let path_ids = path_id_lookup(paths);
+    let file_names = file_name_lookup(paths);
+    let mut normalized_groups = Vec::new();
+
+    for (index, group) in groups.iter().enumerate() {
+        let group_id = group
+            .get("group_id")
+            .or_else(|| group.get("id"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("group-{}", index + 1));
+        let display_name = group
+            .get("display_name")
+            .or_else(|| group.get("name"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("Path Group {}", index + 1));
+        let refs = read_path_group_refs(group);
+        let mut seen = std::collections::HashSet::new();
+        let path_ids_for_group: Vec<Value> = refs
+            .into_iter()
+            .filter_map(|path_ref| {
+                let by_id = path_ids.get(&path_ref).cloned();
+                let by_file_name = safe_path_file_name(&path_ref)
+                    .ok()
+                    .and_then(|file_name| file_names.get(&file_name).cloned());
+                let path_id = by_id.or(by_file_name)?;
+                if seen.insert(path_id.clone()) {
+                    Some(Value::String(path_id))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        normalized_groups.push(json!({
+            "group_id": group_id,
+            "display_name": display_name,
+            "path_ids": path_ids_for_group
+        }));
+    }
+
+    Ok(normalized_groups)
+}
+
+fn write_path_groups(
+    project_dir: &Path,
+    groups: Option<&Value>,
+    paths: &[Value],
+) -> Result<(), String> {
+    let file_name_by_path_id: std::collections::HashMap<String, String> = paths
+        .iter()
+        .filter_map(|path| {
+            Some((
+                path.get("path_id")?.as_str()?.to_owned(),
+                safe_path_file_name(path.get("file_name")?.as_str()?).ok()?,
+            ))
+        })
+        .collect();
+    let mut serialized_groups = Vec::new();
+
+    for (index, group) in groups
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let group_id = group
+            .get("group_id")
+            .or_else(|| group.get("id"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("group-{}", index + 1));
+        let display_name = group
+            .get("display_name")
+            .or_else(|| group.get("name"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("Path Group {}", index + 1));
+        let mut seen = std::collections::HashSet::new();
+        let path_file_names: Vec<Value> = read_path_group_refs(group)
+            .into_iter()
+            .filter_map(|path_id| file_name_by_path_id.get(&path_id).cloned())
+            .filter(|file_name| seen.insert(file_name.clone()))
+            .map(Value::String)
+            .collect();
+
+        serialized_groups.push(json!({
+            "group_id": group_id,
+            "display_name": display_name,
+            "path_file_names": path_file_names
+        }));
+    }
+
+    write_json_file(
+        &path_groups_file(project_dir),
+        &json!({
+            "schema_version": 1,
+            "groups": serialized_groups
+        }),
+    )
+}
+
+fn read_path_group_refs(group: &Value) -> Vec<String> {
+    ["path_ids", "path_file_names", "path_files", "paths"]
+        .into_iter()
+        .find_map(|key| {
+            group.get(key).and_then(Value::as_array).map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
+fn path_id_lookup(paths: &[Value]) -> std::collections::HashMap<String, String> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let path_id = path.get("path_id")?.as_str()?.to_owned();
+            Some((path_id.clone(), path_id))
+        })
+        .collect()
+}
+
+fn file_name_lookup(paths: &[Value]) -> std::collections::HashMap<String, String> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let path_id = path.get("path_id")?.as_str()?.to_owned();
+            let file_name = safe_path_file_name(path.get("file_name")?.as_str()?).ok()?;
+            Some((file_name, path_id))
+        })
+        .collect()
+}
+
+fn path_groups_file(project_dir: &Path) -> PathBuf {
+    project_dir.join("pathgroups.json")
 }
 
 fn default_config_value() -> Result<Value, String> {
@@ -850,9 +1010,13 @@ fn workspace_version(path: &Path) -> Result<String, String> {
     let mut parts = vec![file_version(&path.join("config.json"))];
     let paths_dir = path.join("paths");
     let metadata_file = path_metadata_file(path);
+    let path_groups_file = path_groups_file(path);
 
     if metadata_file.exists() {
         parts.push(file_version(&metadata_file));
+    }
+    if path_groups_file.exists() {
+        parts.push(file_version(&path_groups_file));
     }
 
     if paths_dir.is_dir() {

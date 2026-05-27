@@ -12,12 +12,15 @@ import {
 } from "../model/path";
 import {
   createProjectDocument,
+  createProjectPathGroupDocument,
   createProjectPathDocument,
   createProjectWorkspaceDocument,
   type ProjectConfig,
   type ProjectDocument,
+  type ProjectPathGroupDocument,
   type ProjectPathDocument,
   type ProjectWorkspaceDocument,
+  type SerializedProjectPathGroupDocument,
   type SerializedProjectPathDocument,
   type SerializedPathEditorMetadata,
   type SerializedProjectWorkspaceDocument,
@@ -41,6 +44,19 @@ export interface ProjectWorkspaceArchive {
   config: ProjectConfig;
   paths: SerializedProjectPathDocument[];
   active_path_id?: string | null;
+  path_groups?: SerializedProjectPathGroupDocument[];
+  active_path_group_id?: string | null;
+}
+
+export interface SerializedPathGroupsFile {
+  schema_version: 1;
+  groups: SerializedPathGroupFileEntry[];
+}
+
+export interface SerializedPathGroupFileEntry {
+  group_id: string;
+  display_name: string;
+  path_file_names: string[];
 }
 
 export function serializeProjectWorkspaceDocument(
@@ -59,6 +75,12 @@ export function serializeProjectWorkspaceDocument(
       editor_metadata: serializePathEditorMetadata(path.path),
     })),
     active_path_id: workspace.active_path_id,
+    path_groups: workspace.path_groups.map((group) => ({
+      group_id: group.group_id,
+      display_name: group.display_name,
+      path_ids: [...group.path_ids],
+    })),
+    active_path_group_id: workspace.active_path_group_id,
   };
 }
 
@@ -80,6 +102,7 @@ export function deserializeProjectWorkspaceDocument(
     const paths = input.paths.map((entry, index) =>
       deserializeProjectPathDocument(entry, index, defaultLookup),
     );
+    const pathGroups = readWorkspacePathGroups(input, paths);
 
     return normalizeProjectWorkspaceDocument(
       createProjectWorkspaceDocument({
@@ -90,6 +113,11 @@ export function deserializeProjectWorkspaceDocument(
         active_path_id:
           typeof input.active_path_id === "string"
             ? input.active_path_id
+            : null,
+        path_groups: pathGroups,
+        active_path_group_id:
+          typeof input.active_path_group_id === "string"
+            ? input.active_path_group_id
             : null,
       }),
     );
@@ -152,6 +180,8 @@ export function projectDocumentToWorkspaceDocument(
     config: structuredClone(project.config),
     paths: [path],
     active_path_id: path.path_id,
+    path_groups: [],
+    active_path_group_id: null,
   });
 }
 
@@ -219,15 +249,20 @@ export function normalizeProjectWorkspaceDocument(
   workspace: ProjectWorkspaceDocument,
 ): ProjectWorkspaceDocument {
   const seen = new Set<string>();
+  const pathIdRemap = new Map<string, string>();
   const paths = workspace.paths.map((path, index) => {
     const fallbackFileName = ensureJsonFileName(
       path.file_name || path.display_name || `path-${index + 1}`,
     );
+    const originalPathId = path.path_id;
     let pathId = path.path_id || pathIdFromFileName(fallbackFileName, index);
     if (seen.has(pathId)) {
       pathId = `${pathId}-${index + 1}`;
     }
     seen.add(pathId);
+    if (originalPathId) {
+      pathIdRemap.set(originalPathId, pathId);
+    }
 
     return createProjectPathDocument({
       path_id: pathId,
@@ -237,11 +272,21 @@ export function normalizeProjectWorkspaceDocument(
       path: structuredClone(path.path),
     });
   });
+  const pathGroups = normalizePathGroups(
+    workspace.path_groups ?? [],
+    paths,
+    pathIdRemap,
+  );
   const active_path_id = paths.some(
     (path) => path.path_id === workspace.active_path_id,
   )
     ? workspace.active_path_id
     : (paths[0]?.path_id ?? null);
+  const active_path_group_id = pathGroups.some(
+    (group) => group.group_id === workspace.active_path_group_id,
+  )
+    ? workspace.active_path_group_id
+    : null;
 
   return createProjectWorkspaceDocument({
     project_id: workspace.project_id,
@@ -249,6 +294,8 @@ export function normalizeProjectWorkspaceDocument(
     config: workspace.config,
     paths,
     active_path_id,
+    path_groups: pathGroups,
+    active_path_group_id,
   });
 }
 
@@ -275,6 +322,8 @@ export function ensureWorkspaceHasActivePath(
     ...normalized,
     paths: [path],
     active_path_id: path.path_id,
+    path_groups: [],
+    active_path_group_id: null,
   });
 }
 
@@ -286,6 +335,7 @@ export function addPathToWorkspace(
     path?: ProjectPathDocument["path"];
     path_id?: string;
     makeActive?: boolean;
+    addToGroupId?: string | null;
   },
 ): ProjectWorkspaceDocument {
   const fileName = uniquePathFileName(
@@ -299,11 +349,24 @@ export function addPathToWorkspace(
     path: structuredClone(input.path ?? createPathModel()),
   });
 
+  const pathGroups =
+    input.addToGroupId === undefined || input.addToGroupId === null
+      ? workspace.path_groups
+      : workspace.path_groups.map((group) =>
+          group.group_id === input.addToGroupId
+            ? {
+                ...group,
+                path_ids: uniqueStrings([...group.path_ids, path.path_id]),
+              }
+            : group,
+        );
+
   return normalizeProjectWorkspaceDocument({
     ...workspace,
     paths: [...workspace.paths, path],
     active_path_id:
       input.makeActive === false ? workspace.active_path_id : path.path_id,
+    path_groups: pathGroups,
   });
 }
 
@@ -363,6 +426,331 @@ export function deletePathsFromWorkspace(
     ...workspace,
     paths,
     active_path_id,
+    path_groups: workspace.path_groups.map((group) => ({
+      ...group,
+      path_ids: group.path_ids.filter((pathId) => !deleted.has(pathId)),
+    })),
+  });
+}
+
+export function setActivePathGroupInWorkspace(
+  workspace: ProjectWorkspaceDocument,
+  groupId: string | null,
+): ProjectWorkspaceDocument {
+  const activeGroup = groupId
+    ? (workspace.path_groups.find((group) => group.group_id === groupId) ??
+      null)
+    : null;
+  const active_path_id =
+    activeGroup &&
+    !activeGroup.path_ids.includes(workspace.active_path_id ?? "")
+      ? (activeGroup.path_ids.find((pathId) =>
+          workspace.paths.some((path) => path.path_id === pathId),
+        ) ?? workspace.active_path_id)
+      : workspace.active_path_id;
+
+  return normalizeProjectWorkspaceDocument({
+    ...workspace,
+    active_path_id,
+    active_path_group_id: activeGroup ? activeGroup.group_id : null,
+  });
+}
+
+export function createPathGroupInWorkspace(
+  workspace: ProjectWorkspaceDocument,
+  input: {
+    display_name: string;
+    path_ids?: readonly string[];
+    group_id?: string;
+    makeActive?: boolean;
+  },
+): ProjectWorkspaceDocument {
+  const group = createProjectPathGroupDocument({
+    group_id: input.group_id ?? createPathGroupId(),
+    display_name: input.display_name,
+    path_ids: [...(input.path_ids ?? [])],
+  });
+
+  return normalizeProjectWorkspaceDocument({
+    ...workspace,
+    path_groups: [...workspace.path_groups, group],
+    active_path_group_id:
+      input.makeActive === false
+        ? workspace.active_path_group_id
+        : group.group_id,
+  });
+}
+
+export function renamePathGroupInWorkspace(
+  workspace: ProjectWorkspaceDocument,
+  groupId: string,
+  name: string,
+): ProjectWorkspaceDocument {
+  return normalizeProjectWorkspaceDocument({
+    ...workspace,
+    path_groups: workspace.path_groups.map((group) =>
+      group.group_id === groupId ? { ...group, display_name: name } : group,
+    ),
+  });
+}
+
+export function deletePathGroupFromWorkspace(
+  workspace: ProjectWorkspaceDocument,
+  groupId: string,
+  options: { deleteMemberPaths?: boolean } = {},
+): ProjectWorkspaceDocument {
+  const group = workspace.path_groups.find(
+    (candidate) => candidate.group_id === groupId,
+  );
+  if (!group) {
+    return normalizeProjectWorkspaceDocument(workspace);
+  }
+
+  const withoutGroup = {
+    ...workspace,
+    path_groups: workspace.path_groups.filter(
+      (candidate) => candidate.group_id !== groupId,
+    ),
+    active_path_group_id:
+      workspace.active_path_group_id === groupId
+        ? null
+        : workspace.active_path_group_id,
+  };
+
+  return options.deleteMemberPaths
+    ? deletePathsFromWorkspace(withoutGroup, group.path_ids)
+    : normalizeProjectWorkspaceDocument(withoutGroup);
+}
+
+export function addPathsToGroupInWorkspace(
+  workspace: ProjectWorkspaceDocument,
+  groupId: string,
+  pathIds: readonly string[],
+): ProjectWorkspaceDocument {
+  return normalizeProjectWorkspaceDocument({
+    ...workspace,
+    path_groups: workspace.path_groups.map((group) =>
+      group.group_id === groupId
+        ? { ...group, path_ids: uniqueStrings([...group.path_ids, ...pathIds]) }
+        : group,
+    ),
+  });
+}
+
+export function removePathsFromGroupInWorkspace(
+  workspace: ProjectWorkspaceDocument,
+  groupId: string,
+  pathIds: readonly string[],
+): ProjectWorkspaceDocument {
+  const removed = new Set(pathIds);
+  const nextWorkspace = normalizeProjectWorkspaceDocument({
+    ...workspace,
+    path_groups: workspace.path_groups.map((group) =>
+      group.group_id === groupId
+        ? {
+            ...group,
+            path_ids: group.path_ids.filter((pathId) => !removed.has(pathId)),
+          }
+        : group,
+    ),
+  });
+
+  return nextWorkspace.active_path_group_id === groupId
+    ? setActivePathGroupInWorkspace(nextWorkspace, groupId)
+    : nextWorkspace;
+}
+
+export function pathGroupsFromFile(
+  input: unknown,
+  paths: readonly ProjectPathDocument[],
+): ProjectPathGroupDocument[] {
+  return deserializeProjectPathGroups(readPathGroupArray(input), paths, {
+    preferFileNames: true,
+  });
+}
+
+export function serializePathGroupsFile(
+  workspace: ProjectWorkspaceDocument,
+): SerializedPathGroupsFile {
+  const fileNameByPathId = new Map(
+    workspace.paths.map((path) => [
+      path.path_id,
+      ensureJsonFileName(path.file_name),
+    ]),
+  );
+
+  return {
+    schema_version: 1,
+    groups: workspace.path_groups.map((group) => ({
+      group_id: group.group_id,
+      display_name: group.display_name,
+      path_file_names: group.path_ids.flatMap((pathId) => {
+        const fileName = fileNameByPathId.get(pathId);
+        return fileName ? [fileName] : [];
+      }),
+    })),
+  };
+}
+
+function readWorkspacePathGroups(
+  input: Record<string, unknown>,
+  paths: readonly ProjectPathDocument[],
+): ProjectPathGroupDocument[] {
+  const directGroups =
+    readPathGroupArray(input.path_groups).length > 0
+      ? readPathGroupArray(input.path_groups)
+      : readPathGroupArray(input.pathgroups).length > 0
+        ? readPathGroupArray(input.pathgroups)
+        : readPathGroupArray(input.pathGroups);
+
+  if (directGroups.length > 0) {
+    return deserializeProjectPathGroups(directGroups, paths);
+  }
+
+  const config = isObject(input.config) ? input.config : {};
+  const legacyGroups =
+    readPathGroupArray(config.path_groups).length > 0
+      ? readPathGroupArray(config.path_groups)
+      : readPathGroupArray(config.pathgroups).length > 0
+        ? readPathGroupArray(config.pathgroups)
+        : readPathGroupArray(config.gui);
+
+  return deserializeProjectPathGroups(legacyGroups, paths);
+}
+
+function readPathGroupArray(input: unknown): unknown[] {
+  if (Array.isArray(input)) {
+    return input;
+  }
+
+  if (!isObject(input)) {
+    return [];
+  }
+
+  if (Array.isArray(input.groups)) {
+    return input.groups;
+  }
+
+  if (Array.isArray(input.path_groups)) {
+    return input.path_groups;
+  }
+
+  if (Array.isArray(input.pathgroups)) {
+    return input.pathgroups;
+  }
+
+  if (Array.isArray(input.pathGroups)) {
+    return input.pathGroups;
+  }
+
+  return [];
+}
+
+function deserializeProjectPathGroups(
+  input: readonly unknown[],
+  paths: readonly ProjectPathDocument[],
+  options: { preferFileNames?: boolean } = {},
+): ProjectPathGroupDocument[] {
+  const pathById = new Map(paths.map((path) => [path.path_id, path]));
+  const pathByFileName = new Map(
+    paths.map((path) => [
+      ensureJsonFileName(path.file_name).toLowerCase(),
+      path,
+    ]),
+  );
+  const groups = input.flatMap((entry, index) => {
+    if (!isObject(entry)) {
+      return [];
+    }
+
+    const groupId = stringOr(entry.group_id ?? entry.id, `group-${index + 1}`);
+    const displayName = stringOr(
+      entry.display_name ?? entry.name,
+      `Path Group ${index + 1}`,
+    );
+    const rawPathRefs = readPathRefs(entry);
+    const pathIds = uniqueStrings(
+      rawPathRefs.flatMap((pathRef) => {
+        const idMatch =
+          !options.preferFileNames && pathById.get(pathRef)
+            ? pathById.get(pathRef)
+            : null;
+        const fileMatch = pathByFileName.get(
+          ensureJsonFileName(pathRef).toLowerCase(),
+        );
+        const fallbackIdMatch = pathById.get(pathRef);
+        const path = idMatch ?? fileMatch ?? fallbackIdMatch;
+        return path ? [path.path_id] : [];
+      }),
+    );
+
+    return [
+      createProjectPathGroupDocument({
+        group_id: groupId,
+        display_name: displayName,
+        path_ids: pathIds,
+      }),
+    ];
+  });
+
+  return normalizePathGroups(groups, paths);
+}
+
+function readPathRefs(entry: Record<string, unknown>): string[] {
+  const candidates = [
+    entry.path_ids,
+    entry.path_file_names,
+    entry.path_files,
+    entry.paths,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate.flatMap((value) =>
+        typeof value === "string" && value.trim() ? [value.trim()] : [],
+      );
+    }
+  }
+
+  return [];
+}
+
+function normalizePathGroups(
+  groups: readonly ProjectPathGroupDocument[],
+  paths: readonly ProjectPathDocument[],
+  pathIdRemap = new Map<string, string>(),
+): ProjectPathGroupDocument[] {
+  const pathIds = new Set(paths.map((path) => path.path_id));
+  const seenGroupIds = new Set<string>();
+
+  return groups.flatMap((group, index) => {
+    const fallbackId = createPathGroupId();
+    const rawGroupId =
+      typeof group.group_id === "string" && group.group_id.trim()
+        ? group.group_id.trim()
+        : fallbackId;
+    const groupId = seenGroupIds.has(rawGroupId)
+      ? `${rawGroupId}-${index + 1}`
+      : rawGroupId;
+    seenGroupIds.add(groupId);
+
+    const displayName =
+      typeof group.display_name === "string" && group.display_name.trim()
+        ? group.display_name.trim()
+        : `Path Group ${index + 1}`;
+    const path_ids = uniqueStrings(
+      (group.path_ids ?? []).flatMap((pathId) => {
+        const remapped = pathIdRemap.get(pathId) ?? pathId;
+        return pathIds.has(remapped) ? [remapped] : [];
+      }),
+    );
+
+    return [
+      createProjectPathGroupDocument({
+        group_id: groupId,
+        display_name: displayName,
+        path_ids,
+      }),
+    ];
   });
 }
 
@@ -382,6 +770,10 @@ export function createWorkspaceId(): string {
 
 export function createPathId(): string {
   return `path-${randomId()}`;
+}
+
+export function createPathGroupId(): string {
+  return `group-${randomId()}`;
 }
 
 function deserializeProjectPathDocumentFromArchive(
@@ -555,6 +947,17 @@ function finiteNumber(value: unknown): number | null {
 function finiteInteger(value: unknown): number | null {
   const parsed = finiteNumber(value);
   return parsed === null ? null : Math.trunc(parsed);
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+    return true;
+  });
 }
 
 function isWorkspaceLike(input: unknown): input is Record<string, unknown> & {

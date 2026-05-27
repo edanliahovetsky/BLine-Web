@@ -39,6 +39,12 @@ export interface ProjectPathDocument {
   path: PathModel;
 }
 
+export interface ProjectPathGroupDocument {
+  group_id: string;
+  display_name: string;
+  path_ids: string[];
+}
+
 export interface ProjectWorkspaceDocument {
   schema_version: ProjectSchemaVersion;
   project_id: string;
@@ -46,6 +52,8 @@ export interface ProjectWorkspaceDocument {
   config: ProjectConfig;
   paths: ProjectPathDocument[];
   active_path_id: string | null;
+  path_groups: ProjectPathGroupDocument[];
+  active_path_group_id: string | null;
 }
 
 export interface SerializedRangedConstraint {
@@ -137,6 +145,12 @@ export interface SerializedProjectPathDocument {
   editor_metadata?: SerializedPathEditorMetadata;
 }
 
+export interface SerializedProjectPathGroupDocument {
+  group_id: string;
+  display_name: string;
+  path_ids: string[];
+}
+
 export interface SerializedProjectWorkspaceDocument {
   schema_version: ProjectSchemaVersion;
   project_id: string;
@@ -144,6 +158,8 @@ export interface SerializedProjectWorkspaceDocument {
   config: ProjectConfig;
   paths: SerializedProjectPathDocument[];
   active_path_id?: string | null;
+  path_groups?: SerializedProjectPathGroupDocument[];
+  active_path_group_id?: string | null;
 }
 
 export interface CreateProjectDocumentInput {
@@ -161,12 +177,20 @@ export interface CreateProjectPathDocumentInput {
   path: PathModel;
 }
 
+export interface CreateProjectPathGroupDocumentInput {
+  group_id: string;
+  display_name: string;
+  path_ids?: string[];
+}
+
 export interface CreateProjectWorkspaceDocumentInput {
   project_id: string;
   display_name: string;
   config?: unknown;
   paths?: ProjectPathDocument[];
   active_path_id?: string | null;
+  path_groups?: ProjectPathGroupDocument[];
+  active_path_group_id?: string | null;
 }
 
 export function createProjectDocument({
@@ -200,15 +224,32 @@ export function createProjectPathDocument({
   };
 }
 
+export function createProjectPathGroupDocument({
+  group_id,
+  display_name,
+  path_ids = [],
+}: CreateProjectPathGroupDocumentInput): ProjectPathGroupDocument {
+  return {
+    group_id,
+    display_name,
+    path_ids,
+  };
+}
+
 export function createProjectWorkspaceDocument({
   project_id,
   display_name,
   config,
   paths = [],
   active_path_id = paths[0]?.path_id ?? null,
+  path_groups = [],
+  active_path_group_id = null,
 }: CreateProjectWorkspaceDocumentInput): ProjectWorkspaceDocument {
   const activePathExists = paths.some(
     (path) => path.path_id === active_path_id,
+  );
+  const activeGroupExists = path_groups.some(
+    (group) => group.group_id === active_path_group_id,
   );
 
   return {
@@ -220,5 +261,7 @@ export function createProjectWorkspaceDocument({
     active_path_id: activePathExists
       ? active_path_id
       : (paths[0]?.path_id ?? null),
+    path_groups,
+    active_path_group_id: activeGroupExists ? active_path_group_id : null,
   };
 }
