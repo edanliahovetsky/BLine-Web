@@ -3,10 +3,15 @@ import {
   splitRangedConstraintInstance,
 } from "../../core/constraints/rangedConstraints";
 import {
+  applyAutoVelocityConstraintsToOrdinals,
+  refreshAutoVelocityConstraints,
+} from "../../core/constraints/autoVelocityApply";
+import {
   fieldCoordinateOffsetMeters,
   fieldLengthMeters,
   fieldWidthMeters,
 } from "../../canvas/constants";
+import { getDefaultOptionalConfigValue } from "../../core/config/projectConfig";
 import {
   getElementHeadingRadians,
   getElementPosition,
@@ -116,6 +121,105 @@ export function createInsertPathElementCommand(
       return nextProject;
     },
   };
+}
+
+export function createInsertPathElementsCommand(
+  index: number,
+  elements: readonly PathElement[],
+  options: {
+    applyAutoVelocityToInsertedRange?: boolean;
+    refreshAutoVelocity?: boolean;
+  } = {},
+): HistoryCommand<ProjectDocument> {
+  let previousConstraints: RangedConstraint[] | null = null;
+  const insertedElements = elements.map((element) => structuredClone(element));
+
+  return {
+    description: `Insert ${insertedElements.length} path elements`,
+    apply: (project) => {
+      const nextProject = structuredClone(project);
+      const previousElements = nextProject.path.path_elements.slice();
+      previousConstraints ??= structuredClone(
+        nextProject.path.ranged_constraints,
+      );
+      const insertionIndex = clampIndex(
+        index,
+        nextProject.path.path_elements.length,
+      );
+      nextProject.path.path_elements.splice(
+        insertionIndex,
+        0,
+        ...insertedElements.map((element) => structuredClone(element)),
+      );
+      remapRangedConstraints(nextProject.path, previousElements);
+      if (options.applyAutoVelocityToInsertedRange) {
+        nextProject.path = applyAutoVelocityConstraintsToOrdinals(
+          nextProject.path,
+          nextProject.config,
+          autoVelocityOrdinalsForInsertedRange(
+            nextProject.path.path_elements,
+            insertionIndex,
+            insertedElements.length,
+          ),
+        );
+      } else if (options.refreshAutoVelocity) {
+        nextProject.path = refreshAutoVelocityConstraints(
+          nextProject.path,
+          nextProject.config,
+          { whenPresentOnly: true },
+        );
+      }
+      return nextProject;
+    },
+    revert: (project) => {
+      const nextProject = structuredClone(project);
+      const removalIndex = clampIndex(
+        index,
+        nextProject.path.path_elements.length,
+      );
+      nextProject.path.path_elements.splice(
+        removalIndex,
+        insertedElements.length,
+      );
+      if (previousConstraints) {
+        nextProject.path.ranged_constraints =
+          structuredClone(previousConstraints);
+      }
+      return nextProject;
+    },
+  };
+}
+
+function autoVelocityOrdinalsForInsertedRange(
+  elements: readonly PathElement[],
+  insertionIndex: number,
+  insertedLength: number,
+): number[] {
+  const insertedStart = clampIndex(insertionIndex, elements.length);
+  const insertedEnd = insertedStart + Math.max(0, Math.trunc(insertedLength));
+  const ordinals: number[] = [];
+  let anchorOrdinal = 0;
+  let foundInsertedAnchor = false;
+
+  for (let index = 0; index < elements.length; index += 1) {
+    if (!isAnchorElement(elements[index])) {
+      continue;
+    }
+
+    anchorOrdinal += 1;
+    if (index >= insertedStart && index < insertedEnd) {
+      ordinals.push(anchorOrdinal);
+      foundInsertedAnchor = true;
+      continue;
+    }
+
+    if (foundInsertedAnchor && index >= insertedEnd) {
+      ordinals.push(anchorOrdinal);
+      break;
+    }
+  }
+
+  return ordinals;
 }
 
 export function createRemovePathElementCommand(
@@ -449,7 +553,7 @@ export function createDefaultElement(
     return createTranslationTarget({
       x_meters: position.x_meters,
       y_meters: position.y_meters,
-      intermediate_handoff_radius_meters: 0.25,
+      intermediate_handoff_radius_meters: defaultHandoffRadius(project),
     });
   }
 
@@ -458,7 +562,7 @@ export function createDefaultElement(
       translation_target: createTranslationTarget({
         x_meters: position.x_meters,
         y_meters: position.y_meters,
-        intermediate_handoff_radius_meters: 0.25,
+        intermediate_handoff_radius_meters: defaultHandoffRadius(project),
       }),
       rotation_target: createRotationTarget({
         rotation_radians: headingRadians,
@@ -478,6 +582,15 @@ export function createDefaultElement(
     t_ratio: 0.5,
     lib_key: "event",
   });
+}
+
+function defaultHandoffRadius(project: ProjectDocument): number {
+  return (
+    getDefaultOptionalConfigValue(
+      project.config,
+      "intermediate_handoff_radius_meters",
+    ) ?? 0.45
+  );
 }
 
 export function createConvertedElement(

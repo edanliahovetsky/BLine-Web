@@ -34,9 +34,16 @@ const defaultSidebarSectionState: SidebarSectionState = {
 interface SidebarProps {
   project: ProjectDocument | null;
   selectedElementIndex: number | null;
+  curveToolActive?: boolean;
+  onStartCurve?(insertionIndex: number): void;
 }
 
-export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
+export function Sidebar({
+  project,
+  selectedElementIndex,
+  curveToolActive = false,
+  onStartCurve,
+}: SidebarProps) {
   const [sectionState, setSectionState] = useState<SidebarSectionState>(() =>
     readSidebarSectionState(),
   );
@@ -66,6 +73,16 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
     selectionStore
       .getState()
       .selectElement(insertionIndex, projectStore.getState().project);
+  };
+
+  const handleAddCurve = () => {
+    if (!project || !onStartCurve || curveToolActive) {
+      return;
+    }
+
+    onStartCurve(
+      getInsertionIndex(project, "translation", selectedElementIndex),
+    );
   };
 
   const handleRemoveElement = (index: number) => {
@@ -167,9 +184,11 @@ export function Sidebar({ project, selectedElementIndex }: SidebarProps) {
       <ElementList
         project={project}
         selectedElementIndex={selectedElementIndex}
+        curveToolActive={curveToolActive}
         open={sectionState.pathElements}
         onToggleSection={() => handleToggleSection("pathElements")}
         onAddElement={handleAddElement}
+        onAddCurve={handleAddCurve}
         onSelectElement={handleSelectElement}
         onRemoveElement={handleRemoveElement}
         onMoveElement={handleMoveElement}

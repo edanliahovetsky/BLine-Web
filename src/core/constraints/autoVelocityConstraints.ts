@@ -103,7 +103,7 @@ interface VelocityCapEvaluation {
 
 const defaultMaxVelocityMps = 4.5;
 const defaultMaxAccelerationMps2 = 7;
-const defaultHandoffRadiusMeters = 0.2;
+const defaultHandoffRadiusMeters = 0.45;
 const defaultSampleStepMeters = 0.05;
 const defaultFirstOrdinalVelocityRatio = 0.5;
 const solverDtSeconds = 0.02;
