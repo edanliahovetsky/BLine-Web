@@ -51,6 +51,7 @@ const benchmarkOptions = {
   velocitySafetyFactor: 0.9,
   accelerationSafetyFactor: 0.8,
 };
+const maxTypicalRuntimeMs = 200;
 
 describe("auto velocity benchmark", () => {
   it("generates safe caps that stay close to a slow local oracle", () => {
@@ -119,7 +120,7 @@ describe("auto velocity benchmark", () => {
         .filter((result) => result.typicalRuntimePath)
         .map((result) => result.runtimeMs),
     );
-    expect(worstTypicalRuntime).toBeLessThan(150);
+    expect(worstTypicalRuntime).toBeLessThan(maxTypicalRuntimeMs);
   }, 120_000);
 });
 

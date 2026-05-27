@@ -26,6 +26,7 @@ import {
   shortestAngularDistance,
   wrapAngleRadians,
 } from "../sim/simGeometry";
+import { autoVelocityObjectiveCost } from "./autoVelocityObjective";
 import type {
   ChassisSpeeds,
   RotationDomainEvent,
@@ -295,7 +296,7 @@ export function generateAutoVelocityProfile(
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
   );
-  liftVelocityCapsWithinTimeBudget(
+  const postLiftEvaluation = liftVelocityCapsWithinTimeBudget(
     simulationContext,
     anchors,
     segments,
@@ -304,6 +305,16 @@ export function generateAutoVelocityProfile(
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
     postValidationEvaluation,
+  );
+  liftBudgetCapsAtObjectiveRatios(
+    simulationContext,
+    anchors,
+    segments,
+    corners,
+    solver.capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+    postLiftEvaluation,
   );
   optimizeSmallPathCapsWithGenericSimulation(
     simulationContext,
@@ -1044,6 +1055,7 @@ function preserveTightSingleHandoffIncomingCap(
     corners.length !== 1 ||
     !corner ||
     corner.turnAngleRadians <= Math.PI / 3 ||
+    corner.turnAngleRadians > Math.PI / 2 + 1e-6 ||
     corner.effectiveRadiusMeters > 0.3
   ) {
     return;
@@ -1125,6 +1137,86 @@ function liftVelocityCapsWithinTimeBudget(
         }
       }
 
+      capsByOrdinal.set(ordinal, bestValue);
+      evaluation = bestEvaluation;
+    }
+  }
+
+  return evaluation;
+}
+
+function liftBudgetCapsAtObjectiveRatios(
+  simulationContext: AutoVelocitySimulationContext,
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: Map<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  currentEvaluation: VelocityCapEvaluation,
+): VelocityCapEvaluation {
+  if (
+    currentEvaluation.passed ||
+    !evaluationMeetsConstraintBudget(currentEvaluation)
+  ) {
+    return currentEvaluation;
+  }
+
+  let evaluation = currentEvaluation;
+  const maxAllowedTimeS = currentEvaluation.totalTimeS * 1.05 + solverDtSeconds;
+  const ordinals = Array.from(
+    { length: Math.max(0, anchors.length - 1) },
+    (_, index) => index + 2,
+  );
+
+  for (const ordinal of ordinals) {
+    const current = capsByOrdinal.get(ordinal);
+    if (
+      current === undefined ||
+      usableMaxVelocityMps - current <= solverCapToleranceMps
+    ) {
+      continue;
+    }
+
+    let bestValue = current;
+    let bestEvaluation = evaluation;
+    let bestCost = velocityObjectiveCost(evaluation, capsByOrdinal);
+
+    for (const candidate of objectiveRatioLiftGrid(
+      current,
+      usableMaxVelocityMps,
+    )) {
+      if (candidate <= bestValue + solverCapToleranceMps) {
+        continue;
+      }
+
+      const trialCaps = new Map(capsByOrdinal);
+      trialCaps.set(ordinal, candidate);
+      const trialEvaluation = evaluateVelocityCapsWithGenericSimulation(
+        simulationContext,
+        segments,
+        corners,
+        trialCaps,
+        usableMaxVelocityMps,
+        usableMaxAccelerationMps2,
+      );
+
+      if (
+        !evaluationMeetsConstraintBudget(trialEvaluation) ||
+        trialEvaluation.totalTimeS > maxAllowedTimeS
+      ) {
+        continue;
+      }
+
+      const trialCost = velocityObjectiveCost(trialEvaluation, trialCaps);
+      if (trialCost < bestCost - minPositive) {
+        bestValue = candidate;
+        bestEvaluation = trialEvaluation;
+        bestCost = trialCost;
+      }
+    }
+
+    if (bestValue > current + solverCapToleranceMps) {
       capsByOrdinal.set(ordinal, bestValue);
       evaluation = bestEvaluation;
     }
@@ -1459,25 +1551,71 @@ function optimizeHandoffPair(
   let bestIncoming = currentIncoming;
   let bestOutgoing = currentOutgoing;
   let bestEvaluation = currentEvaluation;
-  let bestCaps = capsByOrdinal;
-  const incomingCandidates = velocityGrid(
-    currentIncoming,
-    minCap,
-    usableMaxVelocityMps,
-  );
-  const outgoingCandidates = velocityGrid(
-    currentOutgoing,
-    minCap,
-    usableMaxVelocityMps,
-  );
+  let bestCaps = new Map(capsByOrdinal);
 
-  // Gate error is not monotonic: going too slowly can miss the exit gate too.
-  // Search the adjacent cap pair and prefer the fastest candidate that passes.
-  for (const incoming of incomingCandidates) {
-    for (const outgoing of outgoingCandidates) {
-      const trialCaps = new Map(capsByOrdinal);
-      trialCaps.set(incomingOrdinal, incoming);
-      trialCaps.set(outgoingOrdinal, outgoing);
+  if (simulationContext.rotationKeyframes.length > 0) {
+    for (const incoming of velocityGrid(
+      currentIncoming,
+      minCap,
+      usableMaxVelocityMps,
+    )) {
+      for (const outgoing of velocityGrid(
+        currentOutgoing,
+        minCap,
+        usableMaxVelocityMps,
+      )) {
+        const trialCaps = new Map(capsByOrdinal);
+        trialCaps.set(incomingOrdinal, incoming);
+        trialCaps.set(outgoingOrdinal, outgoing);
+        const trialEvaluation = evaluateVelocityCaps(
+          simulationContext,
+          segments,
+          corners,
+          trialCaps,
+          usableMaxVelocityMps,
+          usableMaxAccelerationMps2,
+        );
+
+        if (
+          isBetterEvaluation(
+            trialEvaluation,
+            trialCaps,
+            bestEvaluation,
+            bestCaps,
+          )
+        ) {
+          bestIncoming = incoming;
+          bestOutgoing = outgoing;
+          bestEvaluation = trialEvaluation;
+          bestCaps = trialCaps;
+        }
+      }
+    }
+
+    return {
+      changed:
+        Math.abs(bestIncoming - currentIncoming) > solverCapToleranceMps ||
+        Math.abs(bestOutgoing - currentOutgoing) > solverCapToleranceMps,
+      incomingCap: bestIncoming,
+      outgoingCap: bestOutgoing,
+      evaluation: bestEvaluation,
+    };
+  }
+
+  // With a scalar objective, a small coordinate search gives the pair room to
+  // trade safety and speed without paying for the full quadratic grid.
+  for (const ordinal of [incomingOrdinal, outgoingOrdinal]) {
+    const current = bestCaps.get(ordinal) ?? usableMaxVelocityMps;
+    let ordinalBestCaps = bestCaps;
+    let ordinalBestEvaluation = bestEvaluation;
+
+    for (const candidate of objectiveVelocityGrid(
+      current,
+      minCap,
+      usableMaxVelocityMps,
+    )) {
+      const trialCaps = new Map(bestCaps);
+      trialCaps.set(ordinal, candidate);
       const trialEvaluation = evaluateVelocityCaps(
         simulationContext,
         segments,
@@ -1488,13 +1626,23 @@ function optimizeHandoffPair(
       );
 
       if (
-        isBetterEvaluation(trialEvaluation, trialCaps, bestEvaluation, bestCaps)
+        isBetterEvaluation(
+          trialEvaluation,
+          trialCaps,
+          ordinalBestEvaluation,
+          ordinalBestCaps,
+        )
       ) {
-        bestIncoming = incoming;
-        bestOutgoing = outgoing;
-        bestEvaluation = trialEvaluation;
-        bestCaps = trialCaps;
+        ordinalBestCaps = trialCaps;
+        ordinalBestEvaluation = trialEvaluation;
       }
+    }
+
+    if (ordinalBestEvaluation !== bestEvaluation) {
+      bestCaps = new Map(ordinalBestCaps);
+      bestEvaluation = ordinalBestEvaluation;
+      bestIncoming = bestCaps.get(incomingOrdinal) ?? currentIncoming;
+      bestOutgoing = bestCaps.get(outgoingOrdinal) ?? currentOutgoing;
     }
   }
 
@@ -2856,6 +3004,26 @@ function velocityGrid(
   );
 }
 
+function objectiveVelocityGrid(
+  current: number,
+  minCap: number,
+  usableMaxVelocityMps: number,
+): number[] {
+  return uniqueSortedVelocities(
+    [
+      current,
+      minCap,
+      usableMaxVelocityMps * 0.18,
+      usableMaxVelocityMps * 0.25,
+      usableMaxVelocityMps * 0.35,
+      usableMaxVelocityMps * 0.5,
+      usableMaxVelocityMps * 0.65,
+    ],
+    minCap,
+    usableMaxVelocityMps,
+  );
+}
+
 function refinementVelocityGrid(
   current: number,
   minCap: number,
@@ -2910,6 +3078,22 @@ function liftVelocityGrid(
       current + (usableMaxVelocityMps - current) * 0.7,
       current + (usableMaxVelocityMps - current) * 0.5,
       current + (usableMaxVelocityMps - current) * 0.3,
+      current,
+    ],
+    current,
+    usableMaxVelocityMps,
+  ).reverse();
+}
+
+function objectiveRatioLiftGrid(
+  current: number,
+  usableMaxVelocityMps: number,
+): number[] {
+  return uniqueSortedVelocities(
+    [
+      usableMaxVelocityMps * 0.75,
+      usableMaxVelocityMps * 0.6,
+      current + usableMaxVelocityMps * 0.02,
       current,
     ],
     current,
@@ -3093,55 +3277,47 @@ function isBetterEvaluation(
   current: VelocityCapEvaluation,
   currentCaps: ReadonlyMap<number, number>,
 ): boolean {
-  const candidateQuality = evaluationQuality(candidate);
-  const currentQuality = evaluationQuality(current);
+  return (
+    velocityObjectiveCost(candidate, candidateCaps) <
+    velocityObjectiveCost(current, currentCaps) - minPositive
+  );
+}
 
-  if (candidate.passed !== current.passed) {
-    return candidate.passed;
-  }
+function velocityObjectiveCost(
+  evaluation: VelocityCapEvaluation,
+  caps: ReadonlyMap<number, number>,
+): number {
+  return autoVelocityObjectiveCost({
+    reachedEndRatio: reachedEndRatio(evaluation),
+    handoffRatios: evaluationHandoffRatios(evaluation),
+    totalTimeS: evaluation.totalTimeS,
+    capsByOrdinal: caps,
+  });
+}
 
-  if (!candidate.passed) {
-    if (candidateQuality.maxRatio < currentQuality.maxRatio - 0.02) {
-      return true;
-    }
-    if (candidateQuality.maxRatio > currentQuality.maxRatio + 0.02) {
-      return false;
-    }
-    if (
-      candidateQuality.sumSquaredRatio <
-      currentQuality.sumSquaredRatio - 0.05
-    ) {
-      return true;
-    }
-    if (
-      candidateQuality.sumSquaredRatio >
-      currentQuality.sumSquaredRatio + 0.05
-    ) {
-      return false;
-    }
-    if (candidate.totalTimeS < current.totalTimeS - solverDtSeconds) {
-      return true;
-    }
-    if (candidate.totalTimeS > current.totalTimeS + solverDtSeconds) {
-      return false;
-    }
-  } else if (candidate.totalTimeS < current.totalTimeS - solverDtSeconds) {
-    return true;
-  } else if (candidate.totalTimeS > current.totalTimeS + solverDtSeconds) {
-    return false;
-  } else if (
-    candidateQuality.sumSquaredRatio <
-    currentQuality.sumSquaredRatio - 0.05
-  ) {
-    return true;
-  } else if (
-    candidateQuality.sumSquaredRatio >
-    currentQuality.sumSquaredRatio + 0.05
-  ) {
-    return false;
-  }
+function evaluationHandoffRatios(
+  evaluation: VelocityCapEvaluation,
+): readonly number[] {
+  return evaluation.handoffs.flatMap((handoff) => [
+    handoff.combinedErrorMeters /
+      Math.max(handoff.toleranceMeters, minPositive),
+    handoff.postHandoffPeakErrorMeters /
+      Math.max(handoff.postHandoffToleranceMeters, minPositive),
+  ]);
+}
 
-  return capSum(candidateCaps) > capSum(currentCaps) + solverCapToleranceMps;
+function evaluationMeetsConstraintBudget(
+  evaluation: VelocityCapEvaluation,
+): boolean {
+  return (
+    evaluation.reachedEnd &&
+    evaluation.handoffs.every(
+      (handoff) =>
+        handoff.combinedErrorMeters <= handoff.toleranceMeters &&
+        handoff.postHandoffPeakErrorMeters <=
+          handoff.postHandoffToleranceMeters,
+    )
+  );
 }
 
 function evaluationQuality(evaluation: VelocityCapEvaluation): {
@@ -3188,14 +3364,6 @@ function reachedEndRatio(evaluation: VelocityCapEvaluation): number {
     evaluation.totalLengthMeters - evaluation.finalGlobalSMeters,
   );
   return 1 + remainingMeters / 0.02;
-}
-
-function capSum(caps: ReadonlyMap<number, number>): number {
-  let sum = 0;
-  for (const value of caps.values()) {
-    sum += value;
-  }
-  return sum;
 }
 
 function windowCapSum(
