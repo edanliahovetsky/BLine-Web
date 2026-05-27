@@ -37,7 +37,6 @@ import {
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
-import { SidebarSelectControl } from "../controls/SidebarControls";
 import {
   isEditableShortcutTarget,
   isInteractiveShortcutTarget,
@@ -46,6 +45,7 @@ import {
   removeSelectedRangedConstraint,
 } from "../keyboardShortcuts";
 import {
+  ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
   FilePlusIcon,
@@ -1602,12 +1602,12 @@ function ToolbarPathNavigator({
 
   return (
     <div className="path-toolbar-navigator" data-testid="path-toolbar-nav">
-      <label
+      <div
         className="path-toolbar-navigator__field path-toolbar-navigator__field--collection"
         style={toolbarSelectWidthStyle(collectionLabel, 14, 26)}
       >
-        <span>Collection</span>
-        <SidebarSelectControl
+        <span className="path-toolbar-navigator__label">Collection</span>
+        <ToolbarSelectControl
           ariaLabel="Toolbar collection"
           value={collectionValue}
           disabled={!workspace}
@@ -1616,13 +1616,13 @@ function ToolbarPathNavigator({
             onSelectGroup(value === "__all_paths__" ? null : value)
           }
         />
-      </label>
-      <label
+      </div>
+      <div
         className="path-toolbar-navigator__field path-toolbar-navigator__field--path"
         style={toolbarSelectWidthStyle(pathLabel, 15, 34)}
       >
-        <span>Path</span>
-        <SidebarSelectControl
+        <span className="path-toolbar-navigator__label">Path</span>
+        <ToolbarSelectControl
           ariaLabel="Toolbar path"
           value={pathValue}
           disabled={visiblePaths.length === 0}
@@ -1633,7 +1633,7 @@ function ToolbarPathNavigator({
             }
           }}
         />
-      </label>
+      </div>
       <button
         type="button"
         className="path-toolbar-navigator__library"
@@ -1647,6 +1647,136 @@ function ToolbarPathNavigator({
           ? `${visiblePaths.length} visible`
           : `${paths.length} total`}
       </span>
+    </div>
+  );
+}
+
+interface ToolbarSelectOption<T extends string> {
+  label: string;
+  value: T;
+}
+
+function ToolbarSelectControl<T extends string>({
+  ariaLabel,
+  disabled = false,
+  onChange,
+  options,
+  value,
+}: {
+  ariaLabel: string;
+  disabled?: boolean;
+  onChange(value: T): void;
+  options: readonly ToolbarSelectOption<T>[];
+  value: T;
+}) {
+  const listboxId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const selectedOption =
+    options.find((option) => option.value === value) ?? options[0] ?? null;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const selectRelativeOption = (direction: 1 | -1) => {
+    if (options.length === 0) {
+      return;
+    }
+
+    const currentIndex = Math.max(
+      0,
+      options.findIndex((option) => option.value === value),
+    );
+    const nextIndex =
+      (currentIndex + direction + options.length) % options.length;
+    const nextOption = options[nextIndex];
+    if (nextOption) {
+      onChange(nextOption.value);
+    }
+  };
+
+  return (
+    <div
+      className={`toolbar-select-control${open ? " is-open" : ""}`}
+      ref={rootRef}
+    >
+      <button
+        type="button"
+        className="toolbar-select-control__button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            if (!open) {
+              setOpen(true);
+              return;
+            }
+            selectRelativeOption(event.key === "ArrowDown" ? 1 : -1);
+          }
+        }}
+      >
+        <span className="toolbar-select-control__value">
+          {selectedOption?.label ?? ""}
+        </span>
+        <span className="toolbar-select-control__indicator" aria-hidden="true">
+          <ChevronDownIcon size={12} />
+        </span>
+      </button>
+      {open ? (
+        <div
+          className="toolbar-select-control__menu"
+          id={listboxId}
+          role="listbox"
+          aria-label={`${ariaLabel} options`}
+        >
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={[
+                "toolbar-select-control__option",
+                option.value === value ? "is-selected" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              role="option"
+              aria-selected={option.value === value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -668,9 +668,7 @@ test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
   await page.getByTestId("path-element-row-0").click();
   await page.getByLabel("X (m)").fill("6.8");
   await page.getByLabel("Y (m)").fill("2.8");
-  await page
-    .getByLabel("Toolbar path")
-    .selectOption({ label: "Phase 1 Canvas Draft" });
+  await selectToolbarOption(page, "Toolbar path", "Phase 1 Canvas Draft");
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Score Autos / Phase 1 Canvas Draft",
   );
@@ -766,18 +764,12 @@ test("manages paths from the canonical path library", async ({ page }) => {
   );
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
 
-  await page
-    .getByLabel("Toolbar collection")
-    .selectOption({ label: "All Paths" });
+  await selectToolbarOption(page, "Toolbar collection", "All Paths");
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Current Path: Library Branch",
   );
-  await page
-    .getByLabel("Toolbar collection")
-    .selectOption({ label: "Score Autos" });
-  await page
-    .getByLabel("Toolbar path")
-    .selectOption({ label: "Phase 1 Canvas Draft" });
+  await selectToolbarOption(page, "Toolbar collection", "Score Autos");
+  await selectToolbarOption(page, "Toolbar path", "Phase 1 Canvas Draft");
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Score Autos / Phase 1 Canvas Draft",
   );
@@ -1923,14 +1915,12 @@ test("switches paths from the toolbar path selector", async ({ page }) => {
 
   await createNewPathFromTopMenu(page, "Second Path");
 
-  await page
-    .getByLabel("Toolbar path")
-    .selectOption({ label: "Phase 1 Canvas Draft" });
+  await selectToolbarOption(page, "Toolbar path", "Phase 1 Canvas Draft");
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Phase 1 Canvas Draft",
   );
 
-  await page.getByLabel("Toolbar path").selectOption({ label: "Second Path" });
+  await selectToolbarOption(page, "Toolbar path", "Second Path");
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Second Path",
   );
@@ -2156,10 +2146,9 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
     0,
   );
   await expect(page.getByTestId("app-shell")).toBeVisible();
+  await page.getByLabel("Toolbar path").click();
   await expect(
-    page.getByLabel("Toolbar path").locator("option", {
-      hasText: "Phase 1 Canvas Draft",
-    }),
+    page.getByRole("option", { name: "Phase 1 Canvas Draft" }),
   ).toHaveCount(0);
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Second Path",
@@ -2711,6 +2700,18 @@ async function openPathLibraryDialog(page: Page): Promise<Locator> {
   const dialog = page.getByRole("dialog", { name: "Path Library" });
   await expect(dialog).toBeVisible();
   return dialog;
+}
+
+async function selectToolbarOption(
+  page: Page,
+  label: "Toolbar collection" | "Toolbar path",
+  optionName: string,
+): Promise<void> {
+  await page.getByLabel(label).click();
+  await page
+    .getByRole("listbox", { name: `${label} options` })
+    .getByRole("option", { name: optionName, exact: true })
+    .click();
 }
 
 async function createPathGroupFromTopMenu(
