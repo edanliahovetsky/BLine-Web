@@ -51,20 +51,21 @@ const benchmarkOptions = {
   velocitySafetyFactor: 0.9,
   accelerationSafetyFactor: 0.8,
 };
-const maxTypicalRuntimeMs = 200;
+// Runtime budgets are CPU-specific, so they are opt-in instead of CI correctness.
+const maxTypicalRuntimeMs = readRuntimeBudgetMs();
 
 describe("auto velocity benchmark", () => {
   it("generates safe caps that stay close to a slow local oracle", () => {
     const results = benchmarkCases().map((benchmark) => {
-      const startedAt = performance.now();
+      const shouldMeasureRuntime =
+        maxTypicalRuntimeMs !== null && benchmark.typicalRuntimePath;
+      const startedAt = shouldMeasureRuntime ? performance.now() : 0;
       const profile = generateAutoVelocityProfile(
         benchmark.path,
         benchmarkConfig,
         benchmarkOptions,
       );
-      const runtimeMs = benchmark.typicalRuntimePath
-        ? performance.now() - startedAt
-        : 0;
+      const runtimeMs = shouldMeasureRuntime ? performance.now() - startedAt : 0;
       const cachedProfile = generateAutoVelocityProfile(
         benchmark.path,
         benchmarkConfig,
@@ -114,15 +115,33 @@ describe("auto velocity benchmark", () => {
     );
     expect(capFailures).toEqual([]);
 
-    const worstTypicalRuntime = Math.max(
-      0,
-      ...results
-        .filter((result) => result.typicalRuntimePath)
-        .map((result) => result.runtimeMs),
-    );
-    expect(worstTypicalRuntime).toBeLessThan(maxTypicalRuntimeMs);
+    if (maxTypicalRuntimeMs !== null) {
+      const worstTypicalRuntime = Math.max(
+        0,
+        ...results
+          .filter((result) => result.typicalRuntimePath)
+          .map((result) => result.runtimeMs),
+      );
+      expect(worstTypicalRuntime).toBeLessThan(maxTypicalRuntimeMs);
+    }
   }, 120_000);
 });
+
+function readRuntimeBudgetMs(): number | null {
+  const value = process.env.BLINE_AUTO_VELOCITY_MAX_TYPICAL_RUNTIME_MS;
+  if (!value) {
+    return null;
+  }
+
+  const budgetMs = Number(value);
+  if (!Number.isFinite(budgetMs) || budgetMs <= 0) {
+    throw new Error(
+      "BLINE_AUTO_VELOCITY_MAX_TYPICAL_RUNTIME_MS must be a positive number",
+    );
+  }
+
+  return budgetMs;
+}
 
 function benchmarkCases(): BenchmarkCase[] {
   return [
