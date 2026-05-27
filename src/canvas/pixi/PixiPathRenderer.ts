@@ -15,6 +15,7 @@ import {
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
+  type PathModel,
   type PathElement,
 } from "../../core/model/path";
 import type { SelectedRangedConstraint } from "../../state/selectionStore";
@@ -61,6 +62,8 @@ export interface PixiRenderInput {
   stageSize: CanvasSize;
   viewport: FieldViewport;
   project: ProjectDocument | null;
+  overlayPaths: PixiPathOverlay[];
+  hoveredOverlayPathId: string | null;
   selectedElementIndex: number | null;
   selectedRangedConstraint: SelectedRangedConstraint | null;
   positionPreview: PositionOverrides;
@@ -70,6 +73,12 @@ export interface PixiRenderInput {
   simulationTimeS: number;
   simulationPlaying: boolean;
   config: ProjectConfig | null;
+}
+
+export interface PixiPathOverlay {
+  pathId: string;
+  displayName: string;
+  path: PathModel;
 }
 
 export interface PixiCanvasMetrics {
@@ -96,6 +105,7 @@ export class PixiPathRenderer {
   private readonly root = new Container();
   private readonly fieldGraphics = new Graphics();
   private readonly fieldSprite: Sprite;
+  private readonly overlayGraphics = new Graphics();
   private readonly pathGraphics = new Graphics();
   private readonly constraintGraphics = new Graphics();
   private readonly nodeGraphics = new Graphics();
@@ -116,6 +126,7 @@ export class PixiPathRenderer {
     this.root.addChild(
       this.fieldGraphics,
       this.fieldSprite,
+      this.overlayGraphics,
       this.pathGraphics,
       this.simulationGraphics,
       this.constraintGraphics,
@@ -152,6 +163,7 @@ export class PixiPathRenderer {
     this.resize(input.stageSize);
     this.debugNodes.clear();
     this.drawField(input.viewport);
+    this.drawOverlayPaths(input);
     this.drawPath(input);
     this.drawConstraintHighlights(input);
     this.drawNodes(input);
@@ -258,6 +270,33 @@ export class PixiPathRenderer {
       width: 2.75,
       alpha: 0.94,
     });
+  }
+
+  private drawOverlayPaths(input: PixiRenderInput): void {
+    const graphics = this.overlayGraphics.clear();
+    for (const overlay of input.overlayPaths) {
+      const points = getRenderableElementPositions(
+        overlay.path.path_elements,
+      ).flatMap(({ position }) => {
+        const point = modelToStagePoint(position, input.viewport);
+        return [point.x, point.y];
+      });
+      if (points.length < 4) {
+        continue;
+      }
+
+      const hovered = overlay.pathId === input.hoveredOverlayPathId;
+      drawPolyline(graphics, points, {
+        color: 0x071016,
+        width: hovered ? 11 : 8,
+        alpha: hovered ? 0.7 : 0.46,
+      });
+      drawPolyline(graphics, points, {
+        color: hovered ? 0x62d6ff : 0x7d8c98,
+        width: hovered ? 3.4 : 2.4,
+        alpha: hovered ? 0.9 : 0.56,
+      });
+    }
   }
 
   private drawConstraintHighlights(input: PixiRenderInput): void {
