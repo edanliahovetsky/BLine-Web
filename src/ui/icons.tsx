@@ -95,6 +95,16 @@ export function SkipForwardIcon(props: IconProps) {
   );
 }
 
+export function CurveIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <path d="M4 18C7 6 16 6 20 14" />
+      <circle cx="4" cy="18" r="1.8" />
+      <circle cx="20" cy="14" r="1.8" />
+    </svg>
+  );
+}
+
 export function ElementIcon({
   type,
   ...props

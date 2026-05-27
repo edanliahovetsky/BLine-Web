@@ -17,6 +17,9 @@ describe("project config", () => {
     expect(
       config.kinematic_constraints.default_max_acceleration_meters_per_sec2,
     ).toBe(12);
+    expect(
+      config.kinematic_constraints.default_intermediate_handoff_radius_meters,
+    ).toBe(0.45);
   });
 
   it("normalizes legacy flat robot, protrusion, and default values", () => {

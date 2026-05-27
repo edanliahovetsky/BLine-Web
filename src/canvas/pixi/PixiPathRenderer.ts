@@ -10,6 +10,7 @@ import type {
   ProjectConfig,
   ProjectDocument,
 } from "../../core/io/projectSchema";
+import type { CurveAuthoringPreview } from "../curveAuthoring";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -70,6 +71,7 @@ export interface PixiRenderInput {
   simulationTimeS: number;
   simulationPlaying: boolean;
   config: ProjectConfig | null;
+  curvePreview: CurveAuthoringPreview | null;
 }
 
 export interface PixiCanvasMetrics {
@@ -97,6 +99,7 @@ export class PixiPathRenderer {
   private readonly fieldGraphics = new Graphics();
   private readonly fieldSprite: Sprite;
   private readonly pathGraphics = new Graphics();
+  private readonly curvePreviewGraphics = new Graphics();
   private readonly constraintGraphics = new Graphics();
   private readonly nodeGraphics = new Graphics();
   private readonly rotationGraphics = new Graphics();
@@ -117,6 +120,7 @@ export class PixiPathRenderer {
       this.fieldGraphics,
       this.fieldSprite,
       this.pathGraphics,
+      this.curvePreviewGraphics,
       this.simulationGraphics,
       this.constraintGraphics,
       this.nodeGraphics,
@@ -153,6 +157,7 @@ export class PixiPathRenderer {
     this.debugNodes.clear();
     this.drawField(input.viewport);
     this.drawPath(input);
+    this.drawCurvePreview(input);
     this.drawConstraintHighlights(input);
     this.drawNodes(input);
     this.drawRotationHandle(input);
@@ -258,6 +263,60 @@ export class PixiPathRenderer {
       width: 2.75,
       alpha: 0.94,
     });
+  }
+
+  private drawCurvePreview(input: PixiRenderInput): void {
+    const graphics = this.curvePreviewGraphics.clear();
+    const preview = input.curvePreview;
+    if (!preview) {
+      return;
+    }
+
+    const rawPoints = preview.rawPoints.flatMap((position) => {
+      const point = modelToStagePoint(position, input.viewport);
+      return [point.x, point.y];
+    });
+    const targetPoints = preview.targetPoints.flatMap((position) => {
+      const point = modelToStagePoint(position, input.viewport);
+      return [point.x, point.y];
+    });
+
+    if (rawPoints.length >= 4) {
+      drawPolyline(graphics, rawPoints, {
+        color: 0x05080b,
+        width: 7,
+        alpha: 0.72,
+      });
+      drawPolyline(graphics, rawPoints, {
+        color: 0x51d6ff,
+        width: 2.5,
+        alpha: 0.74,
+      });
+    }
+
+    if (targetPoints.length >= 4) {
+      drawPolyline(graphics, targetPoints, {
+        color: 0x05080b,
+        width: 9,
+        alpha: 0.8,
+      });
+      drawPolyline(graphics, targetPoints, {
+        color: 0xffc857,
+        width: 3.25,
+        alpha: 0.96,
+      });
+    }
+
+    for (const position of preview.targetPoints) {
+      const point = modelToStagePoint(position, input.viewport);
+      graphics
+        .circle(point.x, point.y, 7)
+        .fill({ color: 0x11171c, alpha: 0.96 })
+        .stroke({ color: 0xffc857, width: 2 });
+      graphics
+        .circle(point.x, point.y, 2.4)
+        .fill({ color: 0xfff8dc, alpha: 0.98 });
+    }
   }
 
   private drawConstraintHighlights(input: PixiRenderInput): void {

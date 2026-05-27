@@ -10,11 +10,15 @@ import {
   type WheelEvent,
 } from "react";
 import {
+  isAnchorElement,
   isEventTrigger,
   isRotationTarget,
   isWaypoint,
   type PathElement,
+  type TranslationTarget,
 } from "../core/model/path";
+import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
+import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
 import { simulatePath, type SimResult } from "../core/sim";
 import { projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
@@ -55,6 +59,7 @@ import {
 } from "./pixi/PixiPathRenderer";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
+import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
@@ -62,7 +67,13 @@ const fallbackStageSize: CanvasSize = {
 };
 
 interface PathStageProps {
+  curveTool?: CurveToolSession | null;
   onInteractionStateChange?: (active: boolean) => void;
+  onCurveToolCommit?(
+    insertionIndex: number,
+    targets: readonly TranslationTarget[],
+  ): void;
+  onCurveToolCancel?(): void;
 }
 
 interface ActiveDrag {
@@ -85,7 +96,19 @@ interface ActivePanDrag {
   startPanOffset: StagePoint;
 }
 
-export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
+interface ActiveCurveDraft {
+  pointerId: number;
+  insertionIndex: number;
+  samples: PointMeters[];
+  targetPoints: PointMeters[];
+}
+
+export function PathStage({
+  curveTool = null,
+  onInteractionStateChange,
+  onCurveToolCommit,
+  onCurveToolCancel,
+}: PathStageProps = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<PixiPathRenderer | null>(null);
@@ -97,6 +120,7 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const activeDragRef = useRef<ActiveDrag | null>(null);
   const dragFrameRef = useRef<number | null>(null);
   const activeRotationDragRef = useRef<ActiveRotationDrag | null>(null);
+  const activeCurveDraftRef = useRef<ActiveCurveDraft | null>(null);
   const rotationFrameRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
@@ -108,6 +132,8 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const [activeRotationDrag, setActiveRotationDragState] =
     useState<ActiveRotationDrag | null>(null);
+  const [activeCurveDraft, setActiveCurveDraftState] =
+    useState<ActiveCurveDraft | null>(null);
   const [dragPreview, setDragPreview] =
     useState<PositionOverrides>(emptyPreview);
   const [selectedPulse, setSelectedPulse] = useState(0);
@@ -217,6 +243,14 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       setActiveRotationDragState(nextDrag);
     },
     [flushRotationPreview],
+  );
+
+  const setActiveCurveDraft = useCallback(
+    (nextDraft: ActiveCurveDraft | null) => {
+      activeCurveDraftRef.current = nextDraft;
+      setActiveCurveDraftState(nextDraft);
+    },
+    [],
   );
 
   useEffect(
@@ -333,7 +367,11 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
   }, [project]);
 
   const canvasInteractionActive =
-    isPanning || activeDrag !== null || activeRotationDrag !== null;
+    isPanning ||
+    activeDrag !== null ||
+    activeRotationDrag !== null ||
+    activeCurveDraft !== null ||
+    curveTool !== null;
   const rotationPreview: RotationOverrides = useMemo(
     () =>
       activeRotationDrag
@@ -349,6 +387,17 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       : canvasInteractionActive
         ? 0.72
         : selectedPulse;
+  const curvePreview: CurveAuthoringPreview | null = useMemo(
+    () =>
+      activeCurveDraft
+        ? {
+            rawPoints: activeCurveDraft.samples,
+            targetPoints: activeCurveDraft.targetPoints,
+            insertionIndex: activeCurveDraft.insertionIndex,
+          }
+        : null,
+    [activeCurveDraft],
+  );
 
   useCanvasInteractionActivity({
     containerRef,
@@ -477,8 +526,10 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
       simulationTimeS: simulationTime,
       simulationPlaying,
       config: project?.config ?? null,
+      curvePreview,
     }),
     [
+      curvePreview,
       dragPreview,
       project,
       rotationPreview,
@@ -524,6 +575,13 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     if (event.key === "ArrowRight" || event.key === "End") {
       event.preventDefault();
       finishSimulation();
+      return;
+    }
+
+    if (event.key === "Escape" && curveTool) {
+      event.preventDefault();
+      setActiveCurveDraft(null);
+      onCurveToolCancel?.();
       return;
     }
 
@@ -588,6 +646,26 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const pointer = stagePointFromEvent(event);
+
+    if (curveTool) {
+      const sample = stageToModelPoint(
+        pointer,
+        viewport,
+        robotSizeFromConfig(project.config),
+      );
+      setActiveCurveDraft({
+        pointerId: event.pointerId,
+        insertionIndex: curveTool.insertionIndex,
+        samples: [sample],
+        targetPoints: curveTargetPointsForSamples(
+          project,
+          curveTool.insertionIndex,
+          [sample],
+        ),
+      });
+      return;
+    }
+
     const rotationHit = hitTestRotationHandle(
       project,
       selectedElementIndex,
@@ -651,6 +729,27 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     }
 
     const pointer = stagePointFromEvent(event);
+    const curveDraft = activeCurveDraftRef.current;
+    if (curveDraft && project && curveDraft.pointerId === event.pointerId) {
+      event.preventDefault();
+      const sample = stageToModelPoint(
+        pointer,
+        viewport,
+        robotSizeFromConfig(project.config),
+      );
+      const samples = appendCurveSample(curveDraft.samples, sample);
+      setActiveCurveDraft({
+        ...curveDraft,
+        samples,
+        targetPoints: curveTargetPointsForSamples(
+          project,
+          curveDraft.insertionIndex,
+          samples,
+        ),
+      });
+      return;
+    }
+
     const drag = activeDragRef.current;
     if (drag && project) {
       event.preventDefault();
@@ -720,8 +819,29 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     }
 
     const pointer = stagePointFromEvent(event);
+    if (activeCurveDraftRef.current) {
+      finishActiveCurve();
+      return;
+    }
+
     finishActiveDrag();
     finishActiveRotation(pointer);
+    finishPanDrag();
+  };
+
+  const handlePointerCancel = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (activeCurveDraftRef.current) {
+      setActiveCurveDraft(null);
+      onCurveToolCancel?.();
+      return;
+    }
+
+    finishActiveDrag();
+    finishActiveRotation(stagePointFromEvent(event));
     finishPanDrag();
   };
 
@@ -828,6 +948,27 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     setIsPanning(false);
   };
 
+  const finishActiveCurve = () => {
+    const draft = activeCurveDraftRef.current;
+    if (!draft || !project) {
+      setActiveCurveDraft(null);
+      return;
+    }
+
+    const targets = curveTargetsForSamples(
+      project,
+      draft.insertionIndex,
+      draft.samples,
+    );
+    setActiveCurveDraft(null);
+
+    if (targets.length > 0) {
+      onCurveToolCommit?.(draft.insertionIndex, targets);
+    } else {
+      onCurveToolCancel?.();
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -839,12 +980,18 @@ export function PathStage({ onInteractionStateChange }: PathStageProps = {}) {
     >
       <div
         ref={canvasHostRef}
-        className={`path-stage__canvas${isPanning ? " is-panning" : ""}`}
+        className={[
+          "path-stage__canvas",
+          isPanning ? "is-panning" : "",
+          curveTool ? "is-curve-tool" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         data-testid="path-stage-canvas"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onWheel={handleWheel}
       >
         {rendererError ? (
@@ -955,6 +1102,94 @@ function SimulationTransport({
         />
       </div>
     </div>
+  );
+}
+
+function curveTargetPointsForSamples(
+  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  insertionIndex: number,
+  samples: readonly PointMeters[],
+): PointMeters[] {
+  return curveTargetsForSamples(project, insertionIndex, samples).map(
+    (target) => ({
+      x_meters: target.x_meters,
+      y_meters: target.y_meters,
+    }),
+  );
+}
+
+function curveTargetsForSamples(
+  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  insertionIndex: number,
+  samples: readonly PointMeters[],
+): TranslationTarget[] {
+  const { previousAnchor, nextAnchor } = curveEndpointContext(
+    project.path.path_elements,
+    insertionIndex,
+  );
+
+  return createCurveTranslationTargets(samples, {
+    previousAnchor,
+    nextAnchor,
+    toleranceMeters: curveFitToleranceMeters,
+    minSpacingMeters: curveMinTargetSpacingMeters,
+    maxGeneratedTargets: curveMaxGeneratedTargets,
+    endpointSnapToleranceMeters: curveEndpointSnapToleranceMeters,
+    handoffRadiusMeters:
+      getDefaultOptionalConfigValue(
+        project.config,
+        "intermediate_handoff_radius_meters",
+      ) ?? curveDefaultHandoffRadiusMeters,
+  });
+}
+
+function curveEndpointContext(
+  elements: readonly PathElement[],
+  insertionIndex: number,
+): { previousAnchor: PointMeters | null; nextAnchor: PointMeters | null } {
+  return {
+    previousAnchor: findAnchorPosition(elements, insertionIndex - 1, -1),
+    nextAnchor: findAnchorPosition(elements, insertionIndex, 1),
+  };
+}
+
+function findAnchorPosition(
+  elements: readonly PathElement[],
+  startIndex: number,
+  direction: -1 | 1,
+): PointMeters | null {
+  for (
+    let index = startIndex;
+    index >= 0 && index < elements.length;
+    index += direction
+  ) {
+    if (isAnchorElement(elements[index])) {
+      return getElementPosition(elements, index);
+    }
+  }
+
+  return null;
+}
+
+function appendCurveSample(
+  samples: readonly PointMeters[],
+  sample: PointMeters,
+): PointMeters[] {
+  const previous = samples.at(-1);
+  if (
+    previous &&
+    modelPointDistance(previous, sample) < curveSampleSpacingMeters
+  ) {
+    return [...samples.slice(0, -1), sample];
+  }
+
+  return [...samples, sample];
+}
+
+function modelPointDistance(first: PointMeters, second: PointMeters): number {
+  return Math.hypot(
+    first.x_meters - second.x_meters,
+    first.y_meters - second.y_meters,
   );
 }
 
@@ -1267,3 +1502,9 @@ const zoomStepFactor = 1.03;
 const selectionPulseIntervalMs = 40;
 const selectionPulsePeriodMs = 1800;
 const rotationHandleHitRadiusPx = 18;
+const curveFitToleranceMeters = 0.18;
+const curveMinTargetSpacingMeters = 0.35;
+const curveEndpointSnapToleranceMeters = 0.22;
+const curveSampleSpacingMeters = 0.035;
+const curveDefaultHandoffRadiusMeters = 0.45;
+const curveMaxGeneratedTargets = 18;

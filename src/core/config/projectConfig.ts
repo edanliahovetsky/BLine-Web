@@ -77,7 +77,7 @@ const defaultConfig: CanonicalProjectConfig = {
   kinematic_constraints: {
     default_max_velocity_meters_per_sec: 4.5,
     default_max_acceleration_meters_per_sec2: 12,
-    default_intermediate_handoff_radius_meters: 0.2,
+    default_intermediate_handoff_radius_meters: 0.45,
     default_max_velocity_deg_per_sec: 720,
     default_max_acceleration_deg_per_sec2: 1500,
     default_end_translation_tolerance_meters: 0.03,

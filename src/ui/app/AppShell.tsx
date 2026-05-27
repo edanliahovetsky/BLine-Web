@@ -16,10 +16,12 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { PathStage } from "../../canvas/PathStage";
+import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import type {
   ProjectPathDocument,
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
+import type { TranslationTarget } from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
@@ -45,6 +47,7 @@ import {
 } from "../keyboardShortcuts";
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
+import { createInsertPathElementsCommand } from "../sidebar/sidebarCommands";
 import "./AppShell.css";
 import { createUpdateProjectConfigCommand } from "./configCommands";
 import {
@@ -98,8 +101,11 @@ export function AppShell() {
   const [initializing, setInitializing] = useState(true);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
   const [canvasInteractionActive, setCanvasInteractionActive] = useState(false);
+  const [curveToolSession, setCurveToolSession] =
+    useState<CurveToolSession | null>(null);
   const autosaveRef = useRef<AutosaveCoordinator | null>(null);
   const canvasInteractionActiveRef = useRef(false);
+  const nextCurveToolSessionIdRef = useRef(1);
   const importHandlingRef = useRef(false);
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -140,6 +146,39 @@ export function AppShell() {
       autosaveRef.current?.cancel();
     }
   }, []);
+
+  const handleStartCurveTool = useCallback((insertionIndex: number) => {
+    setCurveToolSession({
+      id: nextCurveToolSessionIdRef.current,
+      insertionIndex,
+    });
+    nextCurveToolSessionIdRef.current += 1;
+  }, []);
+
+  const handleCancelCurveTool = useCallback(() => {
+    setCurveToolSession(null);
+  }, []);
+
+  const handleCommitCurveTool = useCallback(
+    (insertionIndex: number, targets: readonly TranslationTarget[]) => {
+      const activeProject = projectStore.getState().project;
+      if (!activeProject || targets.length === 0) {
+        setCurveToolSession(null);
+        return;
+      }
+
+      projectStore.getState().applyCommand(
+        createInsertPathElementsCommand(insertionIndex, targets, {
+          applyAutoVelocityToInsertedRange: true,
+        }),
+      );
+      selectionStore
+        .getState()
+        .selectElement(insertionIndex, projectStore.getState().project);
+      setCurveToolSession(null);
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1392,13 +1431,18 @@ export function AppShell() {
       <div className="workspace">
         <section className="canvas-region" aria-label="Editor canvas">
           <PathStage
+            curveTool={curveToolSession}
             onInteractionStateChange={handleCanvasInteractionStateChange}
+            onCurveToolCommit={handleCommitCurveTool}
+            onCurveToolCancel={handleCancelCurveTool}
           />
         </section>
 
         <Sidebar
           project={project}
           selectedElementIndex={selectedElementIndex}
+          curveToolActive={curveToolSession !== null}
+          onStartCurve={handleStartCurveTool}
         />
       </div>
 

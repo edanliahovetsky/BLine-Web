@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { formatPointMeters } from "../../../canvas/modelSync";
-import { ElementIcon, GripIcon, RemoveIcon } from "../../icons";
+import { CurveIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
+import { SidebarIconButton } from "../../controls/SidebarControls";
 import { SidebarSection } from "../SidebarSection";
 import {
   canMovePathElement,
@@ -16,8 +17,10 @@ import {
 interface ElementListProps {
   project: ProjectDocument | null;
   selectedElementIndex: number | null;
+  curveToolActive?: boolean;
   open: boolean;
   onAddElement(type: AddableElementType): void;
+  onAddCurve(): void;
   onSelectElement(index: number): void;
   onRemoveElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
@@ -27,8 +30,10 @@ interface ElementListProps {
 export function ElementList({
   project,
   selectedElementIndex,
+  curveToolActive = false,
   open,
   onAddElement,
+  onAddCurve,
   onSelectElement,
   onRemoveElement,
   onMoveElement,
@@ -125,11 +130,22 @@ export function ElementList({
   return (
     <SidebarSection
       actions={
-        <AddElementMenu
-          disabled={!project}
-          options={addableTypes}
-          onAdd={onAddElement}
-        />
+        <>
+          <SidebarIconButton
+            className="sidebar-icon-button--add"
+            disabled={!project || curveToolActive}
+            aria-label="Add curve"
+            title="Add curve"
+            onClick={onAddCurve}
+          >
+            <CurveIcon />
+          </SidebarIconButton>
+          <AddElementMenu
+            disabled={!project || curveToolActive}
+            options={addableTypes}
+            onAdd={onAddElement}
+          />
+        </>
       }
       className="path-elements-section"
       meta={`${elements.length} ${elements.length === 1 ? "element" : "elements"}`}

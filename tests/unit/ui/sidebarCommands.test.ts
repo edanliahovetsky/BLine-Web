@@ -20,6 +20,7 @@ import {
   createDefaultElement,
   createAddRangedConstraintCommand,
   createInsertPathElementCommand,
+  createInsertPathElementsCommand,
   createMovePathElementCommand,
   createRemovePathElementCommand,
   createRemoveRangedConstraintCommand,
@@ -58,6 +59,111 @@ describe("sidebar commands", () => {
     const restored = remove.revert(removed);
     expect(restored.path.path_elements).toHaveLength(2);
     expect(isTranslationTarget(restored.path.path_elements[0])).toBe(true);
+  });
+
+  it("inserts generated curve elements as a single reversible command", () => {
+    const project = exampleProject();
+    const command = createInsertPathElementsCommand(1, [
+      createTranslationTarget({ x_meters: 2, y_meters: 1 }),
+      createTranslationTarget({ x_meters: 3, y_meters: 2 }),
+    ]);
+
+    const inserted = command.apply(project);
+
+    expect(inserted.path.path_elements).toHaveLength(4);
+    expect(
+      inserted.path.path_elements
+        .filter(isTranslationTarget)
+        .map((element) => [element.x_meters, element.y_meters]),
+    ).toEqual([
+      [1, 1],
+      [2, 1],
+      [3, 2],
+      [4, 4],
+    ]);
+
+    const reverted = command.revert(inserted);
+    expect(reverted.path.path_elements).toEqual(project.path.path_elements);
+  });
+
+  it("auto-constrains generated curve elements and their exit segment", () => {
+    const project = exampleProject();
+    const command = createInsertPathElementsCommand(
+      1,
+      [
+        createTranslationTarget({ x_meters: 2, y_meters: 1 }),
+        createTranslationTarget({ x_meters: 2.5, y_meters: 2 }),
+      ],
+      { applyAutoVelocityToInsertedRange: true },
+    );
+
+    const inserted = command.apply(project);
+    const autoVelocityConstraints = inserted.path.ranged_constraints.filter(
+      (constraint) =>
+        constraint.key === "max_velocity_meters_per_sec" &&
+        constraint.source === "auto_velocity",
+    );
+
+    expect(autoVelocityConstraints).not.toHaveLength(0);
+    expect(expandedOrdinals(autoVelocityConstraints)).toEqual([2, 3, 4]);
+  });
+
+  it("keeps manual velocity constraints when auto-constraining generated curves", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createTranslationTarget({ x_meters: 4, y_meters: 4 }),
+        ],
+        ranged_constraints: [
+          {
+            key: "max_velocity_meters_per_sec",
+            value: 1.2,
+            start_ordinal: 2,
+            end_ordinal: 2,
+          },
+        ],
+      }),
+    });
+    const command = createInsertPathElementsCommand(
+      1,
+      [
+        createTranslationTarget({ x_meters: 2, y_meters: 1 }),
+        createTranslationTarget({ x_meters: 2.5, y_meters: 2 }),
+      ],
+      { applyAutoVelocityToInsertedRange: true },
+    );
+
+    const inserted = command.apply(project);
+    const autoVelocityConstraints = inserted.path.ranged_constraints.filter(
+      (constraint) =>
+        constraint.key === "max_velocity_meters_per_sec" &&
+        constraint.source === "auto_velocity",
+    );
+    const manualVelocityConstraints = inserted.path.ranged_constraints.filter(
+      (constraint) =>
+        constraint.key === "max_velocity_meters_per_sec" &&
+        constraint.source !== "auto_velocity",
+    );
+
+    expect(expandedOrdinals(autoVelocityConstraints)).toEqual([2, 3]);
+    expect(
+      manualVelocityConstraints.map((constraint) => ({
+        key: constraint.key,
+        value: constraint.value,
+        start_ordinal: constraint.start_ordinal,
+        end_ordinal: constraint.end_ordinal,
+      })),
+    ).toEqual([
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 1.2,
+        start_ordinal: 4,
+        end_ordinal: 4,
+      },
+    ]);
   });
 
   it("updates selected elements while preserving undo payloads", () => {
@@ -131,6 +237,35 @@ describe("sidebar commands", () => {
     expect(createDefaultElement(project, "event_trigger", 0).type).toBe(
       "translation",
     );
+  });
+
+  it("uses the project handoff default for new anchor elements", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      config: {
+        kinematic_constraints: {
+          default_intermediate_handoff_radius_meters: 0.45,
+        },
+      },
+      path: createPathModel({
+        path_elements: [createTranslationTarget({ x_meters: 1, y_meters: 1 })],
+      }),
+    });
+
+    const translation = createDefaultElement(project, "translation", 0);
+    const waypoint = createDefaultElement(project, "waypoint", 0);
+
+    expect(isTranslationTarget(translation)).toBe(true);
+    if (isTranslationTarget(translation)) {
+      expect(translation.intermediate_handoff_radius_meters).toBe(0.45);
+    }
+    expect(isWaypoint(waypoint)).toBe(true);
+    if (isWaypoint(waypoint)) {
+      expect(
+        waypoint.translation_target.intermediate_handoff_radius_meters,
+      ).toBe(0.45);
+    }
   });
 
   it("limits endpoint type switches to anchor elements", () => {
@@ -382,4 +517,21 @@ function exampleProject(): ProjectDocument {
       ],
     }),
   });
+}
+
+function expandedOrdinals(
+  constraints: readonly {
+    start_ordinal: number;
+    end_ordinal: number;
+  }[],
+): number[] {
+  return constraints
+    .flatMap((constraint) => {
+      const start = Math.min(constraint.start_ordinal, constraint.end_ordinal);
+      const end = Math.max(constraint.start_ordinal, constraint.end_ordinal);
+      return Array.from({ length: end - start + 1 }, (_, index) => {
+        return start + index;
+      });
+    })
+    .sort((left, right) => left - right);
 }

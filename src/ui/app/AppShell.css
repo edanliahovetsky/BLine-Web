@@ -523,6 +523,10 @@ select {
   cursor: grabbing;
 }
 
+.path-stage__canvas.is-curve-tool canvas {
+  cursor: crosshair;
+}
+
 .simulation-transport {
   position: absolute;
   z-index: 8;
