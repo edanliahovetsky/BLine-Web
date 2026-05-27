@@ -1,7 +1,7 @@
 {
   "name": "bline-web",
   "private": true,
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {
