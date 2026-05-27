@@ -74,6 +74,7 @@ describe("ProjectIoService", () => {
     const folder = await service.exportProjectFolder();
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
+      "pathgroups.json",
       "paths/One.json",
       "paths/Two.json",
     ]);

@@ -17,6 +17,8 @@ import {
   createWorkspaceId,
   displayNameFromFileName,
   ensureJsonFileName,
+  pathGroupsFromFile,
+  serializePathGroupsFile,
 } from "./workspaceSerde";
 
 export interface ProjectFolderExportFile {
@@ -49,6 +51,7 @@ export function serializeBLineProjectFolder(
     folderName: "autos",
     files: [
       jsonFile("config.json", serializeProjectConfig(workspace.config)),
+      jsonFile("pathgroups.json", serializePathGroupsFile(workspace)),
       ...workspace.paths.map((path) =>
         jsonFile(
           `paths/${ensureJsonFileName(path.file_name)}`,
@@ -72,6 +75,9 @@ export async function deserializeBLineProjectFolder(
 
   const configRecord = records.find(
     (record) => record.autosPath.toLowerCase() === "config.json",
+  );
+  const pathGroupsRecord = records.find(
+    (record) => record.autosPath.toLowerCase() === "pathgroups.json",
   );
   const config = deserializeProjectConfig(
     configRecord ? JSON.parse(await configRecord.file.text()) : undefined,
@@ -109,6 +115,13 @@ export async function deserializeBLineProjectFolder(
     config,
     paths,
     active_path_id: paths[0]?.path_id ?? null,
+    path_groups: pathGroupsRecord
+      ? pathGroupsFromFile(
+          JSON.parse(await pathGroupsRecord.file.text()),
+          paths,
+        )
+      : [],
+    active_path_group_id: null,
   });
 }
 

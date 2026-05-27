@@ -19,8 +19,13 @@ import {
 } from "../../../src/core/io/projectSerde";
 import {
   activeProjectFromWorkspace,
+  addPathsToGroupInWorkspace,
+  createPathGroupInWorkspace,
+  deletePathGroupFromWorkspace,
+  deletePathsFromWorkspace,
   deserializeProjectWorkspaceDocument,
   projectDocumentToWorkspaceDocument,
+  removePathsFromGroupInWorkspace,
   serializeProjectWorkspaceDocument,
 } from "../../../src/core/io/workspaceSerde";
 import {
@@ -807,9 +812,20 @@ describe("project document serde", () => {
         },
       ],
       active_path_id: "top",
+      path_groups: [
+        {
+          group_id: "score",
+          display_name: "Score Autos",
+          path_ids: ["top", "bottom"],
+        },
+      ],
+      active_path_group_id: "score",
     });
 
     const folder = serializeBLineProjectFolder(workspace);
+    const pathGroupsFile = folder.files.find(
+      (file) => file.relativePath === "pathgroups.json",
+    );
     const restored = await deserializeBLineProjectFolder(
       folder.files.map((file) => ({
         name: file.relativePath.split("/").at(-1) ?? file.relativePath,
@@ -820,14 +836,36 @@ describe("project document serde", () => {
 
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
+      "pathgroups.json",
       "paths/top_sweep.json",
       "paths/bottom_sweep.json",
     ]);
+    expect(pathGroupsFile).toBeDefined();
+    await expect(pathGroupsFile!.blob.text().then(JSON.parse)).resolves.toEqual(
+      {
+        schema_version: 1,
+        groups: [
+          {
+            group_id: "score",
+            display_name: "Score Autos",
+            path_file_names: ["top_sweep.json", "bottom_sweep.json"],
+          },
+        ],
+      },
+    );
     expect(restored.display_name).toBe("autos");
     expect(restored.paths.map((path) => path.file_name)).toEqual([
       "bottom_sweep.json",
       "top_sweep.json",
     ]);
+    expect(restored.path_groups).toEqual([
+      {
+        group_id: "score",
+        display_name: "Score Autos",
+        path_ids: ["top_sweep.json", "bottom_sweep.json"],
+      },
+    ]);
+    expect(restored.active_path_group_id).toBeNull();
     expect(restored.paths[0].path.path_elements[0]).toMatchObject({
       type: "translation",
       intermediate_handoff_radius_meters: 0.35,
@@ -998,6 +1036,108 @@ describe("project document serde", () => {
       display_name: "Top Sweep",
       path_file_name: "top_sweep.json",
     });
+  });
+
+  it("normalizes path groups and keeps groups independent from root paths", () => {
+    const workspace = deserializeProjectWorkspaceDocument({
+      schema_version: 1,
+      project_id: "workspace-1",
+      display_name: "Robot Autos",
+      config: undefined,
+      paths: [
+        {
+          path_id: "top",
+          display_name: "Top",
+          file_name: "top.json",
+          path: { path_elements: [] },
+        },
+        {
+          path_id: "bottom",
+          display_name: "Bottom",
+          file_name: "bottom.json",
+          path: { path_elements: [] },
+        },
+      ],
+      active_path_id: "top",
+      path_groups: [
+        {
+          group_id: "score",
+          display_name: "Score",
+          path_ids: ["top", "top", "missing"],
+        },
+        {
+          group_id: "avoid",
+          display_name: "Avoid",
+          path_ids: ["top"],
+        },
+      ],
+      active_path_group_id: "score",
+    });
+
+    expect(workspace.path_groups).toEqual([
+      { group_id: "score", display_name: "Score", path_ids: ["top"] },
+      { group_id: "avoid", display_name: "Avoid", path_ids: ["top"] },
+    ]);
+    expect(workspace.active_path_group_id).toBe("score");
+
+    const withBottom = addPathsToGroupInWorkspace(workspace, "score", [
+      "bottom",
+    ]);
+    expect(withBottom.path_groups[0]?.path_ids).toEqual(["top", "bottom"]);
+
+    const withoutTop = removePathsFromGroupInWorkspace(withBottom, "score", [
+      "top",
+    ]);
+    expect(withoutTop.path_groups[0]?.path_ids).toEqual(["bottom"]);
+    expect(withoutTop.active_path_id).toBe("bottom");
+
+    const withDeletedPath = deletePathsFromWorkspace(withBottom, ["bottom"]);
+    expect(withDeletedPath.path_groups[0]?.path_ids).toEqual(["top"]);
+    expect(withDeletedPath.paths.map((path) => path.path_id)).toEqual(["top"]);
+
+    const keepPaths = deletePathGroupFromWorkspace(withBottom, "score");
+    expect(keepPaths.path_groups.map((group) => group.group_id)).toEqual([
+      "avoid",
+    ]);
+    expect(keepPaths.paths.map((path) => path.path_id)).toEqual([
+      "top",
+      "bottom",
+    ]);
+
+    const deleteMembers = deletePathGroupFromWorkspace(withBottom, "score", {
+      deleteMemberPaths: true,
+    });
+    expect(deleteMembers.path_groups).toHaveLength(0);
+    expect(deleteMembers.paths).toHaveLength(1);
+  });
+
+  it("creates a path group with the requested initial membership", () => {
+    const workspace = deserializeProjectWorkspaceDocument({
+      schema_version: 1,
+      project_id: "workspace-1",
+      display_name: "Robot Autos",
+      config: undefined,
+      paths: [
+        {
+          path_id: "top",
+          display_name: "Top",
+          file_name: "top.json",
+          path: { path_elements: [] },
+        },
+      ],
+      active_path_id: "top",
+    });
+
+    const grouped = createPathGroupInWorkspace(workspace, {
+      display_name: "Score",
+      group_id: "score",
+      path_ids: ["top"],
+    });
+
+    expect(grouped.active_path_group_id).toBe("score");
+    expect(grouped.path_groups).toEqual([
+      { group_id: "score", display_name: "Score", path_ids: ["top"] },
+    ]);
   });
 
   it("keeps auto velocity ownership in workspace metadata but out of BLine path JSON", () => {

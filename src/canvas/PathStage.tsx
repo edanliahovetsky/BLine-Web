@@ -34,6 +34,7 @@ import {
   createFieldViewport,
   getElementHeadingRadians,
   getElementPosition,
+  getRenderableElementPositions,
   getNeighborAnchorPositions,
   interpolateSegmentPosition,
   modelToStagePoint,
@@ -55,6 +56,7 @@ import {
 import {
   PixiPathRenderer,
   type PixiDebugWindow,
+  type PixiPathOverlay,
   type PixiRenderInput,
 } from "./pixi/PixiPathRenderer";
 import { robotSizeFromConfig } from "./robotFootprint";
@@ -129,6 +131,11 @@ export function PathStage({
   const [isPanning, setIsPanning] = useState(false);
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
+  const [hoveredOverlayPathId, setHoveredOverlayPathId] = useState<
+    string | null
+  >(null);
+  const [hoveredOverlayPoint, setHoveredOverlayPoint] =
+    useState<StagePoint | null>(null);
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const [activeRotationDrag, setActiveRotationDragState] =
     useState<ActiveRotationDrag | null>(null);
@@ -138,6 +145,7 @@ export function PathStage({
     useState<PositionOverrides>(emptyPreview);
   const [selectedPulse, setSelectedPulse] = useState(0);
   const project = useStoreSelector(projectStore, (state) => state.project);
+  const workspace = useStoreSelector(projectStore, (state) => state.workspace);
   const selectedElementIndex = useStoreSelector(
     selectionStore,
     (state) => state.selectedElementIndex,
@@ -398,6 +406,39 @@ export function PathStage({
         : null,
     [activeCurveDraft],
   );
+  const overlayPaths = useMemo<PixiPathOverlay[]>(() => {
+    if (!workspace?.active_path_group_id) {
+      return [];
+    }
+
+    const group = workspace.path_groups.find(
+      (candidate) => candidate.group_id === workspace.active_path_group_id,
+    );
+    if (!group) {
+      return [];
+    }
+
+    return group.path_ids.flatMap((pathId) => {
+      if (pathId === workspace.active_path_id) {
+        return [];
+      }
+      const path = workspace.paths.find(
+        (candidate) => candidate.path_id === pathId,
+      );
+      return path
+        ? [
+            {
+              pathId: path.path_id,
+              displayName: path.display_name,
+              path: path.path,
+            },
+          ]
+        : [];
+    });
+  }, [workspace]);
+  const hoveredOverlayPath =
+    overlayPaths.find((overlay) => overlay.pathId === hoveredOverlayPathId) ??
+    null;
 
   useCanvasInteractionActivity({
     containerRef,
@@ -517,6 +558,8 @@ export function PathStage({
       stageSize,
       viewport,
       project,
+      overlayPaths,
+      hoveredOverlayPathId,
       selectedElementIndex,
       selectedRangedConstraint,
       positionPreview: dragPreview,
@@ -532,6 +575,8 @@ export function PathStage({
       curvePreview,
       dragPreview,
       project,
+      overlayPaths,
+      hoveredOverlayPathId,
       rotationPreview,
       selectedElementIndex,
       selectedPulseValue,
@@ -714,6 +759,15 @@ export function PathStage({
       return;
     }
 
+    const overlayHit = hitTestOverlayPath(overlayPaths, viewport, pointer);
+    if (overlayHit) {
+      projectStore.getState().setActivePath(overlayHit.pathId);
+      selectionStore.getState().clearSelection();
+      setHoveredOverlayPathId(null);
+      setHoveredOverlayPoint(null);
+      return;
+    }
+
     selectionStore.getState().clearSelection();
     activePanDragRef.current = {
       pointerId: event.pointerId,
@@ -795,6 +849,12 @@ export function PathStage({
 
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
+      const overlayHit =
+        project && !canvasInteractionActive
+          ? hitTestOverlayPath(overlayPaths, viewport, pointer)
+          : null;
+      setHoveredOverlayPathId(overlayHit?.pathId ?? null);
+      setHoveredOverlayPoint(overlayHit ? pointer : null);
       return;
     }
 
@@ -984,6 +1044,7 @@ export function PathStage({
           "path-stage__canvas",
           isPanning ? "is-panning" : "",
           curveTool ? "is-curve-tool" : "",
+          hoveredOverlayPath ? "has-ghost-hover" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -997,6 +1058,18 @@ export function PathStage({
         {rendererError ? (
           <div className="path-stage__renderer-error">
             Canvas renderer failed: {rendererError}
+          </div>
+        ) : null}
+        {hoveredOverlayPath && hoveredOverlayPoint ? (
+          <div
+            className="path-stage__ghost-label"
+            data-testid="path-stage-ghost-label"
+            style={{
+              left: hoveredOverlayPoint.x,
+              top: hoveredOverlayPoint.y,
+            }}
+          >
+            {hoveredOverlayPath.displayName}
           </div>
         ) : null}
         <SimulationTransport
@@ -1282,6 +1355,37 @@ function hitTestPathElement(
   return null;
 }
 
+function hitTestOverlayPath(
+  overlays: readonly PixiPathOverlay[],
+  viewport: FieldViewport,
+  pointer: StagePoint,
+): PixiPathOverlay | null {
+  for (
+    let overlayIndex = overlays.length - 1;
+    overlayIndex >= 0;
+    overlayIndex -= 1
+  ) {
+    const overlay = overlays[overlayIndex];
+    const points = getRenderableElementPositions(
+      overlay.path.path_elements,
+    ).map(({ position }) => modelToStagePoint(position, viewport));
+
+    for (let pointIndex = 1; pointIndex < points.length; pointIndex += 1) {
+      const previous = points[pointIndex - 1];
+      const next = points[pointIndex];
+      if (
+        previous &&
+        next &&
+        pointToSegmentDistance(pointer, previous, next) <= overlayHitRadiusPx
+      ) {
+        return overlay;
+      }
+    }
+  }
+
+  return null;
+}
+
 function hitTestElementShape(
   element: PathElement,
   point: StagePoint,
@@ -1439,6 +1543,29 @@ function pointDistance(first: StagePoint, second: StagePoint): number {
   return Math.hypot(first.x - second.x, first.y - second.y);
 }
 
+function pointToSegmentDistance(
+  point: StagePoint,
+  start: StagePoint,
+  end: StagePoint,
+): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq <= 1e-9) {
+    return pointDistance(point, start);
+  }
+
+  const t = clamp(
+    ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq,
+    0,
+    1,
+  );
+  return pointDistance(point, {
+    x: start.x + dx * t,
+    y: start.y + dy * t,
+  });
+}
+
 function angularDelta(a: number, b: number): number {
   return normalizeRadians(b - a);
 }
@@ -1508,3 +1635,4 @@ const curveEndpointSnapToleranceMeters = 0.22;
 const curveSampleSpacingMeters = 0.035;
 const curveDefaultHandoffRadiusMeters = 0.45;
 const curveMaxGeneratedTargets = 18;
+const overlayHitRadiusPx = 15;

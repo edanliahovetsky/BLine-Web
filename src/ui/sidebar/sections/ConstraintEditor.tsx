@@ -2048,7 +2048,7 @@ function AutoVelocityModeControl({
           key={option}
           type="button"
           className={mode === option ? "is-active" : ""}
-          disabled={disabled}
+          disabled={disabled || mode === option}
           onClick={() => onModeChange(option)}
         >
           {option === "auto" ? "Auto" : "Manual"}

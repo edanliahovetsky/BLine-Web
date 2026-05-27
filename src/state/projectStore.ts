@@ -6,12 +6,18 @@ import type {
 import type { PathModel } from "../core/model/path";
 import {
   activeProjectFromWorkspace,
+  addPathsToGroupInWorkspace,
   addPathToWorkspace,
+  createPathGroupInWorkspace,
+  deletePathGroupFromWorkspace,
   deletePathsFromWorkspace,
   duplicatePathInWorkspace,
   ensureWorkspaceHasActivePath,
   renamePathInWorkspace,
+  removePathsFromGroupInWorkspace,
   replaceActiveProjectInWorkspace,
+  renamePathGroupInWorkspace,
+  setActivePathGroupInWorkspace,
 } from "../core/io/workspaceSerde";
 import type {
   ProjectFolderExport,
@@ -48,14 +54,28 @@ export interface ProjectStoreState {
   switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
   saveWorkspace(): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
+  setActivePathGroup(groupId: string | null): void;
   createPath(input: {
     displayName: string;
     fileName?: string;
     path?: PathModel;
+    addToGroupId?: string | null;
   }): void;
   renamePath(pathId: string, name: string): void;
   duplicatePath(pathId: string, name: string): void;
   deletePaths(pathIds: readonly string[]): void;
+  createPathGroup(input: {
+    displayName: string;
+    pathIds?: readonly string[];
+    makeActive?: boolean;
+  }): void;
+  renamePathGroup(groupId: string, name: string): void;
+  deletePathGroup(
+    groupId: string,
+    options?: { deleteMemberPaths?: boolean },
+  ): void;
+  addPathsToGroup(groupId: string, pathIds: readonly string[]): void;
+  removePathsFromGroup(groupId: string, pathIds: readonly string[]): void;
   importPath(file: File): Promise<ProjectWorkspaceDocument>;
   exportPath(pathId?: string): Promise<Blob | null>;
   importConfig(file: File): Promise<ProjectWorkspaceDocument>;
@@ -233,6 +253,12 @@ export function createProjectStore(
       history.getState().clear();
       setWorkspace(set, nextWorkspace, true);
     },
+    setActivePathGroup(groupId) {
+      const workspace = requireWorkspace(get().workspace);
+      const nextWorkspace = setActivePathGroupInWorkspace(workspace, groupId);
+      history.getState().clear();
+      setWorkspace(set, nextWorkspace, true);
+    },
     createPath(input) {
       const workspace = requireWorkspace(get().workspace);
       const nextWorkspace = addPathToWorkspace(workspace, {
@@ -240,6 +266,7 @@ export function createProjectStore(
         file_name: input.fileName,
         path: input.path,
         makeActive: true,
+        addToGroupId: input.addToGroupId,
       });
       history.getState().clear();
       setWorkspace(set, nextWorkspace, true);
@@ -253,6 +280,50 @@ export function createProjectStore(
       const nextWorkspace = duplicatePathInWorkspace(workspace, pathId, name);
       history.getState().clear();
       setWorkspace(set, nextWorkspace, true);
+    },
+    createPathGroup(input) {
+      const workspace = requireWorkspace(get().workspace);
+      const nextWorkspace = createPathGroupInWorkspace(workspace, {
+        display_name: input.displayName,
+        path_ids: input.pathIds,
+        makeActive: input.makeActive,
+      });
+      history.getState().clear();
+      setWorkspace(set, nextWorkspace, true);
+    },
+    renamePathGroup(groupId, name) {
+      const workspace = requireWorkspace(get().workspace);
+      setWorkspace(
+        set,
+        renamePathGroupInWorkspace(workspace, groupId, name),
+        true,
+      );
+    },
+    deletePathGroup(groupId, options) {
+      const workspace = requireWorkspace(get().workspace);
+      const nextWorkspace = deletePathGroupFromWorkspace(
+        workspace,
+        groupId,
+        options,
+      );
+      history.getState().clear();
+      setWorkspace(set, nextWorkspace, true);
+    },
+    addPathsToGroup(groupId, pathIds) {
+      const workspace = requireWorkspace(get().workspace);
+      setWorkspace(
+        set,
+        addPathsToGroupInWorkspace(workspace, groupId, pathIds),
+        true,
+      );
+    },
+    removePathsFromGroup(groupId, pathIds) {
+      const workspace = requireWorkspace(get().workspace);
+      setWorkspace(
+        set,
+        removePathsFromGroupInWorkspace(workspace, groupId, pathIds),
+        true,
+      );
     },
     deletePaths(pathIds) {
       const workspace = requireWorkspace(get().workspace);
