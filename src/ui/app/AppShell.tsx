@@ -28,7 +28,6 @@ import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
   createProjectIoService,
-  type ProjectFolderExport,
   type ProjectIoCapabilities,
 } from "../../platform/projectIo";
 import {
@@ -69,6 +68,7 @@ import {
   createNewCanvasWorkspace,
 } from "./initialProject";
 import { ProjectConfigDialog } from "./ProjectConfigDialog";
+import { writeProjectFolder } from "./projectFolderExport";
 
 export function AppShell() {
   const workspace = useStoreSelector(projectStore, (state) => state.workspace);
@@ -3490,37 +3490,6 @@ function formatTimestamp(value: string): string {
   });
 }
 
-async function writeProjectFolder(
-  projectFolder: ProjectFolderExport,
-): Promise<void> {
-  const directoryPicker = (window as BrowserFolderWindow).showDirectoryPicker;
-
-  if (directoryPicker) {
-    const selectedDirectory = await directoryPicker.call(window, {
-      mode: "readwrite",
-    });
-    const autosDirectory =
-      selectedDirectory.name.toLowerCase() ===
-      projectFolder.folderName.toLowerCase()
-        ? selectedDirectory
-        : await selectedDirectory.getDirectoryHandle(projectFolder.folderName, {
-            create: true,
-          });
-
-    for (const file of projectFolder.files) {
-      await writeFolderFile(autosDirectory, file.relativePath, file.blob);
-    }
-    return;
-  }
-
-  for (const file of projectFolder.files) {
-    downloadBlob(
-      file.blob,
-      `${projectFolder.folderName}-${file.relativePath.replace(/\//g, "-")}`,
-    );
-  }
-}
-
 async function saveBlobAs(
   blob: Blob,
   fileName: string,
@@ -3563,33 +3532,6 @@ async function saveBlobAs(
   return true;
 }
 
-async function writeFolderFile(
-  directory: BrowserDirectoryHandle,
-  relativePath: string,
-  blob: Blob,
-): Promise<void> {
-  const segments = relativePath.split("/").filter(Boolean);
-  const fileName = segments.at(-1);
-
-  if (!fileName) {
-    return;
-  }
-
-  let currentDirectory = directory;
-  for (const segment of segments.slice(0, -1)) {
-    currentDirectory = await currentDirectory.getDirectoryHandle(segment, {
-      create: true,
-    });
-  }
-
-  const fileHandle = await currentDirectory.getFileHandle(fileName, {
-    create: true,
-  });
-  const writable = await fileHandle.createWritable();
-  await writable.write(blob);
-  await writable.close();
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -3613,12 +3555,6 @@ function safeDownloadName(value: string): string {
   );
 }
 
-interface BrowserFolderWindow extends Window {
-  showDirectoryPicker?: (options?: {
-    mode?: "read" | "readwrite";
-  }) => Promise<BrowserDirectoryHandle>;
-}
-
 interface BrowserSaveWindow extends Window {
   showSaveFilePicker?: (options?: {
     suggestedName?: string;
@@ -3627,18 +3563,6 @@ interface BrowserSaveWindow extends Window {
       description: string;
     }>;
   }) => Promise<BrowserFileHandle>;
-}
-
-interface BrowserDirectoryHandle {
-  name: string;
-  getDirectoryHandle(
-    name: string,
-    options?: { create?: boolean },
-  ): Promise<BrowserDirectoryHandle>;
-  getFileHandle(
-    name: string,
-    options?: { create?: boolean },
-  ): Promise<BrowserFileHandle>;
 }
 
 interface BrowserFileHandle {
