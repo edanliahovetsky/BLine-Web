@@ -605,6 +605,277 @@ test("adds edits and removes path elements from the inspector", async ({
   await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
 });
 
+test("creates path collections and new paths with default collection membership", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await createPathGroupFromTopMenu(page, "Score Autos");
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Score Autos / Phase 1 Canvas Draft",
+  );
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Create New Path" }).click();
+  const newPathDialog = page.getByRole("dialog", { name: "Create New Path" });
+  await expect(newPathDialog).toBeVisible();
+  await newPathDialog.getByLabel("Path name").fill("Group Blank");
+  await expect(newPathDialog.getByLabel("Add to Score Autos")).toBeChecked();
+  await newPathDialog.getByRole("button", { name: "Create Path" }).click();
+
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Score Autos / Group Blank",
+  );
+
+  await openPathLibraryDialog(page);
+  await page.getByRole("button", { name: "Delete collection" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "Delete Collection" });
+  await expect(deleteDialog).toBeVisible();
+  await expect(deleteDialog).toContainText(
+    "Deleting the collection normally keeps every path in All Paths",
+  );
+  await deleteDialog
+    .getByRole("button", { name: "Delete Collection Only" })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Delete Collection" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Current Path: Group Blank",
+  );
+  await expect(page.getByLabel("Toolbar path")).toContainText("Group Blank");
+});
+
+test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await createPathGroupFromTopMenu(page, "Score Autos");
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Save Path As");
+    await dialog.accept("Ghost Copy");
+  });
+  await page.getByRole("button", { name: "Path", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
+  await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+
+  await addPathToGroupFromLibrary(page, "Score Autos", "Ghost Copy");
+
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByLabel("X (m)").fill("6.8");
+  await page.getByLabel("Y (m)").fill("2.8");
+  await page
+    .getByLabel("Toolbar path")
+    .selectOption({ label: "Phase 1 Canvas Draft" });
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Score Autos / Phase 1 Canvas Draft",
+  );
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const ghostPoint = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 6.8,
+    y_meters: 2.8,
+  });
+  await page.mouse.move(ghostPoint.x, ghostPoint.y);
+  await expect(page.getByTestId("path-stage-ghost-label")).toHaveText(
+    "Ghost Copy",
+  );
+  await page.mouse.click(ghostPoint.x, ghostPoint.y);
+
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Score Autos / Ghost Copy",
+  );
+});
+
+test("manages paths from the canonical path library", async ({ page }) => {
+  await page.goto("/");
+
+  await createPathGroupFromTopMenu(page, "Score Autos");
+
+  const dialog = await openPathLibraryDialog(page);
+  await expect(dialog.getByLabel("Collections")).toBeVisible();
+  await expect(dialog.getByLabel("Paths in selected collection")).toBeVisible();
+  await expect(dialog.getByLabel("Collection membership")).toBeVisible();
+  await expect(
+    dialog
+      .locator(".path-library-dialog__group")
+      .filter({ hasText: "All Paths" }),
+  ).toHaveClass(/is-permanent/);
+
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Phase 1 Canvas Draft" })
+    .click();
+  const pathHeaderActions = dialog.locator(
+    ".path-library-dialog__paths .path-library-dialog__header-actions",
+  );
+  await expect(
+    pathHeaderActions.getByRole("button", { name: "Open path" }),
+  ).toBeVisible();
+  await expect(
+    pathHeaderActions.getByRole("button", { name: "Save path as" }),
+  ).toBeVisible();
+  await expect(
+    pathHeaderActions.getByRole("button", { name: "Delete path" }),
+  ).toBeVisible();
+  await expect(
+    dialog.locator(".path-library-dialog__details-card"),
+  ).toHaveCount(0);
+  await expect(
+    dialog.locator(".path-library-dialog__details-actions"),
+  ).toHaveCount(0);
+  await expect(
+    dialog.locator(".path-library-dialog__path-actions"),
+  ).toHaveCount(0);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Save Path As");
+    await dialog.accept("Library Branch");
+  });
+  await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await expect(
+    dialog.locator(".path-library-dialog__path").filter({
+      hasText: "Library Branch",
+    }),
+  ).toBeVisible();
+
+  const membershipRow = dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Score Autos" });
+  await membershipRow.getByRole("checkbox").check();
+
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "Score Autos" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Library Branch" })
+    .click();
+  await pathHeaderActions.getByRole("button", { name: "Open path" }).click();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Score Autos / Library Branch",
+  );
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+  await page
+    .getByLabel("Toolbar collection")
+    .selectOption({ label: "All Paths" });
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Current Path: Library Branch",
+  );
+  await page
+    .getByLabel("Toolbar collection")
+    .selectOption({ label: "Score Autos" });
+  await page
+    .getByLabel("Toolbar path")
+    .selectOption({ label: "Phase 1 Canvas Draft" });
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Score Autos / Phase 1 Canvas Draft",
+  );
+
+  await page.setViewportSize({ width: 800, height: 720 });
+  await page.getByRole("button", { name: "Actions" }).click();
+  await expect(page.getByRole("menuitem", { name: "Path UI" })).toHaveCount(0);
+  await expect(page.getByTestId("path-context-bar")).toHaveCount(0);
+  await expect(page.getByTestId("path-overlay-legend")).toHaveCount(0);
+  await expect(page.getByTestId("path-group-tabs")).toHaveCount(0);
+  await expect(page.getByTestId("path-library-dock")).toHaveCount(0);
+});
+
+test("overlays create and delete path dialogs above the path library", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await createPathGroupFromTopMenu(page, "Score Autos");
+
+  const dialog = await openPathLibraryDialog(page);
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Phase 1 Canvas Draft" })
+    .click();
+
+  const pathHeaderActions = dialog.locator(
+    ".path-library-dialog__paths .path-library-dialog__header-actions",
+  );
+
+  await pathHeaderActions
+    .getByRole("button", { name: "Create new path" })
+    .click();
+  const newPathDialog = page.getByRole("dialog", { name: "Create New Path" });
+  await expect(newPathDialog).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expectDialogOverPathLibrary(page, "Create New Path");
+  await newPathDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(newPathDialog).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+
+  await pathHeaderActions.getByRole("button", { name: "Delete path" }).click();
+  const deletePathDialog = page.getByRole("dialog", { name: "Delete Paths" });
+  await expect(deletePathDialog).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expectDialogOverPathLibrary(page, "Delete Paths");
+  await deletePathDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deletePathDialog).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+});
+
+test("keeps collection actions available when a collection has no paths", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await createPathGroupFromTopMenu(page, "Empty Autos");
+  const dialog = await openPathLibraryDialog(page);
+
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Phase 1 Canvas Draft" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Empty Autos" })
+    .getByRole("checkbox")
+    .uncheck();
+
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "Empty Autos" })
+    .click();
+  await expect(
+    dialog.getByText("No paths are in this collection yet."),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Rename collection" }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Delete collection" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Delete Collection" }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Delete Collection" })
+    .getByRole("button", { name: "Cancel" })
+    .click();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+});
+
 test("collapses sidebar sections persistently while keeping header actions available", async ({
   page,
 }) => {
@@ -852,7 +1123,7 @@ test("reorders and converts path elements from the inspector", async ({
     "4. Translation",
   );
 
-  await page.getByRole("button", { name: "Undo" }).click();
+  await runEditMenuAction(page, "Undo");
   await expect(page.getByTestId("path-element-row-3")).toContainText(
     "4. Rotation",
   );
@@ -924,7 +1195,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
       Number(await page.getByLabel("Rotation (deg)").inputValue()),
     )
     .toBeLessThan(5);
-  await page.getByRole("button", { name: "Undo" }).click();
+  await runEditMenuAction(page, "Undo");
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
 });
 
@@ -1415,7 +1686,7 @@ test("edits project config with undo support", async ({ page }) => {
     /Autosave pending|Saved/,
   );
 
-  await page.getByRole("button", { name: "Undo" }).click();
+  await runEditMenuAction(page, "Undo");
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.8");
   await expect(page.getByLabel("Default Max Accel (m/s2)")).toHaveValue("12");
@@ -1519,21 +1790,31 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
     page.getByRole("menuitem", { name: "Export Config..." }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("button", { name: "Path", exact: true }).click();
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
   await expect(page.getByText("Current: Phase 1 Canvas Draft")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Load Path" })).toBeVisible();
+  await expect(page.getByText("Collection: All Paths")).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Path Library..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Manage Paths" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import / Export" }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
+  await expect(page.getByTestId("top-menu-path-manage")).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Create New Path" }),
   ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Save Path As..." }),
   ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await expect(page.getByTestId("top-menu-path-transfer")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Rename Path..." }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Delete Paths..." }),
+    page.getByRole("menuitem", { name: "Import Path..." }),
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Edit", exact: true }).click();
@@ -1551,7 +1832,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
-test("keeps top dropdowns streamlined with right-side path flyouts", async ({
+test("keeps top dropdowns streamlined with condensed path side menus", async ({
   page,
 }) => {
   await page.goto("/");
@@ -1575,20 +1856,33 @@ test("keeps top dropdowns streamlined with right-side path flyouts", async ({
   await expect(recentMenu).toHaveCount(0);
   await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
 
-  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("button", { name: "Path", exact: true }).click();
   const pathMenu = page.getByTestId("top-menu-path");
   await expect(pathMenu).toBeVisible();
   expect((await requiredBox(pathMenu)).width).toBeLessThanOrEqual(270);
 
-  await page.getByRole("menuitem", { name: "Load Path" }).click();
-  const loadPathMenu = page.getByTestId("top-menu-path-load");
-  await expect(loadPathMenu).toBeVisible();
+  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
+  const managePathMenu = page.getByTestId("top-menu-path-manage");
+  await expect(managePathMenu).toBeVisible();
   const pathMenuBox = await requiredBox(pathMenu);
-  const loadPathMenuBox = await requiredBox(loadPathMenu);
-  expect(loadPathMenuBox.width).toBeLessThanOrEqual(285);
-  expect(loadPathMenuBox.x).toBeGreaterThanOrEqual(
+  const managePathMenuBox = await requiredBox(managePathMenu);
+  expect(managePathMenuBox.width).toBeLessThanOrEqual(285);
+  expect(managePathMenuBox.x).toBeGreaterThanOrEqual(
     pathMenuBox.x + pathMenuBox.width,
   );
+
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await expect(managePathMenu).toHaveCount(0);
+  const transferMenu = page.getByTestId("top-menu-path-transfer");
+  await expect(transferMenu).toBeVisible();
+  const transferMenuBox = await requiredBox(transferMenu);
+  expect(transferMenuBox.width).toBeLessThanOrEqual(285);
+  expect(transferMenuBox.x).toBeGreaterThanOrEqual(
+    pathMenuBox.x + pathMenuBox.width,
+  );
+  await expect(
+    transferMenu.getByRole("menuitem", { name: "Import Path..." }),
+  ).toBeVisible();
 });
 
 test("keeps project flyouts stable while hovering between choices", async ({
@@ -1624,48 +1918,22 @@ test("keeps project flyouts stable while hovering between choices", async ({
   await expect(page.getByTestId("top-menu-project-config")).toBeVisible();
 });
 
-test("keeps path flyouts stable and closes them after leaving", async ({
-  page,
-}) => {
+test("switches paths from the toolbar path selector", async ({ page }) => {
   await page.goto("/");
 
-  page.once("dialog", (dialog) => void dialog.accept("Second Path"));
-  await page.getByRole("button", { name: "Path" }).click();
-  await page.getByRole("menuitem", { name: "Create New Path" }).click();
+  await createNewPathFromTopMenu(page, "Second Path");
 
-  await page.getByRole("button", { name: "Path" }).click();
-  await page.getByRole("menuitem", { name: "Load Path" }).hover();
-  const loadPathMenu = page.getByTestId("top-menu-path-load");
-  await expect(loadPathMenu).toBeVisible();
-
-  const loadPathBox = await requiredBox(loadPathMenu);
-  await page.mouse.move(
-    loadPathBox.x + loadPathBox.width / 2,
-    loadPathBox.y + 12,
+  await page
+    .getByLabel("Toolbar path")
+    .selectOption({ label: "Phase 1 Canvas Draft" });
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
   );
-  await expect(loadPathMenu).toBeVisible();
-  await page.waitForTimeout(350);
-  await expect(loadPathMenu).toBeVisible();
 
-  const loadPathTriggerBox = await requiredBox(
-    page.getByRole("menuitem", { name: "Load Path" }),
+  await page.getByLabel("Toolbar path").selectOption({ label: "Second Path" });
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Second Path",
   );
-  const loadPathBridgePoint = pointBetweenFlyoutAndTrigger(
-    loadPathTriggerBox,
-    loadPathBox,
-  );
-  await page.mouse.move(loadPathBridgePoint.x, loadPathBridgePoint.y);
-  await expect(loadPathMenu).toHaveCount(0, { timeout: 500 });
-
-  await page.getByRole("menuitem", { name: "Load Path" }).hover();
-  await expect(loadPathMenu).toBeVisible();
-  await page.mouse.move(16, 16);
-  await expect(loadPathMenu).toHaveCount(0);
-
-  await page.getByRole("menuitem", { name: "Load Path" }).hover();
-  await expect(loadPathMenu).toBeVisible();
-  await page.getByRole("menuitem", { name: "Rename Path..." }).hover();
-  await expect(loadPathMenu).toHaveCount(0);
 });
 
 test("keeps actions flyouts stable and closes them after leaving", async ({
@@ -1710,10 +1978,10 @@ test("keeps actions flyouts stable and closes them after leaving", async ({
 test("closes the open-project panel when using top menus", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await openProjectPanelFromTopMenu(page);
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
 
-  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("button", { name: "Path", exact: true }).click();
   await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
 
@@ -1722,42 +1990,51 @@ test("closes the open-project panel when using top menus", async ({ page }) => {
   await expect(page.getByTestId("top-menu-edit")).toBeVisible();
 });
 
-test("top-right import menu closes the open panel and exposes every import mode", async ({
+test("project and path menus expose import modes without toolbar clutter", async ({
   page,
 }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await openProjectPanelFromTopMenu(page);
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
 
-  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await openProjectMenu(page);
   await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
-  await expect(page.getByTestId("top-menu-import")).toBeVisible();
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Import Project Folder..." }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Import Path..." }),
+    page.getByRole("menuitem", { name: "Import Autos Folder..." }),
   ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Import Project Archive..." }),
   ).toBeVisible();
+
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await expect(page.getByTestId("top-menu-path-transfer")).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Import Path..." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Open", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Export", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Import", exact: true }),
+  ).toHaveCount(0);
 });
 
-test("top-right export saves the active path and import path round-trips it", async ({
+test("path menu export saves the active path and import path round-trips it", async ({
   page,
 }) => {
   await installSaveFilePickerSpy(page, { waitForRelease: true });
   await page.goto("/");
 
-  const exportButton = page.getByRole("button", {
-    name: "Export",
-    exact: true,
-  });
-  await exportButton.click();
-  await expect(
-    page.getByRole("button", { name: "Exporting..." }),
-  ).toBeDisabled();
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await page.getByRole("menuitem", { name: "Export Path..." }).click();
 
   await releaseSaveFilePicker(page);
   await expect.poll(() => savedFileCount(page)).toBe(1);
@@ -1768,7 +2045,8 @@ test("top-right export saves the active path and import path round-trips it", as
   });
 
   const chooserPromise = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Import Path..." }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles({
@@ -1793,7 +2071,7 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
 });
 
-test("keeps the compact top menu scrollable instead of wrapping", async ({
+test("keeps the compact top menu on one row without page overflow", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 360 });
@@ -1808,6 +2086,7 @@ test("keeps the compact top menu scrollable instead of wrapping", async ({
 
     return {
       clientWidth: element.clientWidth,
+      pageOverflowX: document.documentElement.scrollWidth - window.innerWidth,
       scrollWidth: element.scrollWidth,
       rowCount: new Set(buttonRows).size,
       overflowX: getComputedStyle(element).overflowX,
@@ -1815,7 +2094,8 @@ test("keeps the compact top menu scrollable instead of wrapping", async ({
   });
 
   expect(metrics.overflowX).toBe("auto");
-  expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+  expect(metrics.scrollWidth).toBeGreaterThanOrEqual(metrics.clientWidth);
+  expect(metrics.pageOverflowX).toBeLessThanOrEqual(1);
   expect(metrics.rowCount).toBe(1);
 
   await page.getByRole("button", { name: "Settings" }).click();
@@ -1827,7 +2107,7 @@ test("bounds compact dropdown panels to the viewport", async ({ page }) => {
   await page.goto("/");
   await dismissMobileSupportWarning(page);
 
-  await page.getByRole("button", { name: "Path" }).click();
+  await page.getByRole("button", { name: "Path", exact: true }).click();
 
   const panelMetrics = await page
     .getByTestId("top-menu-path")
@@ -1854,13 +2134,11 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  page.once("dialog", (dialog) => void dialog.accept("Second Path"));
-  await page.getByRole("button", { name: "Path" }).click();
-  await page.getByRole("menuitem", { name: "Create New Path" }).click();
+  await createNewPathFromTopMenu(page, "Second Path");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await page.getByRole("button", { name: "Path" }).click();
+  await openPathManageMenu(page);
   await page.getByRole("menuitem", { name: "Delete Paths..." }).click();
   await expect(
     page.getByRole("dialog", { name: "Delete Paths" }),
@@ -1878,12 +2156,14 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
     0,
   );
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  await page.getByRole("button", { name: "Path" }).click();
-  await page.getByRole("menuitem", { name: "Load Path" }).click();
-  await expect(page.getByTestId("top-menu-path-load")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Phase 1 Canvas Draft" }),
+    page.getByLabel("Toolbar path").locator("option", {
+      hasText: "Phase 1 Canvas Draft",
+    }),
   ).toHaveCount(0);
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Second Path",
+  );
 });
 
 test("creates saves and reloads a local project", async ({ page }) => {
@@ -1945,7 +2225,7 @@ test("opens a saved project from the project list", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await openProjectPanelFromTopMenu(page);
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
   await page.getByText(firstPath, { exact: true }).click();
 
@@ -1996,13 +2276,13 @@ test("supports undo and redo for structural sidebar edits", async ({
     "6. Event Trigger",
   );
 
-  await page.getByRole("button", { name: "Undo" }).click();
+  await runEditMenuAction(page, "Undo");
   await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
   await expect(page.getByTestId("path-element-row-5")).toContainText(
     "6. Waypoint",
   );
 
-  await page.getByRole("button", { name: "Redo" }).click();
+  await runEditMenuAction(page, "Redo");
   await expect(page.getByTestId("path-element-row-5")).toContainText(
     "6. Event Trigger",
   );
@@ -2140,6 +2420,40 @@ async function requiredBox(locator: Locator): Promise<Bounds> {
   }
 
   return box;
+}
+
+async function expectDialogOverPathLibrary(
+  page: Page,
+  dialogName: string,
+): Promise<void> {
+  const libraryBox = await requiredBox(
+    page.getByRole("dialog", { name: "Path Library" }),
+  );
+  const dialogBox = await requiredBox(
+    page.getByRole("dialog", { name: dialogName }),
+  );
+  const center = {
+    x: dialogBox.x + dialogBox.width / 2,
+    y: dialogBox.y + dialogBox.height / 2,
+  };
+
+  expect(center.x).toBeGreaterThan(libraryBox.x);
+  expect(center.x).toBeLessThan(libraryBox.x + libraryBox.width);
+  expect(center.y).toBeGreaterThan(libraryBox.y);
+  expect(center.y).toBeLessThan(libraryBox.y + libraryBox.height);
+
+  await expect
+    .poll(() =>
+      page.evaluate(({ x, y }) => {
+        return (
+          document
+            .elementFromPoint(x, y)
+            ?.closest("[role='dialog']")
+            ?.getAttribute("aria-label") ?? null
+        );
+      }, center),
+    )
+    .toBe(dialogName);
 }
 
 function pointBetweenFlyoutAndTrigger(
@@ -2358,10 +2672,100 @@ async function openProjectMenu(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Project", exact: true }).click();
 }
 
+async function openProjectPanelFromTopMenu(page: Page): Promise<void> {
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Workspace" }).click();
+  await page.getByRole("menuitem", { name: "Open Project..." }).click();
+}
+
+async function runEditMenuAction(
+  page: Page,
+  action: "Undo" | "Redo",
+): Promise<void> {
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page
+    .getByRole("menuitem", {
+      name: action === "Undo" ? "Undo Ctrl+Z" : "Redo Ctrl+Y",
+    })
+    .click();
+}
+
+async function openPathMenu(page: Page): Promise<Locator> {
+  await page.getByRole("button", { name: "Path", exact: true }).click();
+  const menu = page.getByTestId("top-menu-path");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+async function openPathManageMenu(page: Page): Promise<Locator> {
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
+  const menu = page.getByTestId("top-menu-path-manage");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+async function openPathLibraryDialog(page: Page): Promise<Locator> {
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Path Library..." }).click();
+  const dialog = page.getByRole("dialog", { name: "Path Library" });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+async function createPathGroupFromTopMenu(
+  page: Page,
+  groupName: string,
+): Promise<void> {
+  const dialog = await openPathLibraryDialog(page);
+  await dialog.getByRole("button", { name: "Create collection" }).click();
+  await page.getByTestId("path-collection-new-name").fill(groupName);
+  await page.getByTestId("create-path-collection").click();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    `${groupName} /`,
+  );
+  if (await dialog.isVisible()) {
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  }
+}
+
+async function addPathToGroupFromLibrary(
+  page: Page,
+  groupName: string,
+  pathName: string,
+): Promise<void> {
+  const dialog = await openPathLibraryDialog(page);
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: pathName })
+    .click();
+  const membershipRow = dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: groupName });
+  await membershipRow.getByRole("checkbox").check();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+}
+
 async function createNewProject(page: Page): Promise<void> {
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Workspace" }).click();
   await page.getByRole("menuitem", { name: "New Project" }).click();
+}
+
+async function createNewPathFromTopMenu(
+  page: Page,
+  pathName: string,
+): Promise<void> {
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Create New Path" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create New Path" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Path name").fill(pathName);
+  await dialog.getByRole("button", { name: "Create Path" }).click();
 }
 
 async function dismissMobileSupportWarning(page: Page): Promise<void> {

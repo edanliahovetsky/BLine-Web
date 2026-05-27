@@ -12,11 +12,12 @@ import type {
   FocusEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { PathStage } from "../../canvas/PathStage";
 import type {
+  ProjectPathGroupDocument,
   ProjectPathDocument,
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
@@ -36,6 +37,7 @@ import {
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
+import { SidebarSelectControl } from "../controls/SidebarControls";
 import {
   isEditableShortcutTarget,
   isInteractiveShortcutTarget,
@@ -43,6 +45,17 @@ import {
   removeSelectedPathElement,
   removeSelectedRangedConstraint,
 } from "../keyboardShortcuts";
+import {
+  CopyIcon,
+  DownloadIcon,
+  FilePlusIcon,
+  OpenIcon,
+  PencilIcon,
+  PlusIcon,
+  TrashIcon,
+  UploadIcon,
+  XIcon,
+} from "../icons";
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import "./AppShell.css";
@@ -87,8 +100,10 @@ export function AppShell() {
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [showNewPathDialog, setShowNewPathDialog] = useState(false);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
+  const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
   const [showMobileSupportWarning, setShowMobileSupportWarning] =
     useState(false);
   const [pendingImportMode, setPendingImportMode] =
@@ -328,22 +343,38 @@ export function AppShell() {
   }, []);
 
   const handleCreateNewPath = useCallback(async () => {
-    const rawName = window.prompt("Enter path name:", "new_path");
-    if (rawName === null) {
-      setOpenTopMenu(null);
-      return;
-    }
-
-    const displayName = rawName.trim() || "Untitled Path";
-    projectStore.getState().createPath({
-      displayName,
-      fileName: ensureJsonFileName(displayName),
-      path: createBlankCanvasPath(),
-    });
-    selectionStore.getState().clearSelection();
     setShowOpenPanel(false);
     setOpenTopMenu(null);
+    setShowNewPathDialog(true);
   }, []);
+
+  const handleShowPathLibrary = useCallback(() => {
+    setShowOpenPanel(false);
+    setOpenTopMenu(null);
+    setShowPathGroupsDialog(true);
+  }, []);
+
+  const handleConfirmCreateNewPath = useCallback(
+    ({
+      addToCurrentGroup,
+      displayName,
+    }: {
+      addToCurrentGroup: boolean;
+      displayName: string;
+    }) => {
+      const workspaceSnapshot = projectStore.getState().workspace;
+      const activeGroupId = workspaceSnapshot?.active_path_group_id ?? null;
+      projectStore.getState().createPath({
+        displayName,
+        fileName: ensureJsonFileName(displayName),
+        path: createBlankCanvasPath(),
+        addToGroupId: addToCurrentGroup ? activeGroupId : null,
+      });
+      selectionStore.getState().clearSelection();
+      setShowNewPathDialog(false);
+    },
+    [],
+  );
 
   const handleSaveProject = useCallback(async () => {
     setShowOpenPanel(false);
@@ -405,8 +436,10 @@ export function AppShell() {
         hasActiveBlockingSurface({
           openTopMenu,
           showConfigDialog,
+          showNewPathDialog,
           showDeletePathDialog,
           showDeleteProjectDialog,
+          showPathGroupsDialog,
           showMobileSupportWarning,
           showOpenPanel,
         }) ||
@@ -441,19 +474,11 @@ export function AppShell() {
     showConfigDialog,
     showDeletePathDialog,
     showDeleteProjectDialog,
+    showPathGroupsDialog,
     showMobileSupportWarning,
     showOpenPanel,
+    showNewPathDialog,
   ]);
-
-  const handleToggleOpenPanel = useCallback(() => {
-    setOpenTopMenu(null);
-    setShowOpenPanel((current) => {
-      if (!current) {
-        void refreshWorkspaceSummaries();
-      }
-      return !current;
-    });
-  }, [refreshWorkspaceSummaries]);
 
   const beginToolbarAction = useCallback(
     (action: Exclude<PendingToolbarAction, null>) => {
@@ -909,18 +934,31 @@ export function AppShell() {
   );
   const activePath = activePathDocument(workspace);
   const pathDocuments = workspace?.paths ?? [];
+  const activePathGroup =
+    workspace?.path_groups.find(
+      (group) => group.group_id === workspace.active_path_group_id,
+    ) ?? null;
+  const visiblePathDocuments = activePathGroup
+    ? activePathGroup.path_ids.flatMap((pathId) => {
+        const path = pathDocuments.find(
+          (candidate) => candidate.path_id === pathId,
+        );
+        return path ? [path] : [];
+      })
+    : pathDocuments;
   const projectSummaries = ensureCurrentWorkspaceSummary(
     workspaceSummaries,
     workspace,
     currentVersion,
     lastSavedAt,
   );
-  const toolbarActions = ioCapabilities?.primaryToolbarActions ?? [];
   const toolbarBusy = pendingToolbarAction !== null;
   const projectLabel = workspace?.display_name ?? "No project";
   const pathLabel = activePath?.display_name ?? "No path";
   const currentProjectSummary = `Project: ${projectLabel}`;
-  const currentPathSummary = `Current Path: ${pathLabel}`;
+  const currentPathSummary = activePathGroup
+    ? `Current Path: ${activePathGroup.display_name} / ${pathLabel}`
+    : `Current Path: ${pathLabel}`;
   const storageLabel = formatStorageLabel(workspace, ioCapabilities);
   const saveStatus = formatSaveStatus({
     autosaveStatus,
@@ -938,6 +976,14 @@ export function AppShell() {
     lastSavedAt,
     status,
   });
+  const handleSelectPathFromToolbar = (pathId: string) => {
+    projectStore.getState().setActivePath(pathId);
+    selectionStore.getState().clearSelection();
+  };
+  const handleSelectCollectionFromToolbar = (groupId: string | null) => {
+    projectStore.getState().setActivePathGroup(groupId);
+    selectionStore.getState().clearSelection();
+  };
 
   return (
     <main className="app-shell" data-testid="app-shell">
@@ -1065,52 +1111,52 @@ export function AppShell() {
             setOpenTopMenu={setActiveTopMenu}
           >
             <MenuLabel>Current: {pathLabel}</MenuLabel>
+            <MenuLabel>
+              Collection: {activePathGroup?.display_name ?? "All Paths"}
+            </MenuLabel>
             <div className="top-menu__separator" role="separator" />
-            <MenuSubmenu label="Load Path" testId="top-menu-path-load">
-              <PathMenuList
-                emptyLabel="(No paths)"
-                paths={pathDocuments.filter(
-                  (path) => path.path_id !== workspace?.active_path_id,
-                )}
-                onOpen={async (pathId) => {
-                  projectStore.getState().setActivePath(pathId);
-                  selectionStore.getState().clearSelection();
-                  setOpenTopMenu(null);
-                }}
+            <MenuAction
+              label="Path Library..."
+              disabled={!workspace}
+              onAction={handleShowPathLibrary}
+            />
+            <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
+              <MenuAction
+                label="Create New Path"
+                disabled={!workspace || !projectIo}
+                onAction={() => void handleCreateNewPath()}
+              />
+              <MenuAction
+                label="Save Path As..."
+                disabled={!activePath || !projectIo}
+                onAction={() => void handleSavePathAs()}
+              />
+              <MenuAction
+                label="Rename Path..."
+                disabled={!activePath}
+                onAction={handleRenamePath}
+              />
+              <MenuAction
+                label="Delete Paths..."
+                disabled={!workspace || pathDocuments.length === 0}
+                onAction={handleShowDeletePaths}
               />
             </MenuSubmenu>
-            <div className="top-menu__separator" role="separator" />
-            <MenuAction
-              label="Create New Path"
-              disabled={!workspace || !projectIo}
-              onAction={() => void handleCreateNewPath()}
-            />
-            <MenuAction
-              label="Save Path As..."
-              disabled={!activePath || !projectIo}
-              onAction={() => void handleSavePathAs()}
-            />
-            <MenuAction
-              label="Rename Path..."
-              disabled={!activePath}
-              onAction={handleRenamePath}
-            />
-            <MenuAction
-              label="Delete Paths..."
-              disabled={!workspace || pathDocuments.length === 0}
-              onAction={handleShowDeletePaths}
-            />
-            <div className="top-menu__separator" role="separator" />
-            <MenuAction
-              label="Import Path..."
-              disabled={!workspace || !projectIo}
-              onAction={() => queueFileImport("path")}
-            />
-            <MenuAction
-              label="Export Path..."
-              disabled={!activePath || !projectIo}
-              onAction={() => void handleExportPath()}
-            />
+            <MenuSubmenu
+              label="Import / Export"
+              testId="top-menu-path-transfer"
+            >
+              <MenuAction
+                label="Import Path..."
+                disabled={!workspace || !projectIo}
+                onAction={() => queueFileImport("path")}
+              />
+              <MenuAction
+                label="Export Path..."
+                disabled={!activePath || !projectIo}
+                onAction={() => void handleExportPath()}
+              />
+            </MenuSubmenu>
           </TopMenuButton>
           <TopMenuButton
             id="edit"
@@ -1153,102 +1199,16 @@ export function AppShell() {
         </nav>
         <nav className="toolbar-actions" aria-label="Project actions">
           <div className="toolbar-actions__quick">
-            <button
-              type="button"
-              onClick={() => {
-                setShowOpenPanel(false);
-                projectStore.getState().undo();
-              }}
-              disabled={!canUndo || toolbarBusy}
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowOpenPanel(false);
-                projectStore.getState().redo();
-              }}
-              disabled={!canRedo || toolbarBusy}
-            >
-              Redo
-            </button>
-            {toolbarActions.includes("open-workspace") ? (
-              <button
-                type="button"
-                aria-expanded={showOpenPanel}
-                onClick={handleToggleOpenPanel}
-                className={
-                  pendingToolbarAction === "open" ? "is-pending" : undefined
-                }
-                disabled={
-                  !projectIo || workspaceSummaries.length === 0 || toolbarBusy
-                }
-              >
-                {pendingToolbarAction === "open" ? "Opening..." : "Open"}
-              </button>
-            ) : null}
-            {toolbarActions.includes("open-folder") ? (
-              <button
-                type="button"
-                onClick={() => void handleOpenWorkspace()}
-                className={
-                  pendingToolbarAction === "open" ? "is-pending" : undefined
-                }
-                disabled={!projectIo || toolbarBusy}
-              >
-                {pendingToolbarAction === "open" ? "Opening..." : "Open Folder"}
-              </button>
-            ) : null}
-            {toolbarActions.includes("new-path") ? (
-              <button
-                type="button"
-                onClick={() => void handleCreateNewPath()}
-                disabled={!workspace || toolbarBusy}
-              >
-                New Path
-              </button>
-            ) : null}
-            {toolbarActions.includes("export-project") ? (
-              <button
-                type="button"
-                onClick={() => void handleExportPath()}
-                className={
-                  pendingToolbarAction === "export" ? "is-pending" : undefined
-                }
-                disabled={!activePath || !projectIo || toolbarBusy}
-              >
-                {pendingToolbarAction === "export" ? "Exporting..." : "Export"}
-              </button>
-            ) : null}
-            {toolbarActions.includes("import-project") ? (
-              <TopMenuButton
-                id="import"
-                label={
-                  pendingToolbarAction === "import" ? "Importing..." : "Import"
-                }
-                align="end"
-                openTopMenu={openTopMenu}
-                setOpenTopMenu={setActiveTopMenu}
-                disabled={!projectIo || toolbarBusy}
-              >
-                <MenuAction
-                  label="Import Project Folder..."
-                  disabled={!projectIo || toolbarBusy}
-                  onAction={queueFolderImport}
-                />
-                <MenuAction
-                  label="Import Path..."
-                  disabled={!workspace || !projectIo || toolbarBusy}
-                  onAction={() => queueFileImport("path")}
-                />
-                <MenuAction
-                  label="Import Project Archive..."
-                  disabled={!projectIo || toolbarBusy}
-                  onAction={() => queueFileImport("archive")}
-                />
-              </TopMenuButton>
-            ) : null}
+            <ToolbarPathNavigator
+              workspace={workspace}
+              activeGroup={activePathGroup}
+              activePath={activePath}
+              paths={pathDocuments}
+              visiblePaths={visiblePathDocuments}
+              onOpenLibrary={handleShowPathLibrary}
+              onSelectGroup={handleSelectCollectionFromToolbar}
+              onSelectPath={handleSelectPathFromToolbar}
+            />
           </div>
           <div className="toolbar-actions__overflow">
             <TopMenuButton
@@ -1325,6 +1285,12 @@ export function AppShell() {
                   setOpenTopMenu(null);
                   void handleExportPath();
                 }}
+              />
+              <div className="top-menu__separator" role="separator" />
+              <MenuAction
+                label="Path Library..."
+                disabled={!workspace}
+                onAction={handleShowPathLibrary}
               />
               <div className="top-menu__separator" role="separator" />
               <MenuAction
@@ -1464,6 +1430,31 @@ export function AppShell() {
           onDelete={(ids) => void handleDeleteProjects(ids)}
         />
       ) : null}
+      {workspace && showPathGroupsDialog ? (
+        <PathLibraryDialog
+          workspace={workspace}
+          onCancel={() => setShowPathGroupsDialog(false)}
+          onCreatePath={() => {
+            void handleCreateNewPath();
+          }}
+          onDeletePaths={() => {
+            handleShowDeletePaths();
+          }}
+          onExportPath={() => void handleExportPath()}
+          onImportPath={() => queueFileImport("path")}
+        />
+      ) : null}
+      {workspace && showNewPathDialog ? (
+        <NewPathDialog
+          activeGroup={
+            workspace.path_groups.find(
+              (group) => group.group_id === workspace.active_path_group_id,
+            ) ?? null
+          }
+          onCancel={() => setShowNewPathDialog(false)}
+          onCreate={handleConfirmCreateNewPath}
+        />
+      ) : null}
       {showDeletePathDialog ? (
         <DeletePathsDialog
           activePathId={workspace?.active_path_id ?? null}
@@ -1481,9 +1472,10 @@ export function AppShell() {
   );
 }
 
-type TopMenuId = "project" | "path" | "edit" | "actions" | "import";
+type TopMenuId = "project" | "path" | "edit" | "actions";
 type ImportMode = "archive" | "path" | "config";
 type PendingToolbarAction = "open" | "import" | "export" | null;
+
 const MOBILE_SUPPORT_WARNING_DISMISSED_KEY =
   "bline-web:mobile-support-warning-dismissed";
 
@@ -1567,6 +1559,767 @@ function MobileSupportWarningDialog({ onDismiss }: { onDismiss(): void }) {
         </footer>
       </section>
     </div>
+  );
+}
+
+function ToolbarPathNavigator({
+  workspace,
+  activeGroup,
+  activePath,
+  paths,
+  visiblePaths,
+  onOpenLibrary,
+  onSelectGroup,
+  onSelectPath,
+}: {
+  workspace: ProjectWorkspaceDocument | null;
+  activeGroup: ProjectPathGroupDocument | null;
+  activePath: ProjectPathDocument | null;
+  paths: ProjectPathDocument[];
+  visiblePaths: ProjectPathDocument[];
+  onOpenLibrary(): void;
+  onSelectGroup(groupId: string | null): void;
+  onSelectPath(pathId: string): void;
+}) {
+  const collectionValue = activeGroup?.group_id ?? "__all_paths__";
+  const collectionLabel = activeGroup?.display_name ?? "All Paths";
+  const collectionOptions = [
+    { label: "All Paths", value: "__all_paths__" },
+    ...(workspace?.path_groups.map((group) => ({
+      label: group.display_name,
+      value: group.group_id,
+    })) ?? []),
+  ];
+  const pathOptions =
+    visiblePaths.length > 0
+      ? visiblePaths.map((path) => ({
+          label: path.display_name,
+          value: path.path_id,
+        }))
+      : [{ label: "No paths", value: "__no_path__" }];
+  const pathValue = activePath?.path_id ?? "__no_path__";
+  const pathLabel = activePath?.display_name ?? "No paths";
+
+  return (
+    <div className="path-toolbar-navigator" data-testid="path-toolbar-nav">
+      <label
+        className="path-toolbar-navigator__field path-toolbar-navigator__field--collection"
+        style={toolbarSelectWidthStyle(collectionLabel, 14, 26)}
+      >
+        <span>Collection</span>
+        <SidebarSelectControl
+          ariaLabel="Toolbar collection"
+          value={collectionValue}
+          disabled={!workspace}
+          options={collectionOptions}
+          onChange={(value) =>
+            onSelectGroup(value === "__all_paths__" ? null : value)
+          }
+        />
+      </label>
+      <label
+        className="path-toolbar-navigator__field path-toolbar-navigator__field--path"
+        style={toolbarSelectWidthStyle(pathLabel, 15, 34)}
+      >
+        <span>Path</span>
+        <SidebarSelectControl
+          ariaLabel="Toolbar path"
+          value={pathValue}
+          disabled={visiblePaths.length === 0}
+          options={pathOptions}
+          onChange={(value) => {
+            if (value !== "__no_path__") {
+              onSelectPath(value);
+            }
+          }}
+        />
+      </label>
+      <button
+        type="button"
+        className="path-toolbar-navigator__library"
+        onClick={onOpenLibrary}
+        disabled={!workspace}
+      >
+        Path Library
+      </button>
+      <span className="path-toolbar-navigator__count">
+        {activeGroup
+          ? `${visiblePaths.length} visible`
+          : `${paths.length} total`}
+      </span>
+    </div>
+  );
+}
+
+function toolbarSelectWidthStyle(label: string, minCh: number, maxCh: number) {
+  const widthCh = Math.max(minCh, Math.min(maxCh, label.length + 7));
+
+  return {
+    "--path-toolbar-field-width": `${widthCh}ch`,
+  } as CSSProperties;
+}
+
+function NewPathDialog({
+  activeGroup,
+  onCancel,
+  onCreate,
+}: {
+  activeGroup: ProjectPathGroupDocument | null;
+  onCancel(): void;
+  onCreate(input: { displayName: string; addToCurrentGroup: boolean }): void;
+}) {
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const [displayName, setDisplayName] = useState("new_path");
+  const [addToCurrentGroup, setAddToCurrentGroup] = useState(
+    Boolean(activeGroup),
+  );
+
+  useEffect(() => {
+    nameInputRef.current?.focus();
+    nameInputRef.current?.select();
+  }, []);
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <form
+        className="new-path-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Create New Path"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onCreate({
+            displayName: displayName.trim() || "Untitled Path",
+            addToCurrentGroup: Boolean(activeGroup) && addToCurrentGroup,
+          });
+        }}
+      >
+        <header className="config-dialog__header">
+          <strong>Create New Path</strong>
+          <button type="button" aria-label="Close new path" onClick={onCancel}>
+            x
+          </button>
+        </header>
+        <section className="new-path-dialog__body">
+          <label className="dialog-field">
+            <span>Path name</span>
+            <input
+              ref={nameInputRef}
+              aria-label="Path name"
+              type="text"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.currentTarget.value)}
+            />
+          </label>
+          {activeGroup ? (
+            <label className="dialog-checkbox-row">
+              <input
+                aria-label={`Add to ${activeGroup.display_name}`}
+                type="checkbox"
+                checked={addToCurrentGroup}
+                onChange={(event) =>
+                  setAddToCurrentGroup(event.currentTarget.checked)
+                }
+              />
+              <span>Add to {activeGroup.display_name}</span>
+            </label>
+          ) : null}
+        </section>
+        <footer className="config-dialog__footer">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="primary-dialog-action">
+            Create Path
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function PathLibraryDialog({
+  workspace,
+  onCancel,
+  onCreatePath,
+  onDeletePaths,
+  onExportPath,
+  onImportPath,
+}: {
+  workspace: ProjectWorkspaceDocument;
+  onCancel(): void;
+  onCreatePath(): void;
+  onDeletePaths(): void;
+  onExportPath(): void;
+  onImportPath(): void;
+}) {
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
+    workspace.active_path_group_id ?? null,
+  );
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(
+    workspace.active_path_id ?? workspace.paths[0]?.path_id ?? null,
+  );
+  const [showCreateCollectionDialog, setShowCreateCollectionDialog] =
+    useState(false);
+  const [deletingGroup, setDeletingGroup] =
+    useState<ProjectPathGroupDocument | null>(null);
+  const selectedGroup =
+    workspace.path_groups.find((group) => group.group_id === selectedGroupId) ??
+    null;
+  const selectedCollectionPaths = visiblePathsForGroup(
+    workspace.paths,
+    selectedGroup,
+  );
+  const selectedPathFromState =
+    workspace.paths.find((path) => path.path_id === selectedPathId) ?? null;
+  const selectedPath =
+    selectedPathFromState &&
+    selectedCollectionPaths.some(
+      (path) => path.path_id === selectedPathFromState.path_id,
+    )
+      ? selectedPathFromState
+      : (selectedCollectionPaths.find(
+          (path) => path.path_id === workspace.active_path_id,
+        ) ??
+        selectedCollectionPaths[0] ??
+        null);
+  const effectiveSelectedPathId = selectedPath?.path_id ?? null;
+  const handleSelectLibraryGroup = (groupId: string | null) => {
+    const nextGroup =
+      workspace.path_groups.find((group) => group.group_id === groupId) ?? null;
+    const nextPaths = visiblePathsForGroup(workspace.paths, nextGroup);
+
+    setSelectedGroupId(groupId);
+    setSelectedPathId((current) =>
+      current && nextPaths.some((path) => path.path_id === current)
+        ? current
+        : (nextPaths[0]?.path_id ?? null),
+    );
+  };
+
+  const handleUsePath = (pathId: string) => {
+    projectStore.getState().setActivePathGroup(selectedGroup?.group_id ?? null);
+    projectStore.getState().setActivePath(pathId);
+    selectionStore.getState().clearSelection();
+  };
+
+  const handleCreateGroup = (displayName: string) => {
+    const pathId = effectiveSelectedPathId;
+
+    projectStore.getState().createPathGroup({
+      displayName,
+      pathIds: pathId ? [pathId] : [],
+      makeActive: true,
+    });
+
+    const createdGroupId =
+      projectStore.getState().workspace?.active_path_group_id ?? null;
+    if (pathId) {
+      projectStore.getState().setActivePath(pathId);
+    }
+    selectionStore.getState().clearSelection();
+    setSelectedGroupId(createdGroupId);
+    setSelectedPathId(pathId);
+    setShowCreateCollectionDialog(false);
+  };
+
+  const handleRenameGroup = () => {
+    if (!selectedGroup) {
+      return;
+    }
+
+    const rawName = window.prompt(
+      "Rename Collection",
+      selectedGroup.display_name,
+    );
+    const displayName = rawName?.trim();
+    if (!displayName) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .renamePathGroup(selectedGroup.group_id, displayName);
+  };
+
+  const handleToggleSelectedPathMembership = (
+    groupId: string,
+    checked: boolean,
+  ) => {
+    if (!selectedPath) {
+      return;
+    }
+
+    if (checked) {
+      projectStore.getState().addPathsToGroup(groupId, [selectedPath.path_id]);
+    } else {
+      projectStore
+        .getState()
+        .removePathsFromGroup(groupId, [selectedPath.path_id]);
+    }
+    selectionStore.getState().clearSelection();
+  };
+
+  const handleCreatePathInSelectedCollection = () => {
+    projectStore.getState().setActivePathGroup(selectedGroup?.group_id ?? null);
+    selectionStore.getState().clearSelection();
+    onCreatePath();
+  };
+
+  const handleDuplicateSelectedPath = () => {
+    if (!selectedPath) {
+      return;
+    }
+
+    const rawName = window.prompt("Save Path As", selectedPath.display_name);
+    const displayName = rawName?.trim();
+    if (!displayName) {
+      return;
+    }
+
+    try {
+      projectStore.getState().duplicatePath(selectedPath.path_id, displayName);
+      const nextPathId =
+        projectStore.getState().workspace?.active_path_id ?? null;
+      if (selectedGroup && nextPathId) {
+        projectStore
+          .getState()
+          .addPathsToGroup(selectedGroup.group_id, [nextPathId]);
+      }
+      selectionStore.getState().clearSelection();
+      setSelectedPathId(nextPathId);
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    }
+  };
+
+  const handleRenameSelectedPath = () => {
+    if (!selectedPath) {
+      return;
+    }
+
+    const rawName = window.prompt("Rename Path", selectedPath.display_name);
+    const displayName = rawName?.trim();
+    if (!displayName) {
+      return;
+    }
+
+    projectStore.getState().renamePath(selectedPath.path_id, displayName);
+    setSelectedPathId(selectedPath.path_id);
+  };
+
+  const handleExportSelectedPath = () => {
+    if (!selectedPath) {
+      return;
+    }
+
+    projectStore.getState().setActivePath(selectedPath.path_id);
+    selectionStore.getState().clearSelection();
+    onExportPath();
+  };
+
+  const handleDeleteSelectedPath = () => {
+    if (selectedPath) {
+      projectStore.getState().setActivePath(selectedPath.path_id);
+      selectionStore.getState().clearSelection();
+    }
+    onDeletePaths();
+  };
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <section
+        className="path-library-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Path Library"
+        data-testid="path-library-dialog"
+      >
+        <header className="config-dialog__header">
+          <strong>Path Library</strong>
+          <button
+            type="button"
+            aria-label="Close path library"
+            onClick={onCancel}
+          >
+            x
+          </button>
+        </header>
+
+        <div className="path-library-dialog__utility-bar">
+          <div className="path-library-dialog__selection-summary">
+            <strong>{selectedGroup?.display_name ?? "All Paths"}</strong>
+            <span>
+              {selectedCollectionPaths.length}{" "}
+              {selectedCollectionPaths.length === 1 ? "path" : "paths"} visible
+            </span>
+          </div>
+          <button
+            type="button"
+            className="path-library-dialog__utility-button"
+            onClick={onImportPath}
+          >
+            <UploadIcon size={17} />
+            <span>Import Path</span>
+          </button>
+          <button
+            type="button"
+            className="path-library-dialog__utility-button"
+            disabled={!selectedPath}
+            onClick={handleExportSelectedPath}
+          >
+            <DownloadIcon size={17} />
+            <span>Export Path</span>
+          </button>
+        </div>
+
+        <div className="path-library-dialog__body">
+          <aside
+            className="path-library-dialog__groups"
+            aria-label="Collections"
+          >
+            <div className="path-library-dialog__column-header path-library-dialog__column-header--action">
+              <strong>Collections</strong>
+              <div className="path-library-dialog__header-actions">
+                <PathLibraryHeaderButton
+                  label="Create collection"
+                  onClick={() => setShowCreateCollectionDialog(true)}
+                >
+                  <PlusIcon size={17} />
+                </PathLibraryHeaderButton>
+                <PathLibraryHeaderButton
+                  label="Rename collection"
+                  disabled={!selectedGroup}
+                  onClick={handleRenameGroup}
+                >
+                  <PencilIcon size={16} />
+                </PathLibraryHeaderButton>
+                <PathLibraryHeaderButton
+                  label="Delete collection"
+                  tone="danger"
+                  disabled={!selectedGroup}
+                  onClick={() => {
+                    if (selectedGroup) {
+                      setDeletingGroup(selectedGroup);
+                    }
+                  }}
+                >
+                  <TrashIcon size={16} />
+                </PathLibraryHeaderButton>
+              </div>
+            </div>
+            <div className="path-library-dialog__group-list" role="list">
+              <button
+                type="button"
+                className={[
+                  "path-library-dialog__group",
+                  "is-permanent",
+                  !selectedGroup ? "is-selected" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                role="listitem"
+                aria-pressed={!selectedGroup}
+                onClick={() => handleSelectLibraryGroup(null)}
+              >
+                <span>All Paths</span>
+                <small>
+                  Permanent collection / {workspace.paths.length} paths
+                </small>
+              </button>
+              {workspace.path_groups.map((group) => (
+                <button
+                  key={group.group_id}
+                  type="button"
+                  className={
+                    selectedGroup?.group_id === group.group_id
+                      ? "path-library-dialog__group is-selected"
+                      : "path-library-dialog__group"
+                  }
+                  role="listitem"
+                  aria-pressed={selectedGroup?.group_id === group.group_id}
+                  onClick={() => handleSelectLibraryGroup(group.group_id)}
+                >
+                  <span>{group.display_name}</span>
+                  <small>
+                    {group.path_ids.length}{" "}
+                    {group.path_ids.length === 1 ? "path" : "paths"}
+                    {workspace.active_path_group_id === group.group_id
+                      ? " / active"
+                      : ""}
+                  </small>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <section
+            className="path-library-dialog__paths"
+            aria-label="Paths in selected collection"
+          >
+            <div className="path-library-dialog__column-header path-library-dialog__column-header--action">
+              <strong>Paths</strong>
+              <div className="path-library-dialog__header-actions">
+                <PathLibraryHeaderButton
+                  label="Open path"
+                  disabled={!selectedPath}
+                  onClick={() => {
+                    if (selectedPath) {
+                      handleUsePath(selectedPath.path_id);
+                    }
+                  }}
+                >
+                  <OpenIcon size={16} />
+                </PathLibraryHeaderButton>
+                <PathLibraryHeaderButton
+                  label="Save path as"
+                  disabled={!selectedPath}
+                  onClick={handleDuplicateSelectedPath}
+                >
+                  <CopyIcon size={16} />
+                </PathLibraryHeaderButton>
+                <PathLibraryHeaderButton
+                  label="Create new path"
+                  onClick={handleCreatePathInSelectedCollection}
+                >
+                  <FilePlusIcon size={16} />
+                </PathLibraryHeaderButton>
+                <PathLibraryHeaderButton
+                  label="Rename path"
+                  disabled={!selectedPath}
+                  onClick={handleRenameSelectedPath}
+                >
+                  <PencilIcon size={16} />
+                </PathLibraryHeaderButton>
+                <PathLibraryHeaderButton
+                  label="Delete path"
+                  tone="danger"
+                  disabled={!selectedPath}
+                  onClick={handleDeleteSelectedPath}
+                >
+                  <TrashIcon size={16} />
+                </PathLibraryHeaderButton>
+              </div>
+            </div>
+            <div className="path-library-dialog__path-list" role="list">
+              {selectedCollectionPaths.length > 0 ? (
+                selectedCollectionPaths.map((path) => (
+                  <button
+                    key={path.path_id}
+                    type="button"
+                    role="listitem"
+                    className={[
+                      "path-library-dialog__path",
+                      path.path_id === effectiveSelectedPathId
+                        ? "is-selected"
+                        : "",
+                      path.path_id === workspace.active_path_id
+                        ? "is-current"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    aria-pressed={path.path_id === effectiveSelectedPathId}
+                    onClick={() => setSelectedPathId(path.path_id)}
+                    onDoubleClick={() => handleUsePath(path.path_id)}
+                  >
+                    <span>{path.display_name}</span>
+                    <small>
+                      {path.file_name}
+                      {path.path_id === workspace.active_path_id
+                        ? " / open"
+                        : ""}
+                    </small>
+                  </button>
+                ))
+              ) : (
+                <div className="path-library-dialog__empty">
+                  No paths are in this collection yet.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section
+            className="path-library-dialog__details"
+            aria-label="Collection membership"
+          >
+            <div className="path-library-dialog__column-header">
+              <strong>Collection Membership</strong>
+              <span>
+                {selectedPath ? selectedPath.display_name : "No path"}
+              </span>
+            </div>
+            <div className="path-library-dialog__details-scroll">
+              {selectedPath ? (
+                <section className="path-library-dialog__membership">
+                  <div className="path-library-dialog__subhead">
+                    <strong>{selectedPath.file_name}</strong>
+                    <span>{workspace.path_groups.length + 1} collections</span>
+                  </div>
+                  <div className="path-library-dialog__membership-list">
+                    <label className="path-library-dialog__membership-row is-permanent">
+                      <input type="checkbox" checked disabled />
+                      <span>All Paths</span>
+                      <small>Permanent</small>
+                    </label>
+                    {workspace.path_groups.map((group) => (
+                      <label
+                        key={group.group_id}
+                        className={
+                          group.group_id === selectedGroup?.group_id
+                            ? "path-library-dialog__membership-row is-current"
+                            : "path-library-dialog__membership-row"
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={group.path_ids.includes(
+                            selectedPath.path_id,
+                          )}
+                          onChange={(event) =>
+                            handleToggleSelectedPathMembership(
+                              group.group_id,
+                              event.currentTarget.checked,
+                            )
+                          }
+                        />
+                        <span>{group.display_name}</span>
+                        <small>
+                          {group.path_ids.length}{" "}
+                          {group.path_ids.length === 1 ? "path" : "paths"}
+                        </small>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <div className="path-library-dialog__empty">
+                  Select a path to manage collection membership.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <footer className="config-dialog__footer path-library-dialog__footer">
+          <button type="button" onClick={onCancel}>
+            Close
+          </button>
+        </footer>
+      </section>
+
+      {deletingGroup ? (
+        <DeletePathGroupDialog
+          group={deletingGroup}
+          memberPaths={visiblePathsForGroup(workspace.paths, deletingGroup)}
+          onCancel={() => setDeletingGroup(null)}
+          onDelete={(deleteMemberPaths) => {
+            projectStore
+              .getState()
+              .deletePathGroup(deletingGroup.group_id, { deleteMemberPaths });
+            selectionStore.getState().clearSelection();
+            setDeletingGroup(null);
+          }}
+        />
+      ) : null}
+      {showCreateCollectionDialog ? (
+        <CreateCollectionDialog
+          onCancel={() => setShowCreateCollectionDialog(false)}
+          onCreate={handleCreateGroup}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function PathLibraryHeaderButton({
+  children,
+  disabled = false,
+  label,
+  onClick,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  label: string;
+  onClick(): void;
+  tone?: "danger" | "neutral";
+}) {
+  return (
+    <button
+      type="button"
+      className={`path-library-dialog__header-button path-library-dialog__header-button--${tone}`}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CreateCollectionDialog({
+  onCancel,
+  onCreate,
+}: {
+  onCancel(): void;
+  onCreate(displayName: string): void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [displayName, setDisplayName] = useState("");
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  return (
+    <form
+      className="path-library-create-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Create collection"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onCreate(displayName.trim() || "New Collection");
+      }}
+    >
+      <header>
+        <strong>Create Collection</strong>
+        <button
+          type="button"
+          aria-label="Close create collection"
+          onClick={onCancel}
+        >
+          <XIcon size={16} />
+        </button>
+      </header>
+      <label className="dialog-field">
+        <span>Collection name</span>
+        <input
+          ref={inputRef}
+          aria-label="Collection name"
+          data-testid="path-collection-new-name"
+          type="text"
+          value={displayName}
+          placeholder="Score autos"
+          onChange={(event) => setDisplayName(event.currentTarget.value)}
+        />
+      </label>
+      <footer>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="primary-dialog-action"
+          data-testid="create-path-collection"
+        >
+          Create
+        </button>
+      </footer>
+    </form>
   );
 }
 
@@ -1988,23 +2741,29 @@ function pointInsideRect(
 function hasActiveBlockingSurface({
   openTopMenu,
   showConfigDialog,
+  showNewPathDialog,
   showDeletePathDialog,
   showDeleteProjectDialog,
+  showPathGroupsDialog,
   showMobileSupportWarning,
   showOpenPanel,
 }: {
   openTopMenu: TopMenuId | null;
   showConfigDialog: boolean;
+  showNewPathDialog: boolean;
   showDeletePathDialog: boolean;
   showDeleteProjectDialog: boolean;
+  showPathGroupsDialog: boolean;
   showMobileSupportWarning: boolean;
   showOpenPanel: boolean;
 }): boolean {
   return Boolean(
     openTopMenu ||
     showConfigDialog ||
+    showNewPathDialog ||
     showDeletePathDialog ||
     showDeleteProjectDialog ||
+    showPathGroupsDialog ||
     showMobileSupportWarning ||
     showOpenPanel,
   );
@@ -2021,37 +2780,6 @@ function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
     Boolean(target.closest("[data-ranged-constraint-selection]"))
-  );
-}
-
-function PathMenuList({
-  paths,
-  emptyLabel,
-  onOpen,
-}: {
-  paths: ProjectPathDocument[];
-  emptyLabel: string;
-  onOpen(id: string): Promise<void>;
-}) {
-  if (paths.length === 0) {
-    return <div className="top-menu__empty">{emptyLabel}</div>;
-  }
-
-  return (
-    <div className="top-menu__list">
-      {paths.map((path) => (
-        <button
-          key={path.path_id}
-          type="button"
-          role="menuitem"
-          className="top-menu__item top-menu__project"
-          onClick={() => void onOpen(path.path_id)}
-        >
-          <span className="top-menu__item-label">{path.display_name}</span>
-          <small>{path.file_name}</small>
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -2353,6 +3081,99 @@ function DeletePathsDialog({
       </form>
     </div>
   );
+}
+
+function DeletePathGroupDialog({
+  group,
+  memberPaths,
+  onCancel,
+  onDelete,
+}: {
+  group: ProjectPathGroupDocument;
+  memberPaths: ProjectPathDocument[];
+  onCancel(): void;
+  onDelete(deleteMemberPaths: boolean): void;
+}) {
+  const [deleteMemberPaths, setDeleteMemberPaths] = useState(false);
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <form
+        className="delete-path-group-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Delete Collection"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onDelete(deleteMemberPaths);
+        }}
+      >
+        <header className="config-dialog__header">
+          <strong>Delete Collection</strong>
+          <button
+            type="button"
+            aria-label="Close delete collection"
+            onClick={onCancel}
+          >
+            x
+          </button>
+        </header>
+        <section className="delete-path-group-dialog__body">
+          <strong>{group.display_name}</strong>
+          <p>
+            Deleting the collection normally keeps every path in All Paths. Only
+            use the checkbox below if you want to delete the member paths too.
+          </p>
+          <label className="delete-path-group-dialog__option">
+            <input
+              type="checkbox"
+              checked={deleteMemberPaths}
+              onChange={(event) =>
+                setDeleteMemberPaths(event.currentTarget.checked)
+              }
+            />
+            <span>
+              Also delete {memberPaths.length} member{" "}
+              {memberPaths.length === 1 ? "path" : "paths"} from All Paths
+            </span>
+          </label>
+          {deleteMemberPaths ? (
+            <div className="delete-path-group-dialog__warning">
+              This removes the selected paths from the project, not just from
+              this collection.
+            </div>
+          ) : null}
+        </section>
+        <footer className="config-dialog__footer">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className={deleteMemberPaths ? "danger-action" : undefined}
+          >
+            {deleteMemberPaths
+              ? "Delete Collection and Paths"
+              : "Delete Collection Only"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function visiblePathsForGroup(
+  paths: readonly ProjectPathDocument[],
+  group: ProjectPathGroupDocument | null,
+): ProjectPathDocument[] {
+  if (!group) {
+    return [...paths];
+  }
+
+  return group.path_ids.flatMap((pathId) => {
+    const path = paths.find((candidate) => candidate.path_id === pathId);
+    return path ? [path] : [];
+  });
 }
 
 interface SaveStatusInput {

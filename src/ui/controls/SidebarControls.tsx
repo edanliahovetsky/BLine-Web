@@ -15,11 +15,13 @@ export interface SidebarSelectOption<T extends string> {
 
 export function SidebarSelectControl<T extends string>({
   ariaLabel,
+  disabled = false,
   value,
   options,
   onChange,
 }: {
   ariaLabel: string;
+  disabled?: boolean;
   value: T;
   options: readonly SidebarSelectOption<T>[];
   onChange(value: T): void;
@@ -28,6 +30,7 @@ export function SidebarSelectControl<T extends string>({
     <div className="sidebar-select-control">
       <select
         aria-label={ariaLabel}
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value as T)}
       >
