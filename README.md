@@ -19,6 +19,8 @@ point-to-point autonomous paths for FIRST Robotics Competition.
 
 <p align="center">
   <img src="assets/readme/bline-web-demo.gif" alt="BLine Web editor demo" width="900">
+  <br>
+  <img src="assets/readme/cone-demo.gif" alt="BLine cone demo" width="900">
 </p>
 
 ## Overview
