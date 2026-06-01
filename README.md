@@ -2,7 +2,8 @@
 
 # BLine Web
 
-The web-first BLine autonomous path editor for FRC holonomic drivetrains.
+Web and desktop editor for creating, tuning, and previewing rapid
+point-to-point autonomous paths for FIRST Robotics Competition.
 
 [![Web Build](https://img.shields.io/badge/web-bline--web.pages.dev-0f766e)](https://bline-web.pages.dev/)
 [![Status](https://img.shields.io/badge/status-alpha-f59e0b)](#project-status)
@@ -16,17 +17,31 @@ The web-first BLine autonomous path editor for FRC holonomic drivetrains.
 
 </div>
 
+<p align="center">
+  <img src="assets/readme/bline-web-demo.gif" alt="BLine Web editor demo" width="900">
+</p>
+
 ## Overview
 
-BLine Web is the next-generation editor for BLine, an FRC autonomous path
-generation and tracking suite for holonomic drivetrains. It brings the existing
-BLine desktop workflow to a modern React/Tauri codebase that runs in the browser
-and as a desktop app.
+BLine is an open-source autonomous path generation and tracking suite for
+FIRST Robotics Competition holonomic drivetrains, made by students for students.
+It is built around the kind of path workflow teams actually need during build
+season: create a path quickly, run it, observe the robot, tune the constraints,
+and iterate again.
+
+BLine Web is the current editor for that workflow. It brings the original
+BLine desktop experience to a modern React/Tauri codebase that runs in the
+browser and as a desktop app.
 
 The editor is built for rapid iteration: create or open a BLine project, edit
 paths on the field, tune translation and rotation constraints, preview the
 idealized path simulation, and save/export the same `config.json` plus
 `paths/*.json` files used by the BLine robot library.
+
+The goal is not to make autonomous path planning look more complicated than it
+has to be. BLine uses practical point-to-point paths, forgiving tuning surfaces,
+and visual feedback so teams can get from "we need an auto" to "we can run,
+observe, and improve this on the robot" faster.
 
 ## Project Status
 
