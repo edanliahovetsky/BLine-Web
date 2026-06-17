@@ -1994,11 +1994,11 @@ select {
 
 .auto-velocity-inline__group {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   min-inline-size: 0;
   min-width: 0;
   margin: 0;
-  padding: 6px 7px 7px;
+  padding: 4px 7px 7px;
   border: 1px solid #2d3d48;
   border-radius: 6px;
   background: #111a20;
@@ -2018,7 +2018,12 @@ select {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  margin-top: 4px;
   min-width: 0;
+}
+
+.auto-velocity-inline__group--merge > label {
+  margin-top: 4px;
 }
 
 .auto-velocity-inline label {
@@ -2030,9 +2035,7 @@ select {
 }
 
 .auto-velocity-inline label > span {
-  display: flex;
-  align-items: flex-end;
-  min-height: 1.7rem;
+  min-height: 0;
   line-height: 1.2;
 }
 
