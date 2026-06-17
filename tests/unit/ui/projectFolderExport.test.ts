@@ -54,6 +54,26 @@ describe("project folder export", () => {
 
     expect(autosDirectory).toBe(root.dir("autos"));
   });
+
+  it("downloads one zip with the autos folder tree when directory writing is unavailable", async () => {
+    const downloads: Array<{ blob: Blob; fileName: string }> = [];
+
+    await writeProjectFolder(exampleProjectFolder(), {
+      downloadFile: (blob, fileName) => downloads.push({ blob, fileName }),
+    });
+
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]?.fileName).toBe("autos.zip");
+    expect(downloads[0]?.blob.type).toBe("application/zip");
+
+    const entries = await readStoredZip(downloads[0]!.blob);
+    expect([...entries.keys()].sort()).toEqual([
+      "autos/config.json",
+      "autos/paths/One.json",
+    ]);
+    expect(entries.get("autos/config.json")).toBe('{"config":true}');
+    expect(entries.get("autos/paths/One.json")).toBe('{"path":true}');
+  });
 });
 
 function exampleProjectFolder(): ProjectFolderExport {
@@ -175,4 +195,39 @@ class MemoryFile implements ProjectExportFileHandle {
       },
     };
   }
+}
+
+async function readStoredZip(blob: Blob): Promise<Map<string, string>> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const decoder = new TextDecoder();
+  const entries = new Map<string, string>();
+  let offset = 0;
+
+  while (offset < bytes.byteLength) {
+    const signature = view.getUint32(offset, true);
+    if (signature === 0x02014b50 || signature === 0x06054b50) {
+      break;
+    }
+
+    expect(signature).toBe(0x04034b50);
+    const compressionMethod = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const uncompressedSize = view.getUint32(offset + 22, true);
+    const fileNameLength = view.getUint16(offset + 26, true);
+    const extraFieldLength = view.getUint16(offset + 28, true);
+    expect(compressionMethod).toBe(0);
+    expect(compressedSize).toBe(uncompressedSize);
+
+    const fileNameStart = offset + 30;
+    const fileNameEnd = fileNameStart + fileNameLength;
+    const dataStart = fileNameEnd + extraFieldLength;
+    const dataEnd = dataStart + compressedSize;
+    const fileName = decoder.decode(bytes.subarray(fileNameStart, fileNameEnd));
+    const fileText = decoder.decode(bytes.subarray(dataStart, dataEnd));
+    entries.set(fileName, fileText);
+    offset = dataEnd;
+  }
+
+  return entries;
 }
