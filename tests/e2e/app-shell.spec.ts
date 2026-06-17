@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 test("boots the Phase 1 shell", async ({ page }) => {
@@ -2150,6 +2151,53 @@ test("project and path menus expose import modes without toolbar clutter", async
   ).toHaveCount(0);
 });
 
+test("browser autos folder export downloads one zip preserving the autos tree", async ({
+  page,
+}) => {
+  await disableDirectoryPicker(page);
+  await page.goto("/");
+
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: "Export Autos Folder..." }).click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe("autos.zip");
+  const downloadPath = await download.path();
+  if (!downloadPath) {
+    throw new Error("Expected autos.zip to be available on disk");
+  }
+
+  const entries = parseStoredZip(await readFile(downloadPath));
+  expect([...entries.keys()].sort()).toEqual([
+    "autos/config.json",
+    "autos/pathgroups.json",
+    "autos/paths/phase-1-canvas-draft.json",
+  ]);
+  expect(
+    JSON.parse(requiredZipText(entries, "autos/config.json")),
+  ).toMatchObject({
+    gui: expect.any(Object),
+    kinematic_constraints: expect.any(Object),
+  });
+  expect(
+    JSON.parse(requiredZipText(entries, "autos/pathgroups.json")),
+  ).toMatchObject({
+    schema_version: 1,
+    groups: [],
+  });
+  const exportedPath = JSON.parse(
+    requiredZipText(entries, "autos/paths/phase-1-canvas-draft.json"),
+  ) as { path_elements?: unknown[] };
+  expect(exportedPath).toMatchObject({
+    path_elements: expect.any(Array),
+  });
+  expect(exportedPath.path_elements?.length).toBeGreaterThan(0);
+});
+
 test("path menu export saves the active path and import path round-trips it", async ({
   page,
 }) => {
@@ -2744,6 +2792,15 @@ async function workspaceWriteCount(page: Page): Promise<number> {
   );
 }
 
+async function disableDirectoryPicker(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "showDirectoryPicker", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+}
+
 async function installSaveFilePickerSpy(
   page: Page,
   { waitForRelease = false }: { waitForRelease?: boolean } = {},
@@ -2805,6 +2862,49 @@ async function savedFile(
     }
     return file;
   }, index);
+}
+
+function parseStoredZip(bytes: Uint8Array): Map<string, string> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const decoder = new TextDecoder();
+  const entries = new Map<string, string>();
+  let offset = 0;
+
+  while (offset < bytes.byteLength) {
+    const signature = view.getUint32(offset, true);
+    if (signature === 0x02014b50 || signature === 0x06054b50) {
+      break;
+    }
+
+    expect(signature).toBe(0x04034b50);
+    const compressionMethod = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const uncompressedSize = view.getUint32(offset + 22, true);
+    const fileNameLength = view.getUint16(offset + 26, true);
+    const extraFieldLength = view.getUint16(offset + 28, true);
+    expect(compressionMethod).toBe(0);
+    expect(compressedSize).toBe(uncompressedSize);
+
+    const fileNameStart = offset + 30;
+    const fileNameEnd = fileNameStart + fileNameLength;
+    const dataStart = fileNameEnd + extraFieldLength;
+    const dataEnd = dataStart + compressedSize;
+    entries.set(
+      decoder.decode(bytes.subarray(fileNameStart, fileNameEnd)),
+      decoder.decode(bytes.subarray(dataStart, dataEnd)),
+    );
+    offset = dataEnd;
+  }
+
+  return entries;
+}
+
+function requiredZipText(entries: Map<string, string>, name: string): string {
+  const text = entries.get(name);
+  if (text === undefined) {
+    throw new Error(`Expected ZIP entry ${name}`);
+  }
+  return text;
 }
 
 async function currentPathName(page: {
