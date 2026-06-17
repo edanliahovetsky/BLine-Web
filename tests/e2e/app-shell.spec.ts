@@ -1707,13 +1707,27 @@ test("edits project config with undo support", async ({ page }) => {
   const saveButton = dialog.getByRole("button", { name: "Save" });
   await expect(dialog).toBeVisible();
   await expect(saveButton).toBeDisabled();
+  await expect(dialog.locator(".config-dialog__nav-item")).toHaveText([
+    "Robot",
+    "Path Defaults",
+    "Field",
+    "Optimizer",
+  ]);
   await expect(
     dialog.getByRole("heading", { name: "Auto Velocity" }),
   ).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Robot" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await dialog.getByRole("button", { name: "Optimizer" }).click();
   await expect(
     dialog.getByRole("heading", { name: "Auto Constrain" }),
   ).toBeVisible();
-  await expect(dialog.locator("h2").last()).toHaveText("Auto Constrain");
+  await expect(
+    dialog.getByRole("heading", { name: "Optimizer" }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Robot" }).click();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
   await expect(
     dialog.getByTitle("Increase Protrusion Distance (m)"),
@@ -1740,8 +1754,11 @@ test("edits project config with undo support", async ({ page }) => {
 
   await runEditMenuAction(page, "Undo");
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.8");
+  await page.getByRole("button", { name: "Path Defaults" }).click();
   await expect(page.getByLabel("Default Max Accel (m/s2)")).toHaveValue("12");
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
   await page.getByRole("button", { name: "Close config" }).click();
 });
@@ -1754,6 +1771,7 @@ test("uploads and restores a custom field image from Settings", async ({
 
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field" }).click();
   const fieldSelect = dialog.getByLabel("Field Image", { exact: true });
   const saveButton = dialog.getByRole("button", { name: "Save" });
   await expect(dialog).toBeVisible();
@@ -1794,6 +1812,7 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
 
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Field" }).click();
   await expect(page.getByLabel("Field Name")).toHaveValue("Practice Field");
   await expect(page.getByLabel("Field Length (m)")).toHaveValue("12");
   await page.getByRole("button", { name: "Close config" }).click();
@@ -1805,6 +1824,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Robot" }).click();
   await page.getByLabel("Robot Width (m)").fill("0.725");
   await expect(dialog.getByRole("button", { name: "Save" })).toBeEnabled();
 
@@ -1812,6 +1832,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await expect(dialog).toBeHidden();
 
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.8");
   await page.getByRole("button", { name: "Close config" }).click();
 });
@@ -2171,6 +2192,7 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await page.getByRole("button", { name: "Settings" }).click();
 
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
 });
 
