@@ -28,6 +28,14 @@ export interface SerializedProjectArchive {
   config: ProjectConfig;
   paths: SerializedProjectArchivePath[];
   path_groups?: ReturnType<typeof serializePathGroupsFile>["groups"];
+  field_assets?: SerializedProjectArchiveFieldAsset[];
+}
+
+export interface SerializedProjectArchiveFieldAsset {
+  asset_id: string;
+  file_name: string;
+  mime_type: string;
+  data_base64: string;
 }
 
 type ArchiveSource = ProjectWorkspaceDocument | readonly ProjectDocument[];
@@ -43,10 +51,11 @@ export function deserializeProjectConfig(input: unknown): ProjectConfig {
 export function createBLineProjectArchive(
   source: ArchiveSource,
   exportedAt: string,
+  fieldAssets: SerializedProjectArchiveFieldAsset[] = [],
 ): SerializedProjectArchive {
   const workspace = workspaceFromArchiveSource(source);
 
-  return {
+  const archive: SerializedProjectArchive = {
     bline_project_schema_version: blineProjectArchiveSchemaVersion,
     exported_at: exportedAt,
     config: serializeProjectConfig(workspace.config),
@@ -57,18 +66,41 @@ export function createBLineProjectArchive(
     })),
     path_groups: serializePathGroupsFile(workspace).groups,
   };
+
+  if (fieldAssets.length > 0) {
+    archive.field_assets = fieldAssets;
+  }
+
+  return archive;
 }
 
 export function serializeBLineProjectArchive(
   source: ArchiveSource,
   exportedAt: string,
+  fieldAssets: SerializedProjectArchiveFieldAsset[] = [],
 ): Blob {
   return new Blob(
-    [JSON.stringify(createBLineProjectArchive(source, exportedAt), null, 2)],
+    [
+      JSON.stringify(
+        createBLineProjectArchive(source, exportedAt, fieldAssets),
+        null,
+        2,
+      ),
+    ],
     {
       type: "application/json",
     },
   );
+}
+
+export function fieldAssetsFromBLineProjectArchive(
+  input: unknown,
+): SerializedProjectArchiveFieldAsset[] {
+  if (!isBLineProjectArchive(input) || !Array.isArray(input.field_assets)) {
+    return [];
+  }
+
+  return input.field_assets.filter(isSerializedProjectArchiveFieldAsset);
 }
 
 export function deserializeBLineProjectArchive(
@@ -135,6 +167,22 @@ function isProjectDocumentArray(
   val: unknown,
 ): val is readonly ProjectDocument[] {
   return Array.isArray(val);
+}
+
+function isSerializedProjectArchiveFieldAsset(
+  input: unknown,
+): input is SerializedProjectArchiveFieldAsset {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return false;
+  }
+
+  const candidate = input as Partial<SerializedProjectArchiveFieldAsset>;
+  return (
+    typeof candidate.asset_id === "string" &&
+    typeof candidate.file_name === "string" &&
+    typeof candidate.mime_type === "string" &&
+    typeof candidate.data_base64 === "string"
+  );
 }
 
 function workspaceFromArchiveSource(

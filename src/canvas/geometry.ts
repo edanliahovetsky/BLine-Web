@@ -1,8 +1,7 @@
 import {
-  fieldCoordinateOffsetMeters,
-  fieldLengthMeters,
-  fieldWidthMeters,
-} from "./constants";
+  defaultFieldGeometry,
+  type FieldGeometry,
+} from "../core/field/fieldConfig";
 import { defaultRobotSizeMeters, type RobotSizeMeters } from "./robotFootprint";
 import {
   isAnchorElement,
@@ -24,6 +23,7 @@ export interface FieldViewport {
   width: number;
   height: number;
   scale: number;
+  field: FieldGeometry;
 }
 
 export interface StagePoint {
@@ -42,6 +42,7 @@ export type RotationOverrides = ReadonlyMap<number, number>;
 export function createFieldViewport(
   size: CanvasSize,
   preferredPaddingPx = 24,
+  field: FieldGeometry = defaultFieldGeometry,
 ): FieldViewport {
   const safeWidth = Math.max(1, size.width);
   const safeHeight = Math.max(1, size.height);
@@ -51,12 +52,12 @@ export function createFieldViewport(
   const scale = Math.max(
     1,
     Math.min(
-      availableWidth / fieldLengthMeters,
-      availableHeight / fieldWidthMeters,
+      availableWidth / field.length_meters,
+      availableHeight / field.width_meters,
     ),
   );
-  const width = fieldLengthMeters * scale;
-  const height = fieldWidthMeters * scale;
+  const width = field.length_meters * scale;
+  const height = field.width_meters * scale;
 
   return {
     x: (safeWidth - width) / 2,
@@ -64,6 +65,7 @@ export function createFieldViewport(
     width,
     height,
     scale,
+    field,
   };
 }
 
@@ -83,8 +85,11 @@ export function modelToStagePoint(
 ): StagePoint {
   return fieldSceneToStagePoint(
     {
-      x_meters: point.x_meters + fieldCoordinateOffsetMeters,
-      y_meters: fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters,
+      x_meters: point.x_meters + viewport.field.coordinate_offset_meters,
+      y_meters:
+        viewport.field.width_meters -
+        point.y_meters -
+        viewport.field.coordinate_offset_meters,
     },
     viewport,
   );
@@ -100,23 +105,28 @@ export function stageToModelPoint(
 
   return clampModelPoint(
     {
-      x_meters: sceneX - fieldCoordinateOffsetMeters,
-      y_meters: fieldWidthMeters - sceneY - fieldCoordinateOffsetMeters,
+      x_meters: sceneX - viewport.field.coordinate_offset_meters,
+      y_meters:
+        viewport.field.width_meters -
+        sceneY -
+        viewport.field.coordinate_offset_meters,
     },
     robotSizeMeters,
+    viewport.field,
   );
 }
 
 export function clampModelPoint(
   point: PointMeters,
   robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters,
+  field: FieldGeometry = defaultFieldGeometry,
 ): PointMeters {
   const halfRobotLength = robotSizeMeters.lengthMeters / 2;
   const halfRobotWidth = robotSizeMeters.widthMeters / 2;
   const maxX =
-    fieldLengthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotLength;
+    field.length_meters - field.coordinate_offset_meters * 2 - halfRobotLength;
   const maxY =
-    fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotWidth;
+    field.width_meters - field.coordinate_offset_meters * 2 - halfRobotWidth;
 
   return {
     x_meters: clamp(point.x_meters, halfRobotLength, maxX),

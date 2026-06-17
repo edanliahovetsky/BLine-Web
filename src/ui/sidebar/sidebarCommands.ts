@@ -6,12 +6,8 @@ import {
   applyAutoVelocityConstraintsToOrdinals,
   refreshAutoVelocityConstraints,
 } from "../../core/constraints/autoVelocityApply";
-import {
-  fieldCoordinateOffsetMeters,
-  fieldLengthMeters,
-  fieldWidthMeters,
-} from "../../canvas/constants";
 import { getDefaultOptionalConfigValue } from "../../core/config/projectConfig";
+import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
 import {
   getElementHeadingRadians,
   getElementPosition,
@@ -614,18 +610,20 @@ export function createConvertedElement(
   const ratio = getExistingRatio(element);
 
   if (nextType === "translation") {
+    const field = fieldGeometryFromConfig(project.config.gui.field);
     return createTranslationTarget({
-      x_meters: position?.x_meters ?? fieldLengthMeters / 2,
-      y_meters: position?.y_meters ?? fieldWidthMeters / 2,
+      x_meters: position?.x_meters ?? field.length_meters / 2,
+      y_meters: position?.y_meters ?? field.width_meters / 2,
       intermediate_handoff_radius_meters: handoffRadius,
     });
   }
 
   if (nextType === "waypoint") {
+    const field = fieldGeometryFromConfig(project.config.gui.field);
     return createWaypoint({
       translation_target: createTranslationTarget({
-        x_meters: position?.x_meters ?? fieldLengthMeters / 2,
-        y_meters: position?.y_meters ?? fieldWidthMeters / 2,
+        x_meters: position?.x_meters ?? field.length_meters / 2,
+        y_meters: position?.y_meters ?? field.width_meters / 2,
         intermediate_handoff_radius_meters: handoffRadius,
       }),
       rotation_target: createRotationTarget({
@@ -924,6 +922,7 @@ function defaultPosition(
   project: ProjectDocument,
   selectedIndex: number | null,
 ): { x_meters: number; y_meters: number } {
+  const field = fieldGeometryFromConfig(project.config.gui.field);
   const selectedPosition =
     selectedIndex === null
       ? null
@@ -937,8 +936,8 @@ function defaultPosition(
 
   return clampFieldPosition(
     {
-      x_meters: (fallbackPosition?.x_meters ?? fieldLengthMeters / 2) + 0.75,
-      y_meters: (fallbackPosition?.y_meters ?? fieldWidthMeters / 2) + 0.35,
+      x_meters: (fallbackPosition?.x_meters ?? field.length_meters / 2) + 0.75,
+      y_meters: (fallbackPosition?.y_meters ?? field.width_meters / 2) + 0.35,
     },
     project,
   );
@@ -948,6 +947,7 @@ function clampFieldPosition(
   point: { x_meters: number; y_meters: number },
   project: ProjectDocument,
 ) {
+  const field = fieldGeometryFromConfig(project.config.gui.field);
   const robotSizeMeters = robotSizeFromConfig(project.config);
   const halfRobotLength = robotSizeMeters.lengthMeters / 2;
   const halfRobotWidth = robotSizeMeters.widthMeters / 2;
@@ -955,12 +955,14 @@ function clampFieldPosition(
     x_meters: clamp(
       point.x_meters,
       halfRobotLength,
-      fieldLengthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotLength,
+      field.length_meters -
+        field.coordinate_offset_meters * 2 -
+        halfRobotLength,
     ),
     y_meters: clamp(
       point.y_meters,
       halfRobotWidth,
-      fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotWidth,
+      field.width_meters - field.coordinate_offset_meters * 2 - halfRobotWidth,
     ),
   };
 }

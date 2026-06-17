@@ -1,6 +1,9 @@
-export const fieldLengthMeters = 17.54;
-export const fieldWidthMeters = 9.07;
-export const fieldCoordinateOffsetMeters = 0.5;
+import { defaultFieldGeometry } from "../core/field/fieldConfig";
+
+export const fieldLengthMeters = defaultFieldGeometry.length_meters;
+export const fieldWidthMeters = defaultFieldGeometry.width_meters;
+export const fieldCoordinateOffsetMeters =
+  defaultFieldGeometry.coordinate_offset_meters;
 
 export const fieldAspectRatio = fieldLengthMeters / fieldWidthMeters;
 

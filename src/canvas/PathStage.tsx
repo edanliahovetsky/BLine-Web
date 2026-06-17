@@ -18,6 +18,7 @@ import {
   type TranslationTarget,
 } from "../core/model/path";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
+import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
 import { simulatePath, type SimResult } from "../core/sim";
 import { projectStore } from "../state/projectStore";
@@ -128,6 +129,10 @@ export function PathStage({
   const [viewScale, setViewScale] = useState(1);
   const [panOffset, setPanOffsetState] = useState<StagePoint>({ x: 0, y: 0 });
   const [rendererError, setRendererError] = useState<string | null>(null);
+  const [customFieldImage, setCustomFieldImage] = useState<{
+    fieldId: string;
+    url: string;
+  } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
@@ -154,6 +159,59 @@ export function PathStage({
     selectionStore,
     (state) => state.selectedRangedConstraint,
   );
+  const activeField = useMemo(
+    () => resolveFieldDefinition(project?.config.gui.field),
+    [project?.config.gui.field],
+  );
+  useEffect(() => {
+    if (!activeField.custom) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let objectUrl: string | null = null;
+    const fieldId = activeField.id;
+
+    void projectStore
+      .getState()
+      .readFieldImageAsset(activeField.custom)
+      .then((blob) => {
+        if (disposed || !blob) {
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setCustomFieldImage({ fieldId, url: objectUrl });
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setRendererError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      });
+
+    return () => {
+      disposed = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [activeField.custom, activeField.id]);
+  const customFieldImageUrl =
+    customFieldImage && customFieldImage.fieldId === activeField.id
+      ? customFieldImage.url
+      : null;
+  const renderField = useMemo(
+    () =>
+      activeField.custom && customFieldImageUrl
+        ? { ...activeField, image_src: customFieldImageUrl }
+        : activeField,
+    [activeField, customFieldImageUrl],
+  );
+  const activeFieldAspectRatio =
+    activeField.geometry.length_meters / activeField.geometry.width_meters;
+
+  const fieldRenderKey = `${renderField.id}:${renderField.image_src ?? renderField.kind}`;
 
   useEffect(() => {
     selectionStore.getState().reconcileProject(project);
@@ -283,7 +341,7 @@ export function PathStage({
       const width = Math.max(320, Math.floor(rect.width));
       const height = Math.max(
         260,
-        Math.floor(rect.height) || Math.round(width / fieldAspectRatio),
+        Math.floor(rect.height) || Math.round(width / activeFieldAspectRatio),
       );
       setStageSize({ width, height });
     };
@@ -299,7 +357,7 @@ export function PathStage({
     observer.observe(container);
 
     return () => observer.disconnect();
-  }, []);
+  }, [activeFieldAspectRatio]);
 
   useEffect(() => {
     const host = canvasHostRef.current;
@@ -311,7 +369,7 @@ export function PathStage({
     let renderer: PixiPathRenderer | null = null;
     let debugApi: ReturnType<PixiPathRenderer["getDebugApi"]> | null = null;
 
-    void PixiPathRenderer.create(fallbackStageSize)
+    void PixiPathRenderer.create(fallbackStageSize, renderField)
       .then((nextRenderer) => {
         if (disposed) {
           nextRenderer.destroy();
@@ -344,11 +402,11 @@ export function PathStage({
       rendererRef.current = null;
       renderer?.destroy();
     };
-  }, []);
+  }, [fieldRenderKey, renderField]);
 
   const baseViewport = useMemo(
-    () => createFieldViewport(stageSize),
-    [stageSize],
+    () => createFieldViewport(stageSize, 24, activeField.geometry),
+    [activeField.geometry, stageSize],
   );
   const viewport = useMemo(
     () => ({
@@ -358,6 +416,7 @@ export function PathStage({
       width: baseViewport.width * viewScale,
       height: baseViewport.height * viewScale,
       scale: baseViewport.scale * viewScale,
+      field: baseViewport.field,
     }),
     [baseViewport, panOffset, viewScale],
   );
@@ -557,6 +616,7 @@ export function PathStage({
     () => ({
       stageSize,
       viewport,
+      field: renderField,
       project,
       overlayPaths,
       hoveredOverlayPathId,
@@ -572,6 +632,7 @@ export function PathStage({
       curvePreview,
     }),
     [
+      renderField,
       curvePreview,
       dragPreview,
       project,

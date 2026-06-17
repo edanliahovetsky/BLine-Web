@@ -1,3 +1,9 @@
+import {
+  createProjectFieldConfig,
+  defaultProjectFieldConfig,
+  type ProjectFieldConfig,
+} from "../field/fieldConfig";
+
 export type ProtrusionSide = "none" | "left" | "right" | "front" | "back";
 export type ProtrusionState = "" | "shown" | "hidden";
 
@@ -19,6 +25,7 @@ export interface CanonicalProjectConfig {
       show_on_event_keys: string[];
       hide_on_event_keys: string[];
     };
+    field: ProjectFieldConfig;
   };
   kinematic_constraints: {
     default_max_velocity_meters_per_sec: number;
@@ -73,6 +80,7 @@ const defaultConfig: CanonicalProjectConfig = {
       show_on_event_keys: [],
       hide_on_event_keys: [],
     },
+    field: defaultProjectFieldConfig,
   },
   kinematic_constraints: {
     default_max_velocity_meters_per_sec: 4.5,
@@ -167,7 +175,11 @@ export function needsProjectConfigMigration(input: unknown): boolean {
     return true;
   }
 
-  if (!isRecord(gui.robot) || !isRecord(gui.protrusions)) {
+  if (
+    !isRecord(gui.robot) ||
+    !isRecord(gui.protrusions) ||
+    !isRecord(gui.field)
+  ) {
     return true;
   }
 
@@ -307,6 +319,11 @@ function updateProjectConfig(
     config.gui.protrusions.default_state = legacy.enabled ? "shown" : "";
     config.gui.protrusions.show_on_event_keys = [];
     config.gui.protrusions.hide_on_event_keys = [];
+  }
+
+  const field = lookupAny(input, [["gui", "field"], ["field"]]);
+  if (field.found) {
+    config.gui.field = createProjectFieldConfig(field.value);
   }
 
   const defaultNumericKeys = Object.keys(config.kinematic_constraints) as Array<

@@ -1,11 +1,19 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
 } from "react";
 import type { ProjectConfig } from "../../core/io/projectSchema";
+import {
+  builtInFieldDefinitions,
+  defaultFieldId,
+  resolveFieldDefinition,
+  type CustomFieldImage,
+  type FieldGeometry,
+} from "../../core/field/fieldConfig";
 import {
   createProjectConfig,
   type ProtrusionSide,
@@ -17,19 +25,38 @@ interface ProjectConfigDialogProps {
   config: ProjectConfig;
   onCancel(): void;
   onSave(config: ProjectConfig): void;
+  onUploadFieldImage(
+    file: File,
+    geometry: FieldGeometry,
+  ): Promise<CustomFieldImage>;
+  onLoadFieldImage(field: CustomFieldImage): Promise<Blob | null>;
 }
 
 export function ProjectConfigDialog({
   config,
   onCancel,
   onSave,
+  onUploadFieldImage,
+  onLoadFieldImage,
 }: ProjectConfigDialogProps) {
   const initialConfig = useMemo(() => createProjectConfig(config), [config]);
   const [draft, setDraft] = useState<ProjectConfig>(() =>
     createProjectConfig(config),
   );
+  const fieldInputRef = useRef<HTMLInputElement | null>(null);
+  const [fieldPreview, setFieldPreview] = useState<{
+    fieldId: string;
+    url: string;
+  } | null>(null);
+  const [fieldUploadError, setFieldUploadError] = useState<string | null>(null);
+  const [fieldUploading, setFieldUploading] = useState(false);
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
   const isDirty = !configsEqual(initialConfig, normalizedDraft);
+  const selectedField = useMemo(
+    () => resolveFieldDefinition(draft.gui.field),
+    [draft.gui.field],
+  );
+  const selectedCustomField = selectedField.custom ?? null;
   const protrusionsEnabled = draft.gui.protrusions.enabled;
   const protrusionDefaultStateOptions = protrusionsEnabled
     ? ["shown", "hidden"]
@@ -40,6 +67,43 @@ export function ProjectConfigDialog({
       onSave(normalizedDraft);
     }
   };
+
+  useEffect(() => {
+    if (!selectedCustomField) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let objectUrl: string | null = null;
+    const fieldId = selectedCustomField.id;
+
+    void onLoadFieldImage(selectedCustomField)
+      .then((blob) => {
+        if (disposed || !blob) {
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setFieldPreview({ fieldId, url: objectUrl });
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setFieldUploadError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      });
+
+    return () => {
+      disposed = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [onLoadFieldImage, selectedCustomField]);
+  const fieldPreviewUrl =
+    fieldPreview && fieldPreview.fieldId === selectedCustomField?.id
+      ? fieldPreview.url
+      : null;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -200,6 +264,116 @@ export function ProjectConfigDialog({
             </section>
 
             <section className="config-dialog__section config-dialog__section--wide-rows">
+              <h2>Field</h2>
+              <FieldSelectRow
+                value={draft.gui.field.selected_field_id}
+                customFields={draft.gui.field.custom_fields}
+                onChange={(value) => updateFieldSelection(setDraft, value)}
+              />
+              <div className="field-preview" data-testid="field-preview">
+                {selectedField.kind === "grid" ? (
+                  <div className="field-preview__grid" aria-hidden="true" />
+                ) : selectedField.image_src || fieldPreviewUrl ? (
+                  <img
+                    alt={`${selectedField.label} preview`}
+                    src={selectedField.image_src ?? fieldPreviewUrl ?? ""}
+                  />
+                ) : (
+                  <div className="field-preview__empty" aria-hidden="true" />
+                )}
+              </div>
+              <div className="config-dialog__button-row">
+                <button
+                  type="button"
+                  onClick={() => fieldInputRef.current?.click()}
+                  disabled={fieldUploading}
+                >
+                  {selectedCustomField ? "Replace Image" : "Upload Image"}
+                </button>
+                {selectedCustomField ? (
+                  <button
+                    type="button"
+                    onClick={() => removeSelectedCustomField(setDraft)}
+                  >
+                    Remove Custom Field
+                  </button>
+                ) : null}
+              </div>
+              <input
+                ref={fieldInputRef}
+                className="file-import-input"
+                aria-label="Upload field image"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0] ?? null;
+                  event.currentTarget.value = "";
+                  if (file) {
+                    void uploadCustomFieldImage({
+                      file,
+                      draft,
+                      selectedCustomField,
+                      setDraft,
+                      setFieldUploading,
+                      setFieldUploadError,
+                      onUploadFieldImage,
+                    });
+                  }
+                }}
+              />
+              <TextRow
+                label="Field Name"
+                value={selectedCustomField?.name ?? selectedField.label}
+                disabled={!selectedCustomField}
+                onChange={(value) =>
+                  updateSelectedCustomField(setDraft, { name: value })
+                }
+              />
+              <NumberRow
+                label="Field Length (m)"
+                value={selectedField.geometry.length_meters}
+                min={0.5}
+                max={30}
+                step={0.01}
+                disabled={!selectedCustomField}
+                onChange={(value) =>
+                  updateSelectedCustomFieldGeometry(setDraft, {
+                    length_meters: value,
+                  })
+                }
+              />
+              <NumberRow
+                label="Field Width (m)"
+                value={selectedField.geometry.width_meters}
+                min={0.5}
+                max={30}
+                step={0.01}
+                disabled={!selectedCustomField}
+                onChange={(value) =>
+                  updateSelectedCustomFieldGeometry(setDraft, {
+                    width_meters: value,
+                  })
+                }
+              />
+              <NumberRow
+                label="Coordinate Offset (m)"
+                value={selectedField.geometry.coordinate_offset_meters}
+                min={0}
+                max={5}
+                step={0.01}
+                disabled={!selectedCustomField}
+                onChange={(value) =>
+                  updateSelectedCustomFieldGeometry(setDraft, {
+                    coordinate_offset_meters: value,
+                  })
+                }
+              />
+              {fieldUploadError ? (
+                <p className="config-dialog__error">{fieldUploadError}</p>
+              ) : null}
+            </section>
+
+            <section className="config-dialog__section config-dialog__section--wide-rows">
               <h2>End Tolerance</h2>
               <KinematicNumberRow
                 draft={draft}
@@ -315,6 +489,38 @@ export function ProjectConfigDialog({
 }
 
 type KinematicKey = keyof ProjectConfig["kinematic_constraints"];
+
+function FieldSelectRow({
+  value,
+  customFields,
+  onChange,
+}: {
+  value: string;
+  customFields: readonly CustomFieldImage[];
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="config-row">
+      <span className="config-row__label">Field Image</span>
+      <select
+        aria-label="Field Image"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      >
+        {builtInFieldDefinitions.map((field) => (
+          <option key={field.id} value={field.id}>
+            {field.label}
+          </option>
+        ))}
+        {customFields.map((field) => (
+          <option key={field.id} value={field.id}>
+            {field.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 function KinematicNumberRow({
   draft,
@@ -485,6 +691,134 @@ function updateProtrusions(
       },
     },
   }));
+}
+
+function updateFieldSelection(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  selectedFieldId: string,
+): void {
+  setDraft((current) => ({
+    ...current,
+    gui: {
+      ...current.gui,
+      field: {
+        ...current.gui.field,
+        selected_field_id: selectedFieldId,
+      },
+    },
+  }));
+}
+
+function removeSelectedCustomField(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+): void {
+  setDraft((current) => {
+    const selectedId = current.gui.field.selected_field_id;
+    return {
+      ...current,
+      gui: {
+        ...current.gui,
+        field: {
+          selected_field_id: defaultFieldId,
+          custom_fields: current.gui.field.custom_fields.filter(
+            (field) => field.id !== selectedId,
+          ),
+        },
+      },
+    };
+  });
+}
+
+function updateSelectedCustomFieldGeometry(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  geometry: Partial<FieldGeometry>,
+): void {
+  updateSelectedCustomField(setDraft, { geometry });
+}
+
+function updateSelectedCustomField(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  update: Partial<Pick<CustomFieldImage, "name">> & {
+    geometry?: Partial<FieldGeometry>;
+  },
+): void {
+  setDraft((current) => {
+    const selectedId = current.gui.field.selected_field_id;
+    return {
+      ...current,
+      gui: {
+        ...current.gui,
+        field: {
+          ...current.gui.field,
+          custom_fields: current.gui.field.custom_fields.map((field) =>
+            field.id === selectedId
+              ? {
+                  ...field,
+                  ...("name" in update
+                    ? { name: update.name ?? field.name }
+                    : {}),
+                  geometry: update.geometry
+                    ? {
+                        ...field.geometry,
+                        ...update.geometry,
+                      }
+                    : field.geometry,
+                }
+              : field,
+          ),
+        },
+      },
+    };
+  });
+}
+
+async function uploadCustomFieldImage({
+  file,
+  draft,
+  selectedCustomField,
+  setDraft,
+  setFieldUploading,
+  setFieldUploadError,
+  onUploadFieldImage,
+}: {
+  file: File;
+  draft: ProjectConfig;
+  selectedCustomField: CustomFieldImage | null;
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+  setFieldUploading(value: boolean): void;
+  setFieldUploadError(value: string | null): void;
+  onUploadFieldImage(
+    file: File,
+    geometry: FieldGeometry,
+  ): Promise<CustomFieldImage>;
+}): Promise<void> {
+  setFieldUploading(true);
+  setFieldUploadError(null);
+  try {
+    const geometry =
+      selectedCustomField?.geometry ??
+      resolveFieldDefinition(draft.gui.field).geometry;
+    const uploaded = await onUploadFieldImage(file, geometry);
+    setDraft((current) => ({
+      ...current,
+      gui: {
+        ...current.gui,
+        field: {
+          selected_field_id: uploaded.id,
+          custom_fields: [
+            ...current.gui.field.custom_fields.filter(
+              (field) => field.id !== selectedCustomField?.id,
+            ),
+            uploaded,
+          ],
+        },
+      },
+    }));
+  } catch (error) {
+    setFieldUploadError(error instanceof Error ? error.message : String(error));
+  } finally {
+    setFieldUploading(false);
+  }
 }
 
 function parseKeyList(value: string): string[] {

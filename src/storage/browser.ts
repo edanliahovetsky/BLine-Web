@@ -10,6 +10,8 @@ import {
   importWorkspaceArchive,
   workspaceFromRecord,
   workspaceSummaryFromRecord,
+  type FieldAssetPayload,
+  type FieldAssetWriteInput,
   type CurrentWorkspaceAdapter,
   type ProjectWorkspaceSummary,
   type StoredProjectRecord,
@@ -24,6 +26,7 @@ export interface BrowserStorageOptions {
   currentWorkspaceKey?: string;
   legacyProjectKeyPrefix?: string;
   now?: () => Date;
+  fieldAssetDbName?: string;
 }
 
 export interface StorageLike {
@@ -37,6 +40,8 @@ export interface StorageLike {
 const defaultKeyPrefix = "bline-web:workspace:";
 const defaultCurrentWorkspaceKey = "bline-web:current-workspace";
 const defaultLegacyProjectKeyPrefix = "bline-web:project:";
+const defaultFieldAssetDbName = "bline-web-field-assets";
+const fieldAssetStoreName = "field-assets";
 
 export class BrowserStorage implements CurrentWorkspaceAdapter {
   private readonly storage: StorageLike;
@@ -44,6 +49,8 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   private readonly currentWorkspaceKey: string;
   private readonly legacyProjectKeyPrefix: string;
   private readonly now: () => Date;
+  private readonly fieldAssetDbName: string;
+  private fieldAssetDbPromise: Promise<IDBDatabase> | null = null;
 
   constructor(options: BrowserStorageOptions = {}) {
     this.storage = options.storage ?? window.localStorage;
@@ -53,6 +60,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     this.legacyProjectKeyPrefix =
       options.legacyProjectKeyPrefix ?? defaultLegacyProjectKeyPrefix;
     this.now = options.now ?? (() => new Date());
+    this.fieldAssetDbName = options.fieldAssetDbName ?? defaultFieldAssetDbName;
   }
 
   async initialize(): Promise<void> {
@@ -132,6 +140,52 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       await this.setCurrentWorkspaceId(imported.id);
     }
     return result;
+  }
+
+  async writeFieldAsset(input: FieldAssetWriteInput): Promise<void> {
+    const db = await this.openFieldAssetDb();
+    const record: BrowserFieldAssetRecord = {
+      key: fieldAssetKey(input.workspaceId, input.assetId),
+      workspaceId: input.workspaceId,
+      assetId: input.assetId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      bytes: bytesToArrayBuffer(input.bytes),
+      updatedAt: this.now().toISOString(),
+    };
+
+    await runFieldAssetTransaction(db, "readwrite", (store) =>
+      store.put(record),
+    );
+  }
+
+  async readFieldAsset(
+    workspaceId: string,
+    assetId: string,
+  ): Promise<FieldAssetPayload | null> {
+    const db = await this.openFieldAssetDb();
+    const record =
+      await runFieldAssetTransaction<BrowserFieldAssetRecord | null>(
+        db,
+        "readonly",
+        (store) => store.get(fieldAssetKey(workspaceId, assetId)),
+        (value) => (isBrowserFieldAssetRecord(value) ? value : null),
+      );
+
+    return record
+      ? {
+          fileName: record.fileName,
+          mimeType: record.mimeType,
+          bytes: new Uint8Array(record.bytes),
+        }
+      : null;
+  }
+
+  async deleteFieldAsset(workspaceId: string, assetId: string): Promise<void> {
+    const db = await this.openFieldAssetDb();
+    await runFieldAssetTransaction(db, "readwrite", (store) =>
+      store.delete(fieldAssetKey(workspaceId, assetId)),
+    );
   }
 
   async getCurrentWorkspaceId(): Promise<string | null> {
@@ -246,6 +300,38 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   private storageKey(id: string): string {
     return `${this.keyPrefix}${encodeURIComponent(id)}`;
   }
+
+  private openFieldAssetDb(): Promise<IDBDatabase> {
+    if (!("indexedDB" in globalThis)) {
+      throw new Error("Custom field image storage is unavailable");
+    }
+
+    this.fieldAssetDbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(this.fieldAssetDbName, 1);
+      request.addEventListener("error", () => {
+        reject(request.error ?? new Error("Failed to open field asset store"));
+      });
+      request.addEventListener("upgradeneeded", () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(fieldAssetStoreName)) {
+          db.createObjectStore(fieldAssetStoreName, { keyPath: "key" });
+        }
+      });
+      request.addEventListener("success", () => resolve(request.result));
+    });
+
+    return this.fieldAssetDbPromise;
+  }
+}
+
+interface BrowserFieldAssetRecord {
+  key: string;
+  workspaceId: string;
+  assetId: string;
+  fileName: string;
+  mimeType: string;
+  bytes: ArrayBuffer;
+  updatedAt: string;
 }
 
 function assertExpectedVersion(
@@ -269,6 +355,44 @@ function createBrowserVersion(updatedAt: string): string {
   const random =
     globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
   return `${updatedAt}:${random}`;
+}
+
+function fieldAssetKey(workspaceId: string, assetId: string): string {
+  return `${encodeURIComponent(workspaceId)}:${encodeURIComponent(assetId)}`;
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function runFieldAssetTransaction<T = void>(
+  db: IDBDatabase,
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest,
+  map: (value: unknown) => T = () => undefined as T,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const transaction = db.transaction(fieldAssetStoreName, mode);
+    const store = transaction.objectStore(fieldAssetStoreName);
+    const request = run(store);
+    let mappedValue: T = undefined as T;
+
+    request.addEventListener("success", () => {
+      mappedValue = map(request.result);
+    });
+    request.addEventListener("error", () => {
+      reject(request.error ?? new Error("Field asset request failed"));
+    });
+    transaction.addEventListener("complete", () => resolve(mappedValue));
+    transaction.addEventListener("error", () => {
+      reject(transaction.error ?? new Error("Field asset transaction failed"));
+    });
+    transaction.addEventListener("abort", () => {
+      reject(transaction.error ?? new Error("Field asset transaction aborted"));
+    });
+  });
 }
 
 function isStoredWorkspaceRecord(
@@ -299,5 +423,23 @@ function isStoredProjectRecord(input: unknown): input is StoredProjectRecord {
     typeof candidate.updatedAt === "string" &&
     typeof candidate.document === "object" &&
     candidate.document !== null
+  );
+}
+
+function isBrowserFieldAssetRecord(
+  input: unknown,
+): input is BrowserFieldAssetRecord {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return false;
+  }
+
+  const candidate = input as Partial<BrowserFieldAssetRecord>;
+  return (
+    typeof candidate.key === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.assetId === "string" &&
+    typeof candidate.fileName === "string" &&
+    typeof candidate.mimeType === "string" &&
+    candidate.bytes instanceof ArrayBuffer
   );
 }

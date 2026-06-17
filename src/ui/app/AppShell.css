@@ -2498,6 +2498,84 @@ button.auto-velocity-status--running:disabled {
   background: #1a2026;
 }
 
+.field-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  min-height: 118px;
+  overflow: hidden;
+  border: 1px solid #303941;
+  border-radius: 6px;
+  background: #11171d;
+}
+
+.field-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.field-preview__grid,
+.field-preview__empty {
+  width: 100%;
+  height: 100%;
+}
+
+.field-preview__grid {
+  background:
+    linear-gradient(rgba(142, 160, 178, 0.7) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(142, 160, 178, 0.7) 1px, transparent 1px),
+    linear-gradient(rgba(52, 68, 83, 0.58) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(52, 68, 83, 0.58) 1px, transparent 1px), #10161d;
+  background-size:
+    40px 40px,
+    40px 40px,
+    20px 20px,
+    20px 20px;
+}
+
+.field-preview__empty {
+  background: #151c23;
+}
+
+.config-dialog__button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.config-dialog__button-row button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #44505b;
+  border-radius: 6px;
+  color: #f7fafc;
+  background: #141a20;
+}
+
+.config-dialog__button-row button:hover:not(:disabled),
+.config-dialog__button-row button:focus-visible:not(:disabled) {
+  border-color: #2f81f7;
+}
+
+.config-dialog__button-row button:disabled {
+  color: #84919c;
+  opacity: 0.72;
+}
+
+.config-dialog__error {
+  margin: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 96, 109, 0.42);
+  border-radius: 6px;
+  color: #ffd4d4;
+  background: rgba(69, 22, 25, 0.48);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
 .config-row {
   display: grid;
   grid-template-columns: minmax(132px, 1fr) minmax(116px, 168px);

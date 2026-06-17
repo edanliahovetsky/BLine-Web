@@ -15,7 +15,10 @@ pub fn run() {
             storage::storage_list_projects,
             storage::storage_read_project,
             storage::storage_write_project,
-            storage::storage_delete_project
+            storage::storage_delete_project,
+            storage::storage_write_field_asset,
+            storage::storage_read_field_asset,
+            storage::storage_delete_field_asset
         ])
         .run(tauri::generate_context!())
         .expect("error while running BLine Web");

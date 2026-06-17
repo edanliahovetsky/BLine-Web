@@ -10,6 +10,8 @@ import {
 import {
   createBLineWorkspaceArchive,
   importWorkspaceArchive,
+  type FieldAssetPayload,
+  type FieldAssetWriteInput,
   type ProjectFolderAdapter,
   type ProjectWorkspaceSummary,
   type WorkspaceImportResult,
@@ -73,6 +75,38 @@ export class TauriStorage implements ProjectFolderAdapter {
 
   async importWorkspaceArchive(archive: Blob): Promise<WorkspaceImportResult> {
     return importWorkspaceArchive(this, archive);
+  }
+
+  async writeFieldAsset(input: FieldAssetWriteInput): Promise<void> {
+    await this.invoke("storage_write_field_asset", {
+      assetId: input.assetId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      bytes: Array.from(input.bytes),
+    });
+  }
+
+  async readFieldAsset(
+    _workspaceId: string,
+    assetId: string,
+  ): Promise<FieldAssetPayload | null> {
+    const payload = await this.invoke<{
+      fileName: string;
+      mimeType: string;
+      bytes: number[];
+    } | null>("storage_read_field_asset", { assetId });
+
+    return payload
+      ? {
+          fileName: payload.fileName,
+          mimeType: payload.mimeType,
+          bytes: new Uint8Array(payload.bytes),
+        }
+      : null;
+  }
+
+  async deleteFieldAsset(_workspaceId: string, assetId: string): Promise<void> {
+    await this.invoke("storage_delete_field_asset", { assetId });
   }
 
   async getCurrentWorkspace(): Promise<ProjectWorkspaceSummary | null> {

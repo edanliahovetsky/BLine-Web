@@ -44,6 +44,24 @@ describe("canvas geometry", () => {
     expect(roundTrip.y_meters).toBeCloseTo(modelPoint.y_meters, 6);
   });
 
+  it("uses active field geometry for viewport sizing and coordinate offsets", () => {
+    const viewport = createFieldViewport({ width: 1000, height: 600 }, 24, {
+      length_meters: 10,
+      width_meters: 5,
+      coordinate_offset_meters: 1,
+    });
+    const modelPoint = { x_meters: 2.5, y_meters: 1.5 };
+    const stagePoint = modelToStagePoint(modelPoint, viewport);
+    const roundTrip = stageToModelPoint(stagePoint, viewport);
+
+    expect(viewport.width / viewport.height).toBeCloseTo(2, 6);
+    expect(viewport.field.length_meters).toBe(10);
+    expect(stagePoint.x).toBeCloseTo(viewport.x + 3.5 * viewport.scale, 6);
+    expect(stagePoint.y).toBeCloseTo(viewport.y + 2.5 * viewport.scale, 6);
+    expect(roundTrip.x_meters).toBeCloseTo(modelPoint.x_meters, 6);
+    expect(roundTrip.y_meters).toBeCloseTo(modelPoint.y_meters, 6);
+  });
+
   it("projects rotation and event elements between neighboring anchors", () => {
     const elements = [
       createTranslationTarget({ x_meters: 1, y_meters: 1 }),

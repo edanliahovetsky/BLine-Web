@@ -1,4 +1,7 @@
-import { fieldLengthMeters, fieldWidthMeters } from "../../../canvas/constants";
+import {
+  defaultFieldGeometry,
+  type FieldGeometry,
+} from "../../../core/field/fieldConfig";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -28,6 +31,7 @@ interface PropertyEditorProps {
   onToggleSection(): void;
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
+  fieldGeometry?: FieldGeometry;
 }
 
 export function PropertyEditor({
@@ -38,6 +42,7 @@ export function PropertyEditor({
   onToggleSection,
   onChangeType,
   onUpdateElement,
+  fieldGeometry = defaultFieldGeometry,
 }: PropertyEditorProps) {
   if (!element) {
     return null;
@@ -65,12 +70,14 @@ export function PropertyEditor({
         {isTranslationTarget(element) ? (
           <TranslationFields
             element={element}
+            fieldGeometry={fieldGeometry}
             onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
           />
         ) : null}
         {isWaypoint(element) ? (
           <WaypointFields
             element={element}
+            fieldGeometry={fieldGeometry}
             onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
           />
         ) : null}
@@ -123,9 +130,11 @@ function TypeField({
 
 function TranslationFields({
   element,
+  fieldGeometry,
   onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "translation" }>;
+  fieldGeometry: FieldGeometry;
   onUpdateElement(element: PathElement): void;
 }) {
   return (
@@ -135,7 +144,7 @@ function TranslationFields({
         value={element.x_meters}
         step={0.05}
         min={0}
-        max={fieldLengthMeters}
+        max={fieldGeometry.length_meters}
         onChange={(value) =>
           onUpdateElement(updateTranslationTarget(element, { x_meters: value }))
         }
@@ -145,7 +154,7 @@ function TranslationFields({
         value={element.y_meters}
         step={0.05}
         min={0}
-        max={fieldWidthMeters}
+        max={fieldGeometry.width_meters}
         onChange={(value) =>
           onUpdateElement(updateTranslationTarget(element, { y_meters: value }))
         }
@@ -168,9 +177,11 @@ function TranslationFields({
 
 function WaypointFields({
   element,
+  fieldGeometry,
   onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "waypoint" }>;
+  fieldGeometry: FieldGeometry;
   onUpdateElement(element: PathElement): void;
 }) {
   return (
@@ -192,7 +203,7 @@ function WaypointFields({
         value={element.translation_target.x_meters}
         step={0.05}
         min={0}
-        max={fieldLengthMeters}
+        max={fieldGeometry.length_meters}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
@@ -206,7 +217,7 @@ function WaypointFields({
         value={element.translation_target.y_meters}
         step={0.05}
         min={0}
-        max={fieldWidthMeters}
+        max={fieldGeometry.width_meters}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {

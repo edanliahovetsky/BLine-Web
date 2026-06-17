@@ -36,7 +36,9 @@ This project incorporates limited portions of code or assets from the following
 open-source projects:
 
 - PathPlanner
-  Includes a copy of the field image asset.
+  Includes copies of field24.png, field25.png, and field26.png for the
+  built-in FRC Crescendo 2024, Reefscape 2025, and REBUILT 2026 field
+  images.
   Copyright mjansen4857 / PathPlanner contributors.
   Licensed under the MIT License.
   Source: <https://github.com/mjansen4857/pathplanner>

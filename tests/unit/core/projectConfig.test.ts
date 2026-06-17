@@ -5,6 +5,11 @@ import {
   needsProjectConfigMigration,
   projectConfigToFlat,
 } from "../../../src/core/config/projectConfig";
+import {
+  blankGridFieldGeometry,
+  defaultFieldId,
+  fieldGeometryFromConfig,
+} from "../../../src/core/field/fieldConfig";
 
 describe("project config", () => {
   it("uses current robot and translation defaults", () => {
@@ -20,6 +25,76 @@ describe("project config", () => {
     expect(
       config.kinematic_constraints.default_intermediate_handoff_radius_meters,
     ).toBe(0.45);
+    expect(config.gui.field).toMatchObject({
+      selected_field_id: defaultFieldId,
+      custom_fields: [],
+    });
+  });
+
+  it("normalizes custom field image config and resolves its geometry", () => {
+    const config = createProjectConfig({
+      gui: {
+        field: {
+          selected_field_id: "custom:practice-field",
+          custom_fields: [
+            {
+              id: "custom:practice-field",
+              name: "Practice Field",
+              asset_id: "field-practice.png",
+              file_name: "practice.png",
+              mime_type: "image/png",
+              size_bytes: "128",
+              created_at: "2026-06-16T12:00:00.000Z",
+              geometry: {
+                length_meters: "12",
+                width_meters: 6,
+                coordinate_offset_meters: 0.25,
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(config.gui.field.selected_field_id).toBe("custom:practice-field");
+    expect(config.gui.field.custom_fields[0]).toMatchObject({
+      name: "Practice Field",
+      asset_id: "field-practice.png",
+      size_bytes: 128,
+    });
+    expect(fieldGeometryFromConfig(config.gui.field)).toEqual({
+      length_meters: 12,
+      width_meters: 6,
+      coordinate_offset_meters: 0.25,
+    });
+  });
+
+  it("falls back to the default field when a saved field id is unavailable", () => {
+    const config = createProjectConfig({
+      gui: {
+        field: {
+          selected_field_id: "custom:missing-field",
+          custom_fields: [],
+        },
+      },
+    });
+
+    expect(config.gui.field.selected_field_id).toBe(defaultFieldId);
+  });
+
+  it("uses half-meter aligned dimensions for the blank grid field", () => {
+    const config = createProjectConfig({
+      gui: {
+        field: {
+          selected_field_id: "blank-grid",
+        },
+      },
+    });
+    const geometry = fieldGeometryFromConfig(config.gui.field);
+
+    expect(geometry).toEqual(blankGridFieldGeometry);
+    expect((geometry.length_meters * 2) % 1).toBe(0);
+    expect((geometry.width_meters * 2) % 1).toBe(0);
   });
 
   it("normalizes legacy flat robot, protrusion, and default values", () => {
@@ -155,9 +230,22 @@ describe("project config", () => {
   });
 
   it("flags legacy or partial config documents as migration candidates", () => {
+    const canonical = createProjectConfig();
+
     expect(needsProjectConfigMigration({ robot_length_meters: 0.7 })).toBe(
       true,
     );
+    expect(
+      needsProjectConfigMigration({
+        gui: {
+          robot: canonical.gui.robot,
+          protrusions: canonical.gui.protrusions,
+        },
+        kinematic_constraints: {
+          default_max_velocity_meters_per_sec: 4.5,
+        },
+      }),
+    ).toBe(true);
     expect(
       needsProjectConfigMigration({
         gui: {
@@ -170,6 +258,7 @@ describe("project config", () => {
             show_on_event_keys: [],
             hide_on_event_keys: [],
           },
+          field: canonical.gui.field,
         },
         kinematic_constraints: {
           default_max_velocity_meters_per_sec: 4.5,
