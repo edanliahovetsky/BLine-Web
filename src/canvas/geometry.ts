@@ -1,5 +1,9 @@
 import {
   defaultFieldGeometry,
+  fieldCoordinateLengthMeters,
+  fieldCoordinateOffsetXMeters,
+  fieldCoordinateOffsetYMeters,
+  fieldCoordinateWidthMeters,
   type FieldGeometry,
 } from "../core/field/fieldConfig";
 import {
@@ -82,13 +86,13 @@ export function modelToStagePoint(
   point: PointMeters,
   viewport: FieldViewport,
 ): StagePoint {
+  const offsetX = fieldCoordinateOffsetXMeters(viewport.field);
+  const offsetY = fieldCoordinateOffsetYMeters(viewport.field);
+
   return fieldSceneToStagePoint(
     {
-      x_meters: point.x_meters + viewport.field.coordinate_offset_meters,
-      y_meters:
-        viewport.field.width_meters -
-        point.y_meters -
-        viewport.field.coordinate_offset_meters,
+      x_meters: point.x_meters + offsetX,
+      y_meters: viewport.field.width_meters - point.y_meters - offsetY,
     },
     viewport,
   );
@@ -100,14 +104,13 @@ export function stageToModelPoint(
 ): PointMeters {
   const sceneX = (point.x - viewport.x) / viewport.scale;
   const sceneY = (point.y - viewport.y) / viewport.scale;
+  const offsetX = fieldCoordinateOffsetXMeters(viewport.field);
+  const offsetY = fieldCoordinateOffsetYMeters(viewport.field);
 
   return clampModelPoint(
     {
-      x_meters: sceneX - viewport.field.coordinate_offset_meters,
-      y_meters:
-        viewport.field.width_meters -
-        sceneY -
-        viewport.field.coordinate_offset_meters,
+      x_meters: sceneX - offsetX,
+      y_meters: viewport.field.width_meters - sceneY - offsetY,
     },
     viewport.field,
   );
@@ -117,8 +120,8 @@ export function clampModelPoint(
   point: PointMeters,
   field: FieldGeometry = defaultFieldGeometry,
 ): PointMeters {
-  const maxX = field.length_meters - field.coordinate_offset_meters * 2;
-  const maxY = field.width_meters - field.coordinate_offset_meters * 2;
+  const maxX = fieldCoordinateLengthMeters(field);
+  const maxY = fieldCoordinateWidthMeters(field);
 
   return {
     x_meters: clamp(point.x_meters, 0, maxX),

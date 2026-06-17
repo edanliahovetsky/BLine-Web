@@ -1,8 +1,9 @@
 # Field Assets
 
-`field24.png`, `field25.png`, and `field26.png` are copied from the
-PathPlanner `images/` directory and are bundled as the built-in FRC field image
-choices for Crescendo 2024, Reefscape 2025, and REBUILT 2026.
+The `field*.png` files are copied from the PathPlanner `images/` directory and
+are bundled as the built-in FRC field image choices. Field dimensions and
+coordinate margins are derived from PathPlanner's `FieldImage.official`
+calibration values (`defaultSize`, `pixelsPerMeter`, and `marginMeters`).
 
 PathPlanner is copyright mjansen4857 / PathPlanner contributors and licensed
 under the MIT License.

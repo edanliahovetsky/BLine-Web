@@ -68,6 +68,30 @@ describe("canvas geometry", () => {
     expect(roundTrip.y_meters).toBeCloseTo(modelPoint.y_meters, 6);
   });
 
+  it("uses per-axis coordinate offsets when present", () => {
+    const viewport = createFieldViewport({ width: 1000, height: 600 }, 24, {
+      length_meters: 10,
+      width_meters: 5,
+      coordinate_offset_meters: 0,
+      coordinate_offset_x_meters: 1,
+      coordinate_offset_y_meters: 0.5,
+    });
+    const modelPoint = { x_meters: 2.5, y_meters: 1.5 };
+    const stagePoint = modelToStagePoint(modelPoint, viewport);
+    const roundTrip = stageToModelPoint(stagePoint, viewport);
+
+    expect(stagePoint.x).toBeCloseTo(viewport.x + 3.5 * viewport.scale, 6);
+    expect(stagePoint.y).toBeCloseTo(viewport.y + 3 * viewport.scale, 6);
+    expect(roundTrip.x_meters).toBeCloseTo(modelPoint.x_meters, 6);
+    expect(roundTrip.y_meters).toBeCloseTo(modelPoint.y_meters, 6);
+    expect(
+      clampModelPoint({ x_meters: 100, y_meters: 100 }, viewport.field),
+    ).toEqual({
+      x_meters: 8,
+      y_meters: 4,
+    });
+  });
+
   it("clamps model coordinates to field bounds without robot extents", () => {
     expect(clampModelPoint({ x_meters: -1, y_meters: -1 })).toEqual({
       x_meters: 0,

@@ -7,6 +7,7 @@ import {
 } from "../../../src/core/config/projectConfig";
 import {
   blankGridFieldGeometry,
+  builtInFieldDefinitions,
   defaultFieldId,
   fieldGeometryFromConfig,
 } from "../../../src/core/field/fieldConfig";
@@ -49,6 +50,8 @@ describe("project config", () => {
                 length_meters: "12",
                 width_meters: 6,
                 coordinate_offset_meters: 0.25,
+                coordinate_offset_x_meters: 0.4,
+                coordinate_offset_y_meters: 0.6,
               },
             },
           ],
@@ -66,7 +69,73 @@ describe("project config", () => {
       length_meters: 12,
       width_meters: 6,
       coordinate_offset_meters: 0.25,
+      coordinate_offset_x_meters: 0.4,
+      coordinate_offset_y_meters: 0.6,
     });
+  });
+
+  it("uses PathPlanner image calibration for built-in fields", () => {
+    expect(
+      builtInFieldDefinitions
+        .filter((field) => field.kind === "image")
+        .map((field) => ({
+          id: field.id,
+          length_meters: field.geometry.length_meters,
+          width_meters: field.geometry.width_meters,
+          offset_x: field.geometry.coordinate_offset_x_meters,
+          offset_y: field.geometry.coordinate_offset_y_meters,
+          image_src: field.image_src,
+        })),
+    ).toMatchObject([
+      {
+        id: "frc2022-rapid-react",
+        length_meters: 3240 / 196.85,
+        width_meters: 1620 / 196.85,
+        offset_x: 0,
+        offset_y: 0,
+        image_src: "/assets/fields/field22.png",
+      },
+      {
+        id: "frc2023-charged-up",
+        length_meters: 3256 / 196.85,
+        width_meters: 1578 / 196.85,
+        offset_x: 0,
+        offset_y: 0,
+        image_src: "/assets/fields/field23.png",
+      },
+      {
+        id: "frc2024-crescendo",
+        length_meters: 3256 / 196.85,
+        width_meters: 1616 / 196.85,
+        offset_x: 0,
+        offset_y: 0,
+        image_src: "/assets/fields/field24.png",
+      },
+      {
+        id: "frc2025-reefscape",
+        length_meters: 3510 / 200,
+        width_meters: 1610 / 200,
+        offset_x: 0,
+        offset_y: 0,
+        image_src: "/assets/fields/field25.png",
+      },
+      {
+        id: "frc2025-reefscape-annotated",
+        length_meters: 3510 / 200,
+        width_meters: 1610 / 200,
+        offset_x: 0,
+        offset_y: 0,
+        image_src: "/assets/fields/field25-annotated.png",
+      },
+      {
+        id: "frc2026-rebuilt",
+        length_meters: 3508 / 200,
+        width_meters: 1814 / 200,
+        offset_x: 0.5,
+        offset_y: 0.5,
+        image_src: "/assets/fields/field26.png",
+      },
+    ]);
   });
 
   it("falls back to the default field when a saved field id is unavailable", () => {

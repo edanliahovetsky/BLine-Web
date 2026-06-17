@@ -8,6 +8,8 @@ import {
 } from "../../core/constraints/autoVelocityApply";
 import { getDefaultOptionalConfigValue } from "../../core/config/projectConfig";
 import {
+  fieldCoordinateLengthMeters,
+  fieldCoordinateWidthMeters,
   fieldGeometryFromConfig,
   type FieldGeometry,
 } from "../../core/field/fieldConfig";
@@ -950,16 +952,8 @@ function clampFieldPosition(
   field: FieldGeometry,
 ) {
   return {
-    x_meters: clamp(
-      point.x_meters,
-      0,
-      field.length_meters - field.coordinate_offset_meters * 2,
-    ),
-    y_meters: clamp(
-      point.y_meters,
-      0,
-      field.width_meters - field.coordinate_offset_meters * 2,
-    ),
+    x_meters: clamp(point.x_meters, 0, fieldCoordinateLengthMeters(field)),
+    y_meters: clamp(point.y_meters, 0, fieldCoordinateWidthMeters(field)),
   };
 }
 
