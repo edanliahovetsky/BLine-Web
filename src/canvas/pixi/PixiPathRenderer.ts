@@ -10,6 +10,10 @@ import type {
   ProjectConfig,
   ProjectDocument,
 } from "../../core/io/projectSchema";
+import type {
+  FieldImageKind,
+  ResolvedFieldDefinition,
+} from "../../core/field/fieldConfig";
 import type { CurveAuthoringPreview } from "../curveAuthoring";
 import {
   isEventTrigger,
@@ -62,6 +66,7 @@ import type { SimResult } from "../../core/sim";
 export interface PixiRenderInput {
   stageSize: CanvasSize;
   viewport: FieldViewport;
+  field: ResolvedFieldDefinition;
   project: ProjectDocument | null;
   overlayPaths: PixiPathOverlay[];
   hoveredOverlayPathId: string | null;
@@ -95,6 +100,12 @@ export interface PixiCanvasMetrics {
 
 export interface PixiDebugApi {
   canvasMetrics(): PixiCanvasMetrics;
+  fieldState(): {
+    id: string;
+    label: string;
+    kind: FieldImageKind;
+    imageLoaded: boolean;
+  };
   nodePosition(testId: string): StagePoint | null;
 }
 
@@ -107,6 +118,7 @@ export class PixiPathRenderer {
   private readonly root = new Container();
   private readonly fieldGraphics = new Graphics();
   private readonly fieldSprite: Sprite;
+  private readonly field: ResolvedFieldDefinition;
   private readonly overlayGraphics = new Graphics();
   private readonly pathGraphics = new Graphics();
   private readonly curvePreviewGraphics = new Graphics();
@@ -119,10 +131,12 @@ export class PixiPathRenderer {
 
   private constructor(
     app: Application<Renderer<HTMLCanvasElement>>,
-    fieldTexture: Texture,
+    field: ResolvedFieldDefinition,
+    fieldTexture: Texture | null,
   ) {
     this.app = app;
-    this.fieldSprite = new Sprite(fieldTexture);
+    this.field = field;
+    this.fieldSprite = new Sprite(fieldTexture ?? Texture.EMPTY);
     this.app.canvas.dataset.testid = "path-stage-pixi-canvas";
     this.app.canvas.setAttribute("aria-hidden", "true");
     this.app.stage.addChild(this.root);
@@ -139,7 +153,10 @@ export class PixiPathRenderer {
     );
   }
 
-  static async create(stageSize: CanvasSize): Promise<PixiPathRenderer> {
+  static async create(
+    stageSize: CanvasSize,
+    field: ResolvedFieldDefinition,
+  ): Promise<PixiPathRenderer> {
     const resolution = getPixiResolution();
     const app = new Application<Renderer<HTMLCanvasElement>>();
     await app.init({
@@ -155,8 +172,11 @@ export class PixiPathRenderer {
       powerPreference: "high-performance",
     });
     app.ticker.stop();
-    const texture = await loadFieldTexture();
-    return new PixiPathRenderer(app, texture);
+    const texture =
+      field.kind === "image" && field.image_src
+        ? await loadFieldTexture(field.image_src)
+        : null;
+    return new PixiPathRenderer(app, field, texture);
   }
 
   get canvas(): HTMLCanvasElement {
@@ -180,6 +200,14 @@ export class PixiPathRenderer {
   getDebugApi(): PixiDebugApi {
     return {
       canvasMetrics: () => this.canvasMetrics(),
+      fieldState: () => ({
+        id: this.field.id,
+        label: this.field.label,
+        kind: this.field.kind,
+        imageLoaded:
+          this.field.kind === "image" &&
+          this.fieldSprite.texture !== Texture.EMPTY,
+      }),
       nodePosition: (testId) => this.debugNodes.get(testId) ?? null,
     };
   }
@@ -228,6 +256,12 @@ export class PixiPathRenderer {
       .rect(viewport.x, viewport.y, viewport.width, viewport.height)
       .fill({ color: 0x101416 });
 
+    if (this.field.kind === "grid") {
+      this.fieldSprite.visible = false;
+      this.drawBlankGrid(viewport);
+      return;
+    }
+
     const rect = getAspectFitRect(
       this.fieldSprite.texture.width,
       this.fieldSprite.texture.height,
@@ -245,6 +279,55 @@ export class PixiPathRenderer {
     } else {
       this.fieldSprite.visible = false;
     }
+  }
+
+  private drawBlankGrid(viewport: FieldViewport): void {
+    const graphics = this.fieldGraphics;
+    graphics
+      .rect(viewport.x, viewport.y, viewport.width, viewport.height)
+      .fill({ color: 0x10161d });
+
+    const minorStepMeters = 0.5;
+    const majorEvery = 1;
+    const epsilon = 0.0001;
+
+    for (let index = 1; ; index += 1) {
+      const xMeters = index * minorStepMeters;
+      if (xMeters >= viewport.field.length_meters - epsilon) {
+        break;
+      }
+      const x = viewport.x + xMeters * viewport.scale;
+      const major = isWholeMultiple(xMeters, majorEvery, epsilon);
+      graphics
+        .moveTo(x, viewport.y)
+        .lineTo(x, viewport.y + viewport.height)
+        .stroke({
+          color: major ? 0x8ea0b2 : 0x344453,
+          width: major ? 1.5 : 0.75,
+          alpha: major ? 0.7 : 0.58,
+        });
+    }
+
+    for (let index = 1; ; index += 1) {
+      const yMeters = index * minorStepMeters;
+      if (yMeters >= viewport.field.width_meters - epsilon) {
+        break;
+      }
+      const y = viewport.y + yMeters * viewport.scale;
+      const major = isWholeMultiple(yMeters, majorEvery, epsilon);
+      graphics
+        .moveTo(viewport.x, y)
+        .lineTo(viewport.x + viewport.width, y)
+        .stroke({
+          color: major ? 0x8ea0b2 : 0x344453,
+          width: major ? 1.5 : 0.75,
+          alpha: major ? 0.7 : 0.58,
+        });
+    }
+
+    graphics
+      .rect(viewport.x, viewport.y, viewport.width, viewport.height)
+      .stroke({ color: 0x657789, width: 2, alpha: 0.72 });
   }
 
   private drawPath(input: PixiRenderInput): void {
@@ -1718,6 +1801,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function isWholeMultiple(value: number, divisor: number, epsilon: number) {
+  return Math.abs(Math.round(value / divisor) * divisor - value) < epsilon;
+}
+
 function getPixiResolution(): number {
   if (typeof window === "undefined") {
     return 1;
@@ -1729,9 +1816,8 @@ function getPixiResolution(): number {
   return Math.max(1, Math.min(devicePixelRatio, maxPixiResolution));
 }
 
-async function loadFieldTexture(): Promise<Texture> {
+async function loadFieldTexture(src: string): Promise<Texture> {
   const image = new Image();
-  const src = "/assets/field26.png";
   image.decoding = "async";
 
   await new Promise<void>((resolve, reject) => {

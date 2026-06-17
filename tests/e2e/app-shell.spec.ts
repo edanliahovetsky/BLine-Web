@@ -1707,13 +1707,27 @@ test("edits project config with undo support", async ({ page }) => {
   const saveButton = dialog.getByRole("button", { name: "Save" });
   await expect(dialog).toBeVisible();
   await expect(saveButton).toBeDisabled();
+  await expect(dialog.locator(".config-dialog__nav-item")).toHaveText([
+    "Robot",
+    "Path Defaults",
+    "Field",
+    "Optimizer",
+  ]);
   await expect(
     dialog.getByRole("heading", { name: "Auto Velocity" }),
   ).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Robot" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await dialog.getByRole("button", { name: "Optimizer" }).click();
   await expect(
     dialog.getByRole("heading", { name: "Auto Constrain" }),
   ).toBeVisible();
-  await expect(dialog.locator("h2").last()).toHaveText("Auto Constrain");
+  await expect(
+    dialog.getByRole("heading", { name: "Optimizer" }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Robot" }).click();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
   await expect(
     dialog.getByTitle("Increase Protrusion Distance (m)"),
@@ -1740,9 +1754,67 @@ test("edits project config with undo support", async ({ page }) => {
 
   await runEditMenuAction(page, "Undo");
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.8");
+  await page.getByRole("button", { name: "Path Defaults" }).click();
   await expect(page.getByLabel("Default Max Accel (m/s2)")).toHaveValue("12");
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Enable Protrusions")).not.toBeChecked();
+  await page.getByRole("button", { name: "Close config" }).click();
+});
+
+test("uploads and restores a custom field image from Settings", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field" }).click();
+  const fieldSelect = dialog.getByLabel("Field Image", { exact: true });
+  const saveButton = dialog.getByRole("button", { name: "Save" });
+  await expect(dialog).toBeVisible();
+
+  const fieldOptions = await fieldSelect.locator("option").allTextContents();
+  expect(fieldOptions).toEqual(
+    expect.arrayContaining([
+      "Crescendo 2024",
+      "Reefscape 2025",
+      "REBUILT 2026",
+      "Blank Meter Grid",
+    ]),
+  );
+
+  await fieldSelect.selectOption("blank-grid");
+  await expect(dialog.getByTestId("field-preview")).toBeVisible();
+  await dialog.getByLabel("Upload field image").setInputFiles({
+    name: "practice-field.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer(),
+  });
+  await expect(dialog.getByLabel("Field Name")).toBeEnabled();
+  await dialog.getByLabel("Field Name").fill("Practice Field");
+  await dialog.getByLabel("Field Length (m)").fill("12");
+  await dialog.getByLabel("Field Width (m)").fill("6");
+  await dialog.getByLabel("Coordinate Offset (m)").fill("0.25");
+  await saveButton.click();
+
+  await expect(page.getByTestId("save-status")).toContainText("Saved", {
+    timeout: 3_000,
+  });
+  await expect.poll(() => activeFieldLabel(page)).toBe("Practice Field");
+  await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+
+  await page.reload();
+  await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
+  await expect.poll(() => activeFieldLabel(page)).toBe("Practice Field");
+  await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Field" }).click();
+  await expect(page.getByLabel("Field Name")).toHaveValue("Practice Field");
+  await expect(page.getByLabel("Field Length (m)")).toHaveValue("12");
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
@@ -1752,6 +1824,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Robot" }).click();
   await page.getByLabel("Robot Width (m)").fill("0.725");
   await expect(dialog.getByRole("button", { name: "Save" })).toBeEnabled();
 
@@ -1759,6 +1832,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await expect(dialog).toBeHidden();
 
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.8");
   await page.getByRole("button", { name: "Close config" }).click();
 });
@@ -2118,6 +2192,7 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await page.getByRole("button", { name: "Settings" }).click();
 
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
 });
 
@@ -2459,6 +2534,12 @@ type PixiDebugWindow = Window & {
       renderCount: number;
     };
     nodePosition(testId: string): { x: number; y: number } | null;
+    fieldState(): {
+      id: string;
+      label: string;
+      kind: string;
+      imageLoaded: boolean;
+    };
   };
 };
 
@@ -2587,6 +2668,28 @@ async function canvasSceneMetrics(page: Page): Promise<{
       renderer: debugMetrics?.renderer ?? "",
     };
   });
+}
+
+async function activeFieldLabel(page: Page): Promise<string | null> {
+  return page.evaluate(
+    () =>
+      (window as PixiDebugWindow).__blinePixiDebug?.fieldState().label ?? null,
+  );
+}
+
+async function activeFieldImageLoaded(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () =>
+      (window as PixiDebugWindow).__blinePixiDebug?.fieldState().imageLoaded ??
+      false,
+  );
+}
+
+function tinyPngBuffer(): Buffer {
+  return Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+    "base64",
+  );
 }
 
 async function simulationProgress(page: Page): Promise<{

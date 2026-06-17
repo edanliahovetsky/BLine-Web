@@ -33,6 +33,25 @@ pub struct WriteResult {
     pub updated_at: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldAssetPayload {
+    pub file_name: String,
+    pub mime_type: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct FieldAssetMetadataFile {
+    assets: std::collections::HashMap<String, FieldAssetMetadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct FieldAssetMetadata {
+    file_name: Option<String>,
+    mime_type: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
@@ -481,6 +500,58 @@ pub fn storage_delete_project(
     fs::remove_file(path_file).map_err(error_string)
 }
 
+#[tauri::command]
+pub fn storage_write_field_asset(
+    app: AppHandle,
+    asset_id: String,
+    file_name: String,
+    mime_type: String,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    let dir = require_current_project_dir(&app)?;
+    ensure_project_structure(&dir)?;
+    let asset_id = safe_asset_file_name(&asset_id)?;
+    let file_name = safe_asset_file_name(&file_name)?;
+    let assets_dir = field_assets_dir(&dir);
+    fs::create_dir_all(&assets_dir).map_err(error_string)?;
+    fs::write(assets_dir.join(&asset_id), bytes).map_err(error_string)?;
+    write_field_asset_metadata(&dir, &asset_id, &file_name, &mime_type)
+}
+
+#[tauri::command]
+pub fn storage_read_field_asset(
+    app: AppHandle,
+    asset_id: String,
+) -> Result<Option<FieldAssetPayload>, String> {
+    let dir = require_current_project_dir(&app)?;
+    ensure_project_structure(&dir)?;
+    let asset_id = safe_asset_file_name(&asset_id)?;
+    let path = field_assets_dir(&dir).join(&asset_id);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let metadata = read_field_asset_metadata(&dir, &asset_id)?;
+    Ok(Some(FieldAssetPayload {
+        file_name: metadata.file_name.unwrap_or_else(|| asset_id.clone()),
+        mime_type: metadata
+            .mime_type
+            .unwrap_or_else(|| mime_type_for_asset(&asset_id)),
+        bytes: fs::read(path).map_err(error_string)?,
+    }))
+}
+
+#[tauri::command]
+pub fn storage_delete_field_asset(app: AppHandle, asset_id: String) -> Result<(), String> {
+    let dir = require_current_project_dir(&app)?;
+    let asset_id = safe_asset_file_name(&asset_id)?;
+    let path = field_assets_dir(&dir).join(&asset_id);
+    if path.exists() {
+        fs::remove_file(path).map_err(error_string)?;
+    }
+    remove_field_asset_metadata(&dir, &asset_id)
+}
+
 fn pick_workspace_dir(title: &str) -> Option<PathBuf> {
     rfd::FileDialog::new().set_title(title).pick_folder()
 }
@@ -625,6 +696,78 @@ fn write_path_metadata(
 
 fn path_metadata_file(project_dir: &Path) -> PathBuf {
     project_dir.join(".bline-web").join("path-metadata.json")
+}
+
+fn field_assets_dir(project_dir: &Path) -> PathBuf {
+    project_dir.join("assets").join("fields")
+}
+
+fn field_asset_metadata_file(project_dir: &Path) -> PathBuf {
+    project_dir.join(".bline-web").join("field-assets.json")
+}
+
+fn read_field_asset_metadata_file(project_dir: &Path) -> Result<FieldAssetMetadataFile, String> {
+    let path = field_asset_metadata_file(project_dir);
+    if !path.exists() {
+        return Ok(FieldAssetMetadataFile::default());
+    }
+
+    let raw = fs::read_to_string(path).map_err(error_string)?;
+    serde_json::from_str(&raw).map_err(error_string)
+}
+
+fn read_field_asset_metadata(
+    project_dir: &Path,
+    asset_id: &str,
+) -> Result<FieldAssetMetadata, String> {
+    Ok(read_field_asset_metadata_file(project_dir)?
+        .assets
+        .remove(asset_id)
+        .unwrap_or_default())
+}
+
+fn write_field_asset_metadata(
+    project_dir: &Path,
+    asset_id: &str,
+    file_name: &str,
+    mime_type: &str,
+) -> Result<(), String> {
+    let mut metadata = read_field_asset_metadata_file(project_dir)?;
+    metadata.assets.insert(
+        asset_id.to_owned(),
+        FieldAssetMetadata {
+            file_name: Some(file_name.to_owned()),
+            mime_type: Some(mime_type.to_owned()),
+        },
+    );
+    write_field_asset_metadata_file(project_dir, &metadata)
+}
+
+fn remove_field_asset_metadata(project_dir: &Path, asset_id: &str) -> Result<(), String> {
+    let mut metadata = read_field_asset_metadata_file(project_dir)?;
+    metadata.assets.remove(asset_id);
+    write_field_asset_metadata_file(project_dir, &metadata)
+}
+
+fn write_field_asset_metadata_file(
+    project_dir: &Path,
+    metadata: &FieldAssetMetadataFile,
+) -> Result<(), String> {
+    let path = field_asset_metadata_file(project_dir);
+    if metadata.assets.is_empty() {
+        if path.exists() {
+            fs::remove_file(path).map_err(error_string)?;
+        }
+        return Ok(());
+    }
+
+    let metadata_dir = path
+        .parent()
+        .ok_or_else(|| "Invalid field asset metadata path".to_owned())?;
+    fs::create_dir_all(metadata_dir).map_err(error_string)?;
+
+    let encoded = serde_json::to_string_pretty(metadata).map_err(error_string)?;
+    fs::write(path, encoded).map_err(error_string)
 }
 
 fn read_path_groups(project_dir: &Path, paths: &[Value]) -> Result<Vec<Value>, String> {
@@ -821,6 +964,39 @@ fn safe_path_file_name(input: &str) -> Result<String, String> {
     Ok(file_name)
 }
 
+fn safe_asset_file_name(input: &str) -> Result<String, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty()
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed == "."
+        || trimmed == ".."
+        || trimmed.contains("..")
+        || !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'))
+    {
+        return Err(format!("Invalid field asset file name: {input}"));
+    }
+
+    Ok(trimmed.to_owned())
+}
+
+fn mime_type_for_asset(file_name: &str) -> String {
+    match Path::new(file_name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "image/png",
+    }
+    .to_owned()
+}
+
 fn display_name_from_file_name(file_name: &str) -> String {
     file_name
         .strip_suffix(".json")
@@ -1010,10 +1186,15 @@ fn workspace_version(path: &Path) -> Result<String, String> {
     let mut parts = vec![file_version(&path.join("config.json"))];
     let paths_dir = path.join("paths");
     let metadata_file = path_metadata_file(path);
+    let field_asset_metadata_file = field_asset_metadata_file(path);
+    let field_assets_dir = field_assets_dir(path);
     let path_groups_file = path_groups_file(path);
 
     if metadata_file.exists() {
         parts.push(file_version(&metadata_file));
+    }
+    if field_asset_metadata_file.exists() {
+        parts.push(file_version(&field_asset_metadata_file));
     }
     if path_groups_file.exists() {
         parts.push(file_version(&path_groups_file));
@@ -1024,6 +1205,15 @@ fn workspace_version(path: &Path) -> Result<String, String> {
             let entry = entry.map_err(error_string)?;
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                parts.push(file_version(&path));
+            }
+        }
+    }
+    if field_assets_dir.is_dir() {
+        for entry in fs::read_dir(field_assets_dir).map_err(error_string)? {
+            let entry = entry.map_err(error_string)?;
+            let path = entry.path();
+            if path.is_file() {
                 parts.push(file_version(&path));
             }
         }

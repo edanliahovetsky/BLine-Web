@@ -1,11 +1,22 @@
 import {
   useEffect,
   useMemo,
+  type RefObject,
+  useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import type { ProjectConfig } from "../../core/io/projectSchema";
+import {
+  builtInFieldDefinitions,
+  defaultFieldId,
+  resolveFieldDefinition,
+  type CustomFieldImage,
+  type FieldGeometry,
+  type ResolvedFieldDefinition,
+} from "../../core/field/fieldConfig";
 import {
   createProjectConfig,
   type ProtrusionSide,
@@ -13,23 +24,52 @@ import {
 } from "../../core/config/projectConfig";
 import { NumberStepperControl } from "../controls/SidebarControls";
 
+const configSections = [
+  { id: "robot", label: "Robot" },
+  { id: "path-defaults", label: "Path Defaults" },
+  { id: "field", label: "Field" },
+  { id: "optimizer", label: "Optimizer" },
+] as const;
+
+type ConfigSectionId = (typeof configSections)[number]["id"];
+
 interface ProjectConfigDialogProps {
   config: ProjectConfig;
   onCancel(): void;
   onSave(config: ProjectConfig): void;
+  onUploadFieldImage(
+    file: File,
+    geometry: FieldGeometry,
+  ): Promise<CustomFieldImage>;
+  onLoadFieldImage(field: CustomFieldImage): Promise<Blob | null>;
 }
 
 export function ProjectConfigDialog({
   config,
   onCancel,
   onSave,
+  onUploadFieldImage,
+  onLoadFieldImage,
 }: ProjectConfigDialogProps) {
   const initialConfig = useMemo(() => createProjectConfig(config), [config]);
   const [draft, setDraft] = useState<ProjectConfig>(() =>
     createProjectConfig(config),
   );
+  const fieldInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeSection, setActiveSection] = useState<ConfigSectionId>("robot");
+  const [fieldPreview, setFieldPreview] = useState<{
+    fieldId: string;
+    url: string;
+  } | null>(null);
+  const [fieldUploadError, setFieldUploadError] = useState<string | null>(null);
+  const [fieldUploading, setFieldUploading] = useState(false);
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
   const isDirty = !configsEqual(initialConfig, normalizedDraft);
+  const selectedField = useMemo(
+    () => resolveFieldDefinition(draft.gui.field),
+    [draft.gui.field],
+  );
+  const selectedCustomField = selectedField.custom ?? null;
   const protrusionsEnabled = draft.gui.protrusions.enabled;
   const protrusionDefaultStateOptions = protrusionsEnabled
     ? ["shown", "hidden"]
@@ -40,6 +80,43 @@ export function ProjectConfigDialog({
       onSave(normalizedDraft);
     }
   };
+
+  useEffect(() => {
+    if (!selectedCustomField) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let objectUrl: string | null = null;
+    const fieldId = selectedCustomField.id;
+
+    void onLoadFieldImage(selectedCustomField)
+      .then((blob) => {
+        if (disposed || !blob) {
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setFieldPreview({ fieldId, url: objectUrl });
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setFieldUploadError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      });
+
+    return () => {
+      disposed = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [onLoadFieldImage, selectedCustomField]);
+  const fieldPreviewUrl =
+    fieldPreview && fieldPreview.fieldId === selectedCustomField?.id
+      ? fieldPreview.url
+      : null;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -73,226 +150,44 @@ export function ProjectConfigDialog({
         </header>
 
         <div className="config-dialog__body">
-          <div className="config-dialog__column">
-            <section className="config-dialog__section">
-              <h2>Robot</h2>
-              <NumberRow
-                label="Robot Length (m)"
-                value={draft.gui.robot.length_meters}
-                min={0.05}
-                max={5}
-                step={0.01}
-                onChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    gui: {
-                      ...current.gui,
-                      robot: { ...current.gui.robot, length_meters: value },
-                    },
-                  }))
-                }
-              />
-              <NumberRow
-                label="Robot Width (m)"
-                value={draft.gui.robot.width_meters}
-                min={0.05}
-                max={5}
-                step={0.01}
-                onChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    gui: {
-                      ...current.gui,
-                      robot: { ...current.gui.robot, width_meters: value },
-                    },
-                  }))
-                }
-              />
-            </section>
+          <SettingsNav
+            activeSection={activeSection}
+            onSectionChange={setActiveSection}
+          />
 
-            <section className="config-dialog__section">
-              <h2>Protrusions</h2>
-              <CheckboxRow
-                label="Enable Protrusions"
-                checked={protrusionsEnabled}
-                onChange={(checked) =>
-                  setDraft((current) => ({
-                    ...current,
-                    gui: {
-                      ...current.gui,
-                      protrusions: {
-                        ...current.gui.protrusions,
-                        enabled: checked,
-                        default_state: checked
-                          ? current.gui.protrusions.default_state || "shown"
-                          : "",
-                      },
-                    },
-                  }))
-                }
+          <div className="config-dialog__content">
+            {activeSection === "field" ? (
+              <FieldSettingsSection
+                draft={draft}
+                fieldInputRef={fieldInputRef}
+                fieldPreviewUrl={fieldPreviewUrl}
+                fieldUploadError={fieldUploadError}
+                fieldUploading={fieldUploading}
+                selectedCustomField={selectedCustomField}
+                selectedField={selectedField}
+                setDraft={setDraft}
+                setFieldUploadError={setFieldUploadError}
+                setFieldUploading={setFieldUploading}
+                onUploadFieldImage={onUploadFieldImage}
               />
-              <div
-                className={`config-dialog__dependent-group${
-                  protrusionsEnabled ? "" : " is-disabled"
-                }`}
-                aria-disabled={!protrusionsEnabled}
-              >
-                <NumberRow
-                  label="Protrusion Distance (m)"
-                  value={draft.gui.protrusions.distance_meters}
-                  min={0}
-                  max={2}
-                  step={0.01}
-                  disabled={!protrusionsEnabled}
-                  onChange={(value) =>
-                    updateProtrusions(setDraft, { distance_meters: value })
-                  }
-                />
-                <SelectRow
-                  label="Protrusion Side"
-                  value={draft.gui.protrusions.side}
-                  disabled={!protrusionsEnabled}
-                  options={["none", "left", "right", "front", "back"]}
-                  onChange={(value) =>
-                    updateProtrusions(setDraft, {
-                      side: value as ProtrusionSide,
-                    })
-                  }
-                />
-                <SelectRow
-                  label="Default Protrusion State"
-                  value={
-                    protrusionsEnabled
-                      ? draft.gui.protrusions.default_state || "shown"
-                      : ""
-                  }
-                  disabled={!protrusionsEnabled}
-                  options={protrusionDefaultStateOptions}
-                  onChange={(value) =>
-                    updateProtrusions(setDraft, {
-                      default_state: value as ProtrusionState,
-                    })
-                  }
-                />
-                <TextRow
-                  label="Show On Event Keys"
-                  value={draft.gui.protrusions.show_on_event_keys.join(", ")}
-                  disabled={!protrusionsEnabled}
-                  placeholder="event_a, event_b"
-                  onChange={(value) =>
-                    updateProtrusions(setDraft, {
-                      show_on_event_keys: parseKeyList(value),
-                    })
-                  }
-                />
-                <TextRow
-                  label="Hide On Event Keys"
-                  value={draft.gui.protrusions.hide_on_event_keys.join(", ")}
-                  disabled={!protrusionsEnabled}
-                  placeholder="event_a, event_b"
-                  onChange={(value) =>
-                    updateProtrusions(setDraft, {
-                      hide_on_event_keys: parseKeyList(value),
-                    })
-                  }
-                />
-              </div>
-            </section>
+            ) : null}
 
-            <section className="config-dialog__section config-dialog__section--wide-rows">
-              <h2>End Tolerance</h2>
-              <KinematicNumberRow
+            {activeSection === "robot" ? (
+              <RobotSettingsSection
                 draft={draft}
-                label="End Translation Tolerance (m)"
-                configKey="default_end_translation_tolerance_meters"
-                max={1}
-                step={0.01}
+                protrusionDefaultStateOptions={protrusionDefaultStateOptions}
+                protrusionsEnabled={protrusionsEnabled}
                 setDraft={setDraft}
               />
-              <KinematicNumberRow
-                draft={draft}
-                label="End Rotation Tolerance (deg)"
-                configKey="default_end_rotation_tolerance_deg"
-                max={180}
-                step={0.1}
-                setDraft={setDraft}
-              />
-            </section>
-          </div>
+            ) : null}
 
-          <div className="config-dialog__column">
-            <section className="config-dialog__section config-dialog__section--wide-rows">
-              <h2>Translation</h2>
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Max Velocity (m/s)"
-                configKey="default_max_velocity_meters_per_sec"
-                step={0.1}
-                setDraft={setDraft}
-              />
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Max Accel (m/s2)"
-                configKey="default_max_acceleration_meters_per_sec2"
-                step={0.1}
-                setDraft={setDraft}
-              />
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Handoff Radius (m)"
-                configKey="default_intermediate_handoff_radius_meters"
-                step={0.05}
-                setDraft={setDraft}
-              />
-            </section>
+            {activeSection === "path-defaults" ? (
+              <PathDefaultsSettingsSection draft={draft} setDraft={setDraft} />
+            ) : null}
 
-            <section className="config-dialog__section config-dialog__section--wide-rows">
-              <h2>Rotation</h2>
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Max Rot Vel (deg/s)"
-                configKey="default_max_velocity_deg_per_sec"
-                step={1}
-                setDraft={setDraft}
-              />
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Max Rot Accel (deg/s2)"
-                configKey="default_max_acceleration_deg_per_sec2"
-                step={1}
-                setDraft={setDraft}
-              />
-            </section>
-
-            <section className="config-dialog__section config-dialog__section--wide-rows">
-              <h2>Auto Constrain</h2>
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Auto Velocity Factor"
-                configKey="default_auto_velocity_velocity_safety_factor"
-                min={0.05}
-                max={1}
-                step={0.05}
-                setDraft={setDraft}
-              />
-              <KinematicNumberRow
-                draft={draft}
-                label="Default Auto Accel Factor"
-                configKey="default_auto_velocity_acceleration_safety_factor"
-                min={0.05}
-                max={1}
-                step={0.05}
-                setDraft={setDraft}
-              />
-              <KinematicNumberRow
-                draft={draft}
-                label="Auto Merge Diff (m/s)"
-                configKey="default_auto_velocity_merge_tolerance_meters_per_sec"
-                max={20}
-                step={0.05}
-                setDraft={setDraft}
-              />
-            </section>
+            {activeSection === "optimizer" ? (
+              <OptimizerSettingsSection draft={draft} setDraft={setDraft} />
+            ) : null}
           </div>
         </div>
 
@@ -315,6 +210,493 @@ export function ProjectConfigDialog({
 }
 
 type KinematicKey = keyof ProjectConfig["kinematic_constraints"];
+
+function SettingsNav({
+  activeSection,
+  onSectionChange,
+}: {
+  activeSection: ConfigSectionId;
+  onSectionChange(section: ConfigSectionId): void;
+}) {
+  return (
+    <nav className="config-dialog__nav" aria-label="Settings sections">
+      {configSections.map((section) => (
+        <button
+          key={section.id}
+          type="button"
+          className={
+            section.id === activeSection
+              ? "config-dialog__nav-item is-active"
+              : "config-dialog__nav-item"
+          }
+          aria-current={section.id === activeSection ? "page" : undefined}
+          onClick={() => onSectionChange(section.id)}
+        >
+          {section.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function ConfigSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="config-dialog__section">
+      <h2>{title}</h2>
+      <div className="config-dialog__section-body">{children}</div>
+    </section>
+  );
+}
+
+function ConfigSubsection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="config-dialog__subsection">
+      <h3>{title}</h3>
+      <div className="config-dialog__subsection-body">{children}</div>
+    </div>
+  );
+}
+
+function FieldSettingsSection({
+  draft,
+  fieldInputRef,
+  fieldPreviewUrl,
+  fieldUploadError,
+  fieldUploading,
+  selectedCustomField,
+  selectedField,
+  setDraft,
+  setFieldUploadError,
+  setFieldUploading,
+  onUploadFieldImage,
+}: {
+  draft: ProjectConfig;
+  fieldInputRef: RefObject<HTMLInputElement | null>;
+  fieldPreviewUrl: string | null;
+  fieldUploadError: string | null;
+  fieldUploading: boolean;
+  selectedCustomField: CustomFieldImage | null;
+  selectedField: ResolvedFieldDefinition;
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+  setFieldUploadError(value: string | null): void;
+  setFieldUploading(value: boolean): void;
+  onUploadFieldImage(
+    file: File,
+    geometry: FieldGeometry,
+  ): Promise<CustomFieldImage>;
+}) {
+  return (
+    <ConfigSection title="Field">
+      <div className="config-dialog__field-layout">
+        <div className="field-preview" data-testid="field-preview">
+          {selectedField.kind === "grid" ? (
+            <div className="field-preview__grid" aria-hidden="true" />
+          ) : selectedField.image_src || fieldPreviewUrl ? (
+            <img
+              alt={`${selectedField.label} preview`}
+              src={selectedField.image_src ?? fieldPreviewUrl ?? ""}
+            />
+          ) : (
+            <div className="field-preview__empty" aria-hidden="true" />
+          )}
+        </div>
+
+        <div className="config-dialog__section-body">
+          <FieldSelectRow
+            value={draft.gui.field.selected_field_id}
+            customFields={draft.gui.field.custom_fields}
+            onChange={(value) => updateFieldSelection(setDraft, value)}
+          />
+          <div className="config-dialog__button-row">
+            <button
+              type="button"
+              onClick={() => fieldInputRef.current?.click()}
+              disabled={fieldUploading}
+            >
+              {selectedCustomField ? "Replace Image" : "Upload Image"}
+            </button>
+            {selectedCustomField ? (
+              <button
+                type="button"
+                onClick={() => removeSelectedCustomField(setDraft)}
+              >
+                Remove Custom Field
+              </button>
+            ) : null}
+          </div>
+          <input
+            ref={fieldInputRef}
+            className="file-import-input"
+            aria-label="Upload field image"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0] ?? null;
+              event.currentTarget.value = "";
+              if (file) {
+                void uploadCustomFieldImage({
+                  file,
+                  draft,
+                  selectedCustomField,
+                  setDraft,
+                  setFieldUploading,
+                  setFieldUploadError,
+                  onUploadFieldImage,
+                });
+              }
+            }}
+          />
+          <TextRow
+            label="Field Name"
+            value={selectedCustomField?.name ?? selectedField.label}
+            disabled={!selectedCustomField}
+            onChange={(value) =>
+              updateSelectedCustomField(setDraft, { name: value })
+            }
+          />
+          <NumberRow
+            label="Field Length (m)"
+            value={selectedField.geometry.length_meters}
+            min={0.5}
+            max={30}
+            step={0.01}
+            disabled={!selectedCustomField}
+            onChange={(value) =>
+              updateSelectedCustomFieldGeometry(setDraft, {
+                length_meters: value,
+              })
+            }
+          />
+          <NumberRow
+            label="Field Width (m)"
+            value={selectedField.geometry.width_meters}
+            min={0.5}
+            max={30}
+            step={0.01}
+            disabled={!selectedCustomField}
+            onChange={(value) =>
+              updateSelectedCustomFieldGeometry(setDraft, {
+                width_meters: value,
+              })
+            }
+          />
+          <NumberRow
+            label="Coordinate Offset (m)"
+            value={selectedField.geometry.coordinate_offset_meters}
+            min={0}
+            max={5}
+            step={0.01}
+            disabled={!selectedCustomField}
+            onChange={(value) =>
+              updateSelectedCustomFieldGeometry(setDraft, {
+                coordinate_offset_meters: value,
+              })
+            }
+          />
+          {fieldUploadError ? (
+            <p className="config-dialog__error">{fieldUploadError}</p>
+          ) : null}
+        </div>
+      </div>
+    </ConfigSection>
+  );
+}
+
+function RobotSettingsSection({
+  draft,
+  protrusionDefaultStateOptions,
+  protrusionsEnabled,
+  setDraft,
+}: {
+  draft: ProjectConfig;
+  protrusionDefaultStateOptions: string[];
+  protrusionsEnabled: boolean;
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+}) {
+  return (
+    <ConfigSection title="Robot">
+      <ConfigSubsection title="Size">
+        <NumberRow
+          label="Robot Length (m)"
+          value={draft.gui.robot.length_meters}
+          min={0.05}
+          max={5}
+          step={0.01}
+          onChange={(value) =>
+            setDraft((current) => ({
+              ...current,
+              gui: {
+                ...current.gui,
+                robot: { ...current.gui.robot, length_meters: value },
+              },
+            }))
+          }
+        />
+        <NumberRow
+          label="Robot Width (m)"
+          value={draft.gui.robot.width_meters}
+          min={0.05}
+          max={5}
+          step={0.01}
+          onChange={(value) =>
+            setDraft((current) => ({
+              ...current,
+              gui: {
+                ...current.gui,
+                robot: { ...current.gui.robot, width_meters: value },
+              },
+            }))
+          }
+        />
+      </ConfigSubsection>
+
+      <ConfigSubsection title="Protrusions">
+        <CheckboxRow
+          label="Enable Protrusions"
+          checked={protrusionsEnabled}
+          onChange={(checked) =>
+            setDraft((current) => ({
+              ...current,
+              gui: {
+                ...current.gui,
+                protrusions: {
+                  ...current.gui.protrusions,
+                  enabled: checked,
+                  default_state: checked
+                    ? current.gui.protrusions.default_state || "shown"
+                    : "",
+                },
+              },
+            }))
+          }
+        />
+        <div
+          className={`config-dialog__dependent-group${
+            protrusionsEnabled ? "" : " is-disabled"
+          }`}
+          aria-disabled={!protrusionsEnabled}
+        >
+          <NumberRow
+            label="Protrusion Distance (m)"
+            value={draft.gui.protrusions.distance_meters}
+            min={0}
+            max={2}
+            step={0.01}
+            disabled={!protrusionsEnabled}
+            onChange={(value) =>
+              updateProtrusions(setDraft, { distance_meters: value })
+            }
+          />
+          <SelectRow
+            label="Protrusion Side"
+            value={draft.gui.protrusions.side}
+            disabled={!protrusionsEnabled}
+            options={["none", "left", "right", "front", "back"]}
+            onChange={(value) =>
+              updateProtrusions(setDraft, {
+                side: value as ProtrusionSide,
+              })
+            }
+          />
+          <SelectRow
+            label="Default Protrusion State"
+            value={
+              protrusionsEnabled
+                ? draft.gui.protrusions.default_state || "shown"
+                : ""
+            }
+            disabled={!protrusionsEnabled}
+            options={protrusionDefaultStateOptions}
+            onChange={(value) =>
+              updateProtrusions(setDraft, {
+                default_state: value as ProtrusionState,
+              })
+            }
+          />
+          <TextRow
+            label="Show On Event Keys"
+            value={draft.gui.protrusions.show_on_event_keys.join(", ")}
+            disabled={!protrusionsEnabled}
+            placeholder="event_a, event_b"
+            onChange={(value) =>
+              updateProtrusions(setDraft, {
+                show_on_event_keys: parseKeyList(value),
+              })
+            }
+          />
+          <TextRow
+            label="Hide On Event Keys"
+            value={draft.gui.protrusions.hide_on_event_keys.join(", ")}
+            disabled={!protrusionsEnabled}
+            placeholder="event_a, event_b"
+            onChange={(value) =>
+              updateProtrusions(setDraft, {
+                hide_on_event_keys: parseKeyList(value),
+              })
+            }
+          />
+        </div>
+      </ConfigSubsection>
+    </ConfigSection>
+  );
+}
+
+function PathDefaultsSettingsSection({
+  draft,
+  setDraft,
+}: {
+  draft: ProjectConfig;
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+}) {
+  return (
+    <ConfigSection title="Path Defaults">
+      <ConfigSubsection title="Translation">
+        <KinematicNumberRow
+          draft={draft}
+          label="Default Max Velocity (m/s)"
+          configKey="default_max_velocity_meters_per_sec"
+          step={0.1}
+          setDraft={setDraft}
+        />
+        <KinematicNumberRow
+          draft={draft}
+          label="Default Max Accel (m/s2)"
+          configKey="default_max_acceleration_meters_per_sec2"
+          step={0.1}
+          setDraft={setDraft}
+        />
+        <KinematicNumberRow
+          draft={draft}
+          label="Default Handoff Radius (m)"
+          configKey="default_intermediate_handoff_radius_meters"
+          step={0.05}
+          setDraft={setDraft}
+        />
+      </ConfigSubsection>
+
+      <ConfigSubsection title="Rotation">
+        <KinematicNumberRow
+          draft={draft}
+          label="Default Max Rot Vel (deg/s)"
+          configKey="default_max_velocity_deg_per_sec"
+          step={1}
+          setDraft={setDraft}
+        />
+        <KinematicNumberRow
+          draft={draft}
+          label="Default Max Rot Accel (deg/s2)"
+          configKey="default_max_acceleration_deg_per_sec2"
+          step={1}
+          setDraft={setDraft}
+        />
+      </ConfigSubsection>
+
+      <ConfigSubsection title="End Tolerance">
+        <KinematicNumberRow
+          draft={draft}
+          label="End Translation Tolerance (m)"
+          configKey="default_end_translation_tolerance_meters"
+          max={1}
+          step={0.01}
+          setDraft={setDraft}
+        />
+        <KinematicNumberRow
+          draft={draft}
+          label="End Rotation Tolerance (deg)"
+          configKey="default_end_rotation_tolerance_deg"
+          max={180}
+          step={0.1}
+          setDraft={setDraft}
+        />
+      </ConfigSubsection>
+    </ConfigSection>
+  );
+}
+
+function OptimizerSettingsSection({
+  draft,
+  setDraft,
+}: {
+  draft: ProjectConfig;
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+}) {
+  return (
+    <ConfigSection title="Optimizer">
+      <ConfigSubsection title="Auto Constrain">
+        <KinematicNumberRow
+          draft={draft}
+          label="Default Auto Velocity Factor"
+          configKey="default_auto_velocity_velocity_safety_factor"
+          min={0.05}
+          max={1}
+          step={0.05}
+          setDraft={setDraft}
+        />
+        <KinematicNumberRow
+          draft={draft}
+          label="Default Auto Accel Factor"
+          configKey="default_auto_velocity_acceleration_safety_factor"
+          min={0.05}
+          max={1}
+          step={0.05}
+          setDraft={setDraft}
+        />
+        <KinematicNumberRow
+          draft={draft}
+          label="Auto Merge Diff (m/s)"
+          configKey="default_auto_velocity_merge_tolerance_meters_per_sec"
+          max={20}
+          step={0.05}
+          setDraft={setDraft}
+        />
+      </ConfigSubsection>
+    </ConfigSection>
+  );
+}
+
+function FieldSelectRow({
+  value,
+  customFields,
+  onChange,
+}: {
+  value: string;
+  customFields: readonly CustomFieldImage[];
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="config-row">
+      <span className="config-row__label">Field Image</span>
+      <select
+        aria-label="Field Image"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      >
+        {builtInFieldDefinitions.map((field) => (
+          <option key={field.id} value={field.id}>
+            {field.label}
+          </option>
+        ))}
+        {customFields.map((field) => (
+          <option key={field.id} value={field.id}>
+            {field.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 function KinematicNumberRow({
   draft,
@@ -485,6 +867,134 @@ function updateProtrusions(
       },
     },
   }));
+}
+
+function updateFieldSelection(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  selectedFieldId: string,
+): void {
+  setDraft((current) => ({
+    ...current,
+    gui: {
+      ...current.gui,
+      field: {
+        ...current.gui.field,
+        selected_field_id: selectedFieldId,
+      },
+    },
+  }));
+}
+
+function removeSelectedCustomField(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+): void {
+  setDraft((current) => {
+    const selectedId = current.gui.field.selected_field_id;
+    return {
+      ...current,
+      gui: {
+        ...current.gui,
+        field: {
+          selected_field_id: defaultFieldId,
+          custom_fields: current.gui.field.custom_fields.filter(
+            (field) => field.id !== selectedId,
+          ),
+        },
+      },
+    };
+  });
+}
+
+function updateSelectedCustomFieldGeometry(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  geometry: Partial<FieldGeometry>,
+): void {
+  updateSelectedCustomField(setDraft, { geometry });
+}
+
+function updateSelectedCustomField(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  update: Partial<Pick<CustomFieldImage, "name">> & {
+    geometry?: Partial<FieldGeometry>;
+  },
+): void {
+  setDraft((current) => {
+    const selectedId = current.gui.field.selected_field_id;
+    return {
+      ...current,
+      gui: {
+        ...current.gui,
+        field: {
+          ...current.gui.field,
+          custom_fields: current.gui.field.custom_fields.map((field) =>
+            field.id === selectedId
+              ? {
+                  ...field,
+                  ...("name" in update
+                    ? { name: update.name ?? field.name }
+                    : {}),
+                  geometry: update.geometry
+                    ? {
+                        ...field.geometry,
+                        ...update.geometry,
+                      }
+                    : field.geometry,
+                }
+              : field,
+          ),
+        },
+      },
+    };
+  });
+}
+
+async function uploadCustomFieldImage({
+  file,
+  draft,
+  selectedCustomField,
+  setDraft,
+  setFieldUploading,
+  setFieldUploadError,
+  onUploadFieldImage,
+}: {
+  file: File;
+  draft: ProjectConfig;
+  selectedCustomField: CustomFieldImage | null;
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+  setFieldUploading(value: boolean): void;
+  setFieldUploadError(value: string | null): void;
+  onUploadFieldImage(
+    file: File,
+    geometry: FieldGeometry,
+  ): Promise<CustomFieldImage>;
+}): Promise<void> {
+  setFieldUploading(true);
+  setFieldUploadError(null);
+  try {
+    const geometry =
+      selectedCustomField?.geometry ??
+      resolveFieldDefinition(draft.gui.field).geometry;
+    const uploaded = await onUploadFieldImage(file, geometry);
+    setDraft((current) => ({
+      ...current,
+      gui: {
+        ...current.gui,
+        field: {
+          selected_field_id: uploaded.id,
+          custom_fields: [
+            ...current.gui.field.custom_fields.filter(
+              (field) => field.id !== selectedCustomField?.id,
+            ),
+            uploaded,
+          ],
+        },
+      },
+    }));
+  } catch (error) {
+    setFieldUploadError(error instanceof Error ? error.message : String(error));
+  } finally {
+    setFieldUploading(false);
+  }
 }
 
 function parseKeyList(value: string): string[] {

@@ -38,6 +38,20 @@ export interface WriteResult {
   updatedAt: string;
 }
 
+export interface FieldAssetWriteInput {
+  workspaceId: string;
+  assetId: string;
+  fileName: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
+export interface FieldAssetPayload {
+  fileName: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
 export interface WorkspaceImportResult {
   imported: ProjectWorkspaceSummary[];
 }
@@ -77,6 +91,12 @@ export interface StorageAdapter {
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
   exportWorkspaceArchive?(id?: string): Promise<Blob>;
   importWorkspaceArchive?(archive: Blob): Promise<WorkspaceImportResult>;
+  writeFieldAsset?(input: FieldAssetWriteInput): Promise<void>;
+  readFieldAsset?(
+    workspaceId: string,
+    assetId: string,
+  ): Promise<FieldAssetPayload | null>;
+  deleteFieldAsset?(workspaceId: string, assetId: string): Promise<void>;
 }
 
 export interface CurrentWorkspaceAdapter extends StorageAdapter {

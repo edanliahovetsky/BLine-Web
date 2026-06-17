@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ProjectDocument } from "../../core/io/projectSchema";
+import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
 import type { PathElement } from "../../core/model/path";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
@@ -51,6 +52,9 @@ export function Sidebar({
     project && selectedElementIndex !== null
       ? (project.path.path_elements[selectedElementIndex] ?? null)
       : null;
+  const fieldGeometry = project
+    ? fieldGeometryFromConfig(project.config.gui.field)
+    : undefined;
 
   const handleSelectElement = (index: number) => {
     selectionStore.getState().selectElement(index, project);
@@ -202,6 +206,7 @@ export function Sidebar({
             ? getSwitchableElementTypes(project, selectedElementIndex)
             : []
         }
+        fieldGeometry={fieldGeometry}
         onToggleSection={() => handleToggleSection("properties")}
         onChangeType={handleChangeElementType}
         onUpdateElement={handleUpdateElement}

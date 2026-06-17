@@ -22,6 +22,10 @@ import type {
   ProjectPathDocument,
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
+import type {
+  CustomFieldImage,
+  FieldGeometry,
+} from "../../core/field/fieldConfig";
 import type { TranslationTarget } from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
@@ -955,6 +959,18 @@ export function AppShell() {
     [],
   );
 
+  const handleUploadFieldImage = useCallback(
+    (file: File, geometry: FieldGeometry) =>
+      projectStore.getState().writeFieldImageAsset({ file, geometry }),
+    [],
+  );
+
+  const handleLoadFieldImage = useCallback(
+    (field: CustomFieldImage) =>
+      projectStore.getState().readFieldImageAsset(field),
+    [],
+  );
+
   const selectedElement =
     project && selectedElementIndex !== null
       ? project.path.path_elements[selectedElementIndex]
@@ -1464,6 +1480,8 @@ export function AppShell() {
           config={project.config}
           onCancel={() => setShowConfigDialog(false)}
           onSave={handleSaveConfig}
+          onUploadFieldImage={handleUploadFieldImage}
+          onLoadFieldImage={handleLoadFieldImage}
         />
       ) : null}
       {showDeleteProjectDialog ? (
