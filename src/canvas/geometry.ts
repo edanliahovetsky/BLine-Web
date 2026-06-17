@@ -2,7 +2,6 @@ import {
   defaultFieldGeometry,
   type FieldGeometry,
 } from "../core/field/fieldConfig";
-import { defaultRobotSizeMeters, type RobotSizeMeters } from "./robotFootprint";
 import {
   isAnchorElement,
   isEventTrigger,
@@ -98,7 +97,6 @@ export function modelToStagePoint(
 export function stageToModelPoint(
   point: StagePoint,
   viewport: FieldViewport,
-  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters,
 ): PointMeters {
   const sceneX = (point.x - viewport.x) / viewport.scale;
   const sceneY = (point.y - viewport.y) / viewport.scale;
@@ -111,26 +109,20 @@ export function stageToModelPoint(
         sceneY -
         viewport.field.coordinate_offset_meters,
     },
-    robotSizeMeters,
     viewport.field,
   );
 }
 
 export function clampModelPoint(
   point: PointMeters,
-  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters,
   field: FieldGeometry = defaultFieldGeometry,
 ): PointMeters {
-  const halfRobotLength = robotSizeMeters.lengthMeters / 2;
-  const halfRobotWidth = robotSizeMeters.widthMeters / 2;
-  const maxX =
-    field.length_meters - field.coordinate_offset_meters * 2 - halfRobotLength;
-  const maxY =
-    field.width_meters - field.coordinate_offset_meters * 2 - halfRobotWidth;
+  const maxX = field.length_meters - field.coordinate_offset_meters * 2;
+  const maxY = field.width_meters - field.coordinate_offset_meters * 2;
 
   return {
-    x_meters: clamp(point.x_meters, halfRobotLength, maxX),
-    y_meters: clamp(point.y_meters, halfRobotWidth, maxY),
+    x_meters: clamp(point.x_meters, 0, maxX),
+    y_meters: clamp(point.y_meters, 0, maxY),
   };
 }
 

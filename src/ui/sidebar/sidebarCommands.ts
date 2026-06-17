@@ -7,12 +7,14 @@ import {
   refreshAutoVelocityConstraints,
 } from "../../core/constraints/autoVelocityApply";
 import { getDefaultOptionalConfigValue } from "../../core/config/projectConfig";
-import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
+import {
+  fieldGeometryFromConfig,
+  type FieldGeometry,
+} from "../../core/field/fieldConfig";
 import {
   getElementHeadingRadians,
   getElementPosition,
 } from "../../canvas/geometry";
-import { robotSizeFromConfig } from "../../canvas/robotFootprint";
 import { remapRangedConstraints } from "../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../core/io/projectSchema";
 import {
@@ -939,30 +941,24 @@ function defaultPosition(
       x_meters: (fallbackPosition?.x_meters ?? field.length_meters / 2) + 0.75,
       y_meters: (fallbackPosition?.y_meters ?? field.width_meters / 2) + 0.35,
     },
-    project,
+    field,
   );
 }
 
 function clampFieldPosition(
   point: { x_meters: number; y_meters: number },
-  project: ProjectDocument,
+  field: FieldGeometry,
 ) {
-  const field = fieldGeometryFromConfig(project.config.gui.field);
-  const robotSizeMeters = robotSizeFromConfig(project.config);
-  const halfRobotLength = robotSizeMeters.lengthMeters / 2;
-  const halfRobotWidth = robotSizeMeters.widthMeters / 2;
   return {
     x_meters: clamp(
       point.x_meters,
-      halfRobotLength,
-      field.length_meters -
-        field.coordinate_offset_meters * 2 -
-        halfRobotLength,
+      0,
+      field.length_meters - field.coordinate_offset_meters * 2,
     ),
     y_meters: clamp(
       point.y_meters,
-      halfRobotWidth,
-      field.width_meters - field.coordinate_offset_meters * 2 - halfRobotWidth,
+      0,
+      field.width_meters - field.coordinate_offset_meters * 2,
     ),
   };
 }

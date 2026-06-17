@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
 import {
-  fieldCoordinateOffsetMeters,
-  fieldLengthMeters,
-  fieldWidthMeters,
-} from "../../../src/canvas/constants";
-import { clampModelPoint } from "../../../src/canvas/geometry";
-import {
   centeredRobotBounds,
   robotBoundsWithProtrusion,
   robotProtrusionOutlineGeometry,
@@ -263,25 +257,4 @@ describe("robot footprint geometry", () => {
     expect(outline?.pathData).toContain("L 25 18 Q 23 18 23 16");
   });
 
-  it("clamps model points by configured robot half extents", () => {
-    const clamped = clampModelPoint(
-      { x_meters: -1, y_meters: -1 },
-      { lengthMeters: 0.82, widthMeters: 0.98 },
-    );
-
-    expect(clamped).toEqual({
-      x_meters: 0.41,
-      y_meters: 0.49,
-    });
-
-    const maxClamped = clampModelPoint(
-      { x_meters: 100, y_meters: 100 },
-      { lengthMeters: 0.82, widthMeters: 0.98 },
-    );
-
-    expect(maxClamped).toEqual({
-      x_meters: fieldLengthMeters - fieldCoordinateOffsetMeters * 2 - 0.41,
-      y_meters: fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - 0.49,
-    });
-  });
 });
