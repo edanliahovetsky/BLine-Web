@@ -2360,7 +2360,8 @@ button.auto-velocity-status--running:disabled {
 
 .config-dialog {
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(900px, calc(100vw - 36px));
+  width: min(940px, calc(100vw - 36px));
+  height: min(720px, calc(100vh - 40px));
   overflow: hidden;
 }
 
@@ -2414,53 +2415,92 @@ button.auto-velocity-status--running:disabled {
 
 .config-dialog__body {
   display: grid;
-  grid-template-columns: minmax(310px, 0.96fr) minmax(360px, 1.04fr);
-  align-items: start;
-  gap: 12px;
+  grid-template-columns: 180px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.config-dialog__nav {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   padding: 12px;
+  border-right: 1px solid #46515d;
+  background: #12181e;
+  box-shadow: inset -1px 0 0 rgba(4, 7, 10, 0.58);
 }
 
-.config-dialog__column {
-  display: grid;
-  align-content: start;
-  gap: 12px;
+.config-dialog__nav-item {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px 0 12px;
+  border: 1px solid #27323c;
+  border-radius: 6px;
+  color: #b9c5cf;
+  font-size: 0.82rem;
+  font-weight: 720;
+  text-align: left;
+  background: #182027;
+  box-shadow: inset 0 0 0 0 transparent;
+}
+
+.config-dialog__nav-item:hover,
+.config-dialog__nav-item:focus-visible {
+  border-color: #3e4c59;
+  color: #eef3f7;
+  background: #202a33;
+  box-shadow: inset 3px 0 0 #6e7f90;
+}
+
+.config-dialog__nav-item.is-active {
+  border-color: #2f81f7;
+  color: #f7fbff;
+  background: #1b314a;
+  box-shadow: inset 3px 0 0 #7ab1ff;
+}
+
+.config-dialog__content {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
 }
 
 .config-dialog__section {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
-  overflow: hidden;
-  padding: 10px;
-  border: 1px solid #303941;
-  border-radius: 8px;
-  background: #20262b;
 }
 
 .config-dialog__section h2 {
   display: flex;
   align-items: center;
-  min-height: 30px;
+  min-height: 34px;
   margin: 0;
-  padding: 0 9px;
-  border: 1px solid #35414c;
-  border-left: 3px solid #2f81f7;
-  border-radius: 6px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid #35414c;
   color: #f3f7fb;
-  font-size: 0.82rem;
-  font-weight: 760;
+  font-size: 0.95rem;
+  font-weight: 780;
   letter-spacing: 0;
-  background: #182027;
+}
+
+.config-dialog__section-body {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
 }
 
 .config-dialog__dependent-group,
 .config-dialog__subsection {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -2474,28 +2514,40 @@ button.auto-velocity-status--running:disabled {
 }
 
 .config-dialog__subsection {
-  padding-top: 7px;
+  padding-top: 10px;
+  border-top: 1px solid #27313a;
 }
 
 .config-dialog__subsection:first-of-type {
   padding-top: 0;
+  border-top: 0;
 }
 
 .config-dialog__subsection h3 {
   display: flex;
   align-items: center;
-  min-height: 25px;
+  min-height: 28px;
   margin: 0;
-  padding: 0 8px;
-  border: 1px solid #303941;
-  border-left: 3px solid #7f8b96;
-  border-radius: 6px;
+  padding: 0;
+  border: 0;
   color: #b8c4ce;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 760;
   letter-spacing: 0;
   text-transform: uppercase;
-  background: #1a2026;
+  background: transparent;
+}
+
+.config-dialog__subsection-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.config-dialog__field-layout {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
 
 .field-preview {
@@ -2503,7 +2555,7 @@ button.auto-velocity-status--running:disabled {
   place-items: center;
   width: 100%;
   aspect-ratio: 2 / 1;
-  min-height: 118px;
+  min-height: 220px;
   overflow: hidden;
   border: 1px solid #303941;
   border-radius: 6px;
@@ -2578,7 +2630,7 @@ button.auto-velocity-status--running:disabled {
 
 .config-row {
   display: grid;
-  grid-template-columns: minmax(132px, 1fr) minmax(116px, 168px);
+  grid-template-columns: minmax(190px, 1fr) minmax(136px, 180px);
   align-items: center;
   gap: 12px;
   min-height: 40px;
@@ -2589,7 +2641,7 @@ button.auto-velocity-status--running:disabled {
 }
 
 .config-dialog__section--wide-rows .config-row {
-  grid-template-columns: minmax(198px, 1fr) minmax(116px, 154px);
+  grid-template-columns: minmax(190px, 1fr) minmax(136px, 180px);
 }
 
 .config-row__label {
@@ -3866,10 +3918,25 @@ button.auto-velocity-status--running:disabled {
 
   .config-dialog__body {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .config-dialog__nav {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid #303a43;
+  }
+
+  .config-dialog__content {
+    padding: 12px;
   }
 
   .config-dialog__section--wide-rows .config-row {
-    grid-template-columns: minmax(180px, 1fr) minmax(116px, 168px);
+    grid-template-columns: minmax(180px, 1fr) minmax(136px, 180px);
   }
 }
 
@@ -3968,12 +4035,20 @@ button.auto-velocity-status--running:disabled {
 
   .config-dialog {
     width: min(440px, calc(100vw - 20px));
+    height: min(680px, calc(100vh - 20px));
     max-height: calc(100vh - 20px);
   }
 
-  .config-dialog__body {
-    gap: 14px;
+  .config-dialog__nav {
+    padding: 9px 10px;
+  }
+
+  .config-dialog__content {
     padding: 10px;
+  }
+
+  .field-preview {
+    min-height: 136px;
   }
 
   .config-row,
