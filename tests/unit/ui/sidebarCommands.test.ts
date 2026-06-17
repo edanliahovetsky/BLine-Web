@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  fieldCoordinateOffsetMeters,
+  fieldLengthMeters,
+  fieldWidthMeters,
+} from "../../../src/canvas/constants";
+import {
   createProjectDocument,
   type ProjectDocument,
 } from "../../../src/core/io/projectSchema";
@@ -265,6 +270,41 @@ describe("sidebar commands", () => {
       expect(
         waypoint.translation_target.intermediate_handoff_radius_meters,
       ).toBe(0.45);
+    }
+  });
+
+  it("bounds new translation elements by the field, not robot size", () => {
+    const project = createProjectDocument({
+      project_id: "project-a",
+      display_name: "Alpha",
+      config: {
+        gui: {
+          robot: {
+            length_meters: 4,
+            width_meters: 4,
+          },
+        },
+      },
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({
+            x_meters: fieldLengthMeters,
+            y_meters: fieldWidthMeters,
+          }),
+        ],
+      }),
+    });
+
+    const translation = createDefaultElement(project, "translation", 0);
+
+    expect(isTranslationTarget(translation)).toBe(true);
+    if (isTranslationTarget(translation)) {
+      expect(translation.x_meters).toBe(
+        fieldLengthMeters - fieldCoordinateOffsetMeters * 2,
+      );
+      expect(translation.y_meters).toBe(
+        fieldWidthMeters - fieldCoordinateOffsetMeters * 2,
+      );
     }
   });
 

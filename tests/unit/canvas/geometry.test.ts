@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createProjectDocument } from "../../../src/core/io/projectSchema";
 import {
+  fieldCoordinateOffsetMeters,
+  fieldLengthMeters,
+  fieldWidthMeters,
+} from "../../../src/canvas/constants";
+import {
   createEventTrigger,
   createPathModel,
   createRotationTarget,
@@ -9,6 +14,7 @@ import {
 } from "../../../src/core/model/path";
 import {
   createFieldViewport,
+  clampModelPoint,
   getElementHeadingRadians,
   getElementPosition,
   getHandoffRadiusMeters,
@@ -42,6 +48,18 @@ describe("canvas geometry", () => {
 
     expect(roundTrip.x_meters).toBeCloseTo(modelPoint.x_meters, 6);
     expect(roundTrip.y_meters).toBeCloseTo(modelPoint.y_meters, 6);
+  });
+
+  it("clamps model coordinates to field bounds without robot extents", () => {
+    expect(clampModelPoint({ x_meters: -1, y_meters: -1 })).toEqual({
+      x_meters: 0,
+      y_meters: 0,
+    });
+
+    expect(clampModelPoint({ x_meters: 100, y_meters: 100 })).toEqual({
+      x_meters: fieldLengthMeters - fieldCoordinateOffsetMeters * 2,
+      y_meters: fieldWidthMeters - fieldCoordinateOffsetMeters * 2,
+    });
   });
 
   it("projects rotation and event elements between neighboring anchors", () => {

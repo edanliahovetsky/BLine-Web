@@ -3,7 +3,6 @@ import {
   fieldLengthMeters,
   fieldWidthMeters,
 } from "./constants";
-import { defaultRobotSizeMeters, type RobotSizeMeters } from "./robotFootprint";
 import {
   isAnchorElement,
   isEventTrigger,
@@ -93,7 +92,6 @@ export function modelToStagePoint(
 export function stageToModelPoint(
   point: StagePoint,
   viewport: FieldViewport,
-  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters,
 ): PointMeters {
   const sceneX = (point.x - viewport.x) / viewport.scale;
   const sceneY = (point.y - viewport.y) / viewport.scale;
@@ -103,24 +101,16 @@ export function stageToModelPoint(
       x_meters: sceneX - fieldCoordinateOffsetMeters,
       y_meters: fieldWidthMeters - sceneY - fieldCoordinateOffsetMeters,
     },
-    robotSizeMeters,
   );
 }
 
-export function clampModelPoint(
-  point: PointMeters,
-  robotSizeMeters: RobotSizeMeters = defaultRobotSizeMeters,
-): PointMeters {
-  const halfRobotLength = robotSizeMeters.lengthMeters / 2;
-  const halfRobotWidth = robotSizeMeters.widthMeters / 2;
-  const maxX =
-    fieldLengthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotLength;
-  const maxY =
-    fieldWidthMeters - fieldCoordinateOffsetMeters * 2 - halfRobotWidth;
+export function clampModelPoint(point: PointMeters): PointMeters {
+  const maxX = fieldLengthMeters - fieldCoordinateOffsetMeters * 2;
+  const maxY = fieldWidthMeters - fieldCoordinateOffsetMeters * 2;
 
   return {
-    x_meters: clamp(point.x_meters, halfRobotLength, maxX),
-    y_meters: clamp(point.y_meters, halfRobotWidth, maxY),
+    x_meters: clamp(point.x_meters, 0, maxX),
+    y_meters: clamp(point.y_meters, 0, maxY),
   };
 }
 

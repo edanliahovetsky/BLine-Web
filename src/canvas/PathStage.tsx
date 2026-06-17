@@ -693,11 +693,7 @@ export function PathStage({
     const pointer = stagePointFromEvent(event);
 
     if (curveTool) {
-      const sample = stageToModelPoint(
-        pointer,
-        viewport,
-        robotSizeFromConfig(project.config),
-      );
+      const sample = stageToModelPoint(pointer, viewport);
       setActiveCurveDraft({
         pointerId: event.pointerId,
         insertionIndex: curveTool.insertionIndex,
@@ -786,11 +782,7 @@ export function PathStage({
     const curveDraft = activeCurveDraftRef.current;
     if (curveDraft && project && curveDraft.pointerId === event.pointerId) {
       event.preventDefault();
-      const sample = stageToModelPoint(
-        pointer,
-        viewport,
-        robotSizeFromConfig(project.config),
-      );
+      const sample = stageToModelPoint(pointer, viewport);
       const samples = appendCurveSample(curveDraft.samples, sample);
       setActiveCurveDraft({
         ...curveDraft,
@@ -810,7 +802,6 @@ export function PathStage({
       const projected = projectDragStagePoint(
         project,
         viewport,
-        robotSizeFromConfig(project.config),
         drag.index,
         pointer,
       );
@@ -1429,11 +1420,10 @@ function hitTestElementShape(
 function projectDragStagePoint(
   project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
   viewport: FieldViewport,
-  robotSizeMeters: ReturnType<typeof robotSizeFromConfig>,
   index: number,
   stagePoint: StagePoint,
 ): { position: PointMeters; ratio: number | null; stagePoint: StagePoint } {
-  let position = stageToModelPoint(stagePoint, viewport, robotSizeMeters);
+  let position = stageToModelPoint(stagePoint, viewport);
   let ratio: number | null = null;
   const element = project.path.path_elements[index];
 
