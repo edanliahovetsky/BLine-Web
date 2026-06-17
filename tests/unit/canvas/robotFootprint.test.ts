@@ -256,5 +256,4 @@ describe("robot footprint geometry", () => {
     expect(outline?.pathData).toContain("M 23 -16 Q 23 -18 25 -18");
     expect(outline?.pathData).toContain("L 25 18 Q 23 18 23 16");
   });
-
 });

@@ -65,7 +65,9 @@ describe("auto velocity benchmark", () => {
         benchmarkConfig,
         benchmarkOptions,
       );
-      const runtimeMs = shouldMeasureRuntime ? performance.now() - startedAt : 0;
+      const runtimeMs = shouldMeasureRuntime
+        ? performance.now() - startedAt
+        : 0;
       const cachedProfile = generateAutoVelocityProfile(
         benchmark.path,
         benchmarkConfig,
