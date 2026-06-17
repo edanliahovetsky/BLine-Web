@@ -1,6 +1,9 @@
 export type BuiltInFieldId =
+  | "frc2022-rapid-react"
+  | "frc2023-charged-up"
   | "frc2024-crescendo"
   | "frc2025-reefscape"
+  | "frc2025-reefscape-annotated"
   | "frc2026-rebuilt"
   | "blank-grid";
 
@@ -9,7 +12,17 @@ export type FieldImageKind = "image" | "grid";
 export interface FieldGeometry {
   length_meters: number;
   width_meters: number;
+  /** PathPlanner's uniform marginMeters value for fields that use one. */
   coordinate_offset_meters: number;
+  coordinate_offset_x_meters?: number;
+  coordinate_offset_y_meters?: number;
+}
+
+interface PathPlannerFieldCalibration {
+  image_width_px: number;
+  image_height_px: number;
+  pixels_per_meter: number;
+  margin_meters: number;
 }
 
 export interface BuiltInFieldDefinition {
@@ -47,30 +60,76 @@ export interface ResolvedFieldDefinition {
   attribution?: string;
 }
 
-export const defaultFieldGeometry: FieldGeometry = {
-  length_meters: 17.54,
-  width_meters: 9.07,
-  coordinate_offset_meters: 0.5,
+const rapidReactCalibration: PathPlannerFieldCalibration = {
+  image_width_px: 3240,
+  image_height_px: 1620,
+  pixels_per_meter: 196.85,
+  margin_meters: 0,
 };
 
+const chargedUpCalibration: PathPlannerFieldCalibration = {
+  image_width_px: 3256,
+  image_height_px: 1578,
+  pixels_per_meter: 196.85,
+  margin_meters: 0,
+};
+
+const crescendoCalibration: PathPlannerFieldCalibration = {
+  image_width_px: 3256,
+  image_height_px: 1616,
+  pixels_per_meter: 196.85,
+  margin_meters: 0,
+};
+
+const reefscapeCalibration: PathPlannerFieldCalibration = {
+  image_width_px: 3510,
+  image_height_px: 1610,
+  pixels_per_meter: 200,
+  margin_meters: 0,
+};
+
+const rebuiltCalibration: PathPlannerFieldCalibration = {
+  image_width_px: 3508,
+  image_height_px: 1814,
+  pixels_per_meter: 200,
+  margin_meters: 0.5,
+};
+
+export const defaultFieldGeometry: FieldGeometry =
+  pathPlannerGeometry(rebuiltCalibration);
+
 export const blankGridFieldGeometry: FieldGeometry = {
-  length_meters: 17.5,
+  length_meters: 18,
   width_meters: 9,
-  coordinate_offset_meters: 0.5,
+  coordinate_offset_meters: 0,
+  coordinate_offset_x_meters: 0,
+  coordinate_offset_y_meters: 0,
 };
 
 export const defaultFieldId: BuiltInFieldId = "frc2026-rebuilt";
 
 export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
   {
+    id: "frc2022-rapid-react",
+    label: "Rapid React 2022",
+    kind: "image",
+    geometry: pathPlannerGeometry(rapidReactCalibration),
+    image_src: "/assets/fields/field22.png",
+    attribution: "PathPlanner field22.png",
+  },
+  {
+    id: "frc2023-charged-up",
+    label: "Charged Up 2023",
+    kind: "image",
+    geometry: pathPlannerGeometry(chargedUpCalibration),
+    image_src: "/assets/fields/field23.png",
+    attribution: "PathPlanner field23.png",
+  },
+  {
     id: "frc2024-crescendo",
     label: "Crescendo 2024",
     kind: "image",
-    geometry: {
-      length_meters: 16.54051,
-      width_meters: 8.2093,
-      coordinate_offset_meters: 0,
-    },
+    geometry: pathPlannerGeometry(crescendoCalibration),
     image_src: "/assets/fields/field24.png",
     attribution: "PathPlanner field24.png",
   },
@@ -78,19 +137,23 @@ export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
     id: "frc2025-reefscape",
     label: "Reefscape 2025",
     kind: "image",
-    geometry: {
-      length_meters: 17.55,
-      width_meters: 8.05,
-      coordinate_offset_meters: 0,
-    },
+    geometry: pathPlannerGeometry(reefscapeCalibration),
     image_src: "/assets/fields/field25.png",
     attribution: "PathPlanner field25.png",
+  },
+  {
+    id: "frc2025-reefscape-annotated",
+    label: "Reefscape 2025 (Annotated)",
+    kind: "image",
+    geometry: pathPlannerGeometry(reefscapeCalibration),
+    image_src: "/assets/fields/field25-annotated.png",
+    attribution: "PathPlanner field25-annotated.png",
   },
   {
     id: "frc2026-rebuilt",
     label: "REBUILT 2026",
     kind: "image",
-    geometry: defaultFieldGeometry,
+    geometry: pathPlannerGeometry(rebuiltCalibration),
     image_src: "/assets/fields/field26.png",
     attribution: "PathPlanner field26.png",
   },
@@ -181,6 +244,42 @@ export function fieldGeometryFromConfig(
   return resolveFieldDefinition(config).geometry;
 }
 
+export function fieldCoordinateOffsetXMeters(field: FieldGeometry): number {
+  return field.coordinate_offset_x_meters ?? field.coordinate_offset_meters;
+}
+
+export function fieldCoordinateOffsetYMeters(field: FieldGeometry): number {
+  return field.coordinate_offset_y_meters ?? field.coordinate_offset_meters;
+}
+
+export function fieldCoordinateLengthMeters(field: FieldGeometry): number {
+  return Math.max(
+    0,
+    field.length_meters - fieldCoordinateOffsetXMeters(field) * 2,
+  );
+}
+
+export function fieldCoordinateWidthMeters(field: FieldGeometry): number {
+  return Math.max(
+    0,
+    field.width_meters - fieldCoordinateOffsetYMeters(field) * 2,
+  );
+}
+
+export function createPathPlannerFieldGeometry(input: {
+  imageWidthPx: number;
+  imageHeightPx: number;
+  pixelsPerMeter: number;
+  marginMeters?: number;
+}): FieldGeometry {
+  return pathPlannerGeometry({
+    image_width_px: input.imageWidthPx,
+    image_height_px: input.imageHeightPx,
+    pixels_per_meter: input.pixelsPerMeter,
+    margin_meters: input.marginMeters ?? 0,
+  });
+}
+
 export function createCustomFieldImage(input: {
   id: string;
   name: string;
@@ -231,18 +330,45 @@ function normalizeGeometry(
   fallback: FieldGeometry,
 ): FieldGeometry {
   const source = isRecord(input) ? input : {};
+  const uniformOffset = nonNegativeNumber(
+    source.coordinate_offset_meters,
+    fallback.coordinate_offset_meters,
+  );
+  const fallbackX = fieldCoordinateOffsetXMeters(fallback);
+  const fallbackY = fieldCoordinateOffsetYMeters(fallback);
+  const offsetX = nonNegativeNumber(
+    source.coordinate_offset_x_meters,
+    source.coordinate_offset_meters === undefined ? fallbackX : uniformOffset,
+  );
+  const offsetY = nonNegativeNumber(
+    source.coordinate_offset_y_meters,
+    source.coordinate_offset_meters === undefined ? fallbackY : uniformOffset,
+  );
+
   return {
     length_meters: positiveNumber(source.length_meters, fallback.length_meters),
     width_meters: positiveNumber(source.width_meters, fallback.width_meters),
-    coordinate_offset_meters: nonNegativeNumber(
-      source.coordinate_offset_meters,
-      fallback.coordinate_offset_meters,
-    ),
+    coordinate_offset_meters: uniformOffset,
+    coordinate_offset_x_meters: offsetX,
+    coordinate_offset_y_meters: offsetY,
   };
 }
 
 function cloneGeometry(geometry: FieldGeometry): FieldGeometry {
   return { ...geometry };
+}
+
+function pathPlannerGeometry(
+  calibration: PathPlannerFieldCalibration,
+): FieldGeometry {
+  const margin = calibration.margin_meters;
+  return {
+    length_meters: calibration.image_width_px / calibration.pixels_per_meter,
+    width_meters: calibration.image_height_px / calibration.pixels_per_meter,
+    coordinate_offset_meters: margin,
+    coordinate_offset_x_meters: margin,
+    coordinate_offset_y_meters: margin,
+  };
 }
 
 function hasFieldDefinition(

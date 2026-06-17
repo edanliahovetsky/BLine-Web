@@ -11,7 +11,10 @@ import {
 import type { ProjectConfig } from "../../core/io/projectSchema";
 import {
   builtInFieldDefinitions,
+  createPathPlannerFieldGeometry,
   defaultFieldId,
+  fieldCoordinateOffsetXMeters,
+  fieldCoordinateOffsetYMeters,
   resolveFieldDefinition,
   type CustomFieldImage,
   type FieldGeometry,
@@ -374,7 +377,7 @@ function FieldSettingsSection({
             step={0.01}
             disabled={!selectedCustomField}
             onChange={(value) =>
-              updateSelectedCustomFieldGeometry(setDraft, {
+              updateSelectedCustomFieldDimensions(setDraft, {
                 length_meters: value,
               })
             }
@@ -387,22 +390,41 @@ function FieldSettingsSection({
             step={0.01}
             disabled={!selectedCustomField}
             onChange={(value) =>
-              updateSelectedCustomFieldGeometry(setDraft, {
+              updateSelectedCustomFieldDimensions(setDraft, {
                 width_meters: value,
               })
             }
           />
           <NumberRow
-            label="Field Padding (m)"
-            value={selectedField.geometry.coordinate_offset_meters}
+            label="Field Padding X (m)"
+            value={fieldCoordinateOffsetXMeters(selectedField.geometry)}
             min={0}
             max={5}
             step={0.01}
             disabled={!selectedCustomField}
             onChange={(value) =>
-              updateSelectedCustomFieldGeometry(setDraft, {
-                coordinate_offset_meters: value,
-              })
+              updateSelectedCustomFieldGeometry(
+                setDraft,
+                selectedField.geometry,
+                "x",
+                value,
+              )
+            }
+          />
+          <NumberRow
+            label="Field Padding Y (m)"
+            value={fieldCoordinateOffsetYMeters(selectedField.geometry)}
+            min={0}
+            max={5}
+            step={0.01}
+            disabled={!selectedCustomField}
+            onChange={(value) =>
+              updateSelectedCustomFieldGeometry(
+                setDraft,
+                selectedField.geometry,
+                "y",
+                value,
+              )
             }
           />
           {fieldUploadError ? (
@@ -907,7 +929,29 @@ function removeSelectedCustomField(
 
 function updateSelectedCustomFieldGeometry(
   setDraft: Dispatch<SetStateAction<ProjectConfig>>,
-  geometry: Partial<FieldGeometry>,
+  currentGeometry: FieldGeometry,
+  axis: "x" | "y",
+  value: number,
+): void {
+  const offsetX =
+    axis === "x" ? value : fieldCoordinateOffsetXMeters(currentGeometry);
+  const offsetY =
+    axis === "y" ? value : fieldCoordinateOffsetYMeters(currentGeometry);
+  updateSelectedCustomField(setDraft, {
+    geometry: {
+      coordinate_offset_meters:
+        offsetX === offsetY
+          ? offsetX
+          : currentGeometry.coordinate_offset_meters,
+      coordinate_offset_x_meters: offsetX,
+      coordinate_offset_y_meters: offsetY,
+    },
+  });
+}
+
+function updateSelectedCustomFieldDimensions(
+  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  geometry: Partial<Pick<FieldGeometry, "length_meters" | "width_meters">>,
 ): void {
   updateSelectedCustomField(setDraft, { geometry });
 }
@@ -971,9 +1015,10 @@ async function uploadCustomFieldImage({
   setFieldUploading(true);
   setFieldUploadError(null);
   try {
-    const geometry =
+    const fallbackGeometry =
       selectedCustomField?.geometry ??
       resolveFieldDefinition(draft.gui.field).geometry;
+    const geometry = await inferCustomFieldGeometry(file, fallbackGeometry);
     const uploaded = await onUploadFieldImage(file, geometry);
     setDraft((current) => ({
       ...current,
@@ -994,6 +1039,71 @@ async function uploadCustomFieldImage({
     setFieldUploadError(error instanceof Error ? error.message : String(error));
   } finally {
     setFieldUploading(false);
+  }
+}
+
+async function inferCustomFieldGeometry(
+  file: File,
+  fallback: FieldGeometry,
+): Promise<FieldGeometry> {
+  const pixelsPerMeter = parsePathPlannerPixelsPerMeter(file.name);
+  if (pixelsPerMeter === null) {
+    return fallback;
+  }
+
+  const imageSize = await readImageSize(file);
+  if (!imageSize) {
+    return fallback;
+  }
+
+  return createPathPlannerFieldGeometry({
+    imageWidthPx: imageSize.width,
+    imageHeightPx: imageSize.height,
+    pixelsPerMeter,
+    marginMeters: 0,
+  });
+}
+
+function parsePathPlannerPixelsPerMeter(fileName: string): number | null {
+  const extensionIndex = fileName.lastIndexOf(".");
+  const baseName =
+    extensionIndex >= 0 ? fileName.slice(0, extensionIndex) : fileName;
+  const separatorIndex = baseName.lastIndexOf("_");
+  if (separatorIndex < 0) {
+    return null;
+  }
+
+  const pixelsPerMeter = Number(baseName.slice(separatorIndex + 1));
+  return Number.isFinite(pixelsPerMeter) && pixelsPerMeter > 0
+    ? pixelsPerMeter
+    : null;
+}
+
+async function readImageSize(
+  file: File,
+): Promise<{ width: number; height: number } | null> {
+  if (typeof Image === "undefined" || typeof URL === "undefined") {
+    return null;
+  }
+
+  const image = new Image();
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise((resolve) => {
+      image.addEventListener(
+        "load",
+        () =>
+          resolve({
+            width: image.naturalWidth || image.width,
+            height: image.naturalHeight || image.height,
+          }),
+        { once: true },
+      );
+      image.addEventListener("error", () => resolve(null), { once: true });
+      image.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 

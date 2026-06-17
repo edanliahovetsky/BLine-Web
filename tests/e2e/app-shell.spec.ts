@@ -1780,8 +1780,11 @@ test("uploads and restores a custom field image from Settings", async ({
   const fieldOptions = await fieldSelect.locator("option").allTextContents();
   expect(fieldOptions).toEqual(
     expect.arrayContaining([
+      "Rapid React 2022",
+      "Charged Up 2023",
       "Crescendo 2024",
       "Reefscape 2025",
+      "Reefscape 2025 (Annotated)",
       "REBUILT 2026",
       "Blank Meter Grid",
     ]),
@@ -1798,7 +1801,8 @@ test("uploads and restores a custom field image from Settings", async ({
   await dialog.getByLabel("Field Name").fill("Practice Field");
   await dialog.getByLabel("Field Length (m)").fill("12");
   await dialog.getByLabel("Field Width (m)").fill("6");
-  await dialog.getByLabel("Field Padding (m)").fill("0.25");
+  await dialog.getByLabel("Field Padding X (m)").fill("0.25");
+  await dialog.getByLabel("Field Padding Y (m)").fill("0.25");
   await saveButton.click();
 
   await expect(page.getByTestId("save-status")).toContainText("Saved", {

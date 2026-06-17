@@ -1,9 +1,17 @@
-import { defaultFieldGeometry } from "../core/field/fieldConfig";
+import {
+  defaultFieldGeometry,
+  fieldCoordinateOffsetXMeters,
+  fieldCoordinateOffsetYMeters,
+} from "../core/field/fieldConfig";
 
 export const fieldLengthMeters = defaultFieldGeometry.length_meters;
 export const fieldWidthMeters = defaultFieldGeometry.width_meters;
 export const fieldCoordinateOffsetMeters =
   defaultFieldGeometry.coordinate_offset_meters;
+export const fieldCoordinateOffsetXMetersDefault =
+  fieldCoordinateOffsetXMeters(defaultFieldGeometry);
+export const fieldCoordinateOffsetYMetersDefault =
+  fieldCoordinateOffsetYMeters(defaultFieldGeometry);
 
 export const fieldAspectRatio = fieldLengthMeters / fieldWidthMeters;
 
