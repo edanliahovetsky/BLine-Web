@@ -1797,7 +1797,7 @@ test("uploads and restores a custom field image from Settings", async ({
   await dialog.getByLabel("Field Name").fill("Practice Field");
   await dialog.getByLabel("Field Length (m)").fill("12");
   await dialog.getByLabel("Field Width (m)").fill("6");
-  await dialog.getByLabel("Coordinate Offset (m)").fill("0.25");
+  await dialog.getByLabel("Field Padding (m)").fill("0.25");
   await saveButton.click();
 
   await expect(page.getByTestId("save-status")).toContainText("Saved", {

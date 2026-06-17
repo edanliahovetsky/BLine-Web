@@ -393,7 +393,7 @@ function FieldSettingsSection({
             }
           />
           <NumberRow
-            label="Coordinate Offset (m)"
+            label="Field Padding (m)"
             value={selectedField.geometry.coordinate_offset_meters}
             min={0}
             max={5}
