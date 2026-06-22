@@ -194,92 +194,11 @@ pub fn storage_read_workspace(app: AppHandle, id: Option<String>) -> Result<Valu
     }
 
     let dir = require_current_project_dir(&app)?;
-    ensure_project_structure(&dir)?;
-
-    let runtime_config = read_config_or_default(&dir)?;
-    let editor_state = read_editor_state_file(&dir)?;
-    let config = workspace_config_value(runtime_config, editor_state.as_ref());
-    let metadata_by_file = read_path_metadata(&dir, editor_state.as_ref())?;
-    let paths_dir = dir.join("paths");
-    let mut paths = Vec::new();
-
-    for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
-        let entry = entry.map_err(error_string)?;
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-            continue;
-        }
-
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-
-        let path_json = read_json_file(&path)?;
-        let path_payload = path_json
-            .get("path")
-            .cloned()
-            .unwrap_or_else(|| path_json.clone());
-
-        let mut path_entry = json!({
-            "path_id": file_name,
-            "display_name": display_name_for_path(file_name, editor_state.as_ref()),
-            "file_name": file_name,
-            "path": path_payload
-        });
-
-        if let Some(editor_metadata) = metadata_by_file.get(file_name) {
-            if let Some(object) = path_entry.as_object_mut() {
-                object.insert("editor_metadata".to_owned(), editor_metadata.clone());
-            }
-        }
-
-        paths.push(path_entry);
-    }
-
-    paths.sort_by(|a, b| {
-        let a_name = a
-            .get("file_name")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let b_name = b
-            .get("file_name")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        a_name.cmp(b_name)
-    });
-
     let state = read_state(&app)?;
     let dir_string = dir.to_string_lossy().to_string();
-    let path_groups = read_path_groups(&dir, &paths, editor_state.as_ref())?;
-    let sidecar_active = active_path_id_from_state(editor_state.as_ref(), &paths);
     let stored_active = state.active_path_by_project_dir.get(&dir_string).cloned();
-    let active_path_id = sidecar_active
-        .or(stored_active)
-        .filter(|active| {
-            paths.iter().any(|path| {
-                path.get("path_id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|candidate| candidate == active)
-            })
-        })
-        .or_else(|| {
-            paths
-                .first()
-                .and_then(|path| path.get("path_id"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        });
 
-    Ok(json!({
-        "schema_version": 1,
-        "project_id": dir_string,
-        "display_name": workspace_display_name(&dir),
-        "config": config,
-        "paths": paths,
-        "active_path_id": active_path_id,
-        "path_groups": path_groups,
-        "active_path_group_id": active_path_group_id_from_state(editor_state.as_ref())
-    }))
+    read_workspace_from_project_dir(&dir, stored_active)
 }
 
 #[tauri::command]
@@ -289,96 +208,18 @@ pub fn storage_write_workspace(
     expected: Option<String>,
 ) -> Result<WriteResult, String> {
     let dir = require_current_project_dir(&app)?;
-    ensure_project_structure(&dir)?;
-
-    if let Some(expected) = expected.as_deref() {
-        let actual = workspace_version(&dir)?;
-        if actual != expected {
-            return Err("storage-conflict: workspace version mismatch".to_owned());
-        }
-    }
-
-    if let Some(config) = workspace.get("config") {
-        write_json_file(&dir.join("config.json"), &runtime_config_value(config))?;
-    }
-
-    let paths = workspace
-        .get("paths")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Workspace document is missing paths".to_owned())?;
-    let paths_dir = dir.join("paths");
-    fs::create_dir_all(&paths_dir).map_err(error_string)?;
-    let mut retained_files = std::collections::HashSet::new();
-
-    for path_entry in paths {
-        let file_name = path_entry
-            .get("file_name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "Workspace path is missing file_name".to_owned())
-            .and_then(safe_path_file_name)?;
-        let path_json = path_entry
-            .get("path")
-            .ok_or_else(|| "Workspace path is missing path".to_owned())?;
-
-        retained_files.insert(file_name.clone());
-        write_json_file(&paths_dir.join(&file_name), path_json)?;
-    }
-
-    write_editor_state_from_workspace(&dir, &workspace, paths)?;
-    remove_legacy_editor_files(&dir)?;
-
-    for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
-        let entry = entry.map_err(error_string)?;
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-            continue;
-        }
-
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-
-        if !retained_files.contains(file_name) {
-            fs::remove_file(path).map_err(error_string)?;
-        }
-    }
-
-    let active_path_id = workspace
-        .get("active_path_id")
-        .and_then(Value::as_str)
-        .and_then(|active_id| {
-            paths.iter().find_map(|path| {
-                let path_id = path.get("path_id").and_then(Value::as_str);
-                let file_name = path.get("file_name").and_then(Value::as_str);
-                if path_id == Some(active_id) {
-                    file_name.map(str::to_owned)
-                } else {
-                    None
-                }
-            })
-        })
-        .or_else(|| {
-            paths
-                .first()
-                .and_then(|path| path.get("file_name"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        });
+    let write_result = write_workspace_to_project_dir(&dir, &workspace, expected.as_deref())?;
 
     let mut state = read_state(&app)?;
     let dir_string = dir.to_string_lossy().to_string();
-    if let Some(active_path_id) = active_path_id {
+    if let Some(active_path_id) = write_result.active_path_file_name {
         state
             .active_path_by_project_dir
             .insert(dir_string, safe_path_file_name(&active_path_id)?);
     }
     write_state(&app, &state)?;
 
-    let updated_at = unix_millis();
-    Ok(WriteResult {
-        version: workspace_version(&dir)?,
-        updated_at,
-    })
+    Ok(write_result.result)
 }
 
 #[tauri::command]
@@ -518,13 +359,7 @@ pub fn storage_write_field_asset(
     bytes: Vec<u8>,
 ) -> Result<(), String> {
     let dir = require_current_project_dir(&app)?;
-    ensure_project_structure(&dir)?;
-    let asset_id = safe_asset_file_name(&asset_id)?;
-    let file_name = safe_asset_file_name(&file_name)?;
-    let assets_dir = field_assets_dir(&dir);
-    fs::create_dir_all(&assets_dir).map_err(error_string)?;
-    fs::write(assets_dir.join(&asset_id), bytes).map_err(error_string)?;
-    write_field_asset_metadata(&dir, &asset_id, &file_name, &mime_type)
+    write_field_asset_to_project_dir(&dir, &asset_id, &file_name, &mime_type, bytes)
 }
 
 #[tauri::command]
@@ -533,14 +368,43 @@ pub fn storage_read_field_asset(
     asset_id: String,
 ) -> Result<Option<FieldAssetPayload>, String> {
     let dir = require_current_project_dir(&app)?;
-    ensure_project_structure(&dir)?;
-    let asset_id = safe_asset_file_name(&asset_id)?;
-    let path = field_asset_path(&dir, &asset_id);
+    read_field_asset_from_project_dir(&dir, &asset_id)
+}
+
+#[tauri::command]
+pub fn storage_delete_field_asset(app: AppHandle, asset_id: String) -> Result<(), String> {
+    let dir = require_current_project_dir(&app)?;
+    delete_field_asset_from_project_dir(&dir, &asset_id)
+}
+
+fn write_field_asset_to_project_dir(
+    project_dir: &Path,
+    asset_id: &str,
+    file_name: &str,
+    mime_type: &str,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    ensure_project_structure(project_dir)?;
+    let asset_id = safe_asset_file_name(asset_id)?;
+    let file_name = safe_asset_file_name(file_name)?;
+    let assets_dir = field_assets_dir(project_dir);
+    fs::create_dir_all(&assets_dir).map_err(error_string)?;
+    fs::write(assets_dir.join(&asset_id), bytes).map_err(error_string)?;
+    write_field_asset_metadata(project_dir, &asset_id, &file_name, mime_type)
+}
+
+fn read_field_asset_from_project_dir(
+    project_dir: &Path,
+    asset_id: &str,
+) -> Result<Option<FieldAssetPayload>, String> {
+    ensure_project_structure(project_dir)?;
+    let asset_id = safe_asset_file_name(asset_id)?;
+    let path = field_asset_path(project_dir, &asset_id);
     if !path.exists() {
         return Ok(None);
     }
 
-    let metadata = read_field_asset_metadata(&dir, &asset_id)?;
+    let metadata = read_field_asset_metadata(project_dir, &asset_id)?;
     Ok(Some(FieldAssetPayload {
         file_name: metadata.file_name.unwrap_or_else(|| asset_id.clone()),
         mime_type: metadata
@@ -550,19 +414,17 @@ pub fn storage_read_field_asset(
     }))
 }
 
-#[tauri::command]
-pub fn storage_delete_field_asset(app: AppHandle, asset_id: String) -> Result<(), String> {
-    let dir = require_current_project_dir(&app)?;
-    let asset_id = safe_asset_file_name(&asset_id)?;
+fn delete_field_asset_from_project_dir(project_dir: &Path, asset_id: &str) -> Result<(), String> {
+    let asset_id = safe_asset_file_name(asset_id)?;
     for path in [
-        field_assets_dir(&dir).join(&asset_id),
-        legacy_field_assets_dir(&dir).join(&asset_id),
+        field_assets_dir(project_dir).join(&asset_id),
+        legacy_field_assets_dir(project_dir).join(&asset_id),
     ] {
         if path.exists() {
             fs::remove_file(path).map_err(error_string)?;
         }
     }
-    remove_field_asset_metadata(&dir, &asset_id)
+    remove_field_asset_metadata(project_dir, &asset_id)
 }
 
 fn pick_workspace_dir(title: &str) -> Option<PathBuf> {
@@ -656,6 +518,174 @@ fn read_config_or_default(project_dir: &Path) -> Result<Value, String> {
     } else {
         default_config_value()
     }
+}
+
+#[derive(Debug)]
+struct ProjectDirWriteResult {
+    result: WriteResult,
+    active_path_file_name: Option<String>,
+}
+
+fn read_workspace_from_project_dir(
+    project_dir: &Path,
+    stored_active_path_id: Option<String>,
+) -> Result<Value, String> {
+    ensure_project_structure(project_dir)?;
+
+    let runtime_config = read_config_or_default(project_dir)?;
+    let editor_state = read_editor_state_file(project_dir)?;
+    let config = workspace_config_value(runtime_config, editor_state.as_ref());
+    let metadata_by_file = read_path_metadata(project_dir, editor_state.as_ref())?;
+    let paths_dir = project_dir.join("paths");
+    let mut paths = Vec::new();
+
+    for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
+        let entry = entry.map_err(error_string)?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+
+        let path_json = read_json_file(&path)?;
+        let path_payload = path_json
+            .get("path")
+            .cloned()
+            .unwrap_or_else(|| path_json.clone());
+
+        let mut path_entry = json!({
+            "path_id": file_name,
+            "display_name": display_name_for_path(file_name, editor_state.as_ref()),
+            "file_name": file_name,
+            "path": path_payload
+        });
+
+        if let Some(editor_metadata) = metadata_by_file.get(file_name) {
+            if let Some(object) = path_entry.as_object_mut() {
+                object.insert("editor_metadata".to_owned(), editor_metadata.clone());
+            }
+        }
+
+        paths.push(path_entry);
+    }
+
+    paths.sort_by(|a, b| {
+        let a_name = a
+            .get("file_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let b_name = b
+            .get("file_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        a_name.cmp(b_name)
+    });
+
+    let path_groups = read_path_groups(project_dir, &paths, editor_state.as_ref())?;
+    let sidecar_active = active_path_id_from_state(editor_state.as_ref(), &paths);
+    let active_path_id = sidecar_active
+        .or(stored_active_path_id)
+        .filter(|active| {
+            paths.iter().any(|path| {
+                path.get("path_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|candidate| candidate == active)
+            })
+        })
+        .or_else(|| {
+            paths
+                .first()
+                .and_then(|path| path.get("path_id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+
+    Ok(json!({
+        "schema_version": 1,
+        "project_id": project_dir.to_string_lossy().to_string(),
+        "display_name": workspace_display_name(project_dir),
+        "config": config,
+        "paths": paths,
+        "active_path_id": active_path_id,
+        "path_groups": path_groups,
+        "active_path_group_id": active_path_group_id_from_state(editor_state.as_ref())
+    }))
+}
+
+fn write_workspace_to_project_dir(
+    project_dir: &Path,
+    workspace: &Value,
+    expected: Option<&str>,
+) -> Result<ProjectDirWriteResult, String> {
+    ensure_project_structure(project_dir)?;
+
+    if let Some(expected) = expected {
+        let actual = workspace_version(project_dir)?;
+        if actual != expected {
+            return Err("storage-conflict: workspace version mismatch".to_owned());
+        }
+    }
+
+    if let Some(config) = workspace.get("config") {
+        write_json_file(
+            &project_dir.join("config.json"),
+            &runtime_config_value(config),
+        )?;
+    }
+
+    let paths = workspace
+        .get("paths")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workspace document is missing paths".to_owned())?;
+    let paths_dir = project_dir.join("paths");
+    fs::create_dir_all(&paths_dir).map_err(error_string)?;
+    let mut retained_files = std::collections::HashSet::new();
+
+    for path_entry in paths {
+        let file_name = path_entry
+            .get("file_name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Workspace path is missing file_name".to_owned())
+            .and_then(safe_path_file_name)?;
+        let path_json = path_entry
+            .get("path")
+            .ok_or_else(|| "Workspace path is missing path".to_owned())?;
+
+        retained_files.insert(file_name.clone());
+        write_json_file(&paths_dir.join(&file_name), path_json)?;
+    }
+
+    write_editor_state_from_workspace(project_dir, workspace, paths)?;
+    remove_legacy_editor_files(project_dir)?;
+
+    for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
+        let entry = entry.map_err(error_string)?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+
+        if !retained_files.contains(file_name) {
+            fs::remove_file(path).map_err(error_string)?;
+        }
+    }
+
+    let active_path_file_name = active_path_file_name_from_workspace(workspace, paths);
+    let updated_at = unix_millis();
+    Ok(ProjectDirWriteResult {
+        result: WriteResult {
+            version: workspace_version(project_dir)?,
+            updated_at,
+        },
+        active_path_file_name,
+    })
 }
 
 fn read_path_metadata(
@@ -1639,7 +1669,10 @@ fn error_string(error: impl ToString) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        thread::sleep,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn pretty_json_preserves_bline_key_order() {
@@ -1944,6 +1977,400 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup");
     }
 
+    #[test]
+    fn desktop_user_migrates_legacy_autos_folder_on_save_and_reopen() {
+        let dir = temp_autos_dir("desktop-legacy-migration");
+        write_legacy_autos_fixture(&dir);
+
+        let workspace = read_workspace_from_project_dir(&dir, Some("b_native.json".to_owned()))
+            .expect("legacy workspace should open");
+
+        assert_eq!(
+            workspace.get("active_path_id"),
+            Some(&json!("b_native.json"))
+        );
+        assert_eq!(
+            workspace.pointer("/config/gui/robot/length_meters"),
+            Some(&json!(0.71))
+        );
+        assert_eq!(
+            workspace.pointer("/config/kinematic_constraints/default_max_velocity_meters_per_sec"),
+            Some(&json!(5.1))
+        );
+        assert_eq!(
+            workspace
+                .get("paths")
+                .and_then(Value::as_array)
+                .map(|paths| {
+                    paths
+                        .iter()
+                        .filter_map(|path| path.get("file_name").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["a_wrapped.json", "b_native.json", "stale.json"])
+        );
+        assert!(
+            workspace
+                .get("paths")
+                .and_then(Value::as_array)
+                .and_then(|paths| paths.first())
+                .and_then(|path| path.get("path"))
+                .and_then(|path| path.get("path"))
+                .is_none(),
+            "wrapped legacy path files should be unwrapped before entering the workspace model",
+        );
+        assert_eq!(
+            workspace.pointer("/path_groups/0/path_ids"),
+            Some(&json!(["b_native.json", "a_wrapped.json"]))
+        );
+        assert_eq!(
+            workspace.pointer("/paths/0/editor_metadata/ranged_constraints/0/source"),
+            Some(&json!("auto_velocity"))
+        );
+        let legacy_asset =
+            read_field_asset_from_project_dir(&dir, "field-old.png").expect("legacy asset read");
+        assert_eq!(legacy_asset.expect("legacy asset").bytes, vec![1, 2, 3]);
+
+        let initial_version = workspace_version(&dir).expect("initial version");
+        let mut edited = workspace.clone();
+        let paths = edited
+            .get_mut("paths")
+            .and_then(Value::as_array_mut)
+            .expect("workspace paths");
+        paths.retain(|path| path.get("file_name").and_then(Value::as_str) != Some("stale.json"));
+        for path in paths {
+            if path.get("file_name").and_then(Value::as_str) == Some("a_wrapped.json") {
+                path.as_object_mut()
+                    .expect("path object")
+                    .insert("display_name".to_owned(), json!("Wrapped Auto"));
+            }
+        }
+        edited
+            .as_object_mut()
+            .expect("workspace object")
+            .insert("active_path_id".to_owned(), json!("a_wrapped.json"));
+
+        let write_result = write_workspace_to_project_dir(&dir, &edited, Some(&initial_version))
+            .expect("save migrated workspace");
+        assert_eq!(
+            write_result.active_path_file_name.as_deref(),
+            Some("a_wrapped.json")
+        );
+
+        let config = read_json_file(&dir.join("config.json")).expect("runtime config");
+        assert!(config.get("gui").is_none());
+        assert_eq!(
+            config
+                .get("kinematic_constraints")
+                .and_then(Value::as_object)
+                .expect("constraints")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            RUNTIME_CONSTRAINT_KEYS
+                .iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            config
+                .pointer("/kinematic_constraints/default_auto_velocity_velocity_safety_factor")
+                .is_none(),
+            "auto velocity editor defaults must stay out of config.json",
+        );
+
+        let wrapped_path =
+            read_json_file(&dir.join("paths").join("a_wrapped.json")).expect("path file");
+        assert!(wrapped_path.get("path").is_none());
+        assert!(wrapped_path.get("path_elements").is_some());
+        assert!(!dir.join("paths").join("stale.json").exists());
+
+        let state = read_json_file(&editor_state_file(&dir)).expect("sidecar state");
+        assert_eq!(
+            state.get("active_path_file_name"),
+            Some(&json!("a_wrapped.json"))
+        );
+        assert_eq!(
+            state.pointer("/editor_config/gui/robot/length_meters"),
+            Some(&json!(0.71))
+        );
+        assert_eq!(
+            state.pointer(
+                "/editor_config/kinematic_constraints/default_auto_velocity_velocity_safety_factor"
+            ),
+            Some(&json!(0.72))
+        );
+        assert_eq!(
+            state.pointer("/path_groups/0/path_file_names"),
+            Some(&json!(["b_native.json", "a_wrapped.json"]))
+        );
+        assert_eq!(
+            state.pointer("/paths/a_wrapped.json/display_name"),
+            Some(&json!("Wrapped Auto"))
+        );
+        assert_eq!(
+            state.pointer("/paths/a_wrapped.json/editor_metadata/ranged_constraints/0/source"),
+            Some(&json!("auto_velocity"))
+        );
+        assert_eq!(
+            state.pointer("/field_assets/field-old.png/file_name"),
+            Some(&json!("practice-field.png"))
+        );
+        assert!(!path_groups_file(&dir).exists());
+        assert!(!path_metadata_file(&dir).exists());
+        assert!(!field_asset_metadata_file(&dir).exists());
+        assert!(!legacy_field_assets_dir(&dir).join("field-old.png").exists());
+        assert!(field_assets_dir(&dir).join("field-old.png").exists());
+
+        let reopened =
+            read_workspace_from_project_dir(&dir, None).expect("clean workspace should reopen");
+        assert_eq!(
+            reopened.get("active_path_id"),
+            Some(&json!("a_wrapped.json"))
+        );
+        assert_eq!(
+            reopened.pointer("/paths/0/display_name"),
+            Some(&json!("Wrapped Auto"))
+        );
+        assert_eq!(
+            reopened.pointer("/config/gui/robot/length_meters"),
+            Some(&json!(0.71))
+        );
+        let moved_asset =
+            read_field_asset_from_project_dir(&dir, "field-old.png").expect("moved asset read");
+        assert_eq!(moved_asset.expect("moved asset").bytes, vec![1, 2, 3]);
+
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn desktop_user_opens_new_clean_autos_folder_with_sidecar_state() {
+        let dir = temp_autos_dir("desktop-clean-sidecar");
+        fs::create_dir_all(dir.join("paths")).expect("paths dir");
+        fs::create_dir_all(dir.join(".bline-web")).expect("sidecar dir");
+        write_fixture_json(
+            &dir.join("config.json"),
+            &json!({
+                "kinematic_constraints": {
+                    "default_max_velocity_meters_per_sec": 6.2,
+                    "default_max_acceleration_meters_per_sec2": 13.1,
+                    "default_max_velocity_deg_per_sec": 700,
+                    "default_max_acceleration_deg_per_sec2": 1800,
+                    "default_end_translation_tolerance_meters": 0.05,
+                    "default_end_rotation_tolerance_deg": 2.5,
+                    "default_intermediate_handoff_radius_meters": 0.33
+                }
+            }),
+        );
+        write_fixture_json(
+            &dir.join("paths").join("alpha.json"),
+            &json!({
+                "path_elements": [
+                    { "type": "translation", "x_meters": 1, "y_meters": 2 }
+                ]
+            }),
+        );
+        write_fixture_json(
+            &dir.join("paths").join("beta.json"),
+            &json!({
+                "path_elements": [
+                    { "type": "translation", "x_meters": 3, "y_meters": 4 }
+                ]
+            }),
+        );
+        write_fixture_json(
+            &editor_state_file(&dir),
+            &json!({
+                "schema_version": 1,
+                "editor_config": {
+                    "gui": {
+                        "robot": {
+                            "length_meters": 0.81,
+                            "width_meters": 0.93
+                        },
+                        "protrusions": {
+                            "enabled": true,
+                            "distance_meters": 0.2,
+                            "side": "front",
+                            "default_state": "hidden",
+                            "show_on_event_keys": ["intake"],
+                            "hide_on_event_keys": ["stow"]
+                        }
+                    },
+                    "kinematic_constraints": {
+                        "default_auto_velocity_velocity_safety_factor": 0.66,
+                        "default_auto_velocity_acceleration_safety_factor": 0.55,
+                        "default_auto_velocity_merge_tolerance_meters_per_sec": 0.22
+                    }
+                },
+                "active_path_file_name": "beta.json",
+                "active_path_group_id": "group-clean",
+                "path_groups": [
+                    {
+                        "group_id": "group-clean",
+                        "display_name": "Clean Group",
+                        "path_file_names": ["beta.json", "alpha.json"]
+                    }
+                ],
+                "paths": {
+                    "alpha.json": {
+                        "display_name": "Alpha Auto"
+                    },
+                    "beta.json": {
+                        "display_name": "Beta Auto",
+                        "editor_metadata": {
+                            "ranged_constraints": [
+                                {
+                                    "key": "max_velocity_meters_per_sec",
+                                    "value": 2.4,
+                                    "start_ordinal": 1,
+                                    "end_ordinal": 1,
+                                    "source": "auto_velocity"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "field_assets": {}
+            }),
+        );
+
+        let workspace = read_workspace_from_project_dir(&dir, Some("alpha.json".to_owned()))
+            .expect("clean workspace should open");
+
+        assert_eq!(workspace.get("active_path_id"), Some(&json!("beta.json")));
+        assert_eq!(
+            workspace.pointer("/active_path_group_id"),
+            Some(&json!("group-clean"))
+        );
+        assert_eq!(
+            workspace.pointer("/config/gui/protrusions/show_on_event_keys/0"),
+            Some(&json!("intake"))
+        );
+        assert_eq!(
+            workspace.pointer(
+                "/config/kinematic_constraints/default_auto_velocity_velocity_safety_factor"
+            ),
+            Some(&json!(0.66))
+        );
+        assert_eq!(
+            workspace.pointer("/paths/0/display_name"),
+            Some(&json!("Alpha Auto"))
+        );
+        assert_eq!(
+            workspace.pointer("/paths/1/editor_metadata/ranged_constraints/0/source"),
+            Some(&json!("auto_velocity"))
+        );
+        assert_eq!(
+            workspace.pointer("/path_groups/0/path_ids"),
+            Some(&json!(["beta.json", "alpha.json"]))
+        );
+
+        let before = workspace_version(&dir).expect("clean version");
+        write_workspace_to_project_dir(&dir, &workspace, Some(&before))
+            .expect("clean workspace resave");
+        let config = read_json_file(&dir.join("config.json")).expect("runtime config");
+        assert!(config.get("gui").is_none());
+        assert!(!path_groups_file(&dir).exists());
+        assert!(!path_metadata_file(&dir).exists());
+        assert!(!field_asset_metadata_file(&dir).exists());
+
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn desktop_user_field_asset_lifecycle_uses_sidecar_assets() {
+        let dir = temp_autos_dir("desktop-field-assets");
+
+        write_field_asset_to_project_dir(
+            &dir,
+            "field-new.png",
+            "practice-field.png",
+            "image/png",
+            vec![9, 8, 7],
+        )
+        .expect("field asset upload");
+
+        let payload = read_field_asset_from_project_dir(&dir, "field-new.png")
+            .expect("field asset read")
+            .expect("field asset payload");
+        assert_eq!(payload.file_name, "practice-field.png");
+        assert_eq!(payload.mime_type, "image/png");
+        assert_eq!(payload.bytes, vec![9, 8, 7]);
+        assert!(field_assets_dir(&dir).join("field-new.png").exists());
+        assert_eq!(
+            read_json_file(&editor_state_file(&dir))
+                .expect("state")
+                .pointer("/field_assets/field-new.png/mime_type"),
+            Some(&json!("image/png"))
+        );
+
+        fs::create_dir_all(legacy_field_assets_dir(&dir)).expect("legacy assets dir");
+        fs::write(
+            legacy_field_assets_dir(&dir).join("field-new.png"),
+            [1_u8, 1, 1],
+        )
+        .expect("legacy duplicate");
+        delete_field_asset_from_project_dir(&dir, "field-new.png").expect("delete asset");
+
+        assert!(!field_assets_dir(&dir).join("field-new.png").exists());
+        assert!(!legacy_field_assets_dir(&dir).join("field-new.png").exists());
+        assert!(read_json_file(&editor_state_file(&dir))
+            .expect("state")
+            .pointer("/field_assets/field-new.png")
+            .is_none());
+        assert!(read_field_asset_from_project_dir(&dir, "field-new.png")
+            .expect("read deleted asset")
+            .is_none());
+
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn desktop_workspace_version_tracks_sidecar_and_legacy_asset_conflicts() {
+        let dir = temp_autos_dir("desktop-version-conflicts");
+        fs::create_dir_all(dir.join("paths")).expect("paths dir");
+        write_fixture_json(
+            &dir.join("paths").join("auto.json"),
+            &json!({ "path_elements": [] }),
+        );
+        let workspace = read_workspace_from_project_dir(&dir, None).expect("workspace should open");
+        let before = workspace_version(&dir).expect("version before");
+
+        sleep(Duration::from_millis(10));
+        write_fixture_json(
+            &editor_state_file(&dir),
+            &json!({
+                "schema_version": 1,
+                "active_path_file_name": "auto.json",
+                "paths": {
+                    "auto.json": {
+                        "display_name": "Externally Edited"
+                    }
+                }
+            }),
+        );
+        let after_sidecar = workspace_version(&dir).expect("version after sidecar");
+        assert_ne!(before, after_sidecar);
+        assert!(
+            write_workspace_to_project_dir(&dir, &workspace, Some(&before))
+                .expect_err("stale version should conflict")
+                .contains("storage-conflict")
+        );
+
+        sleep(Duration::from_millis(10));
+        fs::create_dir_all(legacy_field_assets_dir(&dir)).expect("legacy assets dir");
+        fs::write(
+            legacy_field_assets_dir(&dir).join("legacy-field.png"),
+            [4_u8, 5, 6],
+        )
+        .expect("legacy asset");
+        let after_legacy_asset = workspace_version(&dir).expect("version after legacy asset");
+        assert_ne!(after_sidecar, after_legacy_asset);
+
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
     fn assert_order(haystack: &str, needles: &[&str]) {
         let mut cursor = 0;
         for needle in needles {
@@ -1952,6 +2379,173 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing {needle} after byte {cursor}"));
             cursor += offset + needle.len();
         }
+    }
+
+    fn write_legacy_autos_fixture(dir: &Path) {
+        fs::create_dir_all(dir.join("paths")).expect("paths dir");
+        fs::create_dir_all(dir.join(".bline-web")).expect("legacy metadata dir");
+        fs::create_dir_all(legacy_field_assets_dir(dir)).expect("legacy assets dir");
+
+        write_fixture_json(
+            &dir.join("config.json"),
+            &json!({
+                "gui": {
+                    "robot": {
+                        "length_meters": 0.71,
+                        "width_meters": 0.92
+                    },
+                    "protrusions": {
+                        "enabled": true,
+                        "distance_meters": 0.25,
+                        "side": "front",
+                        "default_state": "hidden",
+                        "show_on_event_keys": ["intake"],
+                        "hide_on_event_keys": ["stow"]
+                    },
+                    "field": {
+                        "selected_field_id": "custom:field-old.png",
+                        "custom_fields": [
+                            {
+                                "id": "custom:field-old.png",
+                                "name": "Practice Field",
+                                "asset_id": "field-old.png",
+                                "file_name": "practice-field.png",
+                                "mime_type": "image/png",
+                                "size_bytes": 3,
+                                "created_at": "2026-06-22T00:00:00.000Z",
+                                "geometry": {
+                                    "length_meters": 16,
+                                    "width_meters": 8,
+                                    "coordinate_offset_meters": 0
+                                }
+                            }
+                        ]
+                    }
+                },
+                "kinematic_constraints": {
+                    "default_max_velocity_meters_per_sec": 5.1,
+                    "default_max_acceleration_meters_per_sec2": 10.5,
+                    "default_intermediate_handoff_radius_meters": 0.28,
+                    "default_max_velocity_deg_per_sec": 650,
+                    "default_max_acceleration_deg_per_sec2": 1700,
+                    "default_end_translation_tolerance_meters": 0.04,
+                    "default_end_rotation_tolerance_deg": 3,
+                    "default_auto_velocity_velocity_safety_factor": 0.72,
+                    "default_auto_velocity_acceleration_safety_factor": 0.63,
+                    "default_auto_velocity_merge_tolerance_meters_per_sec": 0.21
+                }
+            }),
+        );
+        write_fixture_json(
+            &path_groups_file(dir),
+            &json!({
+                "schema_version": 1,
+                "groups": [
+                    {
+                        "group_id": "score",
+                        "display_name": "Score Autos",
+                        "path_file_names": ["b_native.json", "a_wrapped.json", "missing.json"]
+                    }
+                ]
+            }),
+        );
+        write_fixture_json(
+            &path_metadata_file(dir),
+            &json!({
+                "paths": {
+                    "a_wrapped.json": {
+                        "editor_metadata": {
+                            "ranged_constraints": [
+                                {
+                                    "key": "max_velocity_meters_per_sec",
+                                    "value": 2.2,
+                                    "start_ordinal": 1,
+                                    "end_ordinal": 2,
+                                    "source": "auto_velocity",
+                                    "auto_velocity": {
+                                        "velocity_safety_factor": 0.7,
+                                        "acceleration_safety_factor": 0.6,
+                                        "merge_tolerance_meters_per_sec": 0.2
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "b_native.json": {
+                        "editor_metadata": {
+                            "ranged_constraints": [
+                                {
+                                    "key": "max_acceleration_meters_per_sec2",
+                                    "value": 3.3,
+                                    "start_ordinal": 1,
+                                    "end_ordinal": 1,
+                                    "source": "auto_velocity"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }),
+        );
+        write_fixture_json(
+            &field_asset_metadata_file(dir),
+            &json!({
+                "assets": {
+                    "field-old.png": {
+                        "file_name": "practice-field.png",
+                        "mime_type": "image/png"
+                    }
+                }
+            }),
+        );
+        fs::write(
+            legacy_field_assets_dir(dir).join("field-old.png"),
+            [1_u8, 2, 3],
+        )
+        .expect("legacy field asset");
+        write_fixture_json(
+            &dir.join("paths").join("a_wrapped.json"),
+            &json!({
+                "path": {
+                    "path_elements": [
+                        { "type": "translation", "x_meters": 1, "y_meters": 2 },
+                        { "type": "translation", "x_meters": 3, "y_meters": 4 }
+                    ],
+                    "constraints": {
+                        "max_velocity_meters_per_sec": [
+                            { "value": 2.2, "start_ordinal": 0, "end_ordinal": 1 }
+                        ]
+                    }
+                }
+            }),
+        );
+        write_fixture_json(
+            &dir.join("paths").join("b_native.json"),
+            &json!({
+                "path_elements": [
+                    { "type": "translation", "x_meters": 5, "y_meters": 6 }
+                ]
+            }),
+        );
+        write_fixture_json(
+            &dir.join("paths").join("stale.json"),
+            &json!({
+                "path_elements": [
+                    { "type": "translation", "x_meters": 9, "y_meters": 9 }
+                ]
+            }),
+        );
+    }
+
+    fn write_fixture_json(path: &Path, value: &Value) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("fixture parent dir");
+        }
+        fs::write(
+            path,
+            serde_json::to_string_pretty(value).expect("fixture JSON"),
+        )
+        .expect("fixture write");
     }
 
     fn temp_autos_dir(label: &str) -> PathBuf {
