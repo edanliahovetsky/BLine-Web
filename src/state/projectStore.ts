@@ -66,10 +66,15 @@ export interface ProjectStoreState {
     addToGroupId?: string | null;
   }): void;
   renamePath(pathId: string, name: string): void;
-  duplicatePath(pathId: string, name: string): void;
+  duplicatePath(
+    pathId: string,
+    name: string,
+    options?: { addToGroupId?: string | null },
+  ): void;
   deletePaths(pathIds: readonly string[]): void;
   createPathGroup(input: {
     displayName: string;
+    activePathId?: string | null;
     pathIds?: readonly string[];
     makeActive?: boolean;
   }): void;
@@ -279,35 +284,86 @@ export function createProjectStore(
         makeActive: true,
         addToGroupId: input.addToGroupId,
       });
-      history.getState().clear();
-      setWorkspace(set, nextWorkspace, true);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        nextWorkspace,
+        "Create path",
+      );
     },
     renamePath(pathId, name) {
       const workspace = requireWorkspace(get().workspace);
-      setWorkspace(set, renamePathInWorkspace(workspace, pathId, name), true);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        renamePathInWorkspace(workspace, pathId, name),
+        "Rename path",
+      );
     },
-    duplicatePath(pathId, name) {
+    duplicatePath(pathId, name, options) {
       const workspace = requireWorkspace(get().workspace);
-      const nextWorkspace = duplicatePathInWorkspace(workspace, pathId, name);
-      history.getState().clear();
-      setWorkspace(set, nextWorkspace, true);
+      const duplicatedWorkspace = duplicatePathInWorkspace(
+        workspace,
+        pathId,
+        name,
+      );
+      const nextPathId = duplicatedWorkspace.active_path_id;
+      const nextWorkspace =
+        options?.addToGroupId && nextPathId
+          ? addPathsToGroupInWorkspace(
+              duplicatedWorkspace,
+              options.addToGroupId,
+              [nextPathId],
+            )
+          : duplicatedWorkspace;
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        nextWorkspace,
+        "Duplicate path",
+      );
     },
     createPathGroup(input) {
       const workspace = requireWorkspace(get().workspace);
-      const nextWorkspace = createPathGroupInWorkspace(workspace, {
+      const groupedWorkspace = createPathGroupInWorkspace(workspace, {
         display_name: input.displayName,
         path_ids: input.pathIds,
         makeActive: input.makeActive,
       });
-      history.getState().clear();
-      setWorkspace(set, nextWorkspace, true);
+      const activeGroup =
+        groupedWorkspace.path_groups.find(
+          (group) => group.group_id === groupedWorkspace.active_path_group_id,
+        ) ?? null;
+      const nextWorkspace =
+        input.activePathId &&
+        groupedWorkspace.paths.some(
+          (path) => path.path_id === input.activePathId,
+        ) &&
+        (!activeGroup || activeGroup.path_ids.includes(input.activePathId))
+          ? ensureWorkspaceHasActivePath({
+              ...groupedWorkspace,
+              active_path_id: input.activePathId,
+            })
+          : groupedWorkspace;
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        nextWorkspace,
+        "Create path collection",
+      );
     },
     renamePathGroup(groupId, name) {
       const workspace = requireWorkspace(get().workspace);
-      setWorkspace(
+      applyWorkspaceTransition(
         set,
+        history,
+        workspace,
         renamePathGroupInWorkspace(workspace, groupId, name),
-        true,
+        "Rename path collection",
       );
     },
     deletePathGroup(groupId, options) {
@@ -317,38 +373,64 @@ export function createProjectStore(
         groupId,
         options,
       );
-      history.getState().clear();
-      setWorkspace(set, nextWorkspace, true);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        nextWorkspace,
+        "Delete path collection",
+      );
     },
     addPathsToGroup(groupId, pathIds) {
       const workspace = requireWorkspace(get().workspace);
-      setWorkspace(
+      applyWorkspaceTransition(
         set,
+        history,
+        workspace,
         addPathsToGroupInWorkspace(workspace, groupId, pathIds),
-        true,
+        "Add paths to collection",
       );
     },
     removePathsFromGroup(groupId, pathIds) {
       const workspace = requireWorkspace(get().workspace);
-      setWorkspace(
+      applyWorkspaceTransition(
         set,
+        history,
+        workspace,
         removePathsFromGroupInWorkspace(workspace, groupId, pathIds),
-        true,
+        "Remove paths from collection",
       );
     },
     deletePaths(pathIds) {
       const workspace = requireWorkspace(get().workspace);
       const nextWorkspace = deletePathsFromWorkspace(workspace, pathIds);
-      history.getState().clear();
-      setWorkspace(set, nextWorkspace, true);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        nextWorkspace,
+        "Delete paths",
+      );
     },
     async importPath(file) {
       const io = requireProjectIo(get().io);
+      const previousWorkspace = requireWorkspace(get().workspace);
       if (get().dirty) {
         await get().saveWorkspace();
       }
       const workspace = await io.importPath(file);
-      adoptWorkspace(set, history, io, workspace, false);
+      applyWorkspaceTransition(
+        set,
+        history,
+        previousWorkspace,
+        workspace,
+        "Import path",
+        false,
+        {
+          version: io.getCurrentVersion(),
+          lastSavedAt: io.getLastSavedAt(),
+        },
+      );
       return workspace;
     },
     async exportPath(pathId) {
@@ -499,6 +581,7 @@ function setWorkspace(
   set: StoreApi<ProjectStoreState>["setState"],
   workspace: ProjectWorkspaceDocument,
   dirty: boolean,
+  metadata: Partial<Pick<ProjectStoreState, "lastSavedAt" | "version">> = {},
 ): void {
   const normalized = ensureWorkspaceHasActivePath(workspace);
   set({
@@ -507,7 +590,44 @@ function setWorkspace(
     dirty,
     status: "idle",
     error: null,
+    ...metadata,
   });
+}
+
+function applyWorkspaceTransition(
+  set: StoreApi<ProjectStoreState>["setState"],
+  history: HistoryStore<ProjectWorkspaceDocument>,
+  previousWorkspace: ProjectWorkspaceDocument,
+  nextWorkspace: ProjectWorkspaceDocument,
+  description: string,
+  dirty = true,
+  metadata: Partial<Pick<ProjectStoreState, "lastSavedAt" | "version">> = {},
+): void {
+  const command = workspaceSnapshotCommand(
+    description,
+    previousWorkspace,
+    nextWorkspace,
+  );
+  const appliedWorkspace = history
+    .getState()
+    .execute(cloneWorkspace(previousWorkspace), command);
+
+  setWorkspace(set, appliedWorkspace, dirty, metadata);
+}
+
+function workspaceSnapshotCommand(
+  description: string,
+  previousWorkspace: ProjectWorkspaceDocument,
+  nextWorkspace: ProjectWorkspaceDocument,
+): HistoryCommand<ProjectWorkspaceDocument> {
+  const previousSnapshot = cloneWorkspace(previousWorkspace);
+  const nextSnapshot = cloneWorkspace(nextWorkspace);
+
+  return {
+    description,
+    apply: () => cloneWorkspace(nextSnapshot),
+    revert: () => cloneWorkspace(previousSnapshot),
+  };
 }
 
 function adoptWorkspace(
