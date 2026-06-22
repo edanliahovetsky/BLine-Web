@@ -784,6 +784,124 @@ test("manages paths from the canonical path library", async ({ page }) => {
   await expect(page.getByTestId("path-library-dock")).toHaveCount(0);
 });
 
+test("supports undo and redo for path library content edits", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+
+  let dialog = await openPathLibraryDialog(page);
+  const undoGroup = dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "Undo Autos" });
+  const allPathsGroup = dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" });
+  const phasePath = dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Phase 1 Canvas Draft" });
+  const pathHeaderActions = dialog.locator(
+    ".path-library-dialog__paths .path-library-dialog__header-actions",
+  );
+
+  await dialog.getByRole("button", { name: "Create collection" }).click();
+  await page.getByTestId("path-collection-new-name").fill("Undo Autos");
+  await page.getByTestId("create-path-collection").click();
+  await expect(undoGroup).toBeVisible();
+
+  await allPathsGroup.click();
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(undoGroup).toHaveCount(0);
+  await page.keyboard.press(`${shortcut}+Shift+Z`);
+  await expect(undoGroup).toBeVisible();
+
+  await allPathsGroup.click();
+  await phasePath.click();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Save Path As");
+    await dialog.accept("Undo Copy");
+  });
+  await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  const undoCopyPath = dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Undo Copy" });
+  await expect(undoCopyPath).toBeVisible();
+
+  await phasePath.click();
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(undoCopyPath).toHaveCount(0);
+  await page.keyboard.press(`${shortcut}+Shift+Z`);
+  await expect(undoCopyPath).toBeVisible();
+
+  await undoCopyPath.click();
+  let membershipCheckbox = dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Undo Autos" })
+    .getByRole("checkbox");
+  await membershipCheckbox.check();
+  await expect(membershipCheckbox).toBeChecked();
+
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await runEditMenuAction(page, "Undo");
+  dialog = await openPathLibraryDialog(page);
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Undo Copy" })
+    .click();
+  membershipCheckbox = dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Undo Autos" })
+    .getByRole("checkbox");
+  await expect(membershipCheckbox).not.toBeChecked();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+  await runEditMenuAction(page, "Redo");
+  dialog = await openPathLibraryDialog(page);
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" })
+    .click();
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Undo Copy" })
+    .click();
+  membershipCheckbox = dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Undo Autos" })
+    .getByRole("checkbox");
+  await expect(membershipCheckbox).toBeChecked();
+
+  await dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "Undo Autos" })
+    .click();
+  await dialog.getByRole("button", { name: "Delete collection" }).click();
+  await page
+    .getByRole("dialog", { name: "Delete Collection" })
+    .getByRole("button", { name: "Delete Collection Only" })
+    .click();
+  await expect(
+    dialog
+      .locator(".path-library-dialog__group")
+      .filter({ hasText: "Undo Autos" }),
+  ).toHaveCount(0);
+
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Undo Copy" })
+    .click();
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(
+    dialog
+      .locator(".path-library-dialog__group")
+      .filter({ hasText: "Undo Autos" }),
+  ).toBeVisible();
+});
+
 test("overlays create and delete path dialogs above the path library", async ({
   page,
 }) => {
