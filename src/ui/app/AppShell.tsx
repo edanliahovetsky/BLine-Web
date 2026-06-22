@@ -108,6 +108,9 @@ export function AppShell() {
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [showNewPathDialog, setShowNewPathDialog] = useState(false);
+  const [newPathGroupContextId, setNewPathGroupContextId] = useState<
+    string | null | undefined
+  >(undefined);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
   const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
@@ -388,6 +391,7 @@ export function AppShell() {
   const handleCreateNewPath = useCallback(async () => {
     setShowOpenPanel(false);
     setOpenTopMenu(null);
+    setNewPathGroupContextId(undefined);
     setShowNewPathDialog(true);
   }, []);
 
@@ -406,7 +410,10 @@ export function AppShell() {
       displayName: string;
     }) => {
       const workspaceSnapshot = projectStore.getState().workspace;
-      const activeGroupId = workspaceSnapshot?.active_path_group_id ?? null;
+      const activeGroupId =
+        newPathGroupContextId !== undefined
+          ? newPathGroupContextId
+          : (workspaceSnapshot?.active_path_group_id ?? null);
       projectStore.getState().createPath({
         displayName,
         fileName: ensureJsonFileName(displayName),
@@ -414,9 +421,10 @@ export function AppShell() {
         addToGroupId: addToCurrentGroup ? activeGroupId : null,
       });
       selectionStore.getState().clearSelection();
+      setNewPathGroupContextId(undefined);
       setShowNewPathDialog(false);
     },
-    [],
+    [newPathGroupContextId],
   );
 
   const handleSaveProject = useCallback(async () => {
@@ -1496,8 +1504,11 @@ export function AppShell() {
         <PathLibraryDialog
           workspace={workspace}
           onCancel={() => setShowPathGroupsDialog(false)}
-          onCreatePath={() => {
-            void handleCreateNewPath();
+          onCreatePath={(groupId) => {
+            setShowOpenPanel(false);
+            setOpenTopMenu(null);
+            setNewPathGroupContextId(groupId);
+            setShowNewPathDialog(true);
           }}
           onDeletePaths={() => {
             handleShowDeletePaths();
@@ -1510,10 +1521,17 @@ export function AppShell() {
         <NewPathDialog
           activeGroup={
             workspace.path_groups.find(
-              (group) => group.group_id === workspace.active_path_group_id,
+              (group) =>
+                group.group_id ===
+                (newPathGroupContextId !== undefined
+                  ? newPathGroupContextId
+                  : workspace.active_path_group_id),
             ) ?? null
           }
-          onCancel={() => setShowNewPathDialog(false)}
+          onCancel={() => {
+            setNewPathGroupContextId(undefined);
+            setShowNewPathDialog(false);
+          }}
           onCreate={handleConfirmCreateNewPath}
         />
       ) : null}
@@ -1940,7 +1958,7 @@ function PathLibraryDialog({
 }: {
   workspace: ProjectWorkspaceDocument;
   onCancel(): void;
-  onCreatePath(): void;
+  onCreatePath(groupId: string | null): void;
   onDeletePaths(): void;
   onExportPath(): void;
   onImportPath(): void;
@@ -2000,15 +2018,13 @@ function PathLibraryDialog({
 
     projectStore.getState().createPathGroup({
       displayName,
+      activePathId: pathId,
       pathIds: pathId ? [pathId] : [],
       makeActive: true,
     });
 
     const createdGroupId =
       projectStore.getState().workspace?.active_path_group_id ?? null;
-    if (pathId) {
-      projectStore.getState().setActivePath(pathId);
-    }
     selectionStore.getState().clearSelection();
     setSelectedGroupId(createdGroupId);
     setSelectedPathId(pathId);
@@ -2053,9 +2069,8 @@ function PathLibraryDialog({
   };
 
   const handleCreatePathInSelectedCollection = () => {
-    projectStore.getState().setActivePathGroup(selectedGroup?.group_id ?? null);
     selectionStore.getState().clearSelection();
-    onCreatePath();
+    onCreatePath(selectedGroup?.group_id ?? null);
   };
 
   const handleDuplicateSelectedPath = () => {
@@ -2070,14 +2085,11 @@ function PathLibraryDialog({
     }
 
     try {
-      projectStore.getState().duplicatePath(selectedPath.path_id, displayName);
+      projectStore.getState().duplicatePath(selectedPath.path_id, displayName, {
+        addToGroupId: selectedGroup?.group_id ?? null,
+      });
       const nextPathId =
         projectStore.getState().workspace?.active_path_id ?? null;
-      if (selectedGroup && nextPathId) {
-        projectStore
-          .getState()
-          .addPathsToGroup(selectedGroup.group_id, [nextPathId]);
-      }
       selectionStore.getState().clearSelection();
       setSelectedPathId(nextPathId);
     } catch (caughtError) {
@@ -2111,10 +2123,7 @@ function PathLibraryDialog({
   };
 
   const handleDeleteSelectedPath = () => {
-    if (selectedPath) {
-      projectStore.getState().setActivePath(selectedPath.path_id);
-      selectionStore.getState().clearSelection();
-    }
+    selectionStore.getState().clearSelection();
     onDeletePaths();
   };
 

@@ -4,7 +4,10 @@ import {
   type ProjectDocument,
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
-import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
+import {
+  addPathToWorkspace,
+  projectDocumentToWorkspaceDocument,
+} from "../../../src/core/io/workspaceSerde";
 import {
   createPathModel,
   createTranslationTarget,
@@ -17,7 +20,10 @@ import {
   createHistoryStore,
   type HistoryCommand,
 } from "../../../src/state/historyStore";
-import { createProjectStore } from "../../../src/state/projectStore";
+import {
+  createProjectStore,
+  type ProjectStore,
+} from "../../../src/state/projectStore";
 import {
   createSelectionStore,
   normalizeElementSelection,
@@ -121,6 +127,284 @@ describe("project store", () => {
       dirty: false,
       status: "idle",
     });
+  });
+
+  it("tracks path collection edits through undo and redo", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const firstPathId = requireWorkspace(store).paths[0].path_id;
+    const secondPathId = requireWorkspace(store).paths[1].path_id;
+
+    store.getState().createPathGroup({
+      displayName: "Score Autos",
+      pathIds: [firstPathId],
+      makeActive: true,
+    });
+    const groupId = requireWorkspace(store).active_path_group_id ?? "";
+    expect(groupId).not.toBe("");
+    expect(requireWorkspace(store).path_groups).toHaveLength(1);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups).toHaveLength(0);
+    expect(store.getState().history.getState().canRedo).toBe(true);
+
+    store.getState().redo();
+    expect(requireWorkspace(store).path_groups[0]).toMatchObject({
+      group_id: groupId,
+      display_name: "Score Autos",
+      path_ids: [firstPathId],
+    });
+
+    store.getState().renamePathGroup(groupId, "Speaker Autos");
+    expect(requireWorkspace(store).path_groups[0].display_name).toBe(
+      "Speaker Autos",
+    );
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].display_name).toBe(
+      "Score Autos",
+    );
+    store.getState().redo();
+
+    store.getState().addPathsToGroup(groupId, [secondPathId]);
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+    ]);
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+    ]);
+    store.getState().redo();
+
+    store.getState().removePathsFromGroup(groupId, [firstPathId]);
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      secondPathId,
+    ]);
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+    ]);
+    store.getState().redo();
+
+    store.getState().deletePathGroup(groupId);
+    expect(requireWorkspace(store).path_groups).toHaveLength(0);
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0]).toMatchObject({
+      group_id: groupId,
+      display_name: "Speaker Autos",
+      path_ids: [secondPathId],
+    });
+  });
+
+  it("tracks path document edits through undo and redo", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const firstPathId = requireWorkspace(store).paths[0].path_id;
+    const secondPathId = requireWorkspace(store).paths[1].path_id;
+
+    store.getState().createPath({ displayName: "Third Path" });
+    const createdPathId = requireWorkspace(store).active_path_id;
+    expect(requireWorkspace(store).paths).toHaveLength(3);
+    store.getState().undo();
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === createdPathId,
+      ),
+    ).toBe(false);
+    store.getState().redo();
+    expect(requireWorkspace(store).active_path_id).toBe(createdPathId);
+
+    store.getState().renamePath(secondPathId, "Beta Renamed");
+    expect(
+      requireWorkspace(store).paths.find(
+        (path) => path.path_id === secondPathId,
+      )?.display_name,
+    ).toBe("Beta Renamed");
+    store.getState().undo();
+    expect(
+      requireWorkspace(store).paths.find(
+        (path) => path.path_id === secondPathId,
+      )?.display_name,
+    ).toBe("Beta");
+    store.getState().redo();
+
+    store.getState().duplicatePath(secondPathId, "Beta Copy");
+    const duplicatePathId = requireWorkspace(store).active_path_id;
+    expect(
+      requireWorkspace(store).paths.find(
+        (path) => path.path_id === duplicatePathId,
+      )?.display_name,
+    ).toBe("Beta Copy");
+    store.getState().undo();
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === duplicatePathId,
+      ),
+    ).toBe(false);
+    store.getState().redo();
+    expect(requireWorkspace(store).active_path_id).toBe(duplicatePathId);
+
+    store.getState().deletePaths([firstPathId, duplicatePathId ?? ""]);
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === firstPathId,
+      ),
+    ).toBe(false);
+    store.getState().undo();
+    expect(requireWorkspace(store).paths.map((path) => path.path_id)).toContain(
+      firstPathId,
+    );
+    expect(requireWorkspace(store).paths.map((path) => path.path_id)).toContain(
+      duplicatePathId,
+    );
+  });
+
+  it("coalesces new path membership adds with the created path undo step", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const firstPathId = requireWorkspace(store).paths[0].path_id;
+    const secondPathId = requireWorkspace(store).paths[1].path_id;
+
+    store.getState().createPathGroup({
+      displayName: "Temp Autos",
+      pathIds: [firstPathId],
+      makeActive: true,
+    });
+    const groupId = requireWorkspace(store).active_path_group_id ?? "";
+
+    store.getState().duplicatePath(secondPathId, "Beta Copy");
+    const duplicatePathId = requireWorkspace(store).active_path_id ?? "";
+    store.getState().addPathsToGroup(groupId, [duplicatePathId]);
+
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      duplicatePathId,
+    ]);
+
+    store.getState().undo();
+
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+    ]);
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === duplicatePathId,
+      ),
+    ).toBe(false);
+
+    store.getState().redo();
+
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      duplicatePathId,
+    ]);
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === duplicatePathId,
+      ),
+    ).toBe(true);
+  });
+
+  it("tracks imported paths through undo and redo with IO metadata", async () => {
+    const { store } = await initializedProjectStore(
+      exampleWorkspace("a", "A", 1),
+    );
+    const file = new File(
+      [
+        JSON.stringify({
+          path: createPathModel(),
+          display_name: "Imported Auto",
+        }),
+      ],
+      "imported-auto.json",
+      { type: "application/json" },
+    );
+
+    await store.getState().importPath(file);
+
+    expect(store.getState()).toMatchObject({
+      dirty: false,
+      version: "v1",
+      lastSavedAt: "2026-04-23T15:41:00.000Z",
+    });
+    expect(requireWorkspace(store).paths).toHaveLength(2);
+    expect(store.getState().history.getState().canUndo).toBe(true);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).paths).toHaveLength(1);
+    expect(store.getState().dirty).toBe(true);
+    expect(store.getState().history.getState().canRedo).toBe(true);
+
+    store.getState().redo();
+    expect(requireWorkspace(store).paths).toHaveLength(2);
+    expect(requireWorkspace(store).paths[1].display_name).toBe("Imported Auto");
+    expect(store.getState().dirty).toBe(true);
+  });
+
+  it("keeps path navigation changes outside undo history", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const firstPathId = requireWorkspace(store).paths[0].path_id;
+
+    store.getState().createPath({ displayName: "Third Path" });
+    expect(store.getState().history.getState().canUndo).toBe(true);
+
+    store.getState().setActivePath(firstPathId);
+
+    expect(requireWorkspace(store).active_path_id).toBe(firstPathId);
+    expect(store.getState().history.getState().canUndo).toBe(false);
+  });
+
+  it("continues undoing membership edits after restoring a deleted collection and member paths", async () => {
+    const { store } = await initializedProjectStore(
+      exampleThreePathWorkspace(),
+    );
+    const [firstPathId, secondPathId, thirdPathId] = requireWorkspace(
+      store,
+    ).paths.map((path) => path.path_id);
+
+    store.getState().createPathGroup({
+      displayName: "Temp Autos",
+      pathIds: [firstPathId],
+      makeActive: true,
+    });
+    const groupId = requireWorkspace(store).active_path_group_id ?? "";
+
+    store.getState().addPathsToGroup(groupId, [secondPathId]);
+    store.getState().addPathsToGroup(groupId, [thirdPathId]);
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+      thirdPathId,
+    ]);
+
+    store.getState().deletePathGroup(groupId, { deleteMemberPaths: true });
+    expect(requireWorkspace(store).path_groups).toHaveLength(0);
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === secondPathId,
+      ),
+    ).toBe(false);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+      thirdPathId,
+    ]);
+    expect(requireWorkspace(store).paths.map((path) => path.path_id)).toEqual([
+      firstPathId,
+      secondPathId,
+      thirdPathId,
+    ]);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+    ]);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+    ]);
   });
 });
 
@@ -314,6 +598,42 @@ function exampleWorkspace(
   );
 }
 
+function exampleTwoPathWorkspace(): ProjectWorkspaceDocument {
+  return addPathToWorkspace(exampleWorkspace("project-a", "Alpha", 1), {
+    display_name: "Beta",
+    file_name: "beta.json",
+    makeActive: false,
+  });
+}
+
+function exampleThreePathWorkspace(): ProjectWorkspaceDocument {
+  return addPathToWorkspace(exampleTwoPathWorkspace(), {
+    display_name: "Gamma",
+    file_name: "gamma.json",
+    makeActive: false,
+  });
+}
+
+async function initializedProjectStore(
+  workspace: ProjectWorkspaceDocument,
+): Promise<{ store: ProjectStore; io: RecordingIo }> {
+  const store = createProjectStore();
+  const io = new RecordingIo(workspace);
+
+  store.getState().setProjectIoService(io);
+  await store.getState().initializeWorkspace();
+
+  return { store, io };
+}
+
+function requireWorkspace(store: ProjectStore): ProjectWorkspaceDocument {
+  const workspace = store.getState().workspace;
+  if (!workspace) {
+    throw new Error("Expected project store to have an active workspace");
+  }
+  return workspace;
+}
+
 function renameCommand(
   nextName: string,
   previousName: string,
@@ -451,8 +771,22 @@ class RecordingIo implements ProjectIoService {
     return this.requireWorkspace();
   }
 
-  async importPath(): Promise<ProjectWorkspaceDocument> {
-    return this.requireWorkspace();
+  async importPath(file: File): Promise<ProjectWorkspaceDocument> {
+    const parsed = JSON.parse(await file.text()) as {
+      display_name?: unknown;
+    };
+    const displayName =
+      typeof parsed.display_name === "string"
+        ? parsed.display_name
+        : "Imported Path";
+    const nextWorkspace = addPathToWorkspace(this.requireWorkspace(), {
+      display_name: displayName,
+      file_name: file.name,
+      path: createPathModel(),
+      makeActive: true,
+    });
+    await this.saveWorkspace(nextWorkspace, this.version);
+    return nextWorkspace;
   }
 
   async exportPath(): Promise<Blob> {
