@@ -848,15 +848,11 @@ test("supports undo and redo for path library content edits", async ({
     .locator(".path-library-dialog__group")
     .filter({ hasText: "All Paths" })
     .click();
-  await dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: "Undo Copy" })
-    .click();
-  membershipCheckbox = dialog
-    .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: "Undo Autos" })
-    .getByRole("checkbox");
-  await expect(membershipCheckbox).not.toBeChecked();
+  await expect(
+    dialog
+      .locator(".path-library-dialog__path")
+      .filter({ hasText: "Undo Copy" }),
+  ).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
 
   await runEditMenuAction(page, "Redo");
@@ -865,10 +861,11 @@ test("supports undo and redo for path library content edits", async ({
     .locator(".path-library-dialog__group")
     .filter({ hasText: "All Paths" })
     .click();
-  await dialog
+  const restoredUndoCopyPath = dialog
     .locator(".path-library-dialog__path")
-    .filter({ hasText: "Undo Copy" })
-    .click();
+    .filter({ hasText: "Undo Copy" });
+  await expect(restoredUndoCopyPath).toBeVisible();
+  await restoredUndoCopyPath.click();
   membershipCheckbox = dialog
     .locator(".path-library-dialog__membership-row")
     .filter({ hasText: "Undo Autos" })
@@ -900,6 +897,76 @@ test("supports undo and redo for path library content edits", async ({
       .locator(".path-library-dialog__group")
       .filter({ hasText: "Undo Autos" }),
   ).toBeVisible();
+});
+
+test("continues undoing path library membership edits after deleting a collection and member paths", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+
+  const dialog = await openPathLibraryDialog(page);
+  await dialog.getByRole("button", { name: "Create collection" }).click();
+  await page.getByTestId("path-collection-new-name").fill("Temp Autos");
+  await page.getByTestId("create-path-collection").click();
+
+  const allPathsGroup = dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All Paths" });
+  const tempAutosGroup = dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "Temp Autos" });
+  const phasePath = dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Phase 1 Canvas Draft" });
+  const pathHeaderActions = dialog.locator(
+    ".path-library-dialog__paths .path-library-dialog__header-actions",
+  );
+
+  await allPathsGroup.click();
+  await duplicateSelectedLibraryPath(page, pathHeaderActions, "Temp A");
+  await dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Temp Autos" })
+    .getByRole("checkbox")
+    .check();
+
+  await phasePath.click();
+  await duplicateSelectedLibraryPath(page, pathHeaderActions, "Temp B");
+  await dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Temp Autos" })
+    .getByRole("checkbox")
+    .check();
+
+  await expect(tempAutosGroup).toContainText("3 paths");
+  await tempAutosGroup.click();
+  await dialog.getByRole("button", { name: "Delete collection" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "Delete Collection" });
+  await deleteDialog.getByRole("checkbox").check();
+  await deleteDialog
+    .getByRole("button", { name: "Delete Collection and Paths" })
+    .click();
+  await expect(tempAutosGroup).toHaveCount(0);
+
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(tempAutosGroup).toContainText("3 paths");
+
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(tempAutosGroup).toContainText("2 paths");
+  await tempAutosGroup.click();
+  await expect(
+    dialog.locator(".path-library-dialog__path").filter({ hasText: "Temp A" }),
+  ).toBeVisible();
+  await expect(
+    dialog.locator(".path-library-dialog__path").filter({ hasText: "Temp B" }),
+  ).toHaveCount(0);
+
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(tempAutosGroup).toContainText("1 path");
+  await expect(
+    dialog.locator(".path-library-dialog__path").filter({ hasText: "Temp A" }),
+  ).toHaveCount(0);
 });
 
 test("overlays create and delete path dialogs above the path library", async ({
@@ -3134,6 +3201,24 @@ async function addPathToGroupFromLibrary(
     .filter({ hasText: groupName });
   await membershipRow.getByRole("checkbox").check();
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
+}
+
+async function duplicateSelectedLibraryPath(
+  page: Page,
+  pathHeaderActions: Locator,
+  displayName: string,
+): Promise<void> {
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Save Path As");
+    await dialog.accept(displayName);
+  });
+  await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Path Library" })
+      .locator(".path-library-dialog__path")
+      .filter({ hasText: displayName }),
+  ).toBeVisible();
 }
 
 async function createNewProject(page: Page): Promise<void> {

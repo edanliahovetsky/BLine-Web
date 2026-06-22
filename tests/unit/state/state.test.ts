@@ -258,6 +258,51 @@ describe("project store", () => {
     );
   });
 
+  it("coalesces new path membership adds with the created path undo step", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const firstPathId = requireWorkspace(store).paths[0].path_id;
+    const secondPathId = requireWorkspace(store).paths[1].path_id;
+
+    store.getState().createPathGroup({
+      displayName: "Temp Autos",
+      pathIds: [firstPathId],
+      makeActive: true,
+    });
+    const groupId = requireWorkspace(store).active_path_group_id ?? "";
+
+    store.getState().duplicatePath(secondPathId, "Beta Copy");
+    const duplicatePathId = requireWorkspace(store).active_path_id ?? "";
+    store.getState().addPathsToGroup(groupId, [duplicatePathId]);
+
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      duplicatePathId,
+    ]);
+
+    store.getState().undo();
+
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+    ]);
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === duplicatePathId,
+      ),
+    ).toBe(false);
+
+    store.getState().redo();
+
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      duplicatePathId,
+    ]);
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === duplicatePathId,
+      ),
+    ).toBe(true);
+  });
+
   it("tracks imported paths through undo and redo with IO metadata", async () => {
     const { store } = await initializedProjectStore(
       exampleWorkspace("a", "A", 1),
@@ -305,6 +350,61 @@ describe("project store", () => {
 
     expect(requireWorkspace(store).active_path_id).toBe(firstPathId);
     expect(store.getState().history.getState().canUndo).toBe(false);
+  });
+
+  it("continues undoing membership edits after restoring a deleted collection and member paths", async () => {
+    const { store } = await initializedProjectStore(
+      exampleThreePathWorkspace(),
+    );
+    const [firstPathId, secondPathId, thirdPathId] = requireWorkspace(
+      store,
+    ).paths.map((path) => path.path_id);
+
+    store.getState().createPathGroup({
+      displayName: "Temp Autos",
+      pathIds: [firstPathId],
+      makeActive: true,
+    });
+    const groupId = requireWorkspace(store).active_path_group_id ?? "";
+
+    store.getState().addPathsToGroup(groupId, [secondPathId]);
+    store.getState().addPathsToGroup(groupId, [thirdPathId]);
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+      thirdPathId,
+    ]);
+
+    store.getState().deletePathGroup(groupId, { deleteMemberPaths: true });
+    expect(requireWorkspace(store).path_groups).toHaveLength(0);
+    expect(
+      requireWorkspace(store).paths.some(
+        (path) => path.path_id === secondPathId,
+      ),
+    ).toBe(false);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+      thirdPathId,
+    ]);
+    expect(requireWorkspace(store).paths.map((path) => path.path_id)).toEqual([
+      firstPathId,
+      secondPathId,
+      thirdPathId,
+    ]);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+      secondPathId,
+    ]);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([
+      firstPathId,
+    ]);
   });
 });
 
@@ -502,6 +602,14 @@ function exampleTwoPathWorkspace(): ProjectWorkspaceDocument {
   return addPathToWorkspace(exampleWorkspace("project-a", "Alpha", 1), {
     display_name: "Beta",
     file_name: "beta.json",
+    makeActive: false,
+  });
+}
+
+function exampleThreePathWorkspace(): ProjectWorkspaceDocument {
+  return addPathToWorkspace(exampleTwoPathWorkspace(), {
+    display_name: "Gamma",
+    file_name: "gamma.json",
     makeActive: false,
   });
 }

@@ -36,6 +36,17 @@ import {
 
 export type ProjectStatus = "idle" | "loading" | "saving" | "error";
 
+interface WorkspaceHistoryMetadata {
+  createdPathId?: string;
+}
+
+interface WorkspaceSnapshotHistoryCommand extends HistoryCommand<ProjectWorkspaceDocument> {
+  kind: "workspace-snapshot";
+  createdPathId?: string;
+  previousSnapshot: ProjectWorkspaceDocument;
+  nextSnapshot: ProjectWorkspaceDocument;
+}
+
 export interface ProjectStoreState {
   workspace: ProjectWorkspaceDocument | null;
   project: ProjectDocument | null;
@@ -290,6 +301,11 @@ export function createProjectStore(
         workspace,
         nextWorkspace,
         "Create path",
+        true,
+        {},
+        {
+          createdPathId: createdPathIdFromTransition(workspace, nextWorkspace),
+        },
       );
     },
     renamePath(pathId, name) {
@@ -324,6 +340,11 @@ export function createProjectStore(
         workspace,
         nextWorkspace,
         "Duplicate path",
+        true,
+        {},
+        {
+          createdPathId: createdPathIdFromTransition(workspace, nextWorkspace),
+        },
       );
     },
     createPathGroup(input) {
@@ -383,11 +404,27 @@ export function createProjectStore(
     },
     addPathsToGroup(groupId, pathIds) {
       const workspace = requireWorkspace(get().workspace);
+      const nextWorkspace = addPathsToGroupInWorkspace(
+        workspace,
+        groupId,
+        pathIds,
+      );
+      if (
+        mergeCreatedPathMembershipTransition(
+          set,
+          history,
+          nextWorkspace,
+          pathIds,
+        )
+      ) {
+        return;
+      }
+
       applyWorkspaceTransition(
         set,
         history,
         workspace,
-        addPathsToGroupInWorkspace(workspace, groupId, pathIds),
+        nextWorkspace,
         "Add paths to collection",
       );
     },
@@ -429,6 +466,12 @@ export function createProjectStore(
         {
           version: io.getCurrentVersion(),
           lastSavedAt: io.getLastSavedAt(),
+        },
+        {
+          createdPathId: createdPathIdFromTransition(
+            previousWorkspace,
+            workspace,
+          ),
         },
       );
       return workspace;
@@ -602,11 +645,13 @@ function applyWorkspaceTransition(
   description: string,
   dirty = true,
   metadata: Partial<Pick<ProjectStoreState, "lastSavedAt" | "version">> = {},
+  historyMetadata: WorkspaceHistoryMetadata = {},
 ): void {
   const command = workspaceSnapshotCommand(
     description,
     previousWorkspace,
     nextWorkspace,
+    historyMetadata,
   );
   const appliedWorkspace = history
     .getState()
@@ -619,15 +664,80 @@ function workspaceSnapshotCommand(
   description: string,
   previousWorkspace: ProjectWorkspaceDocument,
   nextWorkspace: ProjectWorkspaceDocument,
-): HistoryCommand<ProjectWorkspaceDocument> {
+  metadata: WorkspaceHistoryMetadata = {},
+): WorkspaceSnapshotHistoryCommand {
   const previousSnapshot = cloneWorkspace(previousWorkspace);
   const nextSnapshot = cloneWorkspace(nextWorkspace);
 
   return {
+    kind: "workspace-snapshot",
     description,
+    createdPathId: metadata.createdPathId,
+    previousSnapshot,
+    nextSnapshot,
     apply: () => cloneWorkspace(nextSnapshot),
     revert: () => cloneWorkspace(previousSnapshot),
   };
+}
+
+function isWorkspaceSnapshotCommand(
+  command: HistoryCommand<ProjectWorkspaceDocument> | undefined,
+): command is WorkspaceSnapshotHistoryCommand {
+  return (
+    Boolean(command) &&
+    (command as WorkspaceSnapshotHistoryCommand).kind === "workspace-snapshot"
+  );
+}
+
+function mergeCreatedPathMembershipTransition(
+  set: StoreApi<ProjectStoreState>["setState"],
+  history: HistoryStore<ProjectWorkspaceDocument>,
+  nextWorkspace: ProjectWorkspaceDocument,
+  pathIds: readonly string[],
+): boolean {
+  if (pathIds.length !== 1) {
+    return false;
+  }
+
+  const state = history.getState();
+  const previousCommand = state.undoStack.at(-1);
+  if (
+    !isWorkspaceSnapshotCommand(previousCommand) ||
+    previousCommand.createdPathId !== pathIds[0]
+  ) {
+    return false;
+  }
+
+  const mergedCommand = workspaceSnapshotCommand(
+    previousCommand.description,
+    previousCommand.previousSnapshot,
+    nextWorkspace,
+    { createdPathId: previousCommand.createdPathId },
+  );
+  const undoStack = [...state.undoStack.slice(0, -1), mergedCommand];
+
+  history.setState({
+    undoStack,
+    redoStack: [],
+    canUndo: undoStack.length > 0,
+    canRedo: false,
+  });
+  setWorkspace(set, nextWorkspace, true);
+  return true;
+}
+
+function createdPathIdFromTransition(
+  previousWorkspace: ProjectWorkspaceDocument,
+  nextWorkspace: ProjectWorkspaceDocument,
+): string | undefined {
+  const previousPathIds = new Set(
+    previousWorkspace.paths.map((path) => path.path_id),
+  );
+  const createdPathIds = nextWorkspace.paths
+    .map((path) => path.path_id)
+    .filter((pathId) => !previousPathIds.has(pathId));
+
+  return createdPathIds.length === 1 ? createdPathIds[0] : undefined;
 }
 
 function adoptWorkspace(
