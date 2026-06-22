@@ -247,9 +247,7 @@ function readAutosEditorState(input: unknown): AutosEditorStateFile | null {
     return null;
   }
 
-  const editorConfig = isObject(input.editor_config)
-    ? input.editor_config
-    : {};
+  const editorConfig = isObject(input.editor_config) ? input.editor_config : {};
   const constraints = isObject(editorConfig.kinematic_constraints)
     ? editorConfig.kinematic_constraints
     : {};
@@ -258,8 +256,7 @@ function readAutosEditorState(input: unknown): AutosEditorStateFile | null {
     schema_version: autosEditorStateSchemaVersion,
     editor_config: {
       gui: editorConfig.gui as ProjectConfig["gui"],
-      kinematic_constraints:
-        constraints as AutosEditorKinematicConstraints,
+      kinematic_constraints: constraints as AutosEditorKinematicConstraints,
     },
     active_path_file_name: stringOrNull(input.active_path_file_name),
     active_path_group_id: stringOrNull(input.active_path_group_id),

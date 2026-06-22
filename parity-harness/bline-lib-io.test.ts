@@ -105,9 +105,7 @@ describe("BLine-Lib IO compatibility", () => {
         },
       });
       expect(existsSync(join(autosDir, "pathgroups.json"))).toBe(false);
-      expect(existsSync(join(autosDir, ".bline-web", "state.json"))).toBe(
-        true,
-      );
+      expect(existsSync(join(autosDir, ".bline-web", "state.json"))).toBe(true);
       const report = await runBLineLibValidation(autosDir, tempRoot);
 
       expect(report.globals).toEqual({

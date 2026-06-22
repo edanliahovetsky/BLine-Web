@@ -59,7 +59,9 @@ export function serializeProjectConfig(config: unknown): ProjectConfig {
   return createProjectConfig(config);
 }
 
-export function serializeBLineRuntimeConfig(config: unknown): BLineRuntimeConfig {
+export function serializeBLineRuntimeConfig(
+  config: unknown,
+): BLineRuntimeConfig {
   const canonical = createProjectConfig(config);
   const constraints = canonical.kinematic_constraints;
 

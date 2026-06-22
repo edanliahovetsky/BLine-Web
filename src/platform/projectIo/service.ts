@@ -326,7 +326,9 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async exportConfig(): Promise<Blob> {
-    return jsonBlob(serializeBLineRuntimeConfig(this.requireWorkspace().config));
+    return jsonBlob(
+      serializeBLineRuntimeConfig(this.requireWorkspace().config),
+    );
   }
 
   async importProjectFolder(

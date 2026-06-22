@@ -740,9 +740,9 @@ describe("project document serde", () => {
     });
     expect(JSON.stringify(config)).not.toContain("gui");
     expect(JSON.stringify(config)).not.toContain("auto_velocity");
-    expect(deserializeProjectConfig(config).kinematic_constraints).toMatchObject(
-      config.kinematic_constraints,
-    );
+    expect(
+      deserializeProjectConfig(config).kinematic_constraints,
+    ).toMatchObject(config.kinematic_constraints);
   });
 
   it("keeps project archive config editor-rich", () => {
@@ -752,9 +752,9 @@ describe("project document serde", () => {
     });
 
     expect(config.gui.robot.length_meters).toBe(0.7);
-    expect(config.kinematic_constraints.default_max_velocity_meters_per_sec).toBe(
-      5.2,
-    );
+    expect(
+      config.kinematic_constraints.default_max_velocity_meters_per_sec,
+    ).toBe(5.2);
   });
 
   it("round-trips a BLine project archive with config and native paths", () => {

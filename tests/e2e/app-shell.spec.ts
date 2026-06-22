@@ -2368,9 +2368,7 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
     "autos/config.json",
     "autos/paths/phase-1-canvas-draft.json",
   ]);
-  expect(
-    JSON.parse(requiredZipText(entries, "autos/config.json")),
-  ).toEqual({
+  expect(JSON.parse(requiredZipText(entries, "autos/config.json"))).toEqual({
     kinematic_constraints: expect.any(Object),
   });
   expect(requiredZipText(entries, "autos/config.json")).not.toContain("gui");
@@ -2482,7 +2480,9 @@ test("browser legacy autos folder import re-exports the clean sidecar tree", asy
     const chooserPromise = page.waitForEvent("filechooser");
     await openProjectMenu(page);
     await page.getByRole("menuitem", { name: "Import / Export" }).click();
-    await page.getByRole("menuitem", { name: "Import Autos Folder..." }).click();
+    await page
+      .getByRole("menuitem", { name: "Import Autos Folder..." })
+      .click();
     const chooser = await chooserPromise;
     await chooser.setFiles(autosDir);
 
