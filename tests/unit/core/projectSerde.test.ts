@@ -32,10 +32,12 @@ import {
   createBLineProjectArchive,
   deserializeBLineProjectArchive,
   deserializeProjectConfig,
+  serializeBLineRuntimeConfig,
   serializeProjectConfig,
 } from "../../../src/core/io/blineProject";
 import { stringifyBLineJson } from "../../../src/core/io/blineJson";
 import {
+  autosEditorStatePath,
   deserializeBLineProjectFolder,
   serializeBLineProjectFolder,
 } from "../../../src/core/io/projectFolder";
@@ -716,23 +718,43 @@ describe("project document serde", () => {
     });
   });
 
-  it("serializes config JSON in the BLine-Lib-compatible global config shape", () => {
+  it("serializes runtime config JSON in the BLine-Lib-compatible global config shape", () => {
+    const config = serializeBLineRuntimeConfig({
+      robot_length_meters: 0.7,
+      default_max_velocity_meters_per_sec: 5.2,
+      kinematic_constraints: {
+        default_auto_velocity_velocity_safety_factor: 0.4,
+      },
+    });
+
+    expect(config).toEqual({
+      kinematic_constraints: {
+        default_max_velocity_meters_per_sec: 5.2,
+        default_max_acceleration_meters_per_sec2: 12,
+        default_max_velocity_deg_per_sec: 720,
+        default_max_acceleration_deg_per_sec2: 1500,
+        default_end_translation_tolerance_meters: 0.03,
+        default_end_rotation_tolerance_deg: 2,
+        default_intermediate_handoff_radius_meters: 0.45,
+      },
+    });
+    expect(JSON.stringify(config)).not.toContain("gui");
+    expect(JSON.stringify(config)).not.toContain("auto_velocity");
+    expect(deserializeProjectConfig(config).kinematic_constraints).toMatchObject(
+      config.kinematic_constraints,
+    );
+  });
+
+  it("keeps project archive config editor-rich", () => {
     const config = serializeProjectConfig({
       robot_length_meters: 0.7,
       default_max_velocity_meters_per_sec: 5.2,
     });
 
-    expect(config).toMatchObject({
-      gui: {
-        robot: {
-          length_meters: 0.7,
-        },
-      },
-      kinematic_constraints: {
-        default_max_velocity_meters_per_sec: 5.2,
-      },
-    });
-    expect(deserializeProjectConfig(config)).toEqual(config);
+    expect(config.gui.robot.length_meters).toBe(0.7);
+    expect(config.kinematic_constraints.default_max_velocity_meters_per_sec).toBe(
+      5.2,
+    );
   });
 
   it("round-trips a BLine project archive with config and native paths", () => {
@@ -783,14 +805,20 @@ describe("project document serde", () => {
     });
   });
 
-  it("round-trips an expanded autos folder with config.json and paths/*.json", async () => {
+  it("round-trips an expanded autos folder with clean runtime files and sidecar editor state", async () => {
     const workspace = deserializeProjectWorkspaceDocument({
       schema_version: 1,
       project_id: "workspace-1",
       display_name: "Robot Autos",
       config: {
+        gui: {
+          robot: {
+            length_meters: 0.75,
+          },
+        },
         kinematic_constraints: {
           default_intermediate_handoff_radius_meters: 0.35,
+          default_auto_velocity_velocity_safety_factor: 0.65,
         },
       },
       paths: [
@@ -823,8 +851,11 @@ describe("project document serde", () => {
     });
 
     const folder = serializeBLineProjectFolder(workspace);
-    const pathGroupsFile = folder.files.find(
-      (file) => file.relativePath === "pathgroups.json",
+    const configFile = folder.files.find(
+      (file) => file.relativePath === "config.json",
+    );
+    const stateFile = folder.files.find(
+      (file) => file.relativePath === autosEditorStatePath,
     );
     const restored = await deserializeBLineProjectFolder(
       folder.files.map((file) => ({
@@ -836,28 +867,61 @@ describe("project document serde", () => {
 
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
-      "pathgroups.json",
+      autosEditorStatePath,
       "paths/top_sweep.json",
       "paths/bottom_sweep.json",
     ]);
-    expect(pathGroupsFile).toBeDefined();
-    await expect(pathGroupsFile!.blob.text().then(JSON.parse)).resolves.toEqual(
-      {
-        schema_version: 1,
-        groups: [
-          {
-            group_id: "score",
-            display_name: "Score Autos",
-            path_file_names: ["top_sweep.json", "bottom_sweep.json"],
-          },
-        ],
+    expect(configFile).toBeDefined();
+    expect(stateFile).toBeDefined();
+    await expect(configFile!.blob.text().then(JSON.parse)).resolves.toEqual({
+      kinematic_constraints: {
+        default_max_velocity_meters_per_sec: 4.5,
+        default_max_acceleration_meters_per_sec2: 12,
+        default_max_velocity_deg_per_sec: 720,
+        default_max_acceleration_deg_per_sec2: 1500,
+        default_end_translation_tolerance_meters: 0.03,
+        default_end_rotation_tolerance_deg: 2,
+        default_intermediate_handoff_radius_meters: 0.35,
       },
-    );
+    });
+    const state = JSON.parse(await stateFile!.blob.text());
+    expect(state).toMatchObject({
+      schema_version: 1,
+      active_path_file_name: "top_sweep.json",
+      active_path_group_id: "score",
+      path_groups: [
+        {
+          group_id: "score",
+          display_name: "Score Autos",
+          path_file_names: ["top_sweep.json", "bottom_sweep.json"],
+        },
+      ],
+      field_assets: {},
+    });
+    expect(state.editor_config.gui.robot.length_meters).toBe(0.75);
+    expect(state.editor_config.kinematic_constraints).toEqual({
+      default_auto_velocity_velocity_safety_factor: 0.65,
+      default_auto_velocity_acceleration_safety_factor: 0.8,
+      default_auto_velocity_merge_tolerance_meters_per_sec: 0.3,
+    });
+    expect(state.paths).toEqual({
+      "top_sweep.json": {
+        display_name: "Top Sweep",
+      },
+      "bottom_sweep.json": {
+        display_name: "Bottom Sweep",
+      },
+    });
     expect(restored.display_name).toBe("autos");
     expect(restored.paths.map((path) => path.file_name)).toEqual([
       "bottom_sweep.json",
       "top_sweep.json",
     ]);
+    expect(restored.paths.map((path) => path.display_name)).toEqual([
+      "Bottom Sweep",
+      "Top Sweep",
+    ]);
+    expect(restored.active_path_id).toBe("top_sweep.json");
     expect(restored.path_groups).toEqual([
       {
         group_id: "score",
@@ -865,10 +929,148 @@ describe("project document serde", () => {
         path_ids: ["top_sweep.json", "bottom_sweep.json"],
       },
     ]);
-    expect(restored.active_path_group_id).toBeNull();
+    expect(restored.active_path_group_id).toBe("score");
+    expect(restored.config.gui.robot.length_meters).toBe(0.75);
+    expect(
+      restored.config.kinematic_constraints
+        .default_auto_velocity_velocity_safety_factor,
+    ).toBe(0.65);
     expect(restored.paths[0].path.path_elements[0]).toMatchObject({
       type: "translation",
       intermediate_handoff_radius_meters: 0.35,
+    });
+  });
+
+  it("imports legacy autos folder state and re-exports it in the clean sidecar shape", async () => {
+    const restored = await deserializeBLineProjectFolder([
+      textImportFile("autos/config.json", {
+        gui: {
+          robot: {
+            length_meters: 0.71,
+            width_meters: 0.92,
+          },
+        },
+        kinematic_constraints: {
+          default_max_velocity_meters_per_sec: 5.1,
+          default_max_acceleration_meters_per_sec2: 10.5,
+          default_intermediate_handoff_radius_meters: 0.28,
+          default_max_velocity_deg_per_sec: 650,
+          default_max_acceleration_deg_per_sec2: 1700,
+          default_end_translation_tolerance_meters: 0.04,
+          default_end_rotation_tolerance_deg: 3,
+          default_auto_velocity_velocity_safety_factor: 0.72,
+        },
+      }),
+      textImportFile("autos/pathgroups.json", {
+        schema_version: 1,
+        groups: [
+          {
+            group_id: "legacy",
+            display_name: "Legacy Group",
+            path_file_names: ["auto.json"],
+          },
+        ],
+      }),
+      textImportFile("autos/.bline-web/path-metadata.json", {
+        paths: {
+          "auto.json": {
+            editor_metadata: {
+              ranged_constraints: [
+                {
+                  key: "max_velocity_meters_per_sec",
+                  value: 2.2,
+                  start_ordinal: 1,
+                  end_ordinal: 2,
+                  source: "auto_velocity",
+                  auto_velocity: {
+                    velocity_safety_factor: 0.7,
+                    acceleration_safety_factor: 0.6,
+                    merge_tolerance_meters_per_sec: 0.2,
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      textImportFile("autos/paths/auto.json", {
+        path: {
+          path_elements: [
+            { type: "translation", x_meters: 1, y_meters: 2 },
+            { type: "translation", x_meters: 3, y_meters: 4 },
+          ],
+          constraints: {
+            max_velocity_meters_per_sec: [
+              { value: 2.2, start_ordinal: 0, end_ordinal: 1 },
+            ],
+          },
+        },
+      }),
+    ]);
+
+    expect(restored.config.gui.robot).toMatchObject({
+      length_meters: 0.71,
+      width_meters: 0.92,
+    });
+    expect(restored.path_groups).toEqual([
+      {
+        group_id: "legacy",
+        display_name: "Legacy Group",
+        path_ids: ["auto.json"],
+      },
+    ]);
+    expect(restored.paths[0].path.ranged_constraints[0]).toMatchObject({
+      key: "max_velocity_meters_per_sec",
+      value: 2.2,
+      start_ordinal: 1,
+      end_ordinal: 2,
+      source: "auto_velocity",
+      auto_velocity: {
+        velocity_safety_factor: 0.7,
+        acceleration_safety_factor: 0.6,
+        merge_tolerance_meters_per_sec: 0.2,
+      },
+    });
+
+    const exported = serializeBLineProjectFolder(restored);
+    const names = exported.files.map((file) => file.relativePath);
+    expect(names).toContain("config.json");
+    expect(names).toContain(autosEditorStatePath);
+    expect(names).toContain("paths/auto.json");
+    expect(names).not.toContain("pathgroups.json");
+    expect(names).not.toContain(".bline-web/path-metadata.json");
+
+    const configFile = exported.files.find(
+      (file) => file.relativePath === "config.json",
+    );
+    const stateFile = exported.files.find(
+      (file) => file.relativePath === autosEditorStatePath,
+    );
+    const exportedConfig = JSON.parse(await configFile!.blob.text());
+    const exportedState = JSON.parse(await stateFile!.blob.text());
+    expect(JSON.stringify(exportedConfig)).not.toContain("gui");
+    expect(exportedConfig.kinematic_constraints).toEqual({
+      default_max_velocity_meters_per_sec: 5.1,
+      default_max_acceleration_meters_per_sec2: 10.5,
+      default_max_velocity_deg_per_sec: 650,
+      default_max_acceleration_deg_per_sec2: 1700,
+      default_end_translation_tolerance_meters: 0.04,
+      default_end_rotation_tolerance_deg: 3,
+      default_intermediate_handoff_radius_meters: 0.28,
+    });
+    expect(exportedState.path_groups).toEqual([
+      {
+        group_id: "legacy",
+        display_name: "Legacy Group",
+        path_file_names: ["auto.json"],
+      },
+    ]);
+    expect(exportedState.paths["auto.json"].editor_metadata).toMatchObject({
+      ranged_constraints: [
+        {
+          source: "auto_velocity",
+        },
+      ],
     });
   });
 

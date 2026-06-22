@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 test("boots the Phase 1 shell", async ({ page }) => {
@@ -2177,21 +2179,21 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
 
   const entries = parseStoredZip(await readFile(downloadPath));
   expect([...entries.keys()].sort()).toEqual([
+    "autos/.bline-web/state.json",
     "autos/config.json",
-    "autos/pathgroups.json",
     "autos/paths/phase-1-canvas-draft.json",
   ]);
   expect(
     JSON.parse(requiredZipText(entries, "autos/config.json")),
-  ).toMatchObject({
-    gui: expect.any(Object),
+  ).toEqual({
     kinematic_constraints: expect.any(Object),
   });
+  expect(requiredZipText(entries, "autos/config.json")).not.toContain("gui");
   expect(
-    JSON.parse(requiredZipText(entries, "autos/pathgroups.json")),
+    JSON.parse(requiredZipText(entries, "autos/.bline-web/state.json")),
   ).toMatchObject({
     schema_version: 1,
-    groups: [],
+    path_groups: [],
   });
   const exportedPath = JSON.parse(
     requiredZipText(entries, "autos/paths/phase-1-canvas-draft.json"),
@@ -2200,6 +2202,162 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
     path_elements: expect.any(Array),
   });
   expect(exportedPath.path_elements?.length).toBeGreaterThan(0);
+});
+
+test("browser legacy autos folder import re-exports the clean sidecar tree", async ({
+  page,
+}) => {
+  await disableDirectoryPicker(page);
+  const tempRoot = await mkdtemp(join(tmpdir(), "bline-web-legacy-autos-"));
+  const autosDir = join(tempRoot, "autos");
+
+  try {
+    await mkdir(join(autosDir, "paths"), { recursive: true });
+    await mkdir(join(autosDir, ".bline-web"), { recursive: true });
+    await writeFile(
+      join(autosDir, "config.json"),
+      JSON.stringify({
+        gui: {
+          robot: {
+            length_meters: 0.71,
+            width_meters: 0.92,
+          },
+        },
+        kinematic_constraints: {
+          default_max_velocity_meters_per_sec: 5.1,
+          default_max_acceleration_meters_per_sec2: 10.5,
+          default_intermediate_handoff_radius_meters: 0.28,
+          default_max_velocity_deg_per_sec: 650,
+          default_max_acceleration_deg_per_sec2: 1700,
+          default_end_translation_tolerance_meters: 0.04,
+          default_end_rotation_tolerance_deg: 3,
+        },
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(autosDir, "pathgroups.json"),
+      JSON.stringify({
+        schema_version: 1,
+        groups: [
+          {
+            group_id: "legacy",
+            display_name: "Legacy Group",
+            path_file_names: ["legacy_auto.json"],
+          },
+        ],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(autosDir, ".bline-web", "path-metadata.json"),
+      JSON.stringify({
+        paths: {
+          "legacy_auto.json": {
+            editor_metadata: {
+              ranged_constraints: [
+                {
+                  key: "max_velocity_meters_per_sec",
+                  value: 2.2,
+                  start_ordinal: 1,
+                  end_ordinal: 2,
+                  source: "auto_velocity",
+                  auto_velocity: {
+                    velocity_safety_factor: 0.7,
+                    acceleration_safety_factor: 0.6,
+                    merge_tolerance_meters_per_sec: 0.2,
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(autosDir, "paths", "legacy_auto.json"),
+      JSON.stringify({
+        path: {
+          path_elements: [
+            { type: "translation", x_meters: 1, y_meters: 2 },
+            { type: "translation", x_meters: 3, y_meters: 4 },
+          ],
+          constraints: {
+            max_velocity_meters_per_sec: [
+              { value: 2.2, start_ordinal: 0, end_ordinal: 1 },
+            ],
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    await page.goto("/");
+    const chooserPromise = page.waitForEvent("filechooser");
+    await openProjectMenu(page);
+    await page.getByRole("menuitem", { name: "Import / Export" }).click();
+    await page.getByRole("menuitem", { name: "Import Autos Folder..." }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles(autosDir);
+
+    await expect(page.getByTestId("current-path-status")).toContainText(
+      "legacy auto",
+    );
+
+    await openProjectMenu(page);
+    await page.getByRole("menuitem", { name: "Import / Export" }).click();
+    const downloadPromise = page.waitForEvent("download");
+    await page
+      .getByRole("menuitem", { name: "Export Autos Folder..." })
+      .click();
+    const download = await downloadPromise;
+    const downloadPath = await download.path();
+    if (!downloadPath) {
+      throw new Error("Expected autos.zip to be available on disk");
+    }
+
+    const entries = parseStoredZip(await readFile(downloadPath));
+    expect([...entries.keys()].sort()).toEqual([
+      "autos/.bline-web/state.json",
+      "autos/config.json",
+      "autos/paths/legacy_auto.json",
+    ]);
+    expect(requiredZipText(entries, "autos/config.json")).not.toContain("gui");
+    expect(
+      JSON.parse(requiredZipText(entries, "autos/config.json")),
+    ).toMatchObject({
+      kinematic_constraints: {
+        default_max_velocity_meters_per_sec: 5.1,
+        default_intermediate_handoff_radius_meters: 0.28,
+      },
+    });
+    expect(
+      JSON.parse(requiredZipText(entries, "autos/.bline-web/state.json")),
+    ).toMatchObject({
+      active_path_file_name: "legacy_auto.json",
+      path_groups: [
+        {
+          group_id: "legacy",
+          display_name: "Legacy Group",
+          path_file_names: ["legacy_auto.json"],
+        },
+      ],
+      paths: {
+        "legacy_auto.json": {
+          editor_metadata: {
+            ranged_constraints: [
+              {
+                source: "auto_velocity",
+              },
+            ],
+          },
+        },
+      },
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("path menu export saves the active path and import path round-trips it", async ({

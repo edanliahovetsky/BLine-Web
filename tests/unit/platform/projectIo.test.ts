@@ -10,6 +10,10 @@ import {
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
 import {
+  autosEditorStatePath,
+  autosFieldAssetsPath,
+} from "../../../src/core/io/projectFolder";
+import {
   createProjectIoService,
   type ProjectFolderExport,
 } from "../../../src/platform/projectIo";
@@ -87,7 +91,7 @@ describe("ProjectIoService", () => {
     const folder = await service.exportProjectFolder();
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
-      "pathgroups.json",
+      autosEditorStatePath,
       "paths/One.json",
       "paths/Two.json",
     ]);
@@ -204,18 +208,30 @@ describe("ProjectIoService", () => {
 
     const folder = await sourceService.exportProjectFolder();
     expect(folder.files.map((file) => file.relativePath)).toContain(
-      `assets/fields/${customField.asset_id}`,
+      `${autosFieldAssetsPath}/${customField.asset_id}`,
     );
     const configFile = folder.files.find(
       (file) => file.relativePath === "config.json",
     );
+    const stateFile = folder.files.find(
+      (file) => file.relativePath === autosEditorStatePath,
+    );
     if (!configFile) {
       throw new Error("Expected config.json in folder export");
     }
+    if (!stateFile) {
+      throw new Error("Expected sidecar state in folder export");
+    }
     const folderConfig = JSON.parse(await configFile.blob.text()) as {
-      gui: { field: unknown };
+      gui?: unknown;
     };
-    expect(JSON.stringify(folderConfig.gui.field)).not.toContain("AQIDBA");
+    const folderState = JSON.parse(await stateFile.blob.text()) as {
+      editor_config: { gui: { field: unknown } };
+    };
+    expect(folderConfig.gui).toBeUndefined();
+    expect(JSON.stringify(folderState.editor_config.gui.field)).not.toContain(
+      "AQIDBA",
+    );
 
     const folderTarget = createProjectIoService(browserWebCapabilities, {
       storage: new FieldAssetMemoryAdapter(),

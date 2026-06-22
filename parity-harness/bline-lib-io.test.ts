@@ -90,6 +90,24 @@ describe("BLine-Lib IO compatibility", () => {
         serializeBLineProjectFolder(createCompatibilityWorkspace()),
         autosDir,
       );
+      const exportedConfig = JSON.parse(
+        await readFile(join(autosDir, "config.json"), "utf8"),
+      );
+      expect(exportedConfig).toEqual({
+        kinematic_constraints: {
+          default_max_velocity_meters_per_sec: 5.5,
+          default_max_acceleration_meters_per_sec2: 11.2,
+          default_max_velocity_deg_per_sec: 610,
+          default_max_acceleration_deg_per_sec2: 1900,
+          default_end_translation_tolerance_meters: 0.025,
+          default_end_rotation_tolerance_deg: 1.8,
+          default_intermediate_handoff_radius_meters: 0.27,
+        },
+      });
+      expect(existsSync(join(autosDir, "pathgroups.json"))).toBe(false);
+      expect(existsSync(join(autosDir, ".bline-web", "state.json"))).toBe(
+        true,
+      );
       const report = await runBLineLibValidation(autosDir, tempRoot);
 
       expect(report.globals).toEqual({

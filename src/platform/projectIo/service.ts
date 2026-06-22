@@ -7,10 +7,11 @@ import {
   createBLineProjectArchive,
   deserializeProjectConfig,
   fieldAssetsFromBLineProjectArchive,
-  serializeProjectConfig,
+  serializeBLineRuntimeConfig,
 } from "../../core/io/blineProject";
 import { stringifyBLineJson } from "../../core/io/blineJson";
 import {
+  autosFieldAssetsPath,
   deserializeBLineProjectFolder,
   serializeBLineProjectFolder,
 } from "../../core/io/projectFolder";
@@ -325,7 +326,7 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async exportConfig(): Promise<Blob> {
-    return jsonBlob(serializeProjectConfig(this.requireWorkspace().config));
+    return jsonBlob(serializeBLineRuntimeConfig(this.requireWorkspace().config));
   }
 
   async importProjectFolder(
@@ -489,7 +490,7 @@ export class StorageProjectIoService implements ProjectIoService {
   ): Promise<ProjectFolderExport["files"]> {
     const assets = await this.readWorkspaceCustomFieldAssets(workspace);
     return assets.map((asset) => ({
-      relativePath: `assets/fields/${asset.assetId}`,
+      relativePath: `${autosFieldAssetsPath}/${asset.assetId}`,
       blob: new Blob([bytesToArrayBuffer(asset.bytes)], {
         type: asset.mimeType,
       }),

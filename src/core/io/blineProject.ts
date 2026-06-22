@@ -40,8 +40,47 @@ export interface SerializedProjectArchiveFieldAsset {
 
 type ArchiveSource = ProjectWorkspaceDocument | readonly ProjectDocument[];
 
+export type BLineRuntimeKinematicConstraints = Pick<
+  ProjectConfig["kinematic_constraints"],
+  | "default_max_velocity_meters_per_sec"
+  | "default_max_acceleration_meters_per_sec2"
+  | "default_max_velocity_deg_per_sec"
+  | "default_max_acceleration_deg_per_sec2"
+  | "default_end_translation_tolerance_meters"
+  | "default_end_rotation_tolerance_deg"
+  | "default_intermediate_handoff_radius_meters"
+>;
+
+export interface BLineRuntimeConfig {
+  kinematic_constraints: BLineRuntimeKinematicConstraints;
+}
+
 export function serializeProjectConfig(config: unknown): ProjectConfig {
   return createProjectConfig(config);
+}
+
+export function serializeBLineRuntimeConfig(config: unknown): BLineRuntimeConfig {
+  const canonical = createProjectConfig(config);
+  const constraints = canonical.kinematic_constraints;
+
+  return {
+    kinematic_constraints: {
+      default_max_velocity_meters_per_sec:
+        constraints.default_max_velocity_meters_per_sec,
+      default_max_acceleration_meters_per_sec2:
+        constraints.default_max_acceleration_meters_per_sec2,
+      default_max_velocity_deg_per_sec:
+        constraints.default_max_velocity_deg_per_sec,
+      default_max_acceleration_deg_per_sec2:
+        constraints.default_max_acceleration_deg_per_sec2,
+      default_end_translation_tolerance_meters:
+        constraints.default_end_translation_tolerance_meters,
+      default_end_rotation_tolerance_deg:
+        constraints.default_end_rotation_tolerance_deg,
+      default_intermediate_handoff_radius_meters:
+        constraints.default_intermediate_handoff_radius_meters,
+    },
+  };
 }
 
 export function deserializeProjectConfig(input: unknown): ProjectConfig {
