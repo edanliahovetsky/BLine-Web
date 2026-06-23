@@ -9,6 +9,16 @@ import type {
 } from "../core/io/projectSchema";
 import type { PathModel } from "../core/model/path";
 import {
+  addLinkedTargetToWorkspace,
+  createLinkedTargetId,
+  deleteLinkedTargetFromWorkspace,
+  linkPathElementToTargetInWorkspace,
+  unlinkPathElementInWorkspace,
+  updateLinkedTargetInWorkspace,
+  type CreateLinkedTargetInput,
+  type UpdateLinkedTargetInput,
+} from "../core/linkedTargets";
+import {
   activeProjectFromWorkspace,
   addPathsToGroupInWorkspace,
   addPathToWorkspace,
@@ -96,6 +106,19 @@ export interface ProjectStoreState {
   ): void;
   addPathsToGroup(groupId: string, pathIds: readonly string[]): void;
   removePathsFromGroup(groupId: string, pathIds: readonly string[]): void;
+  createLinkedTarget(
+    input: Omit<CreateLinkedTargetInput, "target_id"> & {
+      target_id?: string;
+    },
+  ): string;
+  updateLinkedTarget(targetId: string, update: UpdateLinkedTargetInput): void;
+  deleteLinkedTarget(targetId: string): void;
+  linkPathElementToTarget(
+    pathId: string,
+    elementIndex: number,
+    targetId: string,
+  ): void;
+  unlinkPathElement(pathId: string, elementIndex: number): void;
   importPath(file: File): Promise<ProjectWorkspaceDocument>;
   exportPath(pathId?: string): Promise<Blob | null>;
   importConfig(file: File): Promise<ProjectWorkspaceDocument>;
@@ -436,6 +459,66 @@ export function createProjectStore(
         workspace,
         removePathsFromGroupInWorkspace(workspace, groupId, pathIds),
         "Remove paths from collection",
+      );
+    },
+    createLinkedTarget(input) {
+      const workspace = requireWorkspace(get().workspace);
+      const targetId = input.target_id ?? createLinkedTargetId();
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        addLinkedTargetToWorkspace(workspace, {
+          ...input,
+          target_id: targetId,
+        }),
+        `Create linked ${input.kind === "pose" ? "pose" : "point"}`,
+      );
+      return targetId;
+    },
+    updateLinkedTarget(targetId, update) {
+      const workspace = requireWorkspace(get().workspace);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        updateLinkedTargetInWorkspace(workspace, targetId, update),
+        "Update linked target",
+      );
+    },
+    deleteLinkedTarget(targetId) {
+      const workspace = requireWorkspace(get().workspace);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        deleteLinkedTargetFromWorkspace(workspace, targetId),
+        "Delete linked target",
+      );
+    },
+    linkPathElementToTarget(pathId, elementIndex, targetId) {
+      const workspace = requireWorkspace(get().workspace);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        linkPathElementToTargetInWorkspace(
+          workspace,
+          pathId,
+          elementIndex,
+          targetId,
+        ),
+        "Link path element",
+      );
+    },
+    unlinkPathElement(pathId, elementIndex) {
+      const workspace = requireWorkspace(get().workspace);
+      applyWorkspaceTransition(
+        set,
+        history,
+        workspace,
+        unlinkPathElementInWorkspace(workspace, pathId, elementIndex),
+        "Unlink path element",
       );
     },
     deletePaths(pathIds) {

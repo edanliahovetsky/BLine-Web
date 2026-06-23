@@ -45,6 +45,17 @@ export interface ProjectPathGroupDocument {
   path_ids: string[];
 }
 
+export type LinkedTargetKind = "point" | "pose";
+
+export interface LinkedTarget {
+  target_id: string;
+  display_name: string;
+  kind: LinkedTargetKind;
+  x_meters: number;
+  y_meters: number;
+  rotation_radians?: number | null;
+}
+
 export interface ProjectWorkspaceDocument {
   schema_version: ProjectSchemaVersion;
   project_id: string;
@@ -54,6 +65,7 @@ export interface ProjectWorkspaceDocument {
   active_path_id: string | null;
   path_groups: ProjectPathGroupDocument[];
   active_path_group_id: string | null;
+  linked_targets: LinkedTarget[];
 }
 
 export interface SerializedRangedConstraint {
@@ -73,6 +85,12 @@ export interface SerializedRangedConstraintMetadata {
 
 export interface SerializedPathEditorMetadata {
   ranged_constraints?: SerializedRangedConstraintMetadata[];
+  linked_targets?: SerializedLinkedPathElementTarget[];
+}
+
+export interface SerializedLinkedPathElementTarget {
+  element_index: number;
+  target_id: string;
 }
 
 export type SerializedConstraintValue = number | SerializedRangedConstraint[];
@@ -151,6 +169,15 @@ export interface SerializedProjectPathGroupDocument {
   path_ids: string[];
 }
 
+export interface SerializedLinkedTarget {
+  target_id: string;
+  display_name: string;
+  kind: LinkedTargetKind;
+  x_meters: number;
+  y_meters: number;
+  rotation_radians?: number | null;
+}
+
 export interface SerializedProjectWorkspaceDocument {
   schema_version: ProjectSchemaVersion;
   project_id: string;
@@ -160,6 +187,7 @@ export interface SerializedProjectWorkspaceDocument {
   active_path_id?: string | null;
   path_groups?: SerializedProjectPathGroupDocument[];
   active_path_group_id?: string | null;
+  linked_targets?: SerializedLinkedTarget[];
 }
 
 export interface CreateProjectDocumentInput {
@@ -191,6 +219,7 @@ export interface CreateProjectWorkspaceDocumentInput {
   active_path_id?: string | null;
   path_groups?: ProjectPathGroupDocument[];
   active_path_group_id?: string | null;
+  linked_targets?: LinkedTarget[];
 }
 
 export function createProjectDocument({
@@ -244,6 +273,7 @@ export function createProjectWorkspaceDocument({
   active_path_id = paths[0]?.path_id ?? null,
   path_groups = [],
   active_path_group_id = null,
+  linked_targets = [],
 }: CreateProjectWorkspaceDocumentInput): ProjectWorkspaceDocument {
   const activePathExists = paths.some(
     (path) => path.path_id === active_path_id,
@@ -263,5 +293,6 @@ export function createProjectWorkspaceDocument({
       : (paths[0]?.path_id ?? null),
     path_groups,
     active_path_group_id: activeGroupExists ? active_path_group_id : null,
+    linked_targets,
   };
 }

@@ -2,6 +2,14 @@ import {
   defaultFieldGeometry,
   type FieldGeometry,
 } from "../../../core/field/fieldConfig";
+import type {
+  LinkedTargetKind,
+  ProjectWorkspaceDocument,
+} from "../../../core/io/projectSchema";
+import {
+  getPathElementLinkedTargetId,
+  isElementCompatibleWithLinkedTarget,
+} from "../../../core/linkedTargets";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -25,23 +33,31 @@ import {
 
 interface PropertyEditorProps {
   element: PathElement | null;
+  workspace: ProjectWorkspaceDocument | null;
   selectedElementIndex: number | null;
   open: boolean;
   typeOptions: readonly AddableElementType[];
   onToggleSection(): void;
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
+  onLinkTarget(targetId: string): void;
+  onUnlinkTarget(): void;
+  onCreateLinkedTarget(kind: LinkedTargetKind): void;
   fieldGeometry?: FieldGeometry;
 }
 
 export function PropertyEditor({
   element,
+  workspace,
   selectedElementIndex,
   open,
   typeOptions,
   onToggleSection,
   onChangeType,
   onUpdateElement,
+  onLinkTarget,
+  onUnlinkTarget,
+  onCreateLinkedTarget,
   fieldGeometry = defaultFieldGeometry,
 }: PropertyEditorProps) {
   if (!element) {
@@ -66,6 +82,13 @@ export function PropertyEditor({
           element={element}
           options={typeOptions}
           onChangeType={onChangeType}
+        />
+        <LinkedTargetField
+          element={element}
+          workspace={workspace}
+          onCreateLinkedTarget={onCreateLinkedTarget}
+          onLinkTarget={onLinkTarget}
+          onUnlinkTarget={onUnlinkTarget}
         />
         {isTranslationTarget(element) ? (
           <TranslationFields
@@ -125,6 +148,74 @@ function TypeField({
         onChange={onChangeType}
       />
     </label>
+  );
+}
+
+function LinkedTargetField({
+  element,
+  workspace,
+  onCreateLinkedTarget,
+  onLinkTarget,
+  onUnlinkTarget,
+}: {
+  element: PathElement;
+  workspace: ProjectWorkspaceDocument | null;
+  onCreateLinkedTarget(kind: LinkedTargetKind): void;
+  onLinkTarget(targetId: string): void;
+  onUnlinkTarget(): void;
+}) {
+  if (!workspace || (!isTranslationTarget(element) && !isWaypoint(element))) {
+    return null;
+  }
+
+  const currentTargetId = getPathElementLinkedTargetId(element) ?? "";
+  const compatibleTargets = workspace.linked_targets.filter((target) =>
+    isElementCompatibleWithLinkedTarget(element, target),
+  );
+  const createKinds: LinkedTargetKind[] = isWaypoint(element)
+    ? ["point", "pose"]
+    : ["point"];
+
+  return (
+    <div className="linked-target-property">
+      <label className="property-row">
+        <span>Linked Target</span>
+        <SidebarSelectControl
+          ariaLabel="Linked Target"
+          value={currentTargetId}
+          options={[
+            { label: "None", value: "" },
+            ...compatibleTargets.map((target) => ({
+              label: `${target.display_name} (${target.kind === "pose" ? "Pose" : "Point"})`,
+              value: target.target_id,
+            })),
+          ]}
+          onChange={(targetId) => {
+            if (targetId) {
+              onLinkTarget(targetId);
+            } else {
+              onUnlinkTarget();
+            }
+          }}
+        />
+      </label>
+      <div className="linked-target-property__actions">
+        {createKinds.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => onCreateLinkedTarget(kind)}
+          >
+            {kind === "pose" ? "New Pose" : "New Point"}
+          </button>
+        ))}
+        {currentTargetId ? (
+          <button type="button" onClick={onUnlinkTarget}>
+            Unlink
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

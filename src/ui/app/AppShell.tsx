@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -18,17 +19,25 @@ import { invoke } from "@tauri-apps/api/core";
 import { PathStage } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import type {
+  LinkedTarget,
+  LinkedTargetKind,
   ProjectPathGroupDocument,
   ProjectPathDocument,
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
-import type {
-  CustomFieldImage,
-  FieldGeometry,
+import {
+  fieldCoordinateLengthMeters,
+  fieldCoordinateOffsetXMeters,
+  fieldCoordinateOffsetYMeters,
+  fieldCoordinateWidthMeters,
+  resolveFieldDefinition,
+  type CustomFieldImage,
+  type FieldGeometry,
 } from "../../core/field/fieldConfig";
 import type { TranslationTarget } from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
+import { linkedTargetUseCount } from "../../core/linkedTargets";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
   createProjectIoService,
@@ -114,6 +123,7 @@ export function AppShell() {
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
   const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
+  const [showLinkedTargetsDialog, setShowLinkedTargetsDialog] = useState(false);
   const [showMobileSupportWarning, setShowMobileSupportWarning] =
     useState(false);
   const [pendingImportMode, setPendingImportMode] =
@@ -401,6 +411,12 @@ export function AppShell() {
     setShowPathGroupsDialog(true);
   }, []);
 
+  const handleShowLinkedTargets = useCallback(() => {
+    setShowOpenPanel(false);
+    setOpenTopMenu(null);
+    setShowLinkedTargetsDialog(true);
+  }, []);
+
   const handleConfirmCreateNewPath = useCallback(
     ({
       addToCurrentGroup,
@@ -491,6 +507,7 @@ export function AppShell() {
           showDeletePathDialog,
           showDeleteProjectDialog,
           showPathGroupsDialog,
+          showLinkedTargetsDialog,
           showMobileSupportWarning,
           showOpenPanel,
         }) ||
@@ -526,6 +543,7 @@ export function AppShell() {
     showDeletePathDialog,
     showDeleteProjectDialog,
     showPathGroupsDialog,
+    showLinkedTargetsDialog,
     showMobileSupportWarning,
     showOpenPanel,
     showNewPathDialog,
@@ -1183,6 +1201,11 @@ export function AppShell() {
               disabled={!workspace}
               onAction={handleShowPathLibrary}
             />
+            <MenuAction
+              label="Linked Points..."
+              disabled={!workspace}
+              onAction={handleShowLinkedTargets}
+            />
             <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
               <MenuAction
                 label="Create New Path"
@@ -1430,6 +1453,7 @@ export function AppShell() {
 
         <Sidebar
           project={project}
+          workspace={workspace}
           selectedElementIndex={selectedElementIndex}
           curveToolActive={curveToolSession !== null}
           onStartCurve={handleStartCurveTool}
@@ -1515,6 +1539,12 @@ export function AppShell() {
           }}
           onExportPath={() => void handleExportPath()}
           onImportPath={() => queueFileImport("path")}
+        />
+      ) : null}
+      {workspace && showLinkedTargetsDialog ? (
+        <LinkedTargetsDialog
+          workspace={workspace}
+          onCancel={() => setShowLinkedTargetsDialog(false)}
         />
       ) : null}
       {workspace && showNewPathDialog ? (
@@ -2434,6 +2464,556 @@ function PathLibraryDialog({
   );
 }
 
+function LinkedTargetsDialog({
+  workspace,
+  onCancel,
+}: {
+  workspace: ProjectWorkspaceDocument;
+  onCancel(): void;
+}) {
+  const field = useMemo(
+    () => resolveFieldDefinition(workspace.config.gui.field),
+    [workspace.config.gui.field],
+  );
+  const [requestedTargetId, setSelectedTargetId] = useState<string | null>(
+    workspace.linked_targets[0]?.target_id ?? null,
+  );
+  const [dragPreview, setDragPreview] = useState<{
+    targetId: string;
+    start_x_meters: number;
+    start_y_meters: number;
+    x_meters: number;
+    y_meters: number;
+  } | null>(null);
+  const previewRef = useRef<SVGSVGElement | null>(null);
+
+  const selectedTargetId =
+    requestedTargetId &&
+    workspace.linked_targets.some(
+      (target) => target.target_id === requestedTargetId,
+    )
+      ? requestedTargetId
+      : (workspace.linked_targets[0]?.target_id ?? null);
+
+  const selectedTarget =
+    workspace.linked_targets.find(
+      (target) => target.target_id === selectedTargetId,
+    ) ?? null;
+  const displayedTargets = workspace.linked_targets.map((target) =>
+    dragPreview?.targetId === target.target_id
+      ? {
+          ...target,
+          x_meters: dragPreview.x_meters,
+          y_meters: dragPreview.y_meters,
+        }
+      : target,
+  );
+  const activeUseCount = selectedTarget
+    ? linkedTargetUseCount(workspace, selectedTarget.target_id)
+    : 0;
+  const coordinateLength = fieldCoordinateLengthMeters(field.geometry);
+  const coordinateWidth = fieldCoordinateWidthMeters(field.geometry);
+
+  const createTarget = (kind: LinkedTargetKind) => {
+    const targetId = projectStore.getState().createLinkedTarget({
+      display_name: nextLinkedTargetName(workspace, kind),
+      kind,
+      x_meters: coordinateLength / 2,
+      y_meters: coordinateWidth / 2,
+      rotation_radians: kind === "pose" ? 0 : null,
+    });
+    setSelectedTargetId(targetId);
+  };
+
+  const updateTarget = (
+    targetId: string,
+    update: Partial<
+      Pick<
+        LinkedTarget,
+        "display_name" | "kind" | "x_meters" | "y_meters" | "rotation_radians"
+      >
+    >,
+  ) => {
+    projectStore.getState().updateLinkedTarget(targetId, update);
+  };
+
+  const handlePreviewPointerMove = (
+    event: ReactPointerEvent<SVGSVGElement>,
+  ) => {
+    if (!dragPreview) {
+      return;
+    }
+    const nextPosition = previewPointerToModelPoint(
+      event,
+      previewRef.current,
+      field.geometry,
+    );
+    if (!nextPosition) {
+      return;
+    }
+    setDragPreview({
+      ...dragPreview,
+      ...nextPosition,
+    });
+  };
+
+  const finishPreviewDrag = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (!dragPreview) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (
+      !nearlyEqual(dragPreview.x_meters, dragPreview.start_x_meters) ||
+      !nearlyEqual(dragPreview.y_meters, dragPreview.start_y_meters)
+    ) {
+      projectStore.getState().updateLinkedTarget(dragPreview.targetId, {
+        x_meters: dragPreview.x_meters,
+        y_meters: dragPreview.y_meters,
+      });
+    }
+    setDragPreview(null);
+  };
+
+  const cancelPreviewDrag = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDragPreview(null);
+  };
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <section
+        className="path-library-dialog linked-targets-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Linked Points"
+        data-testid="linked-targets-dialog"
+      >
+        <header className="config-dialog__header">
+          <strong>Linked Points</strong>
+          <button
+            type="button"
+            aria-label="Close linked points"
+            onClick={onCancel}
+          >
+            x
+          </button>
+        </header>
+
+        <div className="path-library-dialog__utility-bar">
+          <div className="path-library-dialog__selection-summary">
+            <strong>
+              {selectedTarget?.display_name ?? "No linked target"}
+            </strong>
+            <span>
+              {workspace.linked_targets.length}{" "}
+              {workspace.linked_targets.length === 1 ? "target" : "targets"} /{" "}
+              {activeUseCount} {activeUseCount === 1 ? "use" : "uses"}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="path-library-dialog__utility-button"
+            onClick={() => createTarget("point")}
+          >
+            <PlusIcon size={17} />
+            <span>New Point</span>
+          </button>
+          <button
+            type="button"
+            className="path-library-dialog__utility-button"
+            onClick={() => createTarget("pose")}
+          >
+            <PlusIcon size={17} />
+            <span>New Pose</span>
+          </button>
+        </div>
+
+        <div className="linked-targets-dialog__body">
+          <aside className="linked-targets-dialog__list" aria-label="Targets">
+            <div className="path-library-dialog__column-header">
+              <strong>Targets</strong>
+              <span>{workspace.linked_targets.length}</span>
+            </div>
+            <div className="path-library-dialog__path-list" role="list">
+              {workspace.linked_targets.length > 0 ? (
+                workspace.linked_targets.map((target) => {
+                  const selected = target.target_id === selectedTargetId;
+                  const useCount = linkedTargetUseCount(
+                    workspace,
+                    target.target_id,
+                  );
+                  return (
+                    <button
+                      key={target.target_id}
+                      type="button"
+                      role="listitem"
+                      className={
+                        selected
+                          ? "path-library-dialog__path is-selected"
+                          : "path-library-dialog__path"
+                      }
+                      aria-pressed={selected}
+                      onClick={() => setSelectedTargetId(target.target_id)}
+                    >
+                      <span>{target.display_name}</span>
+                      <small>
+                        {formatLinkedTargetKind(target.kind)} / {useCount}{" "}
+                        {useCount === 1 ? "use" : "uses"}
+                      </small>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="path-library-dialog__empty">
+                  No linked points yet.
+                </div>
+              )}
+            </div>
+          </aside>
+
+          <section
+            className="linked-targets-dialog__preview-column"
+            aria-label="Linked target preview"
+          >
+            <div className="path-library-dialog__column-header">
+              <strong>Field Preview</strong>
+              <span>{field.label}</span>
+            </div>
+            <div className="linked-targets-dialog__preview-shell">
+              <svg
+                ref={previewRef}
+                className="linked-targets-dialog__preview"
+                viewBox={`0 0 ${field.geometry.length_meters} ${field.geometry.width_meters}`}
+                role="img"
+                aria-label="Linked target field preview"
+                onPointerMove={handlePreviewPointerMove}
+                onPointerUp={finishPreviewDrag}
+                onPointerCancel={cancelPreviewDrag}
+              >
+                <rect
+                  className="linked-targets-dialog__preview-base"
+                  x="0"
+                  y="0"
+                  width={field.geometry.length_meters}
+                  height={field.geometry.width_meters}
+                />
+                {field.kind === "image" && field.image_src ? (
+                  <image
+                    href={field.image_src}
+                    x="0"
+                    y="0"
+                    width={field.geometry.length_meters}
+                    height={field.geometry.width_meters}
+                    preserveAspectRatio="none"
+                  />
+                ) : (
+                  <PreviewGrid field={field.geometry} />
+                )}
+                {displayedTargets.map((target) => {
+                  const point = linkedTargetToPreviewPoint(
+                    target,
+                    field.geometry,
+                  );
+                  const selected = target.target_id === selectedTargetId;
+                  return (
+                    <g
+                      key={target.target_id}
+                      className={[
+                        "linked-targets-dialog__marker",
+                        selected ? "is-selected" : "is-muted",
+                        target.kind === "pose" ? "is-pose" : "is-point",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={target.display_name}
+                      transform={`translate(${point.x} ${point.y})`}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) {
+                          return;
+                        }
+                        event.preventDefault();
+                        event.stopPropagation();
+                        previewRef.current?.setPointerCapture(event.pointerId);
+                        setSelectedTargetId(target.target_id);
+                        setDragPreview({
+                          targetId: target.target_id,
+                          start_x_meters: target.x_meters,
+                          start_y_meters: target.y_meters,
+                          x_meters: target.x_meters,
+                          y_meters: target.y_meters,
+                        });
+                      }}
+                    >
+                      {target.kind === "pose" ? (
+                        <line
+                          x1="0"
+                          y1="0"
+                          x2={Math.cos(target.rotation_radians ?? 0) * 0.6}
+                          y2={-Math.sin(target.rotation_radians ?? 0) * 0.6}
+                        />
+                      ) : null}
+                      <circle r={selected ? 0.18 : 0.14} />
+                      <text x="0.28" y="-0.18">
+                        {target.display_name}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          </section>
+
+          <section
+            className="path-library-dialog__details linked-targets-dialog__details"
+            aria-label="Linked target details"
+          >
+            <div className="path-library-dialog__column-header">
+              <strong>Details</strong>
+              <span>
+                {selectedTarget
+                  ? formatLinkedTargetKind(selectedTarget.kind)
+                  : ""}
+              </span>
+            </div>
+            <div className="path-library-dialog__details-scroll">
+              {selectedTarget ? (
+                <div className="linked-targets-dialog__editor">
+                  <label className="dialog-field">
+                    <span>Name</span>
+                    <input
+                      aria-label="Linked target name"
+                      value={selectedTarget.display_name}
+                      onChange={(event) =>
+                        updateTarget(selectedTarget.target_id, {
+                          display_name: event.currentTarget.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="dialog-field">
+                    <span>Type</span>
+                    <select
+                      aria-label="Linked target type"
+                      value={selectedTarget.kind}
+                      onChange={(event) =>
+                        updateTarget(selectedTarget.target_id, {
+                          kind: event.currentTarget.value as LinkedTargetKind,
+                        })
+                      }
+                    >
+                      <option value="point">Point</option>
+                      <option value="pose">Pose</option>
+                    </select>
+                  </label>
+                  <LinkedTargetNumberField
+                    label="X (m)"
+                    value={selectedTarget.x_meters}
+                    min={0}
+                    max={coordinateLength}
+                    onChange={(x_meters) =>
+                      updateTarget(selectedTarget.target_id, { x_meters })
+                    }
+                  />
+                  <LinkedTargetNumberField
+                    label="Y (m)"
+                    value={selectedTarget.y_meters}
+                    min={0}
+                    max={coordinateWidth}
+                    onChange={(y_meters) =>
+                      updateTarget(selectedTarget.target_id, { y_meters })
+                    }
+                  />
+                  {selectedTarget.kind === "pose" ? (
+                    <LinkedTargetNumberField
+                      label="Heading (deg)"
+                      value={radiansToDegrees(
+                        selectedTarget.rotation_radians ?? 0,
+                      )}
+                      onChange={(degrees) =>
+                        updateTarget(selectedTarget.target_id, {
+                          rotation_radians: degreesToRadians(degrees),
+                        })
+                      }
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    className="linked-targets-dialog__danger"
+                    onClick={() => {
+                      const nextSelection =
+                        workspace.linked_targets.find(
+                          (target) =>
+                            target.target_id !== selectedTarget.target_id,
+                        )?.target_id ?? null;
+                      projectStore
+                        .getState()
+                        .deleteLinkedTarget(selectedTarget.target_id);
+                      setSelectedTargetId(nextSelection);
+                    }}
+                  >
+                    Delete Linked Target
+                  </button>
+                </div>
+              ) : (
+                <div className="path-library-dialog__empty">
+                  Select or create a linked point.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <footer className="config-dialog__footer path-library-dialog__footer">
+          <button type="button" onClick={onCancel}>
+            Close
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function LinkedTargetNumberField({
+  label,
+  max,
+  min,
+  value,
+  onChange,
+}: {
+  label: string;
+  max?: number;
+  min?: number;
+  value: number;
+  onChange(value: number): void;
+}) {
+  return (
+    <label className="dialog-field">
+      <span>{label}</span>
+      <input
+        aria-label={label}
+        type="number"
+        min={min}
+        max={max}
+        step={label === "Heading (deg)" ? 1 : 0.05}
+        value={formatNumericInputValue(value)}
+        onChange={(event) => {
+          const parsed = Number(event.currentTarget.value);
+          if (Number.isFinite(parsed)) {
+            onChange(clamp(parsed, min, max));
+          }
+        }}
+      />
+    </label>
+  );
+}
+
+function PreviewGrid({ field }: { field: FieldGeometry }) {
+  const lines = [];
+  for (let x = 1; x < field.length_meters; x += 1) {
+    lines.push(
+      <line key={`x-${x}`} x1={x} y1={0} x2={x} y2={field.width_meters} />,
+    );
+  }
+  for (let y = 1; y < field.width_meters; y += 1) {
+    lines.push(
+      <line key={`y-${y}`} x1={0} y1={y} x2={field.length_meters} y2={y} />,
+    );
+  }
+  return <g className="linked-targets-dialog__preview-grid">{lines}</g>;
+}
+
+function linkedTargetToPreviewPoint(
+  target: LinkedTarget,
+  field: FieldGeometry,
+): { x: number; y: number } {
+  return {
+    x: target.x_meters + fieldCoordinateOffsetXMeters(field),
+    y:
+      field.width_meters -
+      target.y_meters -
+      fieldCoordinateOffsetYMeters(field),
+  };
+}
+
+function previewPointerToModelPoint(
+  event: ReactPointerEvent<SVGSVGElement>,
+  svg: SVGSVGElement | null,
+  field: FieldGeometry,
+): { x_meters: number; y_meters: number } | null {
+  if (!svg) {
+    return null;
+  }
+
+  const rect = svg.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return null;
+  }
+
+  const sceneX =
+    ((event.clientX - rect.left) / rect.width) * field.length_meters;
+  const sceneY =
+    ((event.clientY - rect.top) / rect.height) * field.width_meters;
+  return {
+    x_meters: clamp(
+      sceneX - fieldCoordinateOffsetXMeters(field),
+      0,
+      fieldCoordinateLengthMeters(field),
+    ),
+    y_meters: clamp(
+      field.width_meters - sceneY - fieldCoordinateOffsetYMeters(field),
+      0,
+      fieldCoordinateWidthMeters(field),
+    ),
+  };
+}
+
+function nextLinkedTargetName(
+  workspace: ProjectWorkspaceDocument,
+  kind: LinkedTargetKind,
+): string {
+  const base = kind === "pose" ? "Linked Pose" : "Linked Point";
+  const names = new Set(
+    workspace.linked_targets.map((target) => target.display_name),
+  );
+  for (let index = 1; index < 10_000; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!names.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base} ${workspace.linked_targets.length + 1}`;
+}
+
+function formatLinkedTargetKind(kind: LinkedTargetKind): string {
+  return kind === "pose" ? "Pose" : "Point";
+}
+
+function formatNumericInputValue(value: number): string {
+  return Number.isFinite(value) ? Number(value.toFixed(3)).toString() : "0";
+}
+
+function radiansToDegrees(radians: number): number {
+  return radians * (180 / Math.PI);
+}
+
+function degreesToRadians(degrees: number): number {
+  return degrees * (Math.PI / 180);
+}
+
+function clamp(value: number, min?: number, max?: number): number {
+  return Math.min(Math.max(value, min ?? -Infinity), max ?? Infinity);
+}
+
+function nearlyEqual(a: number, b: number): boolean {
+  return Math.abs(a - b) < 1e-6;
+}
+
 function PathLibraryHeaderButton({
   children,
   disabled = false,
@@ -2946,6 +3526,7 @@ function hasActiveBlockingSurface({
   showDeletePathDialog,
   showDeleteProjectDialog,
   showPathGroupsDialog,
+  showLinkedTargetsDialog,
   showMobileSupportWarning,
   showOpenPanel,
 }: {
@@ -2955,6 +3536,7 @@ function hasActiveBlockingSurface({
   showDeletePathDialog: boolean;
   showDeleteProjectDialog: boolean;
   showPathGroupsDialog: boolean;
+  showLinkedTargetsDialog: boolean;
   showMobileSupportWarning: boolean;
   showOpenPanel: boolean;
 }): boolean {
@@ -2965,6 +3547,7 @@ function hasActiveBlockingSurface({
     showDeletePathDialog ||
     showDeleteProjectDialog ||
     showPathGroupsDialog ||
+    showLinkedTargetsDialog ||
     showMobileSupportWarning ||
     showOpenPanel,
   );

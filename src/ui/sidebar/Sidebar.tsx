@@ -1,7 +1,15 @@
 import { useState } from "react";
-import type { ProjectDocument } from "../../core/io/projectSchema";
+import type {
+  LinkedTargetKind,
+  ProjectDocument,
+  ProjectWorkspaceDocument,
+} from "../../core/io/projectSchema";
 import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
 import type { PathElement } from "../../core/model/path";
+import {
+  getElementHeadingRadians,
+  getElementPosition,
+} from "../../canvas/geometry";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import { ConstraintEditor } from "./sections/ConstraintEditor";
@@ -34,6 +42,7 @@ const defaultSidebarSectionState: SidebarSectionState = {
 
 interface SidebarProps {
   project: ProjectDocument | null;
+  workspace: ProjectWorkspaceDocument | null;
   selectedElementIndex: number | null;
   curveToolActive?: boolean;
   onStartCurve?(insertionIndex: number): void;
@@ -41,6 +50,7 @@ interface SidebarProps {
 
 export function Sidebar({
   project,
+  workspace,
   selectedElementIndex,
   curveToolActive = false,
   onStartCurve,
@@ -175,6 +185,72 @@ export function Sidebar({
       .selectElement(selectedElementIndex, projectStore.getState().project);
   };
 
+  const handleLinkTarget = (targetId: string) => {
+    if (!project || selectedElementIndex === null) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .linkPathElementToTarget(
+        project.project_id,
+        selectedElementIndex,
+        targetId,
+      );
+    selectionStore
+      .getState()
+      .selectElement(selectedElementIndex, projectStore.getState().project);
+  };
+
+  const handleUnlinkTarget = () => {
+    if (!project || selectedElementIndex === null) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .unlinkPathElement(project.project_id, selectedElementIndex);
+    selectionStore
+      .getState()
+      .selectElement(selectedElementIndex, projectStore.getState().project);
+  };
+
+  const handleCreateLinkedTarget = (kind: LinkedTargetKind) => {
+    if (!project || !workspace || selectedElementIndex === null) {
+      return;
+    }
+
+    const position = getElementPosition(
+      project.path.path_elements,
+      selectedElementIndex,
+    );
+    if (!position) {
+      return;
+    }
+
+    const displayName = nextLinkedTargetName(workspace, kind);
+    projectStore.getState().createLinkedTarget({
+      display_name: displayName,
+      kind,
+      x_meters: position.x_meters,
+      y_meters: position.y_meters,
+      rotation_radians:
+        kind === "pose"
+          ? (getElementHeadingRadians(
+              project.path.path_elements,
+              selectedElementIndex,
+            ) ?? 0)
+          : null,
+      link: {
+        pathId: project.project_id,
+        elementIndex: selectedElementIndex,
+      },
+    });
+    selectionStore
+      .getState()
+      .selectElement(selectedElementIndex, projectStore.getState().project);
+  };
+
   const handleToggleSection = (key: SidebarSectionKey) => {
     setSectionState((current) => {
       const next = { ...current, [key]: !current[key] };
@@ -199,6 +275,7 @@ export function Sidebar({
       />
       <PropertyEditor
         element={selectedElement}
+        workspace={workspace}
         selectedElementIndex={selectedElementIndex}
         open={sectionState.properties}
         typeOptions={
@@ -210,6 +287,9 @@ export function Sidebar({
         onToggleSection={() => handleToggleSection("properties")}
         onChangeType={handleChangeElementType}
         onUpdateElement={handleUpdateElement}
+        onLinkTarget={handleLinkTarget}
+        onUnlinkTarget={handleUnlinkTarget}
+        onCreateLinkedTarget={handleCreateLinkedTarget}
       />
       <ConstraintEditor
         project={project}
@@ -303,4 +383,21 @@ function writeSidebarSectionState(state: SidebarSectionState): void {
   } catch {
     // Local UI preferences should never block editing.
   }
+}
+
+function nextLinkedTargetName(
+  workspace: ProjectWorkspaceDocument,
+  kind: LinkedTargetKind,
+): string {
+  const base = kind === "pose" ? "Linked Pose" : "Linked Point";
+  const existing = new Set(
+    workspace.linked_targets.map((target) => target.display_name),
+  );
+  for (let index = 1; index < 10_000; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base} ${workspace.linked_targets.length + 1}`;
 }

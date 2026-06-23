@@ -1,17 +1,19 @@
 import { createProjectConfig } from "../config/projectConfig";
 import type {
+  LinkedTarget,
   ProjectConfig,
   ProjectDocument,
   ProjectWorkspaceDocument,
+  SerializedPathEditorMetadata,
   SerializedPathDocument,
 } from "./projectSchema";
 import { createProjectDocument } from "./projectSchema";
-import { serializePath } from "./projectSerde";
 import {
   deserializeProjectWorkspaceDocument,
   ensureJsonFileName,
   projectDocumentToWorkspaceDocument,
   serializePathGroupsFile,
+  serializeProjectWorkspaceDocument,
 } from "./workspaceSerde";
 
 export const blineProjectArchiveSchemaVersion = 1;
@@ -20,6 +22,7 @@ export interface SerializedProjectArchivePath {
   file_name: string;
   display_name?: string;
   path: SerializedPathDocument;
+  editor_metadata?: SerializedPathEditorMetadata;
 }
 
 export interface SerializedProjectArchive {
@@ -28,6 +31,7 @@ export interface SerializedProjectArchive {
   config: ProjectConfig;
   paths: SerializedProjectArchivePath[];
   path_groups?: ReturnType<typeof serializePathGroupsFile>["groups"];
+  linked_targets?: LinkedTarget[];
   field_assets?: SerializedProjectArchiveFieldAsset[];
 }
 
@@ -95,17 +99,20 @@ export function createBLineProjectArchive(
   fieldAssets: SerializedProjectArchiveFieldAsset[] = [],
 ): SerializedProjectArchive {
   const workspace = workspaceFromArchiveSource(source);
+  const serializedWorkspace = serializeProjectWorkspaceDocument(workspace);
 
   const archive: SerializedProjectArchive = {
     bline_project_schema_version: blineProjectArchiveSchemaVersion,
     exported_at: exportedAt,
     config: serializeProjectConfig(workspace.config),
-    paths: workspace.paths.map((path, index) => ({
+    paths: serializedWorkspace.paths.map((path, index) => ({
       file_name: ensureJsonFileName(path.file_name || `path-${index + 1}.json`),
       display_name: path.display_name,
-      path: serializePath(path.path),
+      path: path.path,
+      editor_metadata: path.editor_metadata,
     })),
     path_groups: serializePathGroupsFile(workspace).groups,
+    linked_targets: serializedWorkspace.linked_targets,
   };
 
   if (fieldAssets.length > 0) {
@@ -166,9 +173,11 @@ export function deserializeBLineProjectArchive(
         display_name: entry.display_name,
         file_name: entry.file_name || `path-${index + 1}.json`,
         path: entry.path,
+        editor_metadata: entry.editor_metadata,
       })),
       active_path_id: input.paths[0]?.file_name ?? null,
       path_groups: input.path_groups,
+      linked_targets: input.linked_targets,
     },
     options,
   );

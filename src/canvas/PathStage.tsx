@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type WheelEvent,
 } from "react";
@@ -13,10 +14,15 @@ import {
   isAnchorElement,
   isEventTrigger,
   isRotationTarget,
+  isTranslationTarget,
   isWaypoint,
   type PathElement,
   type TranslationTarget,
 } from "../core/model/path";
+import type {
+  LinkedTarget,
+  ProjectWorkspaceDocument,
+} from "../core/io/projectSchema";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
 import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
@@ -24,6 +30,10 @@ import { simulatePath, type SimResult } from "../core/sim";
 import { projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
+import {
+  getPathElementLinkedTargetId,
+  isElementCompatibleWithLinkedTarget,
+} from "../core/linkedTargets";
 import { SkipBackIcon, SkipForwardIcon } from "../ui/icons";
 import {
   isInteractiveShortcutTarget,
@@ -106,6 +116,12 @@ interface ActiveCurveDraft {
   targetPoints: PointMeters[];
 }
 
+interface ActiveCanvasContextMenu {
+  stagePoint: StagePoint;
+  fieldPoint: PointMeters;
+  elementIndex: number | null;
+}
+
 export function PathStage({
   curveTool = null,
   onInteractionStateChange,
@@ -141,6 +157,8 @@ export function PathStage({
   >(null);
   const [hoveredOverlayPoint, setHoveredOverlayPoint] =
     useState<StagePoint | null>(null);
+  const [contextMenu, setContextMenu] =
+    useState<ActiveCanvasContextMenu | null>(null);
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const [activeRotationDrag, setActiveRotationDragState] =
     useState<ActiveRotationDrag | null>(null);
@@ -691,6 +709,12 @@ export function PathStage({
       return;
     }
 
+    if (event.key === "Escape" && contextMenu) {
+      event.preventDefault();
+      setContextMenu(null);
+      return;
+    }
+
     if (event.key === "Delete" || event.key === "Backspace") {
       if (removeSelectedRangedConstraint() || removeSelectedPathElement()) {
         event.preventDefault();
@@ -744,10 +768,14 @@ export function PathStage({
     if (isTransportEventTarget(event.target)) {
       return;
     }
+    if (event.button !== 0) {
+      return;
+    }
     if (!project) {
       return;
     }
 
+    setContextMenu(null);
     containerRef.current?.focus();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1081,6 +1109,130 @@ export function PathStage({
     }
   };
 
+  const handleContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+    if (isTransportEventTarget(event.target)) {
+      return;
+    }
+    event.preventDefault();
+    if (!project) {
+      return;
+    }
+
+    const pointer = stagePointFromEvent(event);
+    const elementIndex = hitTestPathElement(
+      project,
+      viewport,
+      dragPreview,
+      pointer,
+      selectedElementIndex,
+    );
+    setContextMenu({
+      stagePoint: pointer,
+      fieldPoint: stageToModelPoint(pointer, viewport),
+      elementIndex,
+    });
+  };
+
+  const createLinkedPointAtContext = () => {
+    if (!workspace || !contextMenu) {
+      return;
+    }
+
+    projectStore.getState().createLinkedTarget({
+      display_name: nextLinkedTargetName(workspace, "point"),
+      kind: "point",
+      x_meters: contextMenu.fieldPoint.x_meters,
+      y_meters: contextMenu.fieldPoint.y_meters,
+      rotation_radians: null,
+    });
+    setContextMenu(null);
+  };
+
+  const createLinkedTargetFromContextElement = (kind: "point" | "pose") => {
+    if (
+      !workspace ||
+      !project ||
+      !contextMenu ||
+      contextMenu.elementIndex === null
+    ) {
+      return;
+    }
+
+    const elementIndex = contextMenu.elementIndex;
+    const position = getElementPosition(
+      project.path.path_elements,
+      elementIndex,
+    );
+    if (!position) {
+      return;
+    }
+
+    projectStore.getState().createLinkedTarget({
+      display_name: nextLinkedTargetName(workspace, kind),
+      kind,
+      x_meters: position.x_meters,
+      y_meters: position.y_meters,
+      rotation_radians:
+        kind === "pose"
+          ? (getElementHeadingRadians(
+              project.path.path_elements,
+              elementIndex,
+            ) ?? 0)
+          : null,
+      link: {
+        pathId: project.project_id,
+        elementIndex,
+      },
+    });
+    selectionStore
+      .getState()
+      .selectElement(elementIndex, projectStore.getState().project);
+    setContextMenu(null);
+  };
+
+  const linkContextElementToTarget = (targetId: string) => {
+    if (!project || !contextMenu || contextMenu.elementIndex === null) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .linkPathElementToTarget(
+        project.project_id,
+        contextMenu.elementIndex,
+        targetId,
+      );
+    selectionStore
+      .getState()
+      .selectElement(contextMenu.elementIndex, projectStore.getState().project);
+    setContextMenu(null);
+  };
+
+  const unlinkContextElement = () => {
+    if (!project || !contextMenu || contextMenu.elementIndex === null) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .unlinkPathElement(project.project_id, contextMenu.elementIndex);
+    selectionStore
+      .getState()
+      .selectElement(contextMenu.elementIndex, projectStore.getState().project);
+    setContextMenu(null);
+  };
+
+  const contextElement =
+    project && contextMenu?.elementIndex !== null && contextMenu
+      ? (project.path.path_elements[contextMenu.elementIndex] ?? null)
+      : null;
+  const contextCompatibleTargets =
+    workspace && contextElement
+      ? workspace.linked_targets.filter((target) =>
+          isElementCompatibleWithLinkedTarget(contextElement, target),
+        )
+      : [];
+
   return (
     <div
       ref={containerRef}
@@ -1105,6 +1257,7 @@ export function PathStage({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        onContextMenu={handleContextMenu}
         onWheel={handleWheel}
       >
         {rendererError ? (
@@ -1123,6 +1276,25 @@ export function PathStage({
           >
             {hoveredOverlayPath.displayName}
           </div>
+        ) : null}
+        {contextMenu ? (
+          <CanvasContextMenu
+            point={contextMenu.stagePoint}
+            element={contextElement}
+            compatibleTargets={contextCompatibleTargets}
+            linkedTargetId={getPathElementLinkedTargetId(
+              contextElement ?? undefined,
+            )}
+            onCreatePointAtField={createLinkedPointAtContext}
+            onCreatePointFromElement={() =>
+              createLinkedTargetFromContextElement("point")
+            }
+            onCreatePoseFromElement={() =>
+              createLinkedTargetFromContextElement("pose")
+            }
+            onLinkTarget={linkContextElementToTarget}
+            onUnlink={unlinkContextElement}
+          />
         ) : null}
         <SimulationTransport
           result={simulationResult}
@@ -1226,6 +1398,86 @@ function SimulationTransport({
           onChange={(event) => onSeek(Number(event.currentTarget.value))}
         />
       </div>
+    </div>
+  );
+}
+
+function CanvasContextMenu({
+  compatibleTargets,
+  element,
+  linkedTargetId,
+  onCreatePointAtField,
+  onCreatePointFromElement,
+  onCreatePoseFromElement,
+  onLinkTarget,
+  onUnlink,
+  point,
+}: {
+  compatibleTargets: readonly LinkedTarget[];
+  element: PathElement | null;
+  linkedTargetId: string | null;
+  onCreatePointAtField(): void;
+  onCreatePointFromElement(): void;
+  onCreatePoseFromElement(): void;
+  onLinkTarget(targetId: string): void;
+  onUnlink(): void;
+  point: StagePoint;
+}) {
+  const canCreatePose = element && isWaypoint(element);
+  const canCreateFromElement =
+    element && (isWaypoint(element) || isTranslationTarget(element));
+
+  return (
+    <div
+      className="path-stage__context-menu"
+      role="menu"
+      style={{ left: point.x, top: point.y }}
+    >
+      {canCreateFromElement ? (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onCreatePointFromElement}
+          >
+            Create Linked Point
+          </button>
+          {canCreatePose ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onCreatePoseFromElement}
+            >
+              Create Linked Pose
+            </button>
+          ) : null}
+          {linkedTargetId ? (
+            <button type="button" role="menuitem" onClick={onUnlink}>
+              Unlink Target
+            </button>
+          ) : null}
+          {compatibleTargets.length > 0 ? (
+            <div className="path-stage__context-menu-group">
+              <span>Link to</span>
+              {compatibleTargets.map((target) => (
+                <button
+                  key={target.target_id}
+                  type="button"
+                  role="menuitem"
+                  disabled={target.target_id === linkedTargetId}
+                  onClick={() => onLinkTarget(target.target_id)}
+                >
+                  {target.display_name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <button type="button" role="menuitem" onClick={onCreatePointAtField}>
+          Create Linked Point Here
+        </button>
+      )}
     </div>
   );
 }
@@ -1524,7 +1776,10 @@ function isDragEnabled(element: PathElement): boolean {
 }
 
 function stagePointFromEvent(
-  event: PointerEvent<HTMLDivElement> | WheelEvent<HTMLDivElement>,
+  event:
+    | MouseEvent<HTMLDivElement>
+    | PointerEvent<HTMLDivElement>
+    | WheelEvent<HTMLDivElement>,
 ): StagePoint {
   const rect = event.currentTarget.getBoundingClientRect();
   return {
@@ -1665,6 +1920,23 @@ function clampAxisPan(
   const maxOffset = -basePosition;
 
   return clamp(offset, minOffset, maxOffset);
+}
+
+function nextLinkedTargetName(
+  workspace: ProjectWorkspaceDocument,
+  kind: "point" | "pose",
+): string {
+  const base = kind === "pose" ? "Linked Pose" : "Linked Point";
+  const existing = new Set(
+    workspace.linked_targets.map((target) => target.display_name),
+  );
+  for (let index = 1; index < 10_000; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base} ${workspace.linked_targets.length + 1}`;
 }
 
 function clamp(value: number, min: number, max: number): number {

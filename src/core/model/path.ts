@@ -65,6 +65,7 @@ export interface TranslationTarget {
   x_meters: number;
   y_meters: number;
   intermediate_handoff_radius_meters: number | null;
+  linked_target_id?: string | null;
 }
 
 export interface RotationTarget {
@@ -86,6 +87,7 @@ export interface Waypoint {
   type: "waypoint";
   translation_target: TranslationTarget;
   rotation_target: RotationTarget;
+  linked_target_id?: string | null;
 }
 
 export type PathElement =

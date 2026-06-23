@@ -1,4 +1,5 @@
 import type {
+  LinkedTarget,
   ProjectConfig,
   ProjectWorkspaceDocument,
   SerializedPathEditorMetadata,
@@ -74,6 +75,7 @@ export interface AutosEditorStateFile {
   active_path_file_name: string | null;
   active_path_group_id: string | null;
   path_groups: SerializedPathGroupFileEntry[];
+  linked_targets: LinkedTarget[];
   paths: Record<string, AutosEditorPathState>;
   field_assets: Record<string, AutosEditorFieldAssetState>;
 }
@@ -134,6 +136,7 @@ export function serializeAutosEditorState(
       : null,
     active_path_group_id: workspace.active_path_group_id,
     path_groups: serializePathGroupsFile(workspace).groups,
+    linked_targets: structuredClone(workspace.linked_targets),
     paths,
     field_assets: Object.fromEntries(
       workspace.config.gui.field.custom_fields.map((field) => [
@@ -238,6 +241,7 @@ export async function deserializeBLineProjectFolder(
     paths,
     active_path_id: activePathId,
     path_groups: pathGroups,
+    linked_targets: editorState?.linked_targets ?? [],
     active_path_group_id: stringOrNull(editorState?.active_path_group_id),
   });
 }
@@ -262,6 +266,9 @@ function readAutosEditorState(input: unknown): AutosEditorStateFile | null {
     active_path_group_id: stringOrNull(input.active_path_group_id),
     path_groups: Array.isArray(input.path_groups)
       ? (input.path_groups as SerializedPathGroupFileEntry[])
+      : [],
+    linked_targets: Array.isArray(input.linked_targets)
+      ? (input.linked_targets as LinkedTarget[])
       : [],
     paths: isObject(input.paths)
       ? Object.fromEntries(

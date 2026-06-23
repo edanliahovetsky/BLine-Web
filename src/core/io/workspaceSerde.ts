@@ -11,15 +11,24 @@ import {
   type RangedConstraintSource,
 } from "../model/path";
 import {
+  getPathElementLinkedTargetId,
+  normalizeLinkedTargets,
+  setPathElementLinkedTargetId,
+  syncLinkedTargetElements,
+} from "../linkedTargets";
+import {
   createProjectDocument,
   createProjectPathGroupDocument,
   createProjectPathDocument,
   createProjectWorkspaceDocument,
+  type LinkedTarget,
   type ProjectConfig,
   type ProjectDocument,
   type ProjectPathGroupDocument,
   type ProjectPathDocument,
   type ProjectWorkspaceDocument,
+  type SerializedLinkedPathElementTarget,
+  type SerializedLinkedTarget,
   type SerializedProjectPathGroupDocument,
   type SerializedProjectPathDocument,
   type SerializedPathEditorMetadata,
@@ -46,6 +55,7 @@ export interface ProjectWorkspaceArchive {
   active_path_id?: string | null;
   path_groups?: SerializedProjectPathGroupDocument[];
   active_path_group_id?: string | null;
+  linked_targets?: SerializedLinkedTarget[];
 }
 
 export interface SerializedPathGroupsFile {
@@ -62,6 +72,7 @@ export interface SerializedPathGroupFileEntry {
 export function serializeProjectWorkspaceDocument(
   workspace: ProjectWorkspaceDocument,
 ): SerializedProjectWorkspaceDocument {
+  const linkedTargets = workspace.linked_targets.map(serializeLinkedTarget);
   return {
     schema_version: workspace.schema_version,
     project_id: workspace.project_id,
@@ -81,6 +92,7 @@ export function serializeProjectWorkspaceDocument(
       path_ids: [...group.path_ids],
     })),
     active_path_group_id: workspace.active_path_group_id,
+    ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
   };
 }
 
@@ -119,6 +131,7 @@ export function deserializeProjectWorkspaceDocument(
           typeof input.active_path_group_id === "string"
             ? input.active_path_group_id
             : null,
+        linked_targets: readLinkedTargets(input.linked_targets),
       }),
     );
   }
@@ -182,6 +195,7 @@ export function projectDocumentToWorkspaceDocument(
     active_path_id: path.path_id,
     path_groups: [],
     active_path_group_id: null,
+    linked_targets: [],
   });
 }
 
@@ -242,6 +256,7 @@ export function replaceActiveProjectInWorkspace(
     ...workspace,
     config: structuredClone(project.config),
     paths: nextPaths,
+    linked_targets: structuredClone(workspace.linked_targets),
   });
 }
 
@@ -288,15 +303,18 @@ export function normalizeProjectWorkspaceDocument(
     ? workspace.active_path_group_id
     : null;
 
-  return createProjectWorkspaceDocument({
-    project_id: workspace.project_id,
-    display_name: workspace.display_name,
-    config: workspace.config,
-    paths,
-    active_path_id,
-    path_groups: pathGroups,
-    active_path_group_id,
-  });
+  return syncLinkedTargetElements(
+    createProjectWorkspaceDocument({
+      project_id: workspace.project_id,
+      display_name: workspace.display_name,
+      config: workspace.config,
+      paths,
+      active_path_id,
+      path_groups: pathGroups,
+      active_path_group_id,
+      linked_targets: normalizeLinkedTargets(workspace.linked_targets),
+    }),
+  );
 }
 
 export function ensureWorkspaceHasActivePath(
@@ -787,6 +805,17 @@ function deserializeProjectPathDocumentFromArchive(
 function serializePathEditorMetadata(
   path: PathModel,
 ): SerializedPathEditorMetadata | undefined {
+  const linkedTargets = path.path_elements.flatMap((element, index) => {
+    const targetId = getPathElementLinkedTargetId(element);
+    return targetId
+      ? [
+          {
+            element_index: index,
+            target_id: targetId,
+          },
+        ]
+      : [];
+  });
   const rangedConstraints = path.ranged_constraints.flatMap((constraint) => {
     const source = normalizeRangedConstraintSource(constraint.source);
     if (source === null || source === "manual") {
@@ -809,19 +838,94 @@ function serializePathEditorMetadata(
     return [metadata];
   });
 
-  return rangedConstraints.length === 0
-    ? undefined
-    : { ranged_constraints: rangedConstraints };
+  if (rangedConstraints.length === 0 && linkedTargets.length === 0) {
+    return undefined;
+  }
+
+  return {
+    ...(rangedConstraints.length > 0
+      ? { ranged_constraints: rangedConstraints }
+      : {}),
+    ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
+  };
+}
+
+function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
+  return target.kind === "pose"
+    ? {
+        target_id: target.target_id,
+        display_name: target.display_name,
+        kind: "pose",
+        x_meters: Number(target.x_meters),
+        y_meters: Number(target.y_meters),
+        rotation_radians: Number(target.rotation_radians ?? 0),
+      }
+    : {
+        target_id: target.target_id,
+        display_name: target.display_name,
+        kind: "point",
+        x_meters: Number(target.x_meters),
+        y_meters: Number(target.y_meters),
+      };
+}
+
+function readLinkedTargets(input: unknown): LinkedTarget[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return normalizeLinkedTargets(
+    input.flatMap((entry, index) => {
+      if (!isObject(entry)) {
+        return [];
+      }
+
+      const targetId = String(entry.target_id ?? `target-${index + 1}`);
+      const displayName = String(entry.display_name ?? "");
+      const kind = entry.kind === "pose" ? "pose" : "point";
+      const xMeters = finiteNumber(entry.x_meters);
+      const yMeters = finiteNumber(entry.y_meters);
+      if (!targetId.trim() || xMeters === null || yMeters === null) {
+        return [];
+      }
+
+      return [
+        {
+          target_id: targetId,
+          display_name: displayName,
+          kind,
+          x_meters: xMeters,
+          y_meters: yMeters,
+          rotation_radians:
+            kind === "pose"
+              ? (finiteNumber(entry.rotation_radians) ?? 0)
+              : null,
+        },
+      ];
+    }),
+  );
 }
 
 function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
-  const metadata = readPathEditorMetadata(input);
-  if (metadata.length === 0) {
+  const rangedMetadata = readRangedConstraintMetadata(input);
+  const linkedTargets = readLinkedPathElementTargets(input);
+  if (rangedMetadata.length === 0 && linkedTargets.length === 0) {
     return path;
   }
 
+  for (const link of linkedTargets) {
+    const element = path.path_elements[link.element_index];
+    if (!element) {
+      continue;
+    }
+    path.path_elements[link.element_index] = setPathElementLinkedTargetId(
+      element,
+      link.target_id,
+    );
+  }
+
   const used = new Set<number>();
-  for (const entry of metadata) {
+  for (const entry of rangedMetadata) {
     const exactIndex = path.ranged_constraints.findIndex(
       (constraint, index) =>
         !used.has(index) && sameMetadataTarget(constraint, entry, true),
@@ -856,7 +960,29 @@ function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
   return path;
 }
 
-function readPathEditorMetadata(
+function readLinkedPathElementTargets(
+  input: unknown,
+): SerializedLinkedPathElementTarget[] {
+  if (!isObject(input) || !Array.isArray(input.linked_targets)) {
+    return [];
+  }
+
+  return input.linked_targets.flatMap((entry) => {
+    if (!isObject(entry)) {
+      return [];
+    }
+
+    const elementIndex = finiteInteger(entry.element_index);
+    const targetId = typeof entry.target_id === "string" ? entry.target_id : "";
+    if (elementIndex === null || elementIndex < 0 || !targetId.trim()) {
+      return [];
+    }
+
+    return [{ element_index: elementIndex, target_id: targetId }];
+  });
+}
+
+function readRangedConstraintMetadata(
   input: unknown,
 ): SerializedRangedConstraintMetadata[] {
   if (!isObject(input) || !Array.isArray(input.ranged_constraints)) {
