@@ -859,6 +859,7 @@ function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
         x_meters: Number(target.x_meters),
         y_meters: Number(target.y_meters),
         rotation_radians: Number(target.rotation_radians ?? 0),
+        ...(target.locked ? { locked: true } : {}),
       }
     : {
         target_id: target.target_id,
@@ -866,6 +867,7 @@ function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
         kind: "point",
         x_meters: Number(target.x_meters),
         y_meters: Number(target.y_meters),
+        ...(target.locked ? { locked: true } : {}),
       };
 }
 
@@ -900,6 +902,7 @@ function readLinkedTargets(input: unknown): LinkedTarget[] {
             kind === "pose"
               ? (finiteNumber(entry.rotation_radians) ?? 0)
               : null,
+          locked: entry.locked === true,
         },
       ];
     }),

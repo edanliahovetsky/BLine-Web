@@ -10,6 +10,7 @@ import {
   getPathElementLinkedTargetId,
   isElementCompatibleWithLinkedTarget,
 } from "../../../core/linkedTargets";
+import { LinkIcon } from "../../icons";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -40,9 +41,9 @@ interface PropertyEditorProps {
   onToggleSection(): void;
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
-  onLinkTarget(targetId: string): void;
   onUnlinkTarget(): void;
   onCreateLinkedTarget(kind: LinkedTargetKind): void;
+  onOpenLinkedTargetPicker(): void;
   fieldGeometry?: FieldGeometry;
 }
 
@@ -55,9 +56,9 @@ export function PropertyEditor({
   onToggleSection,
   onChangeType,
   onUpdateElement,
-  onLinkTarget,
   onUnlinkTarget,
   onCreateLinkedTarget,
+  onOpenLinkedTargetPicker,
   fieldGeometry = defaultFieldGeometry,
 }: PropertyEditorProps) {
   if (!element) {
@@ -67,6 +68,15 @@ export function PropertyEditor({
   return (
     <SidebarSection
       className="property-editor-section"
+      actions={
+        <LinkedTargetMenu
+          element={element}
+          workspace={workspace}
+          onCreateLinkedTarget={onCreateLinkedTarget}
+          onOpenLinkedTargetPicker={onOpenLinkedTargetPicker}
+          onUnlinkTarget={onUnlinkTarget}
+        />
+      }
       meta={propertySectionMeta(element, selectedElementIndex)}
       open={open}
       sectionId="element-properties"
@@ -82,13 +92,6 @@ export function PropertyEditor({
           element={element}
           options={typeOptions}
           onChangeType={onChangeType}
-        />
-        <LinkedTargetField
-          element={element}
-          workspace={workspace}
-          onCreateLinkedTarget={onCreateLinkedTarget}
-          onLinkTarget={onLinkTarget}
-          onUnlinkTarget={onUnlinkTarget}
         />
         {isTranslationTarget(element) ? (
           <TranslationFields
@@ -151,24 +154,28 @@ function TypeField({
   );
 }
 
-function LinkedTargetField({
+function LinkedTargetMenu({
   element,
   workspace,
   onCreateLinkedTarget,
-  onLinkTarget,
+  onOpenLinkedTargetPicker,
   onUnlinkTarget,
 }: {
   element: PathElement;
   workspace: ProjectWorkspaceDocument | null;
   onCreateLinkedTarget(kind: LinkedTargetKind): void;
-  onLinkTarget(targetId: string): void;
+  onOpenLinkedTargetPicker(): void;
   onUnlinkTarget(): void;
 }) {
   if (!workspace || (!isTranslationTarget(element) && !isWaypoint(element))) {
     return null;
   }
 
-  const currentTargetId = getPathElementLinkedTargetId(element) ?? "";
+  const currentTargetId = getPathElementLinkedTargetId(element);
+  const currentTarget =
+    workspace.linked_targets.find(
+      (target) => target.target_id === currentTargetId,
+    ) ?? null;
   const compatibleTargets = workspace.linked_targets.filter((target) =>
     isElementCompatibleWithLinkedTarget(element, target),
   );
@@ -177,46 +184,75 @@ function LinkedTargetField({
     : ["point"];
 
   return (
-    <div className="linked-target-property">
-      <label className="property-row">
-        <span>Linked Target</span>
-        <SidebarSelectControl
-          ariaLabel="Linked Target"
-          value={currentTargetId}
-          options={[
-            { label: "None", value: "" },
-            ...compatibleTargets.map((target) => ({
-              label: `${target.display_name} (${target.kind === "pose" ? "Pose" : "Point"})`,
-              value: target.target_id,
-            })),
-          ]}
-          onChange={(targetId) => {
-            if (targetId) {
-              onLinkTarget(targetId);
-            } else {
-              onUnlinkTarget();
-            }
+    <details
+      className={["linked-element-menu", currentTarget ? "is-linked" : ""]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <summary
+        aria-label={
+          currentTarget
+            ? `Linked to ${currentTarget.display_name}`
+            : "Link element"
+        }
+        role="button"
+      >
+        <LinkIcon size={15} />
+        <span>Link</span>
+      </summary>
+      <div className="linked-element-menu__panel" role="menu">
+        {currentTarget ? (
+          <div className="linked-element-menu__status">
+            <span>Linked</span>
+            <strong>{currentTarget.display_name}</strong>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          role="menuitem"
+          disabled={compatibleTargets.length === 0}
+          onClick={(event) => {
+            onOpenLinkedTargetPicker();
+            closeContainingDetails(event.currentTarget);
           }}
-        />
-      </label>
-      <div className="linked-target-property__actions">
+        >
+          <span>Choose Existing...</span>
+          <small>{compatibleTargets.length}</small>
+        </button>
         {createKinds.map((kind) => (
           <button
             key={kind}
             type="button"
-            onClick={() => onCreateLinkedTarget(kind)}
+            role="menuitem"
+            onClick={(event) => {
+              onCreateLinkedTarget(kind);
+              closeContainingDetails(event.currentTarget);
+            }}
           >
-            {kind === "pose" ? "New Pose" : "New Point"}
+            <span>
+              {kind === "pose" ? "New Linked Pose" : "New Linked Point"}
+            </span>
           </button>
         ))}
         {currentTargetId ? (
-          <button type="button" onClick={onUnlinkTarget}>
-            Unlink
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(event) => {
+              onUnlinkTarget();
+              closeContainingDetails(event.currentTarget);
+            }}
+          >
+            <span>Unlink Element</span>
           </button>
         ) : null}
       </div>
-    </div>
+    </details>
   );
+}
+
+function closeContainingDetails(element: HTMLElement): void {
+  element.closest("details")?.removeAttribute("open");
 }
 
 function TranslationFields({

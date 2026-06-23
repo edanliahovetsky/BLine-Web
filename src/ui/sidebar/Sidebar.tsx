@@ -46,6 +46,7 @@ interface SidebarProps {
   selectedElementIndex: number | null;
   curveToolActive?: boolean;
   onStartCurve?(insertionIndex: number): void;
+  onOpenLinkedTargetPicker?(): void;
 }
 
 export function Sidebar({
@@ -54,6 +55,7 @@ export function Sidebar({
   selectedElementIndex,
   curveToolActive = false,
   onStartCurve,
+  onOpenLinkedTargetPicker,
 }: SidebarProps) {
   const [sectionState, setSectionState] = useState<SidebarSectionState>(() =>
     readSidebarSectionState(),
@@ -185,23 +187,6 @@ export function Sidebar({
       .selectElement(selectedElementIndex, projectStore.getState().project);
   };
 
-  const handleLinkTarget = (targetId: string) => {
-    if (!project || selectedElementIndex === null) {
-      return;
-    }
-
-    projectStore
-      .getState()
-      .linkPathElementToTarget(
-        project.project_id,
-        selectedElementIndex,
-        targetId,
-      );
-    selectionStore
-      .getState()
-      .selectElement(selectedElementIndex, projectStore.getState().project);
-  };
-
   const handleUnlinkTarget = () => {
     if (!project || selectedElementIndex === null) {
       return;
@@ -287,9 +272,9 @@ export function Sidebar({
         onToggleSection={() => handleToggleSection("properties")}
         onChangeType={handleChangeElementType}
         onUpdateElement={handleUpdateElement}
-        onLinkTarget={handleLinkTarget}
         onUnlinkTarget={handleUnlinkTarget}
         onCreateLinkedTarget={handleCreateLinkedTarget}
+        onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
       />
       <ConstraintEditor
         project={project}

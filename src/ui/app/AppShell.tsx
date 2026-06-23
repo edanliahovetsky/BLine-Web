@@ -17,6 +17,13 @@ import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { PathStage } from "../../canvas/PathStage";
+import {
+  elementCircleRadiusMeters,
+  robotLengthMeters,
+  robotWidthMeters,
+  triangleSizeRatio,
+} from "../../canvas/constants";
+import { elementColors } from "../../canvas/elementStyle";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import type {
   LinkedTarget,
@@ -34,10 +41,17 @@ import {
   type CustomFieldImage,
   type FieldGeometry,
 } from "../../core/field/fieldConfig";
-import type { TranslationTarget } from "../../core/model/path";
+import {
+  type PathElement,
+  type TranslationTarget,
+} from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
-import { linkedTargetUseCount } from "../../core/linkedTargets";
+import {
+  getPathElementLinkedTargetId,
+  isElementCompatibleWithLinkedTarget,
+  linkedTargetUseCount,
+} from "../../core/linkedTargets";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
   createProjectIoService,
@@ -63,10 +77,12 @@ import {
   CopyIcon,
   DownloadIcon,
   FilePlusIcon,
+  LockIcon,
   OpenIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
+  UnlockIcon,
   UploadIcon,
   XIcon,
 } from "../icons";
@@ -82,6 +98,12 @@ import {
 } from "./initialProject";
 import { ProjectConfigDialog } from "./ProjectConfigDialog";
 import { writeProjectFolder } from "./projectFolderExport";
+
+interface LinkedTargetPickerRequest {
+  pathId: string;
+  elementIndex: number;
+  element: PathElement;
+}
 
 export function AppShell() {
   const workspace = useStoreSelector(projectStore, (state) => state.workspace);
@@ -124,6 +146,8 @@ export function AppShell() {
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
   const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
   const [showLinkedTargetsDialog, setShowLinkedTargetsDialog] = useState(false);
+  const [linkedTargetPickerRequest, setLinkedTargetPickerRequest] =
+    useState<LinkedTargetPickerRequest | null>(null);
   const [showMobileSupportWarning, setShowMobileSupportWarning] =
     useState(false);
   const [pendingImportMode, setPendingImportMode] =
@@ -414,7 +438,33 @@ export function AppShell() {
   const handleShowLinkedTargets = useCallback(() => {
     setShowOpenPanel(false);
     setOpenTopMenu(null);
+    setLinkedTargetPickerRequest(null);
     setShowLinkedTargetsDialog(true);
+  }, []);
+
+  const handleOpenLinkedTargetPicker = useCallback(() => {
+    if (!project || selectedElementIndex === null) {
+      return;
+    }
+
+    const element = project.path.path_elements[selectedElementIndex];
+    if (!element) {
+      return;
+    }
+
+    setShowOpenPanel(false);
+    setOpenTopMenu(null);
+    setLinkedTargetPickerRequest({
+      pathId: project.project_id,
+      elementIndex: selectedElementIndex,
+      element,
+    });
+    setShowLinkedTargetsDialog(true);
+  }, [project, selectedElementIndex]);
+
+  const closeLinkedTargetsDialog = useCallback(() => {
+    setShowLinkedTargetsDialog(false);
+    setLinkedTargetPickerRequest(null);
   }, []);
 
   const handleConfirmCreateNewPath = useCallback(
@@ -1457,6 +1507,7 @@ export function AppShell() {
           selectedElementIndex={selectedElementIndex}
           curveToolActive={curveToolSession !== null}
           onStartCurve={handleStartCurveTool}
+          onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
         />
       </div>
 
@@ -1543,8 +1594,9 @@ export function AppShell() {
       ) : null}
       {workspace && showLinkedTargetsDialog ? (
         <LinkedTargetsDialog
+          linkRequest={linkedTargetPickerRequest}
           workspace={workspace}
-          onCancel={() => setShowLinkedTargetsDialog(false)}
+          onCancel={closeLinkedTargetsDialog}
         />
       ) : null}
       {workspace && showNewPathDialog ? (
@@ -2465,9 +2517,11 @@ function PathLibraryDialog({
 }
 
 function LinkedTargetsDialog({
+  linkRequest,
   workspace,
   onCancel,
 }: {
+  linkRequest?: LinkedTargetPickerRequest | null;
   workspace: ProjectWorkspaceDocument;
   onCancel(): void;
 }) {
@@ -2476,7 +2530,7 @@ function LinkedTargetsDialog({
     [workspace.config.gui.field],
   );
   const [requestedTargetId, setSelectedTargetId] = useState<string | null>(
-    workspace.linked_targets[0]?.target_id ?? null,
+    null,
   );
   const [dragPreview, setDragPreview] = useState<{
     targetId: string;
@@ -2486,6 +2540,21 @@ function LinkedTargetsDialog({
     y_meters: number;
   } | null>(null);
   const previewRef = useRef<SVGSVGElement | null>(null);
+  const pickerElement = linkRequest?.element ?? null;
+  const pickerCompatibleTargets = pickerElement
+    ? workspace.linked_targets.filter((target) =>
+        isElementCompatibleWithLinkedTarget(pickerElement, target),
+      )
+    : workspace.linked_targets;
+  const currentPickerTargetId = pickerElement
+    ? getPathElementLinkedTargetId(pickerElement)
+    : null;
+  const fallbackTargetId =
+    linkRequest && currentPickerTargetId
+      ? currentPickerTargetId
+      : (pickerCompatibleTargets[0]?.target_id ??
+        workspace.linked_targets[0]?.target_id ??
+        null);
 
   const selectedTargetId =
     requestedTargetId &&
@@ -2493,12 +2562,17 @@ function LinkedTargetsDialog({
       (target) => target.target_id === requestedTargetId,
     )
       ? requestedTargetId
-      : (workspace.linked_targets[0]?.target_id ?? null);
+      : fallbackTargetId;
 
   const selectedTarget =
     workspace.linked_targets.find(
       (target) => target.target_id === selectedTargetId,
     ) ?? null;
+  const selectedTargetCompatible =
+    !pickerElement ||
+    (selectedTarget
+      ? isElementCompatibleWithLinkedTarget(pickerElement, selectedTarget)
+      : false);
   const displayedTargets = workspace.linked_targets.map((target) =>
     dragPreview?.targetId === target.target_id
       ? {
@@ -2521,6 +2595,7 @@ function LinkedTargetsDialog({
       x_meters: coordinateLength / 2,
       y_meters: coordinateWidth / 2,
       rotation_radians: kind === "pose" ? 0 : null,
+      locked: false,
     });
     setSelectedTargetId(targetId);
   };
@@ -2530,7 +2605,12 @@ function LinkedTargetsDialog({
     update: Partial<
       Pick<
         LinkedTarget,
-        "display_name" | "kind" | "x_meters" | "y_meters" | "rotation_radians"
+        | "display_name"
+        | "kind"
+        | "x_meters"
+        | "y_meters"
+        | "rotation_radians"
+        | "locked"
       >
     >,
   ) => {
@@ -2583,17 +2663,37 @@ function LinkedTargetsDialog({
     setDragPreview(null);
   };
 
+  const linkSelectedTarget = () => {
+    if (!linkRequest || !selectedTarget || !selectedTargetCompatible) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .linkPathElementToTarget(
+        linkRequest.pathId,
+        linkRequest.elementIndex,
+        selectedTarget.target_id,
+      );
+    selectionStore
+      .getState()
+      .selectElement(linkRequest.elementIndex, projectStore.getState().project);
+    onCancel();
+  };
+
   return (
     <div className="config-dialog-backdrop" role="presentation">
       <section
         className="path-library-dialog linked-targets-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Linked Points"
+        aria-label={linkRequest ? "Choose Linked Target" : "Linked Points"}
         data-testid="linked-targets-dialog"
       >
         <header className="config-dialog__header">
-          <strong>Linked Points</strong>
+          <strong>
+            {linkRequest ? "Choose Linked Target" : "Linked Points"}
+          </strong>
           <button
             type="button"
             aria-label="Close linked points"
@@ -2606,12 +2706,18 @@ function LinkedTargetsDialog({
         <div className="path-library-dialog__utility-bar">
           <div className="path-library-dialog__selection-summary">
             <strong>
-              {selectedTarget?.display_name ?? "No linked target"}
+              {linkRequest
+                ? `Element ${linkRequest.elementIndex + 1}`
+                : (selectedTarget?.display_name ?? "No linked target")}
             </strong>
             <span>
-              {workspace.linked_targets.length}{" "}
-              {workspace.linked_targets.length === 1 ? "target" : "targets"} /{" "}
-              {activeUseCount} {activeUseCount === 1 ? "use" : "uses"}
+              {linkRequest
+                ? `${pickerCompatibleTargets.length} compatible / ${workspace.linked_targets.length} total`
+                : `${workspace.linked_targets.length} ${
+                    workspace.linked_targets.length === 1 ? "target" : "targets"
+                  } / ${activeUseCount} ${
+                    activeUseCount === 1 ? "use" : "uses"
+                  }`}
             </span>
           </div>
           <button
@@ -2642,6 +2748,9 @@ function LinkedTargetsDialog({
               {workspace.linked_targets.length > 0 ? (
                 workspace.linked_targets.map((target) => {
                   const selected = target.target_id === selectedTargetId;
+                  const compatible =
+                    !pickerElement ||
+                    isElementCompatibleWithLinkedTarget(pickerElement, target);
                   const useCount = linkedTargetUseCount(
                     workspace,
                     target.target_id,
@@ -2651,16 +2760,23 @@ function LinkedTargetsDialog({
                       key={target.target_id}
                       type="button"
                       role="listitem"
-                      className={
-                        selected
-                          ? "path-library-dialog__path is-selected"
-                          : "path-library-dialog__path"
-                      }
+                      className={[
+                        "path-library-dialog__path",
+                        "linked-targets-dialog__target-row",
+                        selected ? "is-selected" : "",
+                        compatible ? "" : "is-incompatible",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                       aria-pressed={selected}
                       onClick={() => setSelectedTargetId(target.target_id)}
                     >
-                      <span>{target.display_name}</span>
+                      <span className="linked-targets-dialog__target-title">
+                        <LinkedTargetListGlyph target={target} />
+                        <span>{target.display_name}</span>
+                      </span>
                       <small>
+                        {target.locked ? "Locked / " : ""}
                         {formatLinkedTargetKind(target.kind)} / {useCount}{" "}
                         {useCount === 1 ? "use" : "uses"}
                       </small>
@@ -2719,28 +2835,28 @@ function LinkedTargetsDialog({
                     field.geometry,
                   );
                   const selected = target.target_id === selectedTargetId;
+                  const compatible =
+                    !pickerElement ||
+                    isElementCompatibleWithLinkedTarget(pickerElement, target);
                   return (
-                    <g
+                    <LinkedTargetPreviewMarker
                       key={target.target_id}
-                      className={[
-                        "linked-targets-dialog__marker",
-                        selected ? "is-selected" : "is-muted",
-                        target.kind === "pose" ? "is-pose" : "is-point",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={target.display_name}
-                      transform={`translate(${point.x} ${point.y})`}
+                      compatible={compatible}
+                      point={point}
+                      selected={selected}
+                      target={target}
+                      onSelect={() => setSelectedTargetId(target.target_id)}
                       onPointerDown={(event) => {
                         if (event.button !== 0) {
                           return;
                         }
                         event.preventDefault();
                         event.stopPropagation();
-                        previewRef.current?.setPointerCapture(event.pointerId);
                         setSelectedTargetId(target.target_id);
+                        if (target.locked) {
+                          return;
+                        }
+                        previewRef.current?.setPointerCapture(event.pointerId);
                         setDragPreview({
                           targetId: target.target_id,
                           start_x_meters: target.x_meters,
@@ -2749,20 +2865,7 @@ function LinkedTargetsDialog({
                           y_meters: target.y_meters,
                         });
                       }}
-                    >
-                      {target.kind === "pose" ? (
-                        <line
-                          x1="0"
-                          y1="0"
-                          x2={Math.cos(target.rotation_radians ?? 0) * 0.6}
-                          y2={-Math.sin(target.rotation_radians ?? 0) * 0.6}
-                        />
-                      ) : null}
-                      <circle r={selected ? 0.18 : 0.14} />
-                      <text x="0.28" y="-0.18">
-                        {target.display_name}
-                      </text>
-                    </g>
+                    />
                   );
                 })}
               </svg>
@@ -2811,9 +2914,30 @@ function LinkedTargetsDialog({
                       <option value="pose">Pose</option>
                     </select>
                   </label>
+                  <label className="dialog-field dialog-field--toggle linked-targets-dialog__lock-field">
+                    <span>
+                      {selectedTarget.locked ? (
+                        <LockIcon size={15} />
+                      ) : (
+                        <UnlockIcon size={15} />
+                      )}
+                      Locked
+                    </span>
+                    <input
+                      aria-label="Locked"
+                      type="checkbox"
+                      checked={Boolean(selectedTarget.locked)}
+                      onChange={(event) =>
+                        updateTarget(selectedTarget.target_id, {
+                          locked: event.currentTarget.checked,
+                        })
+                      }
+                    />
+                  </label>
                   <LinkedTargetNumberField
                     label="X (m)"
                     value={selectedTarget.x_meters}
+                    disabled={Boolean(selectedTarget.locked)}
                     min={0}
                     max={coordinateLength}
                     onChange={(x_meters) =>
@@ -2823,6 +2947,7 @@ function LinkedTargetsDialog({
                   <LinkedTargetNumberField
                     label="Y (m)"
                     value={selectedTarget.y_meters}
+                    disabled={Boolean(selectedTarget.locked)}
                     min={0}
                     max={coordinateWidth}
                     onChange={(y_meters) =>
@@ -2835,6 +2960,7 @@ function LinkedTargetsDialog({
                       value={radiansToDegrees(
                         selectedTarget.rotation_radians ?? 0,
                       )}
+                      disabled={Boolean(selectedTarget.locked)}
                       onChange={(degrees) =>
                         updateTarget(selectedTarget.target_id, {
                           rotation_radians: degreesToRadians(degrees),
@@ -2870,6 +2996,16 @@ function LinkedTargetsDialog({
         </div>
 
         <footer className="config-dialog__footer path-library-dialog__footer">
+          {linkRequest ? (
+            <button
+              type="button"
+              className="primary-dialog-action"
+              disabled={!selectedTarget || !selectedTargetCompatible}
+              onClick={linkSelectedTarget}
+            >
+              Link Selected
+            </button>
+          ) : null}
           <button type="button" onClick={onCancel}>
             Close
           </button>
@@ -2880,12 +3016,14 @@ function LinkedTargetsDialog({
 }
 
 function LinkedTargetNumberField({
+  disabled = false,
   label,
   max,
   min,
   value,
   onChange,
 }: {
+  disabled?: boolean;
   label: string;
   max?: number;
   min?: number;
@@ -2898,6 +3036,7 @@ function LinkedTargetNumberField({
       <input
         aria-label={label}
         type="number"
+        disabled={disabled}
         min={min}
         max={max}
         step={label === "Heading (deg)" ? 1 : 0.05}
@@ -2926,6 +3065,182 @@ function PreviewGrid({ field }: { field: FieldGeometry }) {
     );
   }
   return <g className="linked-targets-dialog__preview-grid">{lines}</g>;
+}
+
+function LinkedTargetPreviewMarker({
+  compatible,
+  point,
+  selected,
+  target,
+  onSelect,
+  onPointerDown,
+}: {
+  compatible: boolean;
+  point: { x: number; y: number };
+  selected: boolean;
+  target: LinkedTarget;
+  onSelect(): void;
+  onPointerDown(event: ReactPointerEvent<SVGGElement>): void;
+}) {
+  return (
+    <g
+      className={[
+        "linked-targets-dialog__marker",
+        selected ? "is-selected" : "is-muted",
+        compatible ? "" : "is-incompatible",
+        target.locked ? "is-locked" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      role="button"
+      tabIndex={0}
+      aria-label={`${target.display_name} ${formatLinkedTargetKind(target.kind)}${
+        target.locked ? " locked" : ""
+      }`}
+      transform={`translate(${point.x} ${point.y})`}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      onPointerDown={onPointerDown}
+    >
+      <title>{target.display_name}</title>
+      {target.kind === "pose" ? (
+        <LinkedTargetPoseGlyph target={target} selected={selected} />
+      ) : (
+        <LinkedTargetPointGlyph selected={selected} />
+      )}
+    </g>
+  );
+}
+
+function LinkedTargetPointGlyph({ selected }: { selected: boolean }) {
+  return (
+    <>
+      {selected ? (
+        <circle
+          r={elementCircleRadiusMeters + 0.16}
+          fill="none"
+          stroke={elementColors.selected}
+          strokeWidth={0.045}
+          opacity={0.9}
+        />
+      ) : null}
+      <circle
+        r={elementCircleRadiusMeters * 1.7}
+        fill={elementColors.shadow}
+        opacity={0.72}
+      />
+      <circle
+        r={elementCircleRadiusMeters}
+        fill={elementColors.translation}
+        stroke="#eff8ff"
+        strokeWidth={0.022}
+      />
+      <circle r={elementCircleRadiusMeters * 0.24} fill="#f7fbff" />
+    </>
+  );
+}
+
+function LinkedTargetPoseGlyph({
+  selected,
+  target,
+}: {
+  selected: boolean;
+  target: LinkedTarget;
+}) {
+  const halfLength = robotLengthMeters / 2;
+  const halfWidth = robotWidthMeters / 2;
+  const triangleLength =
+    Math.min(robotLengthMeters, robotWidthMeters) * triangleSizeRatio;
+  const halfTriangleHeight = triangleLength / 2;
+
+  return (
+    <g transform={`rotate(${-radiansToDegrees(target.rotation_radians ?? 0)})`}>
+      {selected ? (
+        <rect
+          x={-halfLength - 0.12}
+          y={-halfWidth - 0.12}
+          width={robotLengthMeters + 0.24}
+          height={robotWidthMeters + 0.24}
+          rx={0.08}
+          fill="none"
+          stroke={elementColors.selected}
+          strokeWidth={0.055}
+          opacity={0.9}
+        />
+      ) : null}
+      <rect
+        x={-halfLength - 0.045}
+        y={-halfWidth - 0.045}
+        width={robotLengthMeters + 0.09}
+        height={robotWidthMeters + 0.09}
+        rx={0.075}
+        fill={elementColors.shadow}
+        opacity={0.78}
+      />
+      <rect
+        x={-halfLength}
+        y={-halfWidth}
+        width={robotLengthMeters}
+        height={robotWidthMeters}
+        rx={0.055}
+        fill="rgba(255, 159, 67, 0.16)"
+        stroke={elementColors.waypoint}
+        strokeWidth={0.06}
+      />
+      <path
+        d={`M ${halfLength - triangleLength} ${-halfTriangleHeight} L ${
+          halfLength - triangleLength
+        } ${halfTriangleHeight} L ${halfLength} 0 Z`}
+        fill={elementColors.waypoint}
+        opacity={0.95}
+      />
+    </g>
+  );
+}
+
+function LinkedTargetListGlyph({ target }: { target: LinkedTarget }) {
+  return (
+    <svg
+      className="linked-targets-dialog__target-glyph"
+      viewBox="-0.5 -0.5 1 1"
+      aria-hidden="true"
+    >
+      {target.kind === "pose" ? (
+        <g
+          transform={`rotate(${-radiansToDegrees(target.rotation_radians ?? 0)})`}
+        >
+          <rect
+            x="-0.28"
+            y="-0.28"
+            width="0.56"
+            height="0.56"
+            rx="0.06"
+            fill="rgba(255, 159, 67, 0.16)"
+            stroke={elementColors.waypoint}
+            strokeWidth="0.08"
+          />
+          <path
+            d="M 0.05 -0.16 L 0.05 0.16 L 0.32 0 Z"
+            fill={elementColors.waypoint}
+          />
+        </g>
+      ) : (
+        <>
+          <circle
+            r="0.24"
+            fill={elementColors.translation}
+            stroke="#eff8ff"
+            strokeWidth="0.04"
+          />
+          <circle r="0.06" fill="#f7fbff" />
+        </>
+      )}
+    </svg>
+  );
 }
 
 function linkedTargetToPreviewPoint(

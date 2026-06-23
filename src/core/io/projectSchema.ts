@@ -54,6 +54,7 @@ export interface LinkedTarget {
   x_meters: number;
   y_meters: number;
   rotation_radians?: number | null;
+  locked?: boolean;
 }
 
 export interface ProjectWorkspaceDocument {
@@ -176,6 +177,7 @@ export interface SerializedLinkedTarget {
   x_meters: number;
   y_meters: number;
   rotation_radians?: number | null;
+  locked?: boolean;
 }
 
 export interface SerializedProjectWorkspaceDocument {

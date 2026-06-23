@@ -22,6 +22,7 @@ export interface CreateLinkedTargetInput {
   x_meters: number;
   y_meters: number;
   rotation_radians?: number | null;
+  locked?: boolean;
   link?: PathElementReference;
 }
 
@@ -31,6 +32,7 @@ export interface UpdateLinkedTargetInput {
   x_meters?: number;
   y_meters?: number;
   rotation_radians?: number | null;
+  locked?: boolean;
 }
 
 export function createLinkedTargetId(): string {
@@ -117,6 +119,7 @@ export function addLinkedTargetToWorkspace(
     x_meters: input.x_meters,
     y_meters: input.y_meters,
     rotation_radians: input.rotation_radians,
+    locked: input.locked,
   });
   const nextWorkspace: ProjectWorkspaceDocument = {
     ...structuredClone(workspace),
@@ -322,6 +325,9 @@ function normalizeLinkedTarget(target: LinkedTarget, index = 0): LinkedTarget {
   };
   if (kind === "pose") {
     normalized.rotation_radians = finiteNumber(target.rotation_radians ?? 0);
+  }
+  if (target.locked) {
+    normalized.locked = true;
   }
   return normalized;
 }

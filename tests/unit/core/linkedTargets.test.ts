@@ -55,6 +55,7 @@ describe("linked targets", () => {
           x_meters: 1,
           y_meters: 2,
           rotation_radians: Math.PI / 2,
+          locked: true,
         },
       ],
       paths: [
@@ -80,12 +81,14 @@ describe("linked targets", () => {
 
     const serialized = serializeProjectWorkspaceDocument(workspace);
     expect(serialized.linked_targets).toHaveLength(2);
+    expect(serialized.linked_targets?.[1]).toMatchObject({ locked: true });
     expect(serialized.paths[0]?.editor_metadata?.linked_targets).toEqual([
       { element_index: 0, target_id: "note-a" },
       { element_index: 1, target_id: "start-pose" },
     ]);
 
     const restored = deserializeProjectWorkspaceDocument(serialized);
+    expect(restored.linked_targets[1]).toMatchObject({ locked: true });
     const translation = restored.paths[0]?.path.path_elements[0];
     const waypoint = restored.paths[0]?.path.path_elements[1];
     expect(translation).toMatchObject({

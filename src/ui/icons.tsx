@@ -98,6 +98,34 @@ export function XIcon(props: IconProps) {
   );
 }
 
+export function LinkIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <path d="M10.4 13.6a4 4 0 0 1 0-5.7l1.4-1.4a4 4 0 1 1 5.7 5.7l-1.1 1.1" />
+      <path d="M13.6 10.4a4 4 0 0 1 0 5.7l-1.4 1.4a4 4 0 1 1-5.7-5.7l1.1-1.1" />
+      <path d="m9.5 14.5 5-5" />
+    </svg>
+  );
+}
+
+export function LockIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
+}
+
+export function UnlockIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 7.6-1.8" />
+    </svg>
+  );
+}
+
 export function WarningIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
