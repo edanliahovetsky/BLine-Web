@@ -220,7 +220,7 @@ export function Sidebar({
       x_meters: position.x_meters,
       y_meters: position.y_meters,
       rotation_radians:
-        kind === "pose"
+        kind === "waypoint"
           ? (getElementHeadingRadians(
               project.path.path_elements,
               selectedElementIndex,
@@ -374,7 +374,8 @@ function nextLinkedTargetName(
   workspace: ProjectWorkspaceDocument,
   kind: LinkedTargetKind,
 ): string {
-  const base = kind === "pose" ? "Linked Pose" : "Linked Point";
+  const base =
+    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
   const existing = new Set(
     workspace.linked_targets.map((target) => target.display_name),
   );

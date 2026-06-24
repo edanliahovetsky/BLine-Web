@@ -21,6 +21,7 @@ import {
 } from "../core/model/path";
 import type {
   LinkedTarget,
+  LinkedTargetKind,
   ProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
@@ -1133,14 +1134,14 @@ export function PathStage({
     });
   };
 
-  const createLinkedPointAtContext = () => {
+  const createLinkedTranslationAtContext = () => {
     if (!workspace || !contextMenu) {
       return;
     }
 
     projectStore.getState().createLinkedTarget({
-      display_name: nextLinkedTargetName(workspace, "point"),
-      kind: "point",
+      display_name: nextLinkedTargetName(workspace, "translation"),
+      kind: "translation",
       x_meters: contextMenu.fieldPoint.x_meters,
       y_meters: contextMenu.fieldPoint.y_meters,
       rotation_radians: null,
@@ -1148,7 +1149,7 @@ export function PathStage({
     setContextMenu(null);
   };
 
-  const createLinkedTargetFromContextElement = (kind: "point" | "pose") => {
+  const createLinkedTargetFromContextElement = (kind: LinkedTargetKind) => {
     if (
       !workspace ||
       !project ||
@@ -1173,7 +1174,7 @@ export function PathStage({
       x_meters: position.x_meters,
       y_meters: position.y_meters,
       rotation_radians:
-        kind === "pose"
+        kind === "waypoint"
           ? (getElementHeadingRadians(
               project.path.path_elements,
               elementIndex,
@@ -1285,12 +1286,12 @@ export function PathStage({
             linkedTargetId={getPathElementLinkedTargetId(
               contextElement ?? undefined,
             )}
-            onCreatePointAtField={createLinkedPointAtContext}
-            onCreatePointFromElement={() =>
-              createLinkedTargetFromContextElement("point")
+            onCreateTranslationAtField={createLinkedTranslationAtContext}
+            onCreateTranslationFromElement={() =>
+              createLinkedTargetFromContextElement("translation")
             }
-            onCreatePoseFromElement={() =>
-              createLinkedTargetFromContextElement("pose")
+            onCreateWaypointFromElement={() =>
+              createLinkedTargetFromContextElement("waypoint")
             }
             onLinkTarget={linkContextElementToTarget}
             onUnlink={unlinkContextElement}
@@ -1406,9 +1407,9 @@ function CanvasContextMenu({
   compatibleTargets,
   element,
   linkedTargetId,
-  onCreatePointAtField,
-  onCreatePointFromElement,
-  onCreatePoseFromElement,
+  onCreateTranslationAtField,
+  onCreateTranslationFromElement,
+  onCreateWaypointFromElement,
   onLinkTarget,
   onUnlink,
   point,
@@ -1416,14 +1417,14 @@ function CanvasContextMenu({
   compatibleTargets: readonly LinkedTarget[];
   element: PathElement | null;
   linkedTargetId: string | null;
-  onCreatePointAtField(): void;
-  onCreatePointFromElement(): void;
-  onCreatePoseFromElement(): void;
+  onCreateTranslationAtField(): void;
+  onCreateTranslationFromElement(): void;
+  onCreateWaypointFromElement(): void;
   onLinkTarget(targetId: string): void;
   onUnlink(): void;
   point: StagePoint;
 }) {
-  const canCreatePose = element && isWaypoint(element);
+  const canCreateWaypoint = element && isWaypoint(element);
   const canCreateFromElement =
     element && (isWaypoint(element) || isTranslationTarget(element));
 
@@ -1438,22 +1439,22 @@ function CanvasContextMenu({
           <button
             type="button"
             role="menuitem"
-            onClick={onCreatePointFromElement}
+            onClick={onCreateTranslationFromElement}
           >
-            Create Linked Point
+            Create Linked Translation
           </button>
-          {canCreatePose ? (
+          {canCreateWaypoint ? (
             <button
               type="button"
               role="menuitem"
-              onClick={onCreatePoseFromElement}
+              onClick={onCreateWaypointFromElement}
             >
-              Create Linked Pose
+              Create Linked Waypoint
             </button>
           ) : null}
           {linkedTargetId ? (
             <button type="button" role="menuitem" onClick={onUnlink}>
-              Unlink Target
+              Unlink Element
             </button>
           ) : null}
           {compatibleTargets.length > 0 ? (
@@ -1474,8 +1475,12 @@ function CanvasContextMenu({
           ) : null}
         </>
       ) : (
-        <button type="button" role="menuitem" onClick={onCreatePointAtField}>
-          Create Linked Point Here
+        <button
+          type="button"
+          role="menuitem"
+          onClick={onCreateTranslationAtField}
+        >
+          Create Linked Translation Here
         </button>
       )}
     </div>
@@ -1924,9 +1929,10 @@ function clampAxisPan(
 
 function nextLinkedTargetName(
   workspace: ProjectWorkspaceDocument,
-  kind: "point" | "pose",
+  kind: LinkedTargetKind,
 ): string {
-  const base = kind === "pose" ? "Linked Pose" : "Linked Point";
+  const base =
+    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
   const existing = new Set(
     workspace.linked_targets.map((target) => target.display_name),
   );

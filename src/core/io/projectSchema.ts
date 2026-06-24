@@ -45,7 +45,7 @@ export interface ProjectPathGroupDocument {
   path_ids: string[];
 }
 
-export type LinkedTargetKind = "point" | "pose";
+export type LinkedTargetKind = "translation" | "waypoint";
 
 export interface LinkedTarget {
   target_id: string;

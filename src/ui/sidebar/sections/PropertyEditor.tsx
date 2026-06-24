@@ -180,8 +180,8 @@ function LinkedTargetMenu({
     isElementCompatibleWithLinkedTarget(element, target),
   );
   const createKinds: LinkedTargetKind[] = isWaypoint(element)
-    ? ["point", "pose"]
-    : ["point"];
+    ? ["translation", "waypoint"]
+    : ["translation"];
 
   return (
     <details
@@ -230,7 +230,9 @@ function LinkedTargetMenu({
             }}
           >
             <span>
-              {kind === "pose" ? "New Linked Pose" : "New Linked Point"}
+              {kind === "waypoint"
+                ? "New Linked Waypoint"
+                : "New Linked Translation"}
             </span>
           </button>
         ))}

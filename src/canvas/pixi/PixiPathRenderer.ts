@@ -633,7 +633,7 @@ export class PixiPathRenderer {
         dimmed: target.compatible === false || (hasSelection && !selected),
         selectedPulse: input.selectedPulse,
         headingRadians:
-          target.kind === "pose" ? (target.rotation_radians ?? 0) : 0,
+          target.kind === "waypoint" ? (target.rotation_radians ?? 0) : 0,
         handoffRadiusMeters: null,
         robotSizeMeters: robotSize,
         metersToPixels: input.viewport.scale,
@@ -707,7 +707,7 @@ export class PixiPathRenderer {
     const target = (input.linkedTargets ?? []).find(
       (candidate) => candidate.target_id === selectedTargetId,
     );
-    if (!target || target.kind !== "pose") {
+    if (!target || target.kind !== "waypoint") {
       return;
     }
 
@@ -831,7 +831,7 @@ function drawRotationHandleGlyph(
 function linkedTargetToPathElement(
   target: PixiLinkedTargetOverlay,
 ): PathElement {
-  if (target.kind === "point") {
+  if (target.kind === "translation") {
     return {
       type: "translation",
       x_meters: target.x_meters,

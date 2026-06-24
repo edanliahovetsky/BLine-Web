@@ -472,7 +472,9 @@ export function createProjectStore(
           ...input,
           target_id: targetId,
         }),
-        `Create linked ${input.kind === "pose" ? "pose" : "point"}`,
+        `Create linked ${
+          input.kind === "waypoint" ? "waypoint" : "translation"
+        }`,
       );
       return targetId;
     },
@@ -483,7 +485,7 @@ export function createProjectStore(
         history,
         workspace,
         updateLinkedTargetInWorkspace(workspace, targetId, update),
-        "Update linked target",
+        "Update linked element",
       );
     },
     deleteLinkedTarget(targetId) {
@@ -493,7 +495,7 @@ export function createProjectStore(
         history,
         workspace,
         deleteLinkedTargetFromWorkspace(workspace, targetId),
-        "Delete linked target",
+        "Delete linked element",
       );
     },
     linkPathElementToTarget(pathId, elementIndex, targetId) {

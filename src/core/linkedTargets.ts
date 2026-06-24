@@ -35,6 +35,16 @@ export interface UpdateLinkedTargetInput {
   locked?: boolean;
 }
 
+interface LinkedTargetInputLike {
+  target_id?: unknown;
+  display_name?: unknown;
+  kind?: unknown;
+  x_meters?: unknown;
+  y_meters?: unknown;
+  rotation_radians?: unknown;
+  locked?: unknown;
+}
+
 export function createLinkedTargetId(): string {
   return `target-${randomId()}`;
 }
@@ -75,7 +85,7 @@ export function isElementCompatibleWithLinkedTarget(
   target: LinkedTarget,
 ): boolean {
   if (isTranslationTarget(element)) {
-    return target.kind === "point";
+    return target.kind === "translation";
   }
 
   return isWaypoint(element);
@@ -258,7 +268,7 @@ export function linkedTargetUses(
 }
 
 export function normalizeLinkedTargets(
-  input: readonly LinkedTarget[] | undefined,
+  input: readonly LinkedTargetInputLike[] | undefined,
 ): LinkedTarget[] {
   const seen = new Set<string>();
   return (input ?? []).flatMap((target, index) => {
@@ -294,7 +304,7 @@ function applyLinkedTargetToElement(
         y_meters: target.y_meters,
       },
     };
-    if (target.kind === "pose") {
+    if (target.kind === "waypoint") {
       waypoint.rotation_target = {
         ...waypoint.rotation_target,
         rotation_radians: target.rotation_radians ?? 0,
@@ -306,30 +316,51 @@ function applyLinkedTargetToElement(
   return element;
 }
 
-function normalizeLinkedTarget(target: LinkedTarget, index = 0): LinkedTarget {
-  const kind: LinkedTargetKind = target.kind === "pose" ? "pose" : "point";
+function normalizeLinkedTarget(
+  target: LinkedTargetInputLike,
+  index = 0,
+): LinkedTarget {
+  const kind = normalizeLinkedTargetKind(target.kind);
   const normalized: LinkedTarget = {
     target_id:
       typeof target.target_id === "string" && target.target_id.trim()
         ? target.target_id
         : `target-${index + 1}`,
-    display_name:
-      typeof target.display_name === "string" && target.display_name.trim()
-        ? target.display_name.trim()
-        : kind === "pose"
-          ? "Linked Pose"
-          : "Linked Point",
+    display_name: normalizeLinkedTargetDisplayName(target.display_name, kind),
     kind,
     x_meters: finiteNumber(target.x_meters),
     y_meters: finiteNumber(target.y_meters),
   };
-  if (kind === "pose") {
+  if (kind === "waypoint") {
     normalized.rotation_radians = finiteNumber(target.rotation_radians ?? 0);
   }
   if (target.locked) {
     normalized.locked = true;
   }
   return normalized;
+}
+
+function normalizeLinkedTargetKind(kind: unknown): LinkedTargetKind {
+  return kind === "waypoint" || kind === "pose" ? "waypoint" : "translation";
+}
+
+function normalizeLinkedTargetDisplayName(
+  displayName: unknown,
+  kind: LinkedTargetKind,
+): string {
+  const fallback =
+    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
+  if (typeof displayName !== "string" || !displayName.trim()) {
+    return fallback;
+  }
+
+  const trimmed = displayName.trim();
+  const legacyMatch = /^Linked (Point|Pose)( \d+)?$/.exec(trimmed);
+  if (!legacyMatch) {
+    return trimmed;
+  }
+
+  return `${fallback}${legacyMatch[2] ?? ""}`;
 }
 
 function finiteNumber(value: unknown): number {

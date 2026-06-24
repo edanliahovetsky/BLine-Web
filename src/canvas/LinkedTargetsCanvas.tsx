@@ -672,7 +672,7 @@ export function LinkedTargetsCanvas({
         .join(" ")}
       data-testid="linked-targets-canvas"
       role="application"
-      aria-label="Linked target field preview"
+      aria-label="Linked element field preview"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -750,7 +750,7 @@ function hitTestLinkedTargetRotationHandle(
   const target = targets.find(
     (candidate) => candidate.target_id === selectedTargetId,
   );
-  if (!target || target.kind !== "pose") {
+  if (!target || target.kind !== "waypoint") {
     return null;
   }
 
@@ -776,7 +776,7 @@ function hitTestLinkedTargetShape(
   robotSizeMeters: ReturnType<typeof robotSizeFromConfig>,
 ): boolean {
   const radius = Math.max(7, elementCircleRadiusMeters * viewport.scale) + 14;
-  if (target.kind === "point") {
+  if (target.kind === "translation") {
     return pointDistance(point, pointer) <= radius;
   }
 
@@ -799,7 +799,7 @@ function rotationFromStagePoint(
   point: StagePoint,
 ): number | null {
   const target = targets.find((candidate) => candidate.target_id === targetId);
-  if (!target || target.kind !== "pose") {
+  if (!target || target.kind !== "waypoint") {
     return null;
   }
 

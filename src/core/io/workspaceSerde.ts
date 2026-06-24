@@ -851,11 +851,11 @@ function serializePathEditorMetadata(
 }
 
 function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
-  return target.kind === "pose"
+  return target.kind === "waypoint"
     ? {
         target_id: target.target_id,
         display_name: target.display_name,
-        kind: "pose",
+        kind: "waypoint",
         x_meters: Number(target.x_meters),
         y_meters: Number(target.y_meters),
         rotation_radians: Number(target.rotation_radians ?? 0),
@@ -864,7 +864,7 @@ function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
     : {
         target_id: target.target_id,
         display_name: target.display_name,
-        kind: "point",
+        kind: "translation",
         x_meters: Number(target.x_meters),
         y_meters: Number(target.y_meters),
         ...(target.locked ? { locked: true } : {}),
@@ -884,7 +884,10 @@ function readLinkedTargets(input: unknown): LinkedTarget[] {
 
       const targetId = String(entry.target_id ?? `target-${index + 1}`);
       const displayName = String(entry.display_name ?? "");
-      const kind = entry.kind === "pose" ? "pose" : "point";
+      const kind =
+        entry.kind === "waypoint" || entry.kind === "pose"
+          ? "waypoint"
+          : "translation";
       const xMeters = finiteNumber(entry.x_meters);
       const yMeters = finiteNumber(entry.y_meters);
       if (!targetId.trim() || xMeters === null || yMeters === null) {
@@ -899,7 +902,7 @@ function readLinkedTargets(input: unknown): LinkedTarget[] {
           x_meters: xMeters,
           y_meters: yMeters,
           rotation_radians:
-            kind === "pose"
+            kind === "waypoint"
               ? (finiteNumber(entry.rotation_radians) ?? 0)
               : null,
           locked: entry.locked === true,

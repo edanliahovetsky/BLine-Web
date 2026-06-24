@@ -1245,7 +1245,7 @@ export function AppShell() {
               onAction={handleShowPathLibrary}
             />
             <MenuAction
-              label="Linked Points..."
+              label="Linked Elements..."
               disabled={!workspace}
               onAction={handleShowLinkedTargets}
             />
@@ -2579,7 +2579,7 @@ function LinkedTargetsDialog({
       kind,
       x_meters: coordinateLength / 2,
       y_meters: coordinateWidth / 2,
-      rotation_radians: kind === "pose" ? 0 : null,
+      rotation_radians: kind === "waypoint" ? 0 : null,
       locked: false,
     });
     setSelectedTargetId(targetId);
@@ -2626,16 +2626,16 @@ function LinkedTargetsDialog({
         className="path-library-dialog linked-targets-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={linkRequest ? "Choose Linked Target" : "Linked Points"}
+        aria-label={linkRequest ? "Choose Linked Element" : "Linked Elements"}
         data-testid="linked-targets-dialog"
       >
         <header className="config-dialog__header">
           <strong>
-            {linkRequest ? "Choose Linked Target" : "Linked Points"}
+            {linkRequest ? "Choose Linked Element" : "Linked Elements"}
           </strong>
           <button
             type="button"
-            aria-label="Close linked points"
+            aria-label="Close linked elements"
             onClick={onCancel}
           >
             x
@@ -2647,13 +2647,15 @@ function LinkedTargetsDialog({
             <strong>
               {linkRequest
                 ? `Element ${linkRequest.elementIndex + 1}`
-                : (selectedTarget?.display_name ?? "No linked target")}
+                : (selectedTarget?.display_name ?? "No linked element")}
             </strong>
             <span>
               {linkRequest
                 ? `${pickerCompatibleTargets.length} compatible / ${workspace.linked_targets.length} total`
                 : `${workspace.linked_targets.length} ${
-                    workspace.linked_targets.length === 1 ? "target" : "targets"
+                    workspace.linked_targets.length === 1
+                      ? "element"
+                      : "elements"
                   } / ${activeUseCount} ${
                     activeUseCount === 1 ? "use" : "uses"
                   }`}
@@ -2662,18 +2664,18 @@ function LinkedTargetsDialog({
           <button
             type="button"
             className="path-library-dialog__utility-button"
-            onClick={() => createTarget("point")}
+            onClick={() => createTarget("translation")}
           >
             <PlusIcon size={17} />
-            <span>New Point</span>
+            <span>New Translation</span>
           </button>
           <button
             type="button"
             className="path-library-dialog__utility-button"
-            onClick={() => createTarget("pose")}
+            onClick={() => createTarget("waypoint")}
           >
             <PlusIcon size={17} />
-            <span>New Pose</span>
+            <span>New Waypoint</span>
           </button>
         </div>
 
@@ -2685,9 +2687,9 @@ function LinkedTargetsDialog({
             }
           }}
         >
-          <aside className="linked-targets-dialog__list" aria-label="Targets">
+          <aside className="linked-targets-dialog__list" aria-label="Elements">
             <div className="path-library-dialog__column-header">
-              <strong>Targets</strong>
+              <strong>Elements</strong>
               <span>{workspace.linked_targets.length}</span>
             </div>
             <div
@@ -2739,7 +2741,7 @@ function LinkedTargetsDialog({
                 })
               ) : (
                 <div className="path-library-dialog__empty">
-                  No linked points yet.
+                  No linked elements yet.
                 </div>
               )}
             </div>
@@ -2747,7 +2749,7 @@ function LinkedTargetsDialog({
 
           <section
             className="linked-targets-dialog__preview-column"
-            aria-label="Linked target preview"
+            aria-label="Linked element preview"
           >
             <div className="path-library-dialog__column-header">
               <strong>Field Preview</strong>
@@ -2785,7 +2787,7 @@ function LinkedTargetsDialog({
 
           <section
             className="path-library-dialog__details linked-targets-dialog__details"
-            aria-label="Linked target details"
+            aria-label="Linked element details"
           >
             <div className="path-library-dialog__column-header">
               <strong>Details</strong>
@@ -2801,7 +2803,7 @@ function LinkedTargetsDialog({
                   <label className="dialog-field">
                     <span>Name</span>
                     <input
-                      aria-label="Linked target name"
+                      aria-label="Linked element name"
                       value={selectedTarget.display_name}
                       onChange={(event) =>
                         updateTarget(selectedTarget.target_id, {
@@ -2813,7 +2815,7 @@ function LinkedTargetsDialog({
                   <label className="dialog-field">
                     <span>Type</span>
                     <select
-                      aria-label="Linked target type"
+                      aria-label="Linked element type"
                       value={selectedTarget.kind}
                       onChange={(event) =>
                         updateTarget(selectedTarget.target_id, {
@@ -2821,8 +2823,8 @@ function LinkedTargetsDialog({
                         })
                       }
                     >
-                      <option value="point">Point</option>
-                      <option value="pose">Pose</option>
+                      <option value="translation">Translation</option>
+                      <option value="waypoint">Waypoint</option>
                     </select>
                   </label>
                   <label className="dialog-field dialog-field--toggle linked-targets-dialog__lock-field">
@@ -2865,7 +2867,7 @@ function LinkedTargetsDialog({
                       updateTarget(selectedTarget.target_id, { y_meters })
                     }
                   />
-                  {selectedTarget.kind === "pose" ? (
+                  {selectedTarget.kind === "waypoint" ? (
                     <LinkedTargetNumberField
                       label="Heading (deg)"
                       value={radiansToDegrees(
@@ -2894,12 +2896,12 @@ function LinkedTargetsDialog({
                       setSelectedTargetId(nextSelection);
                     }}
                   >
-                    Delete Linked Target
+                    Delete Linked Element
                   </button>
                 </div>
               ) : (
                 <div className="path-library-dialog__empty">
-                  Select or create a linked point.
+                  Select or create a linked element.
                 </div>
               )}
             </div>
@@ -2970,7 +2972,7 @@ function LinkedTargetListGlyph({ target }: { target: LinkedTarget }) {
       viewBox="-16 -16 32 32"
       aria-hidden="true"
     >
-      {target.kind === "pose" ? (
+      {target.kind === "waypoint" ? (
         <g
           transform={`rotate(${-radiansToDegrees(target.rotation_radians ?? 0)})`}
         >
@@ -3027,7 +3029,8 @@ function nextLinkedTargetName(
   workspace: ProjectWorkspaceDocument,
   kind: LinkedTargetKind,
 ): string {
-  const base = kind === "pose" ? "Linked Pose" : "Linked Point";
+  const base =
+    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
   const names = new Set(
     workspace.linked_targets.map((target) => target.display_name),
   );
@@ -3041,7 +3044,7 @@ function nextLinkedTargetName(
 }
 
 function formatLinkedTargetKind(kind: LinkedTargetKind): string {
-  return kind === "pose" ? "Pose" : "Point";
+  return kind === "waypoint" ? "Waypoint" : "Translation";
 }
 
 function formatNumericInputValue(value: number): string {

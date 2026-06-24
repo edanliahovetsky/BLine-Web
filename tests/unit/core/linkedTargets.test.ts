@@ -44,14 +44,14 @@ describe("linked targets", () => {
         {
           target_id: "note-a",
           display_name: "Note A",
-          kind: "point",
+          kind: "translation",
           x_meters: 3,
           y_meters: 4,
         },
         {
           target_id: "start-pose",
           display_name: "Start Pose",
-          kind: "pose",
+          kind: "waypoint",
           x_meters: 1,
           y_meters: 2,
           rotation_radians: Math.PI / 2,
@@ -80,7 +80,10 @@ describe("linked targets", () => {
     });
 
     const serialized = serializeProjectWorkspaceDocument(workspace);
-    expect(serialized.linked_targets).toHaveLength(2);
+    expect(serialized.linked_targets).toMatchObject([
+      { kind: "translation" },
+      { kind: "waypoint" },
+    ]);
     expect(serialized.linked_targets?.[1]).toMatchObject({ locked: true });
     expect(serialized.paths[0]?.editor_metadata?.linked_targets).toEqual([
       { element_index: 0, target_id: "note-a" },
@@ -108,6 +111,74 @@ describe("linked targets", () => {
     });
   });
 
+  it("imports legacy point and pose linked target kind names", () => {
+    const workspace = createProjectWorkspaceDocument({
+      project_id: "workspace-1",
+      display_name: "Robot Autos",
+      linked_targets: [
+        {
+          target_id: "note-a",
+          display_name: "Note A",
+          kind: "translation",
+          x_meters: 3,
+          y_meters: 4,
+        },
+        {
+          target_id: "start-pose",
+          display_name: "Start Pose",
+          kind: "waypoint",
+          x_meters: 1,
+          y_meters: 2,
+          rotation_radians: Math.PI / 2,
+        },
+      ],
+      paths: [
+        createProjectPathDocument({
+          path_id: "auto",
+          display_name: "Auto",
+          file_name: "auto.json",
+          path: createPathModel({
+            path_elements: [
+              createTranslationTarget({ linked_target_id: "note-a" }),
+              createWaypoint({ linked_target_id: "start-pose" }),
+            ],
+          }),
+        }),
+      ],
+    });
+    const serialized = JSON.parse(
+      JSON.stringify(serializeProjectWorkspaceDocument(workspace)),
+    ) as { linked_targets: Array<{ display_name: string; kind: string }> };
+    serialized.linked_targets[0]!.kind = "point";
+    serialized.linked_targets[0]!.display_name = "Linked Point 1";
+    serialized.linked_targets[1]!.kind = "pose";
+    serialized.linked_targets[1]!.display_name = "Linked Pose 2";
+
+    const restored = deserializeProjectWorkspaceDocument(serialized);
+
+    expect(restored.linked_targets).toMatchObject([
+      {
+        target_id: "note-a",
+        display_name: "Linked Translation 1",
+        kind: "translation",
+      },
+      {
+        target_id: "start-pose",
+        display_name: "Linked Waypoint 2",
+        kind: "waypoint",
+      },
+    ]);
+    expect(restored.paths[0]?.path.path_elements[1]).toMatchObject({
+      translation_target: {
+        x_meters: 1,
+        y_meters: 2,
+      },
+      rotation_target: {
+        rotation_radians: Math.PI / 2,
+      },
+    });
+  });
+
   it("stores linked target metadata in project folder state, not path files", async () => {
     const workspace = createProjectWorkspaceDocument({
       project_id: "workspace-1",
@@ -116,7 +187,7 @@ describe("linked targets", () => {
         {
           target_id: "note-a",
           display_name: "Note A",
-          kind: "point",
+          kind: "translation",
           x_meters: 3,
           y_meters: 4,
         },
@@ -151,7 +222,7 @@ describe("linked targets", () => {
       {
         target_id: "note-a",
         display_name: "Note A",
-        kind: "point",
+        kind: "translation",
         x_meters: 3,
         y_meters: 4,
       },
@@ -167,7 +238,7 @@ describe("linked targets", () => {
         {
           target_id: "note-a",
           display_name: "Note A",
-          kind: "point",
+          kind: "translation",
           x_meters: 1,
           y_meters: 2,
         },
@@ -219,14 +290,14 @@ describe("linked targets", () => {
         {
           target_id: "note-a",
           display_name: "Note A",
-          kind: "point",
+          kind: "translation",
           x_meters: 7,
           y_meters: 8,
         },
         {
           target_id: "score-pose",
           display_name: "Score Pose",
-          kind: "pose",
+          kind: "waypoint",
           x_meters: 2,
           y_meters: 3,
           rotation_radians: 1.25,
@@ -247,25 +318,25 @@ describe("linked targets", () => {
       ],
     });
 
-    const linkedPoint = linkPathElementToTargetInWorkspace(
+    const linkedTranslation = linkPathElementToTargetInWorkspace(
       workspace,
       "auto",
       0,
       "note-a",
     );
-    expect(linkedPoint.paths[0]?.path.path_elements[0]).toMatchObject({
+    expect(linkedTranslation.paths[0]?.path.path_elements[0]).toMatchObject({
       linked_target_id: "note-a",
       x_meters: 7,
       y_meters: 8,
     });
 
-    const linkedPose = linkPathElementToTargetInWorkspace(
-      linkedPoint,
+    const linkedWaypoint = linkPathElementToTargetInWorkspace(
+      linkedTranslation,
       "auto",
       1,
       "score-pose",
     );
-    expect(linkedPose.paths[0]?.path.path_elements[1]).toMatchObject({
+    expect(linkedWaypoint.paths[0]?.path.path_elements[1]).toMatchObject({
       linked_target_id: "score-pose",
       translation_target: {
         x_meters: 2,
@@ -276,7 +347,7 @@ describe("linked targets", () => {
       },
     });
 
-    const unlinked = unlinkPathElementInWorkspace(linkedPose, "auto", 1);
+    const unlinked = unlinkPathElementInWorkspace(linkedWaypoint, "auto", 1);
     expect(unlinked.paths[0]?.path.path_elements[1]).toMatchObject({
       translation_target: {
         x_meters: 2,
@@ -300,7 +371,7 @@ describe("linked targets", () => {
         {
           target_id: "note-a",
           display_name: "Note A",
-          kind: "point",
+          kind: "translation",
           x_meters: 2,
           y_meters: 3,
         },
