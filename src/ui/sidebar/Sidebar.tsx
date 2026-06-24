@@ -200,6 +200,23 @@ export function Sidebar({
       .selectElement(selectedElementIndex, projectStore.getState().project);
   };
 
+  const handleLinkTarget = (targetId: string) => {
+    if (!project || selectedElementIndex === null) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .linkPathElementToTarget(
+        project.project_id,
+        selectedElementIndex,
+        targetId,
+      );
+    selectionStore
+      .getState()
+      .selectElement(selectedElementIndex, projectStore.getState().project);
+  };
+
   const handleCreateLinkedTarget = (kind: LinkedTargetKind) => {
     if (!project || !workspace || selectedElementIndex === null) {
       return;
@@ -274,6 +291,7 @@ export function Sidebar({
         onUpdateElement={handleUpdateElement}
         onUnlinkTarget={handleUnlinkTarget}
         onCreateLinkedTarget={handleCreateLinkedTarget}
+        onLinkTarget={handleLinkTarget}
         onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
       />
       <ConstraintEditor

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   defaultFieldGeometry,
   type FieldGeometry,
@@ -43,6 +44,7 @@ interface PropertyEditorProps {
   onUpdateElement(element: PathElement): void;
   onUnlinkTarget(): void;
   onCreateLinkedTarget(kind: LinkedTargetKind): void;
+  onLinkTarget(targetId: string): void;
   onOpenLinkedTargetPicker(): void;
   fieldGeometry?: FieldGeometry;
 }
@@ -58,6 +60,7 @@ export function PropertyEditor({
   onUpdateElement,
   onUnlinkTarget,
   onCreateLinkedTarget,
+  onLinkTarget,
   onOpenLinkedTargetPicker,
   fieldGeometry = defaultFieldGeometry,
 }: PropertyEditorProps) {
@@ -73,6 +76,7 @@ export function PropertyEditor({
           element={element}
           workspace={workspace}
           onCreateLinkedTarget={onCreateLinkedTarget}
+          onLinkTarget={onLinkTarget}
           onOpenLinkedTargetPicker={onOpenLinkedTargetPicker}
           onUnlinkTarget={onUnlinkTarget}
         />
@@ -158,15 +162,18 @@ function LinkedTargetMenu({
   element,
   workspace,
   onCreateLinkedTarget,
+  onLinkTarget,
   onOpenLinkedTargetPicker,
   onUnlinkTarget,
 }: {
   element: PathElement;
   workspace: ProjectWorkspaceDocument | null;
   onCreateLinkedTarget(kind: LinkedTargetKind): void;
+  onLinkTarget(targetId: string): void;
   onOpenLinkedTargetPicker(): void;
   onUnlinkTarget(): void;
 }) {
+  const [query, setQuery] = useState("");
   if (!workspace || (!isTranslationTarget(element) && !isWaypoint(element))) {
     return null;
   }
@@ -179,9 +186,19 @@ function LinkedTargetMenu({
   const compatibleTargets = workspace.linked_targets.filter((target) =>
     isElementCompatibleWithLinkedTarget(element, target),
   );
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleTargets = normalizedQuery
+    ? compatibleTargets.filter((target) =>
+        target.display_name.toLowerCase().includes(normalizedQuery),
+      )
+    : compatibleTargets;
+  const hasTargetChoices = compatibleTargets.length > 0;
   const createKinds: LinkedTargetKind[] = isWaypoint(element)
     ? ["translation", "waypoint"]
     : ["translation"];
+  const statusLabel = currentTarget
+    ? `Linked to ${currentTarget.display_name}`
+    : "Unlinked";
 
   return (
     <details
@@ -201,24 +218,53 @@ function LinkedTargetMenu({
         <span>Link</span>
       </summary>
       <div className="linked-element-menu__panel" role="menu">
-        {currentTarget ? (
-          <div className="linked-element-menu__status">
-            <span>Linked</span>
-            <strong>{currentTarget.display_name}</strong>
+        <div className="linked-element-menu__status">
+          <span>{currentTarget ? "Linked" : "Unlinked"}</span>
+          <strong>{statusLabel}</strong>
+        </div>
+        {hasTargetChoices ? (
+          <div className="linked-element-menu__target-picker">
+            {compatibleTargets.length >= linkedTargetSearchThreshold ? (
+              <input
+                aria-label="Filter linked elements"
+                value={query}
+                placeholder="Filter linked elements"
+                onChange={(event) => setQuery(event.currentTarget.value)}
+              />
+            ) : null}
+            <div className="linked-element-menu__target-list" role="group">
+              {visibleTargets.length > 0 ? (
+                visibleTargets.map((target) => (
+                  <button
+                    key={target.target_id}
+                    type="button"
+                    role="menuitem"
+                    className={
+                      target.target_id === currentTargetId ? "is-current" : ""
+                    }
+                    disabled={target.target_id === currentTargetId}
+                    onClick={(event) => {
+                      onLinkTarget(target.target_id);
+                      closeContainingDetails(event.currentTarget);
+                    }}
+                  >
+                    <span>{target.display_name}</span>
+                    <small>{formatLinkedTargetKind(target.kind)}</small>
+                  </button>
+                ))
+              ) : (
+                <div className="linked-element-menu__empty">
+                  No matching linked elements.
+                </div>
+              )}
+            </div>
           </div>
-        ) : null}
-        <button
-          type="button"
-          role="menuitem"
-          disabled={compatibleTargets.length === 0}
-          onClick={(event) => {
-            onOpenLinkedTargetPicker();
-            closeContainingDetails(event.currentTarget);
-          }}
-        >
-          <span>Choose Existing...</span>
-          <small>{compatibleTargets.length}</small>
-        </button>
+        ) : (
+          <div className="linked-element-menu__empty">
+            No compatible linked elements yet.
+          </div>
+        )}
+        <div className="linked-element-menu__separator" role="separator" />
         {createKinds.map((kind) => (
           <button
             key={kind}
@@ -231,11 +277,24 @@ function LinkedTargetMenu({
           >
             <span>
               {kind === "waypoint"
-                ? "New Linked Waypoint"
-                : "New Linked Translation"}
+                ? "Create Linked Waypoint"
+                : "Create Linked Translation"}
             </span>
           </button>
         ))}
+        <button
+          type="button"
+          role="menuitem"
+          onClick={(event) => {
+            onOpenLinkedTargetPicker();
+            closeContainingDetails(event.currentTarget);
+          }}
+        >
+          <span>
+            {currentTarget ? "Open in Field Preview..." : "Field Preview..."}
+          </span>
+          <small>{compatibleTargets.length}</small>
+        </button>
         {currentTargetId ? (
           <button
             type="button"
@@ -253,9 +312,15 @@ function LinkedTargetMenu({
   );
 }
 
+function formatLinkedTargetKind(kind: LinkedTargetKind): string {
+  return kind === "waypoint" ? "Waypoint" : "Translation";
+}
+
 function closeContainingDetails(element: HTMLElement): void {
   element.closest("details")?.removeAttribute("open");
 }
+
+const linkedTargetSearchThreshold = 6;
 
 function TranslationFields({
   element,

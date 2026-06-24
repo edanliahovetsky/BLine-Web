@@ -1695,9 +1695,9 @@ select {
   top: calc(100% + 6px);
   right: 0;
   display: grid;
-  gap: 3px;
-  width: min(260px, calc(100vw - 28px));
-  padding: 5px;
+  gap: 6px;
+  width: min(330px, calc(100vw - 28px));
+  padding: 7px;
   border: 1px solid #3a4652;
   border-radius: 7px;
   background: #151b20;
@@ -1707,8 +1707,7 @@ select {
 .linked-element-menu__status {
   display: grid;
   gap: 2px;
-  padding: 6px 8px 7px;
-  border-bottom: 1px solid #303a43;
+  padding: 6px 8px 5px;
 }
 
 .linked-element-menu__status span {
@@ -1729,6 +1728,53 @@ select {
   white-space: nowrap;
 }
 
+.linked-element-menu__target-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.linked-element-menu__target-picker input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 31px;
+  padding: 0 8px;
+  border: 1px solid #33404c;
+  border-radius: 6px;
+  color: #eef3f7;
+  background: #11171c;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.linked-element-menu__target-picker input:focus-visible {
+  outline: 2px solid rgba(88, 166, 255, 0.54);
+  outline-offset: 1px;
+  border-color: #4d8fe8;
+}
+
+.linked-element-menu__target-list {
+  display: grid;
+  gap: 3px;
+  max-height: 196px;
+  overflow-y: auto;
+}
+
+.linked-element-menu__separator {
+  height: 1px;
+  background: #303a43;
+}
+
+.linked-element-menu__empty {
+  padding: 7px 8px;
+  border: 1px dashed #35424e;
+  border-radius: 6px;
+  color: #9eadb9;
+  background: #11171c;
+  font-size: 0.78rem;
+  font-weight: 680;
+}
+
 .linked-element-menu__panel button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1743,6 +1789,17 @@ select {
   font-size: 0.82rem;
   font-weight: 720;
   text-align: left;
+}
+
+.linked-element-menu__panel button.is-current {
+  border-color: rgba(88, 166, 255, 0.45);
+  color: #8cc8ff;
+  background: #182a3d;
+}
+
+.linked-element-menu__panel button.is-current:disabled {
+  cursor: default;
+  opacity: 1;
 }
 
 .linked-element-menu__panel button span {
