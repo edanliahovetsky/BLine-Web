@@ -3880,7 +3880,7 @@ button.auto-velocity-status--running:disabled {
 .linked-targets-dialog__preview-shell {
   display: grid;
   min-height: 0;
-  padding: 12px;
+  padding: 4px;
   background: #11171c;
 }
 

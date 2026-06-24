@@ -362,7 +362,12 @@ export function LinkedTargetsCanvas({
   }, [fieldRenderKey, renderField]);
 
   const baseViewport = useMemo(
-    () => createFieldViewport(stageSize, 24, field.geometry),
+    () =>
+      createFieldViewport(
+        stageSize,
+        linkedElementsPreviewFieldPaddingPx,
+        field.geometry,
+      ),
     [field.geometry, stageSize],
   );
   const viewport = useMemo(
@@ -918,5 +923,6 @@ const emptyRotationPreview = new Map<number, number>();
 const minViewScale = 1;
 const maxViewScale = 8;
 const zoomStepFactor = 1.03;
+const linkedElementsPreviewFieldPaddingPx = 6;
 const rotationHandleHitRadiusPx = 18;
 const blankClickMaxDistancePx = 4;
