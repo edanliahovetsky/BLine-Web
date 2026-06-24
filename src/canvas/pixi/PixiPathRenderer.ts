@@ -127,6 +127,10 @@ export class PixiPathRenderer {
   private readonly rotationGraphics = new Graphics();
   private readonly simulationGraphics = new Graphics();
   private readonly debugNodes = new Map<string, StagePoint>();
+  private drawnFieldViewport: FieldViewport | null = null;
+  private drawnOverlayViewport: FieldViewport | null = null;
+  private drawnOverlayPaths: readonly PixiPathOverlay[] | null = null;
+  private drawnHoveredOverlayPathId: string | null = null;
   private renderCount = 0;
 
   private constructor(
@@ -186,8 +190,20 @@ export class PixiPathRenderer {
   update(input: PixiRenderInput): void {
     this.resize(input.stageSize);
     this.debugNodes.clear();
-    this.drawField(input.viewport);
-    this.drawOverlayPaths(input);
+    if (this.drawnFieldViewport !== input.viewport) {
+      this.drawField(input.viewport);
+      this.drawnFieldViewport = input.viewport;
+    }
+    if (
+      this.drawnOverlayViewport !== input.viewport ||
+      this.drawnOverlayPaths !== input.overlayPaths ||
+      this.drawnHoveredOverlayPathId !== input.hoveredOverlayPathId
+    ) {
+      this.drawOverlayPaths(input);
+      this.drawnOverlayViewport = input.viewport;
+      this.drawnOverlayPaths = input.overlayPaths;
+      this.drawnHoveredOverlayPathId = input.hoveredOverlayPathId;
+    }
     this.drawPath(input);
     this.drawCurvePreview(input);
     this.drawConstraintHighlights(input);
