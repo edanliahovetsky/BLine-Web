@@ -235,6 +235,11 @@ export function PathStage({
     activeField.geometry.length_meters / activeField.geometry.width_meters;
 
   const fieldRenderKey = `${renderField.id}:${renderField.image_src ?? renderField.kind}`;
+  const rendererFieldRef = useRef(renderField);
+
+  useEffect(() => {
+    rendererFieldRef.current = renderField;
+  }, [renderField]);
 
   useEffect(() => {
     selectionStore.getState().reconcileProject(project);
@@ -391,8 +396,9 @@ export function PathStage({
     let disposed = false;
     let renderer: PixiPathRenderer | null = null;
     let debugApi: ReturnType<PixiPathRenderer["getDebugApi"]> | null = null;
+    const rendererField = rendererFieldRef.current;
 
-    void PixiPathRenderer.create(fallbackStageSize, renderField)
+    void PixiPathRenderer.create(fallbackStageSize, rendererField)
       .then((nextRenderer) => {
         if (disposed) {
           nextRenderer.destroy();
@@ -425,7 +431,7 @@ export function PathStage({
       rendererRef.current = null;
       renderer?.destroy();
     };
-  }, [fieldRenderKey, renderField]);
+  }, [fieldRenderKey]);
 
   const baseViewport = useMemo(
     () => createFieldViewport(stageSize, 24, activeField.geometry),

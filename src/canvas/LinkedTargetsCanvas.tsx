@@ -283,6 +283,12 @@ export function LinkedTargetsCanvas({
     [customFieldImageUrl, field],
   );
   const fieldRenderKey = `${renderField.id}:${renderField.image_src ?? renderField.kind}`;
+  const rendererFieldRef = useRef(renderField);
+
+  useEffect(() => {
+    rendererFieldRef.current = renderField;
+  }, [renderField]);
+
   const activeFieldAspectRatio =
     field.geometry.length_meters / field.geometry.width_meters;
 
@@ -324,8 +330,9 @@ export function LinkedTargetsCanvas({
     let disposed = false;
     let renderer: PixiPathRenderer | null = null;
     let debugApi: ReturnType<PixiPathRenderer["getDebugApi"]> | null = null;
+    const rendererField = rendererFieldRef.current;
 
-    void PixiPathRenderer.create(fallbackPreviewStageSize, renderField)
+    void PixiPathRenderer.create(fallbackPreviewStageSize, rendererField)
       .then((nextRenderer) => {
         if (disposed) {
           nextRenderer.destroy();
@@ -359,7 +366,7 @@ export function LinkedTargetsCanvas({
       rendererRef.current = null;
       renderer?.destroy();
     };
-  }, [fieldRenderKey, renderField]);
+  }, [fieldRenderKey]);
 
   const baseViewport = useMemo(
     () =>

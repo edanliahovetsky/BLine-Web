@@ -153,6 +153,9 @@ export class PixiPathRenderer {
     this.field = field;
     this.fieldSprite = new Sprite(fieldTexture ?? Texture.EMPTY);
     this.app.canvas.dataset.testid = "path-stage-pixi-canvas";
+    this.app.canvas.dataset.rendererInstanceId = String(
+      nextRendererInstanceId++,
+    );
     this.app.canvas.setAttribute("aria-hidden", "true");
     this.app.stage.addChild(this.root);
     this.root.addChild(
@@ -1995,6 +1998,7 @@ async function loadFieldTexture(src: string): Promise<Texture> {
 }
 
 const constraintHighlightColor = "#15c915";
+let nextRendererInstanceId = 1;
 const maxPixiResolution = 3;
 const selectionStrokeWidthPx = 2.6;
 const simulationRobotStrokeWidthPx = 2.4;
