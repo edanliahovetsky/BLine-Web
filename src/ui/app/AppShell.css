@@ -3865,8 +3865,6 @@ button.auto-velocity-status--running:disabled {
   height: 100%;
   min-height: 360px;
   overflow: hidden;
-  border: 1px solid #303941;
-  border-radius: 7px;
   background: var(--bline-canvas-background);
   touch-action: none;
 }
