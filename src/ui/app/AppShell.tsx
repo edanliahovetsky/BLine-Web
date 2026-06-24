@@ -2912,7 +2912,7 @@ function LinkedTargetsDialog({
           {linkRequest ? (
             <button
               type="button"
-              className="primary-dialog-action"
+              className="primary-dialog-action linked-targets-dialog__link-selected"
               disabled={!selectedTarget || !selectedTargetCompatible}
               onClick={linkSelectedTarget}
             >
