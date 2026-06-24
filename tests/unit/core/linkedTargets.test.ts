@@ -17,6 +17,8 @@ import {
 import {
   deleteLinkedTargetFromWorkspace,
   linkPathElementToTargetInWorkspace,
+  linkedTargetControlsElementRotation,
+  linkedTargetForPathElement,
   unlinkPathElementInWorkspace,
   updateLinkedTargetInWorkspace,
 } from "../../../src/core/linkedTargets";
@@ -280,6 +282,77 @@ describe("linked targets", () => {
         y_meters: 6,
       },
     });
+  });
+
+  it("finds the linked target that controls canvas drags", () => {
+    const workspace = createProjectWorkspaceDocument({
+      project_id: "workspace-1",
+      display_name: "Robot Autos",
+      linked_targets: [
+        {
+          target_id: "note-a",
+          display_name: "Note A",
+          kind: "translation",
+          x_meters: 1,
+          y_meters: 2,
+          locked: true,
+        },
+        {
+          target_id: "score-pose",
+          display_name: "Score Pose",
+          kind: "waypoint",
+          x_meters: 3,
+          y_meters: 4,
+          rotation_radians: 1.25,
+        },
+      ],
+      paths: [
+        createProjectPathDocument({
+          path_id: "auto",
+          display_name: "Auto",
+          file_name: "auto.json",
+          path: createPathModel({
+            path_elements: [
+              createTranslationTarget({ linked_target_id: "note-a" }),
+              createWaypoint({ linked_target_id: "note-a" }),
+              createWaypoint({ linked_target_id: "score-pose" }),
+            ],
+          }),
+        }),
+      ],
+    });
+    const elements = workspace.paths[0]?.path.path_elements ?? [];
+
+    expect(linkedTargetForPathElement(workspace, elements[0])).toMatchObject({
+      target_id: "note-a",
+      locked: true,
+    });
+    const translationLinkedWaypoint = linkedTargetForPathElement(
+      workspace,
+      elements[1],
+    );
+    expect(translationLinkedWaypoint).toMatchObject({
+      target_id: "note-a",
+    });
+    expect(
+      translationLinkedWaypoint &&
+        linkedTargetControlsElementRotation(
+          elements[1]!,
+          translationLinkedWaypoint,
+        ),
+    ).toBe(false);
+
+    const poseLinkedWaypoint = linkedTargetForPathElement(
+      workspace,
+      elements[2],
+    );
+    expect(poseLinkedWaypoint).toMatchObject({
+      target_id: "score-pose",
+    });
+    expect(
+      poseLinkedWaypoint &&
+        linkedTargetControlsElementRotation(elements[2]!, poseLinkedWaypoint),
+    ).toBe(true);
   });
 
   it("links and unlinks compatible elements while preserving resolved coordinates", () => {

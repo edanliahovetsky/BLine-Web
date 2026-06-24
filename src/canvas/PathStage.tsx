@@ -34,6 +34,8 @@ import { selectionStore } from "../state/selectionStore";
 import {
   getPathElementLinkedTargetId,
   isElementCompatibleWithLinkedTarget,
+  linkedTargetControlsElementRotation,
+  linkedTargetForPathElement,
 } from "../core/linkedTargets";
 import { SkipBackIcon, SkipForwardIcon } from "../ui/icons";
 import {
@@ -96,12 +98,14 @@ interface ActiveDrag {
   current: PointMeters;
   startRatio: number | null;
   currentRatio: number | null;
+  linkedTargetId: string | null;
 }
 
 interface ActiveRotationDrag {
   index: number;
   startRadians: number;
   currentRadians: number;
+  linkedTargetId: string | null;
 }
 
 interface ActivePanDrag {
@@ -806,12 +810,26 @@ export function PathStage({
       pointer,
     );
     if (rotationHit !== null) {
+      const element = project.path.path_elements[rotationHit];
+      const linkedTarget = workspace
+        ? linkedTargetForPathElement(workspace, element)
+        : null;
+      const linkedTargetId =
+        element &&
+        linkedTarget &&
+        linkedTargetControlsElementRotation(element, linkedTarget)
+          ? linkedTarget.target_id
+          : null;
+      if (linkedTargetId && linkedTarget?.locked) {
+        return;
+      }
       const startRadians =
         getElementHeadingRadians(project.path.path_elements, rotationHit) ?? 0;
       setActiveRotationDrag({
         index: rotationHit,
         startRadians,
         currentRadians: startRadians,
+        linkedTargetId,
       });
       return;
     }
@@ -830,6 +848,12 @@ export function PathStage({
       if (!element || !start || !isDragEnabled(element)) {
         return;
       }
+      const linkedTarget = workspace
+        ? linkedTargetForPathElement(workspace, element)
+        : null;
+      if (linkedTarget?.locked) {
+        return;
+      }
 
       const startRatio =
         isRotationTarget(element) || isEventTrigger(element)
@@ -841,6 +865,7 @@ export function PathStage({
         current: start,
         startRatio,
         currentRatio: startRatio,
+        linkedTargetId: linkedTarget?.target_id ?? null,
       });
       return;
     }
@@ -1037,6 +1062,23 @@ export function PathStage({
     }
 
     if (!pointsAlmostEqual(drag.start, nextPosition)) {
+      if (drag.linkedTargetId) {
+        const target = projectStore
+          .getState()
+          .workspace?.linked_targets.find(
+            (candidate) => candidate.target_id === drag.linkedTargetId,
+          );
+        if (target && !target.locked) {
+          projectStore.getState().updateLinkedTarget(drag.linkedTargetId, {
+            x_meters: nextPosition.x_meters,
+            y_meters: nextPosition.y_meters,
+          });
+          selectionStore
+            .getState()
+            .selectElement(drag.index, projectStore.getState().project);
+        }
+        return;
+      }
       projectStore
         .getState()
         .applyCommand(
@@ -1063,6 +1105,24 @@ export function PathStage({
     if (
       Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001
     ) {
+      if (rotationDrag.linkedTargetId) {
+        const target = projectStore
+          .getState()
+          .workspace?.linked_targets.find(
+            (candidate) => candidate.target_id === rotationDrag.linkedTargetId,
+          );
+        if (target && !target.locked) {
+          projectStore
+            .getState()
+            .updateLinkedTarget(rotationDrag.linkedTargetId, {
+              rotation_radians: nextRadians,
+            });
+          selectionStore
+            .getState()
+            .selectElement(rotationDrag.index, projectStore.getState().project);
+        }
+        return;
+      }
       projectStore
         .getState()
         .applyCommand(

@@ -91,6 +91,33 @@ export function isElementCompatibleWithLinkedTarget(
   return isWaypoint(element);
 }
 
+export function linkedTargetForPathElement(
+  workspace: ProjectWorkspaceDocument,
+  element: PathElement | undefined,
+): LinkedTarget | null {
+  const targetId = getPathElementLinkedTargetId(element);
+  if (!element || !targetId) {
+    return null;
+  }
+
+  const target =
+    workspace.linked_targets.find(
+      (candidate) => candidate.target_id === targetId,
+    ) ?? null;
+  if (!target || !isElementCompatibleWithLinkedTarget(element, target)) {
+    return null;
+  }
+
+  return target;
+}
+
+export function linkedTargetControlsElementRotation(
+  element: PathElement,
+  target: LinkedTarget,
+): boolean {
+  return isWaypoint(element) && target.kind === "waypoint";
+}
+
 export function syncLinkedTargetElements(
   workspace: ProjectWorkspaceDocument,
 ): ProjectWorkspaceDocument {
