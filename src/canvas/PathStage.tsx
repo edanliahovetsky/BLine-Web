@@ -18,7 +18,10 @@ import {
   type TranslationTarget,
 } from "../core/model/path";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
-import { resolveFieldDefinition } from "../core/field/fieldConfig";
+import {
+  resolveFieldDefinition,
+  type ProjectFieldConfig,
+} from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
 import { simulatePath, type SimResult } from "../core/sim";
 import { projectStore } from "../state/projectStore";
@@ -106,6 +109,16 @@ interface ActiveCurveDraft {
   targetPoints: PointMeters[];
 }
 
+function fieldConfigDefinitionKey(
+  config: ProjectFieldConfig | null | undefined,
+): string {
+  return JSON.stringify(config ?? null);
+}
+
+function fieldConfigFromDefinitionKey(key: string): ProjectFieldConfig | null {
+  return JSON.parse(key) as ProjectFieldConfig | null;
+}
+
 export function PathStage({
   curveTool = null,
   onInteractionStateChange,
@@ -159,9 +172,13 @@ export function PathStage({
     selectionStore,
     (state) => state.selectedRangedConstraint,
   );
+  const fieldDefinitionKey = fieldConfigDefinitionKey(
+    project?.config.gui.field,
+  );
   const activeField = useMemo(
-    () => resolveFieldDefinition(project?.config.gui.field),
-    [project?.config.gui.field],
+    () =>
+      resolveFieldDefinition(fieldConfigFromDefinitionKey(fieldDefinitionKey)),
+    [fieldDefinitionKey],
   );
   useEffect(() => {
     if (!activeField.custom) {
@@ -379,7 +396,7 @@ export function PathStage({
         setRendererError(null);
         renderer = nextRenderer;
         rendererRef.current = nextRenderer;
-        host.prepend(nextRenderer.canvas);
+        host.insertBefore(nextRenderer.canvas, host.firstChild);
         debugApi = nextRenderer.getDebugApi();
         (window as PixiDebugWindow).__blinePixiDebug = debugApi;
         if (latestRenderInputRef.current) {

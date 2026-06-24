@@ -137,6 +137,7 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   });
 
   await page.mouse.click(firstAnchor.x, firstAnchor.y);
+  const canvasInstanceId = await markCanvasInstance(page);
   const selectedRow = page.getByTestId("path-element-row-0");
   await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
@@ -145,8 +146,10 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   await page.mouse.move(firstAnchor.x, firstAnchor.y);
   await page.mouse.down();
   await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, { steps: 8 });
+  await expect.poll(() => currentCanvasInstance(page)).toBe(canvasInstanceId);
   await page.mouse.up();
 
+  await expect.poll(() => currentCanvasInstance(page)).toBe(canvasInstanceId);
   await expect(selectedRow).not.toContainText("5.70, 2.50 m");
   await expect(page.getByTestId("save-status")).toContainText(
     /Autosave pending|Saved/,
@@ -3063,6 +3066,30 @@ async function canvasSceneMetrics(page: Page): Promise<{
       renderer: debugMetrics?.renderer ?? "",
     };
   });
+}
+
+async function markCanvasInstance(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      "[data-testid='path-stage-pixi-canvas']",
+    );
+    if (!canvas) {
+      throw new Error("Expected Pixi canvas to be present");
+    }
+
+    const id = crypto.randomUUID();
+    canvas.dataset.instanceId = id;
+    return id;
+  });
+}
+
+async function currentCanvasInstance(page: Page): Promise<string | null> {
+  return page.evaluate(
+    () =>
+      document.querySelector<HTMLCanvasElement>(
+        "[data-testid='path-stage-pixi-canvas']",
+      )?.dataset.instanceId ?? null,
+  );
 }
 
 async function activeFieldLabel(page: Page): Promise<string | null> {
