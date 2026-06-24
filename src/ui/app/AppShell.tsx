@@ -2572,9 +2572,6 @@ function LinkedTargetsDialog({
     : 0;
   const coordinateLength = fieldCoordinateLengthMeters(field.geometry);
   const coordinateWidth = fieldCoordinateWidthMeters(field.geometry);
-  const pickerElementLabel = linkRequest
-    ? `Element ${linkRequest.elementIndex + 1}`
-    : null;
 
   const createTarget = (kind: LinkedTargetKind) => {
     const targetId = projectStore.getState().createLinkedTarget({
@@ -2634,9 +2631,7 @@ function LinkedTargetsDialog({
       >
         <header className="config-dialog__header">
           <strong>
-            {pickerElementLabel
-              ? `Choose Linked Element for ${pickerElementLabel}`
-              : "Linked Elements"}
+            {linkRequest ? "Choose Linked Element" : "Linked Elements"}
           </strong>
           <button
             type="button"
@@ -2651,7 +2646,7 @@ function LinkedTargetsDialog({
           <div className="path-library-dialog__selection-summary">
             <strong>
               {linkRequest
-                ? "Compatible Linked Elements"
+                ? `Element ${linkRequest.elementIndex + 1}`
                 : (selectedTarget?.display_name ?? "No linked element")}
             </strong>
             <span>
@@ -2921,9 +2916,7 @@ function LinkedTargetsDialog({
               disabled={!selectedTarget || !selectedTargetCompatible}
               onClick={linkSelectedTarget}
             >
-              {pickerElementLabel
-                ? `Link Selected to ${pickerElementLabel}`
-                : "Link Selected"}
+              Link Selected
             </button>
           ) : null}
           <button type="button" onClick={onCancel}>
