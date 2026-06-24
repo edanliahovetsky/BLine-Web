@@ -3830,7 +3830,7 @@ button.auto-velocity-status--running:disabled {
 
 .linked-targets-dialog__target-title {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   min-width: 0;
@@ -3845,8 +3845,8 @@ button.auto-velocity-status--running:disabled {
 
 .linked-targets-dialog__target-glyph {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
 }
 
 .linked-targets-dialog__preview-shell {
@@ -3857,6 +3857,7 @@ button.auto-velocity-status--running:disabled {
 }
 
 .linked-targets-dialog__preview {
+  position: relative;
   display: block;
   width: 100%;
   height: 100%;
@@ -3868,38 +3869,17 @@ button.auto-velocity-status--running:disabled {
   touch-action: none;
 }
 
-.linked-targets-dialog__preview-base {
-  fill: #10161d;
-}
-
-.linked-targets-dialog__preview-grid line {
-  stroke: rgba(142, 160, 178, 0.42);
-  stroke-width: 0.02;
-}
-
-.linked-targets-dialog__marker {
+.linked-targets-dialog__preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
   cursor: grab;
-  outline: none;
 }
 
-.linked-targets-dialog__marker:active {
+.linked-targets-dialog__preview.is-panning canvas,
+.linked-targets-dialog__preview.is-target-dragging canvas,
+.linked-targets-dialog__preview.is-rotation-dragging canvas {
   cursor: grabbing;
-}
-
-.linked-targets-dialog__marker.is-muted {
-  opacity: 0.46;
-}
-
-.linked-targets-dialog__marker.is-incompatible {
-  opacity: 0.26;
-}
-
-.linked-targets-dialog__marker.is-locked {
-  cursor: pointer;
-}
-
-.linked-targets-dialog__marker.is-selected {
-  opacity: 1;
 }
 
 .linked-targets-dialog__editor {

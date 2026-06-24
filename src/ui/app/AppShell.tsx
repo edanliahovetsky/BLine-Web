@@ -16,15 +16,10 @@ import type {
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { LinkedTargetsCanvas } from "../../canvas/LinkedTargetsCanvas";
 import { PathStage } from "../../canvas/PathStage";
-import {
-  elementCircleRadiusMeters,
-  robotLengthMeters,
-  robotWidthMeters,
-  triangleSizeRatio,
-} from "../../canvas/constants";
-import { elementColors } from "../../canvas/elementStyle";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
+import { elementColors } from "../../canvas/elementStyle";
 import type {
   LinkedTarget,
   LinkedTargetKind,
@@ -34,8 +29,6 @@ import type {
 } from "../../core/io/projectSchema";
 import {
   fieldCoordinateLengthMeters,
-  fieldCoordinateOffsetXMeters,
-  fieldCoordinateOffsetYMeters,
   fieldCoordinateWidthMeters,
   resolveFieldDefinition,
   type CustomFieldImage,
@@ -2529,17 +2522,9 @@ function LinkedTargetsDialog({
     () => resolveFieldDefinition(workspace.config.gui.field),
     [workspace.config.gui.field],
   );
-  const [requestedTargetId, setSelectedTargetId] = useState<string | null>(
-    null,
-  );
-  const [dragPreview, setDragPreview] = useState<{
-    targetId: string;
-    start_x_meters: number;
-    start_y_meters: number;
-    x_meters: number;
-    y_meters: number;
-  } | null>(null);
-  const previewRef = useRef<SVGSVGElement | null>(null);
+  const [requestedTargetId, setSelectedTargetId] = useState<
+    string | null | undefined
+  >(undefined);
   const pickerElement = linkRequest?.element ?? null;
   const pickerCompatibleTargets = pickerElement
     ? workspace.linked_targets.filter((target) =>
@@ -2557,12 +2542,14 @@ function LinkedTargetsDialog({
         null);
 
   const selectedTargetId =
-    requestedTargetId &&
-    workspace.linked_targets.some(
-      (target) => target.target_id === requestedTargetId,
-    )
-      ? requestedTargetId
-      : fallbackTargetId;
+    requestedTargetId === undefined
+      ? fallbackTargetId
+      : requestedTargetId &&
+          workspace.linked_targets.some(
+            (target) => target.target_id === requestedTargetId,
+          )
+        ? requestedTargetId
+        : null;
 
   const selectedTarget =
     workspace.linked_targets.find(
@@ -2573,14 +2560,12 @@ function LinkedTargetsDialog({
     (selectedTarget
       ? isElementCompatibleWithLinkedTarget(pickerElement, selectedTarget)
       : false);
-  const displayedTargets = workspace.linked_targets.map((target) =>
-    dragPreview?.targetId === target.target_id
-      ? {
-          ...target,
-          x_meters: dragPreview.x_meters,
-          y_meters: dragPreview.y_meters,
-        }
-      : target,
+  const compatibleTargetIds = useMemo(
+    () =>
+      pickerElement
+        ? new Set(pickerCompatibleTargets.map((target) => target.target_id))
+        : null,
+    [pickerElement, pickerCompatibleTargets],
   );
   const activeUseCount = selectedTarget
     ? linkedTargetUseCount(workspace, selectedTarget.target_id)
@@ -2615,52 +2600,6 @@ function LinkedTargetsDialog({
     >,
   ) => {
     projectStore.getState().updateLinkedTarget(targetId, update);
-  };
-
-  const handlePreviewPointerMove = (
-    event: ReactPointerEvent<SVGSVGElement>,
-  ) => {
-    if (!dragPreview) {
-      return;
-    }
-    const nextPosition = previewPointerToModelPoint(
-      event,
-      previewRef.current,
-      field.geometry,
-    );
-    if (!nextPosition) {
-      return;
-    }
-    setDragPreview({
-      ...dragPreview,
-      ...nextPosition,
-    });
-  };
-
-  const finishPreviewDrag = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (!dragPreview) {
-      return;
-    }
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    if (
-      !nearlyEqual(dragPreview.x_meters, dragPreview.start_x_meters) ||
-      !nearlyEqual(dragPreview.y_meters, dragPreview.start_y_meters)
-    ) {
-      projectStore.getState().updateLinkedTarget(dragPreview.targetId, {
-        x_meters: dragPreview.x_meters,
-        y_meters: dragPreview.y_meters,
-      });
-    }
-    setDragPreview(null);
-  };
-
-  const cancelPreviewDrag = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    setDragPreview(null);
   };
 
   const linkSelectedTarget = () => {
@@ -2738,13 +2677,28 @@ function LinkedTargetsDialog({
           </button>
         </div>
 
-        <div className="linked-targets-dialog__body">
+        <div
+          className="linked-targets-dialog__body"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setSelectedTargetId(null);
+            }
+          }}
+        >
           <aside className="linked-targets-dialog__list" aria-label="Targets">
             <div className="path-library-dialog__column-header">
               <strong>Targets</strong>
               <span>{workspace.linked_targets.length}</span>
             </div>
-            <div className="path-library-dialog__path-list" role="list">
+            <div
+              className="path-library-dialog__path-list"
+              role="list"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  setSelectedTargetId(null);
+                }
+              }}
+            >
               {workspace.linked_targets.length > 0 ? (
                 workspace.linked_targets.map((target) => {
                   const selected = target.target_id === selectedTargetId;
@@ -2799,76 +2753,33 @@ function LinkedTargetsDialog({
               <strong>Field Preview</strong>
               <span>{field.label}</span>
             </div>
-            <div className="linked-targets-dialog__preview-shell">
-              <svg
-                ref={previewRef}
-                className="linked-targets-dialog__preview"
-                viewBox={`0 0 ${field.geometry.length_meters} ${field.geometry.width_meters}`}
-                role="img"
-                aria-label="Linked target field preview"
-                onPointerMove={handlePreviewPointerMove}
-                onPointerUp={finishPreviewDrag}
-                onPointerCancel={cancelPreviewDrag}
-              >
-                <rect
-                  className="linked-targets-dialog__preview-base"
-                  x="0"
-                  y="0"
-                  width={field.geometry.length_meters}
-                  height={field.geometry.width_meters}
-                />
-                {field.kind === "image" && field.image_src ? (
-                  <image
-                    href={field.image_src}
-                    x="0"
-                    y="0"
-                    width={field.geometry.length_meters}
-                    height={field.geometry.width_meters}
-                    preserveAspectRatio="none"
-                  />
-                ) : (
-                  <PreviewGrid field={field.geometry} />
-                )}
-                {displayedTargets.map((target) => {
-                  const point = linkedTargetToPreviewPoint(
-                    target,
-                    field.geometry,
-                  );
-                  const selected = target.target_id === selectedTargetId;
-                  const compatible =
-                    !pickerElement ||
-                    isElementCompatibleWithLinkedTarget(pickerElement, target);
-                  return (
-                    <LinkedTargetPreviewMarker
-                      key={target.target_id}
-                      compatible={compatible}
-                      point={point}
-                      selected={selected}
-                      target={target}
-                      onSelect={() => setSelectedTargetId(target.target_id)}
-                      onPointerDown={(event) => {
-                        if (event.button !== 0) {
-                          return;
-                        }
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setSelectedTargetId(target.target_id);
-                        if (target.locked) {
-                          return;
-                        }
-                        previewRef.current?.setPointerCapture(event.pointerId);
-                        setDragPreview({
-                          targetId: target.target_id,
-                          start_x_meters: target.x_meters,
-                          start_y_meters: target.y_meters,
-                          x_meters: target.x_meters,
-                          y_meters: target.y_meters,
-                        });
-                      }}
-                    />
-                  );
-                })}
-              </svg>
+            <div
+              className="linked-targets-dialog__preview-shell"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  setSelectedTargetId(null);
+                }
+              }}
+            >
+              <LinkedTargetsCanvas
+                compatibleTargetIds={compatibleTargetIds}
+                config={workspace.config}
+                field={field}
+                selectedTargetId={selectedTargetId}
+                targets={workspace.linked_targets}
+                onSelectTarget={setSelectedTargetId}
+                onMoveTarget={(targetId, position) =>
+                  projectStore.getState().updateLinkedTarget(targetId, {
+                    x_meters: position.x_meters,
+                    y_meters: position.y_meters,
+                  })
+                }
+                onRotateTarget={(targetId, rotation_radians) =>
+                  projectStore.getState().updateLinkedTarget(targetId, {
+                    rotation_radians,
+                  })
+                }
+              />
             </div>
           </section>
 
@@ -3052,161 +2963,11 @@ function LinkedTargetNumberField({
   );
 }
 
-function PreviewGrid({ field }: { field: FieldGeometry }) {
-  const lines = [];
-  for (let x = 1; x < field.length_meters; x += 1) {
-    lines.push(
-      <line key={`x-${x}`} x1={x} y1={0} x2={x} y2={field.width_meters} />,
-    );
-  }
-  for (let y = 1; y < field.width_meters; y += 1) {
-    lines.push(
-      <line key={`y-${y}`} x1={0} y1={y} x2={field.length_meters} y2={y} />,
-    );
-  }
-  return <g className="linked-targets-dialog__preview-grid">{lines}</g>;
-}
-
-function LinkedTargetPreviewMarker({
-  compatible,
-  point,
-  selected,
-  target,
-  onSelect,
-  onPointerDown,
-}: {
-  compatible: boolean;
-  point: { x: number; y: number };
-  selected: boolean;
-  target: LinkedTarget;
-  onSelect(): void;
-  onPointerDown(event: ReactPointerEvent<SVGGElement>): void;
-}) {
-  return (
-    <g
-      className={[
-        "linked-targets-dialog__marker",
-        selected ? "is-selected" : "is-muted",
-        compatible ? "" : "is-incompatible",
-        target.locked ? "is-locked" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      role="button"
-      tabIndex={0}
-      aria-label={`${target.display_name} ${formatLinkedTargetKind(target.kind)}${
-        target.locked ? " locked" : ""
-      }`}
-      transform={`translate(${point.x} ${point.y})`}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
-      onPointerDown={onPointerDown}
-    >
-      <title>{target.display_name}</title>
-      {target.kind === "pose" ? (
-        <LinkedTargetPoseGlyph target={target} selected={selected} />
-      ) : (
-        <LinkedTargetPointGlyph selected={selected} />
-      )}
-    </g>
-  );
-}
-
-function LinkedTargetPointGlyph({ selected }: { selected: boolean }) {
-  return (
-    <>
-      {selected ? (
-        <circle
-          r={elementCircleRadiusMeters + 0.16}
-          fill="none"
-          stroke={elementColors.selected}
-          strokeWidth={0.045}
-          opacity={0.9}
-        />
-      ) : null}
-      <circle
-        r={elementCircleRadiusMeters * 1.7}
-        fill={elementColors.shadow}
-        opacity={0.72}
-      />
-      <circle
-        r={elementCircleRadiusMeters}
-        fill={elementColors.translation}
-        stroke="#eff8ff"
-        strokeWidth={0.022}
-      />
-      <circle r={elementCircleRadiusMeters * 0.24} fill="#f7fbff" />
-    </>
-  );
-}
-
-function LinkedTargetPoseGlyph({
-  selected,
-  target,
-}: {
-  selected: boolean;
-  target: LinkedTarget;
-}) {
-  const halfLength = robotLengthMeters / 2;
-  const halfWidth = robotWidthMeters / 2;
-  const triangleLength =
-    Math.min(robotLengthMeters, robotWidthMeters) * triangleSizeRatio;
-  const halfTriangleHeight = triangleLength / 2;
-
-  return (
-    <g transform={`rotate(${-radiansToDegrees(target.rotation_radians ?? 0)})`}>
-      {selected ? (
-        <rect
-          x={-halfLength - 0.12}
-          y={-halfWidth - 0.12}
-          width={robotLengthMeters + 0.24}
-          height={robotWidthMeters + 0.24}
-          rx={0.08}
-          fill="none"
-          stroke={elementColors.selected}
-          strokeWidth={0.055}
-          opacity={0.9}
-        />
-      ) : null}
-      <rect
-        x={-halfLength - 0.045}
-        y={-halfWidth - 0.045}
-        width={robotLengthMeters + 0.09}
-        height={robotWidthMeters + 0.09}
-        rx={0.075}
-        fill={elementColors.shadow}
-        opacity={0.78}
-      />
-      <rect
-        x={-halfLength}
-        y={-halfWidth}
-        width={robotLengthMeters}
-        height={robotWidthMeters}
-        rx={0.055}
-        fill="rgba(255, 159, 67, 0.16)"
-        stroke={elementColors.waypoint}
-        strokeWidth={0.06}
-      />
-      <path
-        d={`M ${halfLength - triangleLength} ${-halfTriangleHeight} L ${
-          halfLength - triangleLength
-        } ${halfTriangleHeight} L ${halfLength} 0 Z`}
-        fill={elementColors.waypoint}
-        opacity={0.95}
-      />
-    </g>
-  );
-}
-
 function LinkedTargetListGlyph({ target }: { target: LinkedTarget }) {
   return (
     <svg
       className="linked-targets-dialog__target-glyph"
-      viewBox="-0.5 -0.5 1 1"
+      viewBox="-16 -16 32 32"
       aria-hidden="true"
     >
       {target.kind === "pose" ? (
@@ -3214,78 +2975,52 @@ function LinkedTargetListGlyph({ target }: { target: LinkedTarget }) {
           transform={`rotate(${-radiansToDegrees(target.rotation_radians ?? 0)})`}
         >
           <rect
-            x="-0.28"
-            y="-0.28"
-            width="0.56"
-            height="0.56"
-            rx="0.06"
-            fill="rgba(255, 159, 67, 0.16)"
+            x="-12.2"
+            y="-12.2"
+            width="24.4"
+            height="24.4"
+            rx="3.4"
+            fill="#05080b"
+            fillOpacity="0.28"
+            stroke="#05080b"
+            strokeOpacity="0.82"
+            strokeWidth="3.1"
+          />
+          <rect
+            x="-10"
+            y="-10"
+            width="20"
+            height="20"
+            rx="2.8"
+            fill={elementColors.waypoint}
+            fillOpacity="0.1"
             stroke={elementColors.waypoint}
-            strokeWidth="0.08"
+            strokeWidth="2.3"
           />
           <path
-            d="M 0.05 -0.16 L 0.05 0.16 L 0.32 0 Z"
-            fill={elementColors.waypoint}
+            d="M 6.8 0 L -6.8 6.8 L -6.8 -6.8 Z"
+            fill="#05080b"
+            fillOpacity="0.25"
+            stroke={elementColors.waypoint}
+            strokeLinejoin="round"
+            strokeWidth="1.85"
           />
         </g>
       ) : (
         <>
+          <circle r="12.2" fill="#05080b" fillOpacity="0.72" />
           <circle
-            r="0.24"
+            r="8.1"
             fill={elementColors.translation}
             stroke="#eff8ff"
-            strokeWidth="0.04"
+            strokeOpacity="0.9"
+            strokeWidth="1.5"
           />
-          <circle r="0.06" fill="#f7fbff" />
+          <circle r="2.4" fill="#f7fbff" />
         </>
       )}
     </svg>
   );
-}
-
-function linkedTargetToPreviewPoint(
-  target: LinkedTarget,
-  field: FieldGeometry,
-): { x: number; y: number } {
-  return {
-    x: target.x_meters + fieldCoordinateOffsetXMeters(field),
-    y:
-      field.width_meters -
-      target.y_meters -
-      fieldCoordinateOffsetYMeters(field),
-  };
-}
-
-function previewPointerToModelPoint(
-  event: ReactPointerEvent<SVGSVGElement>,
-  svg: SVGSVGElement | null,
-  field: FieldGeometry,
-): { x_meters: number; y_meters: number } | null {
-  if (!svg) {
-    return null;
-  }
-
-  const rect = svg.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) {
-    return null;
-  }
-
-  const sceneX =
-    ((event.clientX - rect.left) / rect.width) * field.length_meters;
-  const sceneY =
-    ((event.clientY - rect.top) / rect.height) * field.width_meters;
-  return {
-    x_meters: clamp(
-      sceneX - fieldCoordinateOffsetXMeters(field),
-      0,
-      fieldCoordinateLengthMeters(field),
-    ),
-    y_meters: clamp(
-      field.width_meters - sceneY - fieldCoordinateOffsetYMeters(field),
-      0,
-      fieldCoordinateWidthMeters(field),
-    ),
-  };
 }
 
 function nextLinkedTargetName(
@@ -3323,10 +3058,6 @@ function degreesToRadians(degrees: number): number {
 
 function clamp(value: number, min?: number, max?: number): number {
   return Math.min(Math.max(value, min ?? -Infinity), max ?? Infinity);
-}
-
-function nearlyEqual(a: number, b: number): boolean {
-  return Math.abs(a - b) < 1e-6;
 }
 
 function PathLibraryHeaderButton({

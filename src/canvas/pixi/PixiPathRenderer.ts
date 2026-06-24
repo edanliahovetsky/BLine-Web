@@ -7,6 +7,7 @@ import {
   type Renderer,
 } from "pixi.js";
 import type {
+  LinkedTargetKind,
   ProjectConfig,
   ProjectDocument,
 } from "../../core/io/projectSchema";
@@ -80,12 +81,25 @@ export interface PixiRenderInput {
   simulationPlaying: boolean;
   config: ProjectConfig | null;
   curvePreview: CurveAuthoringPreview | null;
+  linkedTargets?: readonly PixiLinkedTargetOverlay[];
+  selectedLinkedTargetId?: string | null;
 }
 
 export interface PixiPathOverlay {
   pathId: string;
   displayName: string;
   path: PathModel;
+}
+
+export interface PixiLinkedTargetOverlay {
+  target_id: string;
+  display_name: string;
+  kind: LinkedTargetKind;
+  x_meters: number;
+  y_meters: number;
+  rotation_radians?: number | null;
+  locked?: boolean;
+  compatible?: boolean;
 }
 
 export interface PixiCanvasMetrics {
@@ -124,6 +138,7 @@ export class PixiPathRenderer {
   private readonly curvePreviewGraphics = new Graphics();
   private readonly constraintGraphics = new Graphics();
   private readonly nodeGraphics = new Graphics();
+  private readonly linkedTargetGraphics = new Graphics();
   private readonly rotationGraphics = new Graphics();
   private readonly simulationGraphics = new Graphics();
   private readonly debugNodes = new Map<string, StagePoint>();
@@ -149,6 +164,7 @@ export class PixiPathRenderer {
       this.simulationGraphics,
       this.constraintGraphics,
       this.nodeGraphics,
+      this.linkedTargetGraphics,
       this.rotationGraphics,
     );
   }
@@ -192,6 +208,7 @@ export class PixiPathRenderer {
     this.drawCurvePreview(input);
     this.drawConstraintHighlights(input);
     this.drawNodes(input);
+    this.drawLinkedTargets(input);
     this.drawRotationHandle(input);
     this.drawSimulation(input);
     this.render();
@@ -576,17 +593,79 @@ export class PixiPathRenderer {
     }
   }
 
+  private drawLinkedTargets(input: PixiRenderInput): void {
+    const graphics = this.linkedTargetGraphics.clear();
+    const targets = input.linkedTargets ?? [];
+    if (targets.length === 0) {
+      return;
+    }
+
+    const selectedTargetId = input.selectedLinkedTargetId ?? null;
+    const hasSelection = selectedTargetId !== null;
+    const robotSize = robotSizeFromConfig(input.config);
+    const orderedTargets =
+      selectedTargetId === null
+        ? targets
+        : [
+            ...targets.filter(
+              (target) => target.target_id !== selectedTargetId,
+            ),
+            ...targets.filter(
+              (target) => target.target_id === selectedTargetId,
+            ),
+          ];
+
+    for (const [index, target] of orderedTargets.entries()) {
+      const point = modelToStagePoint(
+        {
+          x_meters: target.x_meters,
+          y_meters: target.y_meters,
+        },
+        input.viewport,
+      );
+      const selected = target.target_id === selectedTargetId;
+      this.debugNodes.set(`linked-target-${target.target_id}`, point);
+      drawPathElementNode(graphics, {
+        element: linkedTargetToPathElement(target),
+        index,
+        point,
+        selected,
+        dimmed: target.compatible === false || (hasSelection && !selected),
+        selectedPulse: input.selectedPulse,
+        headingRadians:
+          target.kind === "pose" ? (target.rotation_radians ?? 0) : 0,
+        handoffRadiusMeters: null,
+        robotSizeMeters: robotSize,
+        metersToPixels: input.viewport.scale,
+        protrusionVisible: false,
+        protrusionDistanceMeters: 0,
+        protrusionSide: "none",
+      });
+    }
+  }
+
   private drawRotationHandle(input: PixiRenderInput): void {
     const graphics = this.rotationGraphics.clear();
+    if (this.drawProjectRotationHandle(graphics, input)) {
+      return;
+    }
+
+    this.drawLinkedTargetRotationHandle(graphics, input);
+  }
+
+  private drawProjectRotationHandle(
+    graphics: Graphics,
+    input: PixiRenderInput,
+  ): boolean {
     const { project, selectedElementIndex } = input;
     if (!project || selectedElementIndex === null) {
-      return;
+      return false;
     }
 
     const elements = project.path.path_elements;
     const element = elements[selectedElementIndex];
     if (!element || (!isWaypoint(element) && !isRotationTarget(element))) {
-      return;
+      return false;
     }
 
     const position = getElementPosition(
@@ -600,7 +679,7 @@ export class PixiPathRenderer {
       input.rotationPreview,
     );
     if (!position || rotationRadians === null) {
-      return;
+      return false;
     }
 
     const center = modelToStagePoint(position, input.viewport);
@@ -612,21 +691,42 @@ export class PixiPathRenderer {
     const accent = rotatableElementAccent(element);
     this.debugNodes.set("rotation-handle-root", center);
     this.debugNodes.set("rotation-handle", handlePoint);
+    drawRotationHandleGlyph(graphics, center, handlePoint, accent);
+    return true;
+  }
 
-    drawLine(graphics, center.x, center.y, handlePoint.x, handlePoint.y, {
-      color: 0x05080b,
-      width: 6,
-      alpha: 0.78,
-    });
-    drawLine(graphics, center.x, center.y, handlePoint.x, handlePoint.y, {
-      color: accent,
-      width: 2.2,
-      alpha: 0.86,
-    });
-    graphics
-      .circle(handlePoint.x, handlePoint.y, 10)
-      .fill({ color: 0x0f1215, alpha: 0.94 })
-      .stroke({ color: accent, width: 2 });
+  private drawLinkedTargetRotationHandle(
+    graphics: Graphics,
+    input: PixiRenderInput,
+  ): void {
+    const selectedTargetId = input.selectedLinkedTargetId ?? null;
+    if (!selectedTargetId) {
+      return;
+    }
+
+    const target = (input.linkedTargets ?? []).find(
+      (candidate) => candidate.target_id === selectedTargetId,
+    );
+    if (!target || target.kind !== "pose") {
+      return;
+    }
+
+    const center = modelToStagePoint(
+      {
+        x_meters: target.x_meters,
+        y_meters: target.y_meters,
+      },
+      input.viewport,
+    );
+    const handlePoint = rotationHandlePoint(
+      center,
+      input.viewport,
+      target.rotation_radians ?? 0,
+    );
+    const accent = rotatableElementAccent(linkedTargetToPathElement(target));
+    this.debugNodes.set("linked-target-rotation-handle-root", center);
+    this.debugNodes.set("linked-target-rotation-handle", handlePoint);
+    drawRotationHandleGlyph(graphics, center, handlePoint, accent);
   }
 
   private drawSimulation(input: PixiRenderInput): void {
@@ -704,6 +804,59 @@ export class PixiPathRenderer {
       rotation: -pose[2],
     });
   }
+}
+
+function drawRotationHandleGlyph(
+  graphics: Graphics,
+  center: StagePoint,
+  handlePoint: StagePoint,
+  accent: string | number,
+): void {
+  drawLine(graphics, center.x, center.y, handlePoint.x, handlePoint.y, {
+    color: 0x05080b,
+    width: 6,
+    alpha: 0.78,
+  });
+  drawLine(graphics, center.x, center.y, handlePoint.x, handlePoint.y, {
+    color: accent,
+    width: 2.2,
+    alpha: 0.86,
+  });
+  graphics
+    .circle(handlePoint.x, handlePoint.y, 10)
+    .fill({ color: 0x0f1215, alpha: 0.94 })
+    .stroke({ color: accent, width: 2 });
+}
+
+function linkedTargetToPathElement(
+  target: PixiLinkedTargetOverlay,
+): PathElement {
+  if (target.kind === "point") {
+    return {
+      type: "translation",
+      x_meters: target.x_meters,
+      y_meters: target.y_meters,
+      intermediate_handoff_radius_meters: null,
+    };
+  }
+
+  return {
+    type: "waypoint",
+    translation_target: {
+      type: "translation",
+      x_meters: target.x_meters,
+      y_meters: target.y_meters,
+      intermediate_handoff_radius_meters: null,
+    },
+    rotation_target: {
+      type: "rotation",
+      rotation_radians: target.rotation_radians ?? 0,
+      t_ratio: 0,
+      profiled_rotation: true,
+      legacy_position: null,
+      legacy_converted: false,
+    },
+  };
 }
 
 interface DrawNodeInput {
