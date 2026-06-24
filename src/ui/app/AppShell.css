@@ -1,4 +1,6 @@
 .app-shell {
+  --bline-canvas-background: #101416;
+
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100vh;
@@ -631,7 +633,7 @@ select {
   min-width: 0;
   min-height: 0;
   padding: 0;
-  background: #101416;
+  background: var(--bline-canvas-background);
 }
 
 .path-stage {
@@ -642,7 +644,7 @@ select {
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: #101416;
+  background: var(--bline-canvas-background);
 }
 
 .path-stage:focus-visible {
@@ -655,7 +657,7 @@ select {
   min-width: 0;
   height: 100%;
   overflow: hidden;
-  background: #101416;
+  background: var(--bline-canvas-background);
 }
 
 .path-stage canvas {
@@ -3865,7 +3867,7 @@ button.auto-velocity-status--running:disabled {
   overflow: hidden;
   border: 1px solid #303941;
   border-radius: 7px;
-  background: #10161d;
+  background: var(--bline-canvas-background);
   touch-action: none;
 }
 
