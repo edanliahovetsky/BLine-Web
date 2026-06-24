@@ -44,6 +44,7 @@ import {
   getPathElementLinkedTargetId,
   isElementCompatibleWithLinkedTarget,
   linkedTargetUseCount,
+  nextLinkedTargetName,
 } from "../../core/linkedTargets";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
@@ -3023,24 +3024,6 @@ function LinkedTargetListGlyph({ target }: { target: LinkedTarget }) {
       )}
     </svg>
   );
-}
-
-function nextLinkedTargetName(
-  workspace: ProjectWorkspaceDocument,
-  kind: LinkedTargetKind,
-): string {
-  const base =
-    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
-  const names = new Set(
-    workspace.linked_targets.map((target) => target.display_name),
-  );
-  for (let index = 1; index < 10_000; index += 1) {
-    const candidate = `${base} ${index}`;
-    if (!names.has(candidate)) {
-      return candidate;
-    }
-  }
-  return `${base} ${workspace.linked_targets.length + 1}`;
 }
 
 function formatLinkedTargetKind(kind: LinkedTargetKind): string {

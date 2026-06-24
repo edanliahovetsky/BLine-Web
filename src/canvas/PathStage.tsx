@@ -22,7 +22,6 @@ import {
 import type {
   LinkedTarget,
   LinkedTargetKind,
-  ProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
 import { resolveFieldDefinition } from "../core/field/fieldConfig";
@@ -36,6 +35,7 @@ import {
   isElementCompatibleWithLinkedTarget,
   linkedTargetControlsElementRotation,
   linkedTargetForPathElement,
+  nextLinkedTargetName,
 } from "../core/linkedTargets";
 import { SkipBackIcon, SkipForwardIcon } from "../ui/icons";
 import {
@@ -1991,24 +1991,6 @@ function clampAxisPan(
   const maxOffset = -basePosition;
 
   return clamp(offset, minOffset, maxOffset);
-}
-
-function nextLinkedTargetName(
-  workspace: ProjectWorkspaceDocument,
-  kind: LinkedTargetKind,
-): string {
-  const base =
-    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
-  const existing = new Set(
-    workspace.linked_targets.map((target) => target.display_name),
-  );
-  for (let index = 1; index < 10_000; index += 1) {
-    const candidate = `${base} ${index}`;
-    if (!existing.has(candidate)) {
-      return candidate;
-    }
-  }
-  return `${base} ${workspace.linked_targets.length + 1}`;
 }
 
 function clamp(value: number, min: number, max: number): number {

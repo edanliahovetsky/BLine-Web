@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import {
   defaultFieldGeometry,
   type FieldGeometry,
@@ -9,6 +11,7 @@ import type {
 import {
   getPathElementLinkedTargetId,
   isElementCompatibleWithLinkedTarget,
+  nextLinkedTargetName,
 } from "../../../core/linkedTargets";
 import { LinkIcon } from "../../icons";
 import {
@@ -42,7 +45,7 @@ interface PropertyEditorProps {
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
   onUnlinkTarget(): void;
-  onCreateLinkedTarget(kind: LinkedTargetKind): void;
+  onCreateLinkedTarget(kind: LinkedTargetKind, displayName: string): void;
   onOpenLinkedTargetPicker(): void;
   fieldGeometry?: FieldGeometry;
 }
@@ -70,6 +73,7 @@ export function PropertyEditor({
       className="property-editor-section"
       actions={
         <LinkedTargetMenu
+          key={`element-${selectedElementIndex ?? "none"}-${element.type}`}
           element={element}
           workspace={workspace}
           onCreateLinkedTarget={onCreateLinkedTarget}
@@ -163,25 +167,72 @@ function LinkedTargetMenu({
 }: {
   element: PathElement;
   workspace: ProjectWorkspaceDocument | null;
-  onCreateLinkedTarget(kind: LinkedTargetKind): void;
+  onCreateLinkedTarget(kind: LinkedTargetKind, displayName: string): void;
   onOpenLinkedTargetPicker(): void;
   onUnlinkTarget(): void;
 }) {
-  if (!workspace || (!isTranslationTarget(element) && !isWaypoint(element))) {
-    return null;
-  }
-
+  const [draftKind, setDraftKind] = useState<LinkedTargetKind | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const draftNameInputRef = useRef<HTMLInputElement | null>(null);
+  const canLinkElement =
+    workspace !== null && (isTranslationTarget(element) || isWaypoint(element));
   const currentTargetId = getPathElementLinkedTargetId(element);
-  const currentTarget =
-    workspace.linked_targets.find(
-      (target) => target.target_id === currentTargetId,
-    ) ?? null;
-  const compatibleTargets = workspace.linked_targets.filter((target) =>
-    isElementCompatibleWithLinkedTarget(element, target),
-  );
+  const currentTarget = workspace
+    ? (workspace.linked_targets.find(
+        (target) => target.target_id === currentTargetId,
+      ) ?? null)
+    : null;
+  const compatibleTargets = workspace
+    ? workspace.linked_targets.filter((target) =>
+        isElementCompatibleWithLinkedTarget(element, target),
+      )
+    : [];
   const createKinds: LinkedTargetKind[] = isWaypoint(element)
     ? ["translation", "waypoint"]
     : ["translation"];
+  const trimmedDraftName = draftName.trim();
+  const draftNameExists =
+    workspace?.linked_targets.some(
+      (target) => target.display_name === trimmedDraftName,
+    ) ?? false;
+  const draftNameIsValid = trimmedDraftName.length > 0 && !draftNameExists;
+
+  useEffect(() => {
+    if (!draftKind) {
+      return;
+    }
+    draftNameInputRef.current?.focus();
+    draftNameInputRef.current?.select();
+  }, [draftKind]);
+
+  if (!canLinkElement || !workspace) {
+    return null;
+  }
+
+  const startCreate = (kind: LinkedTargetKind) => {
+    setDraftKind(kind);
+    setDraftName(nextLinkedTargetName(workspace, kind));
+  };
+
+  const cancelCreate = () => {
+    setDraftKind(null);
+    setDraftName("");
+  };
+
+  const submitCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!draftKind || !draftNameIsValid) {
+      return;
+    }
+    onCreateLinkedTarget(draftKind, trimmedDraftName);
+    cancelCreate();
+    closeContainingDetails(event.currentTarget);
+  };
+
+  const currentTargetName =
+    workspace.linked_targets.find(
+      (target) => target.target_id === currentTargetId,
+    )?.display_name ?? null;
 
   return (
     <details
@@ -200,7 +251,11 @@ function LinkedTargetMenu({
         <LinkIcon size={15} />
         <span>Link</span>
       </summary>
-      <div className="linked-element-menu__panel" role="menu">
+      <div
+        className="linked-element-menu__panel"
+        role="group"
+        aria-label="Linked element actions"
+      >
         {currentTarget ? (
           <div className="linked-element-menu__status">
             <span>Linked</span>
@@ -209,7 +264,6 @@ function LinkedTargetMenu({
         ) : null}
         <button
           type="button"
-          role="menuitem"
           disabled={compatibleTargets.length === 0}
           onClick={(event) => {
             onOpenLinkedTargetPicker();
@@ -219,27 +273,69 @@ function LinkedTargetMenu({
           <span>Choose Existing...</span>
           <small>{compatibleTargets.length}</small>
         </button>
-        {createKinds.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            role="menuitem"
-            onClick={(event) => {
-              onCreateLinkedTarget(kind);
-              closeContainingDetails(event.currentTarget);
-            }}
-          >
-            <span>
-              {kind === "waypoint"
-                ? "New Linked Waypoint"
-                : "New Linked Translation"}
-            </span>
-          </button>
-        ))}
+        {draftKind ? (
+          <form className="linked-element-menu__create" onSubmit={submitCreate}>
+            <label>
+              <span>
+                {draftKind === "waypoint"
+                  ? "New Linked Waypoint"
+                  : "New Linked Translation"}
+              </span>
+              <input
+                ref={draftNameInputRef}
+                aria-label="Linked element name"
+                value={draftName}
+                onChange={(event) => setDraftName(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelCreate();
+                  }
+                }}
+              />
+            </label>
+            {trimmedDraftName.length === 0 ? (
+              <small>Name required.</small>
+            ) : draftNameExists ? (
+              <small>Name already exists.</small>
+            ) : (
+              <small>
+                {currentTargetName
+                  ? `Currently linked to ${currentTargetName}.`
+                  : "Creates and links this element."}
+              </small>
+            )}
+            <div className="linked-element-menu__create-actions">
+              <button type="button" onClick={cancelCreate}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="linked-element-menu__create-primary"
+                disabled={!draftNameIsValid}
+              >
+                Create &amp; Link
+              </button>
+            </div>
+          </form>
+        ) : (
+          createKinds.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => startCreate(kind)}
+            >
+              <span>
+                {kind === "waypoint"
+                  ? "New Linked Waypoint..."
+                  : "New Linked Translation..."}
+              </span>
+            </button>
+          ))
+        )}
         {currentTargetId ? (
           <button
             type="button"
-            role="menuitem"
             onClick={(event) => {
               onUnlinkTarget();
               closeContainingDetails(event.currentTarget);

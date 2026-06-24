@@ -10,6 +10,7 @@ import {
   getElementHeadingRadians,
   getElementPosition,
 } from "../../canvas/geometry";
+import { nextLinkedTargetName } from "../../core/linkedTargets";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import { ConstraintEditor } from "./sections/ConstraintEditor";
@@ -200,7 +201,10 @@ export function Sidebar({
       .selectElement(selectedElementIndex, projectStore.getState().project);
   };
 
-  const handleCreateLinkedTarget = (kind: LinkedTargetKind) => {
+  const handleCreateLinkedTarget = (
+    kind: LinkedTargetKind,
+    displayName: string,
+  ) => {
     if (!project || !workspace || selectedElementIndex === null) {
       return;
     }
@@ -213,9 +217,8 @@ export function Sidebar({
       return;
     }
 
-    const displayName = nextLinkedTargetName(workspace, kind);
     projectStore.getState().createLinkedTarget({
-      display_name: displayName,
+      display_name: displayName.trim() || nextLinkedTargetName(workspace, kind),
       kind,
       x_meters: position.x_meters,
       y_meters: position.y_meters,
@@ -368,22 +371,4 @@ function writeSidebarSectionState(state: SidebarSectionState): void {
   } catch {
     // Local UI preferences should never block editing.
   }
-}
-
-function nextLinkedTargetName(
-  workspace: ProjectWorkspaceDocument,
-  kind: LinkedTargetKind,
-): string {
-  const base =
-    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
-  const existing = new Set(
-    workspace.linked_targets.map((target) => target.display_name),
-  );
-  for (let index = 1; index < 10_000; index += 1) {
-    const candidate = `${base} ${index}`;
-    if (!existing.has(candidate)) {
-      return candidate;
-    }
-  }
-  return `${base} ${workspace.linked_targets.length + 1}`;
 }

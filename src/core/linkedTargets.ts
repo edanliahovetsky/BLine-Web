@@ -49,6 +49,24 @@ export function createLinkedTargetId(): string {
   return `target-${randomId()}`;
 }
 
+export function nextLinkedTargetName(
+  workspace: ProjectWorkspaceDocument,
+  kind: LinkedTargetKind,
+): string {
+  const base =
+    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
+  const existing = new Set(
+    workspace.linked_targets.map((target) => target.display_name),
+  );
+  for (let index = 1; index < 10_000; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base} ${workspace.linked_targets.length + 1}`;
+}
+
 export function getPathElementLinkedTargetId(
   element: PathElement | undefined,
 ): string | null {
