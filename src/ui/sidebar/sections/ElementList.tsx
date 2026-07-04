@@ -4,7 +4,7 @@ import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { formatPointMeters } from "../../../canvas/modelSync";
 import { CurveIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
-import { SidebarIconButton } from "../../controls/SidebarControls";
+import { SidebarIconButton } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
 import {
   canMovePathElement,

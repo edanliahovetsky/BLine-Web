@@ -25,7 +25,12 @@ import {
   type ProtrusionSide,
   type ProtrusionState,
 } from "../../core/config/projectConfig";
-import { NumberStepperControl } from "../controls/SidebarControls";
+import {
+  CloseButton,
+  NumberStepperControl,
+  SelectControl,
+  SwitchInput,
+} from "../controls";
 
 const configSections = [
   { id: "robot", label: "Robot" },
@@ -147,9 +152,7 @@ export function ProjectConfigDialog({
       >
         <header className="config-dialog__header">
           <strong>Settings</strong>
-          <button type="button" aria-label="Close config" onClick={onCancel}>
-            x
-          </button>
+          <CloseButton ariaLabel="Close config" onClick={onCancel} />
         </header>
 
         <div className="config-dialog__body">
@@ -700,22 +703,21 @@ function FieldSelectRow({
   return (
     <label className="config-row">
       <span className="config-row__label">Field Image</span>
-      <select
-        aria-label="Field Image"
+      <SelectControl
+        ariaLabel="Field Image"
         value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      >
-        {builtInFieldDefinitions.map((field) => (
-          <option key={field.id} value={field.id}>
-            {field.label}
-          </option>
-        ))}
-        {customFields.map((field) => (
-          <option key={field.id} value={field.id}>
-            {field.name}
-          </option>
-        ))}
-      </select>
+        options={[
+          ...builtInFieldDefinitions.map((field) => ({
+            label: field.label,
+            value: field.id,
+          })),
+          ...customFields.map((field) => ({
+            label: field.name,
+            value: field.id,
+          })),
+        ]}
+        onChange={onChange}
+      />
     </label>
   );
 }
@@ -802,15 +804,7 @@ function CheckboxRow({
   return (
     <label className="config-row config-row--switch">
       <span className="config-row__label">{label}</span>
-      <span className="config-switch">
-        <input
-          aria-label={label}
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.currentTarget.checked)}
-        />
-        <span className="config-switch__track" aria-hidden="true" />
-      </span>
+      <SwitchInput ariaLabel={label} checked={checked} onChange={onChange} />
     </label>
   );
 }
@@ -831,18 +825,16 @@ function SelectRow({
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
-      <select
-        aria-label={label}
+      <SelectControl
+        ariaLabel={label}
         value={value}
         disabled={disabled}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option === "" ? "none" : option}
-          </option>
-        ))}
-      </select>
+        options={options.map((option) => ({
+          label: option === "" ? "none" : option,
+          value: option,
+        }))}
+        onChange={onChange}
+      />
     </label>
   );
 }

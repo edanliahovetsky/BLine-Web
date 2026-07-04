@@ -78,8 +78,14 @@ import {
   TrashIcon,
   UnlockIcon,
   UploadIcon,
-  XIcon,
 } from "../icons";
+import {
+  CloseButton,
+  IconButton,
+  NumberStepperControl,
+  SelectControl,
+  SwitchInput,
+} from "../controls";
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import { createInsertPathElementsCommand } from "../sidebar/sidebarCommands";
@@ -1982,9 +1988,7 @@ function NewPathDialog({
       >
         <header className="config-dialog__header">
           <strong>Create New Path</strong>
-          <button type="button" aria-label="Close new path" onClick={onCancel}>
-            x
-          </button>
+          <CloseButton ariaLabel="Close new path" onClick={onCancel} />
         </header>
         <section className="new-path-dialog__body">
           <label className="dialog-field">
@@ -2214,13 +2218,7 @@ function PathLibraryDialog({
       >
         <header className="config-dialog__header">
           <strong>Path Library</strong>
-          <button
-            type="button"
-            aria-label="Close path library"
-            onClick={onCancel}
-          >
-            x
-          </button>
+          <CloseButton ariaLabel="Close path library" onClick={onCancel} />
         </header>
 
         <div className="path-library-dialog__utility-bar">
@@ -2634,13 +2632,7 @@ function LinkedTargetsDialog({
           <strong>
             {linkRequest ? "Choose Linked Element" : "Linked Elements"}
           </strong>
-          <button
-            type="button"
-            aria-label="Close linked elements"
-            onClick={onCancel}
-          >
-            x
-          </button>
+          <CloseButton ariaLabel="Close linked elements" onClick={onCancel} />
         </header>
 
         <div className="path-library-dialog__utility-bar">
@@ -2815,18 +2807,19 @@ function LinkedTargetsDialog({
                   </label>
                   <label className="dialog-field">
                     <span>Type</span>
-                    <select
-                      aria-label="Linked element type"
+                    <SelectControl
+                      ariaLabel="Linked element type"
                       value={selectedTarget.kind}
-                      onChange={(event) =>
+                      options={[
+                        { label: "Translation", value: "translation" },
+                        { label: "Waypoint", value: "waypoint" },
+                      ]}
+                      onChange={(kind) =>
                         updateTarget(selectedTarget.target_id, {
-                          kind: event.currentTarget.value as LinkedTargetKind,
+                          kind,
                         })
                       }
-                    >
-                      <option value="translation">Translation</option>
-                      <option value="waypoint">Waypoint</option>
-                    </select>
+                    />
                   </label>
                   <label className="dialog-field dialog-field--toggle linked-targets-dialog__lock-field">
                     <span>
@@ -2837,13 +2830,12 @@ function LinkedTargetsDialog({
                       )}
                       Locked
                     </span>
-                    <input
-                      aria-label="Locked"
-                      type="checkbox"
+                    <SwitchInput
+                      ariaLabel="Locked"
                       checked={Boolean(selectedTarget.locked)}
-                      onChange={(event) =>
+                      onChange={(locked) =>
                         updateTarget(selectedTarget.target_id, {
-                          locked: event.currentTarget.checked,
+                          locked,
                         })
                       }
                     />
@@ -2947,18 +2939,18 @@ function LinkedTargetNumberField({
   return (
     <label className="dialog-field">
       <span>{label}</span>
-      <input
-        aria-label={label}
-        type="number"
+      <NumberStepperControl
+        ariaLabel={label}
+        className="dialog-number-control"
         disabled={disabled}
         min={min}
         max={max}
         step={label === "Heading (deg)" ? 1 : 0.05}
-        value={formatNumericInputValue(value)}
-        onChange={(event) => {
-          const parsed = Number(event.currentTarget.value);
-          if (Number.isFinite(parsed)) {
-            onChange(clamp(parsed, min, max));
+        precision={3}
+        value={value}
+        onChange={(nextValue) => {
+          if (nextValue !== null) {
+            onChange(clamp(nextValue, min, max));
           }
         }}
       />
@@ -3030,10 +3022,6 @@ function formatLinkedTargetKind(kind: LinkedTargetKind): string {
   return kind === "waypoint" ? "Waypoint" : "Translation";
 }
 
-function formatNumericInputValue(value: number): string {
-  return Number.isFinite(value) ? Number(value.toFixed(3)).toString() : "0";
-}
-
 function radiansToDegrees(radians: number): number {
   return radians * (180 / Math.PI);
 }
@@ -3060,16 +3048,16 @@ function PathLibraryHeaderButton({
   tone?: "danger" | "neutral";
 }) {
   return (
-    <button
-      type="button"
+    <IconButton
       className={`path-library-dialog__header-button path-library-dialog__header-button--${tone}`}
       aria-label={label}
       title={label}
+      tone={tone === "danger" ? "danger" : "accent"}
       disabled={disabled}
       onClick={onClick}
     >
       {children}
-    </button>
+    </IconButton>
   );
 }
 
@@ -3100,13 +3088,7 @@ function CreateCollectionDialog({
     >
       <header>
         <strong>Create Collection</strong>
-        <button
-          type="button"
-          aria-label="Close create collection"
-          onClick={onCancel}
-        >
-          <XIcon size={16} />
-        </button>
+        <CloseButton ariaLabel="Close create collection" onClick={onCancel} />
       </header>
       <label className="dialog-field">
         <span>Collection name</span>
@@ -3667,13 +3649,7 @@ function DeleteProjectsDialog({
       >
         <header className="config-dialog__header">
           <strong>Delete Projects</strong>
-          <button
-            type="button"
-            aria-label="Close delete projects"
-            onClick={onCancel}
-          >
-            x
-          </button>
+          <CloseButton ariaLabel="Close delete projects" onClick={onCancel} />
         </header>
         {confirming ? (
           <section
@@ -3815,13 +3791,7 @@ function DeletePathsDialog({
       >
         <header className="config-dialog__header">
           <strong>Delete Paths</strong>
-          <button
-            type="button"
-            aria-label="Close delete paths"
-            onClick={onCancel}
-          >
-            x
-          </button>
+          <CloseButton ariaLabel="Close delete paths" onClick={onCancel} />
         </header>
         <section className="delete-paths-dialog__list" aria-label="Saved paths">
           {paths.length === 0 ? (
@@ -3926,13 +3896,7 @@ function DeletePathGroupDialog({
       >
         <header className="config-dialog__header">
           <strong>Delete Collection</strong>
-          <button
-            type="button"
-            aria-label="Close delete collection"
-            onClick={onCancel}
-          >
-            x
-          </button>
+          <CloseButton ariaLabel="Close delete collection" onClick={onCancel} />
         </header>
         <section className="delete-path-group-dialog__body">
           <strong>{group.display_name}</strong>

@@ -38,17 +38,12 @@ import { projectStore } from "../../../state/projectStore";
 import { selectionStore } from "../../../state/selectionStore";
 import { useStoreSelector } from "../../../state/react";
 import {
+  CloseButton,
   SidebarActionButton,
   SidebarIconButton,
   NumberStepperControl,
-} from "../../controls/SidebarControls";
-import {
-  ElementIcon,
-  PlusIcon,
-  RemoveIcon,
-  WarningIcon,
-  XIcon,
-} from "../../icons";
+} from "../../controls";
+import { ElementIcon, PlusIcon, RemoveIcon, WarningIcon } from "../../icons";
 import { SidebarSection } from "../SidebarSection";
 import {
   createAddRangedConstraintCommand,
@@ -845,14 +840,11 @@ function ConstraintPopout({
             <h2>Constraint Editor</h2>
             <span>Ranged constraints</span>
           </div>
-          <button
-            type="button"
+          <CloseButton
             className="dialog-close-button"
             onClick={onClose}
-            aria-label="Close Constraint Editor"
-          >
-            <XIcon size={16} />
-          </button>
+            ariaLabel="Close Constraint Editor"
+          />
         </div>
 
         <div className="constraint-popout__content">

@@ -24,7 +24,8 @@ import {
 import {
   NumberStepperControl,
   SidebarSelectControl,
-} from "../../controls/SidebarControls";
+  SwitchInput,
+} from "../../controls";
 import { SidebarSection } from "../SidebarSection";
 import {
   type AddableElementType,
@@ -320,11 +321,7 @@ function LinkedTargetMenu({
           </form>
         ) : (
           createKinds.map((kind) => (
-            <button
-              key={kind}
-              type="button"
-              onClick={() => startCreate(kind)}
-            >
+            <button key={kind} type="button" onClick={() => startCreate(kind)}>
               <span>
                 {kind === "waypoint"
                   ? "New Linked Waypoint..."
@@ -632,12 +629,7 @@ function BooleanField({
   return (
     <label className="property-row property-row--toggle">
       <span>{label}</span>
-      <input
-        aria-label={label}
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.currentTarget.checked)}
-      />
+      <SwitchInput ariaLabel={label} checked={checked} onChange={onChange} />
     </label>
   );
 }
