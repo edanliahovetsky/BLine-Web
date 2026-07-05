@@ -3978,19 +3978,38 @@ button.auto-velocity-status--running:disabled {
   opacity: 0.52;
 }
 
-.linked-targets-dialog__target-title {
+.linked-targets-dialog__target-row {
+  align-content: center;
+  grid-template-rows: minmax(30px, auto) minmax(14px, auto);
+  gap: 4px;
+  min-height: 68px;
+  padding-block: 8px;
+}
+
+.linked-targets-dialog__target-row .linked-targets-dialog__target-title {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   min-width: 0;
+  min-height: 30px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .linked-targets-dialog__target-title > span {
   min-width: 0;
   overflow: hidden;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.linked-targets-dialog__target-row small {
+  display: block;
+  line-height: 1.25;
+  min-height: 14px;
 }
 
 .linked-targets-dialog__target-glyph {
