@@ -19,10 +19,7 @@ import {
   type PathElement,
   type TranslationTarget,
 } from "../core/model/path";
-import type {
-  LinkedTarget,
-  LinkedTargetKind,
-} from "../core/io/projectSchema";
+import type { LinkedTarget, LinkedTargetKind } from "../core/io/projectSchema";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
 import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";

@@ -53,8 +53,7 @@ export function nextLinkedTargetName(
   workspace: ProjectWorkspaceDocument,
   kind: LinkedTargetKind,
 ): string {
-  const base =
-    kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
+  const base = kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
   const existing = new Set(
     workspace.linked_targets.map((target) => target.display_name),
   );
