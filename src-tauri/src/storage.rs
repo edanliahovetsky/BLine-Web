@@ -60,6 +60,7 @@ struct AutosEditorStateFile {
     active_path_file_name: Option<String>,
     active_path_group_id: Option<String>,
     path_groups: Vec<Value>,
+    linked_targets: Vec<Value>,
     paths: std::collections::HashMap<String, AutosEditorPathState>,
     field_assets: std::collections::HashMap<String, FieldAssetMetadata>,
 }
@@ -611,7 +612,11 @@ fn read_workspace_from_project_dir(
         "paths": paths,
         "active_path_id": active_path_id,
         "path_groups": path_groups,
-        "active_path_group_id": active_path_group_id_from_state(editor_state.as_ref())
+        "active_path_group_id": active_path_group_id_from_state(editor_state.as_ref()),
+        "linked_targets": editor_state
+            .as_ref()
+            .map(|state| state.linked_targets.clone())
+            .unwrap_or_default()
     }))
 }
 
@@ -830,6 +835,11 @@ fn write_editor_state_from_workspace(
             .filter(|value| !value.trim().is_empty())
             .map(str::to_owned),
         path_groups: serialize_path_groups_for_state(workspace.get("path_groups"), paths)?,
+        linked_targets: workspace
+            .get("linked_targets")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         paths: path_states,
         field_assets,
     };
@@ -2139,6 +2149,66 @@ mod tests {
         let moved_asset =
             read_field_asset_from_project_dir(&dir, "field-old.png").expect("moved asset read");
         assert_eq!(moved_asset.expect("moved asset").bytes, vec![1, 2, 3]);
+
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn desktop_user_linked_targets_survive_save_and_reopen() {
+        let dir = temp_autos_dir("desktop-linked-targets");
+        let workspace = json!({
+            "schema_version": 1,
+            "project_id": dir.to_string_lossy(),
+            "display_name": "autos",
+            "config": {},
+            "paths": [
+                {
+                    "path_id": "auto.json",
+                    "display_name": "Auto",
+                    "file_name": "auto.json",
+                    "path": {
+                        "path_elements": [
+                            { "type": "translation", "x_meters": 1, "y_meters": 2 }
+                        ]
+                    },
+                    "editor_metadata": {
+                        "linked_targets": [
+                            { "element_index": 0, "target_id": "note-a" }
+                        ]
+                    }
+                }
+            ],
+            "active_path_id": "auto.json",
+            "path_groups": [],
+            "linked_targets": [
+                {
+                    "target_id": "note-a",
+                    "display_name": "Note A",
+                    "kind": "translation",
+                    "x_meters": 1,
+                    "y_meters": 2
+                }
+            ]
+        });
+
+        write_workspace_to_project_dir(&dir, &workspace, None).expect("workspace save");
+
+        let state = read_json_file(&editor_state_file(&dir)).expect("sidecar state");
+        assert_eq!(
+            state.pointer("/linked_targets/0/target_id"),
+            Some(&json!("note-a"))
+        );
+
+        let reopened =
+            read_workspace_from_project_dir(&dir, None).expect("workspace should reopen");
+        assert_eq!(
+            reopened.pointer("/linked_targets/0/target_id"),
+            Some(&json!("note-a"))
+        );
+        assert_eq!(
+            reopened.pointer("/paths/0/editor_metadata/linked_targets/0/target_id"),
+            Some(&json!("note-a"))
+        );
 
         fs::remove_dir_all(dir).expect("cleanup");
     }

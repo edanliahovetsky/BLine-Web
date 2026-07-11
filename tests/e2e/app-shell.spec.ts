@@ -2730,6 +2730,37 @@ test("recovers autosaved edits after reload", async ({ page }) => {
   );
 });
 
+test("keeps linked elements after reload", async ({ page }) => {
+  await page.goto("/");
+
+  const pathMenu = await openPathMenu(page);
+  await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
+
+  let dialog = page.getByRole("dialog", { name: "Linked Elements" });
+  await dialog.getByRole("button", { name: "New Translation" }).click();
+  await dialog.getByLabel("Linked element name").fill("Persistent Note");
+  await dialog.getByLabel("X (m)").fill("4.25");
+  await dialog.getByLabel("Y (m)").fill("2.75");
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+  await expect(page.getByTestId("save-status")).toContainText("Saved", {
+    timeout: 5_000,
+  });
+  await page.reload();
+
+  const reopenedPathMenu = await openPathMenu(page);
+  await reopenedPathMenu
+    .getByRole("menuitem", { name: "Linked Elements..." })
+    .click();
+  dialog = page.getByRole("dialog", { name: "Linked Elements" });
+
+  await expect(dialog.getByLabel("Linked element name")).toHaveValue(
+    "Persistent Note",
+  );
+  await expect(dialog.getByLabel("X (m)")).toHaveValue("4.25");
+  await expect(dialog.getByLabel("Y (m)")).toHaveValue("2.75");
+});
+
 test("opens a saved project from the project list", async ({ page }) => {
   await page.goto("/");
 
