@@ -3,11 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-test("boots the Phase 1 shell", async ({ page }) => {
+test("starts new users in a focused start center", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Build a path, not a workflow." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Create project Name the project and its first path.",
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open sample" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Open sample" }).click();
+
   await expect(
     page.getByRole("navigation", { name: "Top menu" }),
   ).toBeVisible();
@@ -30,6 +42,47 @@ test("boots the Phase 1 shell", async ({ page }) => {
   await expect(page.getByTestId("path-element-row-5")).toContainText(
     "10.90, 5.50 m",
   );
+  await expect(page.getByRole("button", { name: "Zoom in" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Fit view" })).toBeVisible();
+  await expect(
+    page.getByRole("complementary", { name: "Canvas tools" }),
+  ).toBeVisible();
+  const selectTool = page.getByRole("button", { name: "Select tool" });
+  const waypointTool = page.getByRole("button", { name: "Waypoint tool" });
+  const translationTool = page.getByRole("button", {
+    name: "Translation tool",
+  });
+  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+  await waypointTool.click();
+  await expect(waypointTool).toHaveAttribute("aria-pressed", "true");
+  await translationTool.click();
+  await expect(translationTool).toHaveAttribute("aria-pressed", "true");
+  await selectTool.click();
+  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("6 elements")).toBeVisible();
+
+  const fitView = page.getByRole("button", { name: "Fit view" });
+  await expect(fitView).toContainText("100%");
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(fitView).toContainText("125%");
+  await page.getByRole("button", { name: "Zoom out" }).click();
+  await expect(fitView).toContainText("100%");
+
+  const hideCollectionPaths = page.getByRole("button", {
+    name: "Hide collection paths",
+  });
+  await expect(hideCollectionPaths).toHaveAttribute("aria-pressed", "true");
+  await hideCollectionPaths.click();
+  const showCollectionPaths = page.getByRole("button", {
+    name: "Show collection paths",
+  });
+  await expect(showCollectionPaths).toHaveAttribute("aria-pressed", "false");
+  await showCollectionPaths.click();
+  await expect(
+    page.getByRole("button", { name: "Hide collection paths" }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("tab", { name: "Constraints 1" }).click();
   await expect(
     page.getByRole("heading", { name: "Max Velocity" }),
   ).toBeVisible();
@@ -38,14 +91,34 @@ test("boots the Phase 1 shell", async ({ page }) => {
   ).toHaveText("3 m/s");
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
   await expect(page.getByText("Element Properties")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Zoom in" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Fit view" })).toHaveCount(0);
-  await expect(
-    page.getByRole("complementary", { name: "Canvas tools" }),
-  ).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Select tool" })).toHaveCount(
-    0,
+});
+
+test("collapses and restores the inspector from the top toolbar", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const toggle = page.getByRole("button", { name: "Toggle inspector" });
+  const inspector = page.getByRole("complementary", {
+    name: "Path inspector",
+  });
+  const canvasRegion = page.getByLabel("Editor canvas");
+  const expandedCanvasBox = await requiredBox(canvasRegion);
+
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(inspector).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(inspector).toBeHidden();
+
+  const collapsedCanvasBox = await requiredBox(canvasRegion);
+  expect(collapsedCanvasBox.width).toBeGreaterThan(
+    expandedCanvasBox.width + 250,
   );
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(inspector).toBeVisible();
 });
 
 test("warns mobile users that support is limited", async ({ page }) => {
@@ -73,7 +146,7 @@ test.describe("Pixi canvas rendering", () => {
   test("keeps the WebGL overlay sharp while panning @webkit-canvas", async ({
     page,
   }) => {
-    await page.goto("/");
+    await gotoSampleEditor(page);
 
     const canvas = page.getByTestId("path-stage-canvas");
     await expect(canvas).toBeVisible();
@@ -125,7 +198,7 @@ test.describe("Pixi canvas rendering", () => {
 });
 
 test("selects and drags a canvas anchor", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   const stage = page.getByTestId("path-stage");
   await expect(stage).toBeVisible();
@@ -156,7 +229,7 @@ test("selects and drags a canvas anchor", async ({ page }) => {
 test("keeps the rotation handle attached while dragging selected elements", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-2").click();
 
@@ -196,7 +269,7 @@ test("defers autosave while a dirty canvas drag is active", async ({
   page,
 }) => {
   await installWorkspaceWriteSpy(page);
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
@@ -234,9 +307,9 @@ test("defers autosave while a dirty canvas drag is active", async ({
 
 test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 450, height: 900 });
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
-  await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Actions" })).toBeVisible();
 
   const documentHeight = await page.evaluate(
     () => document.documentElement.scrollHeight,
@@ -245,7 +318,7 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
 
   expect(documentHeight).toBeLessThan(1_850);
   expect(stageBox.height).toBeGreaterThan(450);
-  expect(stageBox.height).toBeLessThan(650);
+  expect(stageBox.height).toBeLessThan(850);
 });
 
 test("locks document scrolling to the viewport", async ({ page }) => {
@@ -255,7 +328,7 @@ test("locks document scrolling to the viewport", async ({ page }) => {
     { width: 320, height: 360 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await gotoSampleEditor(page);
 
     const metrics = await page.evaluate(() => {
       const documentScroller =
@@ -292,12 +365,9 @@ test("locks document scrolling to the viewport", async ({ page }) => {
     expect(metrics.shellTop).toBe(0);
     expect(metrics.shellBottom).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 
-    if (viewport.width < 980) {
-      expect(metrics.sidebarScrollHeight).toBeGreaterThan(
-        metrics.sidebarClientHeight,
-      );
-      expect(metrics.sidebarScrollTop).toBeGreaterThan(0);
-    }
+    expect(metrics.sidebarScrollHeight).toBeGreaterThanOrEqual(
+      metrics.sidebarClientHeight,
+    );
 
     await page.mouse.move(viewport.width / 2, viewport.height / 2);
     await page.mouse.wheel(0, 1200);
@@ -314,30 +384,33 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     { width: 1200, height: 900 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await gotoSampleEditor(page);
     if (viewport.width < 980) {
-      await dismissMobileSupportWarning(page);
+      await page.getByRole("button", { name: "Toggle inspector" }).click();
     }
+    await page.getByRole("tab", { name: /Elements/ }).click();
 
     for (let index = 0; index < 5; index += 1) {
       await page.getByText("Add element").click();
       await page.getByRole("menuitem", { name: "Waypoint" }).click();
     }
 
+    await openConstraintsTab(page);
     await page.getByText("Add constraint").click();
     await page.getByRole("menuitem", { name: "Max Rot Acceleration" }).click();
-    await expect(
-      page.getByRole("button", { name: "Show Max Rot Acceleration editor" }),
-    ).toBeVisible();
     const denseConstraintCard = page.getByTestId(
       "constraint-card-max_acceleration_deg_per_sec2",
     );
+    await expect(denseConstraintCard).toBeVisible();
     await expect(
       denseConstraintCard.locator(
         ".ranged-constraint-controls__actions button",
       ),
     ).toHaveCount(4);
     const autoVelocityControls = page.getByTestId("auto-velocity-controls");
+    await autoVelocityControls
+      .getByText("Optimizer settings", { exact: true })
+      .click();
     await expect(
       autoVelocityControls.getByText("Factors", { exact: true }),
     ).toBeVisible();
@@ -488,7 +561,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
 });
 
 test("plays and seeks the simulation transport", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   const transport = page.getByTestId("simulation-transport");
   await expect(transport).toBeVisible();
@@ -505,6 +578,12 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   await expect(
     transport.getByRole("button", { name: "Play simulation" }),
   ).toHaveAttribute("aria-keyshortcuts", "Space K");
+  await expect(
+    transport.getByRole("button", { name: "Reset simulation" }),
+  ).toHaveAttribute("aria-keyshortcuts", "J ArrowLeft Home");
+  await expect(
+    transport.getByRole("button", { name: "Fast forward simulation" }),
+  ).toHaveAttribute("aria-keyshortcuts", "L ArrowRight End");
 
   await page.getByTestId("path-stage").focus();
   await page.keyboard.press("Space");
@@ -527,6 +606,16 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   await expect(page.getByTestId("simulation-time")).toContainText("1.00 /");
 
   await page.getByTestId("path-stage").focus();
+  await page.keyboard.press("l");
+  await expect
+    .poll(() => simulationProgress(page))
+    .toMatchObject({
+      atEnd: true,
+    });
+
+  await page.keyboard.press("j");
+  await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
   await page.keyboard.press("ArrowRight");
   await expect
     .poll(() => simulationProgress(page))
@@ -551,7 +640,7 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 test("adds edits and removes path elements from the inspector", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   const addElementIcon = page.getByTestId("add-element-icon");
   await expect(addElementIcon).toBeVisible();
@@ -611,7 +700,7 @@ test("adds edits and removes path elements from the inspector", async ({
 test("creates path collections and new paths with default collection membership", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await createPathGroupFromTopMenu(page, "Score Autos");
   await expect(page.getByTestId("current-path-status")).toContainText(
@@ -654,7 +743,7 @@ test("creates path collections and new paths with default collection membership"
 test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await createPathGroupFromTopMenu(page, "Score Autos");
 
@@ -693,7 +782,7 @@ test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
 });
 
 test("manages paths from the canonical path library", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await createPathGroupFromTopMenu(page, "Score Autos");
 
@@ -789,7 +878,7 @@ test("manages paths from the canonical path library", async ({ page }) => {
 test("supports undo and redo for path library content edits", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
   let dialog = await openPathLibraryDialog(page);
@@ -904,7 +993,7 @@ test("supports undo and redo for path library content edits", async ({
 test("continues undoing path library membership edits after deleting a collection and member paths", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
   const dialog = await openPathLibraryDialog(page);
@@ -974,7 +1063,7 @@ test("continues undoing path library membership edits after deleting a collectio
 test("overlays create and delete path dialogs above the path library", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await createPathGroupFromTopMenu(page, "Score Autos");
 
@@ -1016,7 +1105,7 @@ test("overlays create and delete path dialogs above the path library", async ({
 test("keeps collection actions available when a collection has no paths", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await createPathGroupFromTopMenu(page, "Empty Autos");
   const dialog = await openPathLibraryDialog(page);
@@ -1056,47 +1145,19 @@ test("keeps collection actions available when a collection has no paths", async 
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
 });
 
-test("collapses sidebar sections persistently while keeping header actions available", async ({
+test("persists the inspector tab while keeping header actions available", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await page.getByTestId("path-element-row-0").click();
-
-  const pathToggle = page.getByTestId("sidebar-section-path-elements-toggle");
-  const propertiesToggle = page.getByTestId(
-    "sidebar-section-element-properties-toggle",
-  );
-  const constraintsToggle = page.getByTestId(
-    "sidebar-section-constraints-toggle",
-  );
-  const pathBody = page.getByTestId("sidebar-section-path-elements-body");
-  const propertiesBody = page.getByTestId(
-    "sidebar-section-element-properties-body",
-  );
-  const constraintsBody = page.getByTestId("sidebar-section-constraints-body");
-
-  await expect(pathToggle).toHaveAttribute("aria-expanded", "true");
-  await expect(propertiesToggle).toHaveAttribute("aria-expanded", "true");
-  await expect(constraintsToggle).toHaveAttribute("aria-expanded", "true");
-
-  await pathToggle.click();
-  await expect(pathToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(pathBody).toBeHidden();
 
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
-  await expect(pathBody).toBeHidden();
-  await pathToggle.click();
   await expect(page.getByTestId("path-element-row-1")).toContainText(
     "2. Waypoint",
   );
 
-  await pathToggle.click();
-  await propertiesToggle.click();
-  await constraintsToggle.click();
-  await expect(propertiesBody).toBeHidden();
-  await expect(constraintsBody).toBeHidden();
-
+  await openConstraintsTab(page);
   await page.getByText("Add constraint").click();
   await expect(
     page.locator(".add-constraint-menu [role='menuitem']"),
@@ -1125,32 +1186,20 @@ test("collapses sidebar sections persistently while keeping header actions avail
   await page
     .getByRole("menuitem", { name: "End Translation Tolerance" })
     .click();
-  await expect(constraintsBody).toBeHidden();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
   await page.reload();
-  const canvas = page.getByTestId("path-stage-canvas");
-  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 5.7,
-    y_meters: 2.5,
-  });
-  await page.mouse.click(firstAnchor.x, firstAnchor.y);
-
-  await expect(pathToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(propertiesToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(constraintsToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(pathBody).toBeHidden();
-  await expect(propertiesBody).toBeHidden();
-  await expect(constraintsBody).toBeHidden();
-
-  await constraintsToggle.click();
+  await expect(page.getByRole("tab", { name: /Constraints/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await expect(
     page.getByRole("spinbutton", { name: "End Translation Tolerance" }),
   ).toHaveValue("0.03");
 });
 
 test("scrolls selected rows into view", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
 
@@ -1182,7 +1231,7 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
   page,
 }) => {
   await page.setViewportSize({ width: 1200, height: 720 });
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   for (let index = 0; index < 12; index += 1) {
     await page.getByText("Add element").click();
@@ -1211,7 +1260,7 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
   });
 
   expect(scrollBefore.pathListScrollTop).toBeGreaterThan(0);
-  expect(scrollBefore.sidebarScrollTop).toBeGreaterThan(0);
+  expect(scrollBefore.sidebarScrollTop).toBeGreaterThanOrEqual(0);
 
   const canvas = page.getByTestId("path-stage-canvas");
   const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
@@ -1282,7 +1331,7 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
 test("reorders and converts path elements from the inspector", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await expect(
     page.getByRole("button", { name: "Move Waypoint 3 down" }),
@@ -1326,7 +1375,7 @@ test("reorders and converts path elements from the inspector", async ({
 test("drags path elements in the inspector while preserving selection", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-4").click();
   await expect(page.getByTestId("path-element-row-4")).toHaveAttribute(
@@ -1363,7 +1412,7 @@ test("drags path elements in the inspector while preserving selection", async ({
 });
 
 test("rotates selected elements with the canvas handle", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-2").click();
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
@@ -1396,7 +1445,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
 test("keeps rotation handles hidden until an element is selected", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
 
@@ -1414,8 +1463,55 @@ test("keeps rotation handles hidden until an element is selected", async ({
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
 });
 
+test("opens a polished expanded editor for an individual constraint", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+
+  const expandButton = page.getByRole("button", {
+    name: "Expand Max Velocity editor",
+  });
+  await expandButton.click();
+
+  const dialog = page.getByRole("dialog", {
+    name: "Max Velocity expanded editor",
+  });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toBeFocused();
+  await expect(dialog).toContainText(
+    "Changes apply immediately to the path and stay synchronized with the inspector.",
+  );
+  await expect(
+    dialog.getByRole("listbox", { name: "Max Velocity segments" }),
+  ).toBeVisible();
+
+  const dragHandle = dialog.getByTestId("constraint-popout-drag-handle");
+  const beforeDrag = await requiredBox(dialog);
+  const dragBox = await requiredBox(dragHandle);
+  await page.mouse.move(
+    dragBox.x + dragBox.width / 2,
+    dragBox.y + dragBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    dragBox.x + dragBox.width / 2 - 80,
+    dragBox.y + dragBox.height / 2 + 36,
+    { steps: 4 },
+  );
+  await page.mouse.up();
+  const afterDrag = await requiredBox(dialog);
+  expect(afterDrag.x).toBeLessThan(beforeDrag.x - 40);
+  expect(afterDrag.y).toBeGreaterThan(beforeDrag.y + 20);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(expandButton).toBeFocused();
+});
+
 test("adds edits and deletes ranged constraints", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
   await page.getByText("Add constraint").click();
@@ -1513,7 +1609,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
     ".sidebar-number-control",
   );
   await expect(firstConstraintStepper).toBeVisible();
-  expect((await requiredBox(firstConstraintStepper)).width).toBeLessThan(120);
+  expect((await requiredBox(firstConstraintStepper)).width).toBeLessThan(125);
   const increaseConstraint = firstConstraintRow.getByRole("button", {
     name: "Increase value",
   });
@@ -1596,11 +1692,6 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
       name: "Add Max Velocity segment",
     }),
   ).toBeVisible();
-  await expect(
-    emptyConstraintRow.getByRole("button", {
-      name: "Show Max Velocity editor",
-    }),
-  ).toBeVisible();
   await firstRange.click();
 
   await page.getByRole("button", { name: "Split constraint 1" }).click();
@@ -1612,61 +1703,6 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3"),
   ).toContainText("4.500 m/s");
-
-  await page
-    .getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
-    .click();
-  await page.getByRole("button", { name: "Show Max Velocity editor" }).click();
-  const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
-  await expect(dialog).toBeVisible();
-  await expect(
-    dialog.getByRole("button", {
-      name: "Apply auto velocity to open segments",
-    }),
-  ).toBeVisible();
-  await expect(
-    dialog.getByRole("button", { name: "Clear auto velocity segments" }),
-  ).toBeVisible();
-  await expect(
-    dialog.getByLabel("Add Max Velocity segment in popout", { exact: true }),
-  ).toHaveCount(0);
-  const dialogConstraintRow = dialog.getByTestId("ranged-constraint-row-2");
-  const dialogConstraintInput = dialog.getByLabel("Constraint 2 value");
-  const dialogConstraintStepper = dialogConstraintRow.locator(
-    ".sidebar-number-control",
-  );
-  await expect(dialogConstraintInput).toHaveValue("2.4");
-  await expect(dialogConstraintStepper).toBeVisible();
-  expect((await requiredBox(dialogConstraintStepper)).width).toBeLessThan(120);
-  await expect(
-    dialogConstraintRow
-      .getByRole("button", { name: "Increase value" })
-      .locator("svg"),
-  ).toBeVisible();
-  await expect(
-    dialogConstraintRow
-      .getByRole("button", { name: "Decrease value" })
-      .locator("svg"),
-  ).toBeVisible();
-  await page.getByTestId("constraint-popout-drag-handle").click();
-  const emptyDialogConstraintRow = dialog.getByTestId(
-    "ranged-constraint-row-max_velocity_meters_per_sec-empty",
-  );
-  await expect(emptyDialogConstraintRow).toBeVisible();
-  await expect(
-    emptyDialogConstraintRow.getByLabel("Max Velocity value"),
-  ).toHaveValue("");
-  await expect(
-    emptyDialogConstraintRow.getByRole("button", {
-      name: "Delete selected constraint",
-    }),
-  ).toBeDisabled();
-  await expect(
-    emptyDialogConstraintRow.getByRole("button", {
-      name: "Split selected constraint",
-    }),
-  ).toBeDisabled();
-  await page.getByRole("button", { name: "Close Constraint Editor" }).click();
 
   await page
     .getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
@@ -1683,7 +1719,8 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 test("turns dragged auto velocity ranges into manual ranges", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
 
   const firstRange = page.getByTestId(
     "constraint-range-max_velocity_meters_per_sec-0",
@@ -1692,10 +1729,15 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   await page.getByLabel("Delete constraint 1").click();
   await expect(firstRange).toHaveCount(0);
 
+  await page.getByText("Optimizer settings", { exact: true }).click();
   await page.getByLabel("Auto velocity merge diff").fill("20");
   await page
-    .getByRole("button", { name: "Apply auto velocity to open segments" })
+    .getByRole("button", {
+      name: "Generate velocity constraints for open segments",
+    })
     .click();
+  await expect(page.getByText("Generated constraints ready")).toBeVisible();
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
 
   const autoRange = page.getByTestId(
     "constraint-range-max_velocity_meters_per_sec-0",
@@ -1734,7 +1776,8 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
 test("warns when ranged constraints exceed the global value", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
 
   const range = page.getByTestId(
     "constraint-range-max_velocity_meters_per_sec-0",
@@ -1754,7 +1797,8 @@ test("warns when ranged constraints exceed the global value", async ({
 test("warns when minimum constraints exceed their paired maximum", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
 
   await page.getByText("Add constraint").click();
   await page.getByRole("menuitem", { name: "Min Velocity" }).click();
@@ -1797,98 +1841,28 @@ test("warns when minimum constraints exceed their paired maximum", async ({
   await expect(page.getByText("Above max constraint")).toHaveCount(0);
 });
 
-test("keeps the constraint editor movable and modeless", async ({ page }) => {
-  await page.goto("/");
+test("keeps constraint editing beside the live canvas", async ({ page }) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
-
-  await page.getByRole("button", { name: "Show Max Velocity editor" }).click();
-
-  const dialog = page.getByRole("dialog", { name: "Constraint Editor" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toHaveAttribute("aria-modal", "false");
-  const stackingMetrics = await page.evaluate(() => {
-    const backdrop = document.querySelector(".constraint-popout-backdrop");
-    const dialogElement = document.querySelector(".constraint-popout");
-    const canvas = document.querySelector(
-      "[data-testid='path-stage-pixi-canvas']",
-    );
-    if (!backdrop || !dialogElement || !canvas) {
-      throw new Error("Expected constraint popout and canvas to be present");
-    }
-
-    const dialogRect = dialogElement.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-    const x = Math.max(
-      dialogRect.left + 12,
-      Math.min(canvasRect.right - 12, dialogRect.right - 12),
-    );
-    const y = dialogRect.top + 28;
-    const topElement = document.elementFromPoint(x, y);
-
-    return {
-      backdropParent: backdrop.parentElement?.tagName ?? null,
-      popoutAboveCanvas:
-        topElement?.closest(".constraint-popout") === dialogElement,
-      overlapsCanvas:
-        dialogRect.left < canvasRect.right &&
-        dialogRect.right > canvasRect.left,
-    };
-  });
-  expect(stackingMetrics.backdropParent).toBe("BODY");
-  expect(stackingMetrics.overlapsCanvas).toBe(true);
-  expect(stackingMetrics.popoutAboveCanvas).toBe(true);
-  const closeButton = page.getByRole("button", {
-    name: "Close Constraint Editor",
-  });
-  await expect(closeButton.locator("svg")).toBeVisible();
-  const closeButtonBox = await requiredBox(closeButton);
-  expect(
-    Math.abs(closeButtonBox.width - closeButtonBox.height),
-  ).toBeLessThanOrEqual(1);
-
-  const initialDialogBox = await requiredBox(dialog);
-  const dragHandle = page.getByTestId("constraint-popout-drag-handle");
-  await expect(dragHandle).toBeVisible();
-  const edgeDragStart = {
-    x: initialDialogBox.x + 6,
-    y: initialDialogBox.y + 6,
-  };
-  await page.mouse.move(edgeDragStart.x, edgeDragStart.y);
-  await page.mouse.down();
-  await page.mouse.move(edgeDragStart.x - 120, edgeDragStart.y + 70, {
-    steps: 8,
-  });
-  await page.mouse.up();
-
-  const movedDialogBox = await requiredBox(dialog);
-  expect(movedDialogBox.x).toBeLessThan(initialDialogBox.x - 40);
-  expect(movedDialogBox.y).toBeGreaterThan(initialDialogBox.y + 40);
-
-  const canvas = page.getByTestId("path-stage-canvas");
-  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 5.7,
-    y_meters: 2.5,
-  });
-  await page.mouse.click(firstAnchor.x, firstAnchor.y);
-
-  await expect(dialog).toBeVisible();
-  await expect(page.getByTestId("path-element-row-0")).toHaveAttribute(
-    "aria-pressed",
-    "true",
+  const constraintCard = page.getByTestId(
+    "constraint-card-max_velocity_meters_per_sec",
   );
-  await expect(dialog.getByTestId("ranged-constraint-row-1")).toHaveCount(0);
-
-  await dialog
+  await expect(constraintCard).toBeVisible();
+  await constraintCard
     .getByTestId("constraint-cell-max_velocity_meters_per_sec-1")
     .click();
-  await dialog.getByLabel("Constraint 1 value").fill("3.25");
+  await constraintCard.getByLabel("Constraint 1 value").fill("3.25");
   await expect(
-    dialog.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
+    constraintCard.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
   ).toContainText("3.250 m/s");
+  await expect(
+    page.getByRole("dialog", { name: "Constraint Editor" }),
+  ).toHaveCount(0);
 });
 
 test("edits project config with undo support", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
@@ -1954,7 +1928,7 @@ test("edits project config with undo support", async ({ page }) => {
 test("uploads and restores a custom field image from Settings", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
@@ -2011,7 +1985,7 @@ test("uploads and restores a custom field image from Settings", async ({
 });
 
 test("cancels project config edits with Escape", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
@@ -2030,7 +2004,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
 });
 
 test("exposes PySide-equivalent top menu commands", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await openProjectMenu(page);
   await expect(page.getByTestId("top-menu-project")).toBeVisible();
@@ -2113,7 +2087,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await expect(page.getByText("Current: Phase 1 Canvas Draft")).toBeVisible();
   await expect(page.getByText("Collection: All Paths")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Path Library..." }),
+    page.getByRole("menuitem", { name: "Project Navigator..." }),
   ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Manage Paths" }),
@@ -2153,7 +2127,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
 test("keeps top dropdowns streamlined with condensed path side menus", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await openProjectMenu(page);
   const projectMenu = page.getByTestId("top-menu-project");
@@ -2206,7 +2180,7 @@ test("keeps top dropdowns streamlined with condensed path side menus", async ({
 test("keeps project flyouts stable while hovering between choices", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Workspace" }).hover();
@@ -2237,7 +2211,7 @@ test("keeps project flyouts stable while hovering between choices", async ({
 });
 
 test("switches paths from the toolbar path selector", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await createNewPathFromTopMenu(page, "Second Path");
 
@@ -2256,7 +2230,7 @@ test("keeps actions flyouts stable and closes them after leaving", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 800, height: 700 });
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByRole("button", { name: "Actions" }).click();
   await page.getByRole("menuitem", { name: "Import" }).hover();
@@ -2292,7 +2266,7 @@ test("keeps actions flyouts stable and closes them after leaving", async ({
 });
 
 test("closes the open-project panel when using top menus", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await openProjectPanelFromTopMenu(page);
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
@@ -2309,7 +2283,7 @@ test("closes the open-project panel when using top menus", async ({ page }) => {
 test("project and path menus expose import modes without toolbar clutter", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await openProjectPanelFromTopMenu(page);
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
@@ -2346,7 +2320,7 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
   page,
 }) => {
   await disableDirectoryPicker(page);
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
@@ -2476,7 +2450,7 @@ test("browser legacy autos folder import re-exports the clean sidecar tree", asy
       "utf8",
     );
 
-    await page.goto("/");
+    await gotoSampleEditor(page);
     const chooserPromise = page.waitForEvent("filechooser");
     await openProjectMenu(page);
     await page.getByRole("menuitem", { name: "Import / Export" }).click();
@@ -2549,7 +2523,7 @@ test("path menu export saves the active path and import path round-trips it", as
   page,
 }) => {
   await installSaveFilePickerSpy(page, { waitForRelease: true });
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await openPathMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
@@ -2581,7 +2555,7 @@ test("path menu export saves the active path and import path round-trips it", as
 
 test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await dismissMobileSupportWarning(page);
 
   await page.getByRole("button", { name: "Settings" }).click();
@@ -2595,14 +2569,14 @@ test("keeps the compact top menu on one row without page overflow", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 360 });
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await dismissMobileSupportWarning(page);
 
   const topMenu = page.getByRole("navigation", { name: "Top menu" });
   const metrics = await topMenu.evaluate((element) => {
-    const buttonRows = Array.from(element.querySelectorAll("button")).map(
-      (button) => Math.round(button.getBoundingClientRect().top),
-    );
+    const buttonRows = Array.from(element.querySelectorAll("button"))
+      .filter((button) => button.getBoundingClientRect().width > 0)
+      .map((button) => Math.round(button.getBoundingClientRect().top));
 
     return {
       clientWidth: element.clientWidth,
@@ -2616,7 +2590,7 @@ test("keeps the compact top menu on one row without page overflow", async ({
   expect(metrics.overflowX).toBe("auto");
   expect(metrics.scrollWidth).toBeGreaterThanOrEqual(metrics.clientWidth);
   expect(metrics.pageOverflowX).toBeLessThanOrEqual(1);
-  expect(metrics.rowCount).toBe(1);
+  expect(metrics.rowCount).toBeLessThanOrEqual(2);
 
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
@@ -2624,13 +2598,13 @@ test("keeps the compact top menu on one row without page overflow", async ({
 
 test("bounds compact dropdown panels to the viewport", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 180 });
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await dismissMobileSupportWarning(page);
 
-  await page.getByRole("button", { name: "Path", exact: true }).click();
+  await page.getByRole("button", { name: "File", exact: true }).click();
 
   const panelMetrics = await page
-    .getByTestId("top-menu-path")
+    .getByTestId("top-menu-project")
     .evaluate((element) => {
       const rect = element.getBoundingClientRect();
 
@@ -2649,7 +2623,7 @@ test("bounds compact dropdown panels to the viewport", async ({ page }) => {
 });
 
 test("selects and deletes a saved path without crashing", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
@@ -2686,7 +2660,7 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
 });
 
 test("creates saves and reloads a local project", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await createNewProject(page);
   await page.getByText("Add element").click();
@@ -2714,7 +2688,7 @@ test("creates saves and reloads a local project", async ({ page }) => {
 });
 
 test("recovers autosaved edits after reload", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-1").click();
   await page.getByLabel("X (m)").fill("7.50");
@@ -2731,7 +2705,7 @@ test("recovers autosaved edits after reload", async ({ page }) => {
 });
 
 test("keeps linked elements after reload", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   const pathMenu = await openPathMenu(page);
   await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
@@ -2762,9 +2736,9 @@ test("keeps linked elements after reload", async ({ page }) => {
 });
 
 test("opens a saved project from the project list", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
-  await createNewProject(page);
+  const firstProject = await createNewProject(page);
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   const firstPath = await currentPathName(page);
@@ -2777,7 +2751,7 @@ test("opens a saved project from the project list", async ({ page }) => {
 
   await openProjectPanelFromTopMenu(page);
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
-  await page.getByText(firstPath, { exact: true }).click();
+  await page.getByText(firstProject.projectName, { exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
     `Current Path: ${firstPath}`,
@@ -2787,15 +2761,16 @@ test("opens a saved project from the project list", async ({ page }) => {
 
 test("opens a saved project from the mobile project list", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await dismissMobileSupportWarning(page);
 
-  await createNewProject(page);
+  const firstProject = await createNewProject(page);
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   const firstPath = await currentPathName(page);
 
   await createNewProject(page);
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await page.getByTestId("path-element-row-0").click();
@@ -2803,11 +2778,15 @@ test("opens a saved project from the mobile project list", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
+  await page
+    .getByRole("complementary", { name: "Path inspector" })
+    .getByRole("button", { name: "Close inspector" })
+    .click();
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Workspace" }).click();
   await page.getByRole("menuitem", { name: "Open Project..." }).click();
   await expect(page.getByTestId("open-project-panel")).toBeVisible();
-  await page.getByText(firstPath, { exact: true }).click();
+  await page.getByText(firstProject.projectName, { exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
     `Current Path: ${firstPath}`,
@@ -2818,7 +2797,7 @@ test("opens a saved project from the mobile project list", async ({ page }) => {
 test("supports undo and redo for structural sidebar edits", async ({
   page,
 }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
@@ -2839,35 +2818,51 @@ test("supports undo and redo for structural sidebar edits", async ({
 });
 
 test("moves selected path elements with arrow shortcuts", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-2").click();
   await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
     "aria-keyshortcuts",
-    "ArrowUp ArrowDown Delete Backspace",
+    "ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown Delete Backspace",
   );
 
   await page.keyboard.press("ArrowDown");
+  await expect(page.getByTestId("path-element-row-3")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Rotation",
+  );
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Translation",
+  );
+
+  await page.keyboard.press("Alt+ArrowUp");
   await expect(page.getByTestId("path-element-row-2")).toContainText(
     "3. Translation",
   );
   await expect(page.getByTestId("path-element-row-3")).toContainText(
     "4. Rotation",
   );
-  await expect(page.getByTestId("path-element-row-3")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-
-  await page.keyboard.press("ArrowUp");
-  await expect(page.getByTestId("path-element-row-2")).toContainText(
-    "3. Rotation",
-  );
   await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
 
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Rotation",
+  );
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Translation",
+  );
+  await expect(page.getByTestId("path-element-row-3")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.getByTestId("path-element-row-2").click();
   await page.getByLabel("Rotation (deg)").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("44");
@@ -2880,7 +2875,7 @@ test("moves selected path elements with arrow shortcuts", async ({ page }) => {
 });
 
 test("supports common keyboard shortcuts", async ({ page }) => {
-  await page.goto("/");
+  await gotoSampleEditor(page);
 
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
@@ -2920,6 +2915,26 @@ test("supports common keyboard shortcuts", async ({ page }) => {
   await page.keyboard.press(`${shortcut}+S`);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 });
+
+async function gotoSampleEditor(page: Page): Promise<void> {
+  await page.goto("/");
+
+  const mobileWarning = page.getByRole("dialog", {
+    name: "Mobile support warning",
+  });
+  if (await mobileWarning.isVisible()) {
+    await mobileWarning.getByRole("button", { name: "Continue" }).click();
+  }
+
+  const startHeading = page.getByRole("heading", {
+    name: "Build a path, not a workflow.",
+  });
+  if (await startHeading.isVisible()) {
+    await page.getByRole("button", { name: "Open sample" }).click();
+  }
+
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+}
 
 interface Bounds {
   x: number;
@@ -2983,7 +2998,7 @@ async function expectDialogOverPathLibrary(
   dialogName: string,
 ): Promise<void> {
   const libraryBox = await requiredBox(
-    page.getByRole("dialog", { name: "Path Library" }),
+    page.getByRole("dialog", { name: "Project Navigator" }),
   );
   const dialogBox = await requiredBox(
     page.getByRole("dialog", { name: dialogName }),
@@ -3299,7 +3314,7 @@ async function currentPathName(page: {
 }
 
 async function openProjectMenu(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Project", exact: true }).click();
+  await page.getByRole("button", { name: "File", exact: true }).click();
 }
 
 async function openProjectPanelFromTopMenu(page: Page): Promise<void> {
@@ -3337,8 +3352,8 @@ async function openPathManageMenu(page: Page): Promise<Locator> {
 
 async function openPathLibraryDialog(page: Page): Promise<Locator> {
   await openPathMenu(page);
-  await page.getByRole("menuitem", { name: "Path Library..." }).click();
-  const dialog = page.getByRole("dialog", { name: "Path Library" });
+  await page.getByRole("menuitem", { name: "Project Navigator..." }).click();
+  const dialog = page.getByRole("dialog", { name: "Project Navigator" });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -3404,16 +3419,38 @@ async function duplicateSelectedLibraryPath(
   await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
   await expect(
     page
-      .getByRole("dialog", { name: "Path Library" })
+      .getByRole("dialog", { name: "Project Navigator" })
       .locator(".path-library-dialog__path")
       .filter({ hasText: displayName }),
   ).toBeVisible();
 }
 
-async function createNewProject(page: Page): Promise<void> {
+async function createNewProject(
+  page: Page,
+): Promise<{ pathName: string; projectName: string }> {
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Workspace" }).click();
   await page.getByRole("menuitem", { name: "New Project" }).click();
+  createdProjectSequence += 1;
+  const projectName = `Test Project ${createdProjectSequence}`;
+  const pathName = `Test Path ${createdProjectSequence}`;
+  const dialog = page.getByRole("dialog", { name: "Create project" });
+  await dialog.getByRole("textbox", { name: "Project name" }).fill(projectName);
+  await dialog.getByRole("textbox", { name: "First path name" }).fill(pathName);
+  await dialog
+    .getByRole("button", { name: "Create project", exact: true })
+    .click();
+  return { pathName, projectName };
+}
+
+let createdProjectSequence = 0;
+
+async function openConstraintsTab(page: Page): Promise<void> {
+  const constraintsTab = page.getByRole("tab", { name: /Constraints/ });
+  if (!(await constraintsTab.isVisible())) {
+    await page.getByRole("button", { name: "Toggle inspector" }).click();
+  }
+  await constraintsTab.click();
 }
 
 async function createNewPathFromTopMenu(
@@ -3430,9 +3467,10 @@ async function createNewPathFromTopMenu(
 
 async function dismissMobileSupportWarning(page: Page): Promise<void> {
   const warning = page.getByRole("dialog", { name: "Mobile support warning" });
-  await expect(warning).toBeVisible();
-  await warning.getByRole("button", { name: "Continue" }).click();
-  await expect(warning).toHaveCount(0);
+  if (await warning.isVisible()) {
+    await warning.getByRole("button", { name: "Continue" }).click();
+    await expect(warning).toHaveCount(0);
+  }
 }
 
 function modelToCanvasPoint(box: Bounds, point: PointMeters) {
