@@ -44,6 +44,9 @@ export const defaultEditorUiPreferences: EditorUiPreferencesV1 = {
   showGhostPaths: true,
 };
 
+export const inspectorWidthMin = 280;
+export const inspectorWidthMax = 560;
+
 export function readEditorUiPreferences(): EditorUiPreferencesV1 {
   if (typeof window === "undefined") {
     return defaultEditorUiPreferences;
@@ -165,8 +168,11 @@ function normalizeShortcutKey(key: string): string {
   return key.length === 1 ? key.toLocaleUpperCase() : key;
 }
 
-function clampInspectorWidth(value: unknown): number {
+export function clampInspectorWidth(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(420, Math.max(300, Math.round(value)))
+    ? Math.min(
+        inspectorWidthMax,
+        Math.max(inspectorWidthMin, Math.round(value)),
+      )
     : defaultEditorUiPreferences.inspectorWidth;
 }

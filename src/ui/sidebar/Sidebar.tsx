@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import { X } from "lucide-react";
 import type {
   LinkedTargetKind,
@@ -31,6 +31,9 @@ import {
   type AddableElementType,
 } from "./sidebarCommands";
 import {
+  clampInspectorWidth,
+  inspectorWidthMax,
+  inspectorWidthMin,
   readEditorUiPreferences,
   writeEditorUiPreferences,
 } from "../app/editorCommands";
@@ -41,8 +44,10 @@ interface SidebarProps {
   workspace: ProjectWorkspaceDocument | null;
   selectedElementIndex: number | null;
   open?: boolean;
+  inspectorWidth: number;
   curveToolActive?: boolean;
   onClose?(): void;
+  onInspectorResize?(width: number): void;
   onStartCurve?(insertionIndex: number): void;
   onOpenLinkedTargetPicker?(): void;
 }
@@ -52,8 +57,10 @@ export function Sidebar({
   workspace,
   selectedElementIndex,
   open = false,
+  inspectorWidth,
   curveToolActive = false,
   onClose,
+  onInspectorResize,
   onStartCurve,
   onOpenLinkedTargetPicker,
 }: SidebarProps) {
@@ -246,11 +253,79 @@ export function Sidebar({
     });
   };
 
+  const commitInspectorWidth = (width: number) => {
+    const nextWidth = clampInspectorWidth(width);
+    onInspectorResize?.(nextWidth);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      inspectorWidth: nextWidth,
+    });
+  };
+
+  const handleResizeStart = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || window.innerWidth <= 1120) {
+      return;
+    }
+
+    const startX = event.clientX;
+    const startWidth = inspectorWidth;
+    event.preventDefault();
+    document.body.classList.add("is-resizing-inspector");
+
+    const widthForClientX = (clientX: number) =>
+      clampInspectorWidth(startWidth + startX - clientX);
+    const handleMove = (moveEvent: globalThis.MouseEvent) => {
+      onInspectorResize?.(widthForClientX(moveEvent.clientX));
+      moveEvent.preventDefault();
+    };
+    const handleUp = (upEvent: globalThis.MouseEvent) => {
+      commitInspectorWidth(widthForClientX(upEvent.clientX));
+      document.body.classList.remove("is-resizing-inspector");
+      document.removeEventListener("mousemove", handleMove);
+      document.removeEventListener("mouseup", handleUp);
+    };
+
+    document.addEventListener("mousemove", handleMove);
+    document.addEventListener("mouseup", handleUp);
+  };
+
+  const handleResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 40 : 16;
+    let nextWidth: number | null = null;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextWidth = inspectorWidth + step;
+    } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextWidth = inspectorWidth - step;
+    } else if (event.key === "Home") {
+      nextWidth = inspectorWidthMin;
+    } else if (event.key === "End") {
+      nextWidth = inspectorWidthMax;
+    }
+
+    if (nextWidth !== null) {
+      event.preventDefault();
+      commitInspectorWidth(nextWidth);
+    }
+  };
+
   return (
     <aside
       className={`inspector-sidebar ${open ? "is-open" : ""}`}
       aria-label="Path inspector"
     >
+      <div
+        className="inspector-resize-handle"
+        role="separator"
+        aria-label="Resize inspector"
+        aria-orientation="vertical"
+        aria-valuemin={inspectorWidthMin}
+        aria-valuemax={inspectorWidthMax}
+        aria-valuenow={inspectorWidth}
+        tabIndex={0}
+        title="Drag to resize inspector"
+        onMouseDown={handleResizeStart}
+        onKeyDown={handleResizeKeyDown}
+      />
       <header className="inspector-sidebar__header">
         <div className="inspector-tabs" role="tablist" aria-label="Inspector">
           <button
@@ -261,7 +336,6 @@ export function Sidebar({
             onClick={() => handleSelectTab("elements")}
           >
             Elements
-            <span>{project?.path.path_elements.length ?? 0}</span>
           </button>
           <button
             type="button"
@@ -271,7 +345,6 @@ export function Sidebar({
             onClick={() => handleSelectTab("constraints")}
           >
             Constraints
-            <span>{project?.path.ranged_constraints.length ?? 0}</span>
           </button>
         </div>
         <IconButton

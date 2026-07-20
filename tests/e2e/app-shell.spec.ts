@@ -29,7 +29,6 @@ test("starts new users in a focused start center", async ({ page }) => {
     page.getByText("Current Path: Phase 1 Canvas Draft"),
   ).toBeVisible();
   await expect(page.getByText("Path Elements")).toBeVisible();
-  await expect(page.getByText("6 elements")).toBeVisible();
   await expect(page.getByTestId("path-element-row-0")).toContainText(
     "1. Waypoint",
   );
@@ -59,7 +58,6 @@ test("starts new users in a focused start center", async ({ page }) => {
   await expect(translationTool).toHaveAttribute("aria-pressed", "true");
   await selectTool.click();
   await expect(selectTool).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("6 elements")).toBeVisible();
 
   const fitView = page.getByRole("button", { name: "Fit view" });
   await expect(fitView).toContainText("100%");
@@ -82,7 +80,7 @@ test("starts new users in a focused start center", async ({ page }) => {
     page.getByRole("button", { name: "Hide collection paths" }),
   ).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByRole("tab", { name: "Constraints 1" }).click();
+  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Max Velocity" }),
   ).toBeVisible();
@@ -91,6 +89,7 @@ test("starts new users in a focused start center", async ({ page }) => {
   ).toHaveText("3 m/s");
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
   await expect(page.getByText("Element Properties")).toHaveCount(0);
+  await expect(page.getByText("Generated constraints ready")).toHaveCount(0);
 });
 
 test("collapses and restores the inspector from the top toolbar", async ({
@@ -119,6 +118,36 @@ test("collapses and restores the inspector from the top toolbar", async ({
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(inspector).toBeVisible();
+});
+
+test("resizes the desktop inspector by dragging its edge", async ({ page }) => {
+  await gotoSampleEditor(page);
+
+  const inspector = page.getByRole("complementary", {
+    name: "Path inspector",
+  });
+  const resizeHandle = page.getByRole("separator", {
+    name: "Resize inspector",
+  });
+  const before = await requiredBox(inspector);
+  const handleBox = await requiredBox(resizeHandle);
+
+  await page.mouse.move(
+    handleBox.x + handleBox.width / 2,
+    handleBox.y + handleBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x - 80, handleBox.y + handleBox.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+
+  const after = await requiredBox(inspector);
+  expect(after.width).toBeGreaterThan(before.width + 60);
+  await expect(resizeHandle).toHaveAttribute(
+    "aria-valuenow",
+    String(Math.round(after.width)),
+  );
 });
 
 test("warns mobile users that support is limited", async ({ page }) => {
@@ -790,6 +819,14 @@ test("manages paths from the canonical path library", async ({ page }) => {
   await expect(dialog.getByLabel("Collections")).toBeVisible();
   await expect(dialog.getByLabel("Paths in selected collection")).toBeVisible();
   await expect(dialog.getByLabel("Collection membership")).toBeVisible();
+  const importPathBox = await requiredBox(
+    dialog.getByRole("button", { name: "Import Path", exact: true }),
+  );
+  const exportPathBox = await requiredBox(
+    dialog.getByRole("button", { name: "Export Path", exact: true }),
+  );
+  expect(Math.abs(importPathBox.y - exportPathBox.y)).toBeLessThan(2);
+  expect(Math.abs(importPathBox.height - exportPathBox.height)).toBeLessThan(2);
   await expect(
     dialog
       .locator(".path-library-dialog__group")
@@ -1479,9 +1516,11 @@ test("opens a polished expanded editor for an individual constraint", async ({
   });
   await expect(dialog).toBeVisible();
   await expect(dialog).toBeFocused();
-  await expect(dialog).toContainText(
+  await expect(dialog).not.toContainText(
     "Changes apply immediately to the path and stay synchronized with the inspector.",
   );
+  await expect(dialog).not.toContainText("Drag to move");
+  await expect(expandButton).toHaveText("");
   await expect(
     dialog.getByRole("listbox", { name: "Max Velocity segments" }),
   ).toBeVisible();
@@ -1716,6 +1755,45 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   );
 });
 
+test("generates velocity constraints directly and reports their lifecycle", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+
+  const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
+  const status = card.getByRole("status");
+  const generate = card.getByRole("button", {
+    name: "Generate velocity constraints",
+  });
+
+  await page
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    .click();
+  await page.getByLabel("Delete constraint 1").click();
+  await expect(status).toHaveText("Not generated");
+  await generate.click();
+  await expect(status).toHaveText("Up to date");
+  await expect(
+    card.getByRole("button", { name: "Apply", exact: true }),
+  ).toHaveCount(0);
+
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await page.getByTestId("path-element-row-0").click();
+  const xInput = page.getByLabel("X (m)");
+  await xInput.fill(String(Number(await xInput.inputValue()) + 0.1));
+  await openConstraintsTab(page);
+
+  await expect(status).toHaveText("Path changed");
+  await generate.click();
+  await expect(status).toHaveText("Up to date");
+
+  await card
+    .getByRole("button", { name: "Clear generated velocity constraints" })
+    .click();
+  await expect(status).toHaveText("Not generated");
+});
+
 test("turns dragged auto velocity ranges into manual ranges", async ({
   page,
 }) => {
@@ -1733,11 +1811,13 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   await page.getByLabel("Auto velocity merge diff").fill("20");
   await page
     .getByRole("button", {
-      name: "Generate velocity constraints for open segments",
+      name: "Generate velocity constraints",
     })
     .click();
-  await expect(page.getByText("Generated constraints ready")).toBeVisible();
-  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.getByText("Generated constraints ready")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Apply", exact: true }),
+  ).toHaveCount(0);
 
   const autoRange = page.getByTestId(
     "constraint-range-max_velocity_meters_per_sec-0",

@@ -119,7 +119,12 @@ import { writeProjectFolder } from "./projectFolderExport";
 import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
-import { type EditorCommand, type EditorTool } from "./editorCommands";
+import {
+  clampInspectorWidth,
+  readEditorUiPreferences,
+  type EditorCommand,
+  type EditorTool,
+} from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 
 interface LinkedTargetPickerRequest {
@@ -175,6 +180,9 @@ export function AppShell() {
   const [showPathHealth, setShowPathHealth] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
+  );
+  const [inspectorWidth, setInspectorWidth] = useState(
+    () => readEditorUiPreferences().inspectorWidth,
   );
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [linkedTargetPickerRequest, setLinkedTargetPickerRequest] =
@@ -1754,7 +1762,6 @@ export function AppShell() {
               workspace={workspace}
               activeGroup={activePathGroup}
               activePath={activePath}
-              paths={pathDocuments}
               visiblePaths={visiblePathDocuments}
               onOpenLibrary={handleShowPathLibrary}
               onSelectGroup={handleSelectCollectionFromToolbar}
@@ -1978,6 +1985,11 @@ export function AppShell() {
         ]
           .filter(Boolean)
           .join(" ")}
+        style={
+          {
+            "--inspector-width": `${inspectorWidth}px`,
+          } as CSSProperties
+        }
       >
         {!workspace ? (
           <StartCenter
@@ -2042,8 +2054,12 @@ export function AppShell() {
               workspace={workspace}
               selectedElementIndex={selectedElementIndex}
               open={inspectorOpen}
+              inspectorWidth={inspectorWidth}
               curveToolActive={curveToolSession !== null}
               onClose={() => setInspectorOpen(false)}
+              onInspectorResize={(width) =>
+                setInspectorWidth(clampInspectorWidth(width))
+              }
               onStartCurve={handleStartCurveTool}
               onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
             />
@@ -2443,7 +2459,6 @@ function ToolbarPathNavigator({
   workspace,
   activeGroup,
   activePath,
-  paths,
   visiblePaths,
   onOpenLibrary,
   onSelectGroup,
@@ -2452,7 +2467,6 @@ function ToolbarPathNavigator({
   workspace: ProjectWorkspaceDocument | null;
   activeGroup: ProjectPathGroupDocument | null;
   activePath: ProjectPathDocument | null;
-  paths: ProjectPathDocument[];
   visiblePaths: ProjectPathDocument[];
   onOpenLibrary(): void;
   onSelectGroup(groupId: string | null): void;
@@ -2519,11 +2533,6 @@ function ToolbarPathNavigator({
       >
         Navigator
       </button>
-      <span className="path-toolbar-navigator__count">
-        {activeGroup
-          ? `${visiblePaths.length} visible`
-          : `${paths.length} total`}
-      </span>
     </div>
   );
 }
@@ -3065,23 +3074,25 @@ function PathLibraryDialog({
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
           </label>
-          <button
-            type="button"
-            className="path-library-dialog__utility-button"
-            onClick={onImportPath}
-          >
-            <UploadIcon size={17} />
-            <span>Import Path</span>
-          </button>
-          <button
-            type="button"
-            className="path-library-dialog__utility-button"
-            disabled={!selectedPath}
-            onClick={handleExportSelectedPath}
-          >
-            <DownloadIcon size={17} />
-            <span>Export Path</span>
-          </button>
+          <div className="path-library-dialog__utility-actions">
+            <button
+              type="button"
+              className="path-library-dialog__utility-button"
+              onClick={onImportPath}
+            >
+              <UploadIcon size={17} />
+              <span>Import Path</span>
+            </button>
+            <button
+              type="button"
+              className="path-library-dialog__utility-button"
+              disabled={!selectedPath}
+              onClick={handleExportSelectedPath}
+            >
+              <DownloadIcon size={17} />
+              <span>Export Path</span>
+            </button>
+          </div>
         </div>
 
         <div className="path-library-dialog__body">

@@ -26,13 +26,16 @@ Use this checklist for the Phase 1 exit gate after the automated suite is green.
   selected path.
 - At a compact desktop viewport, confirm the inspector opens as a drawer and
   closes from its close button or backdrop without resizing the canvas.
-- On desktop, toggle the inspector from the top-right button and confirm the
-  canvas expands and restores.
+- On desktop, drag the inspector's left edge and confirm its width changes and
+  survives reload. Toggle it from the top-right button and confirm the canvas
+  expands and restores.
 - Click every canvas tool and view control, confirming the selected/pressed
   state changes without also placing or dragging a path element.
 - Use J/K/L and Left/Right to restart, play or pause, and finish the simulation.
-- Open Constraints, choose Generate, and confirm the path is unchanged until
-  Apply. Confirm Cancel discards the generated constraints.
+- Open Constraints and confirm the velocity status starts at Not generated.
+  Choose Generate and confirm the ranges are applied immediately and the status
+  becomes Up to date. Edit the path, confirm it becomes Path changed, then
+  generate again and clear the generated ranges.
 - Choose Expand on a ranged constraint. Confirm the larger editor opens for
   that constraint, can be dragged without leaving the viewport, stays
   synchronized with the compact inspector, closes with Escape, and returns

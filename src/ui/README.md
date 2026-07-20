@@ -28,9 +28,11 @@ is for path creation. The inspector is for editing the selected object or
 constraint. The bottom status bar combines selection context, tool guidance,
 diagnostics, autosave state, and manual save/retry.
 
-The desktop inspector is visible by default and collapses into the canvas when
-closed. At compact widths it becomes an overlay drawer. Simulation transport
-uses the familiar J/K/L keys in addition to arrow/Home/End and Space controls.
+The desktop inspector is visible by default, can be resized from its left edge,
+and collapses into the canvas when closed. Its saved width is an editor-only
+preference. At compact widths it becomes an overlay drawer. Simulation
+transport uses the familiar J/K/L keys in addition to arrow/Home/End and Space
+controls.
 Each ranged constraint exposes an Expand action; the expanded editor stays
 non-modal so teams can keep the field visible, closes with Escape, and restores
 focus to the action that opened it.

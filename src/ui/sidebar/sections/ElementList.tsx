@@ -148,7 +148,6 @@ export function ElementList({
         </>
       }
       className="path-elements-section"
-      meta={`${elements.length} ${elements.length === 1 ? "element" : "elements"}`}
       open={open}
       sectionId="path-elements"
       title="Path Elements"

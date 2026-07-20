@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampInspectorWidth,
   commandMatchesQuery,
   formatShortcut,
   shortcutMatches,
@@ -48,5 +49,11 @@ describe("editor commands", () => {
         shift: true,
       }),
     ).toBe(false);
+  });
+
+  it("keeps persisted inspector widths within usable desktop bounds", () => {
+    expect(clampInspectorWidth(120)).toBe(280);
+    expect(clampInspectorWidth(426.4)).toBe(426);
+    expect(clampInspectorWidth(900)).toBe(560);
   });
 });
