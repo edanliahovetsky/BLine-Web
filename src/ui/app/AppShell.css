@@ -2071,9 +2071,9 @@ select {
   pointer-events: none;
 }
 
-.constraint-card__header > div > span,
-.constraint-popout-card__header > div > span,
-.constraint-popout__header > div > span {
+.constraint-card__header > div:first-child > span,
+.constraint-popout-card__header > div:first-child > span,
+.constraint-popout__header > div:first-child > span {
   display: block;
   margin-top: 2px;
   color: #9eadb9;
@@ -2516,8 +2516,9 @@ select {
   appearance: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   width: fit-content;
-  min-height: 20px;
+  min-height: 30px;
   padding: 0 6px;
   border: 1px solid #b88931;
   border-radius: 5px;
@@ -2525,6 +2526,7 @@ select {
   background: #312412;
   font-size: 0.66rem;
   font-weight: 760;
+  line-height: 1;
 }
 
 .auto-velocity-status--running {
