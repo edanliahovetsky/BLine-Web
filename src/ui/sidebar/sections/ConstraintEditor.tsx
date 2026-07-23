@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -639,6 +640,13 @@ function RangedConstraintCard({
         : null,
     [autoSettings, isAutoVelocityCard, project],
   );
+  const canGenerate = useMemo(
+    () =>
+      isAutoVelocityCard
+        ? canGenerateAutoVelocity(project, autoSettings)
+        : false,
+    [autoSettings, isAutoVelocityCard, project],
+  );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
   const selectedLocalIndex = selectedEntry
     ? entries.findIndex((entry) => entry.index === selectedEntry.index)
@@ -674,9 +682,13 @@ function RangedConstraintCard({
             />
             <SidebarActionButton
               onClick={onGenerateAutoVelocity}
-              disabled={total === 0 || autoVelocityRunning}
+              disabled={total === 0 || autoVelocityRunning || !canGenerate}
               aria-label="Generate velocity constraints"
-              title="Generate and apply velocity constraints"
+              title={
+                !canGenerate && !autoVelocityRunning
+                  ? "All velocity segments are set manually. Switch a segment to Auto to generate."
+                  : "Generate and apply velocity constraints"
+              }
             >
               Generate
             </SidebarActionButton>
@@ -693,6 +705,15 @@ function RangedConstraintCard({
           </div>
         ) : null}
       </div>
+
+      {isAutoVelocityCard &&
+      autoStatus &&
+      !canGenerate &&
+      !autoVelocityRunning ? (
+        <p className="auto-velocity-hint" role="note">
+          All segments are set manually. Switch a segment to Auto to generate.
+        </p>
+      ) : null}
 
       {isAutoVelocityCard && autoStatus ? (
         <AutoVelocityInlineControls
@@ -954,6 +975,13 @@ function PopoutConstraintPanel({
         : null,
     [autoSettings, isAutoVelocityPanel, project],
   );
+  const canGenerate = useMemo(
+    () =>
+      isAutoVelocityPanel
+        ? canGenerateAutoVelocity(project, autoSettings)
+        : false,
+    [autoSettings, isAutoVelocityPanel, project],
+  );
 
   return (
     <article className="constraint-popout-card">
@@ -974,9 +1002,15 @@ function PopoutConstraintPanel({
             />
             <SidebarActionButton
               onClick={onGenerateAutoVelocity}
-              disabled={labels.length === 0 || autoVelocityRunning}
+              disabled={
+                labels.length === 0 || autoVelocityRunning || !canGenerate
+              }
               aria-label="Generate velocity constraints"
-              title="Generate and apply velocity constraints"
+              title={
+                !canGenerate && !autoVelocityRunning
+                  ? "All velocity segments are set manually. Switch a segment to Auto to generate."
+                  : "Generate and apply velocity constraints"
+              }
             >
               Generate
             </SidebarActionButton>
@@ -991,6 +1025,14 @@ function PopoutConstraintPanel({
               Clear
             </SidebarActionButton>
           </div>
+        ) : null}
+        {isAutoVelocityPanel &&
+        autoStatus &&
+        !canGenerate &&
+        !autoVelocityRunning ? (
+          <p className="auto-velocity-hint" role="note">
+            All segments are set manually. Switch a segment to Auto to generate.
+          </p>
         ) : null}
       </div>
 
@@ -1339,6 +1381,44 @@ function ConstraintSegmentBar({
     }
   };
 
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (entries.length === 0) {
+      return;
+    }
+
+    const currentPosition = entries.findIndex(
+      (entry) => entry.index === selectedIndex,
+    );
+
+    let nextPosition: number | null = null;
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        nextPosition = currentPosition < 0 ? 0 : currentPosition + 1;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextPosition =
+          currentPosition < 0 ? entries.length - 1 : currentPosition - 1;
+        break;
+      case "Home":
+        nextPosition = 0;
+        break;
+      case "End":
+        nextPosition = entries.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    const clamped = Math.min(Math.max(nextPosition, 0), entries.length - 1);
+    const nextEntry = entries[clamped];
+    if (nextEntry) {
+      event.preventDefault();
+      onSelect(nextEntry.index);
+    }
+  };
+
   return (
     <div
       ref={barRef}
@@ -1351,6 +1431,7 @@ function ConstraintSegmentBar({
       tabIndex={0}
       onMouseDown={startDrag}
       onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
     >
       {labels.map((label, ordinalIndex) => {
         const ordinal = ordinalIndex + 1;
@@ -1800,6 +1881,11 @@ function RangedConstraintControls({
       data-ranged-constraint-selection={constraintSelectionToken}
     >
       <div className="ranged-constraint-controls__fields">
+        {!entry ? (
+          <p className="ranged-constraint-controls__empty" role="note">
+            Select a segment to edit its value.
+          </p>
+        ) : null}
         {showAutoVelocityMode ? (
           <AutoVelocityModeControl
             disabled={!entry || !constraint || autoVelocityRunning}
@@ -2078,8 +2164,14 @@ function AutoVelocityModeControl({
           key={option}
           type="button"
           className={mode === option ? "is-active" : ""}
-          disabled={disabled || mode === option}
-          onClick={() => onModeChange(option)}
+          aria-pressed={mode === option}
+          disabled={disabled}
+          onClick={() => {
+            if (mode === option) {
+              return;
+            }
+            onModeChange(option);
+          }}
         >
           {option === "auto" ? "Auto" : "Manual"}
         </button>
@@ -2443,6 +2535,30 @@ function runAutoVelocityAll(
     constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
     "Generate velocity constraints",
   );
+}
+
+// Mirrors runAutoVelocityAll's skip loop: Generate changes something only when
+// at least one target ordinal is empty or already an auto-velocity segment.
+// When every anchor is pinned manually, Generate would be a silent no-op.
+function canGenerateAutoVelocity(
+  project: ProjectDocument,
+  settings: AutoVelocitySettings,
+): boolean {
+  const total = domainLabelsForKey(project, autoVelocityKey).length;
+  if (total === 0) {
+    return false;
+  }
+
+  const profile = generateAutoVelocityProfile(
+    project.path,
+    project.config,
+    autoVelocityOptionsFromSettings(settings),
+  );
+  const existing = ordinalConstraintMap(project, autoVelocityKey, total);
+  return profile.segmentCaps.some((cap) => {
+    const current = existing.get(cap.targetOrdinal);
+    return !current || current.source === "auto_velocity";
+  });
 }
 
 function clearAutoVelocity(project: ProjectDocument): void {

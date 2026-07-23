@@ -2547,6 +2547,19 @@ select {
   background: #143021;
 }
 
+.auto-velocity-hint {
+  margin: 6px 0 0;
+  color: #97a6b3;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.ranged-constraint-controls__empty {
+  margin: 0;
+  color: #97a6b3;
+  font-size: 0.76rem;
+}
+
 .ranged-constraint-controls:not(.ranged-constraint-controls--wide)
   .sidebar-icon-button {
   width: 28px;
