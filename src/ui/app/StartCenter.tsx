@@ -31,7 +31,7 @@ export function StartCenter({
     <section className="start-center" aria-labelledby="start-center-title">
       <div className="start-center__hero">
         <span className="start-center__eyebrow">BLine Web</span>
-        <h1 id="start-center-title">Build a path, not a workflow.</h1>
+        <h1 id="start-center-title">Simple, rapid, robust.</h1>
         <p>
           Start a clean robot project, continue where your team left off, or
           learn with the sample path.

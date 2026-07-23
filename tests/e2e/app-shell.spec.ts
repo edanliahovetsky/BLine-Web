@@ -9,7 +9,7 @@ test("starts new users in a focused start center", async ({ page }) => {
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "Build a path, not a workflow." }),
+    page.getByRole("heading", { name: "Simple, rapid, robust." }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", {
@@ -3121,7 +3121,7 @@ async function gotoSampleEditor(page: Page): Promise<void> {
   }
 
   const startHeading = page.getByRole("heading", {
-    name: "Build a path, not a workflow.",
+    name: "Simple, rapid, robust.",
   });
   if (await startHeading.isVisible()) {
     await page.getByRole("button", { name: "Open sample" }).click();
