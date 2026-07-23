@@ -6061,7 +6061,9 @@ body.is-resizing-inspector * {
     inset: 0;
     display: block;
     border: 0;
-    background: rgba(3, 7, 10, 0.48);
+    /* Keep a light scrim for click-to-dismiss without hiding the path the
+       user is tuning behind the inspector overlay. */
+    background: rgba(3, 7, 10, 0.14);
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--bline-motion-fast);

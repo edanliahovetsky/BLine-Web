@@ -748,24 +748,8 @@ export function PathStage({
       return;
     }
 
-    const key = event.key.toLowerCase();
-    if (event.key === " " || key === "k") {
-      event.preventDefault();
-      toggleSimulationPlaying();
-      return;
-    }
-
-    if (event.key === "Home" || key === "j") {
-      event.preventDefault();
-      resetSimulation();
-      return;
-    }
-
-    if (event.key === "End" || key === "l") {
-      event.preventDefault();
-      finishSimulation();
-      return;
-    }
+    // Playback transport (Space/K, J/Home, L/End) is handled by the global
+    // window listener, so it does not need to be duplicated on the canvas.
 
     if (event.key === "Escape" && curveTool) {
       event.preventDefault();
