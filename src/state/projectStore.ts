@@ -44,7 +44,12 @@ import {
   type HistoryStore,
 } from "./historyStore";
 
-export type ProjectStatus = "idle" | "loading" | "saving" | "error";
+export type ProjectStatus =
+  | "idle"
+  | "loading"
+  | "saving"
+  | "error"
+  | "conflict";
 
 interface WorkspaceHistoryMetadata {
   createdPathId?: string;
@@ -78,6 +83,8 @@ export interface ProjectStoreState {
   deleteWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null>;
   switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
   saveWorkspace(): Promise<WriteResult | null>;
+  reloadFromDisk(): Promise<ProjectWorkspaceDocument | null>;
+  overwriteConflict(): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
   setActivePathGroup(groupId: string | null): void;
   createPath(input: {
@@ -287,6 +294,46 @@ export function createProjectStore(
 
       try {
         const result = await service.saveWorkspace(workspace, version);
+        get().markSaved(result);
+        return result;
+      } catch (error) {
+        get().markSaveError(error);
+        throw error;
+      }
+    },
+    async reloadFromDisk() {
+      // Conflict recovery: discard the in-memory edits and re-read the project from
+      // disk, refreshing the version token so autosave resumes cleanly.
+      const io = requireProjectIo(get().io);
+      const workspace = get().workspace;
+      if (!workspace) {
+        return null;
+      }
+      set({ status: "loading", error: null });
+
+      try {
+        const reloaded = await io.switchWorkspace(workspace.project_id);
+        if (reloaded) {
+          adoptWorkspace(set, history, io, reloaded, false);
+        }
+        return reloaded;
+      } catch (error) {
+        set({ status: "error", error: errorMessage(error) });
+        throw error;
+      }
+    },
+    async overwriteConflict() {
+      // Conflict recovery: force the in-memory workspace onto disk, bypassing the
+      // version check, then adopt the fresh version returned by the write.
+      const { workspace, io } = get();
+      if (!workspace) {
+        return null;
+      }
+      const service = requireProjectIo(io);
+      set({ status: "saving", error: null });
+
+      try {
+        const result = await service.saveWorkspace(workspace);
         get().markSaved(result);
         return result;
       } catch (error) {
@@ -684,7 +731,7 @@ export function createProjectStore(
     },
     markSaveError(error) {
       set({
-        status: "error",
+        status: isStorageConflict(error) ? "conflict" : "error",
         error: errorMessage(error),
       });
     },
@@ -894,4 +941,13 @@ function cloneWorkspace(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A save conflict means the files on disk changed out from under us (an external
+ * edit, or a genuinely divergent version token). It is recoverable via reload or
+ * overwrite, so it is surfaced distinctly from a hard save error.
+ */
+export function isStorageConflict(error: unknown): boolean {
+  return errorMessage(error).includes("storage-conflict");
 }

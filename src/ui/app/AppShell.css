@@ -2777,6 +2777,63 @@ button.auto-velocity-status--running:disabled {
   background: #286ee6;
 }
 
+.mobile-warning-dialog__action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.save-conflict-dialog__footer {
+  gap: 10px;
+}
+
+.save-conflict-diff {
+  margin: 4px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid #33405a;
+  border-radius: 8px;
+  background: rgba(20, 28, 42, 0.6);
+  font-size: 13px;
+  line-height: 1.45;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.save-conflict-diff--muted {
+  color: #aab6cc;
+  background: none;
+  border-style: dashed;
+}
+
+.save-conflict-diff__intro {
+  margin: 0 0 6px;
+  color: #d5deec;
+}
+
+.save-conflict-diff__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.save-conflict-diff__label {
+  font-weight: 700;
+  color: #eef4ff;
+}
+
+.save-conflict-dialog__action--secondary {
+  border-color: #4a5568;
+  color: #e6edf6;
+  background: #2a3342;
+}
+
+.save-conflict-dialog__action--secondary:hover,
+.save-conflict-dialog__action--secondary:focus-visible {
+  border-color: #7a8aa3;
+  background: #333e50;
+}
+
 .config-dialog {
   grid-template-rows: auto minmax(0, 1fr) auto;
   width: min(940px, calc(100vw - 36px));

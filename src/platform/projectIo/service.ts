@@ -92,6 +92,16 @@ export class StorageProjectIoService implements ProjectIoService {
       : null;
   }
 
+  async peekWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+    if (!this.currentWorkspace) {
+      return null;
+    }
+    const onDisk = await this.storage.readWorkspace(
+      this.currentWorkspace.project_id,
+    );
+    return ensureWorkspaceHasActivePath(onDisk);
+  }
+
   getCurrentVersion(): string | undefined {
     return this.currentVersion;
   }

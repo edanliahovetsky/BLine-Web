@@ -8,6 +8,7 @@ import {
   addPathToWorkspace,
   projectDocumentToWorkspaceDocument,
 } from "../../../src/core/io/workspaceSerde";
+import { diffWorkspaceConflict } from "../../../src/core/io/workspaceConflictDiff";
 import {
   createPathModel,
   createTranslationTarget,
@@ -572,6 +573,141 @@ describe("autosave coordinator", () => {
   });
 });
 
+describe("save conflict recovery", () => {
+  it("surfaces a recoverable conflict without discarding the user's work", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    expect(store.getState().dirty).toBe(true);
+
+    // An external tool changes the project on disk; the store still holds the old
+    // version token, so the next save conflicts.
+    io.simulateExternalEdit();
+
+    await expect(store.getState().saveWorkspace()).rejects.toThrow(
+      /storage-conflict/,
+    );
+
+    const state = store.getState();
+    expect(state.status).toBe("conflict");
+    // The unsaved edits are preserved — nothing is lost, the user gets to choose.
+    expect(state.dirty).toBe(true);
+    expect(state.project?.display_name).toBe("Beta");
+  });
+
+  it("does not wedge: autosave defers instead of erroring in a loop", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    io.simulateExternalEdit();
+
+    const coordinator = createProjectAutosaveCoordinator(store, io, {
+      shouldDefer: () => store.getState().status === "conflict",
+    });
+
+    // First flush hits the conflict and routes the store into the conflict state.
+    await expect(coordinator.flush()).rejects.toThrow(/storage-conflict/);
+    expect(store.getState().status).toBe("conflict");
+    const writesAfterConflict = io.writes.length;
+
+    // Subsequent autosave attempts must NOT keep firing failed writes.
+    await coordinator.flush();
+    await coordinator.flush();
+    expect(io.writes.length).toBe(writesAfterConflict);
+    expect(coordinator.status).toBe("pending");
+  });
+
+  it("overwriteConflict force-saves the in-memory work and clears the conflict", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    io.simulateExternalEdit();
+    await expect(store.getState().saveWorkspace()).rejects.toThrow(
+      /storage-conflict/,
+    );
+
+    const result = await store.getState().overwriteConflict();
+
+    expect(result).not.toBeNull();
+    const forcedWrite = io.writes.at(-1);
+    // A forced overwrite sends no expected version (skips the disk version check).
+    expect(forcedWrite?.expectedVersion).toBeUndefined();
+    const state = store.getState();
+    expect(state.status).toBe("idle");
+    expect(state.dirty).toBe(false);
+    expect(state.version).toBe(result?.version);
+    // The forced write carried the user's in-memory rename to disk.
+    expect(state.project?.display_name).toBe("Beta");
+  });
+
+  it("reloadFromDisk drops in-memory edits and adopts the on-disk version", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+
+    // Disk now holds a different, externally-edited workspace.
+    const diskWorkspace = exampleWorkspace("project-a", "External Edit", 1);
+    io.simulateExternalEdit(diskWorkspace);
+    await expect(store.getState().saveWorkspace()).rejects.toThrow(
+      /storage-conflict/,
+    );
+    expect(store.getState().status).toBe("conflict");
+
+    const reloaded = await store.getState().reloadFromDisk();
+
+    expect(reloaded?.display_name).toBe("External Edit");
+    const state = store.getState();
+    expect(state.status).toBe("idle");
+    expect(state.dirty).toBe(false);
+    expect(state.version).toBe(io.getCurrentVersion());
+    expect(requireWorkspace(store).display_name).toBe("External Edit");
+  });
+});
+
+describe("workspace conflict diff", () => {
+  it("reports no changes when disk matches the in-memory workspace", () => {
+    const mine = exampleTwoPathWorkspace();
+    const theirs = exampleTwoPathWorkspace();
+
+    const diff = diffWorkspaceConflict(mine, theirs);
+
+    expect(diff.hasChanges).toBe(false);
+    expect(diff.addedPaths).toEqual([]);
+    expect(diff.removedPaths).toEqual([]);
+    expect(diff.changedPaths).toEqual([]);
+  });
+
+  it("classifies added, removed and changed paths and config drift", () => {
+    // Disk = Alpha + Beta. Mine = Alpha (edited) + Gamma (new), Beta dropped.
+    const disk = exampleTwoPathWorkspace();
+    const mine = addPathToWorkspace(
+      {
+        ...exampleWorkspace("project-a", "Alpha", 1),
+        // Edit Alpha's contents so it counts as "changed".
+        paths: exampleWorkspace("project-a", "Alpha", 3).paths,
+        active_path_id: exampleWorkspace("project-a", "Alpha", 3).active_path_id,
+      },
+      { display_name: "Gamma", file_name: "gamma.json", makeActive: false },
+    );
+
+    const diff = diffWorkspaceConflict(mine, disk);
+
+    expect(diff.hasChanges).toBe(true);
+    expect(diff.addedPaths).toContain("Gamma");
+    expect(diff.removedPaths).toContain("Beta");
+    expect(diff.changedPaths).toContain("Alpha");
+  });
+
+  it("treats a null on-disk workspace as no computable changes", () => {
+    const diff = diffWorkspaceConflict(exampleTwoPathWorkspace(), null);
+    expect(diff.hasChanges).toBe(false);
+  });
+});
+
 function exampleProject(
   project_id: string,
   display_name: string,
@@ -675,6 +811,23 @@ class RecordingIo implements ProjectIoService {
   private workspace: ProjectWorkspaceDocument | null;
   private version: string | undefined = this.initialVersion;
   private updatedAt: string | null = "2026-04-23T15:40:00.000Z";
+  private armConflict = false;
+  private externalCounter = 0;
+
+  /**
+   * Simulate an external process (git / gradle / cloud sync) editing the project on
+   * disk: the disk version advances but the caller still holds the stale one, so the
+   * next version-checked save conflicts. Optionally swaps in modified disk content.
+   */
+  simulateExternalEdit(modified?: ProjectWorkspaceDocument): void {
+    this.externalCounter += 1;
+    this.version = `external-v${this.externalCounter}`;
+    this.updatedAt = `2026-04-23T16:0${this.externalCounter}:00.000Z`;
+    if (modified) {
+      this.workspace = structuredClone(modified);
+    }
+    this.armConflict = true;
+  }
 
   constructor(workspace: ProjectWorkspaceDocument | null = null) {
     this.workspace = workspace ? structuredClone(workspace) : null;
@@ -685,6 +838,10 @@ class RecordingIo implements ProjectIoService {
   }
 
   async getWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+    return this.workspace ? structuredClone(this.workspace) : null;
+  }
+
+  async peekWorkspace(): Promise<ProjectWorkspaceDocument | null> {
     return this.workspace ? structuredClone(this.workspace) : null;
   }
 
@@ -719,6 +876,16 @@ class RecordingIo implements ProjectIoService {
     workspace: ProjectWorkspaceDocument,
     expectedVersion?: string,
   ): Promise<WriteResult> {
+    if (
+      this.armConflict &&
+      expectedVersion !== undefined &&
+      expectedVersion !== this.version
+    ) {
+      throw new Error("storage-conflict: workspace version mismatch");
+    }
+    // A version-agnostic (forced) write or a matching version resolves the conflict.
+    this.armConflict = false;
+
     this.writes.push({
       workspaceId: workspace.project_id,
       pathName: workspace.paths[0]?.display_name ?? "",

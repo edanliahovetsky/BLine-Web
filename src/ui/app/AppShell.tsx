@@ -28,6 +28,10 @@ import type {
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
 import {
+  diffWorkspaceConflict,
+  type WorkspaceConflictDiff,
+} from "../../core/io/workspaceConflictDiff";
+import {
   fieldCoordinateLengthMeters,
   fieldCoordinateWidthMeters,
   resolveFieldDefinition,
@@ -308,7 +312,9 @@ export function AppShell() {
       {
         delayMs: 300,
         onStatusChange: setAutosaveStatus,
-        shouldDefer: () => canvasInteractionActiveRef.current,
+        shouldDefer: () =>
+          canvasInteractionActiveRef.current ||
+          projectStore.getState().status === "conflict",
       },
     );
 
@@ -420,6 +426,66 @@ export function AppShell() {
   const handleDismissMobileSupportWarning = useCallback(() => {
     markMobileSupportWarningDismissed();
     setShowMobileSupportWarning(false);
+  }, []);
+
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const [conflictDiff, setConflictDiff] = useState<WorkspaceConflictDiff | null>(
+    null,
+  );
+  const [conflictDiffLoading, setConflictDiffLoading] = useState(false);
+
+  useEffect(() => {
+    if (status !== "conflict" || !projectIo) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      setConflictDiff(null);
+      setConflictDiffLoading(true);
+      try {
+        const mine = projectStore.getState().workspace;
+        const theirs = await projectIo.peekWorkspace();
+        if (cancelled || !mine) {
+          return;
+        }
+        setConflictDiff(diffWorkspaceConflict(mine, theirs));
+      } catch {
+        if (!cancelled) {
+          setConflictDiff(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setConflictDiffLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [status, projectIo]);
+
+  const handleReloadFromDisk = useCallback(async () => {
+    setResolvingConflict(true);
+    try {
+      await projectStore.getState().reloadFromDisk();
+    } catch {
+      // The store keeps the conflict/error state so the dialog stays actionable.
+    } finally {
+      setResolvingConflict(false);
+    }
+  }, []);
+
+  const handleOverwriteConflict = useCallback(async () => {
+    setResolvingConflict(true);
+    try {
+      await projectStore.getState().overwriteConflict();
+    } catch {
+      // Overwrite can still fail (e.g. permissions); leave the dialog open.
+    } finally {
+      setResolvingConflict(false);
+    }
   }, []);
 
   const handleCreateNewPath = useCallback(async () => {
@@ -1630,6 +1696,15 @@ export function AppShell() {
           onDismiss={handleDismissMobileSupportWarning}
         />
       ) : null}
+      {status === "conflict" ? (
+        <SaveConflictDialog
+          busy={resolvingConflict}
+          diff={conflictDiff}
+          diffLoading={conflictDiffLoading}
+          onReload={() => void handleReloadFromDisk()}
+          onOverwrite={() => void handleOverwriteConflict()}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1720,6 +1795,150 @@ function MobileSupportWarningDialog({ onDismiss }: { onDismiss(): void }) {
           </button>
         </footer>
       </section>
+    </div>
+  );
+}
+
+function SaveConflictDialog({
+  busy,
+  diff,
+  diffLoading,
+  onReload,
+  onOverwrite,
+}: {
+  busy: boolean;
+  diff: WorkspaceConflictDiff | null;
+  diffLoading: boolean;
+  onReload(): void;
+  onOverwrite(): void;
+}) {
+  const overwriteButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    overwriteButtonRef.current?.focus();
+  }, []);
+
+  return (
+    <div
+      className="config-dialog-backdrop mobile-warning-backdrop"
+      role="presentation"
+    >
+      <section
+        className="mobile-warning-dialog save-conflict-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="save-conflict-title"
+        aria-describedby="save-conflict-description"
+        data-testid="save-conflict-dialog"
+      >
+        <header className="mobile-warning-dialog__header">
+          <span className="mobile-warning-dialog__icon" aria-hidden="true">
+            !
+          </span>
+          <h2 id="save-conflict-title">The project changed on disk</h2>
+        </header>
+        <p id="save-conflict-description">
+          BLine couldn&apos;t autosave because this project&apos;s files were
+          modified outside the app (for example by git, a deploy, or file sync).
+          Your unsaved changes are still here until you decide.
+        </p>
+        <SaveConflictDiffSummary diff={diff} loading={diffLoading} />
+        <footer className="mobile-warning-dialog__footer save-conflict-dialog__footer">
+          <button
+            type="button"
+            className="mobile-warning-dialog__action save-conflict-dialog__action--secondary"
+            onClick={onReload}
+            disabled={busy}
+          >
+            Reload from disk
+          </button>
+          <button
+            ref={overwriteButtonRef}
+            type="button"
+            className="mobile-warning-dialog__action"
+            onClick={onOverwrite}
+            disabled={busy}
+          >
+            Keep my changes
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function SaveConflictDiffSummary({
+  diff,
+  loading,
+}: {
+  diff: WorkspaceConflictDiff | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <p className="save-conflict-diff save-conflict-diff--muted">
+        Comparing your changes with what&apos;s on disk…
+      </p>
+    );
+  }
+
+  if (!diff) {
+    return (
+      <p className="save-conflict-diff save-conflict-diff--muted">
+        Couldn&apos;t read the on-disk version to compare. &quot;Keep my
+        changes&quot; overwrites it; &quot;Reload from disk&quot; discards your
+        unsaved edits.
+      </p>
+    );
+  }
+
+  if (!diff.hasChanges) {
+    return (
+      <p className="save-conflict-diff save-conflict-diff--muted">
+        The files were touched but the contents match your version. Either option
+        is safe.
+      </p>
+    );
+  }
+
+  const rows: { label: string; items: string[] }[] = [
+    { label: "Only in your version (will be added on disk)", items: diff.addedPaths },
+    {
+      label: "Only on disk (will be removed if you overwrite)",
+      items: diff.removedPaths,
+    },
+    { label: "Changed on both sides", items: diff.changedPaths },
+  ];
+
+  return (
+    <div className="save-conflict-diff" data-testid="save-conflict-diff">
+      <p className="save-conflict-diff__intro">
+        Differences between your unsaved version and the copy on disk:
+      </p>
+      <ul className="save-conflict-diff__list">
+        {rows
+          .filter((row) => row.items.length > 0)
+          .map((row) => (
+            <li key={row.label}>
+              <span className="save-conflict-diff__label">{row.label}:</span>{" "}
+              {row.items.join(", ")}
+            </li>
+          ))}
+        {diff.configChanged ? (
+          <li>
+            <span className="save-conflict-diff__label">
+              Project settings differ
+            </span>
+          </li>
+        ) : null}
+        {diff.linkedTargetsChanged ? (
+          <li>
+            <span className="save-conflict-diff__label">
+              Linked targets differ
+            </span>
+          </li>
+        ) : null}
+      </ul>
     </div>
   );
 }
@@ -3977,6 +4196,10 @@ function formatSaveStatus({
     return "Loading";
   }
 
+  if (status === "conflict") {
+    return "Project changed on disk";
+  }
+
   if (status === "error" && error) {
     return `Save failed: ${error}`;
   }
@@ -4009,7 +4232,11 @@ function getSaveStatusTone({
     return "loading";
   }
 
-  if ((status === "error" && error) || autosaveStatus === "error") {
+  if (
+    status === "conflict" ||
+    (status === "error" && error) ||
+    autosaveStatus === "error"
+  ) {
     return "danger";
   }
 

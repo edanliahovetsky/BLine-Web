@@ -50,6 +50,12 @@ export interface ProjectIoService {
   readonly capabilities: ProjectIoCapabilities;
   initialize(): Promise<ProjectWorkspaceDocument | null>;
   getWorkspace(): Promise<ProjectWorkspaceDocument | null>;
+  /**
+   * Re-read the current project from its backing store *without* adopting it or
+   * changing the tracked version. Used to diff on-disk state against unsaved edits
+   * when resolving a save conflict.
+   */
+  peekWorkspace(): Promise<ProjectWorkspaceDocument | null>;
   getCurrentVersion(): string | undefined;
   getLastSavedAt(): string | null;
   createWorkspace(
