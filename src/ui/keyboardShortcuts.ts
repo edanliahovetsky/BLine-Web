@@ -1,4 +1,10 @@
+import {
+  fieldCoordinateLengthMeters,
+  fieldCoordinateWidthMeters,
+  fieldGeometryFromConfig,
+} from "../core/field/fieldConfig";
 import type { ProjectDocument } from "../core/io/projectSchema";
+import { isTranslationTarget, isWaypoint } from "../core/model/path";
 import { projectStore } from "../state/projectStore";
 import { selectionStore } from "../state/selectionStore";
 import {
@@ -7,6 +13,9 @@ import {
   createMovePathElementCommand,
   createRemovePathElementCommand,
   createRemoveRangedConstraintCommand,
+  createUpdatePathElementCommand,
+  updateTranslationTarget,
+  updateWaypoint,
 } from "./sidebar/sidebarCommands";
 
 const editableSelector = [
@@ -65,6 +74,59 @@ export function removeSelectedPathElement(): boolean {
     .selectElement(
       nextSelectionAfterRemoval(project, selectedElementIndex),
       projectStore.getState().project,
+    );
+
+  return true;
+}
+
+export function nudgeSelectedPathElement(
+  dxMeters: number,
+  dyMeters: number,
+): boolean {
+  const project = projectStore.getState().project;
+  const selectedElementIndex = selectionStore.getState().selectedElementIndex;
+
+  if (!project || selectedElementIndex === null) {
+    return false;
+  }
+
+  const element = project.path.path_elements[selectedElementIndex];
+  if (!element) {
+    return false;
+  }
+
+  const field = fieldGeometryFromConfig(project.config.gui.field);
+  const maxX = fieldCoordinateLengthMeters(field);
+  const maxY = fieldCoordinateWidthMeters(field);
+  const clamp = (value: number, max: number) =>
+    Math.min(Math.max(value, 0), max);
+
+  let nextElement;
+  if (isTranslationTarget(element)) {
+    nextElement = updateTranslationTarget(element, {
+      x_meters: clamp(element.x_meters + dxMeters, maxX),
+      y_meters: clamp(element.y_meters + dyMeters, maxY),
+    });
+  } else if (isWaypoint(element)) {
+    nextElement = updateWaypoint(element, {
+      translation: {
+        x_meters: clamp(element.translation_target.x_meters + dxMeters, maxX),
+        y_meters: clamp(element.translation_target.y_meters + dyMeters, maxY),
+      },
+    });
+  } else {
+    // Rotation and event elements have no field position to nudge.
+    return false;
+  }
+
+  projectStore
+    .getState()
+    .applyCommand(
+      createUpdatePathElementCommand(
+        selectedElementIndex,
+        element,
+        nextElement,
+      ),
     );
 
   return true;

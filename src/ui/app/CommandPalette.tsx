@@ -196,12 +196,41 @@ export function ShortcutHelpDialog({
             </section>
           ))}
           <section>
+            <h3>Path elements</h3>
+            <dl>
+              <div>
+                <dt>Move selection</dt>
+                <dd>
+                  <kbd>↑ / ↓</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Reorder element</dt>
+                <dd>
+                  <kbd>Alt + ↑ / ↓</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Nudge element on field</dt>
+                <dd>
+                  <kbd>Shift + Arrows</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Delete element</dt>
+                <dd>
+                  <kbd>Delete</kbd>
+                </dd>
+              </div>
+            </dl>
+          </section>
+          <section>
             <h3>Playback</h3>
             <dl>
               <div>
                 <dt>Restart simulation</dt>
                 <dd>
-                  <kbd>J / ← / Home</kbd>
+                  <kbd>J / Home</kbd>
                 </dd>
               </div>
               <div>
@@ -213,7 +242,7 @@ export function ShortcutHelpDialog({
               <div>
                 <dt>Jump to end</dt>
                 <dd>
-                  <kbd>L / → / End</kbd>
+                  <kbd>L / End</kbd>
                 </dd>
               </div>
             </dl>

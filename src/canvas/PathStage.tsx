@@ -660,13 +660,13 @@ export function PathStage({
         return;
       }
 
-      if (event.key === "Home" || event.key === "ArrowLeft" || key === "j") {
+      if (event.key === "Home" || key === "j") {
         event.preventDefault();
         resetSimulation();
         return;
       }
 
-      if (event.key === "End" || event.key === "ArrowRight" || key === "l") {
+      if (event.key === "End" || key === "l") {
         event.preventDefault();
         finishSimulation();
       }
@@ -755,13 +755,13 @@ export function PathStage({
       return;
     }
 
-    if (event.key === "Home" || event.key === "ArrowLeft" || key === "j") {
+    if (event.key === "Home" || key === "j") {
       event.preventDefault();
       resetSimulation();
       return;
     }
 
-    if (event.key === "End" || event.key === "ArrowRight" || key === "l") {
+    if (event.key === "End" || key === "l") {
       event.preventDefault();
       finishSimulation();
       return;
@@ -1815,8 +1815,8 @@ function SimulationTransport({
           type="button"
           className="transport-step-button"
           aria-label="Reset simulation"
-          aria-keyshortcuts="J ArrowLeft Home"
-          title="Restart simulation (J, Left Arrow, or Home)"
+          aria-keyshortcuts="J Home"
+          title="Restart simulation (J or Home)"
           onClick={onReset}
           disabled={disabled || safeCurrent <= 0}
         >
@@ -1841,8 +1841,8 @@ function SimulationTransport({
           type="button"
           className="transport-step-button"
           aria-label="Fast forward simulation"
-          aria-keyshortcuts="L ArrowRight End"
-          title="Jump to end (L, Right Arrow, or End)"
+          aria-keyshortcuts="L End"
+          title="Jump to end (L or End)"
           onClick={onFinish}
           disabled={disabled || safeCurrent >= total}
         >

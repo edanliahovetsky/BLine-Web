@@ -101,10 +101,12 @@ Useful editor shortcuts:
 - `Cmd/Ctrl+K`: command palette
 - `V`, `1`, `2`, `3`, `4`, `C`: select, waypoint, translation, rotation,
   event, and curve tools
-- `J` / Left Arrow / Home, `K` / Space, `L` / Right Arrow / End: restart,
-  play or pause, and jump to the end of the simulation
+- `J` / Home, `K` / Space, `L` / End: restart, play or pause, and jump to
+  the end of the simulation
 - Arrow keys: move selection through path elements
+- `Shift` + Arrow keys: nudge the selected element on the field
 - `Alt` + Arrow keys: reorder the selected path element
+- `Cmd/Ctrl+D`: duplicate the selected element
 - `Cmd/Ctrl+S`, `Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`: save, undo, and redo
 - `?` or `F1`: keyboard shortcut reference
 

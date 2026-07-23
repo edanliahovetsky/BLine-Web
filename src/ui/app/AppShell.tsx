@@ -77,6 +77,7 @@ import {
   isEditableShortcutTarget,
   isInteractiveShortcutTarget,
   moveSelectedPathElement,
+  nudgeSelectedPathElement,
   removeSelectedPathElement,
   removeSelectedRangedConstraint,
   selectAdjacentPathElement,
@@ -835,6 +836,32 @@ export function AppShell() {
 
       if (event.key === "Delete" || event.key === "Backspace") {
         if (removeSelectedRangedConstraint() || removeSelectedPathElement()) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (
+        event.shiftKey &&
+        (event.key === "ArrowUp" ||
+          event.key === "ArrowDown" ||
+          event.key === "ArrowLeft" ||
+          event.key === "ArrowRight")
+      ) {
+        const step = 0.05;
+        const dx =
+          event.key === "ArrowRight"
+            ? step
+            : event.key === "ArrowLeft"
+              ? -step
+              : 0;
+        const dy =
+          event.key === "ArrowUp"
+            ? step
+            : event.key === "ArrowDown"
+              ? -step
+              : 0;
+        if (nudgeSelectedPathElement(dx, dy)) {
           event.preventDefault();
         }
         return;
