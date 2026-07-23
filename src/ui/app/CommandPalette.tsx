@@ -199,21 +199,27 @@ export function ShortcutHelpDialog({
             <h3>Path elements</h3>
             <dl>
               <div>
-                <dt>Move selection</dt>
+                <dt>Nudge element on field</dt>
                 <dd>
-                  <kbd>↑ / ↓</kbd>
+                  <kbd>Arrows</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Nudge farther</dt>
+                <dd>
+                  <kbd>Shift + Arrows</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Previous / next element</dt>
+                <dd>
+                  <kbd>[ / ]</kbd>
                 </dd>
               </div>
               <div>
                 <dt>Reorder element</dt>
                 <dd>
                   <kbd>Alt + ↑ / ↓</kbd>
-                </dd>
-              </div>
-              <div>
-                <dt>Nudge element on field</dt>
-                <dd>
-                  <kbd>Shift + Arrows</kbd>
                 </dd>
               </div>
               <div>

@@ -755,6 +755,12 @@ export function AppShell() {
           return;
         }
 
+        if (key === "b") {
+          event.preventDefault();
+          setInspectorOpen((current) => !current);
+          return;
+        }
+
         if (key === "s") {
           event.preventDefault();
           void handleSaveProject();
@@ -841,14 +847,33 @@ export function AppShell() {
         return;
       }
 
+      // Alt + Up/Down reorders the selected element within the path.
       if (
-        event.shiftKey &&
-        (event.key === "ArrowUp" ||
-          event.key === "ArrowDown" ||
-          event.key === "ArrowLeft" ||
-          event.key === "ArrowRight")
+        event.altKey &&
+        (event.key === "ArrowUp" || event.key === "ArrowDown")
       ) {
-        const step = 0.05;
+        if (moveSelectedPathElement(event.key === "ArrowUp" ? -1 : 1)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      // [ and ] step the selection through the path elements.
+      if (event.key === "[" || event.key === "]") {
+        if (selectAdjacentPathElement(event.key === "[" ? -1 : 1)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      // Arrow keys nudge the selected element on the field; Shift = coarse.
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown" ||
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight"
+      ) {
+        const step = event.shiftKey ? 0.25 : 0.05;
         const dx =
           event.key === "ArrowRight"
             ? step
@@ -862,18 +887,6 @@ export function AppShell() {
               ? -step
               : 0;
         if (nudgeSelectedPathElement(dx, dy)) {
-          event.preventDefault();
-        }
-        return;
-      }
-
-      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-        const direction = event.key === "ArrowUp" ? -1 : 1;
-        if (
-          event.altKey
-            ? moveSelectedPathElement(direction)
-            : selectAdjacentPathElement(direction)
-        ) {
           event.preventDefault();
         }
         return;
@@ -1477,6 +1490,7 @@ export function AppShell() {
       id: "view.inspector",
       label: "Toggle inspector",
       category: "View",
+      shortcut: { key: "b", metaOrCtrl: true },
       disabled: !project,
       run: () => setInspectorOpen((current) => !current),
     },
@@ -1989,7 +2003,8 @@ export function AppShell() {
             <IconButton
               aria-label="Toggle inspector"
               aria-expanded={inspectorOpen}
-              title="Toggle inspector"
+              aria-keyshortcuts="Meta+B Control+B"
+              title="Toggle inspector (⌘B)"
               disabled={!project}
               onClick={() => setInspectorOpen((current) => !current)}
             >

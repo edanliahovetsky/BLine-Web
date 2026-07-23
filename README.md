@@ -103,10 +103,12 @@ Useful editor shortcuts:
   event, and curve tools
 - `J` / Home, `K` / Space, `L` / End: restart, play or pause, and jump to
   the end of the simulation
-- Arrow keys: move selection through path elements
-- `Shift` + Arrow keys: nudge the selected element on the field
+- Arrow keys: nudge the selected element on the field (`Shift` for larger
+  steps)
+- `[` / `]`: move the selection to the previous / next path element
 - `Alt` + Arrow keys: reorder the selected path element
 - `Cmd/Ctrl+D`: duplicate the selected element
+- `Cmd/Ctrl+B`: show or hide the inspector
 - `Cmd/Ctrl+S`, `Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`: save, undo, and redo
 - `?` or `F1`: keyboard shortcut reference
 

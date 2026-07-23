@@ -190,7 +190,7 @@ export function ElementList({
                   type="button"
                   className="path-element-row"
                   data-testid={`path-element-row-${index}`}
-                  aria-keyshortcuts="ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown Delete Backspace"
+                  aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
                   aria-pressed={selected}
                   onMouseDown={(event) => handleMouseDown(event, index)}
                   onClick={() => {

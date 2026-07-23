@@ -1881,91 +1881,100 @@ function RangedConstraintControls({
       data-ranged-constraint-selection={constraintSelectionToken}
     >
       <div className="ranged-constraint-controls__fields">
-        {!entry ? (
+        {entry ? (
+          <>
+            {showAutoVelocityMode ? (
+              <AutoVelocityModeControl
+                disabled={!entry || !constraint || autoVelocityRunning}
+                mode={
+                  constraint?.source === "auto_velocity"
+                    ? "auto"
+                    : constraint
+                      ? "manual"
+                      : null
+                }
+                onModeChange={(mode) => {
+                  if (
+                    !entry ||
+                    !constraint ||
+                    !autoSettings ||
+                    !runAutoVelocityTask
+                  ) {
+                    return;
+                  }
+                  runAutoVelocityTask(() =>
+                    applyVelocityMode(
+                      project,
+                      entry,
+                      mode,
+                      autoSettings,
+                      onSelect,
+                    ),
+                  );
+                }}
+              />
+            ) : null}
+            <label className="ranged-constraint-controls__value">
+              <span>Value</span>
+              <div className="constraint-value-input">
+                <NumberStepperControl
+                  allowEmpty
+                  ariaLabel={valueLabel}
+                  value={constraint?.value ?? null}
+                  step={meta.step}
+                  min={meta.min}
+                  max={meta.max}
+                  disabled={
+                    !constraint || (showAutoVelocityMode && autoVelocityRunning)
+                  }
+                  onChange={(value) => {
+                    if (!entry || !constraint) {
+                      return;
+                    }
+
+                    updateRangedConstraint(project, entry.index, {
+                      ...constraint,
+                      value: value ?? constraint.value,
+                      source:
+                        constraintKey === autoVelocityKey
+                          ? "manual"
+                          : constraint.source,
+                      auto_velocity:
+                        constraintKey === autoVelocityKey
+                          ? null
+                          : constraint.auto_velocity,
+                    });
+                  }}
+                />
+                <span>{meta.unit}</span>
+              </div>
+            </label>
+            {constraintState?.globalWarning ? (
+              <span className="auto-velocity-status auto-velocity-status--warning">
+                Above global
+              </span>
+            ) : null}
+            {constraintState?.minMaxWarning ? (
+              <span
+                className="auto-velocity-status auto-velocity-status--warning"
+                title={minimumConflictWarningTitle}
+              >
+                Above max constraint
+              </span>
+            ) : null}
+            {constraintState?.stale ? (
+              <span className="auto-velocity-status">Stale</span>
+            ) : constraintState?.autoWarning ? (
+              <span className="auto-velocity-status auto-velocity-status--warning">
+                Above auto
+              </span>
+            ) : null}
+          </>
+        ) : (
           <p className="ranged-constraint-controls__empty" role="note">
             Select a segment to edit its value.
           </p>
-        ) : null}
-        {showAutoVelocityMode ? (
-          <AutoVelocityModeControl
-            disabled={!entry || !constraint || autoVelocityRunning}
-            mode={
-              constraint?.source === "auto_velocity"
-                ? "auto"
-                : constraint
-                  ? "manual"
-                  : null
-            }
-            onModeChange={(mode) => {
-              if (
-                !entry ||
-                !constraint ||
-                !autoSettings ||
-                !runAutoVelocityTask
-              ) {
-                return;
-              }
-              runAutoVelocityTask(() =>
-                applyVelocityMode(project, entry, mode, autoSettings, onSelect),
-              );
-            }}
-          />
-        ) : null}
-        <label className="ranged-constraint-controls__value">
-          <span>Value</span>
-          <div className="constraint-value-input">
-            <NumberStepperControl
-              allowEmpty
-              ariaLabel={valueLabel}
-              value={constraint?.value ?? null}
-              step={meta.step}
-              min={meta.min}
-              max={meta.max}
-              disabled={
-                !constraint || (showAutoVelocityMode && autoVelocityRunning)
-              }
-              onChange={(value) => {
-                if (!entry || !constraint) {
-                  return;
-                }
-
-                updateRangedConstraint(project, entry.index, {
-                  ...constraint,
-                  value: value ?? constraint.value,
-                  source:
-                    constraintKey === autoVelocityKey
-                      ? "manual"
-                      : constraint.source,
-                  auto_velocity:
-                    constraintKey === autoVelocityKey
-                      ? null
-                      : constraint.auto_velocity,
-                });
-              }}
-            />
-            <span>{meta.unit}</span>
-          </div>
-        </label>
-        {constraintState?.globalWarning ? (
-          <span className="auto-velocity-status auto-velocity-status--warning">
-            Above global
-          </span>
-        ) : null}
-        {constraintState?.minMaxWarning ? (
-          <span
-            className="auto-velocity-status auto-velocity-status--warning"
-            title={minimumConflictWarningTitle}
-          >
-            Above max constraint
-          </span>
-        ) : null}
-        {constraintState?.stale ? (
-          <span className="auto-velocity-status">Stale</span>
-        ) : constraintState?.autoWarning ? (
-          <span className="auto-velocity-status auto-velocity-status--warning">
-            Above auto
-          </span>
-        ) : null}
+        )}
       </div>
       <div className="ranged-constraint-controls__actions">
         <SidebarIconButton

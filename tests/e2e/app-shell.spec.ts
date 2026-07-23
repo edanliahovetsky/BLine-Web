@@ -1713,8 +1713,12 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
     "ranged-constraint-row-max_velocity_meters_per_sec-empty",
   );
   await expect(emptyConstraintRow).toBeVisible();
-  await expect(emptyConstraintRow.getByLabel("Max Velocity value")).toHaveValue(
-    "",
+  // With nothing selected the fields are replaced by a single hint.
+  await expect(
+    emptyConstraintRow.getByText("Select a segment to edit its value."),
+  ).toBeVisible();
+  await expect(emptyConstraintRow.getByLabel("Max Velocity value")).toHaveCount(
+    0,
   );
   await expect(
     emptyConstraintRow.getByRole("button", {
@@ -2922,16 +2926,19 @@ test("supports undo and redo for structural sidebar edits", async ({
   );
 });
 
-test("moves selected path elements with arrow shortcuts", async ({ page }) => {
+test("switches and reorders path elements with keyboard shortcuts", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-2").click();
   await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
     "aria-keyshortcuts",
-    "ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown Delete Backspace",
+    "ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace",
   );
 
-  await page.keyboard.press("ArrowDown");
+  // ] steps the selection to the next element.
+  await page.keyboard.press("]");
   await expect(page.getByTestId("path-element-row-3")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -2943,6 +2950,7 @@ test("moves selected path elements with arrow shortcuts", async ({ page }) => {
     "4. Translation",
   );
 
+  // Alt+Up/Down reorders the selected element.
   await page.keyboard.press("Alt+ArrowUp");
   await expect(page.getByTestId("path-element-row-2")).toContainText(
     "3. Translation",
@@ -2967,19 +2975,20 @@ test("moves selected path elements with arrow shortcuts", async ({ page }) => {
     "true",
   );
 
-  await page.getByTestId("path-element-row-2").click();
+  // [ steps back to the previous element.
+  await page.keyboard.press("[");
+  await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  // Arrow keys inside a number field still adjust the field, not the path.
   await page.getByLabel("Rotation (deg)").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("44");
-  await expect(page.getByTestId("path-element-row-2")).toContainText(
-    "3. Rotation",
-  );
-  await expect(page.getByTestId("path-element-row-3")).toContainText(
-    "4. Translation",
-  );
 });
 
-test("nudges the selected element on the field with Shift+Arrow", async ({
+test("nudges the selected element on the field with arrow keys", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -2989,14 +2998,22 @@ test("nudges the selected element on the field with Shift+Arrow", async ({
   await expect(page.getByLabel("Y (m)")).toHaveValue("4");
 
   await page.getByTestId("path-element-row-1").focus();
-  await page.keyboard.press("Shift+ArrowRight");
-  await page.keyboard.press("Shift+ArrowUp");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowUp");
 
   await expect(page.getByLabel("X (m)")).toHaveValue("7.05");
   await expect(page.getByLabel("Y (m)")).toHaveValue("4.05");
 
-  // Plain arrows still navigate the element list rather than nudging.
-  await page.keyboard.press("ArrowDown");
+  // Shift takes a larger step, and nudging never changes the selection.
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.getByLabel("X (m)")).toHaveValue("7.3");
+  await expect(page.getByTestId("path-element-row-1")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  // ] switches to the next element.
+  await page.keyboard.press("]");
   await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
     "aria-pressed",
     "true",
