@@ -19,10 +19,15 @@ import {
   isWaypoint,
 } from "../../../src/core/model/path";
 import {
+  getPathElementLinkedTargetId,
+  setPathElementLinkedTargetId,
+} from "../../../src/core/linkedTargets";
+import {
   canMovePathElement,
   createChangePathElementTypeCommand,
   createConvertedElement,
   createDefaultElement,
+  createDuplicatePathElementCommand,
   createAddRangedConstraintCommand,
   createInsertPathElementCommand,
   createInsertPathElementsCommand,
@@ -64,6 +69,36 @@ describe("sidebar commands", () => {
     const restored = remove.revert(removed);
     expect(restored.path.path_elements).toHaveLength(2);
     expect(isTranslationTarget(restored.path.path_elements[0])).toBe(true);
+  });
+
+  it("duplicates an element as an independent, unlinked copy", () => {
+    const project = exampleProject();
+    const linked = setPathElementLinkedTargetId(
+      project.path.path_elements[0],
+      "target-1",
+    );
+    project.path.path_elements[0] = linked;
+
+    const command = createDuplicatePathElementCommand(0, linked);
+    const applied = command.apply(project);
+
+    expect(applied.path.path_elements).toHaveLength(3);
+    const original = applied.path.path_elements[0];
+    const copy = applied.path.path_elements[1];
+    expect(isTranslationTarget(original)).toBe(true);
+    expect(isTranslationTarget(copy)).toBe(true);
+    if (isTranslationTarget(original) && isTranslationTarget(copy)) {
+      expect([copy.x_meters, copy.y_meters]).toEqual([
+        original.x_meters,
+        original.y_meters,
+      ]);
+    }
+    // The original keeps its link; the copy is independent.
+    expect(getPathElementLinkedTargetId(original)).toBe("target-1");
+    expect(getPathElementLinkedTargetId(copy)).toBeNull();
+
+    const reverted = command.revert(applied);
+    expect(reverted.path.path_elements).toHaveLength(2);
   });
 
   it("inserts generated curve elements as a single reversible command", () => {

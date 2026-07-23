@@ -609,10 +609,10 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   ).toHaveAttribute("aria-keyshortcuts", "Space K");
   await expect(
     transport.getByRole("button", { name: "Reset simulation" }),
-  ).toHaveAttribute("aria-keyshortcuts", "J ArrowLeft Home");
+  ).toHaveAttribute("aria-keyshortcuts", "J Home");
   await expect(
     transport.getByRole("button", { name: "Fast forward simulation" }),
-  ).toHaveAttribute("aria-keyshortcuts", "L ArrowRight End");
+  ).toHaveAttribute("aria-keyshortcuts", "L End");
 
   await page.getByTestId("path-stage").focus();
   await page.keyboard.press("Space");
@@ -645,14 +645,14 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   await page.keyboard.press("j");
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
 
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("End");
   await expect
     .poll(() => simulationProgress(page))
     .toMatchObject({
       atEnd: true,
     });
 
-  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Home");
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
 
   await page.getByLabel("Simulation time").evaluate((input) => {
@@ -1847,10 +1847,18 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   const modeControl = page.getByRole("group", {
     name: "Velocity constraint mode",
   });
+  // Both mode buttons stay enabled; the active mode is conveyed via
+  // aria-pressed so assistive tech announces "pressed" rather than "dimmed".
   await expect(
     modeControl.getByRole("button", { name: "Manual" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
+  await expect(
+    modeControl.getByRole("button", { name: "Manual" }),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(modeControl.getByRole("button", { name: "Auto" })).toBeEnabled();
+  await expect(
+    modeControl.getByRole("button", { name: "Auto" }),
+  ).toHaveAttribute("aria-pressed", "false");
 });
 
 test("warns when ranged constraints exceed the global value", async ({
@@ -2167,8 +2175,11 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await expect(page.getByText("Current: Phase 1 Canvas Draft")).toBeVisible();
   await expect(page.getByText("Collection: All Paths")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Project Navigator..." }),
+    page.getByRole("menuitem", { name: "Linked Elements..." }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Project Navigator...", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("menuitem", { name: "Manage Paths" }),
   ).toBeVisible();
@@ -2192,11 +2203,25 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByTestId("top-menu-edit")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Undo Ctrl+Z" }),
+    page.getByRole("menuitem", { name: "Undo", exact: false }),
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Redo Ctrl+Y" }),
+    page.getByRole("menuitem", { name: "Redo", exact: false }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Duplicate Element", exact: false }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  await expect(page.getByTestId("top-menu-view")).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Project Navigator", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Linked Elements...", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
@@ -2954,6 +2979,95 @@ test("moves selected path elements with arrow shortcuts", async ({ page }) => {
   );
 });
 
+test("nudges the selected element on the field with Shift+Arrow", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await page.getByTestId("path-element-row-1").click();
+  await expect(page.getByLabel("X (m)")).toHaveValue("7");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("4");
+
+  await page.getByTestId("path-element-row-1").focus();
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("Shift+ArrowUp");
+
+  await expect(page.getByLabel("X (m)")).toHaveValue("7.05");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("4.05");
+
+  // Plain arrows still navigate the element list rather than nudging.
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
+test("duplicates the selected element after the original", async ({ page }) => {
+  await gotoSampleEditor(page);
+
+  await page.getByRole("button", { name: "Duplicate Translation 2" }).click();
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "3. Translation",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "7.00, 4.00 m",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Rotation",
+  );
+
+  // Cmd/Ctrl+D duplicates the current selection too.
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.press(`${shortcut}+D`);
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Translation",
+  );
+
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(page.getByTestId("path-element-row-3")).toContainText(
+    "4. Rotation",
+  );
+});
+
+test("guides the user when every velocity segment is manual", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+
+  const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
+  await expect(card.getByRole("status")).toHaveText("Not generated");
+  await expect(
+    card.getByRole("button", { name: "Generate velocity constraints" }),
+  ).toBeDisabled();
+  await expect(
+    card.getByText(
+      "All segments are set manually. Switch a segment to Auto to generate.",
+    ),
+  ).toBeVisible();
+});
+
+test("selects Max Velocity segments with the keyboard", async ({ page }) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+
+  const firstSegment = page.getByTestId(
+    "constraint-range-max_velocity_meters_per_sec-0",
+  );
+  await expect(firstSegment).toHaveAttribute("aria-selected", "false");
+
+  await page.getByRole("listbox", { name: "Max Velocity segments" }).focus();
+  await page.keyboard.press("ArrowRight");
+
+  await expect(firstSegment).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Constraint 1 value")).toBeEnabled();
+});
+
 test("supports common keyboard shortcuts", async ({ page }) => {
   await gotoSampleEditor(page);
 
@@ -3408,10 +3522,10 @@ async function runEditMenuAction(
   action: "Undo" | "Redo",
 ): Promise<void> {
   await page.getByRole("button", { name: "Edit", exact: true }).click();
+  // Undo/Redo labels name the pending action, so match by the leading verb.
   await page
-    .getByRole("menuitem", {
-      name: action === "Undo" ? "Undo Ctrl+Z" : "Redo Ctrl+Y",
-    })
+    .getByRole("menuitem", { name: action, exact: false })
+    .first()
     .click();
 }
 
@@ -3431,8 +3545,9 @@ async function openPathManageMenu(page: Page): Promise<Locator> {
 }
 
 async function openPathLibraryDialog(page: Page): Promise<Locator> {
-  await openPathMenu(page);
-  await page.getByRole("menuitem", { name: "Project Navigator..." }).click();
+  await page
+    .getByRole("button", { name: "Open project navigator", exact: true })
+    .click();
   const dialog = page.getByRole("dialog", { name: "Project Navigator" });
   await expect(dialog).toBeVisible();
   return dialog;
