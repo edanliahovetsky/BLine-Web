@@ -39,6 +39,7 @@ import {
   type TranslationTarget,
   type Waypoint,
 } from "../../core/model/path";
+import { setPathElementLinkedTargetId } from "../../core/linkedTargets";
 import type { HistoryCommand } from "../../state/historyStore";
 
 export type AddableElementType = PathElement["type"];
@@ -120,6 +121,20 @@ export function createInsertPathElementCommand(
       }
       return nextProject;
     },
+  };
+}
+
+export function createDuplicatePathElementCommand(
+  index: number,
+  element: PathElement,
+): HistoryCommand<ProjectDocument> {
+  // A duplicate is an independent copy: drop any linked-target association so
+  // the two elements do not silently move together.
+  const clone = setPathElementLinkedTargetId(structuredClone(element), null);
+  const command = createInsertPathElementCommand(index + 1, clone);
+  return {
+    ...command,
+    description: `Duplicate ${element.type} element`,
   };
 }
 

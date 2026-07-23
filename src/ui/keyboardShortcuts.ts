@@ -3,6 +3,7 @@ import { projectStore } from "../state/projectStore";
 import { selectionStore } from "../state/selectionStore";
 import {
   canMovePathElement,
+  createDuplicatePathElementCommand,
   createMovePathElementCommand,
   createRemovePathElementCommand,
   createRemoveRangedConstraintCommand,
@@ -65,6 +66,31 @@ export function removeSelectedPathElement(): boolean {
       nextSelectionAfterRemoval(project, selectedElementIndex),
       projectStore.getState().project,
     );
+
+  return true;
+}
+
+export function duplicateSelectedPathElement(): boolean {
+  const project = projectStore.getState().project;
+  const selectedElementIndex = selectionStore.getState().selectedElementIndex;
+
+  if (!project || selectedElementIndex === null) {
+    return false;
+  }
+
+  const element = project.path.path_elements[selectedElementIndex];
+  if (!element) {
+    return false;
+  }
+
+  projectStore
+    .getState()
+    .applyCommand(
+      createDuplicatePathElementCommand(selectedElementIndex, element),
+    );
+  selectionStore
+    .getState()
+    .selectElement(selectedElementIndex + 1, projectStore.getState().project);
 
   return true;
 }

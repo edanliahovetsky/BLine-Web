@@ -73,6 +73,7 @@ import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
 import {
+  duplicateSelectedPathElement,
   isEditableShortcutTarget,
   isInteractiveShortcutTarget,
   moveSelectedPathElement,
@@ -763,6 +764,13 @@ export function AppShell() {
           return;
         }
 
+        if (key === "d") {
+          if (duplicateSelectedPathElement()) {
+            event.preventDefault();
+          }
+          return;
+        }
+
         if (key === "z" && event.shiftKey) {
           event.preventDefault();
           projectStore.getState().redo();
@@ -1428,6 +1436,17 @@ export function AppShell() {
       run: () => projectStore.getState().redo(),
     },
     {
+      id: "edit.duplicate-element",
+      label: "Duplicate element",
+      category: "Edit",
+      keywords: ["copy", "clone"],
+      shortcut: { key: "d", metaOrCtrl: true },
+      disabled: selectedElementIndex === null,
+      run: () => {
+        duplicateSelectedPathElement();
+      },
+    },
+    {
       id: "view.inspector",
       label: "Toggle inspector",
       category: "View",
@@ -1701,6 +1720,16 @@ export function AppShell() {
               disabled={!canRedo}
               onAction={() => {
                 projectStore.getState().redo();
+                setOpenTopMenu(null);
+              }}
+            />
+            <div className="top-menu__separator" role="separator" />
+            <MenuAction
+              label="Duplicate Element"
+              shortcut={{ key: "d", metaOrCtrl: true }}
+              disabled={selectedElementIndex === null}
+              onAction={() => {
+                duplicateSelectedPathElement();
                 setOpenTopMenu(null);
               }}
             />

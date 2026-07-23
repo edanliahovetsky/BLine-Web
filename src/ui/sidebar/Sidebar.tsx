@@ -22,6 +22,7 @@ import {
   createChangePathElementTypeCommand,
   createConvertedElement,
   createDefaultElement,
+  createDuplicatePathElementCommand,
   createInsertPathElementCommand,
   createMovePathElementCommand,
   createRemovePathElementCommand,
@@ -127,6 +128,24 @@ export function Sidebar({
         nextSelectionAfterRemoval(index, selectedElementIndex),
         projectStore.getState().project,
       );
+  };
+
+  const handleDuplicateElement = (index: number) => {
+    if (!project) {
+      return;
+    }
+
+    const element = project.path.path_elements[index];
+    if (!element) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .applyCommand(createDuplicatePathElementCommand(index, element));
+    selectionStore
+      .getState()
+      .selectElement(index + 1, projectStore.getState().project);
   };
 
   const handleMoveElement = (fromIndex: number, toIndex: number) => {
@@ -371,6 +390,7 @@ export function Sidebar({
             onAddCurve={handleAddCurve}
             onSelectElement={handleSelectElement}
             onRemoveElement={handleRemoveElement}
+            onDuplicateElement={handleDuplicateElement}
             onMoveElement={handleMoveElement}
           />
           <PropertyEditor

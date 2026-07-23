@@ -1377,7 +1377,7 @@ select {
 
 .path-element-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 30px 34px;
   align-items: center;
   min-height: 34px;
   border-bottom: 1px solid #252c32;
@@ -1493,6 +1493,32 @@ select {
   color: #a8b4bf;
   font-size: 0.74rem;
   white-space: nowrap;
+}
+
+.duplicate-element-button {
+  display: grid;
+  justify-self: center;
+  width: 25px;
+  height: 25px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #8a97a2;
+  background: transparent;
+}
+
+.duplicate-element-button svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.duplicate-element-button:hover,
+.duplicate-element-button:focus-visible {
+  color: #ffffff;
+  background: #33404b;
 }
 
 .remove-element-button {

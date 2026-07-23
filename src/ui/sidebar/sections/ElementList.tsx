@@ -2,7 +2,13 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { formatPointMeters } from "../../../canvas/modelSync";
-import { CurveIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
+import {
+  CopyIcon,
+  CurveIcon,
+  ElementIcon,
+  GripIcon,
+  RemoveIcon,
+} from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
 import { SidebarIconButton } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
@@ -23,6 +29,7 @@ interface ElementListProps {
   onAddCurve(): void;
   onSelectElement(index: number): void;
   onRemoveElement(index: number): void;
+  onDuplicateElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
   onToggleSection?(): void;
 }
@@ -36,6 +43,7 @@ export function ElementList({
   onAddCurve,
   onSelectElement,
   onRemoveElement,
+  onDuplicateElement,
   onMoveElement,
   onToggleSection,
 }: ElementListProps) {
@@ -208,6 +216,15 @@ export function ElementList({
                   <span className="path-element-row__meta">
                     {formatPointMeters(position)}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className="duplicate-element-button"
+                  aria-label={`Duplicate ${elementTypeLabel(element)} ${index + 1}`}
+                  title="Duplicate element"
+                  onClick={() => onDuplicateElement(index)}
+                >
+                  <CopyIcon />
                 </button>
                 <button
                   type="button"
