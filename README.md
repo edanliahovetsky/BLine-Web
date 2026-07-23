@@ -214,7 +214,7 @@ src/
   state/      Project, selection, history, and autosave stores
   storage/    Browser and Tauri storage adapter implementations
   platform/   Project IO service and shell-facing capability abstraction
-  canvas/     Konva field renderer, layers, geometry, and interactions
+  canvas/     PixiJS/WebGL field renderer, layers, geometry, and interactions
   ui/         React app shell, menus, dialogs, sidebar, controls
   env/        Environment capability detection
 src-tauri/    Tauri 2 desktop shell and Rust storage commands
@@ -229,7 +229,7 @@ scripts/
 
 Boundary rules:
 
-- `src/core` is framework-free and should not import React, Konva, browser APIs,
+- `src/core` is framework-free and should not import React, PixiJS, browser APIs,
   Tauri APIs, or service code.
 - UI and canvas code may depend on state/core; core must not depend on UI or
   canvas.

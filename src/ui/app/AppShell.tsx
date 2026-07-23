@@ -121,9 +121,11 @@ import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
 import {
   clampInspectorWidth,
+  formatShortcut,
   readEditorUiPreferences,
   type EditorCommand,
   type EditorTool,
+  type ShortcutBinding,
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 
@@ -160,6 +162,16 @@ export function AppShell() {
     projectStore,
     (state) => state.history.getState().canRedo,
   );
+  const undoDescription = useStoreSelector(
+    projectStore,
+    (state) => state.history.getState().undoStack.at(-1)?.description ?? null,
+  );
+  const redoDescription = useStoreSelector(
+    projectStore,
+    (state) => state.history.getState().redoStack.at(-1)?.description ?? null,
+  );
+  const undoLabel = undoDescription ? `Undo ${undoDescription}` : "Undo";
+  const redoLabel = redoDescription ? `Redo ${redoDescription}` : "Redo";
   const [workspaceSummaries, setWorkspaceSummaries] = useState<
     ProjectWorkspaceSummary[]
   >([]);
@@ -1626,11 +1638,6 @@ export function AppShell() {
             </MenuLabel>
             <div className="top-menu__separator" role="separator" />
             <MenuAction
-              label="Project Navigator..."
-              disabled={!workspace}
-              onAction={handleShowPathLibrary}
-            />
-            <MenuAction
               label="Linked Elements..."
               disabled={!workspace}
               onAction={handleShowLinkedTargets}
@@ -1680,8 +1687,8 @@ export function AppShell() {
             setOpenTopMenu={setActiveTopMenu}
           >
             <MenuAction
-              label={canUndo ? "Undo" : "Undo"}
-              shortcut="Ctrl+Z"
+              label={undoLabel}
+              shortcut={{ key: "z", metaOrCtrl: true }}
               disabled={!canUndo}
               onAction={() => {
                 projectStore.getState().undo();
@@ -1689,8 +1696,8 @@ export function AppShell() {
               }}
             />
             <MenuAction
-              label="Redo"
-              shortcut="Ctrl+Y"
+              label={redoLabel}
+              shortcut={{ key: "z", metaOrCtrl: true, shift: true }}
               disabled={!canRedo}
               onAction={() => {
                 projectStore.getState().redo();
@@ -1717,11 +1724,6 @@ export function AppShell() {
                 setOpenTopMenu(null);
               }}
             />
-            <MenuAction
-              label="Linked Elements..."
-              disabled={!workspace}
-              onAction={handleShowLinkedTargets}
-            />
             <div className="top-menu__separator" role="separator" />
             <MenuAction
               label="Project Settings..."
@@ -1740,7 +1742,7 @@ export function AppShell() {
           >
             <MenuAction
               label="Command Palette..."
-              shortcut="Ctrl+K"
+              shortcut={{ key: "k", metaOrCtrl: true }}
               onAction={() => {
                 setShowCommandPalette(true);
                 setOpenTopMenu(null);
@@ -1748,7 +1750,7 @@ export function AppShell() {
             />
             <MenuAction
               label="Keyboard Shortcuts"
-              shortcut="?"
+              shortcut={{ key: "?" }}
               onAction={() => {
                 setShowShortcutHelp(true);
                 setOpenTopMenu(null);
@@ -1778,8 +1780,8 @@ export function AppShell() {
               onBeforeOpen={refreshWorkspaceSummaries}
             >
               <MenuAction
-                label="Undo"
-                shortcut="Ctrl+Z"
+                label={undoLabel}
+                shortcut={{ key: "z", metaOrCtrl: true }}
                 disabled={!canUndo || toolbarBusy}
                 onAction={() => {
                   setShowOpenPanel(false);
@@ -1788,8 +1790,8 @@ export function AppShell() {
                 }}
               />
               <MenuAction
-                label="Redo"
-                shortcut="Ctrl+Y"
+                label={redoLabel}
+                shortcut={{ key: "z", metaOrCtrl: true, shift: true }}
                 disabled={!canRedo || toolbarBusy}
                 onAction={() => {
                   setShowOpenPanel(false);
@@ -4352,10 +4354,11 @@ function MenuAction({
   onAction,
 }: {
   label: string;
-  shortcut?: string;
+  shortcut?: ShortcutBinding;
   disabled?: boolean;
   onAction(): void;
 }) {
+  const shortcutLabel = shortcut ? formatShortcut(shortcut) : "";
   return (
     <button
       type="button"
@@ -4365,7 +4368,7 @@ function MenuAction({
       onClick={onAction}
     >
       <span className="top-menu__item-label">{label}</span>
-      {shortcut ? <kbd>{shortcut}</kbd> : null}
+      {shortcutLabel ? <kbd>{shortcutLabel}</kbd> : null}
     </button>
   );
 }
