@@ -454,6 +454,19 @@ fn set_workspace_dir(
 
 fn effective_project_dir(selected_dir: &Path) -> PathBuf {
     let selected = absolutize(selected_dir);
+
+    // Guard against opening the `paths` subfolder of an existing project as its own
+    // project. Doing so used to create a nested paths/paths tree and a stray
+    // config.json, and showed an empty path list ("my paths are gone"). If the picked
+    // folder is the `paths` child of a real BLine project, open the project instead.
+    if selected.file_name().and_then(|name| name.to_str()) == Some("paths") {
+        if let Some(parent) = selected.parent() {
+            if is_bline_project_dir(parent) {
+                return parent.to_path_buf();
+            }
+        }
+    }
+
     if selected.file_name().and_then(|name| name.to_str()) == Some("autos") {
         return selected;
     }
@@ -464,6 +477,12 @@ fn effective_project_dir(selected_dir: &Path) -> PathBuf {
     }
 
     selected
+}
+
+/// A directory looks like a BLine project when it holds a `config.json` alongside a
+/// `paths` folder — the structure `ensure_project_structure` lays down.
+fn is_bline_project_dir(dir: &Path) -> bool {
+    dir.join("config.json").is_file() && dir.join("paths").is_dir()
 }
 
 fn ensure_project_structure(project_dir: &Path) -> Result<(), String> {
@@ -1593,7 +1612,22 @@ fn absolutize(path: &Path) -> PathBuf {
 }
 
 fn file_version(path: &Path) -> String {
-    format!("{}:{}", file_modified_millis(path), path.to_string_lossy())
+    // Derive the change-detection token from file *content*, not modification time.
+    // Robot deploy directories are touched constantly by git, GradleRIO, editors and
+    // cloud sync; keying on mtime made those byte-identical rewrites look like a
+    // concurrent edit and produced spurious "storage-conflict" save failures. Hashing
+    // the bytes means only a genuine content change bumps the version. Falls back to
+    // the mtime when the file cannot be read so a transient error still invalidates.
+    let digest = match fs::read(path) {
+        Ok(bytes) => {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            bytes.hash(&mut hasher);
+            hasher.finish()
+        }
+        Err(_) => file_modified_millis(path) as u64,
+    };
+    format!("{digest:016x}:{}", path.to_string_lossy())
 }
 
 fn workspace_version(path: &Path) -> Result<String, String> {
@@ -2439,6 +2473,54 @@ mod tests {
         assert_ne!(after_sidecar, after_legacy_asset);
 
         fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn desktop_no_op_external_touch_does_not_conflict() {
+        // Reproduces the reported "Save failed: storage-conflict" bug: an external
+        // tool (git checkout / gradle deploy / cloud sync) rewrites a path file with
+        // byte-identical content, changing only its mtime. That must NOT invalidate
+        // the workspace version or block the next save.
+        let dir = temp_autos_dir("desktop-no-op-touch");
+        let path_file = dir.join("paths").join("auto.json");
+        write_fixture_json(&path_file, &json!({ "path_elements": [] }));
+
+        let workspace = read_workspace_from_project_dir(&dir, None).expect("workspace should open");
+        let before = workspace_version(&dir).expect("version before");
+
+        // External process rewrites identical bytes a moment later.
+        sleep(Duration::from_millis(10));
+        write_fixture_json(&path_file, &json!({ "path_elements": [] }));
+
+        let after = workspace_version(&dir).expect("version after touch");
+        assert_eq!(
+            before, after,
+            "a byte-identical rewrite must not change the workspace version"
+        );
+        write_workspace_to_project_dir(&dir, &workspace, Some(&before))
+            .expect("a no-op external touch must not produce a save conflict");
+
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn opening_paths_subfolder_redirects_to_parent_project() {
+        // Reproduces the nested "paths/paths" bug: selecting the paths subfolder of an
+        // existing BLine project must resolve to the project itself, not treat the
+        // subfolder as a new project (which would create paths/paths + a stray config).
+        let project = temp_autos_dir("nested-paths-guard");
+        ensure_project_structure(&project).expect("project structure");
+        let paths_subdir = project.join("paths");
+        assert!(paths_subdir.is_dir(), "paths subdir should exist");
+
+        let effective = effective_project_dir(&paths_subdir);
+        assert_eq!(
+            effective,
+            absolutize(&project),
+            "selecting the paths subfolder should open the parent project"
+        );
+
+        fs::remove_dir_all(project).expect("cleanup");
     }
 
     fn assert_order(haystack: &str, needles: &[&str]) {
