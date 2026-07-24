@@ -3347,6 +3347,47 @@ test("guides the user when every velocity segment is manual", async ({
   ).toBeVisible();
 });
 
+test("keeps the velocity card header on one compact row", async ({ page }) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+
+  const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
+  const title = card.getByRole("heading", { name: "Max Velocity" });
+  const chip = card.getByRole("status");
+  const generate = card.getByRole("button", {
+    name: "Generate velocity constraints",
+  });
+  const clear = card.getByRole("button", {
+    name: "Clear generated velocity constraints",
+  });
+
+  // At a narrow inspector the header degrades to two tidy rows: the title
+  // never breaks mid-name, and Generate/Clear stay together on their own row
+  // rather than Clear dropping alone.
+  expect((await requiredBox(title)).height).toBeLessThan(26);
+  expect((await requiredBox(clear)).y).toBe((await requiredBox(generate)).y);
+
+  // Given room, all four collapse onto a single compact row.
+  await page.evaluate(() => {
+    document
+      .querySelector<HTMLElement>(".workspace")
+      ?.style.setProperty("--inspector-width", "460px");
+  });
+
+  const wideTitle = await requiredBox(title);
+  const wideChip = await requiredBox(chip);
+  const wideGenerate = await requiredBox(generate);
+  const wideClear = await requiredBox(clear);
+  expect(wideTitle.height).toBeLessThan(26);
+  expect(Math.abs(wideChip.y - wideGenerate.y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(wideChip.y - wideClear.y)).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs(
+      wideTitle.y + wideTitle.height / 2 - (wideChip.y + wideChip.height / 2),
+    ),
+  ).toBeLessThanOrEqual(4);
+});
+
 test("selects Max Velocity segments with the keyboard", async ({ page }) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);

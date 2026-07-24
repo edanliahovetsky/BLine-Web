@@ -2017,7 +2017,7 @@ select {
 
 .constraint-card {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   padding: 10px;
   border: 1px solid #31404b;
@@ -2031,6 +2031,41 @@ select {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+/* Auto-velocity cards carry a status chip and two actions. Title, chip and
+   the action pair are three flex items that share one row when it fits and
+   drop the pair to a second row when the inspector narrows — the buttons
+   never split from each other, so the header never wraps raggedly. */
+.constraint-card__header--auto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.constraint-card__header--auto > .constraint-heading-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.constraint-card__header--auto > .auto-velocity-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.constraint-card__auto-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  margin-left: auto;
+  gap: 6px;
+}
+
+.constraint-heading-row h3 {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .constraint-card__header h3,
@@ -2110,18 +2145,6 @@ select {
   color: #9eadb9;
   font-size: 0.72rem;
   font-weight: 650;
-}
-
-.constraint-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  max-width: 172px;
-}
-
-.constraint-card__actions--auto {
-  max-width: 260px;
 }
 
 .sidebar-icon-button,
@@ -2579,7 +2602,7 @@ select {
 }
 
 .auto-velocity-hint {
-  margin: 6px 0 0;
+  margin: 0;
   color: #97a6b3;
   font-size: 0.74rem;
   line-height: 1.35;

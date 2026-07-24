@@ -666,44 +666,53 @@ function RangedConstraintCard({
       data-testid={`constraint-card-${constraintKey}`}
       data-tour={isAutoVelocityCard ? "max-velocity-card" : undefined}
     >
-      <div className="constraint-card__header">
-        <div>
-          <div className="constraint-heading-row">
-            <h3>{meta.label}</h3>
-            {isMinimumVelocityConstraintKey(constraintKey) ? (
-              <MinimumConstraintTooltip />
-            ) : null}
-          </div>
+      <div
+        className={[
+          "constraint-card__header",
+          isAutoVelocityCard && autoStatus
+            ? "constraint-card__header--auto"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <div className="constraint-heading-row">
+          <h3>{meta.label}</h3>
+          {isMinimumVelocityConstraintKey(constraintKey) ? (
+            <MinimumConstraintTooltip />
+          ) : null}
         </div>
         {isAutoVelocityCard && autoStatus ? (
-          <div className="constraint-card__actions constraint-card__actions--auto">
+          <>
             <AutoVelocityStatusIndicator
               status={autoStatus}
               running={autoVelocityRunning}
             />
-            <SidebarActionButton
-              onClick={onGenerateAutoVelocity}
-              disabled={total === 0 || autoVelocityRunning || !canGenerate}
-              aria-label="Generate velocity constraints"
-              title={
-                !canGenerate && !autoVelocityRunning
-                  ? "All velocity segments are set manually. Switch a segment to Auto to generate."
-                  : "Generate and apply velocity constraints"
-              }
-            >
-              Generate
-            </SidebarActionButton>
-            <SidebarActionButton
-              onClick={() => clearAutoVelocity(project)}
-              disabled={
-                autoVelocityRunning || !hasAutoVelocityConstraints(project)
-              }
-              aria-label="Clear generated velocity constraints"
-              title="Clear generated velocity constraints"
-            >
-              Clear
-            </SidebarActionButton>
-          </div>
+            <div className="constraint-card__auto-actions">
+              <SidebarActionButton
+                onClick={onGenerateAutoVelocity}
+                disabled={total === 0 || autoVelocityRunning || !canGenerate}
+                aria-label="Generate velocity constraints"
+                title={
+                  !canGenerate && !autoVelocityRunning
+                    ? "All velocity segments are set manually. Switch a segment to Auto to generate."
+                    : "Generate and apply velocity constraints"
+                }
+              >
+                Generate
+              </SidebarActionButton>
+              <SidebarActionButton
+                onClick={() => clearAutoVelocity(project)}
+                disabled={
+                  autoVelocityRunning || !hasAutoVelocityConstraints(project)
+                }
+                aria-label="Clear generated velocity constraints"
+                title="Clear generated velocity constraints"
+              >
+                Clear
+              </SidebarActionButton>
+            </div>
+          </>
         ) : null}
       </div>
 
@@ -986,46 +995,55 @@ function PopoutConstraintPanel({
 
   return (
     <article className="constraint-popout-card">
-      <div className="constraint-popout-card__header">
-        <div>
-          <div className="constraint-heading-row">
-            <h3>{meta.label}</h3>
-            {isMinimumVelocityConstraintKey(constraintKey) ? (
-              <MinimumConstraintTooltip />
-            ) : null}
-          </div>
+      <div
+        className={[
+          "constraint-popout-card__header",
+          isAutoVelocityPanel && autoStatus
+            ? "constraint-card__header--auto"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <div className="constraint-heading-row">
+          <h3>{meta.label}</h3>
+          {isMinimumVelocityConstraintKey(constraintKey) ? (
+            <MinimumConstraintTooltip />
+          ) : null}
         </div>
         {isAutoVelocityPanel && autoStatus ? (
-          <div className="constraint-card__actions constraint-card__actions--auto">
+          <>
             <AutoVelocityStatusIndicator
               status={autoStatus}
               running={autoVelocityRunning}
             />
-            <SidebarActionButton
-              onClick={onGenerateAutoVelocity}
-              disabled={
-                labels.length === 0 || autoVelocityRunning || !canGenerate
-              }
-              aria-label="Generate velocity constraints"
-              title={
-                !canGenerate && !autoVelocityRunning
-                  ? "All velocity segments are set manually. Switch a segment to Auto to generate."
-                  : "Generate and apply velocity constraints"
-              }
-            >
-              Generate
-            </SidebarActionButton>
-            <SidebarActionButton
-              onClick={() => clearAutoVelocity(project)}
-              disabled={
-                autoVelocityRunning || !hasAutoVelocityConstraints(project)
-              }
-              aria-label="Clear generated velocity constraints"
-              title="Clear generated velocity constraints"
-            >
-              Clear
-            </SidebarActionButton>
-          </div>
+            <div className="constraint-card__auto-actions">
+              <SidebarActionButton
+                onClick={onGenerateAutoVelocity}
+                disabled={
+                  labels.length === 0 || autoVelocityRunning || !canGenerate
+                }
+                aria-label="Generate velocity constraints"
+                title={
+                  !canGenerate && !autoVelocityRunning
+                    ? "All velocity segments are set manually. Switch a segment to Auto to generate."
+                    : "Generate and apply velocity constraints"
+                }
+              >
+                Generate
+              </SidebarActionButton>
+              <SidebarActionButton
+                onClick={() => clearAutoVelocity(project)}
+                disabled={
+                  autoVelocityRunning || !hasAutoVelocityConstraints(project)
+                }
+                aria-label="Clear generated velocity constraints"
+                title="Clear generated velocity constraints"
+              >
+                Clear
+              </SidebarActionButton>
+            </div>
+          </>
         ) : null}
         {isAutoVelocityPanel &&
         autoStatus &&
