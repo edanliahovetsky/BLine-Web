@@ -1099,6 +1099,11 @@ select {
 }
 
 .property-editor-section {
+  /* The panel's second grid row absorbs the leftover height. Hug the
+     properties instead of stretching, so a short element does not leave
+     empty space inside the card's border. */
+  align-self: start;
+  max-height: 100%;
   overflow: visible;
 }
 

@@ -3347,6 +3347,27 @@ test("guides the user when every velocity segment is manual", async ({
   ).toBeVisible();
 });
 
+test("keeps the element properties card tight to its content", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  // A rotation element has few properties, so a card that stretched to fill
+  // the panel would leave a large empty band inside its own border.
+  await page.getByTestId("path-element-row-2").click();
+  await expect(page.getByLabel("Rotation Pos (0-1)")).toBeVisible();
+
+  const section = page.locator(".property-editor-section");
+  const body = section.locator(".sidebar-section__body");
+  const sectionBox = await requiredBox(section);
+  const bodyBox = await requiredBox(body);
+
+  // Nothing but the card's own border sits below the last property.
+  expect(
+    sectionBox.y + sectionBox.height - (bodyBox.y + bodyBox.height),
+  ).toBeLessThanOrEqual(2);
+});
+
 test("keeps the velocity card header on one compact row", async ({ page }) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
