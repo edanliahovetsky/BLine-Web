@@ -944,10 +944,24 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * A save conflict means the files on disk changed out from under us (an external
- * edit, or a genuinely divergent version token). It is recoverable via reload or
- * overwrite, so it is surfaced distinctly from a hard save error.
+ * A save conflict means the stored workspace changed out from under us (an
+ * external edit, another tab/process, or a genuinely divergent version token).
+ * It is recoverable via reload or overwrite, so it is surfaced distinctly from a
+ * hard save error.
+ *
+ * The two storage backends signal conflicts differently: the desktop (Tauri)
+ * backend rejects with a `"storage-conflict: …"` string, while the browser
+ * adapter throws a `StorageConflictError` (name `"StorageConflictError"`, with a
+ * plain-English message). Recognize both.
  */
 export function isStorageConflict(error: unknown): boolean {
+  if (
+    error &&
+    typeof error === "object" &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "StorageConflictError"
+  ) {
+    return true;
+  }
   return errorMessage(error).includes("storage-conflict");
 }

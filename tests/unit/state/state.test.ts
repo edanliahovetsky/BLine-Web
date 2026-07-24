@@ -23,8 +23,10 @@ import {
 } from "../../../src/state/historyStore";
 import {
   createProjectStore,
+  isStorageConflict,
   type ProjectStore,
 } from "../../../src/state/projectStore";
+import { StorageConflictError } from "../../../src/storage";
 import {
   createSelectionStore,
   normalizeElementSelection,
@@ -705,6 +707,34 @@ describe("workspace conflict diff", () => {
   it("treats a null on-disk workspace as no computable changes", () => {
     const diff = diffWorkspaceConflict(exampleTwoPathWorkspace(), null);
     expect(diff.hasChanges).toBe(false);
+  });
+});
+
+describe("isStorageConflict", () => {
+  it("recognizes the desktop (Tauri) storage-conflict string", () => {
+    expect(
+      isStorageConflict("storage-conflict: workspace version mismatch"),
+    ).toBe(true);
+    expect(
+      isStorageConflict(new Error("storage-conflict: project version mismatch")),
+    ).toBe(true);
+  });
+
+  it("recognizes the browser StorageConflictError despite its different message", () => {
+    const error = new StorageConflictError(
+      "Workspace version does not match expected version",
+      "v1",
+      "v2",
+    );
+    // Guard the exact regression: the message alone would not match.
+    expect(error.message).not.toContain("storage-conflict");
+    expect(isStorageConflict(error)).toBe(true);
+  });
+
+  it("does not flag unrelated errors as conflicts", () => {
+    expect(isStorageConflict(new Error("disk full"))).toBe(false);
+    expect(isStorageConflict("some other failure")).toBe(false);
+    expect(isStorageConflict(null)).toBe(false);
   });
 });
 
