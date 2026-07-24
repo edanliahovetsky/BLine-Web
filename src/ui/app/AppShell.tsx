@@ -134,8 +134,8 @@ import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
 import {
-  createTourPracticePath,
   editorBasicsTour,
+  findTour,
   tourPracticePathName,
   tours,
 } from "../tours/tours";
@@ -528,9 +528,10 @@ export function AppShell() {
 
   // Tours run on a throwaway path so every step is safe to actually perform.
   const startGuidedTour = useCallback((tourId: string) => {
+    const tourDefinition = findTour(tourId);
     const state = projectStore.getState();
     const currentWorkspace = state.workspace;
-    if (!currentWorkspace) {
+    if (!tourDefinition || !currentWorkspace) {
       return;
     }
 
@@ -543,14 +544,15 @@ export function AppShell() {
         ? currentPathId
         : null;
 
+    // Recreate the practice path from this lesson's seed so every lesson
+    // opens in the state its steps assume.
     if (existingPractice) {
-      state.setActivePath(existingPractice.path_id);
-    } else {
-      state.createPath({
-        displayName: tourPracticePathName,
-        path: createTourPracticePath(),
-      });
+      state.deletePaths([existingPractice.path_id]);
     }
+    state.createPath({
+      displayName: tourPracticePathName,
+      path: tourDefinition.practicePath(),
+    });
 
     // Lessons teach on the neutral blank grid; the user's field comes back
     // as soon as the tour ends.
@@ -2380,6 +2382,14 @@ export function AppShell() {
           }
           if (preparation.tool === "select") {
             handleToolChange("select");
+          }
+          if (preparation.selectElement !== undefined) {
+            selectionStore
+              .getState()
+              .selectElement(
+                preparation.selectElement,
+                projectStore.getState().project,
+              );
           }
         }}
       />

@@ -3044,12 +3044,24 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
     canvas.x + canvas.width / 2,
     canvas.y + canvas.height / 2,
   );
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 7");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 8");
 
-  // Walk to the end; finishing records completion in the picker.
-  for (let step = 4; step < 7; step += 1) {
-    await card.getByRole("button", { name: "Next", exact: true }).click();
-  }
+  // Two informational steps, then the handoff step waits for a real
+  // selection of the element the learner just added.
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(card).toContainText("Select your new element");
+  await expect(
+    card.getByRole("button", { name: "Try it", exact: true }),
+  ).toBeDisabled();
+  await page.mouse.click(
+    canvas.x + canvas.width / 2,
+    canvas.y + canvas.height / 2,
+  );
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 7 of 8");
+  await expect(card).toContainText("Bigger circle, earlier turn");
+
+  await card.getByRole("button", { name: "Next", exact: true }).click();
   await card.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 
@@ -3082,9 +3094,11 @@ test("advances lessons when the user performs the taught action", async ({
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId("tour-picker-simulate-verify").click();
+  await expect(card).toContainText("A complete little auto");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(card).toContainText("Watch the run");
   await page.getByRole("button", { name: "Play simulation" }).click();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 2 of 5");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 6");
   await expect(card).toContainText("not a robot sim");
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(card).toContainText("Check path health");

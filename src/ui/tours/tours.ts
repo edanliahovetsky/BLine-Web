@@ -1,4 +1,5 @@
 import {
+  createEventTrigger,
   createPathModel,
   createRotationTarget,
   createTranslationTarget,
@@ -6,6 +7,7 @@ import {
   type PathModel,
 } from "../../core/model/path";
 import { projectStore } from "../../state/projectStore";
+import { selectionStore } from "../../state/selectionStore";
 import type { TourDefinition } from "./tourStore";
 
 export const editorBasicsTourId = "editor-basics";
@@ -13,41 +15,70 @@ export const editorBasicsTourId = "editor-basics";
 /** Scratch path a tour switches to so nothing it teaches touches real autos. */
 export const tourPracticePathName = "Tour practice";
 
-/**
- * The practice path starts with a small, valid two-waypoint run so the editor
- * has something to show (and Path Health has nothing to flag) before the
- * learner adds their own elements.
- */
+function waypoint(
+  xMeters: number,
+  yMeters: number,
+  rotationRadians = 0,
+): ReturnType<typeof createWaypoint> {
+  return createWaypoint({
+    translation_target: createTranslationTarget({
+      x_meters: xMeters,
+      y_meters: yMeters,
+    }),
+    rotation_target: createRotationTarget({
+      rotation_radians: rotationRadians,
+      t_ratio: 0,
+    }),
+  });
+}
+
+/** Lesson 1: a plain two-waypoint run the learner extends and simulates. */
 export function createTourPracticePath(): PathModel {
   return createPathModel({
+    path_elements: [waypoint(3, 3), waypoint(6.5, 4.5)],
+  });
+}
+
+/** Lesson 2: a straight line begging to be bent through the middle. */
+function createShapePracticePath(): PathModel {
+  return createPathModel({
+    path_elements: [waypoint(2.5, 4), waypoint(9, 4)],
+  });
+}
+
+/**
+ * Lesson 3: a sharp right-angle corner, so the optimizer visibly proposes a
+ * lower cap where the route turns.
+ */
+function createConstraintsPracticePath(): PathModel {
+  return createPathModel({
     path_elements: [
-      createWaypoint({
-        translation_target: createTranslationTarget({
-          x_meters: 3,
-          y_meters: 3,
-        }),
-        rotation_target: createRotationTarget({
-          rotation_radians: 0,
-          t_ratio: 0,
-        }),
-      }),
-      createWaypoint({
-        translation_target: createTranslationTarget({
-          x_meters: 6.5,
-          y_meters: 4.5,
-        }),
-        rotation_target: createRotationTarget({
-          rotation_radians: 0,
-          t_ratio: 0,
-        }),
-      }),
+      waypoint(2.5, 2.5),
+      createTranslationTarget({ x_meters: 8, y_meters: 2.5 }),
+      waypoint(8, 6),
     ],
   });
 }
 
 /**
- * Element counts are captured when the tour starts so the "place a waypoint"
- * step can tell that the user actually added something.
+ * Lesson 4: a complete little auto — corner, mid-segment rotation, and an
+ * event — so the simulation has something worth watching.
+ */
+function createSimulatePracticePath(): PathModel {
+  return createPathModel({
+    path_elements: [
+      waypoint(2.5, 2.5),
+      createTranslationTarget({ x_meters: 8, y_meters: 2.5 }),
+      createRotationTarget({ rotation_radians: Math.PI / 2, t_ratio: 0.5 }),
+      createEventTrigger({ t_ratio: 0.7, lib_key: "demoEvent" }),
+      waypoint(8, 6, Math.PI / 2),
+    ],
+  });
+}
+
+/**
+ * Element counts are captured when a step starts so placement steps can tell
+ * that the user actually added something.
  */
 let elementCountAtStepStart = 0;
 
@@ -62,10 +93,50 @@ function elementWasAdded(): boolean {
   return current > elementCountAtStepStart;
 }
 
+function simulationIsPlaying(): boolean {
+  return document.querySelector('[aria-label="Pause simulation"]') !== null;
+}
+
+function constraintsTabIsOpen(): boolean {
+  return (
+    document.querySelector(
+      '[data-testid="constraint-card-max_velocity_meters_per_sec"]',
+    ) !== null
+  );
+}
+
+function velocityPlanGenerated(): boolean {
+  return (
+    document.querySelector(
+      '[data-tour="max-velocity-card"] .auto-velocity-status--current',
+    ) !== null
+  );
+}
+
+function intermediateElementSelected(): boolean {
+  const project = projectStore.getState().project;
+  const index = selectionStore.getState().selectedElementIndex;
+  if (!project || index === null) {
+    return false;
+  }
+  if (index <= 0 || index >= project.path.path_elements.length - 1) {
+    return false;
+  }
+  return project.path.path_elements[index]?.type === "translation";
+}
+
+function velocitySegmentSelected(): boolean {
+  return (
+    selectionStore.getState().selectedRangedConstraint?.key ===
+    "max_velocity_meters_per_sec"
+  );
+}
+
 export const editorBasicsTour: TourDefinition = {
   id: editorBasicsTourId,
   title: "Editor basics",
   summary: "Place, shape, constrain, and simulate a path",
+  practicePath: createTourPracticePath,
   steps: [
     {
       target: "path-breadcrumb",
@@ -128,30 +199,11 @@ export const editorBasicsTour: TourDefinition = {
   ],
 };
 
-function simulationIsPlaying(): boolean {
-  return document.querySelector('[aria-label="Pause simulation"]') !== null;
-}
-
-function constraintsTabIsOpen(): boolean {
-  return (
-    document.querySelector(
-      '[data-testid="constraint-card-max_velocity_meters_per_sec"]',
-    ) !== null
-  );
-}
-
-function velocityPlanGenerated(): boolean {
-  return (
-    document.querySelector(
-      '[data-tour="max-velocity-card"] .auto-velocity-status--current',
-    ) !== null
-  );
-}
-
 export const shapePathsTour: TourDefinition = {
   id: "shape-paths",
   title: "Draw better paths",
   summary: "Path elements, segments, and handoffs — the polyline model",
+  practicePath: createShapePracticePath,
   steps: [
     {
       title: "BLine drives point to point",
@@ -167,10 +219,11 @@ export const shapePathsTour: TourDefinition = {
     {
       target: "tool-translation",
       title: "Bend the route",
-      body: "Click the highlighted Translation tool (or press 2), then click between the two waypoints. The route bends through the new element without adding a heading goal.",
+      body: "This path is a straight line. Click the highlighted Translation tool (or press 2), then click above or below the line to bend the route through a new intermediate element.",
       keys: ["2"],
       placement: "right",
       interact: ["tool-translation", "path-canvas"],
+      prepare: { selectElement: 0 },
       completeWhen: elementWasAdded,
     },
     {
@@ -187,11 +240,16 @@ export const shapePathsTour: TourDefinition = {
     },
     {
       target: "path-canvas",
-      title: "Tune the handoff",
-      body: "Select an intermediate element and note its dashed circle. The radius decides where the route turns — if the robot overshoots it, lower the velocity cap into it before making the circle bigger.",
+      title: "Select your new element",
+      body: "Click the translation target you just added and note its dashed circle — that is its handoff radius. Its properties, including Handoff Radius, appear in the inspector.",
       placement: "right",
       interact: ["path-canvas", "inspector-panel"],
       prepare: { tool: "select" },
+      completeWhen: intermediateElementSelected,
+    },
+    {
+      title: "Bigger circle, earlier turn",
+      body: "The radius is a speed–precision trade-off. A larger handoff radius starts the turn earlier, so the robot can carry a higher max velocity through a sharp corner. A smaller radius visits the point precisely — but demands a lower cap into it.",
     },
     {
       title: "Fewer elements, better paths",
@@ -204,10 +262,11 @@ export const constraintsTour: TourDefinition = {
   id: "constrain-optimize",
   title: "Constrain and optimize",
   summary: "Velocity caps, the optimizer, and who owns the plan",
+  practicePath: createConstraintsPracticePath,
   steps: [
     {
       title: "Geometry says where. Constraints say how fast.",
-      body: "A polyline has no time schedule. Max translation velocity is the control you will use most: it caps how aggressively BLine approaches corners, clearances, and the final pose.",
+      body: "A polyline has no time schedule. Max translation velocity is the control you will use most: it caps how aggressively BLine approaches corners, clearances, and the final pose. This practice path has a sharp corner on purpose.",
     },
     {
       target: "inspector-constraints",
@@ -220,28 +279,29 @@ export const constraintsTour: TourDefinition = {
     },
     {
       target: "max-velocity-card",
-      title: "Cap velocity per segment",
-      body: "The bar maps the stretches between path elements (W1, T2, …). Click a stretch to set its cap — keep open straights near the global max and slow only the sections that need care.",
+      title: "Read the segment bar",
+      body: "The bar maps the stretches between path elements (W1, T2, …). Open stretches drive at the global max; a cap on a stretch slows just that part of the route.",
       placement: "left",
-      interact: ["max-velocity-card"],
     },
     {
       target: "max-velocity-card",
-      title: "Let the optimizer propose caps",
-      body: "Generate proposes maximum-velocity caps from the path's geometry, with a safety factor applied. It is a first proposal, not a decision — you own the plan, so review every cap.",
+      title: "Generate caps for the corner",
+      body: "Click Generate. The optimizer proposes max-velocity caps from the geometry with a safety factor — watch it place a lower cap where the route turns sharply.",
       placement: "left",
       interact: ["max-velocity-card"],
+      completeWhen: velocityPlanGenerated,
     },
     {
       target: "max-velocity-card",
-      title: "Manual edits win",
-      body: "Editing a generated cap converts it to Manual, and manual caps survive optimizer reruns. When you move elements, generated caps go stale — regenerate and re-review.",
+      title: "Select a cap and make it yours",
+      body: "Click a generated stretch in the bar to select it. Edit its value and it becomes Manual — manual caps survive optimizer reruns, and caps go stale when you move elements. You own the plan.",
       placement: "left",
       interact: ["max-velocity-card"],
+      completeWhen: velocitySegmentSelected,
     },
     {
       title: "The recipe: fast straight, slow turn",
-      body: "Leave open straights at the global max and add a lower cap covering the elements around each tight turn. If the robot overshoots a handoff, lower the cap into it first — not the radius.",
+      body: "Leave open straights at the global max and cap the elements around each tight turn. If the robot overshoots a handoff, lower the cap into it first — or, for a corner you plan to take fast, start the turn earlier with a bigger handoff radius and a cap the robot can hold.",
     },
   ],
 };
@@ -250,11 +310,16 @@ export const simulateTour: TourDefinition = {
   id: "simulate-verify",
   title: "Simulate and verify",
   summary: "What the preview proves — and what it cannot",
+  practicePath: createSimulatePracticePath,
   steps: [
+    {
+      title: "A complete little auto",
+      body: "This practice path has a corner, a mid-segment rotation target, and an event trigger — the pieces a real auto is made of. Watch how each shows up in the preview.",
+    },
     {
       target: "transport-play",
       title: "Watch the run",
-      body: "Press the highlighted play button (or Space), then scrub the timeline to inspect rotation timing and where the slowdown lands.",
+      body: "Press the highlighted play button (or Space), then scrub the timeline. Watch the robot turn during the second segment and the event marker fire as its progress passes the trigger.",
       keys: ["Space", "J", "K", "L"],
       placement: "above",
       interact: ["simulation-transport"],
@@ -267,9 +332,8 @@ export const simulateTour: TourDefinition = {
     {
       target: "path-health",
       title: "Check path health",
-      body: "The pulse icon runs the editor's structural checks — too few path elements, off-field elements, empty event keys. Clear these before heading to the robot.",
+      body: "The pulse icon runs the editor's structural checks — too few path elements, off-field elements, empty event keys. After the tour, open it any time and clear every issue before heading to the robot.",
       placement: "below",
-      interact: ["path-health"],
     },
     {
       title: "Close the loop on the robot",

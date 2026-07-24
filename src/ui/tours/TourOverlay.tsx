@@ -35,6 +35,7 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
   const stepPlacement = step?.placement ?? "below";
   const wantsInspector = step?.prepare?.inspector ?? null;
   const wantsTool = step?.prepare?.tool ?? null;
+  const wantsSelectElement = step?.prepare?.selectElement ?? null;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
@@ -57,14 +58,22 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
     }
 
     preparedStepRef.current = token;
-    if (wantsInspector === "open" || wantsTool) {
+    if (wantsInspector === "open" || wantsTool || wantsSelectElement !== null) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
         tool: wantsTool ?? undefined,
+        selectElement: wantsSelectElement ?? undefined,
       });
     }
     captureElementCount();
-  }, [activeTourId, onPrepare, stepIndex, wantsInspector, wantsTool]);
+  }, [
+    activeTourId,
+    onPrepare,
+    stepIndex,
+    wantsInspector,
+    wantsSelectElement,
+    wantsTool,
+  ]);
 
   // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {

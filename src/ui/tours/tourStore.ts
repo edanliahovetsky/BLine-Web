@@ -1,4 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
+import type { PathModel } from "../../core/model/path";
 
 export type TourPlacement = "above" | "below" | "left" | "right";
 
@@ -36,12 +37,24 @@ export interface TourStepPreparation {
   inspector?: "open";
   /** Reset to the Select tool, e.g. right after a placement step. */
   tool?: "select";
+  /**
+   * Select the path element at this index first. Canvas placement inserts
+   * after the selection, so a bend step selects the first waypoint to make
+   * the new element land between the existing ones.
+   */
+  selectElement?: number;
 }
 
 export interface TourDefinition {
   id: string;
   title: string;
   summary: string;
+  /**
+   * The geometry this lesson starts from. The practice path is recreated
+   * from this seed on every start so each lesson opens in the state its
+   * steps assume — a straight line to bend, a sharp corner to constrain.
+   */
+  practicePath(): PathModel;
   steps: readonly TourStep[];
 }
 
