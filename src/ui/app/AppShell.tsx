@@ -17,6 +17,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  Activity,
   CircleHelp,
   FolderTree,
   PanelRight,
@@ -192,6 +193,7 @@ export function AppShell() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
+  const [showHelpHub, setShowHelpHub] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
   );
@@ -1879,11 +1881,14 @@ export function AppShell() {
                 className={pathDiagnostics.length > 0 ? "has-diagnostics" : ""}
                 aria-label={`Path health: ${pathDiagnostics.length} issues`}
                 aria-expanded={showPathHealth}
-                title="Path health"
+                title="Path health — editor checks for this path"
                 disabled={!project}
-                onClick={() => setShowPathHealth((current) => !current)}
+                onClick={() => {
+                  setShowHelpHub(false);
+                  setShowPathHealth((current) => !current);
+                }}
               >
-                <CircleHelp aria-hidden="true" size={16} />
+                <Activity aria-hidden="true" size={16} />
                 {pathDiagnostics.length > 0 ? (
                   <span>{pathDiagnostics.length}</span>
                 ) : null}
@@ -1900,6 +1905,36 @@ export function AppShell() {
                       setInspectorOpen(true);
                     }
                     setShowPathHealth(false);
+                  }}
+                />
+              ) : null}
+            </div>
+            <div className="help-hub-control">
+              <IconButton
+                aria-label="Help and tutorials"
+                aria-expanded={showHelpHub}
+                title="Help and tutorials"
+                onClick={() => {
+                  setShowPathHealth(false);
+                  setShowHelpHub((current) => !current);
+                }}
+              >
+                <CircleHelp aria-hidden="true" size={16} />
+              </IconButton>
+              {showHelpHub ? (
+                <HelpHubPopover
+                  onClose={() => setShowHelpHub(false)}
+                  onShortcuts={() => {
+                    setShowHelpHub(false);
+                    setShowShortcutHelp(true);
+                  }}
+                  onCommandPalette={() => {
+                    setShowHelpHub(false);
+                    setShowCommandPalette(true);
+                  }}
+                  onOpenSample={() => {
+                    setShowHelpHub(false);
+                    void handleOpenSample();
                   }}
                 />
               ) : null}
@@ -4419,6 +4454,76 @@ function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
     Boolean(target.closest("[data-ranged-constraint-selection]"))
+  );
+}
+
+function HelpHubPopover({
+  onClose,
+  onShortcuts,
+  onCommandPalette,
+  onOpenSample,
+}: {
+  onClose(): void;
+  onShortcuts(): void;
+  onCommandPalette(): void;
+  onOpenSample(): void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <section
+      className="help-hub-popover"
+      role="dialog"
+      aria-label="Help and tutorials"
+      data-testid="help-hub"
+    >
+      <div className="help-hub-popover__group">
+        <span className="help-hub-popover__label">Learn</span>
+        <button type="button" onClick={onShortcuts}>
+          <span>Keyboard shortcuts</span>
+          <kbd>?</kbd>
+        </button>
+        <button type="button" onClick={onCommandPalette}>
+          <span>Command palette</span>
+          <kbd>{formatShortcut({ key: "k", metaOrCtrl: true })}</kbd>
+        </button>
+        <button type="button" onClick={onOpenSample}>
+          <span>Open sample path</span>
+        </button>
+      </div>
+      <div className="help-hub-popover__separator" role="separator" />
+      <div className="help-hub-popover__group">
+        <span className="help-hub-popover__label">Reference</span>
+        <a
+          href="https://bline-docs.pages.dev/"
+          target="_blank"
+          rel="noreferrer noopener"
+          onClick={onClose}
+        >
+          <span>Documentation</span>
+          <small>↗</small>
+        </a>
+        <a
+          href="https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778"
+          target="_blank"
+          rel="noreferrer noopener"
+          onClick={onClose}
+        >
+          <span>Ask on Chief Delphi</span>
+          <small>↗</small>
+        </a>
+      </div>
+    </section>
   );
 }
 

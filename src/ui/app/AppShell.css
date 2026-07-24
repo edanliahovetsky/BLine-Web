@@ -4918,6 +4918,81 @@ select {
   position: relative;
 }
 
+.help-hub-control {
+  position: relative;
+}
+
+.help-hub-popover {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(248px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 9px;
+  background: rgba(23, 29, 34, 0.98);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.52);
+}
+
+.help-hub-popover__group {
+  display: grid;
+  gap: 1px;
+}
+
+.help-hub-popover__label {
+  padding: 7px 9px 4px;
+  color: var(--bline-text-muted);
+  font-size: 0.62rem;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.help-hub-popover__separator {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--bline-border-subtle);
+}
+
+.help-hub-popover button,
+.help-hub-popover a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--bline-text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: 0.79rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.help-hub-popover button:hover,
+.help-hub-popover a:hover,
+.help-hub-popover button:focus-visible,
+.help-hub-popover a:focus-visible {
+  background: var(--bline-surface-hover);
+}
+
+.help-hub-popover kbd,
+.help-hub-popover small {
+  margin-left: auto;
+  color: var(--bline-text-muted);
+  font-size: 0.66rem;
+}
+
+.help-hub-popover kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 4px;
+}
+
 .path-health-control .has-diagnostics {
   position: relative;
   color: var(--bline-warning);

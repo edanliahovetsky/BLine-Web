@@ -2926,6 +2926,28 @@ test("supports undo and redo for structural sidebar edits", async ({
   );
 });
 
+test("opens help and tutorials from the toolbar", async ({ page }) => {
+  await gotoSampleEditor(page);
+
+  // Path health keeps its own diagnostic identity, separate from help.
+  await expect(
+    page.getByRole("button", { name: /^Path health/ }),
+  ).toHaveAttribute("title", "Path health — editor checks for this path");
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  const hub = page.getByTestId("help-hub");
+  await expect(hub).toBeVisible();
+  await expect(hub.getByRole("link", { name: /Documentation/ })).toBeVisible();
+  await expect(
+    hub.getByRole("button", { name: /Open sample path/ }),
+  ).toBeVisible();
+
+  await hub.getByRole("button", { name: /Keyboard shortcuts/ }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
+});
+
 test("switches and reorders path elements with keyboard shortcuts", async ({
   page,
 }) => {
