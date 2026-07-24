@@ -62,7 +62,10 @@ export function createAutosaveCoordinator<
 
       setStatus("pending");
       timer = scheduler.setTimeout(() => {
-        void this.flush();
+        // Fire-and-forget: flush() rejects on save failure (including conflicts),
+        // but the error is already surfaced via onError. Swallow it here so the
+        // timer callback doesn't produce an unhandled promise rejection.
+        void this.flush().catch(() => {});
       }, delayMs);
     },
     async flush() {
