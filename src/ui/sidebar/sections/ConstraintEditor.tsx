@@ -664,6 +664,7 @@ function RangedConstraintCard({
     <article
       className="constraint-card"
       data-testid={`constraint-card-${constraintKey}`}
+      data-tour={isAutoVelocityCard ? "max-velocity-card" : undefined}
     >
       <div className="constraint-card__header">
         <div>

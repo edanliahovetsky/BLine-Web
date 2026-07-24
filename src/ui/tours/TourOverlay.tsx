@@ -62,11 +62,13 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
 
   // Track where the spotlight should sit, following layout changes.
   useEffect(() => {
-    if (!stepTarget) {
-      return;
-    }
-
     const measure = () => {
+      // Concept steps have no target; drop any previous spotlight.
+      if (!stepTarget) {
+        setRect(null);
+        return;
+      }
+
       const target = document.querySelector<HTMLElement>(
         `[data-tour="${stepTarget}"]`,
       );
@@ -155,8 +157,9 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
     return null;
   }
 
-  let cardLeft = viewportMargin;
-  let cardTop = viewportMargin;
+  // Concept steps have no target: the card sits centered over the scrim.
+  let cardLeft = (window.innerWidth - cardWidth) / 2;
+  let cardTop = (window.innerHeight - cardHeight) / 2;
 
   if (rect) {
     if (stepPlacement === "right") {
@@ -230,7 +233,7 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
         <div className="tour-card__progress" aria-hidden="true">
           {tour.steps.map((tourStep, index) => (
             <i
-              key={tourStep.target}
+              key={`${tourStep.title}-${index}`}
               className={index <= stepIndex ? "is-done" : ""}
             />
           ))}

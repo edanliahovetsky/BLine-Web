@@ -137,6 +137,7 @@ import {
   createTourPracticePath,
   editorBasicsTour,
   tourPracticePathName,
+  tours,
 } from "../tours/tours";
 
 interface LinkedTargetPickerRequest {
@@ -206,6 +207,7 @@ export function AppShell() {
       typeof window === "undefined" ||
       !window.matchMedia(mobileSupportMediaQuery).matches,
   );
+  const [showTourPicker, setShowTourPicker] = useState(false);
   const tourReturnPathRef = useRef<string | null>(null);
   const activeTourId = useStoreSelector(
     tourStore,
@@ -524,7 +526,7 @@ export function AppShell() {
   }, [refreshWorkspaceSummaries]);
 
   // Tours run on a throwaway path so every step is safe to actually perform.
-  const startGuidedTour = useCallback(() => {
+  const startGuidedTour = useCallback((tourId: string) => {
     const state = projectStore.getState();
     const currentWorkspace = state.workspace;
     if (!currentWorkspace) {
@@ -551,7 +553,7 @@ export function AppShell() {
 
     selectionStore.getState().clearSelection();
     setInspectorOpen(true);
-    tourStore.getState().start(editorBasicsTour.id);
+    tourStore.getState().start(tourId);
   }, []);
 
   // Put the user back on the path they were editing once the tour ends.
@@ -1945,7 +1947,7 @@ export function AppShell() {
               <span>Commands</span>
               <kbd>⌘K</kbd>
             </button>
-            <div className="path-health-control">
+            <div className="path-health-control" data-tour="path-health">
               <IconButton
                 className={pathDiagnostics.length > 0 ? "has-diagnostics" : ""}
                 aria-label={`Path health: ${pathDiagnostics.length} issues`}
@@ -1978,7 +1980,7 @@ export function AppShell() {
                 />
               ) : null}
             </div>
-            <div className="help-hub-control">
+            <div className="help-hub-control" data-tour="help-hub">
               <IconButton
                 aria-label="Help and tutorials"
                 aria-expanded={showHelpHub}
@@ -2001,7 +2003,7 @@ export function AppShell() {
                   onClose={() => setShowHelpHub(false)}
                   onStartTour={() => {
                     setShowHelpHub(false);
-                    startGuidedTour();
+                    setShowTourPicker(true);
                   }}
                   onShortcuts={() => {
                     setShowHelpHub(false);
@@ -2117,7 +2119,9 @@ export function AppShell() {
             onStartTour={() => {
               // There is no workspace yet on the start center, so open the
               // sample first and then hand over to the tour.
-              void handleOpenSample().then(() => startGuidedTour());
+              void handleOpenSample().then(() =>
+                startGuidedTour(editorBasicsTour.id),
+              );
             }}
           />
         ) : (
@@ -2322,6 +2326,15 @@ export function AppShell() {
           onClose={() => setShowShortcutHelp(false)}
         />
       ) : null}
+      {showTourPicker ? (
+        <TourPickerDialog
+          onClose={() => setShowTourPicker(false)}
+          onStart={(tourId) => {
+            setShowTourPicker(false);
+            startGuidedTour(tourId);
+          }}
+        />
+      ) : null}
       <TourOverlay
         onPrepare={(preparation) => {
           if (preparation.inspector === "open") {
@@ -2330,6 +2343,81 @@ export function AppShell() {
         }}
       />
     </main>
+  );
+}
+
+function TourPickerDialog({
+  onClose,
+  onStart,
+}: {
+  onClose(): void;
+  onStart(tourId: string): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLElement>();
+  const completedTourIds = useStoreSelector(
+    tourStore,
+    (state) => state.completedTourIds,
+  );
+
+  return (
+    <div
+      className="config-dialog-backdrop"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="tour-picker"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Guided tours"
+        data-testid="tour-picker"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+          }
+        }}
+      >
+        <header className="tour-picker__header">
+          <div>
+            <strong>
+              <span aria-hidden="true">🧭</span> Guided tours
+            </strong>
+            <span>Short lessons on a practice path. Leave any time.</span>
+          </div>
+          <CloseButton ariaLabel="Close guided tours" onClick={onClose} />
+        </header>
+        <div className="tour-picker__list">
+          {tours.map((tour, index) => {
+            const done = completedTourIds.includes(tour.id);
+            return (
+              <button
+                key={tour.id}
+                type="button"
+                className={done ? "is-done" : ""}
+                data-testid={`tour-picker-${tour.id}`}
+                onClick={() => onStart(tour.id)}
+              >
+                <span className="tour-picker__badge">
+                  {done ? "✓" : index + 1}
+                </span>
+                <span className="tour-picker__copy">
+                  <strong>{tour.title}</strong>
+                  <small>
+                    {tour.summary} · {tour.steps.length} steps
+                  </small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -4608,8 +4696,8 @@ function HelpHubPopover({
           <span className="help-hub-popover__glyph" aria-hidden="true">
             🧭
           </span>
-          <span>Guided tour</span>
-          <small>{editorBasicsTour.steps.length} steps</small>
+          <span>Guided tours</span>
+          <small>{tours.length} lessons</small>
         </button>
         <button type="button" onClick={onShortcuts}>
           <span className="help-hub-popover__glyph" aria-hidden="true">

@@ -4929,6 +4929,92 @@ select {
 
 /* Guided tours */
 
+.tour-picker {
+  width: min(420px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 12px;
+  background: var(--bline-surface-raised);
+  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.5);
+}
+
+.tour-picker__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 15px 11px;
+  border-bottom: 1px solid var(--bline-border-subtle);
+}
+
+.tour-picker__header strong {
+  display: block;
+  color: var(--bline-text-primary);
+  font-size: 0.92rem;
+}
+
+.tour-picker__header span:not([aria-hidden]) {
+  color: var(--bline-text-muted);
+  font-size: 0.72rem;
+}
+
+.tour-picker__list {
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px 14px;
+}
+
+.tour-picker__list > button {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 10px 11px;
+  border: 1px solid var(--bline-border-subtle);
+  border-radius: 9px;
+  background: var(--bline-surface-base);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tour-picker__list > button:hover,
+.tour-picker__list > button:focus-visible {
+  border-color: var(--bline-border-strong);
+  background: var(--bline-surface-hover);
+}
+
+.tour-picker__badge {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid rgba(88, 166, 255, 0.4);
+  border-radius: 5px;
+  color: var(--bline-accent);
+  background: rgba(88, 166, 255, 0.1);
+  font-family: var(--bline-font-mono, ui-monospace, monospace);
+  font-size: 0.66rem;
+}
+
+.tour-picker__list > button.is-done .tour-picker__badge {
+  border-color: rgba(112, 212, 134, 0.4);
+  color: var(--bline-success);
+  background: rgba(112, 212, 134, 0.1);
+}
+
+.tour-picker__copy {
+  display: grid;
+  gap: 2px;
+}
+
+.tour-picker__copy strong {
+  color: var(--bline-text-primary);
+  font-size: 0.82rem;
+}
+
+.tour-picker__copy small {
+  color: var(--bline-text-muted);
+  font-size: 0.71rem;
+}
+
 .tour-layer {
   position: fixed;
   z-index: 200;

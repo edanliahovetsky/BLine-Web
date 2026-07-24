@@ -3,8 +3,12 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 export type TourPlacement = "above" | "below" | "left" | "right";
 
 export interface TourStep {
-  /** Value of the `data-tour` attribute this step points at. */
-  target: string;
+  /**
+   * Value of the `data-tour` attribute this step points at. Steps without a
+   * target are concept cards: they explain an idea over the dimmed editor
+   * instead of spotlighting a control.
+   */
+  target?: string;
   title: string;
   body: string;
   /** Keys worth showing as caps beneath the body. */
