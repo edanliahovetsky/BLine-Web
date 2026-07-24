@@ -1634,7 +1634,9 @@ function CanvasViewControls({
         }
         aria-pressed={showGhostPaths}
         title={
-          showGhostPaths ? "Hide collection paths" : "Show collection paths"
+          showGhostPaths
+            ? "Hide the collection's other paths (shown as faint overlays for reference)"
+            : "Show the collection's other paths as faint overlays for reference"
         }
         onClick={onToggleGhostPaths}
       >
