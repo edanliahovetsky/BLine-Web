@@ -15,6 +15,12 @@ export interface TourStep {
   keys?: readonly string[];
   placement?: TourPlacement;
   /**
+   * `data-tour` ids the user may interact with during this step. Everything
+   * else is shielded so a stray click cannot derail the lesson. Steps without
+   * a list only allow the tour card itself.
+   */
+  interact?: readonly string[];
+  /**
    * Optional state the editor must be in before the step runs, so a tour never
    * points at something that is collapsed or on another inspector tab.
    */
@@ -28,6 +34,8 @@ export interface TourStep {
 
 export interface TourStepPreparation {
   inspector?: "open";
+  /** Reset to the Select tool, e.g. right after a placement step. */
+  tool?: "select";
 }
 
 export interface TourDefinition {

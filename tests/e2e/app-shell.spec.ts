@@ -3002,7 +3002,7 @@ test("starts the guided tour from the start center", async ({ page }) => {
   await page.getByTestId("start-center-guided-tour").click();
 
   await expect(page.getByTestId("tour-card")).toBeVisible();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 6");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 7");
 });
 
 test("teaches concepts across multiple lessons", async ({ page }) => {
@@ -3126,28 +3126,54 @@ test("walks the guided tour with a spotlight on every step", async ({
   const spotlight = page.locator(".tour-spotlight");
   await expect(card).toBeVisible();
 
+  // While a step allows no interaction, stray clicks are shielded: clicking
+  // the Waypoint tool during the intro step must not activate it.
+  const waypointTool = page.getByRole("button", { name: "Waypoint tool" });
+  const toolBox = await requiredBox(waypointTool);
+  await page.mouse.click(
+    toolBox.x + toolBox.width / 2,
+    toolBox.y + toolBox.height / 2,
+  );
+  await expect(waypointTool).toHaveAttribute("aria-pressed", "false");
+
   // Every step must anchor to something real and on screen.
-  for (let step = 1; step <= 6; step += 1) {
+  for (let step = 1; step <= 7; step += 1) {
     await expect(page.getByTestId("tour-step-count")).toHaveText(
-      `Step ${step} of 6`,
+      `Step ${step} of 7`,
     );
     await expect(spotlight).toBeVisible();
     const box = await spotlight.boundingBox();
     expect(box?.width ?? 0).toBeGreaterThan(0);
     expect(box?.height ?? 0).toBeGreaterThan(0);
 
+    if (step === 3) {
+      // The placement step hands back the Select tool so a stray canvas
+      // click cannot drop another waypoint.
+      await expect(
+        page.getByRole("button", { name: "Select tool" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    }
+
     if (step === 2) {
       // Action step: Next stays locked until the waypoint is really placed.
       await expect(
         card.getByRole("button", { name: "Try it", exact: true }),
       ).toBeDisabled();
-      await page.getByRole("button", { name: "Waypoint tool" }).click();
+      await waypointTool.click();
       const canvas = await requiredBox(page.getByTestId("path-stage"));
       await page.mouse.click(
         canvas.x + canvas.width / 2,
         canvas.y + canvas.height / 2,
       );
-    } else if (step < 6) {
+    } else if (step === 5) {
+      // Gated: the lesson waits for the Constraints tab itself.
+      await page.getByRole("tab", { name: /Constraints/ }).click();
+    } else if (step === 6) {
+      // Gated: generate the velocity plan before the simulation step.
+      await page
+        .getByRole("button", { name: "Generate velocity constraints" })
+        .click();
+    } else if (step < 7) {
       await card.getByRole("button", { name: "Next", exact: true }).click();
     }
   }

@@ -2378,6 +2378,9 @@ export function AppShell() {
           if (preparation.inspector === "open") {
             setInspectorOpen(true);
           }
+          if (preparation.tool === "select") {
+            handleToolChange("select");
+          }
         }}
       />
     </main>

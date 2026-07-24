@@ -4927,6 +4927,25 @@ select {
   position: relative;
 }
 
+/* Pressed feedback for the start center, tours, and help surfaces. */
+
+.start-center__action:active:not(:disabled),
+.start-center__recent button:active:not(:disabled),
+.start-center__sample-actions button:active:not(:disabled) {
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.42);
+  transform: translateY(1px);
+  filter: brightness(0.92);
+}
+
+.tour-card__actions button:active:not(:disabled),
+.tour-picker__list > button:active:not(:disabled),
+.help-hub-popover button:active:not(:disabled),
+.help-hub-popover a:active {
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.4);
+  transform: translateY(1px);
+  filter: brightness(0.92);
+}
+
 /* Guided tours */
 
 .tour-picker {
@@ -5026,6 +5045,11 @@ select {
   position: absolute;
   inset: 0;
   background: rgba(4, 8, 11, 0.66);
+}
+
+.tour-shield-region {
+  position: absolute;
+  pointer-events: auto;
 }
 
 .tour-spotlight {

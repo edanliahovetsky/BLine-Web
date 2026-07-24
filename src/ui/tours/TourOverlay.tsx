@@ -34,56 +34,68 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
   const stepTarget = step?.target ?? null;
   const stepPlacement = step?.placement ?? "below";
   const wantsInspector = step?.prepare?.inspector ?? null;
+  const wantsTool = step?.prepare?.tool ?? null;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
   const [rect, setRect] = useState<SpotlightRect | null>(null);
+  const [holes, setHoles] = useState<SpotlightRect[]>([]);
   const [cardHeight, setCardHeight] = useState(fallbackCardHeight);
+  const interactToken = step?.interact?.join("|") ?? "";
 
   // Put the editor into the state this step needs — once per step, so the
   // baseline for action-driven steps is not reset on every render.
   useEffect(() => {
-    if (!stepTarget) {
+    if (!activeTourId) {
       preparedStepRef.current = null;
       return;
     }
 
-    const token = `${activeTourId ?? ""}:${stepIndex}`;
+    const token = `${activeTourId}:${stepIndex}`;
     if (preparedStepRef.current === token) {
       return;
     }
 
     preparedStepRef.current = token;
-    if (wantsInspector === "open") {
-      onPrepare({ inspector: "open" });
+    if (wantsInspector === "open" || wantsTool) {
+      onPrepare({
+        inspector: wantsInspector ?? undefined,
+        tool: wantsTool ?? undefined,
+      });
     }
     captureElementCount();
-  }, [activeTourId, onPrepare, stepIndex, stepTarget, wantsInspector]);
+  }, [activeTourId, onPrepare, stepIndex, wantsInspector, wantsTool]);
 
-  // Track where the spotlight should sit, following layout changes.
+  // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {
-    const measure = () => {
-      // Concept steps have no target; drop any previous spotlight.
-      if (!stepTarget) {
-        setRect(null);
-        return;
-      }
-
-      const target = document.querySelector<HTMLElement>(
-        `[data-tour="${stepTarget}"]`,
+    const measureTour = (id: string): SpotlightRect | null => {
+      const element = document.querySelector<HTMLElement>(
+        `[data-tour="${id}"]`,
       );
-      if (!target) {
-        setRect(null);
-        return;
+      if (!element) {
+        return null;
       }
 
-      const box = target.getBoundingClientRect();
-      setRect({
+      const box = element.getBoundingClientRect();
+      return {
         top: box.top - spotlightPadding,
         left: box.left - spotlightPadding,
         width: box.width + spotlightPadding * 2,
         height: box.height + spotlightPadding * 2,
-      });
+      };
+    };
+
+    const measure = () => {
+      // Concept steps have no target; drop any previous spotlight.
+      setRect(stepTarget ? measureTour(stepTarget) : null);
+      setHoles(
+        interactToken
+          ? interactToken
+              .split("|")
+              .map(measureTour)
+              .filter((hole): hole is SpotlightRect => hole !== null)
+          : [],
+      );
     };
 
     const frame = window.requestAnimationFrame(measure);
@@ -94,7 +106,7 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
     };
-  }, [stepTarget]);
+  }, [interactToken, stepTarget]);
 
   useLayoutEffect(() => {
     const measured = cardRef.current?.offsetHeight;
@@ -128,33 +140,18 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
       return;
     }
 
+    // Arrow keys are deliberately left alone: the editor uses them to nudge
+    // the selected element, which lessons themselves teach.
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         tourStore.getState().exit();
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        // Action steps only advance once the taught action actually happens.
-        const currentTour = findTour(tourStore.getState().activeTourId);
-        const currentStep =
-          currentTour?.steps[tourStore.getState().stepIndex] ?? null;
-        if (currentStep?.completeWhen) {
-          return;
-        }
-        event.preventDefault();
-        tourStore.getState().next(stepCount);
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        tourStore.getState().back();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeTourId, stepCount]);
+  }, [activeTourId]);
 
   useEffect(() => {
     cardRef.current?.focus();
@@ -196,6 +193,15 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
   const isLastStep = stepIndex === stepCount - 1;
   const actionGated = Boolean(step.completeWhen);
 
+  // Everything outside the step's allowed controls is shielded from clicks;
+  // the gaps between these regions are the only spots where pointer events
+  // pass through to the editor.
+  const shieldRegions = computeShieldRegions(
+    holes,
+    window.innerWidth,
+    window.innerHeight,
+  );
+
   return createPortal(
     <div className="tour-layer" data-testid="tour-layer">
       {rect ? (
@@ -211,6 +217,19 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
       ) : (
         <div className="tour-scrim" />
       )}
+      {shieldRegions.map((region, index) => (
+        <div
+          key={`shield-${index}`}
+          className="tour-shield-region"
+          aria-hidden="true"
+          style={{
+            top: `${region.top}px`,
+            left: `${region.left}px`,
+            width: `${region.width}px`,
+            height: `${region.height}px`,
+          }}
+        />
+      ))}
       <section
         ref={cardRef}
         className="tour-card"
@@ -279,4 +298,74 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
     </div>,
     document.body,
   );
+}
+
+/**
+ * Cover the viewport minus the interaction holes with plain rectangles.
+ * Horizontal bands are cut at every hole edge; within a band, the stretches
+ * not occupied by a hole become shield regions.
+ */
+function computeShieldRegions(
+  holes: readonly SpotlightRect[],
+  viewportWidth: number,
+  viewportHeight: number,
+): SpotlightRect[] {
+  if (holes.length === 0) {
+    return [{ top: 0, left: 0, width: viewportWidth, height: viewportHeight }];
+  }
+
+  const yEdges = [
+    ...new Set([
+      0,
+      viewportHeight,
+      ...holes.flatMap((hole) => [
+        clampTo(hole.top, viewportHeight),
+        clampTo(hole.top + hole.height, viewportHeight),
+      ]),
+    ]),
+  ].sort((a, b) => a - b);
+
+  const regions: SpotlightRect[] = [];
+  for (let band = 0; band < yEdges.length - 1; band += 1) {
+    const top = yEdges[band];
+    const bottom = yEdges[band + 1];
+    if (bottom <= top) {
+      continue;
+    }
+
+    const bandHoles = holes
+      .filter((hole) => hole.top < bottom && hole.top + hole.height > top)
+      .map((hole) => ({
+        start: clampTo(hole.left, viewportWidth),
+        end: clampTo(hole.left + hole.width, viewportWidth),
+      }))
+      .sort((a, b) => a.start - b.start);
+
+    let cursor = 0;
+    for (const hole of bandHoles) {
+      if (hole.start > cursor) {
+        regions.push({
+          top,
+          left: cursor,
+          width: hole.start - cursor,
+          height: bottom - top,
+        });
+      }
+      cursor = Math.max(cursor, hole.end);
+    }
+    if (cursor < viewportWidth) {
+      regions.push({
+        top,
+        left: cursor,
+        width: viewportWidth - cursor,
+        height: bottom - top,
+      });
+    }
+  }
+
+  return regions;
+}
+
+function clampTo(value: number, max: number): number {
+  return Math.min(Math.max(value, 0), max);
 }
