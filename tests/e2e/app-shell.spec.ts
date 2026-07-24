@@ -3461,3 +3461,71 @@ function modelToCanvasPoint(box: Bounds, point: PointMeters) {
       (fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters) * scale,
   };
 }
+
+async function waitForSavedProject(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+}
+
+// Simulate another tab / external writer advancing the stored version so the
+// app's cached version becomes stale. The browser adapter then throws a
+// StorageConflictError on the next versioned write.
+async function bumpStoredWorkspaceVersion(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const key = Object.keys(window.localStorage).find((entry) =>
+      entry.startsWith("bline-web:workspace:"),
+    );
+    if (!key) {
+      throw new Error("no workspace record in localStorage");
+    }
+    const record = JSON.parse(window.localStorage.getItem(key) as string);
+    record.version = `${record.version}-external-edit`;
+    window.localStorage.setItem(key, JSON.stringify(record));
+  });
+}
+
+async function makeDirtyEdit(page: Page): Promise<void> {
+  await page.getByTestId("path-element-row-2").click();
+  await page.keyboard.press("ArrowDown");
+}
+
+test("surfaces the save-conflict dialog when the stored version drifts", async ({
+  page,
+}) => {
+  await waitForSavedProject(page);
+  await bumpStoredWorkspaceVersion(page);
+  await makeDirtyEdit(page);
+
+  const dialog = page.getByTestId("save-conflict-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("changed on disk");
+  await expect(page.getByTestId("save-status")).toContainText(
+    "Project changed on disk",
+  );
+});
+
+test("resolves a save conflict by keeping my changes", async ({ page }) => {
+  await waitForSavedProject(page);
+  await bumpStoredWorkspaceVersion(page);
+  await makeDirtyEdit(page);
+  await expect(page.getByTestId("save-conflict-dialog")).toBeVisible();
+
+  await page.getByRole("button", { name: "Keep my changes" }).click();
+
+  await expect(page.getByTestId("save-conflict-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+});
+
+test("resolves a save conflict by reloading from disk", async ({ page }) => {
+  await waitForSavedProject(page);
+  await bumpStoredWorkspaceVersion(page);
+  await makeDirtyEdit(page);
+  await expect(page.getByTestId("save-conflict-dialog")).toBeVisible();
+
+  await page.getByRole("button", { name: "Reload from disk" }).click();
+
+  await expect(page.getByTestId("save-conflict-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+});
