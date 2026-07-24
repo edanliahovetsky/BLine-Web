@@ -33,8 +33,8 @@ export function derivePathDiagnostics(
       severity: "warning",
       summary:
         anchorCount === 0
-          ? "Add two anchors to simulate this path."
-          : "Add one more anchor to simulate this path.",
+          ? "Add two waypoints or translation targets to simulate this path."
+          : "Add one more waypoint or translation target to simulate this path.",
     });
   }
 

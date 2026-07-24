@@ -1469,6 +1469,7 @@ function ConstraintSegmentBar({
               .join(" ")}
             style={{ gridColumn: ordinal, gridRow: 1 }}
             data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+            title={`${describeDomainLabel(label)} · ${meta.label} position ${ordinal} of ${total}`}
             aria-hidden="true"
           >
             <span>{label}</span>
@@ -3242,6 +3243,26 @@ function chooseSelectedEntry(
   }
 
   return entries.find((entry) => entry.index === selectedIndex) ?? null;
+}
+
+/**
+ * Segment-bar labels are a type initial plus a per-type index (W1, T2, …),
+ * which means nothing until someone explains it. Expand it for a tooltip.
+ */
+function describeDomainLabel(label: string): string {
+  const index = label.slice(1);
+  switch (label.charAt(0)) {
+    case "W":
+      return `Waypoint ${index}`;
+    case "T":
+      return `Translation target ${index}`;
+    case "R":
+      return `Rotation target ${index}`;
+    case "E":
+      return `Event trigger ${index}`;
+    default:
+      return label;
+  }
 }
 
 function domainLabelsForKey(

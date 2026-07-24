@@ -1963,7 +1963,11 @@ export function AppShell() {
           <div className="toolbar-actions__buttons">
             <IconButton
               aria-label="Undo"
-              title="Undo"
+              aria-keyshortcuts="Meta+Z Control+Z"
+              title={`${undoLabel} (${formatShortcut({
+                key: "z",
+                metaOrCtrl: true,
+              })})`}
               disabled={!canUndo}
               onClick={() => projectStore.getState().undo()}
             >
@@ -1971,7 +1975,12 @@ export function AppShell() {
             </IconButton>
             <IconButton
               aria-label="Redo"
-              title="Redo"
+              aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z"
+              title={`${redoLabel} (${formatShortcut({
+                key: "z",
+                metaOrCtrl: true,
+                shift: true,
+              })})`}
               disabled={!canRedo}
               onClick={() => projectStore.getState().redo()}
             >
@@ -5492,7 +5501,7 @@ function toolHint(tool: EditorTool, curveDrawing: boolean): string {
     return "Draw across the field · Esc cancels";
   }
   if (tool === "select") {
-    return "Drag anchors to refine the path · V selects";
+    return "Drag elements to reshape the path · V selects";
   }
   if (tool === "rotation" || tool === "event") {
     return `Click near a path segment to place ${
