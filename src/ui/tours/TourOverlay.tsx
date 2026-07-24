@@ -135,6 +135,13 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
         return;
       }
       if (event.key === "ArrowRight") {
+        // Action steps only advance once the taught action actually happens.
+        const currentTour = findTour(tourStore.getState().activeTourId);
+        const currentStep =
+          currentTour?.steps[tourStore.getState().stepIndex] ?? null;
+        if (currentStep?.completeWhen) {
+          return;
+        }
         event.preventDefault();
         tourStore.getState().next(stepCount);
         return;
@@ -187,6 +194,7 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
   );
 
   const isLastStep = stepIndex === stepCount - 1;
+  const actionGated = Boolean(step.completeWhen);
 
   return createPortal(
     <div className="tour-layer" data-testid="tour-layer">
@@ -256,9 +264,15 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
           <button
             type="button"
             className="is-primary"
+            disabled={actionGated}
+            title={
+              actionGated
+                ? "Complete the highlighted action to continue"
+                : undefined
+            }
             onClick={() => tourStore.getState().next(stepCount)}
           >
-            {isLastStep ? "Finish" : "Next"}
+            {actionGated ? "Try it" : isLastStep ? "Finish" : "Next"}
           </button>
         </div>
       </section>

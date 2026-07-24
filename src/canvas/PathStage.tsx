@@ -1586,10 +1586,17 @@ function CanvasToolRail({
           aria-label={`${label} tool`}
           aria-keyshortcuts={shortcut}
           aria-pressed={activeTool === tool}
+          data-tour={
+            tool === "waypoint"
+              ? "tool-waypoint"
+              : tool === "translation"
+                ? "tool-translation"
+                : undefined
+          }
           disabled={!project || disabled}
           title={
             disabled
-              ? `${label} needs two anchors`
+              ? `${label} needs two path elements`
               : `${label} tool (${shortcut})`
           }
           onClick={() => onToolChange(tool)}
@@ -1817,6 +1824,7 @@ function SimulationTransport({
         <button
           type="button"
           className="transport-play-button"
+          data-tour="transport-play"
           aria-label={playing ? "Pause simulation" : "Play simulation"}
           aria-keyshortcuts="Space K"
           title={

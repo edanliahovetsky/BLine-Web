@@ -74,17 +74,17 @@ export const editorBasicsTour: TourDefinition = {
       placement: "below",
     },
     {
-      target: "tool-rail",
-      title: "Pick a tool, then click the field",
-      body: "Choose the Waypoint tool and click anywhere on the field to drop one. Each tool has a number key.",
-      keys: ["V", "1", "2", "3"],
+      target: "tool-waypoint",
+      title: "Place a waypoint",
+      body: "Click the highlighted Waypoint tool, then click anywhere on the field to drop one. Each tool has a number key.",
+      keys: ["1"],
       placement: "right",
       completeWhen: elementWasAdded,
     },
     {
       target: "path-canvas",
       title: "Shape the path",
-      body: "Drag any anchor to move it. With one selected, arrow keys nudge it 5 cm — hold Shift for bigger steps.",
+      body: "Drag any element to move it. With one selected, arrow keys nudge it 5 cm — hold Shift for bigger steps.",
       keys: ["←", "↑", "↓", "→", "Shift"],
       placement: "right",
     },
@@ -128,47 +128,47 @@ function constraintsTabIsOpen(): boolean {
 export const shapePathsTour: TourDefinition = {
   id: "shape-paths",
   title: "Draw better paths",
-  summary: "Anchors, segments, and handoffs — the polyline model",
+  summary: "Path elements, segments, and handoffs — the polyline model",
   steps: [
     {
-      title: "A path is a polyline",
-      body: "BLine connects anchors with straight segments and always drives toward the active target. Extra anchors approximate a curve — there is no spline underneath, so every decision stays visible.",
+      title: "BLine drives point to point",
+      body: "A path is an ordered list of path elements, and the robot drives point to point — from one element to the next in straight segments. Extra elements approximate a curve; there is no spline underneath.",
     },
     {
       target: "tool-rail",
-      title: "Two kinds of anchors",
+      title: "Two kinds of path elements",
       body: "Waypoints carry a position and a heading; translation targets carry only a position. Use a waypoint where heading matters — usually the start and end — and translation targets to shape the route between.",
       keys: ["1", "2"],
       placement: "right",
     },
     {
-      target: "path-canvas",
+      target: "tool-translation",
       title: "Bend the route",
-      body: "Press 2, then click between the two waypoints to add a translation target. The route bends through it without adding a new heading goal.",
+      body: "Click the highlighted Translation tool (or press 2), then click between the two waypoints. The route bends through the new element without adding a heading goal.",
       keys: ["2"],
       placement: "right",
       completeWhen: elementWasAdded,
     },
     {
       target: "inspector-panel",
-      title: "Rotation and events ride the segments",
-      body: "Rotation targets and event triggers sit between anchors at a t-ratio — 0 is the segment start, 1 is the end. They schedule behavior along the route without bending it.",
+      title: "Rotation targets control, event triggers trigger",
+      body: "Between elements, a rotation target controls the robot's heading along the segment, and an event trigger starts robot behavior. Both are placed by t-ratio — 0 is the segment start, 1 is the end — and neither bends the route.",
       placement: "left",
       prepare: { inspector: "open" },
     },
     {
-      title: "Anchors are pass-through, not stops",
-      body: "Each intermediate anchor has a handoff radius — a circle around it. The moment the robot enters that circle, BLine steers for the next anchor, so the route flows through instead of stopping.",
+      title: "Intermediate elements are pass-through, not stops",
+      body: "Each intermediate element has a handoff radius — a circle around it. The moment the robot enters that circle, BLine steers for the next element, so the route flows through instead of stopping.",
     },
     {
       target: "path-canvas",
       title: "Tune the handoff",
-      body: "Select an intermediate anchor and note its dashed circle. The radius decides where the route turns — if the robot overshoots it, lower the velocity cap into it before making the circle bigger.",
+      body: "Select an intermediate element and note its dashed circle. The radius decides where the route turns — if the robot overshoots it, lower the velocity cap into it before making the circle bigger.",
       placement: "right",
     },
     {
-      title: "Fewer anchors, better paths",
-      body: "Every added anchor creates another handoff and another place where the speed plan needs review. Use the fewest anchors that describe the route clearly.",
+      title: "Fewer elements, better paths",
+      body: "Every added intermediate element creates another handoff and another place where the speed plan needs review. Use the fewest elements that describe the route clearly.",
     },
   ],
 };
@@ -193,7 +193,7 @@ export const constraintsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Cap velocity per segment",
-      body: "The bar maps the stretches between anchors (W1, T2, …). Click a stretch to set its cap — keep open straights near the global max and slow only the sections that need care.",
+      body: "The bar maps the stretches between path elements (W1, T2, …). Click a stretch to set its cap — keep open straights near the global max and slow only the sections that need care.",
       placement: "left",
     },
     {
@@ -205,12 +205,12 @@ export const constraintsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Manual edits win",
-      body: "Editing a generated cap converts it to Manual, and manual caps survive optimizer reruns. When you move anchors, generated caps go stale — regenerate and re-review.",
+      body: "Editing a generated cap converts it to Manual, and manual caps survive optimizer reruns. When you move elements, generated caps go stale — regenerate and re-review.",
       placement: "left",
     },
     {
       title: "The recipe: fast straight, slow turn",
-      body: "Leave open straights at the global max and add a lower cap covering the anchors around each tight turn. If the robot overshoots a handoff, lower the cap into it first — not the radius.",
+      body: "Leave open straights at the global max and add a lower cap covering the elements around each tight turn. If the robot overshoots a handoff, lower the cap into it first — not the radius.",
     },
   ],
 };
@@ -221,9 +221,9 @@ export const simulateTour: TourDefinition = {
   summary: "What the preview proves — and what it cannot",
   steps: [
     {
-      target: "simulation-transport",
+      target: "transport-play",
       title: "Watch the run",
-      body: "Press Space to play, and scrub the timeline to inspect rotation timing and where the slowdown lands.",
+      body: "Press the highlighted play button (or Space), then scrub the timeline to inspect rotation timing and where the slowdown lands.",
       keys: ["Space", "J", "K", "L"],
       placement: "above",
       completeWhen: simulationIsPlaying,
@@ -235,7 +235,7 @@ export const simulateTour: TourDefinition = {
     {
       target: "path-health",
       title: "Check path health",
-      body: "The pulse icon runs the editor's structural checks — missing anchors, off-field elements, empty event keys. Clear these before heading to the robot.",
+      body: "The pulse icon runs the editor's structural checks — too few path elements, off-field elements, empty event keys. Clear these before heading to the robot.",
       placement: "below",
     },
     {

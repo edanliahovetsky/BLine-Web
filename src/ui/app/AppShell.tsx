@@ -209,6 +209,7 @@ export function AppShell() {
   );
   const [showTourPicker, setShowTourPicker] = useState(false);
   const tourReturnPathRef = useRef<string | null>(null);
+  const tourReturnFieldRef = useRef<string | null>(null);
   const activeTourId = useStoreSelector(
     tourStore,
     (state) => state.activeTourId,
@@ -551,15 +552,52 @@ export function AppShell() {
       });
     }
 
+    // Lessons teach on the neutral blank grid; the user's field comes back
+    // as soon as the tour ends.
+    const latestState = projectStore.getState();
+    const activeProject = latestState.project;
+    if (
+      activeProject &&
+      activeProject.config.gui.field.selected_field_id !== "blank-grid"
+    ) {
+      tourReturnFieldRef.current =
+        activeProject.config.gui.field.selected_field_id;
+      const nextConfig = structuredClone(activeProject.config);
+      nextConfig.gui.field.selected_field_id = "blank-grid";
+      latestState.applyCommand(
+        createUpdateProjectConfigCommand(activeProject.config, nextConfig),
+      );
+    } else {
+      tourReturnFieldRef.current = null;
+    }
+
     selectionStore.getState().clearSelection();
     setInspectorOpen(true);
     tourStore.getState().start(tourId);
   }, []);
 
-  // Put the user back on the path they were editing once the tour ends.
+  // Put the user back on the path and field they were editing once the tour
+  // ends.
   useEffect(() => {
     if (activeTourId) {
       return;
+    }
+
+    const returnFieldId = tourReturnFieldRef.current;
+    if (returnFieldId) {
+      tourReturnFieldRef.current = null;
+      const state = projectStore.getState();
+      const activeProject = state.project;
+      if (
+        activeProject &&
+        activeProject.config.gui.field.selected_field_id !== returnFieldId
+      ) {
+        const nextConfig = structuredClone(activeProject.config);
+        nextConfig.gui.field.selected_field_id = returnFieldId;
+        state.applyCommand(
+          createUpdateProjectConfigCommand(activeProject.config, nextConfig),
+        );
+      }
     }
 
     const returnPathId = tourReturnPathRef.current;

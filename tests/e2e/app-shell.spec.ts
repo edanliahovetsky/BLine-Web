@@ -3024,7 +3024,7 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
   await expect(card).toBeVisible();
 
   // Lesson two opens with a concept card: dimmed editor, no spotlight.
-  await expect(card).toContainText("A path is a polyline");
+  await expect(card).toContainText("BLine drives point to point");
   await expect(page.locator(".tour-scrim")).toBeVisible();
   await expect(page.locator(".tour-spotlight")).toHaveCount(0);
 
@@ -3032,8 +3032,22 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.locator(".tour-spotlight")).toBeVisible();
 
+  // The bend-the-route step locks Next until the element is really added.
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(card).toContainText("Bend the route");
+  await expect(
+    card.getByRole("button", { name: "Try it", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Translation tool" }).click();
+  const canvas = await requiredBox(page.getByTestId("path-stage"));
+  await page.mouse.click(
+    canvas.x + canvas.width / 2,
+    canvas.y + canvas.height / 2,
+  );
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 7");
+
   // Walk to the end; finishing records completion in the picker.
-  for (let step = 2; step < 7; step += 1) {
+  for (let step = 4; step < 7; step += 1) {
     await card.getByRole("button", { name: "Next", exact: true }).click();
   }
   await card.getByRole("button", { name: "Finish", exact: true }).click();
@@ -3122,7 +3136,18 @@ test("walks the guided tour with a spotlight on every step", async ({
     expect(box?.width ?? 0).toBeGreaterThan(0);
     expect(box?.height ?? 0).toBeGreaterThan(0);
 
-    if (step < 6) {
+    if (step === 2) {
+      // Action step: Next stays locked until the waypoint is really placed.
+      await expect(
+        card.getByRole("button", { name: "Try it", exact: true }),
+      ).toBeDisabled();
+      await page.getByRole("button", { name: "Waypoint tool" }).click();
+      const canvas = await requiredBox(page.getByTestId("path-stage"));
+      await page.mouse.click(
+        canvas.x + canvas.width / 2,
+        canvas.y + canvas.height / 2,
+      );
+    } else if (step < 6) {
       await card.getByRole("button", { name: "Next", exact: true }).click();
     }
   }
