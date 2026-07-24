@@ -1,3 +1,10 @@
+import {
+  createPathModel,
+  createRotationTarget,
+  createTranslationTarget,
+  createWaypoint,
+  type PathModel,
+} from "../../core/model/path";
 import { projectStore } from "../../state/projectStore";
 import type { TourDefinition } from "./tourStore";
 
@@ -5,6 +12,38 @@ export const editorBasicsTourId = "editor-basics";
 
 /** Scratch path a tour switches to so nothing it teaches touches real autos. */
 export const tourPracticePathName = "Tour practice";
+
+/**
+ * The practice path starts with a small, valid two-waypoint run so the editor
+ * has something to show (and Path Health has nothing to flag) before the
+ * learner adds their own elements.
+ */
+export function createTourPracticePath(): PathModel {
+  return createPathModel({
+    path_elements: [
+      createWaypoint({
+        translation_target: createTranslationTarget({
+          x_meters: 3,
+          y_meters: 3,
+        }),
+        rotation_target: createRotationTarget({
+          rotation_radians: 0,
+          t_ratio: 0,
+        }),
+      }),
+      createWaypoint({
+        translation_target: createTranslationTarget({
+          x_meters: 6.5,
+          y_meters: 4.5,
+        }),
+        rotation_target: createRotationTarget({
+          rotation_radians: 0,
+          t_ratio: 0,
+        }),
+      }),
+    ],
+  });
+}
 
 /**
  * Element counts are captured when the tour starts so the "place a waypoint"

@@ -133,7 +133,11 @@ import {
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
-import { editorBasicsTour, tourPracticePathName } from "../tours/tours";
+import {
+  createTourPracticePath,
+  editorBasicsTour,
+  tourPracticePathName,
+} from "../tours/tours";
 
 interface LinkedTargetPickerRequest {
   pathId: string;
@@ -197,6 +201,11 @@ export function AppShell() {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
   const [showHelpHub, setShowHelpHub] = useState(false);
+  const [toursSupported, setToursSupported] = useState(
+    () =>
+      typeof window === "undefined" ||
+      !window.matchMedia(mobileSupportMediaQuery).matches,
+  );
   const tourReturnPathRef = useRef<string | null>(null);
   const activeTourId = useStoreSelector(
     tourStore,
@@ -335,14 +344,17 @@ export function AppShell() {
   }, [refreshWorkspaceSummaries]);
 
   useEffect(() => {
-    const mobileQuery = window.matchMedia(
-      "(max-width: 767px), (pointer: coarse) and (max-width: 980px)",
-    );
+    const mobileQuery = window.matchMedia(mobileSupportMediaQuery);
 
     const syncMobileWarning = () => {
       setShowMobileSupportWarning(
         mobileQuery.matches && !hasDismissedMobileSupportWarning(),
       );
+      setToursSupported(!mobileQuery.matches);
+      // Coach marks cannot coexist with the mobile overlay inspector.
+      if (mobileQuery.matches) {
+        tourStore.getState().exit();
+      }
     };
 
     syncMobileWarning();
@@ -531,7 +543,10 @@ export function AppShell() {
     if (existingPractice) {
       state.setActivePath(existingPractice.path_id);
     } else {
-      state.createPath({ displayName: tourPracticePathName });
+      state.createPath({
+        displayName: tourPracticePathName,
+        path: createTourPracticePath(),
+      });
     }
 
     selectionStore.getState().clearSelection();
@@ -1977,7 +1992,12 @@ export function AppShell() {
               </IconButton>
               {showHelpHub ? (
                 <HelpHubPopover
-                  tourAvailable={Boolean(project)}
+                  tourAvailable={Boolean(project) && toursSupported}
+                  tourUnavailableReason={
+                    toursSupported
+                      ? "Open a path first"
+                      : "Tours need a larger window"
+                  }
                   onClose={() => setShowHelpHub(false)}
                   onStartTour={() => {
                     setShowHelpHub(false);
@@ -2093,6 +2113,7 @@ export function AppShell() {
               }
             }}
             onOpenSample={() => void handleOpenSample()}
+            tourSupported={toursSupported}
             onStartTour={() => {
               // There is no workspace yet on the start center, so open the
               // sample first and then hand over to the tour.
@@ -2318,6 +2339,9 @@ type PendingToolbarAction = "open" | "import" | "export" | null;
 
 const MOBILE_SUPPORT_WARNING_DISMISSED_KEY =
   "bline-web:mobile-support-warning-dismissed";
+
+const mobileSupportMediaQuery =
+  "(max-width: 767px), (pointer: coarse) and (max-width: 980px)";
 
 interface TopMenuSubmenuContextValue {
   activeSubmenuId: string | null;
@@ -4534,6 +4558,7 @@ function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
 
 function HelpHubPopover({
   tourAvailable,
+  tourUnavailableReason,
   onClose,
   onStartTour,
   onShortcuts,
@@ -4541,6 +4566,7 @@ function HelpHubPopover({
   onOpenSample,
 }: {
   tourAvailable: boolean;
+  tourUnavailableReason: string;
   onClose(): void;
   onStartTour(): void;
   onShortcuts(): void;
@@ -4575,7 +4601,7 @@ function HelpHubPopover({
           title={
             tourAvailable
               ? "Walk through the editor step by step"
-              : "Open a path first"
+              : tourUnavailableReason
           }
           onClick={onStartTour}
         >

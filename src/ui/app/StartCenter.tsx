@@ -16,6 +16,7 @@ export function StartCenter({
   onOpenProject,
   onOpenRecent,
   onOpenSample,
+  tourSupported,
   onStartTour,
 }: {
   initializing: boolean;
@@ -27,6 +28,7 @@ export function StartCenter({
   onOpenProject(): void;
   onOpenRecent(id: string): void;
   onOpenSample(): void;
+  tourSupported: boolean;
   onStartTour(): void;
 }) {
   return (
@@ -133,13 +135,15 @@ export function StartCenter({
               <button type="button" onClick={onOpenSample}>
                 Open sample
               </button>
-              <button
-                type="button"
-                data-testid="start-center-guided-tour"
-                onClick={onStartTour}
-              >
-                <span aria-hidden="true">🧭</span> Take the guided tour
-              </button>
+              {tourSupported ? (
+                <button
+                  type="button"
+                  data-testid="start-center-guided-tour"
+                  onClick={onStartTour}
+                >
+                  <span aria-hidden="true">🧭</span> Take the guided tour
+                </button>
+              ) : null}
             </div>
           </div>
         </section>

@@ -2963,6 +2963,12 @@ test("runs the guided tour on a throwaway practice path", async ({ page }) => {
     "Tour practice",
   );
 
+  // The practice path is seeded with a valid two-waypoint run, so the
+  // path-health check has nothing to flag.
+  await expect(
+    page.getByRole("button", { name: "Path health: 0 issues" }),
+  ).toBeVisible();
+
   // Leaving the tour puts them back on the path they were editing.
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
@@ -2995,6 +3001,26 @@ test("starts the guided tour from the start center", async ({ page }) => {
 
   await expect(page.getByTestId("tour-card")).toBeVisible();
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 6");
+});
+
+test("hides guided tours below the mobile support threshold", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await expect(page.getByTestId("tour-card")).toBeVisible();
+
+  // Shrinking into the mobile layout exits the tour rather than letting the
+  // coach marks fight the overlay inspector.
+  await page.setViewportSize({ width: 700, height: 800 });
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+  await dismissMobileSupportWarning(page);
+
+  // And the help hub stops offering it until the window grows again.
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await expect(page.getByTestId("start-guided-tour")).toBeDisabled();
 });
 
 test("walks the guided tour with a spotlight on every step", async ({
