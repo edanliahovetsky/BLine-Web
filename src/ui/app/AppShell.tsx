@@ -133,7 +133,7 @@ import {
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
-import { editorBasicsTour } from "../tours/tours";
+import { editorBasicsTour, tourPracticePathName } from "../tours/tours";
 
 interface LinkedTargetPickerRequest {
   pathId: string;
@@ -197,6 +197,11 @@ export function AppShell() {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
   const [showHelpHub, setShowHelpHub] = useState(false);
+  const tourReturnPathRef = useRef<string | null>(null);
+  const activeTourId = useStoreSelector(
+    tourStore,
+    (state) => state.activeTourId,
+  );
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
   );
@@ -505,6 +510,52 @@ export function AppShell() {
       setOpenTopMenu(null);
     }
   }, [refreshWorkspaceSummaries]);
+
+  // Tours run on a throwaway path so every step is safe to actually perform.
+  const startGuidedTour = useCallback(() => {
+    const state = projectStore.getState();
+    const currentWorkspace = state.workspace;
+    if (!currentWorkspace) {
+      return;
+    }
+
+    const existingPractice = currentWorkspace.paths.find(
+      (path) => path.display_name === tourPracticePathName,
+    );
+    const currentPathId = currentWorkspace.active_path_id;
+    tourReturnPathRef.current =
+      currentPathId && currentPathId !== existingPractice?.path_id
+        ? currentPathId
+        : null;
+
+    if (existingPractice) {
+      state.setActivePath(existingPractice.path_id);
+    } else {
+      state.createPath({ displayName: tourPracticePathName });
+    }
+
+    selectionStore.getState().clearSelection();
+    setInspectorOpen(true);
+    tourStore.getState().start(editorBasicsTour.id);
+  }, []);
+
+  // Put the user back on the path they were editing once the tour ends.
+  useEffect(() => {
+    if (activeTourId) {
+      return;
+    }
+
+    const returnPathId = tourReturnPathRef.current;
+    if (!returnPathId) {
+      return;
+    }
+
+    tourReturnPathRef.current = null;
+    const currentWorkspace = projectStore.getState().workspace;
+    if (currentWorkspace?.paths.some((path) => path.path_id === returnPathId)) {
+      projectStore.getState().setActivePath(returnPathId);
+    }
+  }, [activeTourId]);
 
   const handleToolChange = useCallback(
     (tool: EditorTool) => {
@@ -1930,8 +1981,7 @@ export function AppShell() {
                   onClose={() => setShowHelpHub(false)}
                   onStartTour={() => {
                     setShowHelpHub(false);
-                    setInspectorOpen(true);
-                    tourStore.getState().start(editorBasicsTour.id);
+                    startGuidedTour();
                   }}
                   onShortcuts={() => {
                     setShowHelpHub(false);
@@ -2043,6 +2093,11 @@ export function AppShell() {
               }
             }}
             onOpenSample={() => void handleOpenSample()}
+            onStartTour={() => {
+              // There is no workspace yet on the start center, so open the
+              // sample first and then hand over to the tour.
+              void handleOpenSample().then(() => startGuidedTour());
+            }}
           />
         ) : (
           <>

@@ -16,6 +16,7 @@ export function StartCenter({
   onOpenProject,
   onOpenRecent,
   onOpenSample,
+  onStartTour,
 }: {
   initializing: boolean;
   recentWorkspaces: readonly ProjectWorkspaceSummary[];
@@ -26,6 +27,7 @@ export function StartCenter({
   onOpenProject(): void;
   onOpenRecent(id: string): void;
   onOpenSample(): void;
+  onStartTour(): void;
 }) {
   return (
     <section className="start-center" aria-labelledby="start-center-title">
@@ -127,9 +129,18 @@ export function StartCenter({
             <p>
               Open a safe sample with waypoints, events, and a velocity range.
             </p>
-            <button type="button" onClick={onOpenSample}>
-              Open sample
-            </button>
+            <div className="start-center__sample-actions">
+              <button type="button" onClick={onOpenSample}>
+                Open sample
+              </button>
+              <button
+                type="button"
+                data-testid="start-center-guided-tour"
+                onClick={onStartTour}
+              >
+                <span aria-hidden="true">🧭</span> Take the guided tour
+              </button>
+            </div>
           </div>
         </section>
       </div>

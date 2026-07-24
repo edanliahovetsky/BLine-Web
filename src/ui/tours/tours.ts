@@ -3,6 +3,9 @@ import type { TourDefinition } from "./tourStore";
 
 export const editorBasicsTourId = "editor-basics";
 
+/** Scratch path a tour switches to so nothing it teaches touches real autos. */
+export const tourPracticePathName = "Tour practice";
+
 /**
  * Element counts are captured when the tour starts so the "place a waypoint"
  * step can tell that the user actually added something.
@@ -27,8 +30,8 @@ export const editorBasicsTour: TourDefinition = {
   steps: [
     {
       target: "path-breadcrumb",
-      title: "Your current path",
-      body: "Every edit applies to the path named here. Use the breadcrumb to switch collections and paths.",
+      title: "You are on a practice path",
+      body: `Every edit applies to the path named here. The tour moved you to “${tourPracticePathName}”, so try anything — your real autos are untouched.`,
       placement: "below",
     },
     {

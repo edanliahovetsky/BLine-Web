@@ -2948,6 +2948,55 @@ test("opens help and tutorials from the toolbar", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("runs the guided tour on a throwaway practice path", async ({ page }) => {
+  await gotoSampleEditor(page);
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+
+  // The tour moves the user onto a scratch path so steps are safe to perform.
+  await expect(page.getByTestId("tour-card")).toBeVisible();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Tour practice",
+  );
+
+  // Leaving the tour puts them back on the path they were editing.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
+
+  // Starting again reuses the same practice path rather than piling up copies.
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Tour practice",
+  );
+  await page.keyboard.press("Escape");
+
+  const dialog = await openPathLibraryDialog(page);
+  await expect(dialog.getByText("Tour practice", { exact: true })).toHaveCount(
+    1,
+  );
+});
+
+test("starts the guided tour from the start center", async ({ page }) => {
+  await page.goto("/");
+  await dismissMobileSupportWarning(page);
+  await expect(
+    page.getByRole("heading", { name: "Simple, rapid, robust." }),
+  ).toBeVisible();
+
+  await page.getByTestId("start-center-guided-tour").click();
+
+  await expect(page.getByTestId("tour-card")).toBeVisible();
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 6");
+});
+
 test("walks the guided tour with a spotlight on every step", async ({
   page,
 }) => {
