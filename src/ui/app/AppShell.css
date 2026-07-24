@@ -169,9 +169,8 @@ select {
 
 .path-toolbar-navigator__field {
   display: grid;
-  grid-template-columns: auto minmax(0, var(--path-toolbar-field-width, 20ch));
+  grid-template-columns: minmax(0, var(--path-toolbar-field-width, 20ch));
   align-items: center;
-  gap: 6px;
   flex: 0 1 auto;
   min-width: 0;
 }
@@ -179,6 +178,12 @@ select {
 .path-toolbar-navigator__field .toolbar-select-control {
   width: var(--path-toolbar-field-width, 20ch);
   max-width: 100%;
+}
+
+.path-toolbar-navigator__separator {
+  color: #5c6773;
+  font-size: 0.9rem;
+  user-select: none;
 }
 
 .path-toolbar-navigator__label {

@@ -1740,93 +1740,6 @@ export function AppShell() {
               />
             </MenuSubmenu>
           </TopMenuButton>
-          <TopMenuButton
-            id="edit"
-            label="Edit"
-            openTopMenu={openTopMenu}
-            setOpenTopMenu={setActiveTopMenu}
-          >
-            <MenuAction
-              label={undoLabel}
-              shortcut={{ key: "z", metaOrCtrl: true }}
-              disabled={!canUndo}
-              onAction={() => {
-                projectStore.getState().undo();
-                setOpenTopMenu(null);
-              }}
-            />
-            <MenuAction
-              label={redoLabel}
-              shortcut={{ key: "z", metaOrCtrl: true, shift: true }}
-              disabled={!canRedo}
-              onAction={() => {
-                projectStore.getState().redo();
-                setOpenTopMenu(null);
-              }}
-            />
-            <div className="top-menu__separator" role="separator" />
-            <MenuAction
-              label="Duplicate Element"
-              shortcut={{ key: "d", metaOrCtrl: true }}
-              disabled={selectedElementIndex === null}
-              onAction={() => {
-                duplicateSelectedPathElement();
-                setOpenTopMenu(null);
-              }}
-            />
-          </TopMenuButton>
-          <TopMenuButton
-            id="view"
-            label="View"
-            openTopMenu={openTopMenu}
-            setOpenTopMenu={setActiveTopMenu}
-          >
-            <MenuAction
-              label="Project Navigator"
-              disabled={!workspace}
-              onAction={handleShowPathLibrary}
-            />
-            <MenuAction
-              label={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
-              disabled={!project}
-              onAction={() => {
-                setInspectorOpen((current) => !current);
-                setOpenTopMenu(null);
-              }}
-            />
-            <div className="top-menu__separator" role="separator" />
-            <MenuAction
-              label="Project Settings..."
-              disabled={!project}
-              onAction={() => {
-                setShowConfigDialog(true);
-                setOpenTopMenu(null);
-              }}
-            />
-          </TopMenuButton>
-          <TopMenuButton
-            id="help"
-            label="Help"
-            openTopMenu={openTopMenu}
-            setOpenTopMenu={setActiveTopMenu}
-          >
-            <MenuAction
-              label="Command Palette..."
-              shortcut={{ key: "k", metaOrCtrl: true }}
-              onAction={() => {
-                setShowCommandPalette(true);
-                setOpenTopMenu(null);
-              }}
-            />
-            <MenuAction
-              label="Keyboard Shortcuts"
-              shortcut={{ key: "?" }}
-              onAction={() => {
-                setShowShortcutHelp(true);
-                setOpenTopMenu(null);
-              }}
-            />
-          </TopMenuButton>
         </nav>
         <nav className="toolbar-actions" aria-label="Project actions">
           <div className="toolbar-actions__quick">
@@ -1835,7 +1748,6 @@ export function AppShell() {
               activeGroup={activePathGroup}
               activePath={activePath}
               visiblePaths={visiblePathDocuments}
-              onOpenLibrary={handleShowPathLibrary}
               onSelectGroup={handleSelectCollectionFromToolbar}
               onSelectPath={handleSelectPathFromToolbar}
             />
@@ -2533,7 +2445,6 @@ function ToolbarPathNavigator({
   activeGroup,
   activePath,
   visiblePaths,
-  onOpenLibrary,
   onSelectGroup,
   onSelectPath,
 }: {
@@ -2541,7 +2452,6 @@ function ToolbarPathNavigator({
   activeGroup: ProjectPathGroupDocument | null;
   activePath: ProjectPathDocument | null;
   visiblePaths: ProjectPathDocument[];
-  onOpenLibrary(): void;
   onSelectGroup(groupId: string | null): void;
   onSelectPath(pathId: string): void;
 }) {
@@ -2570,7 +2480,6 @@ function ToolbarPathNavigator({
         className="path-toolbar-navigator__field path-toolbar-navigator__field--collection"
         style={toolbarSelectWidthStyle(collectionLabel, 14, 26)}
       >
-        <span className="path-toolbar-navigator__label">Collection</span>
         <ToolbarSelectControl
           ariaLabel="Toolbar collection"
           value={collectionValue}
@@ -2581,11 +2490,13 @@ function ToolbarPathNavigator({
           }
         />
       </div>
+      <span className="path-toolbar-navigator__separator" aria-hidden="true">
+        /
+      </span>
       <div
         className="path-toolbar-navigator__field path-toolbar-navigator__field--path"
         style={toolbarSelectWidthStyle(pathLabel, 15, 34)}
       >
-        <span className="path-toolbar-navigator__label">Path</span>
         <ToolbarSelectControl
           ariaLabel="Toolbar path"
           value={pathValue}
@@ -2598,14 +2509,6 @@ function ToolbarPathNavigator({
           }}
         />
       </div>
-      <button
-        type="button"
-        className="path-toolbar-navigator__library"
-        onClick={onOpenLibrary}
-        disabled={!workspace}
-      >
-        Navigator
-      </button>
     </div>
   );
 }

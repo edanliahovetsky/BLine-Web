@@ -452,6 +452,17 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     await expect(
       autoVelocityControls.getByText("Accel factor", { exact: true }),
     ).toHaveCount(0);
+    // Select the segment last (clicking elsewhere clears the selection) so its
+    // value control renders for the overflow measurement below.
+    await page
+      .getByRole("listbox", { name: "Max Rot Acceleration segments" })
+      .focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(
+      denseConstraintCard.locator(
+        ".ranged-constraint-controls input[role='spinbutton']",
+      ),
+    ).toBeVisible();
 
     const metrics = await page.evaluate(() => {
       const documentScroller =
@@ -2204,28 +2215,17 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
     page.getByRole("menuitem", { name: "Import Path..." }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  await expect(page.getByTestId("top-menu-edit")).toBeVisible();
+  // The menu bar is limited to File and Path; Edit/View/Help were removed
+  // and their actions moved to the toolbar, command palette, and shortcuts.
   await expect(
-    page.getByRole("menuitem", { name: "Undo", exact: false }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Redo", exact: false }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Duplicate Element", exact: false }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-
-  await page.getByRole("button", { name: "View", exact: true }).click();
-  await expect(page.getByTestId("top-menu-view")).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Project Navigator", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Linked Elements...", exact: true }),
+    page.getByRole("button", { name: "Edit", exact: true }),
   ).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "View", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Help", exact: true }),
+  ).toHaveCount(0);
 
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
@@ -2384,9 +2384,9 @@ test("closes the open-project panel when using top menus", async ({ page }) => {
   await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("button", { name: "File", exact: true }).click();
   await expect(page.getByTestId("top-menu-path")).toHaveCount(0);
-  await expect(page.getByTestId("top-menu-edit")).toBeVisible();
+  await expect(page.getByTestId("top-menu-project")).toBeVisible();
 });
 
 test("project and path menus expose import modes without toolbar clutter", async ({
@@ -3538,12 +3538,8 @@ async function runEditMenuAction(
   page: Page,
   action: "Undo" | "Redo",
 ): Promise<void> {
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  // Undo/Redo labels name the pending action, so match by the leading verb.
-  await page
-    .getByRole("menuitem", { name: action, exact: false })
-    .first()
-    .click();
+  // Undo/Redo now live on the toolbar rather than an Edit menu.
+  await page.getByRole("button", { name: action, exact: true }).click();
 }
 
 async function openPathMenu(page: Page): Promise<Locator> {
