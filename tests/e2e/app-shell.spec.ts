@@ -2948,6 +2948,44 @@ test("opens help and tutorials from the toolbar", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("walks the guided tour with a spotlight on every step", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+
+  const card = page.getByTestId("tour-card");
+  const spotlight = page.locator(".tour-spotlight");
+  await expect(card).toBeVisible();
+
+  // Every step must anchor to something real and on screen.
+  for (let step = 1; step <= 6; step += 1) {
+    await expect(page.getByTestId("tour-step-count")).toHaveText(
+      `Step ${step} of 6`,
+    );
+    await expect(spotlight).toBeVisible();
+    const box = await spotlight.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThan(0);
+    expect(box?.height ?? 0).toBeGreaterThan(0);
+
+    if (step < 6) {
+      await card.getByRole("button", { name: "Next", exact: true }).click();
+    }
+  }
+
+  await card.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+
+  // Escape leaves a tour part way through.
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await expect(page.getByTestId("tour-card")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+});
+
 test("switches and reorders path elements with keyboard shortcuts", async ({
   page,
 }) => {

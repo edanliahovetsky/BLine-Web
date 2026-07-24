@@ -1420,6 +1420,7 @@ export function PathStage({
       ref={containerRef}
       className="path-stage"
       data-testid="path-stage"
+      data-tour="path-canvas"
       aria-label="Path canvas"
       tabIndex={0}
       onKeyDown={handleKeyDown}
@@ -1573,6 +1574,7 @@ function CanvasToolRail({
   return (
     <aside
       className="canvas-tool-rail"
+      data-tour="tool-rail"
       aria-label="Canvas tools"
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -1795,7 +1797,11 @@ function SimulationTransport({
   } as CSSProperties;
 
   return (
-    <div className="simulation-transport" data-testid="simulation-transport">
+    <div
+      className="simulation-transport"
+      data-testid="simulation-transport"
+      data-tour="simulation-transport"
+    >
       <div className="transport-primary-controls">
         <button
           type="button"

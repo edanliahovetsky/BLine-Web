@@ -131,6 +131,9 @@ import {
   type ShortcutBinding,
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
+import { TourOverlay } from "../tours/TourOverlay";
+import { tourStore } from "../tours/tourStore";
+import { editorBasicsTour } from "../tours/tours";
 
 interface LinkedTargetPickerRequest {
   pathId: string;
@@ -1923,7 +1926,13 @@ export function AppShell() {
               </IconButton>
               {showHelpHub ? (
                 <HelpHubPopover
+                  tourAvailable={Boolean(project)}
                   onClose={() => setShowHelpHub(false)}
+                  onStartTour={() => {
+                    setShowHelpHub(false);
+                    setInspectorOpen(true);
+                    tourStore.getState().start(editorBasicsTour.id);
+                  }}
                   onShortcuts={() => {
                     setShowHelpHub(false);
                     setShowShortcutHelp(true);
@@ -2237,6 +2246,13 @@ export function AppShell() {
           onClose={() => setShowShortcutHelp(false)}
         />
       ) : null}
+      <TourOverlay
+        onPrepare={(preparation) => {
+          if (preparation.inspector === "open") {
+            setInspectorOpen(true);
+          }
+        }}
+      />
     </main>
   );
 }
@@ -2510,7 +2526,11 @@ function ToolbarPathNavigator({
   const pathLabel = activePath?.display_name ?? "No paths";
 
   return (
-    <div className="path-toolbar-navigator" data-testid="path-toolbar-nav">
+    <div
+      className="path-toolbar-navigator"
+      data-testid="path-toolbar-nav"
+      data-tour="path-breadcrumb"
+    >
       <div
         className="path-toolbar-navigator__field path-toolbar-navigator__field--collection"
         style={toolbarSelectWidthStyle(collectionLabel, 14, 26)}
@@ -4458,12 +4478,16 @@ function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
 }
 
 function HelpHubPopover({
+  tourAvailable,
   onClose,
+  onStartTour,
   onShortcuts,
   onCommandPalette,
   onOpenSample,
 }: {
+  tourAvailable: boolean;
   onClose(): void;
+  onStartTour(): void;
   onShortcuts(): void;
   onCommandPalette(): void;
   onOpenSample(): void;
@@ -4489,16 +4513,36 @@ function HelpHubPopover({
     >
       <div className="help-hub-popover__group">
         <span className="help-hub-popover__label">Learn</span>
+        <button
+          type="button"
+          data-testid="start-guided-tour"
+          disabled={!tourAvailable}
+          title={
+            tourAvailable
+              ? "Walk through the editor step by step"
+              : "Open a path first"
+          }
+          onClick={onStartTour}
+        >
+          <span className="help-hub-popover__glyph" aria-hidden="true">
+            🧭
+          </span>
+          <span>Guided tour</span>
+          <small>{editorBasicsTour.steps.length} steps</small>
+        </button>
         <button type="button" onClick={onShortcuts}>
+          <span className="help-hub-popover__glyph" aria-hidden="true">
+            ⌨️
+          </span>
           <span>Keyboard shortcuts</span>
           <kbd>?</kbd>
         </button>
         <button type="button" onClick={onCommandPalette}>
+          <span className="help-hub-popover__glyph" aria-hidden="true">
+            ⌘
+          </span>
           <span>Command palette</span>
           <kbd>{formatShortcut({ key: "k", metaOrCtrl: true })}</kbd>
-        </button>
-        <button type="button" onClick={onOpenSample}>
-          <span>Open sample path</span>
         </button>
       </div>
       <div className="help-hub-popover__separator" role="separator" />
@@ -4510,15 +4554,27 @@ function HelpHubPopover({
           rel="noreferrer noopener"
           onClick={onClose}
         >
+          <span className="help-hub-popover__glyph" aria-hidden="true">
+            📖
+          </span>
           <span>Documentation</span>
           <small>↗</small>
         </a>
+        <button type="button" onClick={onOpenSample}>
+          <span className="help-hub-popover__glyph" aria-hidden="true">
+            🧪
+          </span>
+          <span>Open sample path</span>
+        </button>
         <a
           href="https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778"
           target="_blank"
           rel="noreferrer noopener"
           onClick={onClose}
         >
+          <span className="help-hub-popover__glyph" aria-hidden="true">
+            💬
+          </span>
           <span>Ask on Chief Delphi</span>
           <small>↗</small>
         </a>

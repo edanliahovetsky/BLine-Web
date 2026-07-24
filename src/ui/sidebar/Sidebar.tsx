@@ -330,6 +330,7 @@ export function Sidebar({
   return (
     <aside
       className={`inspector-sidebar ${open ? "is-open" : ""}`}
+      data-tour="inspector-panel"
       aria-label="Path inspector"
     >
       <div
@@ -360,6 +361,7 @@ export function Sidebar({
             type="button"
             role="tab"
             aria-selected={activeTab === "constraints"}
+            data-tour="inspector-constraints"
             className={activeTab === "constraints" ? "is-active" : ""}
             onClick={() => handleSelectTab("constraints")}
           >

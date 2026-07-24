@@ -4782,7 +4782,9 @@ select {
 
 /* Streamlined editor shell */
 
-.app-shell {
+/* Defined on :root so overlays portaled outside .app-shell (guided tours)
+   still resolve these tokens. */
+:root {
   --bline-surface-app: #0f1316;
   --bline-surface-canvas: #101416;
   --bline-surface-base: #151a1f;
@@ -4799,6 +4801,9 @@ select {
   --bline-warning: #f1c15d;
   --bline-danger: #ff6b6b;
   --bline-motion-fast: 140ms ease-out;
+}
+
+.app-shell {
   grid-template-rows: 48px minmax(0, 1fr) 30px;
   background: var(--bline-surface-app);
 }
@@ -4922,6 +4927,158 @@ select {
   position: relative;
 }
 
+/* Guided tours */
+
+.tour-layer {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 11, 0.66);
+}
+
+.tour-spotlight {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 9999px rgba(4, 8, 11, 0.66),
+    0 0 0 2px var(--bline-accent),
+    0 0 24px rgba(88, 166, 255, 0.5);
+  transition:
+    top 260ms ease-out,
+    left 260ms ease-out,
+    width 260ms ease-out,
+    height 260ms ease-out;
+}
+
+.tour-card {
+  position: absolute;
+  width: 272px;
+  padding: 13px 14px 12px;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 11px;
+  background: var(--bline-surface-raised);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  transition:
+    top 260ms ease-out,
+    left 260ms ease-out;
+}
+
+.tour-card:focus-visible {
+  outline: 2px solid var(--bline-accent);
+  outline-offset: 3px;
+}
+
+.tour-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  color: var(--bline-text-muted);
+  font-size: 0.63rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tour-card h4 {
+  margin: 0 0 5px;
+  color: var(--bline-text-primary);
+  font-size: 0.88rem;
+}
+
+.tour-card p {
+  margin: 0;
+  color: var(--bline-text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.tour-card__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.tour-card__keys kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--bline-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--bline-text-secondary);
+  background: var(--bline-surface-base);
+  font-size: 0.64rem;
+}
+
+.tour-card__progress {
+  display: flex;
+  gap: 3px;
+  margin: 12px 0 10px;
+}
+
+.tour-card__progress i {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bline-border-strong);
+}
+
+.tour-card__progress i.is-done {
+  background: var(--bline-accent);
+}
+
+.tour-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tour-card__actions .tour-card__skip {
+  margin-right: auto;
+  padding-left: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--bline-text-muted);
+}
+
+.tour-card__actions button {
+  padding: 5px 11px;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 7px;
+  color: var(--bline-text-secondary);
+  background: var(--bline-surface-base);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.tour-card__actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tour-card__actions button.is-primary {
+  border-color: transparent;
+  color: #08121e;
+  background: var(--bline-accent);
+  font-weight: 640;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight,
+  .tour-card {
+    transition: none;
+  }
+}
+
 .help-hub-popover {
   position: absolute;
   z-index: 90;
@@ -4978,6 +5135,14 @@ select {
 .help-hub-popover button:focus-visible,
 .help-hub-popover a:focus-visible {
   background: var(--bline-surface-hover);
+}
+
+.help-hub-popover__glyph {
+  flex: none;
+  width: 17px;
+  font-size: 0.84rem;
+  line-height: 1;
+  text-align: center;
 }
 
 .help-hub-popover kbd,
