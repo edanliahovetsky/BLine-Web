@@ -716,13 +716,17 @@ function RangedConstraintCard({
         ) : null}
       </div>
 
-      {isAutoVelocityCard &&
-      autoStatus &&
-      !canGenerate &&
-      !autoVelocityRunning ? (
-        <p className="auto-velocity-hint" role="note">
-          All segments are set manually. Switch a segment to Auto to generate.
-        </p>
+      {isAutoVelocityCard && autoStatus && !autoVelocityRunning ? (
+        !canGenerate ? (
+          <p className="auto-velocity-hint" role="note">
+            All segments are set manually. Switch a segment to Auto to generate.
+          </p>
+        ) : entries.length === 0 && total > 0 ? (
+          <p className="auto-velocity-hint" role="note">
+            No caps yet, so this path drives at the global maximum. Generate
+            proposes caps from its shape — then review them.
+          </p>
+        ) : null
       ) : null}
 
       {isAutoVelocityCard && autoStatus ? (

@@ -212,6 +212,18 @@ export function ElementList({
                   </span>
                   <span className="path-element-row__label">
                     {index + 1}. {elementTypeLabel(element)}
+                    {index === 0 || index === elements.length - 1 ? (
+                      <span
+                        className="path-element-row__role"
+                        title={
+                          index === 0
+                            ? "Start of the path"
+                            : "Final target — the path finishes here by tolerance, not by a handoff"
+                        }
+                      >
+                        {index === 0 ? "Start" : "End"}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="path-element-row__meta">
                     {formatPointMeters(position)}

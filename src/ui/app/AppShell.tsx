@@ -1529,6 +1529,12 @@ export function AppShell() {
     () => derivePathDiagnostics(project, workspace),
     [project, workspace],
   );
+  // A broken reference should read as more urgent than a soft warning.
+  const pathHealthSeverity = pathDiagnostics.some(
+    (diagnostic) => diagnostic.severity === "error",
+  )
+    ? "error"
+    : "warning";
   const handleSelectPathFromToolbar = useCallback((pathId: string) => {
     projectStore.getState().setActivePath(pathId);
     selectionStore.getState().clearSelection();
@@ -1998,10 +2004,20 @@ export function AppShell() {
             </button>
             <div className="path-health-control" data-tour="path-health">
               <IconButton
-                className={pathDiagnostics.length > 0 ? "has-diagnostics" : ""}
+                className={
+                  pathDiagnostics.length > 0
+                    ? `has-diagnostics has-diagnostics--${pathHealthSeverity}`
+                    : ""
+                }
                 aria-label={`Path health: ${pathDiagnostics.length} issues`}
                 aria-expanded={showPathHealth}
-                title="Path health — editor checks for this path"
+                title={
+                  pathDiagnostics.length > 0
+                    ? `Path health — ${pathDiagnostics.length} ${
+                        pathDiagnostics.length === 1 ? "issue" : "issues"
+                      } to review`
+                    : "Path health — editor checks for this path"
+                }
                 disabled={!project}
                 onClick={() => {
                   setShowHelpHub(false);

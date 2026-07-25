@@ -1499,6 +1499,19 @@ select {
   white-space: nowrap;
 }
 
+.path-element-row__role {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid #3a4855;
+  border-radius: 4px;
+  color: #9eadb9;
+  font-size: 0.62rem;
+  font-weight: 720;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
 .path-element-row__meta {
   color: #a8b4bf;
   font-size: 0.74rem;
@@ -5299,6 +5312,19 @@ select {
 .path-health-control .has-diagnostics {
   position: relative;
   color: var(--bline-warning);
+  border-color: rgba(241, 193, 93, 0.45);
+  background: rgba(241, 193, 93, 0.12);
+}
+
+.path-health-control .has-diagnostics--error {
+  color: var(--bline-danger);
+  border-color: rgba(255, 107, 107, 0.5);
+  background: rgba(255, 107, 107, 0.14);
+}
+
+.path-health-control .has-diagnostics--error > span {
+  color: #2a0f0f;
+  background: var(--bline-danger);
 }
 
 .path-health-control .has-diagnostics > span {

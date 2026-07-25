@@ -3347,6 +3347,41 @@ test("guides the user when every velocity segment is manual", async ({
   ).toBeVisible();
 });
 
+test("marks the start and end of the path in the element list", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const rows = page.locator('[data-testid^="path-element-row-"]');
+  const count = await rows.count();
+  await expect(rows.first()).toContainText("Start");
+  await expect(rows.nth(count - 1)).toContainText("End");
+
+  // Only the two endpoints are marked; everything between is intermediate.
+  await expect(page.locator(".path-element-row__role")).toHaveCount(2);
+});
+
+test("escalates path health styling for errors and names the count", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const health = page.getByRole("button", { name: /^Path health/ });
+  await expect(health).toHaveAttribute(
+    "title",
+    "Path health — editor checks for this path",
+  );
+  await expect(health).not.toHaveClass(/has-diagnostics/);
+
+  // An event trigger with no command key is a warning-level issue.
+  await page.getByText("Add element").click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  await page.getByLabel("Lib Key").fill("");
+
+  await expect(health).toHaveClass(/has-diagnostics--warning/);
+  await expect(health).toHaveAttribute("title", /issue/);
+});
+
 test("keeps the element properties card tight to its content", async ({
   page,
 }) => {
