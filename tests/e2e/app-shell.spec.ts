@@ -3347,6 +3347,28 @@ test("guides the user when every velocity segment is manual", async ({
   ).toBeVisible();
 });
 
+test("flags the inert handoff radius on the final anchor", async ({ page }) => {
+  await gotoSampleEditor(page);
+
+  const note = page.locator(".property-row__note");
+  const rows = page.locator('[data-testid^="path-element-row-"]');
+  const lastIndex = (await rows.count()) - 1;
+
+  // The final anchor completes by tolerance, so its handoff radius is inert.
+  await rows.nth(lastIndex).click();
+  await expect(note).toHaveText(
+    "Not used here — the path finishes at this element by tolerance, not by a handoff.",
+  );
+
+  // It stays editable: appending an element later makes it matter again.
+  await expect(page.getByLabel("Handoff Radius (m)")).toBeEnabled();
+
+  // Intermediate elements do use their radius, so they carry no note.
+  await rows.nth(1).click();
+  await expect(page.getByLabel("Handoff Radius (m)")).toBeVisible();
+  await expect(note).toHaveCount(0);
+});
+
 test("marks the start and end of the path in the element list", async ({
   page,
 }) => {

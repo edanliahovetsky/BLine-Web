@@ -49,6 +49,8 @@ interface PropertyEditorProps {
   onCreateLinkedTarget(kind: LinkedTargetKind, displayName: string): void;
   onOpenLinkedTargetPicker(): void;
   fieldGeometry?: FieldGeometry;
+  /** The last translation anchor: its handoff radius has no runtime effect. */
+  isFinalAnchor?: boolean;
 }
 
 export function PropertyEditor({
@@ -64,6 +66,7 @@ export function PropertyEditor({
   onCreateLinkedTarget,
   onOpenLinkedTargetPicker,
   fieldGeometry = defaultFieldGeometry,
+  isFinalAnchor = false,
 }: PropertyEditorProps) {
   if (!element) {
     return null;
@@ -102,6 +105,7 @@ export function PropertyEditor({
           <TranslationFields
             element={element}
             fieldGeometry={fieldGeometry}
+            isFinalAnchor={isFinalAnchor}
             onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
           />
         ) : null}
@@ -109,6 +113,7 @@ export function PropertyEditor({
           <WaypointFields
             element={element}
             fieldGeometry={fieldGeometry}
+            isFinalAnchor={isFinalAnchor}
             onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
           />
         ) : null}
@@ -353,10 +358,12 @@ function closeContainingDetails(element: HTMLElement): void {
 function TranslationFields({
   element,
   fieldGeometry,
+  isFinalAnchor,
   onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "translation" }>;
   fieldGeometry: FieldGeometry;
+  isFinalAnchor: boolean;
   onUpdateElement(element: PathElement): void;
 }) {
   return (
@@ -383,6 +390,7 @@ function TranslationFields({
       />
       <OptionalNumberField
         label="Handoff Radius (m)"
+        note={isFinalAnchor ? finalAnchorHandoffNote : undefined}
         value={element.intermediate_handoff_radius_meters}
         step={0.05}
         onChange={(value) =>
@@ -400,10 +408,12 @@ function TranslationFields({
 function WaypointFields({
   element,
   fieldGeometry,
+  isFinalAnchor,
   onUpdateElement,
 }: {
   element: Extract<PathElement, { type: "waypoint" }>;
   fieldGeometry: FieldGeometry;
+  isFinalAnchor: boolean;
   onUpdateElement(element: PathElement): void;
 }) {
   return (
@@ -450,6 +460,7 @@ function WaypointFields({
       />
       <OptionalNumberField
         label="Handoff Radius (m)"
+        note={isFinalAnchor ? finalAnchorHandoffNote : undefined}
         value={element.translation_target.intermediate_handoff_radius_meters}
         step={0.05}
         onChange={(value) =>
@@ -593,27 +604,36 @@ function NumberField({
 
 function OptionalNumberField({
   label,
+  note,
   value,
   step,
   onChange,
 }: {
   label: string;
+  note?: string;
   value: number | null;
   step: number;
   onChange(value: number | null): void;
 }) {
   return (
-    <label className="property-row">
-      <span>{label}</span>
-      <NumberStepperControl
-        allowEmpty
-        ariaLabel={label}
-        value={value}
-        step={step}
-        min={0}
-        onChange={onChange}
-      />
-    </label>
+    <>
+      <label className="property-row">
+        <span>{label}</span>
+        <NumberStepperControl
+          allowEmpty
+          ariaLabel={label}
+          value={value}
+          step={step}
+          min={0}
+          onChange={onChange}
+        />
+      </label>
+      {note ? (
+        <p className="property-row__note" role="note">
+          {note}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -633,6 +653,9 @@ function BooleanField({
     </label>
   );
 }
+
+const finalAnchorHandoffNote =
+  "Not used here — the path finishes at this element by tolerance, not by a handoff.";
 
 function radiansToDegrees(radians: number): number {
   return radians * (180 / Math.PI);
