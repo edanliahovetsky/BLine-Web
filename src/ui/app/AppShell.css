@@ -1499,11 +1499,19 @@ select {
   white-space: nowrap;
 }
 
-.property-row__note {
-  margin: -2px 0 0;
-  color: #97a6b3;
-  font-size: 0.71rem;
-  line-height: 1.35;
+/* A property that has no effect for this element: dimmed, with a title
+   explaining why. */
+.property-row--inactive {
+  cursor: help;
+}
+
+/* Outranks the `.property-row span` colour defined later in this file. */
+.property-row.property-row--inactive > span {
+  color: #75828d;
+}
+
+.property-row--inactive .sidebar-number-control {
+  opacity: 0.55;
 }
 
 .path-element-row__role {

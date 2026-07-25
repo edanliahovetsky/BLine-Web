@@ -3350,23 +3350,24 @@ test("guides the user when every velocity segment is manual", async ({
 test("flags the inert handoff radius on the final anchor", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  const note = page.locator(".property-row__note");
+  const handoff = page.getByLabel("Handoff Radius (m)");
+  const handoffRow = page.locator(".property-row--inactive");
   const rows = page.locator('[data-testid^="path-element-row-"]');
   const lastIndex = (await rows.count()) - 1;
 
-  // The final anchor completes by tolerance, so its handoff radius is inert.
+  // The final anchor completes by tolerance, so its handoff radius is inert:
+  // greyed out, with a tooltip explaining why.
   await rows.nth(lastIndex).click();
-  await expect(note).toHaveText(
-    "Not used here — the path finishes at this element by tolerance, not by a handoff.",
+  await expect(handoff).toBeDisabled();
+  await expect(handoffRow).toHaveAttribute(
+    "title",
+    "Not used on the final element — the path finishes here by tolerance, not by a handoff.",
   );
 
-  // It stays editable: appending an element later makes it matter again.
-  await expect(page.getByLabel("Handoff Radius (m)")).toBeEnabled();
-
-  // Intermediate elements do use their radius, so they carry no note.
+  // Intermediate elements do use their radius, so theirs stays editable.
   await rows.nth(1).click();
-  await expect(page.getByLabel("Handoff Radius (m)")).toBeVisible();
-  await expect(note).toHaveCount(0);
+  await expect(handoff).toBeEnabled();
+  await expect(handoffRow).toHaveCount(0);
 });
 
 test("marks the start and end of the path in the element list", async ({

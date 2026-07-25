@@ -390,7 +390,8 @@ function TranslationFields({
       />
       <OptionalNumberField
         label="Handoff Radius (m)"
-        note={isFinalAnchor ? finalAnchorHandoffNote : undefined}
+        disabled={isFinalAnchor}
+        title={isFinalAnchor ? finalAnchorHandoffNote : undefined}
         value={element.intermediate_handoff_radius_meters}
         step={0.05}
         onChange={(value) =>
@@ -460,7 +461,8 @@ function WaypointFields({
       />
       <OptionalNumberField
         label="Handoff Radius (m)"
-        note={isFinalAnchor ? finalAnchorHandoffNote : undefined}
+        disabled={isFinalAnchor}
+        title={isFinalAnchor ? finalAnchorHandoffNote : undefined}
         value={element.translation_target.intermediate_handoff_radius_meters}
         step={0.05}
         onChange={(value) =>
@@ -604,36 +606,35 @@ function NumberField({
 
 function OptionalNumberField({
   label,
-  note,
+  disabled = false,
+  title,
   value,
   step,
   onChange,
 }: {
   label: string;
-  note?: string;
+  disabled?: boolean;
+  title?: string;
   value: number | null;
   step: number;
   onChange(value: number | null): void;
 }) {
   return (
-    <>
-      <label className="property-row">
-        <span>{label}</span>
-        <NumberStepperControl
-          allowEmpty
-          ariaLabel={label}
-          value={value}
-          step={step}
-          min={0}
-          onChange={onChange}
-        />
-      </label>
-      {note ? (
-        <p className="property-row__note" role="note">
-          {note}
-        </p>
-      ) : null}
-    </>
+    <label
+      className={`property-row${disabled ? " property-row--inactive" : ""}`}
+      title={title}
+    >
+      <span>{label}</span>
+      <NumberStepperControl
+        allowEmpty
+        ariaLabel={label}
+        value={value}
+        step={step}
+        min={0}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    </label>
   );
 }
 
@@ -655,7 +656,7 @@ function BooleanField({
 }
 
 const finalAnchorHandoffNote =
-  "Not used here — the path finishes at this element by tolerance, not by a handoff.";
+  "Not used on the final element — the path finishes here by tolerance, not by a handoff.";
 
 function radiansToDegrees(radians: number): number {
   return radians * (180 / Math.PI);
