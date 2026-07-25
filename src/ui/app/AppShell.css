@@ -1099,10 +1099,8 @@ select {
 }
 
 .property-editor-section {
-  /* The panel's second grid row absorbs the leftover height. Hug the
-     properties instead of stretching, so a short element does not leave
-     empty space inside the card's border. */
-  align-self: start;
+  /* Hug the properties rather than stretching, so a short element does not
+     leave empty space inside the card's border. */
   max-height: 100%;
   overflow: visible;
 }
@@ -5745,8 +5743,8 @@ body.is-resizing-inspector * {
 }
 
 .inspector-sidebar__panel--elements {
-  display: grid;
-  grid-template-rows: minmax(190px, 38%) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   overflow: hidden;
 }
@@ -5760,6 +5758,38 @@ body.is-resizing-inspector * {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* Properties take only the height they need; the element list keeps the rest
+   of the panel, so long paths scroll less. Neither card stretches past its
+   own content — leftover height stays as panel background. */
+.inspector-sidebar__panel--elements > .path-elements-section {
+  flex: 0 1 auto;
+  /* The percentage keeps the floor and the properties cap below from adding
+     up to more than the panel on very short windows. */
+  min-height: min(140px, 34%);
+}
+
+.inspector-sidebar__panel--elements > .property-editor-section {
+  flex: 0 0 auto;
+  max-height: 60%;
+}
+
+/* Drop the standalone row cap and let the list itself fill the card, so it
+   stops scrolling once the card has room. The list stays the scroll
+   container, which is what scrolls a canvas selection back into view. */
+.inspector-sidebar__panel--elements
+  .path-elements-section
+  > .sidebar-section__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.inspector-sidebar__panel--elements .path-element-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 
 .inspector-sidebar__panel--elements .sidebar-section__body {

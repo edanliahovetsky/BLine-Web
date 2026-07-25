@@ -3426,6 +3426,46 @@ test("keeps the element properties card tight to its content", async ({
   ).toBeLessThanOrEqual(2);
 });
 
+test("gives the element list the panel height the properties leave over", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const panel = page.locator(".inspector-sidebar__panel--elements");
+  const list = page.locator(".path-elements-section");
+  const rows = page.locator(".path-element-list");
+  const properties = page.locator(".property-editor-section");
+
+  await page.getByTestId("path-element-row-1").click();
+  await expect(page.getByLabel("Handoff Radius (m)")).toBeVisible();
+
+  // The sample's elements all fit, so the list must not scroll just because a
+  // fixed row cap cut it short.
+  const scrolls = async () =>
+    await rows.evaluate((node) => node.scrollHeight > node.clientHeight + 1);
+  expect(await scrolls()).toBe(false);
+
+  // Duplicating past the panel height moves the overflow inside the list
+  // rather than pushing the properties card out of the panel.
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+  for (let index = 0; index < 16; index += 1) {
+    await page.keyboard.press(`${shortcut}+D`);
+  }
+  await expect(page.getByTestId("path-element-row-21")).toHaveCount(1);
+  expect(await scrolls()).toBe(true);
+
+  const panelBox = await requiredBox(panel);
+  const listBox = await requiredBox(list);
+  const propertiesBox = await requiredBox(properties);
+  expect(propertiesBox.y + propertiesBox.height).toBeLessThanOrEqual(
+    panelBox.y + panelBox.height + 1,
+  );
+
+  // The list keeps the lion's share: the old fixed 38% row wasted the space a
+  // short properties card gave back.
+  expect(listBox.height).toBeGreaterThan(panelBox.height * 0.5);
+});
+
 test("keeps the velocity card header on one compact row", async ({ page }) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
