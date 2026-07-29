@@ -6,6 +6,7 @@ interface SidebarSectionProps {
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  headerless?: boolean;
   meta?: string;
   onToggle?(): void;
   open: boolean;
@@ -18,6 +19,7 @@ export function SidebarSection({
   actions,
   children,
   className,
+  headerless = false,
   meta,
   onToggle,
   open,
@@ -34,32 +36,34 @@ export function SidebarSection({
         .join(" ")}
       aria-label={title}
     >
-      <header className="inspector-section__header">
-        <div className="sidebar-section-heading">
-          {onToggle ? (
-            <button
-              type="button"
-              className="sidebar-section-toggle"
-              aria-label={open ? "Collapse section" : "Expand section"}
-              aria-controls={bodyId}
-              aria-expanded={open}
-              data-testid={`sidebar-section-${sectionId}-toggle`}
-              onClick={onToggle}
-            >
-              <ChevronDownIcon size={15} />
-              <span className="sidebar-section-title">{title}</span>
-            </button>
-          ) : (
-            <span className="sidebar-section-toggle sidebar-section-toggle--static">
-              <span className="sidebar-section-title">{title}</span>
-            </span>
-          )}
-          {meta ? <span className="sidebar-section-meta">{meta}</span> : null}
-        </div>
-        {actions ? (
-          <div className="sidebar-section-actions">{actions}</div>
-        ) : null}
-      </header>
+      {headerless ? null : (
+        <header className="inspector-section__header">
+          <div className="sidebar-section-heading">
+            {onToggle ? (
+              <button
+                type="button"
+                className="sidebar-section-toggle"
+                aria-label={open ? "Collapse section" : "Expand section"}
+                aria-controls={bodyId}
+                aria-expanded={open}
+                data-testid={`sidebar-section-${sectionId}-toggle`}
+                onClick={onToggle}
+              >
+                <ChevronDownIcon size={15} />
+                <span className="sidebar-section-title">{title}</span>
+              </button>
+            ) : (
+              <span className="sidebar-section-toggle sidebar-section-toggle--static">
+                <span className="sidebar-section-title">{title}</span>
+              </span>
+            )}
+            {meta ? <span className="sidebar-section-meta">{meta}</span> : null}
+          </div>
+          {actions ? (
+            <div className="sidebar-section-actions">{actions}</div>
+          ) : null}
+        </header>
+      )}
       <div
         id={bodyId}
         className="sidebar-section__body"

@@ -240,11 +240,9 @@ const defaultAutoVelocitySettings: AutoVelocitySettings = {
 export function ConstraintEditor({
   project,
   open,
-  onToggleSection,
 }: {
   project: ProjectDocument | null;
   open: boolean;
-  onToggleSection?(): void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDetailsElement | null>(null);
@@ -471,101 +469,101 @@ export function ConstraintEditor({
   return (
     <>
       <SidebarSection
-        actions={
-          <details
-            ref={menuRootRef}
-            className="add-element-menu add-constraint-menu"
-            open={menuOpen}
-          >
-            <summary
-              ref={menuSummaryRef}
-              className={
-                project
-                  ? "add-element-button"
-                  : "add-element-button is-disabled"
-              }
-              role="button"
-              onClick={(event) => {
-                event.preventDefault();
-                if (!project) {
-                  return;
-                }
-                setMenuOpen((open) => !open);
-              }}
-            >
-              <span
-                className="sidebar-add-icon"
-                data-testid="add-constraint-icon"
-                aria-hidden="true"
-              >
-                <PlusIcon size={17} />
-              </span>
-              <span>Add constraint</span>
-            </summary>
-            <div
-              ref={menuPanelRef}
-              className="add-element-menu__panel"
-              role="menu"
-              aria-label="Add constraint"
-              style={menuPanelStyle}
-            >
-              {availableItemCount === 0 ? (
-                <p className="constraint-empty-state">
-                  All constraints are active.
-                </p>
-              ) : (
-                availableSections.map((section) => (
-                  <div
-                    key={section.id}
-                    className="add-constraint-menu__section"
-                    role="group"
-                    aria-labelledby={`add-constraint-menu-${section.id}`}
-                  >
-                    <div
-                      className="add-constraint-menu__section-label"
-                      id={`add-constraint-menu-${section.id}`}
-                    >
-                      {section.label}
-                    </div>
-                    <div className="add-constraint-menu__section-items">
-                      {section.items.map((item) => (
-                        <button
-                          key={item.key}
-                          type="button"
-                          className="add-element-menu__item"
-                          role="menuitem"
-                          onClick={() => {
-                            if (!project) {
-                              return;
-                            }
-                            const added = addConstraint(project, item.key);
-                            if (added) {
-                              setSelectedForKey(added.key, added.index);
-                            }
-                            setMenuOpen(false);
-                          }}
-                        >
-                          <ElementIcon
-                            type={constraintIconType(item.key)}
-                            size={22}
-                          />
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </details>
-        }
         className="constraints-section"
+        headerless
         open={open}
         sectionId="constraints"
         title="Constraints"
-        onToggle={onToggleSection}
       >
         <div className="constraint-list">
+          <div className="constraint-add-rail">
+            <details
+              ref={menuRootRef}
+              className="add-element-menu add-constraint-menu"
+              open={menuOpen}
+            >
+              <summary
+                ref={menuSummaryRef}
+                className={
+                  project
+                    ? "add-element-button"
+                    : "add-element-button is-disabled"
+                }
+                role="button"
+                aria-label="Add constraint"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!project) {
+                    return;
+                  }
+                  setMenuOpen((open) => !open);
+                }}
+              >
+                <span
+                  className="sidebar-add-icon"
+                  data-testid="add-constraint-icon"
+                  aria-hidden="true"
+                >
+                  <PlusIcon size={17} />
+                </span>
+              </summary>
+              <div
+                ref={menuPanelRef}
+                className="add-element-menu__panel"
+                role="menu"
+                aria-label="Add constraint"
+                style={menuPanelStyle}
+              >
+                {availableItemCount === 0 ? (
+                  <p className="constraint-empty-state">
+                    Everything is already active.
+                  </p>
+                ) : (
+                  availableSections.map((section) => (
+                    <div
+                      key={section.id}
+                      className="add-constraint-menu__section"
+                      role="group"
+                      aria-labelledby={`add-constraint-menu-${section.id}`}
+                    >
+                      <div
+                        className="add-constraint-menu__section-label"
+                        id={`add-constraint-menu-${section.id}`}
+                      >
+                        {section.label}
+                      </div>
+                      <div className="add-constraint-menu__section-items">
+                        {section.items.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="add-element-menu__item"
+                            role="menuitem"
+                            onClick={() => {
+                              if (!project) {
+                                return;
+                              }
+                              const added = addConstraint(project, item.key);
+                              if (added) {
+                                setSelectedForKey(added.key, added.index);
+                              }
+                              setMenuOpen(false);
+                            }}
+                          >
+                            <ElementIcon
+                              type={constraintIconType(item.key)}
+                              size={22}
+                            />
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </details>
+          </div>
           {project ? (
             <>
               {rangedConstraintKeys.map((key) =>
@@ -613,14 +611,12 @@ export function ConstraintEditor({
 
               {!hasAnyConstraint(project) &&
               domainLabelsForKey(project, autoVelocityKey).length === 0 ? (
-                <p className="constraint-empty-state">
-                  No path constraints added.
-                </p>
+                <p className="constraint-empty-state">No path limits added.</p>
               ) : null}
             </>
           ) : (
             <p className="constraint-empty-state">
-              Open or create a project to edit constraints.
+              Open or create a project to edit limits.
             </p>
           )}
         </div>
