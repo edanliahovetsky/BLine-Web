@@ -2093,6 +2093,22 @@ select {
   gap: 6px;
 }
 
+.constraint-card__header--auto-ledger {
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 8px;
+}
+
+.constraint-card__header--auto-ledger > .auto-velocity-status,
+.constraint-card__header--auto-ledger > .constraint-card__auto-actions {
+  margin-left: 0;
+}
+
+.constraint-card__header--auto-ledger > .constraint-card__auto-actions {
+  justify-self: center;
+}
+
 .constraint-heading-row h3 {
   overflow: hidden;
   white-space: nowrap;

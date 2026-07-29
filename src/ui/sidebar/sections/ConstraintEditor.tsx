@@ -715,11 +715,9 @@ function AutoConstraintLedgerCard({
       className="constraint-card constraint-card--auto-ledger"
       data-testid={`constraint-card-${constraintKey}`}
       data-tour="max-velocity-card"
+      aria-label="Path constraints"
     >
-      <div className="constraint-card__header constraint-card__header--auto">
-        <div className="constraint-heading-row">
-          <h3>Path Constraints</h3>
-        </div>
+      <div className="constraint-card__header constraint-card__header--auto constraint-card__header--auto-ledger">
         <AutoVelocityStatusIndicator
           status={autoStatus}
           running={autoVelocityRunning}
