@@ -2046,6 +2046,41 @@ select {
   padding: 10px;
 }
 
+.constraint-add-surface {
+  min-width: 0;
+  overflow: visible;
+  border: 1px solid #344654;
+  border-radius: 8px;
+  background: #18242c;
+}
+
+.constraint-add-surface > .add-constraint-menu {
+  width: 100%;
+}
+
+.constraint-add-surface .add-element-button {
+  justify-content: center;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 7px;
+  color: #80bdff;
+}
+
+.constraint-add-surface .add-element-button:hover,
+.constraint-add-surface .add-element-button:focus-visible {
+  background: #1d2d38;
+}
+
+.constraint-add-surface .sidebar-add-icon {
+  width: 17px;
+  height: 17px;
+  flex-basis: 17px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .constraint-card {
   display: grid;
   gap: 8px;

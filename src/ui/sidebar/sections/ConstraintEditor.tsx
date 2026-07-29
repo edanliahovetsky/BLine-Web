@@ -531,93 +531,98 @@ export function ConstraintEditor({
               Open or create a project to edit limits.
             </p>
           )}
-          <details
-            ref={menuRootRef}
-            className="add-element-menu add-constraint-menu"
-            open={menuOpen}
+          <div
+            className="constraint-add-surface"
+            data-testid="constraint-add-surface"
           >
-            <summary
-              ref={menuSummaryRef}
-              className={
-                project
-                  ? "add-element-button"
-                  : "add-element-button is-disabled"
-              }
-              role="button"
-              aria-label="Add constraint"
-              onClick={(event) => {
-                event.preventDefault();
-                if (!project) {
-                  return;
+            <details
+              ref={menuRootRef}
+              className="add-element-menu add-constraint-menu"
+              open={menuOpen}
+            >
+              <summary
+                ref={menuSummaryRef}
+                className={
+                  project
+                    ? "add-element-button"
+                    : "add-element-button is-disabled"
                 }
-                setMenuOpen((open) => !open);
-              }}
-            >
-              <span
-                className="sidebar-add-icon"
-                data-testid="add-constraint-icon"
-                aria-hidden="true"
+                role="button"
+                aria-label="Add constraint"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!project) {
+                    return;
+                  }
+                  setMenuOpen((open) => !open);
+                }}
               >
-                <PlusIcon size={17} />
-              </span>
-              <span>Add constraint</span>
-            </summary>
-            <div
-              ref={menuPanelRef}
-              className="add-element-menu__panel"
-              role="menu"
-              aria-label="Add constraint"
-              style={menuPanelStyle}
-            >
-              {availableItemCount === 0 ? (
-                <p className="constraint-empty-state">
-                  Everything is already active.
-                </p>
-              ) : (
-                availableSections.map((section) => (
-                  <div
-                    key={section.id}
-                    className="add-constraint-menu__section"
-                    role="group"
-                    aria-labelledby={`add-constraint-menu-${section.id}`}
-                  >
+                <span
+                  className="sidebar-add-icon"
+                  data-testid="add-constraint-icon"
+                  aria-hidden="true"
+                >
+                  <PlusIcon size={17} />
+                </span>
+                <span>Add constraint</span>
+              </summary>
+              <div
+                ref={menuPanelRef}
+                className="add-element-menu__panel"
+                role="menu"
+                aria-label="Add constraint"
+                style={menuPanelStyle}
+              >
+                {availableItemCount === 0 ? (
+                  <p className="constraint-empty-state">
+                    Everything is already active.
+                  </p>
+                ) : (
+                  availableSections.map((section) => (
                     <div
-                      className="add-constraint-menu__section-label"
-                      id={`add-constraint-menu-${section.id}`}
+                      key={section.id}
+                      className="add-constraint-menu__section"
+                      role="group"
+                      aria-labelledby={`add-constraint-menu-${section.id}`}
                     >
-                      {section.label}
+                      <div
+                        className="add-constraint-menu__section-label"
+                        id={`add-constraint-menu-${section.id}`}
+                      >
+                        {section.label}
+                      </div>
+                      <div className="add-constraint-menu__section-items">
+                        {section.items.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="add-element-menu__item"
+                            role="menuitem"
+                            onClick={() => {
+                              if (!project) {
+                                return;
+                              }
+                              const added = addConstraint(project, item.key);
+                              if (added) {
+                                setSelectedForKey(added.key, added.index);
+                              }
+                              setMenuOpen(false);
+                            }}
+                          >
+                            <ElementIcon
+                              type={constraintIconType(item.key)}
+                              size={22}
+                            />
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="add-constraint-menu__section-items">
-                      {section.items.map((item) => (
-                        <button
-                          key={item.key}
-                          type="button"
-                          className="add-element-menu__item"
-                          role="menuitem"
-                          onClick={() => {
-                            if (!project) {
-                              return;
-                            }
-                            const added = addConstraint(project, item.key);
-                            if (added) {
-                              setSelectedForKey(added.key, added.index);
-                            }
-                            setMenuOpen(false);
-                          }}
-                        >
-                          <ElementIcon
-                            type={constraintIconType(item.key)}
-                            size={22}
-                          />
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </details>
+                  ))
+                )}
+              </div>
+            </details>
+          </div>
         </div>
       </SidebarSection>
       {popoutOverlay}
