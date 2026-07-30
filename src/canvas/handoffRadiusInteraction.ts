@@ -20,6 +20,13 @@ import {
 } from "./geometry";
 
 /**
+ * Canvas radius editing is temporarily disabled because its ring hitboxes
+ * compete with element dragging. Keep the implementation behind this switch
+ * so it can be revisited without changing radius rendering or sidebar editing.
+ */
+export const canvasHandoffRadiusEditingEnabled = false;
+
+/**
  * One interior anchor's handoff ring: the circle the canvas draws and the band
  * a drag grabs. Endpoints take no ring — their radius has no runtime effect.
  */

@@ -3835,7 +3835,7 @@ test("uses range and toggle selection for handoff radii", async ({ page }) => {
   await expect(second).toHaveClass(/handoff-radius-chip--unset/);
 });
 
-test("pins and releases a handoff radius from its canvas ring", async ({
+test("keeps canvas handoff radii visual-only", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -3866,26 +3866,18 @@ test("pins and releases a handoff radius from its canvas ring", async ({
   };
 
   await page.mouse.move(start.x, start.y);
+  await expect(canvas).not.toHaveClass(/is-handoff-radius-target/);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });
-  await expect(page.getByTestId("handoff-radius-drag-label")).toContainText(
-    "R 0.70 m",
-  );
+  await expect(page.getByTestId("handoff-radius-drag-label")).toHaveCount(0);
   await page.mouse.up();
 
-  await expect(chip).toHaveClass(/handoff-radius-chip--manual/);
-  await expect(chip.locator(".handoff-radius-chip__value")).toHaveText("0.7 m");
-
-  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.press(`${shortcut}+Z`);
   await expect(chip).toHaveClass(/handoff-radius-chip--auto/);
-  await expect(chip.locator(".handoff-radius-chip__value")).toHaveText("0.4 m");
-
-  await page.keyboard.press(`${shortcut}+Shift+Z`);
+  await chip.click();
+  await mode.getByRole("button", { name: "Manual" }).click();
   await expect(chip).toHaveClass(/handoff-radius-chip--manual/);
   await page.mouse.dblclick(target.x, target.y);
-  await expect(chip).toHaveClass(/handoff-radius-chip--auto/);
-  await expect(chip.locator(".handoff-radius-chip__value")).toHaveText("0.7 m");
+  await expect(chip).toHaveClass(/handoff-radius-chip--manual/);
 });
 
 test("marks the start and end of the path in the element list", async ({

@@ -100,6 +100,7 @@ import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
 import {
+  canvasHandoffRadiusEditingEnabled,
   handoffRadiusForPointer,
   handoffRingRadiusPx,
   handoffRingsForPath,
@@ -1036,7 +1037,9 @@ export function PathStage({
     // The ring wins over the broad robot-footprint hit area, but its own hit
     // band starts outside the anchor exclusion ring so the node still wins
     // where users expect to move the anchor itself.
-    const handoffRingHit = hitTestHandoffRing(handoffRings, viewport, pointer);
+    const handoffRingHit = canvasHandoffRadiusEditingEnabled
+      ? hitTestHandoffRing(handoffRings, viewport, pointer)
+      : null;
     if (handoffRingHit) {
       selectionStore
         .getState()
@@ -1211,7 +1214,9 @@ export function PathStage({
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
       const handoffRingHit =
-        project && !canvasInteractionActive
+        canvasHandoffRadiusEditingEnabled &&
+        project &&
+        !canvasInteractionActive
           ? hitTestHandoffRing(handoffRings, viewport, pointer)
           : null;
       const overlayHit =
@@ -1467,6 +1472,7 @@ export function PathStage({
 
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     if (
+      !canvasHandoffRadiusEditingEnabled ||
       isCanvasChromeEventTarget(event.target) ||
       !project ||
       activeDragRef.current ||
