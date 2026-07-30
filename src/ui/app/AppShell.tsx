@@ -761,6 +761,7 @@ export function AppShell() {
     setResolvingConflict(true);
     try {
       await projectStore.getState().reloadFromDisk();
+      autosaveRef.current?.cancel();
     } catch {
       // The store keeps the conflict/error state so the dialog stays actionable.
     } finally {
@@ -772,6 +773,7 @@ export function AppShell() {
     setResolvingConflict(true);
     try {
       await projectStore.getState().overwriteConflict();
+      autosaveRef.current?.cancel();
     } catch {
       // Overwrite can still fail (e.g. permissions); leave the dialog open.
     } finally {

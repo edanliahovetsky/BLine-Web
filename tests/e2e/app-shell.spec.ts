@@ -4667,7 +4667,7 @@ function modelToCanvasPoint(box: Bounds, point: PointMeters) {
 }
 
 async function waitForSavedProject(page: Page): Promise<void> {
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
@@ -4691,8 +4691,8 @@ async function bumpStoredWorkspaceVersion(page: Page): Promise<void> {
 }
 
 async function makeDirtyEdit(page: Page): Promise<void> {
-  await page.getByTestId("path-element-row-2").click();
-  await page.keyboard.press("ArrowDown");
+  await page.getByTestId("path-element-row-1").click();
+  await page.keyboard.press("ArrowRight");
 }
 
 test("surfaces the save-conflict dialog when the stored version drifts", async ({
@@ -4705,8 +4705,9 @@ test("surfaces the save-conflict dialog when the stored version drifts", async (
   const dialog = page.getByTestId("save-conflict-dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("changed on disk");
-  await expect(page.getByTestId("save-status")).toContainText(
-    "Project changed on disk",
+  await expect(page.getByTestId("save-status")).toHaveAttribute(
+    "title",
+    /Project changed on disk/,
   );
 });
 
