@@ -40,6 +40,15 @@ paths on the field, tune translation and rotation constraints, preview the
 idealized path simulation, and save/export the same `config.json` plus
 `paths/*.json` files used by the BLine robot library.
 
+The streamlined editor starts with an explicit project center instead of
+silently creating demo content. In the editor, the field stays central:
+canvas tools live on the left, view controls live on the field, element and
+constraint editing share a tabbed inspector, and save health is summarized in
+one status bar. Use the Project Navigator to search paths and collections or
+press `Cmd/Ctrl+K` to find commands without leaving the keyboard. Ranged
+constraints can be opened in a larger, draggable editor when the compact
+inspector does not provide enough working room.
+
 The goal is not to make autonomous path planning look more complicated than it
 has to be. BLine uses practical point-to-point paths, forgiving tuning surfaces,
 and visual feedback so teams can get from "we need an auto" to "we can run,
@@ -86,6 +95,22 @@ autos/
 
 In browser mode, projects are stored under the browser origin. Use import/export
 to move projects between machines or into robot project folders.
+
+Useful editor shortcuts:
+
+- `Cmd/Ctrl+K`: command palette
+- `V`, `1`, `2`, `3`, `4`, `C`: select, waypoint, translation, rotation,
+  event, and curve tools
+- `J` / Home, `K` / Space, `L` / End: restart, play or pause, and jump to
+  the end of the simulation
+- Arrow keys: nudge the selected element on the field (`Shift` for larger
+  steps)
+- `[` / `]`: move the selection to the previous / next path element
+- `Alt` + Arrow keys: reorder the selected path element
+- `Cmd/Ctrl+D`: duplicate the selected element
+- `Cmd/Ctrl+B`: show or hide the inspector
+- `Cmd/Ctrl+S`, `Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`: save, undo, and redo
+- `?` or `F1`: keyboard shortcut reference
 
 In Tauri desktop mode:
 
@@ -193,7 +218,7 @@ src/
   state/      Project, selection, history, and autosave stores
   storage/    Browser and Tauri storage adapter implementations
   platform/   Project IO service and shell-facing capability abstraction
-  canvas/     Konva field renderer, layers, geometry, and interactions
+  canvas/     PixiJS/WebGL field renderer, layers, geometry, and interactions
   ui/         React app shell, menus, dialogs, sidebar, controls
   env/        Environment capability detection
 src-tauri/    Tauri 2 desktop shell and Rust storage commands
@@ -208,7 +233,7 @@ scripts/
 
 Boundary rules:
 
-- `src/core` is framework-free and should not import React, Konva, browser APIs,
+- `src/core` is framework-free and should not import React, PixiJS, browser APIs,
   Tauri APIs, or service code.
 - UI and canvas code may depend on state/core; core must not depend on UI or
   canvas.

@@ -42,7 +42,7 @@ interface PropertyEditorProps {
   selectedElementIndex: number | null;
   open: boolean;
   typeOptions: readonly AddableElementType[];
-  onToggleSection(): void;
+  onToggleSection?(): void;
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
   onUnlinkTarget(): void;
@@ -381,18 +381,6 @@ function TranslationFields({
           onUpdateElement(updateTranslationTarget(element, { y_meters: value }))
         }
       />
-      <OptionalNumberField
-        label="Handoff Radius (m)"
-        value={element.intermediate_handoff_radius_meters}
-        step={0.05}
-        onChange={(value) =>
-          onUpdateElement(
-            updateTranslationTarget(element, {
-              intermediate_handoff_radius_meters: value,
-            }),
-          )
-        }
-      />
     </>
   );
 }
@@ -444,18 +432,6 @@ function WaypointFields({
           onUpdateElement(
             updateWaypoint(element, {
               translation: { y_meters: value },
-            }),
-          )
-        }
-      />
-      <OptionalNumberField
-        label="Handoff Radius (m)"
-        value={element.translation_target.intermediate_handoff_radius_meters}
-        step={0.05}
-        onChange={(value) =>
-          onUpdateElement(
-            updateWaypoint(element, {
-              translation: { intermediate_handoff_radius_meters: value },
             }),
           )
         }
@@ -586,32 +562,6 @@ function NumberField({
         min={min}
         max={max}
         onChange={(nextValue) => onChange(nextValue ?? 0)}
-      />
-    </label>
-  );
-}
-
-function OptionalNumberField({
-  label,
-  value,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number | null;
-  step: number;
-  onChange(value: number | null): void;
-}) {
-  return (
-    <label className="property-row">
-      <span>{label}</span>
-      <NumberStepperControl
-        allowEmpty
-        ariaLabel={label}
-        value={value}
-        step={step}
-        min={0}
-        onChange={onChange}
       />
     </label>
   );

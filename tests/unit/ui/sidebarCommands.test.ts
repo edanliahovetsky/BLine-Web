@@ -9,20 +9,32 @@ import {
   type ProjectDocument,
 } from "../../../src/core/io/projectSchema";
 import {
+  createEventTrigger,
   createRotationTarget,
   createPathModel,
   createTranslationTarget,
   createWaypoint,
+  getHandoffRadiusSource,
   isRotationTarget,
   isEventTrigger,
   isTranslationTarget,
   isWaypoint,
+  setHandoffRadiusSource,
 } from "../../../src/core/model/path";
 import {
+  getPathElementLinkedTargetId,
+  setPathElementLinkedTargetId,
+} from "../../../src/core/linkedTargets";
+import {
+  canClearGeneratedConstraints,
+  canGenerateConstraints,
   canMovePathElement,
   createChangePathElementTypeCommand,
+  createClearGeneratedConstraintsCommand,
+  createGenerateConstraintsCommand,
   createConvertedElement,
   createDefaultElement,
+  createDuplicatePathElementCommand,
   createAddRangedConstraintCommand,
   createInsertPathElementCommand,
   createInsertPathElementsCommand,
@@ -36,6 +48,7 @@ import {
   getAddableElementTypes,
   getInsertionIndex,
   getSwitchableElementTypes,
+  handoffRadiusChipsForPath,
   updateWaypoint,
 } from "../../../src/ui/sidebar/sidebarCommands";
 
@@ -64,6 +77,36 @@ describe("sidebar commands", () => {
     const restored = remove.revert(removed);
     expect(restored.path.path_elements).toHaveLength(2);
     expect(isTranslationTarget(restored.path.path_elements[0])).toBe(true);
+  });
+
+  it("duplicates an element as an independent, unlinked copy", () => {
+    const project = exampleProject();
+    const linked = setPathElementLinkedTargetId(
+      project.path.path_elements[0],
+      "target-1",
+    );
+    project.path.path_elements[0] = linked;
+
+    const command = createDuplicatePathElementCommand(0, linked);
+    const applied = command.apply(project);
+
+    expect(applied.path.path_elements).toHaveLength(3);
+    const original = applied.path.path_elements[0];
+    const copy = applied.path.path_elements[1];
+    expect(isTranslationTarget(original)).toBe(true);
+    expect(isTranslationTarget(copy)).toBe(true);
+    if (isTranslationTarget(original) && isTranslationTarget(copy)) {
+      expect([copy.x_meters, copy.y_meters]).toEqual([
+        original.x_meters,
+        original.y_meters,
+      ]);
+    }
+    // The original keeps its link; the copy is independent.
+    expect(getPathElementLinkedTargetId(original)).toBe("target-1");
+    expect(getPathElementLinkedTargetId(copy)).toBeNull();
+
+    const reverted = command.revert(applied);
+    expect(reverted.path.path_elements).toHaveLength(2);
   });
 
   it("inserts generated curve elements as a single reversible command", () => {
@@ -264,12 +307,14 @@ describe("sidebar commands", () => {
     expect(isTranslationTarget(translation)).toBe(true);
     if (isTranslationTarget(translation)) {
       expect(translation.intermediate_handoff_radius_meters).toBe(0.45);
+      expect(translation.handoff_radius_source).toBe("auto");
     }
     expect(isWaypoint(waypoint)).toBe(true);
     if (isWaypoint(waypoint)) {
       expect(
         waypoint.translation_target.intermediate_handoff_radius_meters,
       ).toBe(0.45);
+      expect(waypoint.translation_target.handoff_radius_source).toBe("auto");
     }
   });
 
@@ -575,3 +620,255 @@ function expandedOrdinals(
     })
     .sort((left, right) => left - right);
 }
+
+describe("createGenerateConstraintsCommand", () => {
+  const generatableProject = (): ProjectDocument =>
+    createProjectDocument({
+      project_id: "generate-constraints",
+      display_name: "Generate Constraints",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+          createTranslationTarget({ x_meters: 4, y_meters: 1 }),
+          createWaypoint({
+            translation_target: createTranslationTarget({
+              x_meters: 4,
+              y_meters: 4,
+              intermediate_handoff_radius_meters: 0.2,
+            }),
+          }),
+          createTranslationTarget({ x_meters: 7, y_meters: 4 }),
+        ],
+      }),
+    });
+
+  const pinnedProject = (): ProjectDocument => {
+    const project = generatableProject();
+    const pinnedElements = project.path.path_elements.map((element) =>
+      isTranslationTarget(element) || isWaypoint(element)
+        ? setHandoffRadiusSource(
+            element.type === "translation"
+              ? { ...element, intermediate_handoff_radius_meters: 0.3 }
+              : {
+                  ...element,
+                  translation_target: {
+                    ...element.translation_target,
+                    intermediate_handoff_radius_meters: 0.3,
+                  },
+                },
+            "manual",
+          )
+        : element,
+    );
+
+    return {
+      ...project,
+      path: {
+        ...project.path,
+        path_elements: pinnedElements,
+        ranged_constraints: [
+          {
+            key: "max_velocity_meters_per_sec",
+            value: 2,
+            start_ordinal: 1,
+            end_ordinal: 4,
+          },
+        ],
+      },
+    };
+  };
+
+  it("generates radii and caps in one undoable step", () => {
+    const project = generatableProject();
+    expect(canGenerateConstraints(project)).toBe(true);
+    expect(canClearGeneratedConstraints(project)).toBe(false);
+
+    const command = createGenerateConstraintsCommand();
+    const applied = command.apply(project);
+
+    const generated = applied.path.path_elements[1];
+    expect(
+      generated.type === "translation"
+        ? generated.intermediate_handoff_radius_meters
+        : null,
+    ).not.toBeNull();
+    expect(getHandoffRadiusSource(generated)).toBe("auto");
+
+    // The manually valued waypoint radius stays untouched and untagged.
+    const pinned = applied.path.path_elements[2];
+    expect(
+      pinned.type === "waypoint"
+        ? pinned.translation_target.intermediate_handoff_radius_meters
+        : null,
+    ).toBeCloseTo(0.2, 9);
+    expect(getHandoffRadiusSource(pinned)).toBeNull();
+
+    expect(
+      applied.path.ranged_constraints.some(
+        (constraint) => constraint.source === "auto_velocity",
+      ),
+    ).toBe(true);
+
+    const reverted = command.revert(applied);
+    expect(reverted.path).toEqual(project.path);
+  });
+
+  it("reports a fully pinned path as nothing to generate", () => {
+    expect(canGenerateConstraints(pinnedProject())).toBe(false);
+  });
+
+  it("clears generated values and keeps pinned ones", () => {
+    const generated =
+      createGenerateConstraintsCommand().apply(generatableProject());
+    expect(canClearGeneratedConstraints(generated)).toBe(true);
+
+    const command = createClearGeneratedConstraintsCommand();
+    const cleared = command.apply(generated);
+
+    const reverted = cleared.path.path_elements[1];
+    expect(
+      reverted.type === "translation"
+        ? reverted.intermediate_handoff_radius_meters
+        : "missing",
+    ).toBeNull();
+    expect(getHandoffRadiusSource(reverted)).toBeNull();
+
+    const pinned = cleared.path.path_elements[2];
+    expect(
+      pinned.type === "waypoint"
+        ? pinned.translation_target.intermediate_handoff_radius_meters
+        : null,
+    ).toBeCloseTo(0.2, 9);
+    expect(
+      cleared.path.ranged_constraints.some(
+        (constraint) => constraint.source === "auto_velocity",
+      ),
+    ).toBe(false);
+    expect(canClearGeneratedConstraints(cleared)).toBe(false);
+
+    expect(command.revert(cleared).path).toEqual(generated.path);
+  });
+});
+
+describe("handoffRadiusChipsForPath", () => {
+  const chipProject = (
+    elements: ProjectDocument["path"]["path_elements"],
+    defaultRadiusMeters = 0.45,
+  ): ProjectDocument =>
+    createProjectDocument({
+      project_id: "handoff-radius-chips",
+      display_name: "Handoff Radius Chips",
+      config: {
+        kinematic_constraints: {
+          default_intermediate_handoff_radius_meters: defaultRadiusMeters,
+        },
+      },
+      path: createPathModel({ path_elements: elements }),
+    });
+
+  it("numbers anchors in path order and skips everything else", () => {
+    const chips = handoffRadiusChipsForPath(
+      chipProject([
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createRotationTarget({ t_ratio: 0.5 }),
+        createTranslationTarget({ x_meters: 4, y_meters: 1 }),
+        createEventTrigger({ t_ratio: 0.5, lib_key: "intake" }),
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 4,
+            y_meters: 4,
+          }),
+        }),
+      ]),
+    );
+
+    expect(chips.map((chip) => [chip.elementIndex, chip.ordinal])).toEqual([
+      [0, 1],
+      [2, 2],
+      [4, 3],
+    ]);
+  });
+
+  it("marks both endpoint anchors inert and leaves the interior live", () => {
+    const chips = handoffRadiusChipsForPath(
+      chipProject([
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createTranslationTarget({ x_meters: 4, y_meters: 1 }),
+        createTranslationTarget({ x_meters: 4, y_meters: 4 }),
+        createTranslationTarget({ x_meters: 7, y_meters: 4 }),
+      ]),
+    );
+
+    expect(chips.map((chip) => chip.inert)).toEqual([true, false, false, true]);
+  });
+
+  it("classifies generated, pinned and unset radii", () => {
+    const chips = handoffRadiusChipsForPath(
+      chipProject([
+        setHandoffRadiusSource(
+          createTranslationTarget({
+            x_meters: 1,
+            y_meters: 1,
+            intermediate_handoff_radius_meters: 0.3,
+          }),
+          "auto",
+        ),
+        setHandoffRadiusSource(
+          createTranslationTarget({
+            x_meters: 4,
+            y_meters: 1,
+            intermediate_handoff_radius_meters: 0.32,
+          }),
+          "manual",
+        ),
+        // Untagged but valued: a file brought it in, so it counts as pinned.
+        createTranslationTarget({
+          x_meters: 4,
+          y_meters: 4,
+          intermediate_handoff_radius_meters: 0.34,
+        }),
+        createTranslationTarget({ x_meters: 7, y_meters: 4 }),
+        // Zero is unusable at runtime, which reads the same as unset.
+        createTranslationTarget({
+          x_meters: 7,
+          y_meters: 7,
+          intermediate_handoff_radius_meters: 0,
+        }),
+      ]),
+    );
+
+    expect(chips.map((chip) => chip.state)).toEqual([
+      "auto",
+      "manual",
+      "manual",
+      "unset",
+      "unset",
+    ]);
+    expect(chips.map((chip) => chip.source)).toEqual([
+      "auto",
+      "manual",
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("falls back to the configured default for unset radii", () => {
+    const chips = handoffRadiusChipsForPath(
+      chipProject(
+        [
+          createTranslationTarget({
+            x_meters: 1,
+            y_meters: 1,
+            intermediate_handoff_radius_meters: 0.3,
+          }),
+          createTranslationTarget({ x_meters: 4, y_meters: 1 }),
+        ],
+        0.6,
+      ),
+    );
+
+    expect(chips.map((chip) => chip.valueMeters)).toEqual([0.3, null]);
+    expect(chips.map((chip) => chip.effectiveValueMeters)).toEqual([0.3, 0.6]);
+  });
+});

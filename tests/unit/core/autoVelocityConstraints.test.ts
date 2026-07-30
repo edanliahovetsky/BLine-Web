@@ -156,6 +156,33 @@ describe("generateAutoVelocityProfile", () => {
     ]);
   });
 
+  it("evaluates the runtime radius even when it exceeds the outgoing leg", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 10.42282, y_meters: 1.79173 }),
+        createTranslationTarget({
+          x_meters: 5.81011,
+          y_meters: 1.78833,
+          intermediate_handoff_radius_meters: 0.85,
+        }),
+        createTranslationTarget({ x_meters: 6.16637, y_meters: 2.16544 }),
+      ],
+    });
+
+    const profile = generateAutoVelocityProfile(path, config);
+
+    expect(profile.corners).toHaveLength(1);
+    expect(profile.corners[0]?.handoffDistanceMeters).toBeCloseTo(0.85, 9);
+    expect(profile.corners[0]?.clamped).toBe(false);
+    expect(profile.diagnostics.handoffs[0]?.earlyHandoffRatio).toBeGreaterThan(
+      0.1,
+    );
+    expect(profile.diagnostics.handoffs[0]?.earlyHandoffRatio).toBeLessThan(
+      0.25,
+    );
+    expect(profile.diagnostics.handoffs[0]?.skippedOutgoingSegment).toBe(false);
+  });
+
   it("adjusts adjacent caps independently across chained turns", () => {
     const path = createPathModel({
       path_elements: [
@@ -224,7 +251,7 @@ describe("generateAutoVelocityProfile", () => {
     ]);
   });
 
-  it("reuses cached profiles when only translation ranged constraints change", () => {
+  it("reuses cached profiles when only manual acceleration constraints change", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
@@ -248,12 +275,6 @@ describe("generateAutoVelocityProfile", () => {
     const edited = structuredClone(path);
     edited.ranged_constraints = [
       {
-        key: "max_velocity_meters_per_sec",
-        value: 2.1,
-        start_ordinal: 2,
-        end_ordinal: 2,
-      },
-      {
         key: "max_acceleration_meters_per_sec2",
         value: 5,
         start_ordinal: 3,
@@ -267,6 +288,102 @@ describe("generateAutoVelocityProfile", () => {
         accelerationSafetyFactor: 0.8,
       }),
     ).toBe(profile);
+  });
+
+  it("invalidates cached profiles when a manual velocity cap changes", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({
+          x_meters: 1.2,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.3,
+        }),
+        createTranslationTarget({ x_meters: 2.4, y_meters: 0.9 }),
+      ],
+    });
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8,
+    });
+    const edited = structuredClone(path);
+    edited.ranged_constraints = [
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2.1,
+        start_ordinal: 2,
+        end_ordinal: 2,
+      },
+    ];
+
+    expect(
+      generateAutoVelocityProfile(edited, config, {
+        velocitySafetyFactor: 0.9,
+        accelerationSafetyFactor: 0.8,
+      }),
+    ).not.toBe(profile);
+  });
+
+  it("bounds the incoming cap of a full reversal by along-track overshoot", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({
+          x_meters: 2,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.3,
+        }),
+        createTranslationTarget({ x_meters: 0, y_meters: 0.001 }),
+      ],
+    });
+
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 1,
+      accelerationSafetyFactor: 1,
+    });
+    const incomingCap = profile.segmentCaps.find(
+      (cap) => cap.targetOrdinal === 2,
+    )?.value;
+
+    // Stopping from v inside R + tolerance needs v <= sqrt(2·a·(R + tol));
+    // with a = 4 and tol = 0.105 that is ~1.8 m/s. High caps that blow past
+    // the anchor must no longer pass the gates.
+    expect(profile.corners[0]?.turnAngleRadians).toBeGreaterThan(3.1);
+    expect(incomingCap).toBeLessThanOrEqual(2.1);
+    expectSafeAutoVelocityProfile(profile);
+  });
+
+  it("solves around a pinned cap instead of overwriting it", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({
+          x_meters: 1,
+          y_meters: 0,
+          intermediate_handoff_radius_meters: 0.25,
+        }),
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+      ],
+    });
+    path.ranged_constraints = [
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 0.8,
+        start_ordinal: 2,
+        end_ordinal: 2,
+      },
+    ];
+
+    const profile = generateAutoVelocityProfile(path, config, {
+      velocitySafetyFactor: 1,
+      accelerationSafetyFactor: 1,
+    });
+    const incomingCap = profile.segmentCaps.find(
+      (cap) => cap.targetOrdinal === 2,
+    );
+
+    expect(incomingCap?.value).toBeCloseTo(0.8, 3);
+    expectSafeAutoVelocityProfile(profile);
   });
 
   it("invalidates cached profiles when rotation ranged constraints change", () => {
@@ -314,4 +431,6 @@ function expectSafeAutoVelocityProfile(
   expect(profile.diagnostics.reachedEnd).toBe(true);
   expect(profile.diagnostics.maxHandoffErrorRatio).toBeLessThanOrEqual(1);
   expect(profile.diagnostics.maxPostHandoffErrorRatio).toBeLessThanOrEqual(1);
+  expect(profile.diagnostics.maxOvershootErrorRatio).toBeLessThanOrEqual(1);
+  expect(profile.diagnostics.maxCorridorDeviationRatio).toBeLessThanOrEqual(1);
 }

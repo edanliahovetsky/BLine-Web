@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
+import { X } from "lucide-react";
 import type {
   LinkedTargetKind,
   ProjectDocument,
@@ -11,8 +12,11 @@ import {
   getElementPosition,
 } from "../../canvas/geometry";
 import { nextLinkedTargetName } from "../../core/linkedTargets";
+import { autoVelocityStore } from "../../state/autoVelocityStore";
 import { projectStore } from "../../state/projectStore";
+import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
+import { optimizerBeamClass, optimizerBeamTitle } from "../optimizerBeam";
 import { ConstraintEditor } from "./sections/ConstraintEditor";
 import { ElementList } from "./sections/ElementList";
 import { PropertyEditor } from "./sections/PropertyEditor";
@@ -21,6 +25,7 @@ import {
   createChangePathElementTypeCommand,
   createConvertedElement,
   createDefaultElement,
+  createDuplicatePathElementCommand,
   createInsertPathElementCommand,
   createMovePathElementCommand,
   createRemovePathElementCommand,
@@ -29,23 +34,24 @@ import {
   getSwitchableElementTypes,
   type AddableElementType,
 } from "./sidebarCommands";
-
-type SidebarSectionKey = "pathElements" | "properties" | "constraints";
-
-type SidebarSectionState = Record<SidebarSectionKey, boolean>;
-
-const sidebarSectionStorageKey = "bline.sidebar.sections.v1";
-const defaultSidebarSectionState: SidebarSectionState = {
-  pathElements: true,
-  properties: true,
-  constraints: true,
-};
+import {
+  clampInspectorWidth,
+  inspectorWidthMax,
+  inspectorWidthMin,
+  readEditorUiPreferences,
+  writeEditorUiPreferences,
+} from "../app/editorCommands";
+import { IconButton } from "../controls";
 
 interface SidebarProps {
   project: ProjectDocument | null;
   workspace: ProjectWorkspaceDocument | null;
   selectedElementIndex: number | null;
+  open?: boolean;
+  inspectorWidth: number;
   curveToolActive?: boolean;
+  onClose?(): void;
+  onInspectorResize?(width: number): void;
   onStartCurve?(insertionIndex: number): void;
   onOpenLinkedTargetPicker?(): void;
 }
@@ -54,12 +60,24 @@ export function Sidebar({
   project,
   workspace,
   selectedElementIndex,
+  open = false,
+  inspectorWidth,
   curveToolActive = false,
+  onClose,
+  onInspectorResize,
   onStartCurve,
   onOpenLinkedTargetPicker,
 }: SidebarProps) {
-  const [sectionState, setSectionState] = useState<SidebarSectionState>(() =>
-    readSidebarSectionState(),
+  const [activeTab, setActiveTab] = useState<"elements" | "constraints">(
+    () => readEditorUiPreferences().inspectorTab,
+  );
+  const optimizerPhase = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.phase,
+  );
+  const optimizerError = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.lastError,
   );
   const selectedElement =
     project && selectedElementIndex !== null
@@ -121,6 +139,24 @@ export function Sidebar({
         nextSelectionAfterRemoval(index, selectedElementIndex),
         projectStore.getState().project,
       );
+  };
+
+  const handleDuplicateElement = (index: number) => {
+    if (!project) {
+      return;
+    }
+
+    const element = project.path.path_elements[index];
+    if (!element) {
+      return;
+    }
+
+    projectStore
+      .getState()
+      .applyCommand(createDuplicatePathElementCommand(index, element));
+    selectionStore
+      .getState()
+      .selectElement(index + 1, projectStore.getState().project);
   };
 
   const handleMoveElement = (fromIndex: number, toIndex: number) => {
@@ -239,51 +275,166 @@ export function Sidebar({
       .selectElement(selectedElementIndex, projectStore.getState().project);
   };
 
-  const handleToggleSection = (key: SidebarSectionKey) => {
-    setSectionState((current) => {
-      const next = { ...current, [key]: !current[key] };
-      writeSidebarSectionState(next);
-      return next;
+  const handleSelectTab = (tab: "elements" | "constraints") => {
+    setActiveTab(tab);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      inspectorTab: tab,
     });
   };
 
+  const commitInspectorWidth = (width: number) => {
+    const nextWidth = clampInspectorWidth(width);
+    onInspectorResize?.(nextWidth);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      inspectorWidth: nextWidth,
+    });
+  };
+
+  const handleResizeStart = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || window.innerWidth <= 1120) {
+      return;
+    }
+
+    const startX = event.clientX;
+    const startWidth = inspectorWidth;
+    event.preventDefault();
+    document.body.classList.add("is-resizing-inspector");
+
+    const widthForClientX = (clientX: number) =>
+      clampInspectorWidth(startWidth + startX - clientX);
+    const handleMove = (moveEvent: globalThis.MouseEvent) => {
+      onInspectorResize?.(widthForClientX(moveEvent.clientX));
+      moveEvent.preventDefault();
+    };
+    const handleUp = (upEvent: globalThis.MouseEvent) => {
+      commitInspectorWidth(widthForClientX(upEvent.clientX));
+      document.body.classList.remove("is-resizing-inspector");
+      document.removeEventListener("mousemove", handleMove);
+      document.removeEventListener("mouseup", handleUp);
+    };
+
+    document.addEventListener("mousemove", handleMove);
+    document.addEventListener("mouseup", handleUp);
+  };
+
+  const handleResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 40 : 16;
+    let nextWidth: number | null = null;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextWidth = inspectorWidth + step;
+    } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextWidth = inspectorWidth - step;
+    } else if (event.key === "Home") {
+      nextWidth = inspectorWidthMin;
+    } else if (event.key === "End") {
+      nextWidth = inspectorWidthMax;
+    }
+
+    if (nextWidth !== null) {
+      event.preventDefault();
+      commitInspectorWidth(nextWidth);
+    }
+  };
+
   return (
-    <aside className="inspector-sidebar" aria-label="Path inspector">
-      <ElementList
-        project={project}
-        selectedElementIndex={selectedElementIndex}
-        curveToolActive={curveToolActive}
-        open={sectionState.pathElements}
-        onToggleSection={() => handleToggleSection("pathElements")}
-        onAddElement={handleAddElement}
-        onAddCurve={handleAddCurve}
-        onSelectElement={handleSelectElement}
-        onRemoveElement={handleRemoveElement}
-        onMoveElement={handleMoveElement}
+    <aside
+      className={`inspector-sidebar ${open ? "is-open" : ""}`}
+      data-tour="inspector-panel"
+      aria-label="Path inspector"
+    >
+      <div
+        className="inspector-resize-handle"
+        role="separator"
+        aria-label="Resize inspector"
+        aria-orientation="vertical"
+        aria-valuemin={inspectorWidthMin}
+        aria-valuemax={inspectorWidthMax}
+        aria-valuenow={inspectorWidth}
+        tabIndex={0}
+        title="Drag to resize inspector"
+        onMouseDown={handleResizeStart}
+        onKeyDown={handleResizeKeyDown}
       />
-      <PropertyEditor
-        element={selectedElement}
-        workspace={workspace}
-        selectedElementIndex={selectedElementIndex}
-        open={sectionState.properties}
-        typeOptions={
-          project && selectedElementIndex !== null
-            ? getSwitchableElementTypes(project, selectedElementIndex)
-            : []
-        }
-        fieldGeometry={fieldGeometry}
-        onToggleSection={() => handleToggleSection("properties")}
-        onChangeType={handleChangeElementType}
-        onUpdateElement={handleUpdateElement}
-        onUnlinkTarget={handleUnlinkTarget}
-        onCreateLinkedTarget={handleCreateLinkedTarget}
-        onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
-      />
-      <ConstraintEditor
-        project={project}
-        open={sectionState.constraints}
-        onToggleSection={() => handleToggleSection("constraints")}
-      />
+      <header className="inspector-sidebar__header">
+        <div className="inspector-tabs" role="tablist" aria-label="Inspector">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "elements"}
+            className={activeTab === "elements" ? "is-active" : ""}
+            onClick={() => handleSelectTab("elements")}
+          >
+            Elements
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "constraints"}
+            data-tour="inspector-constraints"
+            className={[
+              activeTab === "constraints" ? "is-active" : "",
+              optimizerBeamClass(optimizerPhase, optimizerError),
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            title={optimizerBeamTitle(optimizerPhase, optimizerError)}
+            onClick={() => handleSelectTab("constraints")}
+          >
+            Constraints
+          </button>
+        </div>
+        <IconButton
+          className="inspector-sidebar__close"
+          aria-label="Close inspector"
+          title="Close inspector"
+          onClick={onClose}
+        >
+          <X aria-hidden="true" size={16} />
+        </IconButton>
+      </header>
+
+      {activeTab === "elements" ? (
+        <div
+          className="inspector-sidebar__panel inspector-sidebar__panel--elements"
+          role="tabpanel"
+        >
+          <ElementList
+            project={project}
+            selectedElementIndex={selectedElementIndex}
+            curveToolActive={curveToolActive}
+            open
+            onAddElement={handleAddElement}
+            onAddCurve={handleAddCurve}
+            onSelectElement={handleSelectElement}
+            onRemoveElement={handleRemoveElement}
+            onDuplicateElement={handleDuplicateElement}
+            onMoveElement={handleMoveElement}
+          />
+          <PropertyEditor
+            element={selectedElement}
+            workspace={workspace}
+            selectedElementIndex={selectedElementIndex}
+            open
+            typeOptions={
+              project && selectedElementIndex !== null
+                ? getSwitchableElementTypes(project, selectedElementIndex)
+                : []
+            }
+            fieldGeometry={fieldGeometry}
+            onChangeType={handleChangeElementType}
+            onUpdateElement={handleUpdateElement}
+            onUnlinkTarget={handleUnlinkTarget}
+            onCreateLinkedTarget={handleCreateLinkedTarget}
+            onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
+          />
+        </div>
+      ) : (
+        <div className="inspector-sidebar__panel" role="tabpanel">
+          <ConstraintEditor project={project} open />
+        </div>
+      )}
     </aside>
   );
 }
@@ -325,50 +476,4 @@ function nextSelectionAfterRemoval(
   }
 
   return selectedElementIndex;
-}
-
-function readSidebarSectionState(): SidebarSectionState {
-  if (typeof window === "undefined") {
-    return defaultSidebarSectionState;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(sidebarSectionStorageKey);
-    if (!rawValue) {
-      return defaultSidebarSectionState;
-    }
-
-    const parsed = JSON.parse(rawValue) as Partial<SidebarSectionState>;
-    return {
-      pathElements:
-        typeof parsed.pathElements === "boolean"
-          ? parsed.pathElements
-          : defaultSidebarSectionState.pathElements,
-      properties:
-        typeof parsed.properties === "boolean"
-          ? parsed.properties
-          : defaultSidebarSectionState.properties,
-      constraints:
-        typeof parsed.constraints === "boolean"
-          ? parsed.constraints
-          : defaultSidebarSectionState.constraints,
-    };
-  } catch {
-    return defaultSidebarSectionState;
-  }
-}
-
-function writeSidebarSectionState(state: SidebarSectionState): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      sidebarSectionStorageKey,
-      JSON.stringify(state),
-    );
-  } catch {
-    // Local UI preferences should never block editing.
-  }
 }

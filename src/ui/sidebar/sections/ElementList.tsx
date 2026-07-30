@@ -2,7 +2,13 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import { formatPointMeters } from "../../../canvas/modelSync";
-import { CurveIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
+import {
+  CopyIcon,
+  CurveIcon,
+  ElementIcon,
+  GripIcon,
+  RemoveIcon,
+} from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
 import { SidebarIconButton } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
@@ -23,8 +29,9 @@ interface ElementListProps {
   onAddCurve(): void;
   onSelectElement(index: number): void;
   onRemoveElement(index: number): void;
+  onDuplicateElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
-  onToggleSection(): void;
+  onToggleSection?(): void;
 }
 
 export function ElementList({
@@ -36,6 +43,7 @@ export function ElementList({
   onAddCurve,
   onSelectElement,
   onRemoveElement,
+  onDuplicateElement,
   onMoveElement,
   onToggleSection,
 }: ElementListProps) {
@@ -148,7 +156,6 @@ export function ElementList({
         </>
       }
       className="path-elements-section"
-      meta={`${elements.length} ${elements.length === 1 ? "element" : "elements"}`}
       open={open}
       sectionId="path-elements"
       title="Path Elements"
@@ -183,7 +190,7 @@ export function ElementList({
                   type="button"
                   className="path-element-row"
                   data-testid={`path-element-row-${index}`}
-                  aria-keyshortcuts="ArrowUp ArrowDown Delete Backspace"
+                  aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
                   aria-pressed={selected}
                   onMouseDown={(event) => handleMouseDown(event, index)}
                   onClick={() => {
@@ -205,10 +212,31 @@ export function ElementList({
                   </span>
                   <span className="path-element-row__label">
                     {index + 1}. {elementTypeLabel(element)}
+                    {index === 0 || index === elements.length - 1 ? (
+                      <span
+                        className="path-element-row__role"
+                        title={
+                          index === 0
+                            ? "Start of the path"
+                            : "Final target — the path finishes here by tolerance, not by a handoff"
+                        }
+                      >
+                        {index === 0 ? "Start" : "End"}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="path-element-row__meta">
                     {formatPointMeters(position)}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className="duplicate-element-button"
+                  aria-label={`Duplicate ${elementTypeLabel(element)} ${index + 1}`}
+                  title="Duplicate element"
+                  onClick={() => onDuplicateElement(index)}
+                >
+                  <CopyIcon />
                 </button>
                 <button
                   type="button"

@@ -129,6 +129,15 @@ export function clampModelPoint(
   };
 }
 
+/**
+ * Radius of the ring the anchor node claims for itself: matches the
+ * translation node circle hit-test so overlay grabs and node grabs never
+ * contest the same pixels.
+ */
+export function anchorNodeExclusionRadiusPx(viewport: FieldViewport): number {
+  return Math.max(7, 0.1 * viewport.scale) + 14;
+}
+
 export function getElementPosition(
   elements: readonly PathElement[],
   index: number,

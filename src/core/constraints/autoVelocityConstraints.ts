@@ -3,7 +3,9 @@ import {
   defaultAutoVelocityVelocitySafetyFactor,
   getDefaultOptionalConfigValue,
 } from "../config/projectConfig";
+import { autoCorridorDeviationBudgetMeters } from "../bend/cornerBend";
 import {
+  getHandoffRadiusSource,
   isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
@@ -27,6 +29,7 @@ import {
   wrapAngleRadians,
 } from "../sim/simGeometry";
 import { autoVelocityObjectiveCost } from "./autoVelocityObjective";
+import type { AutoHandoffRadiusObjectiveInput } from "./autoHandoffRadiusObjective";
 import type {
   ChassisSpeeds,
   RotationDomainEvent,
@@ -39,6 +42,11 @@ export interface AutoVelocityGenerationOptions {
   velocitySafetyFactor?: number;
   accelerationSafetyFactor?: number;
   sampleStepMeters?: number;
+  /**
+   * Radius-search evaluations must distinguish generated radius candidates.
+   * Normal refresh signatures deliberately omit those output values.
+   */
+  includeGeneratedRadiiInCacheKey?: boolean;
 }
 
 export interface AutoVelocityAnchor {
@@ -78,10 +86,20 @@ export interface AutoVelocityHandoffDiagnostic {
   outgoingOrdinal: number;
   toleranceMeters: number;
   postHandoffToleranceMeters: number;
+  overshootToleranceMeters: number;
+  corridorToleranceMeters: number;
   entryErrorMeters: number;
   exitErrorMeters: number;
   combinedErrorMeters: number;
   postHandoffPeakErrorMeters: number;
+  overshootErrorMeters: number;
+  corridorDeviationMeters: number;
+  /** Fraction of the incoming segment completed when the runtime switched. */
+  incomingProgressRatio: number;
+  /** Fraction of the incoming segment intentionally left untraveled. */
+  earlyHandoffRatio: number;
+  /** True when one trigger entered and exited the outgoing segment at once. */
+  skippedOutgoingSegment: boolean;
   passed: boolean;
 }
 
@@ -92,6 +110,8 @@ export interface AutoVelocityDiagnostics {
   totalLengthMeters: number;
   maxHandoffErrorRatio: number;
   maxPostHandoffErrorRatio: number;
+  maxOvershootErrorRatio: number;
+  maxCorridorDeviationRatio: number;
   handoffs: AutoVelocityHandoffDiagnostic[];
 }
 
@@ -139,6 +159,13 @@ interface AutoVelocitySimulationContext {
   maxRotationVelocityConstraints: readonly RotationLimitConstraint[];
   maxRotationAccelerationConstraints: readonly RotationLimitConstraint[];
   handoffRadiiBySegmentIndex: readonly number[];
+  /**
+   * Manual max-velocity caps by target ordinal. The apply step never overwrites
+   * a manual constraint, so at these ordinals the pin — not whatever a solver
+   * stage tried — is what the robot will run. Every evaluation substitutes them
+   * in, which keeps all stages honest without teaching each grid about pins.
+   */
+  pinnedCapsByOrdinal: ReadonlyMap<number, number>;
   totalPathLength: number;
   startHeadingBase: number;
   initialHeading: number;
@@ -162,10 +189,17 @@ interface HandoffEvaluation {
   outgoingOrdinal: number;
   toleranceMeters: number;
   postHandoffToleranceMeters: number;
+  overshootToleranceMeters: number;
+  corridorToleranceMeters: number;
   entryErrorMeters: number;
   exitErrorMeters: number;
   postHandoffPeakErrorMeters: number;
+  overshootErrorMeters: number;
+  corridorDeviationMeters: number;
   combinedErrorMeters: number;
+  incomingProgressRatio: number;
+  earlyHandoffRatio: number;
+  skippedOutgoingSegment: boolean;
   passed: boolean;
 }
 
@@ -188,7 +222,7 @@ const defaultSampleStepMeters = 0.05;
 const defaultFirstOrdinalVelocityRatio = 0.5;
 const solverDtSeconds = 0.02;
 const solverPairPasses = 1;
-const solverRefinementRounds = 0;
+const solverRefinementRounds = 1;
 const solverWindowPasses = 0;
 const solverCapToleranceMps = 0.01;
 const solverMinVelocityRatio = 0.05;
@@ -197,7 +231,14 @@ const gateToleranceRatio = 0.25;
 const postHandoffLookaheadMeters = 0.6;
 const postHandoffToleranceFloorMeters = 0.08;
 const postHandoffToleranceRatio = 0.35;
+const overshootToleranceFloorMeters = 0.08;
+const overshootToleranceRatio = 0.35;
 const fastSimulationPassToleranceRatio = 0.97;
+/** Uniform caps the solver seeds from, and the ladder the gates sweep. */
+const globalVelocitySeedRatios: readonly number[] = [
+  0.9, 0.8, 0.65, 0.5, 0.35, 0.25, 0.18, 0.12, 0.08,
+];
+const radiusObjectiveVelocityRatios: readonly number[] = [0.8, 0.5, 0.25];
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -215,63 +256,16 @@ export function generateAutoVelocityProfile(
     return cached;
   }
 
-  const anchors = translationAnchors(path.path_elements);
-  const segments = buildSegmentGeometry(anchors);
-  const settings = {
-    velocitySafetyFactor: clampSafetyFactor(
-      options.velocitySafetyFactor,
-      getDefaultOptionalConfigValue(
-        config,
-        "auto_velocity_velocity_safety_factor",
-      ) ?? defaultAutoVelocityVelocitySafetyFactor,
-    ),
-    accelerationSafetyFactor: clampSafetyFactor(
-      options.accelerationSafetyFactor,
-      getDefaultOptionalConfigValue(
-        config,
-        "auto_velocity_acceleration_safety_factor",
-      ) ?? defaultAutoVelocityAccelerationSafetyFactor,
-    ),
-    sampleStepMeters: positiveNumber(
-      options.sampleStepMeters,
-      defaultSampleStepMeters,
-    ),
-  };
-  const baseMaxVelocity = resolvePositive(
-    path.constraints.max_velocity_meters_per_sec,
-    getDefaultOptionalConfigValue(config, "max_velocity_meters_per_sec"),
-    defaultMaxVelocityMps,
-  );
-  const baseMaxAcceleration = resolvePositive(
-    path.constraints.max_acceleration_meters_per_sec2,
-    getDefaultOptionalConfigValue(config, "max_acceleration_meters_per_sec2"),
-    defaultMaxAccelerationMps2,
-  );
-  const defaultHandoffRadius = resolvePositive(
-    null,
-    getDefaultOptionalConfigValue(config, "intermediate_handoff_radius_meters"),
-    defaultHandoffRadiusMeters,
-  );
-  const usableMaxVelocityMps = baseMaxVelocity * settings.velocitySafetyFactor;
-  const usableMaxAccelerationMps2 =
-    baseMaxAcceleration * settings.accelerationSafetyFactor;
-  const cumulative = segments.map((segment) => segment.startS);
-  cumulative.push(segments.at(-1)?.endS ?? 0);
-  const corners = buildCorners(
-    path,
+  const {
     anchors,
     segments,
-    cumulative,
-    defaultHandoffRadius,
-  );
-  const simulationContext = createAutoVelocitySimulationContext(
-    path,
-    config,
-    anchors,
-    segments,
-    cumulative,
-    defaultHandoffRadius,
-  );
+    corners,
+    simulationContext,
+    settings,
+    baseMaxVelocityMps: baseMaxVelocity,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+  } = createAutoVelocitySolveSetup(path, config, options);
   const solver = solveSegmentCapsWithSimulation(
     simulationContext,
     anchors,
@@ -339,6 +333,11 @@ export function generateAutoVelocityProfile(
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
   );
+  applyPinnedCaps(
+    solver.capsByOrdinal,
+    simulationContext,
+    usableMaxVelocityMps,
+  );
   const segmentCaps = segmentCapsFromSolvedCaps(
     anchors,
     segments,
@@ -370,18 +369,280 @@ export function generateAutoVelocityProfile(
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
   };
-  if (cacheKey !== null) {
-    profileCache.set(cacheKey, profile);
-    while (profileCache.size > maxProfileCacheEntries) {
-      const oldestKey = profileCache.keys().next().value;
-      if (oldestKey === undefined) {
-        break;
-      }
-      profileCache.delete(oldestKey);
-    }
-  }
+  cacheProfile(cacheKey, profile);
 
   return profile;
+}
+
+interface AutoVelocitySolveSetup {
+  anchors: AutoVelocityAnchor[];
+  segments: SegmentGeometry[];
+  corners: AutoVelocityCorner[];
+  simulationContext: AutoVelocitySimulationContext;
+  settings: AutoVelocityProfile["settings"];
+  baseMaxVelocityMps: number;
+  usableMaxVelocityMps: number;
+  usableMaxAccelerationMps2: number;
+}
+
+/** Everything a solve or a gate check needs derived from the path once. */
+function createAutoVelocitySolveSetup(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+): AutoVelocitySolveSetup {
+  const anchors = translationAnchors(path.path_elements);
+  const segments = buildSegmentGeometry(anchors);
+  const settings = {
+    velocitySafetyFactor: clampSafetyFactor(
+      options.velocitySafetyFactor,
+      getDefaultOptionalConfigValue(
+        config,
+        "auto_velocity_velocity_safety_factor",
+      ) ?? defaultAutoVelocityVelocitySafetyFactor,
+    ),
+    accelerationSafetyFactor: clampSafetyFactor(
+      options.accelerationSafetyFactor,
+      getDefaultOptionalConfigValue(
+        config,
+        "auto_velocity_acceleration_safety_factor",
+      ) ?? defaultAutoVelocityAccelerationSafetyFactor,
+    ),
+    sampleStepMeters: positiveNumber(
+      options.sampleStepMeters,
+      defaultSampleStepMeters,
+    ),
+  };
+  const baseMaxVelocity = resolvePositive(
+    path.constraints.max_velocity_meters_per_sec,
+    getDefaultOptionalConfigValue(config, "max_velocity_meters_per_sec"),
+    defaultMaxVelocityMps,
+  );
+  const baseMaxAcceleration = resolvePositive(
+    path.constraints.max_acceleration_meters_per_sec2,
+    getDefaultOptionalConfigValue(config, "max_acceleration_meters_per_sec2"),
+    defaultMaxAccelerationMps2,
+  );
+  const defaultHandoffRadius = resolvePositive(
+    null,
+    getDefaultOptionalConfigValue(config, "intermediate_handoff_radius_meters"),
+    defaultHandoffRadiusMeters,
+  );
+  const cumulative = segments.map((segment) => segment.startS);
+  cumulative.push(segments.at(-1)?.endS ?? 0);
+
+  return {
+    anchors,
+    segments,
+    corners: buildCorners(
+      path,
+      anchors,
+      segments,
+      cumulative,
+      defaultHandoffRadius,
+    ),
+    simulationContext: createAutoVelocitySimulationContext(
+      path,
+      config,
+      anchors,
+      segments,
+      cumulative,
+      defaultHandoffRadius,
+    ),
+    settings,
+    baseMaxVelocityMps: baseMaxVelocity,
+    usableMaxVelocityMps: baseMaxVelocity * settings.velocitySafetyFactor,
+    usableMaxAccelerationMps2:
+      baseMaxAcceleration * settings.accelerationSafetyFactor,
+  };
+}
+
+export interface HandoffFeasibility {
+  anchorOrdinal: number;
+  /** Index of the corner anchor in `path_elements`. */
+  pathIndex: number;
+  handoffDistanceMeters: number;
+  /** True where some uniform cap the solver would try clears both gates. */
+  feasible: boolean;
+  /** Worst gate ratio at the corner's best uniform cap; 1 is the gate. */
+  bestErrorRatio: number;
+}
+
+export interface HandoffLadderRung {
+  seedRatio: number;
+  /** Corner anchors (as `path_elements` indexes) failing at this rung. */
+  failingPathIndexes: number[];
+}
+
+export interface HandoffFeasibilityLadder {
+  corners: HandoffFeasibility[];
+  rungs: HandoffLadderRung[];
+}
+
+/**
+ * Asks, corner by corner, whether any speed clears the solver's own handoff
+ * gates. The gates are not monotone in speed — a corner cut too slowly misses
+ * its window as badly as one taken too fast — so a single reference speed says
+ * nothing. Sweeping the uniform caps the solver itself seeds from does: a
+ * corner that fails at every one of them is asking for a radius the follower
+ * cannot honor at any speed.
+ */
+export function evaluateHandoffFeasibility(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions = {},
+): HandoffFeasibility[] {
+  return evaluateHandoffFeasibilityLadder(path, config, options).corners;
+}
+
+/**
+ * The full rung-by-rung picture behind `evaluateHandoffFeasibility`. Per-corner
+ * feasibility is not enough to pick radii: two corners each feasible only at
+ * different speeds leave the cap solver no profile that satisfies both. The
+ * rung with the fewest failing corners is the geometry's best joint offer, and
+ * radius selection descends against that.
+ */
+export function evaluateHandoffFeasibilityLadder(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions = {},
+): HandoffFeasibilityLadder {
+  const setup = createAutoVelocitySolveSetup(path, config, options);
+  if (setup.corners.length === 0) {
+    return { corners: [], rungs: [] };
+  }
+
+  const results = setup.corners.map((corner) => ({
+    anchorOrdinal: corner.anchorOrdinal,
+    pathIndex: setup.anchors[corner.anchorOrdinal - 1]?.pathIndex ?? -1,
+    handoffDistanceMeters: corner.handoffDistanceMeters,
+    feasible: false,
+    bestErrorRatio: Number.POSITIVE_INFINITY,
+  }));
+  const byOrdinal = new Map(
+    results.map((result) => [result.anchorOrdinal, result]),
+  );
+  const rungs: HandoffLadderRung[] = [];
+  const minCap = minimumSolverCap(setup.usableMaxVelocityMps);
+
+  for (const ratio of globalVelocitySeedRatios) {
+    const capValue = clamp(
+      setup.usableMaxVelocityMps * ratio,
+      minCap,
+      setup.usableMaxVelocityMps,
+    );
+    const capsByOrdinal = new Map<number, number>();
+    for (let ordinal = 2; ordinal <= setup.anchors.length; ordinal += 1) {
+      capsByOrdinal.set(ordinal, capValue);
+    }
+
+    const evaluation = evaluateVelocityCaps(
+      setup.simulationContext,
+      setup.segments,
+      setup.corners,
+      capsByOrdinal,
+      setup.usableMaxVelocityMps,
+      setup.usableMaxAccelerationMps2,
+    );
+    const failingPathIndexes: number[] = [];
+
+    for (const handoff of evaluation.handoffs) {
+      const result = byOrdinal.get(handoff.corner.anchorOrdinal);
+      if (!result) {
+        continue;
+      }
+      result.feasible = result.feasible || handoff.passed;
+      result.bestErrorRatio = Math.min(
+        result.bestErrorRatio,
+        handoffViolationRatio(handoff),
+      );
+      if (!handoff.passed) {
+        failingPathIndexes.push(result.pathIndex);
+      }
+    }
+
+    rungs.push({ seedRatio: ratio, failingPathIndexes });
+  }
+
+  return { corners: results, rungs };
+}
+
+/**
+ * Lightweight whole-path traces for radius selection. A full velocity solve
+ * for every radius candidate is prohibitively expensive; these representative
+ * uniform caps preserve the important geometry/speed interaction, after which
+ * the winning radius path receives one full cap solve.
+ */
+export function evaluateAutoHandoffRadiusObjectiveInputs(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions = {},
+): AutoHandoffRadiusObjectiveInput[] {
+  const setup = createAutoVelocitySolveSetup(path, config, options);
+  if (setup.corners.length === 0) {
+    return [];
+  }
+
+  const minCap = minimumSolverCap(setup.usableMaxVelocityMps);
+  return radiusObjectiveVelocityRatios.map((ratio) => {
+    const capValue = clamp(
+      setup.usableMaxVelocityMps * ratio,
+      minCap,
+      setup.usableMaxVelocityMps,
+    );
+    const capsByOrdinal = new Map<number, number>();
+    for (let ordinal = 2; ordinal <= setup.anchors.length; ordinal += 1) {
+      capsByOrdinal.set(ordinal, capValue);
+    }
+    const evaluation = evaluateVelocityCaps(
+      setup.simulationContext,
+      setup.segments,
+      setup.corners,
+      capsByOrdinal,
+      setup.usableMaxVelocityMps,
+      setup.usableMaxAccelerationMps2,
+    );
+
+    return {
+      corners: setup.corners,
+      diagnostics: diagnosticsFromEvaluation(evaluation),
+    };
+  });
+}
+
+/**
+ * Records a profile computed elsewhere — a worker, say — against the same
+ * cache the synchronous path uses, so a later call for the same inputs is a
+ * lookup instead of a second solve.
+ */
+export function primeAutoVelocityProfileCache(
+  cacheKey: string | null,
+  profile: AutoVelocityProfile,
+): void {
+  cacheProfile(cacheKey, profile);
+}
+
+function cacheProfile(
+  cacheKey: string | null,
+  profile: AutoVelocityProfile,
+): void {
+  if (cacheKey === null) {
+    return;
+  }
+
+  profileCache.set(cacheKey, profile);
+  while (profileCache.size > maxProfileCacheEntries) {
+    const oldestKey = profileCache.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    profileCache.delete(oldestKey);
+  }
+}
+
+/** True when the exact inputs already have a solved profile in memory. */
+export function hasCachedAutoVelocityProfile(cacheKey: string | null): boolean {
+  return cacheKey !== null && profileCache.has(cacheKey);
 }
 
 export function autoVelocityMetadata(
@@ -447,7 +708,12 @@ export function autoVelocityInputSignature(
 ): string | null {
   try {
     return JSON.stringify({
-      pathElements: path.path_elements.map(autoVelocityElementCacheSignature),
+      pathElements: path.path_elements.map((element) =>
+        autoVelocityElementCacheSignature(
+          element,
+          options.includeGeneratedRadiiInCacheKey === true,
+        ),
+      ),
       scalarConstraints: {
         maxVelocityMps: path.constraints.max_velocity_meters_per_sec,
         maxAccelerationMps2: path.constraints.max_acceleration_meters_per_sec2,
@@ -459,6 +725,20 @@ export function autoVelocityInputSignature(
         .filter((constraint) => isRotationRangedConstraintKey(constraint.key))
         .map((constraint) => ({
           key: constraint.key,
+          value: constraint.value,
+          startOrdinal: constraint.start_ordinal,
+          endOrdinal: constraint.end_ordinal,
+        })),
+      // Manual velocity caps are solver inputs (pins), so they must dirty the
+      // signature; generated caps are output and must not, or refresh would
+      // chase itself the way unsigned radii once did.
+      manualVelocityRangedConstraints: path.ranged_constraints
+        .filter(
+          (constraint) =>
+            constraint.key === "max_velocity_meters_per_sec" &&
+            constraint.source !== "auto_velocity",
+        )
+        .map((constraint) => ({
           value: constraint.value,
           startOrdinal: constraint.start_ordinal,
           endOrdinal: constraint.end_ordinal,
@@ -497,6 +777,8 @@ export function autoVelocityInputSignature(
         velocitySafetyFactor: options.velocitySafetyFactor ?? null,
         accelerationSafetyFactor: options.accelerationSafetyFactor ?? null,
         sampleStepMeters: options.sampleStepMeters ?? null,
+        includeGeneratedRadiiInCacheKey:
+          options.includeGeneratedRadiiInCacheKey ?? false,
       },
     });
   } catch {
@@ -504,13 +786,42 @@ export function autoVelocityInputSignature(
   }
 }
 
-function autoVelocityElementCacheSignature(element: PathElement): unknown {
+/**
+ * Generated radii are solver output, not solver input: signing their values
+ * would make every regeneration look like a fresh edit and the background sync
+ * would chase itself. The `auto` marker still distinguishes a generated corner
+ * from a pinned one, because which is which decides what gets re-seeded.
+ */
+function handoffRadiusCacheSignature(
+  element: PathElement,
+  includeGeneratedRadius: boolean,
+): number | string | null {
+  if (getHandoffRadiusSource(element) === "auto" && !includeGeneratedRadius) {
+    return "auto";
+  }
+
+  if (isTranslationTarget(element)) {
+    return element.intermediate_handoff_radius_meters;
+  }
+
+  return isWaypoint(element)
+    ? element.translation_target.intermediate_handoff_radius_meters
+    : null;
+}
+
+function autoVelocityElementCacheSignature(
+  element: PathElement,
+  includeGeneratedRadius: boolean,
+): unknown {
   if (isTranslationTarget(element)) {
     return {
       type: element.type,
       xMeters: element.x_meters,
       yMeters: element.y_meters,
-      handoffRadiusMeters: element.intermediate_handoff_radius_meters,
+      handoffRadiusMeters: handoffRadiusCacheSignature(
+        element,
+        includeGeneratedRadius,
+      ),
     };
   }
 
@@ -535,8 +846,10 @@ function autoVelocityElementCacheSignature(element: PathElement): unknown {
       type: element.type,
       xMeters: element.translation_target.x_meters,
       yMeters: element.translation_target.y_meters,
-      handoffRadiusMeters:
-        element.translation_target.intermediate_handoff_radius_meters,
+      handoffRadiusMeters: handoffRadiusCacheSignature(
+        element,
+        includeGeneratedRadius,
+      ),
       rotationRadians: element.rotation_target.rotation_radians,
       profiledRotation: element.rotation_target.profiled_rotation,
     };
@@ -627,11 +940,11 @@ function buildCorners(
       path.path_elements[anchor.pathIndex],
       defaultHandoffRadius,
     );
-    const maxHandoff = Math.max(
-      0,
-      Math.min(incoming.lengthMeters, outgoing.lengthMeters) * 0.49,
-    );
-    const handoffDistance = Math.min(requestedHandoff, maxHandoff);
+    // This is the distance the runtime actually uses to leave the incoming
+    // segment. It is not a fillet radius and does not need to fit inside the
+    // outgoing leg. Clamping it to min(incoming, outgoing) made the optimizer
+    // evaluate different geometry from the simulator for valid short exits.
+    const handoffDistance = requestedHandoff;
     if (handoffDistance <= minPositive) {
       continue;
     }
@@ -659,7 +972,7 @@ function buildCorners(
         cumulativeLengths.at(-1) ?? anchorS,
         anchorS + handoffDistance,
       ),
-      clamped: handoffDistance < requestedHandoff - 1e-9,
+      clamped: false,
     });
   }
 
@@ -721,6 +1034,7 @@ function createAutoVelocitySimulationContext(
         defaultHandoffRadius,
       );
     }),
+    pinnedCapsByOrdinal: pinnedVelocityCapsByOrdinal(path, anchors.length),
     totalPathLength,
     startHeadingBase,
     initialHeading,
@@ -743,6 +1057,79 @@ function createAutoVelocitySimulationContext(
     ),
     defaultHandoffRadiusMeters: defaultHandoffRadius,
   };
+}
+
+/**
+ * Manual max-velocity caps per target ordinal, minimum where ranges overlap.
+ * Ordinal 1 is never a drive target, so pins there cannot bind the solver.
+ */
+function pinnedVelocityCapsByOrdinal(
+  path: PathModel,
+  anchorCount: number,
+): Map<number, number> {
+  const pins = new Map<number, number>();
+
+  for (const constraint of path.ranged_constraints) {
+    if (
+      constraint.key !== "max_velocity_meters_per_sec" ||
+      constraint.source === "auto_velocity"
+    ) {
+      continue;
+    }
+
+    const value = positiveNumber(constraint.value, 0);
+    if (value <= 0) {
+      continue;
+    }
+
+    const start = Math.min(constraint.start_ordinal, constraint.end_ordinal);
+    const end = Math.max(constraint.start_ordinal, constraint.end_ordinal);
+    for (
+      let ordinal = Math.max(2, Math.trunc(start));
+      ordinal <= Math.min(anchorCount, Math.trunc(end));
+      ordinal += 1
+    ) {
+      const current = pins.get(ordinal);
+      pins.set(
+        ordinal,
+        current === undefined ? value : Math.min(current, value),
+      );
+    }
+  }
+
+  return pins;
+}
+
+/**
+ * Substitutes pinned values over whatever the solver is trying. A pin is not an
+ * upper bound on the trial — it IS the cap the robot will run, because apply
+ * drops generated caps at manually-constrained ordinals.
+ */
+/** In-place variant for the solver's own working map and the final output. */
+function applyPinnedCaps(
+  capsByOrdinal: Map<number, number>,
+  simulationContext: AutoVelocitySimulationContext,
+  usableMaxVelocityMps: number,
+): void {
+  for (const [ordinal, value] of simulationContext.pinnedCapsByOrdinal) {
+    capsByOrdinal.set(ordinal, Math.min(value, usableMaxVelocityMps));
+  }
+}
+
+function capsWithPins(
+  capsByOrdinal: ReadonlyMap<number, number>,
+  pinnedCapsByOrdinal: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+): ReadonlyMap<number, number> {
+  if (pinnedCapsByOrdinal.size === 0) {
+    return capsByOrdinal;
+  }
+
+  const pinned = new Map(capsByOrdinal);
+  for (const [ordinal, value] of pinnedCapsByOrdinal) {
+    pinned.set(ordinal, Math.min(value, usableMaxVelocityMps));
+  }
+  return pinned;
 }
 
 function rotationLimitConstraints(
@@ -780,6 +1167,7 @@ function solveSegmentCapsWithSimulation(
   usableMaxAccelerationMps2: number,
 ): AutoVelocitySolverResult {
   const capsByOrdinal = initialCapsByOrdinal(anchors, usableMaxVelocityMps);
+  applyPinnedCaps(capsByOrdinal, simulationContext, usableMaxVelocityMps);
   if (simulationContext.rotationKeyframes.length === 0) {
     seedCapsFromCorners(
       capsByOrdinal,
@@ -1008,9 +1396,8 @@ function applyGlobalVelocitySeeds(
   let bestCaps = new Map(capsByOrdinal);
   let bestEvaluation = currentEvaluation;
   const minCap = minimumSolverCap(usableMaxVelocityMps);
-  const ratios = [0.9, 0.8, 0.65, 0.5, 0.35, 0.25, 0.18, 0.12, 0.08];
 
-  for (const ratio of ratios) {
+  for (const ratio of globalVelocitySeedRatios) {
     const value = clamp(
       usableMaxVelocityMps * ratio,
       minCap,
@@ -1865,9 +2252,8 @@ function genericGlobalVelocitySeed(
     usableMaxAccelerationMps2,
   );
   const minCap = minimumSolverCap(usableMaxVelocityMps);
-  const ratios = [0.9, 0.8, 0.65, 0.5, 0.35, 0.25, 0.18, 0.12, 0.08];
 
-  for (const ratio of ratios) {
+  for (const ratio of globalVelocitySeedRatios) {
     const value = clamp(
       usableMaxVelocityMps * ratio,
       minCap,
@@ -2380,17 +2766,16 @@ function simulateAutoVelocityCaps(
     }
     theta = wrapAngleRadians(theta + limited.omega_radps * solverDtSeconds);
 
+    // Project onto the segment the follower is actually driving, never the
+    // globally nearest one: a path passing close to a later segment would
+    // otherwise teleport global_s toward the end, and the monotone clamp
+    // would pin it there, poisoning every gate sampled afterward.
     const poseGlobalS = Math.min(
       context.totalPathLength,
       Math.max(
         lastGlobalS,
-        projectPointToGlobalS(
-          x,
-          y,
-          context.segments,
-          context.cumulativeLengths,
-          lastGlobalS,
-        ),
+        (context.cumulativeLengths[segmentIndex] ?? 0) +
+          projectedDistanceOnSegment(segment, x, y),
       ),
     );
     lastGlobalS = poseGlobalS;
@@ -2477,7 +2862,7 @@ function evaluateVelocityCaps(
   simulationContext: AutoVelocitySimulationContext,
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
-  capsByOrdinal: ReadonlyMap<number, number>,
+  trialCapsByOrdinal: ReadonlyMap<number, number>,
   usableMaxVelocityMps: number,
   usableMaxAccelerationMps2: number,
 ): VelocityCapEvaluation {
@@ -2486,12 +2871,17 @@ function evaluateVelocityCaps(
       simulationContext,
       segments,
       corners,
-      capsByOrdinal,
+      trialCapsByOrdinal,
       usableMaxVelocityMps,
       usableMaxAccelerationMps2,
     );
   }
 
+  const capsByOrdinal = capsWithPins(
+    trialCapsByOrdinal,
+    simulationContext.pinnedCapsByOrdinal,
+    usableMaxVelocityMps,
+  );
   const result = simulateAutoVelocityCaps(
     simulationContext,
     capsByOrdinal,
@@ -2510,7 +2900,12 @@ function evaluateVelocityCaps(
         handoff.combinedErrorMeters <=
           handoff.toleranceMeters * fastSimulationPassToleranceRatio &&
         handoff.postHandoffPeakErrorMeters <=
-          handoff.postHandoffToleranceMeters * fastSimulationPassToleranceRatio,
+          handoff.postHandoffToleranceMeters *
+            fastSimulationPassToleranceRatio &&
+        handoff.overshootErrorMeters <=
+          handoff.overshootToleranceMeters * fastSimulationPassToleranceRatio &&
+        handoff.corridorDeviationMeters <=
+          handoff.corridorToleranceMeters * fastSimulationPassToleranceRatio,
     };
   });
 
@@ -2529,10 +2924,15 @@ function evaluateVelocityCapsWithGenericSimulation(
   simulationContext: AutoVelocitySimulationContext,
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
-  capsByOrdinal: ReadonlyMap<number, number>,
+  trialCapsByOrdinal: ReadonlyMap<number, number>,
   usableMaxVelocityMps: number,
   usableMaxAccelerationMps2: number,
 ): VelocityCapEvaluation {
+  const capsByOrdinal = capsWithPins(
+    trialCapsByOrdinal,
+    simulationContext.pinnedCapsByOrdinal,
+    usableMaxVelocityMps,
+  );
   const candidate = pathWithVelocityCaps(
     simulationContext.path,
     capsByOrdinal,
@@ -2573,6 +2973,10 @@ function evaluateHandoff(
   const postHandoffTolerance = postHandoffToleranceMeters(
     corner.handoffDistanceMeters,
   );
+  const overshootTolerance = overshootToleranceMeters(
+    corner.handoffDistanceMeters,
+  );
+  const corridorTolerance = autoCorridorDeviationBudgetMeters;
   const entryPoint = sampleTraceAtS(trace, corner.startS);
   const exitPoint = sampleTraceAtS(trace, corner.endS);
   const entryError =
@@ -2586,7 +2990,15 @@ function evaluateHandoff(
   const postHandoffPeakError = outgoingSegment
     ? postHandoffPeakCrossTrackError(corner, outgoingSegment, trace)
     : Number.POSITIVE_INFINITY;
+  const overshootError = incomingSegment
+    ? cornerOvershootError(corner, incomingSegment, trace)
+    : 0;
+  const corridorDeviation =
+    incomingSegment && outgoingSegment
+      ? cornerCorridorDeviation(corner, incomingSegment, outgoingSegment, trace)
+      : Number.POSITIVE_INFINITY;
   const combinedError = Math.hypot(entryError, exitError);
+  const transition = observedHandoffTransition(corner, incomingSegment, trace);
 
   return {
     corner,
@@ -2594,14 +3006,162 @@ function evaluateHandoff(
     outgoingOrdinal: corner.anchorOrdinal + 1,
     toleranceMeters: tolerance,
     postHandoffToleranceMeters: postHandoffTolerance,
+    overshootToleranceMeters: overshootTolerance,
+    corridorToleranceMeters: corridorTolerance,
     entryErrorMeters: entryError,
     exitErrorMeters: exitError,
     postHandoffPeakErrorMeters: postHandoffPeakError,
+    overshootErrorMeters: overshootError,
+    corridorDeviationMeters: corridorDeviation,
     combinedErrorMeters: combinedError,
+    incomingProgressRatio: transition.incomingProgressRatio,
+    earlyHandoffRatio: transition.earlyHandoffRatio,
+    skippedOutgoingSegment: transition.skippedOutgoingSegment,
     passed:
+      !transition.skippedOutgoingSegment &&
       combinedError <= tolerance &&
-      postHandoffPeakError <= postHandoffTolerance,
+      postHandoffPeakError <= postHandoffTolerance &&
+      overshootError <= overshootTolerance &&
+      corridorDeviation <= corridorTolerance,
   };
+}
+
+/**
+ * Reads the runtime's actual segment change from the trace. This is the
+ * longitudinal counterpart to corridor deviation: reversals can remain on the
+ * same line while abandoning nearly half their incoming segment, which a
+ * lateral-only metric cannot see.
+ */
+function observedHandoffTransition(
+  corner: AutoVelocityCorner,
+  incomingSegment: SegmentGeometry | undefined,
+  trace: readonly SimulationTraceSample[],
+): {
+  incomingProgressRatio: number;
+  earlyHandoffRatio: number;
+  skippedOutgoingSegment: boolean;
+} {
+  if (!incomingSegment || incomingSegment.lengthMeters <= minPositive) {
+    return {
+      incomingProgressRatio: 0,
+      earlyHandoffRatio: 1,
+      skippedOutgoingSegment: true,
+    };
+  }
+
+  const outgoingSegmentIndex = corner.anchorOrdinal - 1;
+  const sample = trace.find(
+    (candidate) => candidate.segment_index >= outgoingSegmentIndex,
+  );
+  if (!sample) {
+    return {
+      incomingProgressRatio: 0,
+      earlyHandoffRatio: 1,
+      skippedOutgoingSegment: true,
+    };
+  }
+
+  const projectedMeters =
+    (sample.x_m - incomingSegment.ax) * incomingSegment.ux +
+    (sample.y_m - incomingSegment.ay) * incomingSegment.uy;
+  const incomingProgressRatio = clamp(
+    projectedMeters / incomingSegment.lengthMeters,
+    0,
+    1,
+  );
+
+  return {
+    incomingProgressRatio,
+    earlyHandoffRatio: 1 - incomingProgressRatio,
+    skippedOutgoingSegment: sample.segment_index > outgoingSegmentIndex,
+  };
+}
+
+/**
+ * Largest centerline departure from the two polyline legs that define this
+ * corner. Restricting samples to the handoff window keeps nearby legs from a
+ * different corner from contaminating the measurement on dense paths.
+ */
+function cornerCorridorDeviation(
+  corner: AutoVelocityCorner,
+  incomingSegment: SegmentGeometry,
+  outgoingSegment: SegmentGeometry,
+  trace: readonly SimulationTraceSample[],
+): number {
+  let peak = Number.NEGATIVE_INFINITY;
+
+  for (const sample of trace) {
+    if (
+      sample.global_s_m < corner.startS - 1e-6 ||
+      sample.global_s_m > corner.endS + 1e-6
+    ) {
+      continue;
+    }
+
+    peak = Math.max(
+      peak,
+      Math.min(
+        distanceToSegment(sample.x_m, sample.y_m, incomingSegment),
+        distanceToSegment(sample.x_m, sample.y_m, outgoingSegment),
+      ),
+    );
+  }
+
+  return Number.isFinite(peak) ? peak : Number.POSITIVE_INFINITY;
+}
+
+function distanceToSegment(
+  x: number,
+  y: number,
+  segment: SegmentGeometry,
+): number {
+  const along = clamp(
+    (x - segment.ax) * segment.ux + (y - segment.ay) * segment.uy,
+    0,
+    segment.lengthMeters,
+  );
+  return Math.hypot(
+    x - (segment.ax + along * segment.ux),
+    y - (segment.ay + along * segment.uy),
+  );
+}
+
+/**
+ * Along-track overshoot through the corner: how far past the anchor, measured
+ * along the incoming direction, the robot swings beyond what an ideal fillet
+ * would. The ideal's peak projection past the anchor is max(0, R·cos φ) at
+ * every turn angle — shallow corners legitimately cross the anchor plane by
+ * R·cos φ, while at 90° and beyond (reversals included) the ideal never
+ * crosses it — so only the excess is charged. Cross-track gates cannot see
+ * this failure on a reversal, where blowing past the anchor is purely
+ * along-track.
+ */
+function cornerOvershootError(
+  corner: AutoVelocityCorner,
+  incomingSegment: SegmentGeometry,
+  trace: readonly SimulationTraceSample[],
+): number {
+  const expected = Math.max(
+    0,
+    corner.handoffDistanceMeters * Math.cos(corner.turnAngleRadians),
+  );
+  let peak = 0;
+
+  for (const sample of trace) {
+    if (
+      sample.global_s_m < corner.startS - 1e-6 ||
+      sample.global_s_m > corner.endS + 1e-6
+    ) {
+      continue;
+    }
+
+    const alongTrack =
+      (sample.x_m - incomingSegment.bx) * incomingSegment.ux +
+      (sample.y_m - incomingSegment.by) * incomingSegment.uy;
+    peak = Math.max(peak, alongTrack - expected);
+  }
+
+  return peak;
 }
 
 function diagnosticsFromEvaluation(
@@ -2609,6 +3169,8 @@ function diagnosticsFromEvaluation(
 ): AutoVelocityDiagnostics {
   let maxHandoffErrorRatio = 0;
   let maxPostHandoffErrorRatio = 0;
+  let maxOvershootErrorRatio = 0;
+  let maxCorridorDeviationRatio = 0;
   const handoffs = evaluation.handoffs.map((handoff) => {
     const handoffRatio =
       handoff.combinedErrorMeters /
@@ -2616,10 +3178,21 @@ function diagnosticsFromEvaluation(
     const postHandoffRatio =
       handoff.postHandoffPeakErrorMeters /
       Math.max(handoff.postHandoffToleranceMeters, minPositive);
+    const overshootRatio =
+      handoff.overshootErrorMeters /
+      Math.max(handoff.overshootToleranceMeters, minPositive);
+    const corridorRatio =
+      handoff.corridorDeviationMeters /
+      Math.max(handoff.corridorToleranceMeters, minPositive);
     maxHandoffErrorRatio = Math.max(maxHandoffErrorRatio, handoffRatio);
     maxPostHandoffErrorRatio = Math.max(
       maxPostHandoffErrorRatio,
       postHandoffRatio,
+    );
+    maxOvershootErrorRatio = Math.max(maxOvershootErrorRatio, overshootRatio);
+    maxCorridorDeviationRatio = Math.max(
+      maxCorridorDeviationRatio,
+      corridorRatio,
     );
 
     return {
@@ -2630,12 +3203,19 @@ function diagnosticsFromEvaluation(
       postHandoffToleranceMeters: roundDistance(
         handoff.postHandoffToleranceMeters,
       ),
+      overshootToleranceMeters: roundDistance(handoff.overshootToleranceMeters),
+      corridorToleranceMeters: roundDistance(handoff.corridorToleranceMeters),
       entryErrorMeters: roundDistance(handoff.entryErrorMeters),
       exitErrorMeters: roundDistance(handoff.exitErrorMeters),
       combinedErrorMeters: roundDistance(handoff.combinedErrorMeters),
       postHandoffPeakErrorMeters: roundDistance(
         handoff.postHandoffPeakErrorMeters,
       ),
+      overshootErrorMeters: roundDistance(handoff.overshootErrorMeters),
+      corridorDeviationMeters: roundDistance(handoff.corridorDeviationMeters),
+      incomingProgressRatio: roundDistance(handoff.incomingProgressRatio),
+      earlyHandoffRatio: roundDistance(handoff.earlyHandoffRatio),
+      skippedOutgoingSegment: handoff.skippedOutgoingSegment,
       passed: handoff.passed,
     };
   });
@@ -2647,6 +3227,8 @@ function diagnosticsFromEvaluation(
     totalLengthMeters: roundDistance(evaluation.totalLengthMeters),
     maxHandoffErrorRatio: roundDistance(maxHandoffErrorRatio),
     maxPostHandoffErrorRatio: roundDistance(maxPostHandoffErrorRatio),
+    maxOvershootErrorRatio: roundDistance(maxOvershootErrorRatio),
+    maxCorridorDeviationRatio: roundDistance(maxCorridorDeviationRatio),
     handoffs,
   };
 }
@@ -2808,31 +3390,6 @@ function remainingDistanceFrom(
   return remaining;
 }
 
-function projectPointToGlobalS(
-  x: number,
-  y: number,
-  segments: readonly SegmentGeometry[],
-  cumulativeLengths: readonly number[],
-  fallbackS: number,
-): number {
-  let bestS = fallbackS;
-  let bestDist2: number | null = null;
-
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    const projected = projectedDistanceOnSegment(segment, x, y);
-    const projX = segment.ax + segment.ux * projected;
-    const projY = segment.ay + segment.uy * projected;
-    const dist2 = (x - projX) ** 2 + (y - projY) ** 2;
-    if (bestDist2 === null || dist2 < bestDist2) {
-      bestDist2 = dist2;
-      bestS = (cumulativeLengths[index] ?? 0) + projected;
-    }
-  }
-
-  return bestS;
-}
-
 function activeRotationLimit(
   rotationDomainEvents: readonly RotationDomainEvent[],
   constraints: readonly RotationLimitConstraint[],
@@ -2973,6 +3530,13 @@ function postHandoffToleranceMeters(handoffDistanceMeters: number): number {
   return Math.max(
     postHandoffToleranceFloorMeters,
     handoffDistanceMeters * postHandoffToleranceRatio,
+  );
+}
+
+function overshootToleranceMeters(handoffDistanceMeters: number): number {
+  return Math.max(
+    overshootToleranceFloorMeters,
+    handoffDistanceMeters * overshootToleranceRatio,
   );
 }
 
@@ -3303,6 +3867,10 @@ function evaluationHandoffRatios(
       Math.max(handoff.toleranceMeters, minPositive),
     handoff.postHandoffPeakErrorMeters /
       Math.max(handoff.postHandoffToleranceMeters, minPositive),
+    handoff.overshootErrorMeters /
+      Math.max(handoff.overshootToleranceMeters, minPositive),
+    handoff.corridorDeviationMeters /
+      Math.max(handoff.corridorToleranceMeters, minPositive),
   ]);
 }
 
@@ -3315,7 +3883,9 @@ function evaluationMeetsConstraintBudget(
       (handoff) =>
         handoff.combinedErrorMeters <= handoff.toleranceMeters &&
         handoff.postHandoffPeakErrorMeters <=
-          handoff.postHandoffToleranceMeters,
+          handoff.postHandoffToleranceMeters &&
+        handoff.overshootErrorMeters <= handoff.overshootToleranceMeters &&
+        handoff.corridorDeviationMeters <= handoff.corridorToleranceMeters,
     )
   );
 }
@@ -3338,8 +3908,24 @@ function evaluationQuality(evaluation: VelocityCapEvaluation): {
     const postHandoffRatio =
       handoff.postHandoffPeakErrorMeters /
       Math.max(handoff.postHandoffToleranceMeters, minPositive);
-    maxRatio = Math.max(maxRatio, gateRatio, postHandoffRatio);
-    sumSquaredRatio += gateRatio ** 2 + postHandoffRatio ** 2;
+    const overshootRatio =
+      handoff.overshootErrorMeters /
+      Math.max(handoff.overshootToleranceMeters, minPositive);
+    const corridorRatio =
+      handoff.corridorDeviationMeters /
+      Math.max(handoff.corridorToleranceMeters, minPositive);
+    maxRatio = Math.max(
+      maxRatio,
+      gateRatio,
+      postHandoffRatio,
+      overshootRatio,
+      corridorRatio,
+    );
+    sumSquaredRatio +=
+      gateRatio ** 2 +
+      postHandoffRatio ** 2 +
+      overshootRatio ** 2 +
+      corridorRatio ** 2;
   }
 
   return { maxRatio, sumSquaredRatio };
@@ -3351,6 +3937,10 @@ function handoffViolationRatio(handoff: HandoffEvaluation): number {
       Math.max(handoff.toleranceMeters, minPositive),
     handoff.postHandoffPeakErrorMeters /
       Math.max(handoff.postHandoffToleranceMeters, minPositive),
+    handoff.overshootErrorMeters /
+      Math.max(handoff.overshootToleranceMeters, minPositive),
+    handoff.corridorDeviationMeters /
+      Math.max(handoff.corridorToleranceMeters, minPositive),
   );
 }
 

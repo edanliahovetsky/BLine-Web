@@ -269,6 +269,20 @@ describe("ProjectIoService", () => {
     expect(next?.project_id).toBe("workspace-a");
     expect(summaries.map((summary) => summary.id)).toEqual(["workspace-a"]);
   });
+
+  it("returns to an empty start state after deleting the final project", async () => {
+    const service = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await service.createWorkspace({
+      workspace: exampleWorkspace("workspace-a", "Alpha", ["One"]),
+    });
+
+    const next = await service.deleteWorkspace("workspace-a");
+
+    expect(next).toBeNull();
+    await expect(service.listWorkspaces()).resolves.toEqual([]);
+  });
 });
 
 function exampleWorkspace(

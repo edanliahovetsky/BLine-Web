@@ -6,6 +6,7 @@ import {
 } from "../config/projectConfig";
 import {
   countAnchorElements,
+  getHandoffRadiusSource,
   type AutoVelocityConstraintMetadata,
   type PathModel,
   type RangedConstraint,
@@ -13,11 +14,21 @@ import {
 import type { SimulationConfig } from "../sim/types";
 import {
   autoVelocityConstraintForCap,
+  autoVelocityInputSignature,
   generateAutoVelocityProfile,
+  type AutoVelocityGenerationOptions,
 } from "./autoVelocityConstraints";
+
+export interface AutoVelocitySettings {
+  velocitySafetyFactor: number;
+  accelerationSafetyFactor: number;
+  mergeToleranceMps: number;
+}
 
 export interface AutoVelocityRefreshOptions {
   whenPresentOnly?: boolean;
+  /** Optimizer settings to solve with, for callers editing them live. */
+  settings?: AutoVelocitySettings;
 }
 
 export interface AutoVelocityOrdinalOptions {
@@ -45,17 +56,14 @@ export function refreshAutoVelocityConstraints(
     return path;
   }
 
-  const settings = autoVelocitySettings(path, config);
-  const profile = generateAutoVelocityProfile(path, config, {
-    velocitySafetyFactor: settings.velocitySafetyFactor,
-    accelerationSafetyFactor: settings.accelerationSafetyFactor,
-  });
+  const settings = options.settings ?? autoVelocitySettings(path, config);
+  const profile = generateAutoVelocityProfile(
+    path,
+    config,
+    autoVelocityOptions(settings),
+  );
   const existing = ordinalConstraintMap(path.ranged_constraints, total);
-  const metadata: AutoVelocityConstraintMetadata = {
-    velocity_safety_factor: settings.velocitySafetyFactor,
-    acceleration_safety_factor: settings.accelerationSafetyFactor,
-    merge_tolerance_meters_per_sec: settings.mergeToleranceMps,
-  };
+  const metadata = autoVelocityMetadataFor(path, config, settings);
 
   for (const cap of profile.segmentCaps) {
     const current = existing.get(cap.targetOrdinal);
@@ -101,16 +109,13 @@ export function applyAutoVelocityConstraintsToOrdinals(
   }
 
   const settings = autoVelocitySettings(path, config);
-  const profile = generateAutoVelocityProfile(path, config, {
-    velocitySafetyFactor: settings.velocitySafetyFactor,
-    accelerationSafetyFactor: settings.accelerationSafetyFactor,
-  });
+  const profile = generateAutoVelocityProfile(
+    path,
+    config,
+    autoVelocityOptions(settings),
+  );
   const existing = ordinalConstraintMap(path.ranged_constraints, total);
-  const metadata: AutoVelocityConstraintMetadata = {
-    velocity_safety_factor: settings.velocitySafetyFactor,
-    acceleration_safety_factor: settings.accelerationSafetyFactor,
-    merge_tolerance_meters_per_sec: settings.mergeToleranceMps,
-  };
+  const metadata = autoVelocityMetadataFor(path, config, settings);
   let changed = false;
 
   for (const cap of profile.segmentCaps) {
@@ -147,14 +152,116 @@ export function applyAutoVelocityConstraintsToOrdinals(
   };
 }
 
+export interface AutoVelocityRefreshRequest {
+  options: AutoVelocityGenerationOptions;
+  settings: AutoVelocitySettings;
+  signature: string | null;
+  /** Whether a stamped generated cap can determine staleness on its own. */
+  hasGeneratedVelocityCaps: boolean;
+  /** True when the generated caps no longer match the current path inputs. */
+  stale: boolean;
+}
+
+/**
+ * Describes the regeneration a path is currently owed, or null when it has no
+ * generated radius or velocity output to keep in sync.
+ *
+ * Generated caps carry a persisted input signature. Auto radii do not, so a
+ * radii-only request remains nominally stale and the sync coordinator remembers
+ * the last signature it applied for that project.
+ */
+export function autoVelocityRefreshRequest(
+  path: PathModel,
+  config: SimulationConfig,
+): AutoVelocityRefreshRequest | null {
+  const generated = path.ranged_constraints.filter(
+    (constraint) =>
+      constraint.key === autoVelocityKey &&
+      constraint.source === "auto_velocity",
+  );
+  const hasGeneratedRadii = path.path_elements.some(
+    (element) => getHandoffRadiusSource(element) === "auto",
+  );
+  if (generated.length === 0 && !hasGeneratedRadii) {
+    return null;
+  }
+
+  const settings = autoVelocitySettings(path, config);
+  const options = autoVelocityOptions(settings);
+  const signature = autoVelocityInputSignature(path, config, options);
+
+  return {
+    options,
+    settings,
+    signature,
+    hasGeneratedVelocityCaps: generated.length > 0,
+    stale:
+      generated.length === 0 ||
+      signature === null ||
+      generated.some(
+        (constraint) => constraint.auto_velocity?.input_signature !== signature,
+      ),
+  };
+}
+
+export function autoVelocityGenerationOptions(settings: {
+  velocitySafetyFactor: number;
+  accelerationSafetyFactor: number;
+}): AutoVelocityGenerationOptions {
+  return autoVelocityOptions(settings);
+}
+
+function autoVelocityOptions(settings: {
+  velocitySafetyFactor: number;
+  accelerationSafetyFactor: number;
+}): AutoVelocityGenerationOptions {
+  return {
+    velocitySafetyFactor: settings.velocitySafetyFactor,
+    accelerationSafetyFactor: settings.accelerationSafetyFactor,
+  };
+}
+
+/**
+ * Stamps the inputs the caps were solved from, so a later edit can tell at a
+ * glance whether they still describe the current path.
+ */
+function autoVelocityMetadataFor(
+  path: PathModel,
+  config: SimulationConfig,
+  settings: {
+    velocitySafetyFactor: number;
+    accelerationSafetyFactor: number;
+    mergeToleranceMps: number;
+  },
+): AutoVelocityConstraintMetadata {
+  const metadata: AutoVelocityConstraintMetadata = {
+    velocity_safety_factor: settings.velocitySafetyFactor,
+    acceleration_safety_factor: settings.accelerationSafetyFactor,
+    merge_tolerance_meters_per_sec: settings.mergeToleranceMps,
+  };
+  const signature = autoVelocityInputSignature(
+    path,
+    config,
+    autoVelocityOptions(settings),
+  );
+  if (signature) {
+    metadata.input_signature = signature;
+  }
+  return metadata;
+}
+
+/** Settings the path's generated caps were solved with, or the config's. */
+export function autoVelocitySettingsForPath(
+  path: PathModel,
+  config: SimulationConfig,
+): AutoVelocitySettings {
+  return autoVelocitySettings(path, config);
+}
+
 function autoVelocitySettings(
   path: PathModel,
   config: SimulationConfig,
-): {
-  velocitySafetyFactor: number;
-  accelerationSafetyFactor: number;
-  mergeToleranceMps: number;
-} {
+): AutoVelocitySettings {
   const metadata = path.ranged_constraints.find(
     (constraint) =>
       constraint.key === autoVelocityKey &&

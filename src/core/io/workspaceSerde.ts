@@ -4,8 +4,11 @@ import {
 } from "../config/projectConfig";
 import {
   createPathModel,
+  getHandoffRadiusSource,
   isRangedConstraintKey,
+  setHandoffRadiusSource,
   type AutoVelocityConstraintMetadata,
+  type HandoffRadiusSource,
   type PathModel,
   type RangedConstraint,
   type RangedConstraintSource,
@@ -27,6 +30,7 @@ import {
   type ProjectPathGroupDocument,
   type ProjectPathDocument,
   type ProjectWorkspaceDocument,
+  type SerializedHandoffRadiusSource,
   type SerializedLinkedPathElementTarget,
   type SerializedLinkedTarget,
   type SerializedProjectPathGroupDocument,
@@ -816,6 +820,10 @@ function serializePathEditorMetadata(
         ]
       : [];
   });
+  const handoffRadiusSources = path.path_elements.flatMap((element, index) => {
+    const source = getHandoffRadiusSource(element);
+    return source ? [{ element_index: index, source }] : [];
+  });
   const rangedConstraints = path.ranged_constraints.flatMap((constraint) => {
     const source = normalizeRangedConstraintSource(constraint.source);
     if (source === null || source === "manual") {
@@ -838,7 +846,11 @@ function serializePathEditorMetadata(
     return [metadata];
   });
 
-  if (rangedConstraints.length === 0 && linkedTargets.length === 0) {
+  if (
+    rangedConstraints.length === 0 &&
+    linkedTargets.length === 0 &&
+    handoffRadiusSources.length === 0
+  ) {
     return undefined;
   }
 
@@ -847,6 +859,9 @@ function serializePathEditorMetadata(
       ? { ranged_constraints: rangedConstraints }
       : {}),
     ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
+    ...(handoffRadiusSources.length > 0
+      ? { handoff_radius_sources: handoffRadiusSources }
+      : {}),
   };
 }
 
@@ -915,7 +930,12 @@ function readLinkedTargets(input: unknown): LinkedTarget[] {
 function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
   const rangedMetadata = readRangedConstraintMetadata(input);
   const linkedTargets = readLinkedPathElementTargets(input);
-  if (rangedMetadata.length === 0 && linkedTargets.length === 0) {
+  const handoffRadiusSources = readHandoffRadiusSources(input);
+  if (
+    rangedMetadata.length === 0 &&
+    linkedTargets.length === 0 &&
+    handoffRadiusSources.length === 0
+  ) {
     return path;
   }
 
@@ -927,6 +947,17 @@ function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
     path.path_elements[link.element_index] = setPathElementLinkedTargetId(
       element,
       link.target_id,
+    );
+  }
+
+  for (const entry of handoffRadiusSources) {
+    const element = path.path_elements[entry.element_index];
+    if (!element) {
+      continue;
+    }
+    path.path_elements[entry.element_index] = setHandoffRadiusSource(
+      element,
+      entry.source,
     );
   }
 
@@ -985,6 +1016,28 @@ function readLinkedPathElementTargets(
     }
 
     return [{ element_index: elementIndex, target_id: targetId }];
+  });
+}
+
+function readHandoffRadiusSources(
+  input: unknown,
+): SerializedHandoffRadiusSource[] {
+  if (!isObject(input) || !Array.isArray(input.handoff_radius_sources)) {
+    return [];
+  }
+
+  return input.handoff_radius_sources.flatMap((entry) => {
+    if (!isObject(entry)) {
+      return [];
+    }
+
+    const elementIndex = finiteInteger(entry.element_index);
+    const source = normalizeHandoffRadiusSource(entry.source);
+    if (elementIndex === null || elementIndex < 0 || source === null) {
+      return [];
+    }
+
+    return [{ element_index: elementIndex, source }];
   });
 }
 
@@ -1047,6 +1100,12 @@ function normalizeRangedConstraintSource(
   value: unknown,
 ): RangedConstraintSource | null {
   return value === "manual" || value === "auto_velocity" ? value : null;
+}
+
+function normalizeHandoffRadiusSource(
+  value: unknown,
+): HandoffRadiusSource | null {
+  return value === "manual" || value === "auto" ? value : null;
 }
 
 function normalizeAutoVelocityMetadata(

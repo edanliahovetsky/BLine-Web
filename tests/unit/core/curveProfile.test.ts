@@ -78,6 +78,11 @@ describe("curve profile fitting", () => {
     expect(
       targets.map((target) => target.intermediate_handoff_radius_meters),
     ).toEqual([0.45, 0.45, 0.45]);
+    expect(targets.map((target) => target.handoff_radius_source)).toEqual([
+      "auto",
+      "auto",
+      "auto",
+    ]);
   });
 
   it("defaults generated curve target handoff radii to 0.45 meters", () => {

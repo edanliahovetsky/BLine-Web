@@ -144,6 +144,12 @@ export interface ProjectStoreState {
   readFieldImageAsset(field: CustomFieldImage): Promise<Blob | null>;
   deleteFieldImageAsset(field: CustomFieldImage): Promise<void>;
   applyCommand(command: HistoryCommand<ProjectDocument>): void;
+  /**
+   * Applies a change that the editor derived from the document rather than one
+   * the user made, so it never lands on the undo stack. Undo must step back
+   * through the edit that triggered the derivation, not the derivation itself.
+   */
+  applyDerivedCommand(command: HistoryCommand<ProjectDocument>): void;
   undo(): void;
   redo(): void;
   markSaved(result: WriteResult): void;
@@ -693,6 +699,18 @@ export function createProjectStore(
       const nextWorkspace = history
         .getState()
         .execute(cloneWorkspace(workspace), workspaceCommand(command));
+
+      setWorkspace(set, nextWorkspace, true);
+    },
+    applyDerivedCommand(command) {
+      const workspace = get().workspace;
+      if (!workspace) {
+        return;
+      }
+
+      const nextWorkspace = workspaceCommand(command).apply(
+        cloneWorkspace(workspace),
+      );
 
       setWorkspace(set, nextWorkspace, true);
     },

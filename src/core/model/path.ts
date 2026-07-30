@@ -32,6 +32,7 @@ export type RotationConstraintKey = (typeof rotationConstraintKeys)[number];
 export type RangedConstraintKey = (typeof rangedConstraintKeys)[number];
 export type ConstraintKey = (typeof constraintKeys)[number];
 export type RangedConstraintSource = "manual" | "auto_velocity";
+export type HandoffRadiusSource = "manual" | "auto";
 
 export interface AutoVelocityConstraintMetadata {
   velocity_safety_factor: number;
@@ -65,6 +66,7 @@ export interface TranslationTarget {
   x_meters: number;
   y_meters: number;
   intermediate_handoff_radius_meters: number | null;
+  handoff_radius_source?: HandoffRadiusSource;
   linked_target_id?: string | null;
 }
 
@@ -243,6 +245,51 @@ export function isRotationEventElement(
   element: PathElement,
 ): element is RotationTarget | Waypoint {
   return isRotationTarget(element) || isWaypoint(element);
+}
+
+/**
+ * Who last set the anchor's handoff radius. Untagged corners carry a value
+ * nobody claimed — the optimizer treats them as manual so it never overwrites a
+ * radius a file brought in.
+ */
+export function getHandoffRadiusSource(
+  element: PathElement | undefined,
+): HandoffRadiusSource | null {
+  if (!element) {
+    return null;
+  }
+
+  if (isTranslationTarget(element)) {
+    return element.handoff_radius_source ?? null;
+  }
+
+  if (isWaypoint(element)) {
+    return element.translation_target.handoff_radius_source ?? null;
+  }
+
+  return null;
+}
+
+export function setHandoffRadiusSource(
+  element: PathElement,
+  source: HandoffRadiusSource | null,
+): PathElement {
+  const nextElement = structuredClone(element);
+  const target = isTranslationTarget(nextElement)
+    ? nextElement
+    : isWaypoint(nextElement)
+      ? nextElement.translation_target
+      : null;
+  if (!target) {
+    return nextElement;
+  }
+
+  if (source) {
+    target.handoff_radius_source = source;
+  } else {
+    delete target.handoff_radius_source;
+  }
+  return nextElement;
 }
 
 export function isRangedConstraintKey(key: string): key is RangedConstraintKey {

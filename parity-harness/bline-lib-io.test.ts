@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -374,25 +374,22 @@ async function runBLineLibValidation(
     );
   }
 
-  if (process.platform !== "win32") {
-    chmodSync(gradleWrapper, 0o755);
-  }
-
   const initScriptPath = join(tempRoot, "bline-lib-io.init.gradle");
   const reportPath = join(tempRoot, "bline-lib-io-report.json");
   await writeFile(initScriptPath, gradleInitScript(), "utf8");
 
+  const gradleArgs = [
+    "--no-daemon",
+    "-q",
+    "-I",
+    initScriptPath,
+    "validateBLineWebAutos",
+    `-PautosDir=${autosDir}`,
+    `-PcompatReport=${reportPath}`,
+  ];
   const result = spawnSync(
-    gradleWrapper,
-    [
-      "--no-daemon",
-      "-q",
-      "-I",
-      initScriptPath,
-      "validateBLineWebAutos",
-      `-PautosDir=${autosDir}`,
-      `-PcompatReport=${reportPath}`,
-    ],
+    process.platform === "win32" ? gradleWrapper : "sh",
+    process.platform === "win32" ? gradleArgs : [gradleWrapper, ...gradleArgs],
     {
       cwd: blineLibDir,
       encoding: "utf8",

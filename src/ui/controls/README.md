@@ -46,15 +46,17 @@ membership, delete selections, and list inclusion. Those are not switches.
   `AppShell.css` under the `bline-*` control classes.
 - Feature CSS may control layout, grid placement, and component-specific menu or
   dialog composition.
-- Do not draw plus, minus, remove, or close symbols with CSS. Use icons from
-  `src/ui/icons.tsx`.
+- Do not draw plus, minus, remove, or close symbols with CSS. Reuse
+  `src/ui/icons.tsx` for existing BLine icons and `lucide-react` for new editor
+  symbols so controls keep one consistent stroke family.
 - Add a new tone or size only when at least two callsites need it.
 
 ## Third-Party Policy
 
-No third-party UI library is used for the control layer today. Native/custom
-controls are sufficient for the current editor and keep the bundle and visual
-language small.
+No third-party component or primitive library is used for the control layer
+today. Native/custom controls are sufficient for the current editor and keep
+the interaction model small. `lucide-react` is the shared icon source, not a
+control framework.
 
 If a future interaction becomes complex enough to justify a dependency, add it
 behind these BLine wrappers. Feature code should still import BLine controls,

@@ -1,6 +1,7 @@
 import type {
   AutoVelocityConstraintMetadata,
   ConstraintKey,
+  HandoffRadiusSource,
   PathModel,
   RangedConstraintKey,
   RangedConstraintSource,
@@ -87,11 +88,17 @@ export interface SerializedRangedConstraintMetadata {
 export interface SerializedPathEditorMetadata {
   ranged_constraints?: SerializedRangedConstraintMetadata[];
   linked_targets?: SerializedLinkedPathElementTarget[];
+  handoff_radius_sources?: SerializedHandoffRadiusSource[];
 }
 
 export interface SerializedLinkedPathElementTarget {
   element_index: number;
   target_id: string;
+}
+
+export interface SerializedHandoffRadiusSource {
+  element_index: number;
+  source: HandoffRadiusSource;
 }
 
 export type SerializedConstraintValue = number | SerializedRangedConstraint[];

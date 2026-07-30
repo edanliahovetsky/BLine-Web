@@ -4,6 +4,7 @@ import {
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
+  type HandoffRadiusSource,
   type PathElement,
 } from "../core/model/path";
 import type { HistoryCommand } from "../state/historyStore";
@@ -52,6 +53,84 @@ export function createSetElementRotationCommand(
     revert: (project) =>
       updateProjectElementRotation(project, index, previousRotationRadians),
   };
+}
+
+export interface HandoffRadiusState {
+  radiusMeters: number | null;
+  source: HandoffRadiusSource | null;
+}
+
+export interface HandoffRadiusUpdate {
+  index: number;
+  previous: HandoffRadiusState;
+  next: HandoffRadiusState;
+}
+
+export function createSetHandoffRadiusCommand(
+  index: number,
+  previous: HandoffRadiusState,
+  next: HandoffRadiusState,
+): HistoryCommand<ProjectDocument> {
+  return {
+    description: `Set handoff radius ${index + 1}`,
+    apply: (project) => updateProjectElementHandoffRadius(project, index, next),
+    revert: (project) =>
+      updateProjectElementHandoffRadius(project, index, previous),
+  };
+}
+
+export function createSetHandoffRadiiCommand(
+  updates: readonly HandoffRadiusUpdate[],
+  description = `Set ${updates.length} handoff radii`,
+): HistoryCommand<ProjectDocument> {
+  return {
+    description,
+    apply: (project) =>
+      updateProjectElementHandoffRadii(
+        project,
+        updates.map(({ index, next }) => ({ index, state: next })),
+      ),
+    revert: (project) =>
+      updateProjectElementHandoffRadii(
+        project,
+        updates.map(({ index, previous }) => ({ index, state: previous })),
+      ),
+  };
+}
+
+export function updateProjectElementHandoffRadius(
+  project: ProjectDocument,
+  index: number,
+  state: HandoffRadiusState,
+): ProjectDocument {
+  return updateProjectElementHandoffRadii(project, [{ index, state }]);
+}
+
+function updateProjectElementHandoffRadii(
+  project: ProjectDocument,
+  updates: readonly { index: number; state: HandoffRadiusState }[],
+): ProjectDocument {
+  const nextProject = structuredClone(project);
+  for (const { index, state } of updates) {
+    const element = nextProject.path.path_elements[index];
+    const target = isTranslationTarget(element)
+      ? element
+      : isWaypoint(element)
+        ? element.translation_target
+        : null;
+
+    if (!target) {
+      throw new Error(`Element ${index} does not carry a handoff radius`);
+    }
+
+    target.intermediate_handoff_radius_meters = state.radiusMeters;
+    if (state.source) {
+      target.handoff_radius_source = state.source;
+    } else {
+      delete target.handoff_radius_source;
+    }
+  }
+  return nextProject;
 }
 
 export function updateProjectElementPosition(

@@ -6,9 +6,11 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { ChevronRight, Maximize2 } from "lucide-react";
 
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
@@ -20,9 +22,14 @@ import {
   autoVelocityConstraintForCap,
   autoVelocityInputSignature,
   generateAutoVelocityProfile,
-  type AutoVelocityProfile,
   type AutoVelocitySegmentCap,
 } from "../../../core/constraints/autoVelocityConstraints";
+import type { AutoVelocitySettings } from "../../../core/constraints/autoVelocityApply";
+import {
+  createSetHandoffRadiusCommand,
+  createSetHandoffRadiiCommand,
+  type HandoffRadiusState,
+} from "../../../canvas/modelSync";
 import { domainForKey } from "../../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import {
@@ -34,6 +41,7 @@ import {
   type RangedConstraint,
   type RangedConstraintKey,
 } from "../../../core/model/path";
+import { autoVelocityStore } from "../../../state/autoVelocityStore";
 import { projectStore } from "../../../state/projectStore";
 import { selectionStore } from "../../../state/selectionStore";
 import { useStoreSelector } from "../../../state/react";
@@ -44,9 +52,28 @@ import {
   NumberStepperControl,
 } from "../../controls";
 import { ElementIcon, PlusIcon, RemoveIcon, WarningIcon } from "../../icons";
+import {
+  cloneRangedEntries,
+  hitTestRangeBoundary,
+  hitTestRangeSegment,
+  moveRangedSegment,
+  resizeRangedSegment,
+  type RangeBoundary,
+  type RangedEntry,
+} from "../rangedConstraintDrag";
+import {
+  orderedSelectionGesture,
+  updateOrderedSelection,
+  type OrderedSelectionGesture,
+  type OrderedSelectionState,
+} from "../orderedSelection";
 import { SidebarSection } from "../SidebarSection";
 import {
+  canClearGeneratedConstraints,
+  canGenerateConstraints,
   createAddRangedConstraintCommand,
+  createClearGeneratedConstraintsCommand,
+  createGenerateConstraintsCommand,
   createInsertRangedConstraintCommand,
   createRemoveRangedConstraintCommand,
   createReplaceRangedConstraintsForKeyCommand,
@@ -54,12 +81,9 @@ import {
   createSplitRangedConstraintCommand,
   createUpdateRangedConstraintCommand,
   createUpdateRangedConstraintsCommand,
+  handoffRadiusChipsForPath,
+  type HandoffRadiusChip,
 } from "../sidebarCommands";
-
-type RangedEntry = {
-  constraint: RangedConstraint;
-  index: number;
-};
 
 type RangeUpdate = {
   index: number;
@@ -87,12 +111,6 @@ type ScalarMeta = {
   step: number;
   min: number;
   max: number;
-};
-
-type AutoVelocitySettings = {
-  velocitySafetyFactor: number;
-  accelerationSafetyFactor: number;
-  mergeToleranceMps: number;
 };
 
 type AddConstraintMenuItem = {
@@ -213,6 +231,13 @@ const addConstraintMenuSections: readonly AddConstraintMenuSection[] = [
 ];
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
+const handoffRadiusStep = 0.05;
+// The property pane says the same thing about the final anchor; the first one is
+// inert for the mirror-image reason, so both endpoints explain themselves here.
+const startAnchorHandoffNote =
+  "Not used on the first element — a handoff happens at the anchor a segment drives to, and nothing drives to the start.";
+const finalAnchorHandoffNote =
+  "Not used on the final element — the path finishes here by tolerance, not by a handoff.";
 const minimumConstraintWarning =
   "Minimum constraints are an advanced tuning feature for paths where the translation PID controller may be undertuned near the end of a path. They are not recommended for most users.";
 const minimumConflictWarningTitle =
@@ -227,23 +252,26 @@ const defaultAutoVelocitySettings: AutoVelocitySettings = {
 export function ConstraintEditor({
   project,
   open,
-  onToggleSection,
 }: {
   project: ProjectDocument | null;
   open: boolean;
-  onToggleSection(): void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDetailsElement | null>(null);
   const menuSummaryRef = useRef<HTMLElement | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const [menuPanelStyle, setMenuPanelStyle] = useState<CSSProperties>();
-  const [popoutOpen, setPopoutOpen] = useState(false);
+  const [popoutKey, setPopoutKey] = useState<RangedConstraintKey | null>(null);
+  const popoutTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [selectedByKey, setSelectedByKey] = useState<
     Partial<Record<RangedConstraintKey, number>>
   >({});
-  const [autoVelocityRunning, setAutoVelocityRunning] = useState(false);
+  const [manualRunActive, setManualRunActive] = useState(false);
   const autoVelocityRunningRef = useRef(false);
+  const syncPhase = useStoreSelector(autoVelocityStore, (state) => state.phase);
+  // The background sync and the Generate button drive the same optimizer, so
+  // the card locks for either.
+  const autoVelocityRunning = manualRunActive || syncPhase === "running";
   const projectAutoVelocitySettings = project
     ? autoVelocitySettingsFromProject(project)
     : defaultAutoVelocitySettings;
@@ -282,11 +310,14 @@ export function ConstraintEditor({
     }
 
     autoVelocityRunningRef.current = true;
-    setAutoVelocityRunning(true);
+    setManualRunActive(true);
     runAfterBrowserPaint(task, () => {
       autoVelocityRunningRef.current = false;
-      setAutoVelocityRunning(false);
+      setManualRunActive(false);
     });
+  };
+  const generateAutoVelocity = () => {
+    runAutoVelocityTask(() => runGenerateConstraints(autoSettings));
   };
   const selectedRangedConstraint = useStoreSelector(
     selectionStore,
@@ -300,7 +331,6 @@ export function ConstraintEditor({
     (total, section) => total + section.items.length,
     0,
   );
-  const activeCount = project ? countActiveConstraints(project) : 0;
   useLayoutEffect(() => {
     if (!menuOpen) {
       return;
@@ -387,6 +417,16 @@ export function ConstraintEditor({
     }
   };
 
+  const openPopout = (key: RangedConstraintKey, trigger: HTMLButtonElement) => {
+    popoutTriggerRef.current = trigger;
+    setPopoutKey(key);
+  };
+
+  const closePopout = () => {
+    setPopoutKey(null);
+    window.requestAnimationFrame(() => popoutTriggerRef.current?.focus());
+  };
+
   useEffect(() => {
     if (!selectedRangedConstraint) {
       return;
@@ -398,11 +438,19 @@ export function ConstraintEditor({
     );
     const clearIfOutsideSelectedRange = (event: Event) => {
       const target = event.target;
-      if (
-        target instanceof Element &&
-        target.closest(`[data-ranged-constraint-selection="${selectedToken}"]`)
-      ) {
-        return;
+      if (target instanceof Element) {
+        const clickedRange = target.closest<HTMLElement>(
+          "[data-ranged-constraint-key]",
+        );
+        if (
+          target.closest(
+            `[data-ranged-constraint-selection="${selectedToken}"]`,
+          ) ||
+          clickedRange?.dataset.rangedConstraintKey ===
+            selectedRangedConstraint.key
+        ) {
+          return;
+        }
       }
 
       setSelectedByKey((selected) => ({
@@ -424,16 +472,19 @@ export function ConstraintEditor({
   }, [selectedRangedConstraint]);
 
   const popoutOverlay =
-    popoutOpen && project
+    popoutKey && project
       ? createPortal(
           <ConstraintPopout
             project={project}
+            constraintKey={popoutKey}
             selectedByKey={selectedByKey}
             autoSettings={autoSettings}
             autoVelocityRunning={autoVelocityRunning}
             runAutoVelocityTask={runAutoVelocityTask}
+            onAutoSettingsChange={setAutoSettings}
+            onGenerateAutoVelocity={generateAutoVelocity}
             onSelect={setSelectedForKey}
-            onClose={() => setPopoutOpen(false)}
+            onClose={closePopout}
           />,
           document.body,
         )
@@ -442,118 +493,45 @@ export function ConstraintEditor({
   return (
     <>
       <SidebarSection
-        actions={
-          <details
-            ref={menuRootRef}
-            className="add-element-menu add-constraint-menu"
-            open={menuOpen}
-          >
-            <summary
-              ref={menuSummaryRef}
-              className={
-                project
-                  ? "add-element-button"
-                  : "add-element-button is-disabled"
-              }
-              role="button"
-              onClick={(event) => {
-                event.preventDefault();
-                if (!project) {
-                  return;
-                }
-                setMenuOpen((open) => !open);
-              }}
-            >
-              <span
-                className="sidebar-add-icon"
-                data-testid="add-constraint-icon"
-                aria-hidden="true"
-              >
-                <PlusIcon size={17} />
-              </span>
-              <span>Add constraint</span>
-            </summary>
-            <div
-              ref={menuPanelRef}
-              className="add-element-menu__panel"
-              role="menu"
-              aria-label="Add constraint"
-              style={menuPanelStyle}
-            >
-              {availableItemCount === 0 ? (
-                <p className="constraint-empty-state">
-                  All constraints are active.
-                </p>
-              ) : (
-                availableSections.map((section) => (
-                  <div
-                    key={section.id}
-                    className="add-constraint-menu__section"
-                    role="group"
-                    aria-labelledby={`add-constraint-menu-${section.id}`}
-                  >
-                    <div
-                      className="add-constraint-menu__section-label"
-                      id={`add-constraint-menu-${section.id}`}
-                    >
-                      {section.label}
-                    </div>
-                    <div className="add-constraint-menu__section-items">
-                      {section.items.map((item) => (
-                        <button
-                          key={item.key}
-                          type="button"
-                          className="add-element-menu__item"
-                          role="menuitem"
-                          onClick={() => {
-                            if (!project) {
-                              return;
-                            }
-                            const added = addConstraint(project, item.key);
-                            if (added) {
-                              setSelectedForKey(added.key, added.index);
-                            }
-                            setMenuOpen(false);
-                          }}
-                        >
-                          <ElementIcon
-                            type={constraintIconType(item.key)}
-                            size={22}
-                          />
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </details>
-        }
         className="constraints-section"
-        meta={project ? constraintCountLabel(activeCount) : "No project"}
+        headerless
         open={open}
         sectionId="constraints"
         title="Constraints"
-        onToggle={onToggleSection}
       >
         <div className="constraint-list">
           {project ? (
             <>
-              {rangedConstraintKeys.map((key) => (
-                <RangedConstraintCard
-                  key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
-                  project={project}
-                  constraintKey={key}
-                  selectedIndex={selectedByKey[key] ?? null}
-                  autoSettings={autoSettings}
-                  autoVelocityRunning={autoVelocityRunning}
-                  runAutoVelocityTask={runAutoVelocityTask}
-                  onAutoSettingsChange={setAutoSettings}
-                  onSelect={(index) => setSelectedForKey(key, index)}
-                  onOpenPopout={() => setPopoutOpen(true)}
-                />
-              ))}
+              {rangedConstraintKeys.map((key) =>
+                key === autoVelocityKey ? (
+                  <AutoConstraintLedgerCard
+                    key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
+                    project={project}
+                    selectedIndex={selectedByKey[key] ?? null}
+                    autoSettings={autoSettings}
+                    autoVelocityRunning={autoVelocityRunning}
+                    runAutoVelocityTask={runAutoVelocityTask}
+                    onAutoSettingsChange={setAutoSettings}
+                    onGenerateAutoVelocity={generateAutoVelocity}
+                    onSelect={(index) => setSelectedForKey(key, index)}
+                    onOpenPopout={(trigger) => openPopout(key, trigger)}
+                  />
+                ) : (
+                  <RangedConstraintCard
+                    key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
+                    project={project}
+                    constraintKey={key}
+                    selectedIndex={selectedByKey[key] ?? null}
+                    autoSettings={autoSettings}
+                    autoVelocityRunning={autoVelocityRunning}
+                    runAutoVelocityTask={runAutoVelocityTask}
+                    onAutoSettingsChange={setAutoSettings}
+                    onGenerateAutoVelocity={generateAutoVelocity}
+                    onSelect={(index) => setSelectedForKey(key, index)}
+                    onOpenPopout={(trigger) => openPopout(key, trigger)}
+                  />
+                ),
+              )}
 
               <div className="constraint-terminal-group">
                 {terminalToleranceKeys.map((key) =>
@@ -569,20 +547,466 @@ export function ConstraintEditor({
 
               {!hasAnyConstraint(project) &&
               domainLabelsForKey(project, autoVelocityKey).length === 0 ? (
-                <p className="constraint-empty-state">
-                  No path constraints added.
-                </p>
+                <p className="constraint-empty-state">No path limits added.</p>
               ) : null}
             </>
           ) : (
             <p className="constraint-empty-state">
-              Open or create a project to edit constraints.
+              Open or create a project to edit limits.
             </p>
           )}
+          <div
+            className="constraint-add-surface"
+            data-testid="constraint-add-surface"
+          >
+            <details
+              ref={menuRootRef}
+              className="add-element-menu add-constraint-menu"
+              open={menuOpen}
+            >
+              <summary
+                ref={menuSummaryRef}
+                className={
+                  project
+                    ? "add-element-button"
+                    : "add-element-button is-disabled"
+                }
+                role="button"
+                aria-label="Add constraint"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!project) {
+                    return;
+                  }
+                  setMenuOpen((open) => !open);
+                }}
+              >
+                <span
+                  className="sidebar-add-icon"
+                  data-testid="add-constraint-icon"
+                  aria-hidden="true"
+                >
+                  <PlusIcon size={17} />
+                </span>
+                <span>Add constraint</span>
+              </summary>
+              <div
+                ref={menuPanelRef}
+                className="add-element-menu__panel"
+                role="menu"
+                aria-label="Add constraint"
+                style={menuPanelStyle}
+              >
+                {availableItemCount === 0 ? (
+                  <p className="constraint-empty-state">
+                    Everything is already active.
+                  </p>
+                ) : (
+                  availableSections.map((section) => (
+                    <div
+                      key={section.id}
+                      className="add-constraint-menu__section"
+                      role="group"
+                      aria-labelledby={`add-constraint-menu-${section.id}`}
+                    >
+                      <div
+                        className="add-constraint-menu__section-label"
+                        id={`add-constraint-menu-${section.id}`}
+                      >
+                        {section.label}
+                      </div>
+                      <div className="add-constraint-menu__section-items">
+                        {section.items.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="add-element-menu__item"
+                            role="menuitem"
+                            onClick={() => {
+                              if (!project) {
+                                return;
+                              }
+                              const added = addConstraint(project, item.key);
+                              if (added) {
+                                setSelectedForKey(added.key, added.index);
+                              }
+                              setMenuOpen(false);
+                            }}
+                          >
+                            <ElementIcon
+                              type={constraintIconType(item.key)}
+                              size={22}
+                            />
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </details>
+          </div>
         </div>
       </SidebarSection>
       {popoutOverlay}
     </>
+  );
+}
+
+/**
+ * The optimizer's two outputs share one path-ordered ledger. Velocity ranges
+ * occupy the left lane and handoff radii occupy the right lane, but their
+ * selection and editing stay type-specific.
+ */
+function AutoConstraintLedgerCard({
+  project,
+  selectedIndex,
+  autoSettings,
+  autoVelocityRunning,
+  runAutoVelocityTask,
+  onAutoSettingsChange,
+  onGenerateAutoVelocity,
+  onSelect,
+  onOpenPopout,
+}: {
+  project: ProjectDocument;
+  selectedIndex: number | null;
+  autoSettings: AutoVelocitySettings;
+  autoVelocityRunning: boolean;
+  runAutoVelocityTask: AutoVelocityTaskRunner;
+  onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onGenerateAutoVelocity(): void;
+  onSelect: (index: number) => void;
+  onOpenPopout(trigger: HTMLButtonElement): void;
+}) {
+  const constraintKey = autoVelocityKey;
+  const meta = rangedMeta[constraintKey];
+  const entries = getRangedEntries(project, constraintKey);
+  const labels = useMemo(
+    () => domainLabelsForKey(project, constraintKey),
+    [constraintKey, project],
+  );
+  const chips = useMemo(() => handoffRadiusChipsForPath(project), [project]);
+  const autoStatus = useMemo(
+    () => autoVelocityStatusForProject(project, autoSettings),
+    [autoSettings, project],
+  );
+  const canGenerate = useMemo(() => canGenerateConstraints(project), [project]);
+  const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
+  const initialSelectedElementIndex =
+    selectionStore.getState().selectedElementIndex;
+  const initiallySelectedRadius = chips.some(
+    (chip) => !chip.inert && chip.elementIndex === initialSelectedElementIndex,
+  );
+  const [activeType, setActiveType] = useState<"velocity" | "radius" | null>(
+    initiallySelectedRadius ? "radius" : selectedEntry ? "velocity" : null,
+  );
+  const [velocitySelectionState, setVelocitySelectionState] =
+    useState<OrderedSelectionState>(
+      selectedEntry
+        ? {
+            anchorIndex: selectedEntry.index,
+            focusIndex: selectedEntry.index,
+            indexes: [selectedEntry.index],
+          }
+        : { anchorIndex: null, focusIndex: null, indexes: [] },
+    );
+  const availableIndexes = new Set(entries.map((entry) => entry.index));
+  const reconciledVelocityIndexes = velocitySelectionState.indexes.filter(
+    (index) => availableIndexes.has(index),
+  );
+  const velocitySelectionIsCurrent =
+    velocitySelectionState.focusIndex === selectedIndex;
+  const selectedIndexes =
+    activeType !== "velocity" || !selectedEntry
+      ? []
+      : velocitySelectionIsCurrent && reconciledVelocityIndexes.length > 0
+        ? reconciledVelocityIndexes
+        : [selectedEntry.index];
+  const selectedEntries = entries.filter((entry) =>
+    selectedIndexes.includes(entry.index),
+  );
+  const selectVelocityEntry = (
+    index: number,
+    gesture: OrderedSelectionGesture = "replace",
+  ) => {
+    const nextSelection = updateOrderedSelection({
+      orderedIndexes: entries.map((entry) => entry.index),
+      selectedIndexes,
+      anchorIndex:
+        activeType === "velocity" && velocitySelectionIsCurrent
+          ? velocitySelectionState.anchorIndex
+          : (selectedEntry?.index ?? null),
+      targetIndex: index,
+      gesture,
+    });
+    setVelocitySelectionState(nextSelection);
+    setActiveType("velocity");
+    if (nextSelection.focusIndex === null) {
+      setActiveType(null);
+      selectionStore.getState().clearRangedConstraintSelection();
+      return;
+    }
+    onSelect(nextSelection.focusIndex);
+  };
+  const selectedLocalIndex = selectedEntry
+    ? entries.findIndex((entry) => entry.index === selectedEntry.index)
+    : -1;
+  const selectedSegmentNumber =
+    selectedLocalIndex >= 0 ? selectedLocalIndex + 1 : 1;
+
+  const selectedElementIndex = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedElementIndex,
+  );
+  const [radiusSelectionState, setRadiusSelectionState] =
+    useState<OrderedSelectionState>(
+      initiallySelectedRadius && initialSelectedElementIndex !== null
+        ? {
+            anchorIndex: initialSelectedElementIndex,
+            focusIndex: initialSelectedElementIndex,
+            indexes: [initialSelectedElementIndex],
+          }
+        : { anchorIndex: null, focusIndex: null, indexes: [] },
+    );
+  const orderedRadiusIndexes = chips
+    .filter((chip) => !chip.inert)
+    .map((chip) => chip.elementIndex);
+  const selectableRadiusIndexes = new Set(orderedRadiusIndexes);
+  const radiusSelectionIsCurrent =
+    radiusSelectionState.focusIndex === selectedElementIndex;
+  const selectedElementIndexes = (
+    activeType === "radius" && radiusSelectionIsCurrent
+      ? radiusSelectionState.indexes
+      : activeType === "radius" && selectedElementIndex !== null
+        ? [selectedElementIndex]
+        : []
+  ).filter((index) => selectableRadiusIndexes.has(index));
+  const selectedChips = chips.filter((chip) =>
+    selectedElementIndexes.includes(chip.elementIndex),
+  );
+  const selectedChip =
+    selectedChips.length === 1 ? (selectedChips[0] ?? null) : null;
+  const total = labels.length;
+
+  const selectRadiusChip = (
+    chip: HandoffRadiusChip,
+    gesture: OrderedSelectionGesture,
+  ) => {
+    const nextSelection = updateOrderedSelection({
+      orderedIndexes: orderedRadiusIndexes,
+      selectedIndexes: selectedElementIndexes,
+      anchorIndex:
+        activeType === "radius" && radiusSelectionIsCurrent
+          ? radiusSelectionState.anchorIndex
+          : selectedElementIndex,
+      targetIndex: chip.elementIndex,
+      gesture,
+    });
+    setRadiusSelectionState(nextSelection);
+    setActiveType("radius");
+    if (nextSelection.focusIndex === null) {
+      setActiveType(null);
+      selectionStore.getState().clearSelection();
+      return;
+    }
+    const latestProject = projectStore.getState().project ?? project;
+    selectionStore
+      .getState()
+      .selectElement(nextSelection.focusIndex, latestProject);
+  };
+
+  return (
+    <article
+      className="constraint-card constraint-card--auto-ledger"
+      data-testid={`constraint-card-${constraintKey}`}
+      data-tour="max-velocity-card"
+      aria-label="Path constraints"
+    >
+      <div className="constraint-card__header constraint-card__header--auto constraint-card__header--auto-ledger">
+        <AutoVelocityStatusIndicator
+          status={autoStatus}
+          running={autoVelocityRunning}
+        />
+        <div className="constraint-card__auto-actions">
+          <SidebarActionButton
+            onClick={onGenerateAutoVelocity}
+            disabled={total === 0 || autoVelocityRunning || !canGenerate}
+            aria-label="Generate constraints"
+            title={
+              !canGenerate && !autoVelocityRunning
+                ? "Every handoff radius and velocity segment is set manually. Switch one to Auto to generate."
+                : "Generate handoff radii and velocity constraints"
+            }
+          >
+            Generate
+          </SidebarActionButton>
+          <SidebarActionButton
+            onClick={() => clearGeneratedConstraints(project)}
+            disabled={
+              autoVelocityRunning || !canClearGeneratedConstraints(project)
+            }
+            aria-label="Clear generated constraints"
+            title="Clear generated handoff radii and velocity constraints"
+          >
+            Clear
+          </SidebarActionButton>
+        </div>
+      </div>
+
+      {!autoVelocityRunning && !canGenerate ? (
+        <p className="auto-velocity-hint" role="note">
+          All values are set manually. Switch one to Auto to generate.
+        </p>
+      ) : entries.length === 0 && total > 0 ? (
+        <p className="auto-velocity-hint" role="note">
+          No caps yet, so this path drives at the global maximum. Generate
+          proposes caps and radii from its shape.
+        </p>
+      ) : null}
+
+      <AutoVelocityInlineControls
+        settings={autoSettings}
+        onSettingsChange={onAutoSettingsChange}
+      />
+
+      <div className="auto-constraint-ledger__legend" aria-label="Value modes">
+        <span>
+          <i className="auto-constraint-ledger__legend-sample is-auto" />
+          Auto
+        </span>
+        <span>
+          <i className="auto-constraint-ledger__legend-sample is-manual" />
+          Manual
+        </span>
+      </div>
+
+      <div
+        className="auto-constraint-ledger"
+        data-testid="auto-constraint-ledger"
+      >
+        <ConstraintSegmentBar
+          project={project}
+          constraintKey={constraintKey}
+          entries={entries}
+          labels={labels}
+          unit={meta.unit}
+          autoStatus={autoStatus}
+          selectedIndex={
+            activeType === "velocity" ? (selectedEntry?.index ?? null) : null
+          }
+          selectedIndexes={selectedIndexes}
+          orientation="vertical"
+          onSelect={selectVelocityEntry}
+          onPreview={(index, constraint) => {
+            previewRangedConstraint(constraintKey, index, constraint);
+          }}
+          onRangesChange={(updates) =>
+            updateRangedConstraints(project, updates)
+          }
+          onGapDoubleClick={(start, end) => {
+            const insertedIndex = insertRangedConstraint(
+              project,
+              constraintKey,
+              start,
+              end,
+              defaultFor(project, constraintKey, meta.defaultValue),
+            );
+            if (insertedIndex !== null) {
+              selectVelocityEntry(insertedIndex);
+            }
+          }}
+        />
+        <div
+          className="handoff-radius-chips handoff-radius-chips--ledger"
+          data-testid="constraint-card-handoff-radii"
+          role="group"
+          aria-label="Handoff radii"
+          style={{
+            gridTemplateRows: `repeat(${Math.max(total, 1)}, minmax(44px, 1fr))`,
+          }}
+        >
+          {chips.map((chip) => (
+            <HandoffRadiusChipButton
+              key={chip.elementIndex}
+              chip={chip}
+              selected={selectedElementIndexes.includes(chip.elementIndex)}
+              ledger
+              style={{ gridRow: chip.ordinal }}
+              onSelect={(gesture) => selectRadiusChip(chip, gesture)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {entries.length > 1 || chips.filter((chip) => !chip.inert).length > 1 ? (
+        <p className="bulk-selection-hint">
+          Shift-click selects a range · ⌘/Ctrl-click toggles values.
+        </p>
+      ) : null}
+
+      {activeType === "radius" ? (
+        selectedChips.length > 1 ? (
+          <HandoffRadiusBulkControls
+            chips={selectedChips}
+            autoVelocityRunning={autoVelocityRunning}
+            onClearSelection={() => {
+              setRadiusSelectionState({
+                anchorIndex: null,
+                focusIndex: null,
+                indexes: [],
+              });
+              setActiveType(null);
+              selectionStore.getState().clearSelection();
+            }}
+          />
+        ) : (
+          <HandoffRadiusControls
+            chip={selectedChip}
+            autoVelocityRunning={autoVelocityRunning}
+          />
+        )
+      ) : activeType === "velocity" ? (
+        selectedEntries.length > 1 ? (
+          <BulkRangedConstraintControls
+            project={project}
+            constraintKey={constraintKey}
+            entries={selectedEntries}
+            allEntries={entries}
+            autoSettings={autoSettings}
+            autoVelocityRunning={autoVelocityRunning}
+            runAutoVelocityTask={runAutoVelocityTask}
+            onClearSelection={() => {
+              setVelocitySelectionState({
+                anchorIndex: null,
+                focusIndex: null,
+                indexes: [],
+              });
+              setActiveType(null);
+              selectionStore.getState().clearRangedConstraintSelection();
+            }}
+          />
+        ) : (
+          <RangedConstraintControls
+            project={project}
+            constraintKey={constraintKey}
+            entry={selectedEntry}
+            segmentNumber={selectedSegmentNumber}
+            autoStatus={autoStatus}
+            autoSettings={autoSettings}
+            autoVelocityRunning={autoVelocityRunning}
+            runAutoVelocityTask={runAutoVelocityTask}
+            onSelect={(index) => selectVelocityEntry(index)}
+            onOpenPopout={onOpenPopout}
+          />
+        )
+      ) : (
+        <div className="auto-constraint-ledger__empty" role="note">
+          Select a speed or distance value to edit it.
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -594,6 +1018,7 @@ function RangedConstraintCard({
   autoVelocityRunning,
   runAutoVelocityTask,
   onAutoSettingsChange,
+  onGenerateAutoVelocity,
   onSelect,
   onOpenPopout,
 }: {
@@ -604,8 +1029,9 @@ function RangedConstraintCard({
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
   onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onGenerateAutoVelocity(): void;
   onSelect: (index: number) => void;
-  onOpenPopout: () => void;
+  onOpenPopout(trigger: HTMLButtonElement): void;
 }) {
   const meta = rangedMeta[constraintKey];
   const entries = getRangedEntries(project, constraintKey);
@@ -621,7 +1047,44 @@ function RangedConstraintCard({
         : null,
     [autoSettings, isAutoVelocityCard, project],
   );
+  const canGenerate = useMemo(
+    () => (isAutoVelocityCard ? canGenerateConstraints(project) : false),
+    [isAutoVelocityCard, project],
+  );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
+  const [localSelectedIndexes, setLocalSelectedIndexes] = useState<number[]>(
+    selectedEntry ? [selectedEntry.index] : [],
+  );
+  const availableIndexes = new Set(entries.map((entry) => entry.index));
+  const reconciledLocalIndexes = localSelectedIndexes.filter((index) =>
+    availableIndexes.has(index),
+  );
+  const selectedIndexes =
+    selectedIndex === null
+      ? []
+      : reconciledLocalIndexes.length > 0
+        ? reconciledLocalIndexes
+        : selectedEntry
+          ? [selectedEntry.index]
+          : [];
+  const selectedEntries = entries.filter((entry) =>
+    selectedIndexes.includes(entry.index),
+  );
+  const selectEntry = (
+    index: number,
+    gesture: OrderedSelectionGesture = "replace",
+  ) => {
+    if (gesture !== "replace" && selectedIndexes.length > 0) {
+      setLocalSelectedIndexes(
+        selectedIndexes.includes(index)
+          ? selectedIndexes
+          : [...selectedIndexes, index],
+      );
+      return;
+    }
+    setLocalSelectedIndexes([index]);
+    onSelect(index);
+  };
   const selectedLocalIndex = selectedEntry
     ? entries.findIndex((entry) => entry.index === selectedEntry.index)
     : -1;
@@ -638,60 +1101,73 @@ function RangedConstraintCard({
     <article
       className="constraint-card"
       data-testid={`constraint-card-${constraintKey}`}
+      data-tour={isAutoVelocityCard ? "max-velocity-card" : undefined}
     >
-      <div className="constraint-card__header">
-        <div>
-          <div className="constraint-heading-row">
-            <h3>{meta.label}</h3>
-            {isMinimumVelocityConstraintKey(constraintKey) ? (
-              <MinimumConstraintTooltip />
-            ) : null}
-          </div>
-          <span>
-            {constraintCardMeta(constraintKey, entries.length, total)}
-          </span>
+      <div
+        className={[
+          "constraint-card__header",
+          isAutoVelocityCard && autoStatus
+            ? "constraint-card__header--auto"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <div className="constraint-heading-row">
+          <h3>{meta.label}</h3>
+          {isMinimumVelocityConstraintKey(constraintKey) ? (
+            <MinimumConstraintTooltip />
+          ) : null}
         </div>
         {isAutoVelocityCard && autoStatus ? (
-          <div className="constraint-card__actions constraint-card__actions--auto">
+          <>
             <AutoVelocityStatusIndicator
               status={autoStatus}
               running={autoVelocityRunning}
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
-              disabled={total === 0 || autoVelocityRunning}
             />
-            <SidebarActionButton
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
-              disabled={total === 0 || autoVelocityRunning}
-              aria-label="Apply auto velocity to open segments"
-              title="Apply auto velocity to open and auto segments"
-            >
-              Auto all
-            </SidebarActionButton>
-            <SidebarActionButton
-              onClick={() => clearAutoVelocity(project)}
-              disabled={
-                autoVelocityRunning || !hasAutoVelocityConstraints(project)
-              }
-              aria-label="Clear auto velocity segments"
-              title="Clear auto velocity segments"
-            >
-              Clear auto
-            </SidebarActionButton>
-          </div>
+            <div className="constraint-card__auto-actions">
+              <SidebarActionButton
+                onClick={onGenerateAutoVelocity}
+                disabled={total === 0 || autoVelocityRunning || !canGenerate}
+                aria-label="Generate constraints"
+                title={
+                  !canGenerate && !autoVelocityRunning
+                    ? "Every handoff radius and velocity segment is set manually. Switch one to Auto to generate."
+                    : "Generate handoff radii and velocity constraints"
+                }
+              >
+                Generate
+              </SidebarActionButton>
+              <SidebarActionButton
+                onClick={() => clearGeneratedConstraints(project)}
+                disabled={
+                  autoVelocityRunning || !canClearGeneratedConstraints(project)
+                }
+                aria-label="Clear generated constraints"
+                title="Clear generated handoff radii and velocity constraints"
+              >
+                Clear
+              </SidebarActionButton>
+            </div>
+          </>
         ) : null}
       </div>
 
+      {isAutoVelocityCard && autoStatus && !autoVelocityRunning ? (
+        !canGenerate ? (
+          <p className="auto-velocity-hint" role="note">
+            All segments are set manually. Switch a segment to Auto to generate.
+          </p>
+        ) : entries.length === 0 && total > 0 ? (
+          <p className="auto-velocity-hint" role="note">
+            No caps yet, so this path drives at the global maximum. Generate
+            proposes caps from its shape — then review them.
+          </p>
+        ) : null
+      ) : null}
+
       {isAutoVelocityCard && autoStatus ? (
         <AutoVelocityInlineControls
-          status={autoStatus}
           settings={autoSettings}
           onSettingsChange={onAutoSettingsChange}
         />
@@ -705,7 +1181,8 @@ function RangedConstraintCard({
         unit={meta.unit}
         autoStatus={autoStatus}
         selectedIndex={selectedEntry?.index ?? null}
-        onSelect={onSelect}
+        selectedIndexes={selectedIndexes}
+        onSelect={selectEntry}
         onPreview={(index, constraint) => {
           previewRangedConstraint(constraintKey, index, constraint);
         }}
@@ -719,56 +1196,286 @@ function RangedConstraintCard({
             defaultFor(project, constraintKey, meta.defaultValue),
           );
           if (insertedIndex !== null) {
-            onSelect(insertedIndex);
+            selectEntry(insertedIndex);
           }
         }}
       />
+      {entries.length > 1 ? (
+        <p className="bulk-selection-hint">
+          Shift-click segments to edit them together.
+        </p>
+      ) : null}
 
-      <RangedConstraintControls
-        project={project}
-        constraintKey={constraintKey}
-        entry={selectedEntry}
-        segmentNumber={selectedSegmentNumber}
-        autoStatus={autoStatus}
-        autoSettings={autoSettings}
-        autoVelocityRunning={autoVelocityRunning}
-        runAutoVelocityTask={runAutoVelocityTask}
-        onSelect={onSelect}
-        onOpenPopout={onOpenPopout}
-      />
+      {selectedEntries.length > 1 ? (
+        <BulkRangedConstraintControls
+          project={project}
+          constraintKey={constraintKey}
+          entries={selectedEntries}
+          allEntries={entries}
+          autoSettings={autoSettings}
+          autoVelocityRunning={autoVelocityRunning}
+          runAutoVelocityTask={runAutoVelocityTask}
+          onClearSelection={() => {
+            setLocalSelectedIndexes([]);
+            selectionStore.getState().clearRangedConstraintSelection();
+          }}
+        />
+      ) : (
+        <RangedConstraintControls
+          project={project}
+          constraintKey={constraintKey}
+          entry={selectedEntry}
+          segmentNumber={selectedSegmentNumber}
+          autoStatus={autoStatus}
+          autoSettings={autoSettings}
+          autoVelocityRunning={autoVelocityRunning}
+          runAutoVelocityTask={runAutoVelocityTask}
+          onSelect={onSelect}
+          onOpenPopout={onOpenPopout}
+        />
+      )}
     </article>
+  );
+}
+
+function HandoffRadiusChipButton({
+  chip,
+  selected,
+  ledger = false,
+  style,
+  onSelect,
+}: {
+  chip: HandoffRadiusChip;
+  selected: boolean;
+  ledger?: boolean;
+  style?: CSSProperties;
+  onSelect(gesture: OrderedSelectionGesture): void;
+}) {
+  return (
+    <button
+      type="button"
+      className={[
+        "handoff-radius-chip",
+        `handoff-radius-chip--${chip.state}`,
+        ledger ? "handoff-radius-chip--ledger" : "",
+        selected ? "is-selected" : "",
+        chip.inert ? "is-inert" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-testid={`handoff-radius-chip-${chip.elementIndex}`}
+      disabled={chip.inert}
+      style={style}
+      aria-pressed={selected}
+      aria-label={`Handoff radius ${chip.ordinal}, ${formatSegmentNumber(
+        chip.effectiveValueMeters,
+      )} m`}
+      title={handoffRadiusChipTitle(chip)}
+      onClick={(event) => onSelect(orderedSelectionGesture(event))}
+    >
+      {chip.inert ? null : (
+        <span className="handoff-radius-chip__value">
+          {formatSegmentNumber(chip.effectiveValueMeters)} m
+        </span>
+      )}
+    </button>
+  );
+}
+
+function HandoffRadiusBulkControls({
+  chips,
+  autoVelocityRunning,
+  onClearSelection,
+}: {
+  chips: readonly HandoffRadiusChip[];
+  autoVelocityRunning: boolean;
+  onClearSelection(): void;
+}) {
+  const modes = new Set(chips.map((chip) => chip.state));
+  const mode =
+    modes.size === 1 && !modes.has("unset")
+      ? (chips[0]?.state as "auto" | "manual")
+      : null;
+  const firstValue = chips[0]?.effectiveValueMeters ?? null;
+  const commonValue =
+    firstValue !== null &&
+    chips.every(
+      (chip) => Math.abs(chip.effectiveValueMeters - firstValue) < 1e-9,
+    )
+      ? firstValue
+      : null;
+
+  return (
+    <div
+      className="ranged-constraint-controls"
+      data-testid="handoff-radius-bulk-detail"
+    >
+      <div className="ranged-constraint-controls__fields">
+        <p className="bulk-selection-summary">{chips.length} radii selected</p>
+        <AutoVelocityModeControl
+          ariaLabel="Selected handoff radius mode"
+          disabled={autoVelocityRunning}
+          mode={mode}
+          onModeChange={(nextMode) => setHandoffRadiusModes(chips, nextMode)}
+        />
+        <label className="ranged-constraint-controls__value">
+          <span>Set all values</span>
+          <div className="constraint-value-input">
+            <NumberStepperControl
+              allowEmpty
+              ariaLabel="Selected handoff radii value"
+              value={commonValue}
+              step={handoffRadiusStep}
+              min={0}
+              disabled={autoVelocityRunning}
+              onChange={(value) => {
+                if (value !== null) {
+                  pinHandoffRadii(chips, value);
+                }
+              }}
+            />
+            <span>m</span>
+          </div>
+        </label>
+      </div>
+      <div className="ranged-constraint-controls__actions">
+        <SidebarIconButton
+          className="sidebar-icon-button--remove"
+          disabled={autoVelocityRunning}
+          aria-label={`Delete ${chips.length} handoff radii`}
+          title="Clear selected radii"
+          onClick={() => {
+            clearHandoffRadii(chips);
+            onClearSelection();
+          }}
+        >
+          <RemoveIcon size={16} />
+        </SidebarIconButton>
+      </div>
+    </div>
+  );
+}
+
+function HandoffRadiusControls({
+  chip,
+  autoVelocityRunning,
+}: {
+  chip: HandoffRadiusChip | null;
+  autoVelocityRunning: boolean;
+}) {
+  return (
+    <div
+      className="ranged-constraint-controls"
+      data-testid="handoff-radius-detail"
+    >
+      <div className="ranged-constraint-controls__fields">
+        {chip ? (
+          <>
+            <AutoVelocityModeControl
+              ariaLabel="Handoff radius mode"
+              disabled={autoVelocityRunning}
+              mode={chip.state === "unset" ? null : chip.state}
+              onModeChange={(mode) => setHandoffRadiusMode(chip, mode)}
+            />
+            <label className="ranged-constraint-controls__value">
+              <span>Anchor {chip.ordinal}</span>
+              <div className="constraint-value-input">
+                <NumberStepperControl
+                  ariaLabel={`Handoff radius ${chip.ordinal} value`}
+                  value={chip.effectiveValueMeters}
+                  step={handoffRadiusStep}
+                  min={0}
+                  disabled={chip.state === "auto" || autoVelocityRunning}
+                  onChange={(value) => {
+                    if (value === null) {
+                      return;
+                    }
+                    pinHandoffRadius(chip, value);
+                  }}
+                />
+                <span>m</span>
+              </div>
+            </label>
+          </>
+        ) : (
+          <p className="ranged-constraint-controls__empty" role="note">
+            Select an anchor to pin its radius.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
 function ConstraintPopout({
   project,
+  constraintKey,
   selectedByKey,
   autoSettings,
   autoVelocityRunning,
   runAutoVelocityTask,
+  onAutoSettingsChange,
+  onGenerateAutoVelocity,
   onSelect,
   onClose,
 }: {
   project: ProjectDocument;
+  constraintKey: RangedConstraintKey;
   selectedByKey: Partial<Record<RangedConstraintKey, number>>;
   autoSettings: AutoVelocitySettings;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
+  onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onGenerateAutoVelocity(): void;
   onSelect: (key: RangedConstraintKey, index: number) => void;
   onClose: () => void;
 }) {
-  const activeKeys = rangedConstraintKeys.filter((key) => {
-    if (getRangedEntries(project, key).length > 0) {
-      return true;
-    }
-
-    return (
-      key === autoVelocityKey && domainLabelsForKey(project, key).length > 0
-    );
-  });
+  const meta = rangedMeta[constraintKey];
   const popoutRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const [position, setPosition] = useState(() => initialPopoutPosition());
+
+  useLayoutEffect(() => {
+    popoutRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  useEffect(() => {
+    const keepWindowInViewport = () => {
+      const popout = popoutRef.current;
+      if (!popout) {
+        return;
+      }
+
+      const rect = popout.getBoundingClientRect();
+      setPosition((current) => ({
+        left: clamp(
+          current.left,
+          8,
+          Math.max(8, window.innerWidth - rect.width - 8),
+        ),
+        top: clamp(
+          current.top,
+          8,
+          Math.max(8, window.innerHeight - rect.height - 8),
+        ),
+      }));
+    };
+
+    window.addEventListener("resize", keepWindowInViewport);
+    return () => window.removeEventListener("resize", keepWindowInViewport);
+  }, []);
 
   const startWindowDrag = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button")) {
@@ -827,8 +1534,9 @@ function ConstraintPopout({
         className="constraint-popout"
         role="dialog"
         aria-modal="false"
-        aria-label="Constraint Editor"
+        aria-label={`${meta.label} expanded editor`}
         data-testid="constraint-popout-window"
+        tabIndex={-1}
         style={{ left: position.left, top: position.top }}
       >
         <div
@@ -836,36 +1544,33 @@ function ConstraintPopout({
           data-testid="constraint-popout-drag-handle"
           onMouseDown={startWindowDrag}
         >
-          <div>
-            <h2>Constraint Editor</h2>
-            <span>Ranged constraints</span>
+          <div className="constraint-popout__title">
+            <span className="constraint-popout__eyebrow">
+              Expanded constraint
+            </span>
+            <h2>{meta.label}</h2>
           </div>
-          <CloseButton
-            className="dialog-close-button"
-            onClick={onClose}
-            ariaLabel="Close Constraint Editor"
-          />
+          <div className="constraint-popout__window-actions">
+            <CloseButton
+              className="dialog-close-button"
+              onClick={onClose}
+              ariaLabel={`Close ${meta.label} expanded editor`}
+            />
+          </div>
         </div>
 
         <div className="constraint-popout__content">
-          {activeKeys.length === 0 ? (
-            <p className="constraint-empty-state">
-              No ranged constraints defined.
-            </p>
-          ) : (
-            activeKeys.map((key) => (
-              <PopoutConstraintPanel
-                key={key}
-                project={project}
-                constraintKey={key}
-                selectedIndex={selectedByKey[key] ?? null}
-                autoSettings={autoSettings}
-                autoVelocityRunning={autoVelocityRunning}
-                runAutoVelocityTask={runAutoVelocityTask}
-                onSelect={(index) => onSelect(key, index)}
-              />
-            ))
-          )}
+          <PopoutConstraintPanel
+            project={project}
+            constraintKey={constraintKey}
+            selectedIndex={selectedByKey[constraintKey] ?? null}
+            autoSettings={autoSettings}
+            autoVelocityRunning={autoVelocityRunning}
+            runAutoVelocityTask={runAutoVelocityTask}
+            onAutoSettingsChange={onAutoSettingsChange}
+            onGenerateAutoVelocity={onGenerateAutoVelocity}
+            onSelect={(index) => onSelect(constraintKey, index)}
+          />
         </div>
       </div>
     </div>
@@ -879,6 +1584,8 @@ function PopoutConstraintPanel({
   autoSettings,
   autoVelocityRunning,
   runAutoVelocityTask,
+  onAutoSettingsChange,
+  onGenerateAutoVelocity,
   onSelect,
 }: {
   project: ProjectDocument;
@@ -887,6 +1594,8 @@ function PopoutConstraintPanel({
   autoSettings: AutoVelocitySettings;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
+  onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onGenerateAutoVelocity(): void;
   onSelect: (index: number) => void;
 }) {
   const meta = rangedMeta[constraintKey];
@@ -908,58 +1617,79 @@ function PopoutConstraintPanel({
         : null,
     [autoSettings, isAutoVelocityPanel, project],
   );
+  const canGenerate = useMemo(
+    () => (isAutoVelocityPanel ? canGenerateConstraints(project) : false),
+    [isAutoVelocityPanel, project],
+  );
 
   return (
     <article className="constraint-popout-card">
-      <div className="constraint-popout-card__header">
-        <div>
-          <div className="constraint-heading-row">
-            <h3>{meta.label}</h3>
-            {isMinimumVelocityConstraintKey(constraintKey) ? (
-              <MinimumConstraintTooltip />
-            ) : null}
-          </div>
-          <span>
-            {entries.length} {entries.length === 1 ? "segment" : "segments"}
-          </span>
+      <div
+        className={[
+          "constraint-popout-card__header",
+          isAutoVelocityPanel && autoStatus
+            ? "constraint-card__header--auto"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <div className="constraint-heading-row">
+          <h3>{meta.label}</h3>
+          {isMinimumVelocityConstraintKey(constraintKey) ? (
+            <MinimumConstraintTooltip />
+          ) : null}
         </div>
         {isAutoVelocityPanel && autoStatus ? (
-          <div className="constraint-card__actions constraint-card__actions--auto">
+          <>
             <AutoVelocityStatusIndicator
               status={autoStatus}
               running={autoVelocityRunning}
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
-              disabled={labels.length === 0 || autoVelocityRunning}
             />
-            <SidebarActionButton
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
-              disabled={labels.length === 0 || autoVelocityRunning}
-              aria-label="Apply auto velocity to open segments"
-              title="Apply auto velocity to open and auto segments"
-            >
-              Auto all
-            </SidebarActionButton>
-            <SidebarActionButton
-              onClick={() => clearAutoVelocity(project)}
-              disabled={
-                autoVelocityRunning || !hasAutoVelocityConstraints(project)
-              }
-              aria-label="Clear auto velocity segments"
-              title="Clear auto velocity segments"
-            >
-              Clear auto
-            </SidebarActionButton>
-          </div>
+            <div className="constraint-card__auto-actions">
+              <SidebarActionButton
+                onClick={onGenerateAutoVelocity}
+                disabled={
+                  labels.length === 0 || autoVelocityRunning || !canGenerate
+                }
+                aria-label="Generate constraints"
+                title={
+                  !canGenerate && !autoVelocityRunning
+                    ? "Every handoff radius and velocity segment is set manually. Switch one to Auto to generate."
+                    : "Generate handoff radii and velocity constraints"
+                }
+              >
+                Generate
+              </SidebarActionButton>
+              <SidebarActionButton
+                onClick={() => clearGeneratedConstraints(project)}
+                disabled={
+                  autoVelocityRunning || !canClearGeneratedConstraints(project)
+                }
+                aria-label="Clear generated constraints"
+                title="Clear generated handoff radii and velocity constraints"
+              >
+                Clear
+              </SidebarActionButton>
+            </div>
+          </>
+        ) : null}
+        {isAutoVelocityPanel &&
+        autoStatus &&
+        !canGenerate &&
+        !autoVelocityRunning ? (
+          <p className="auto-velocity-hint" role="note">
+            All segments are set manually. Switch a segment to Auto to generate.
+          </p>
         ) : null}
       </div>
+
+      {isAutoVelocityPanel && autoStatus ? (
+        <AutoVelocityInlineControls
+          settings={autoSettings}
+          onSettingsChange={onAutoSettingsChange}
+        />
+      ) : null}
 
       <ConstraintSegmentBar
         project={project}
@@ -1129,11 +1859,13 @@ function ConstraintSegmentBar({
   unit,
   autoStatus,
   selectedIndex,
+  selectedIndexes = selectedIndex === null ? [] : [selectedIndex],
   onSelect,
   onPreview,
   onRangesChange,
   onGapDoubleClick,
   density = "sidebar",
+  orientation = "horizontal",
 }: {
   project: ProjectDocument;
   constraintKey: RangedConstraintKey;
@@ -1142,11 +1874,13 @@ function ConstraintSegmentBar({
   unit: string;
   autoStatus?: AutoVelocityStatus | null;
   selectedIndex: number | null;
-  onSelect: (index: number) => void;
+  selectedIndexes?: readonly number[];
+  onSelect: (index: number, gesture?: OrderedSelectionGesture) => void;
   onPreview?: (index: number, constraint: RangedConstraint) => void;
   onRangesChange: (updates: RangeUpdate[]) => void;
   onGapDoubleClick: (start: number, end: number) => void;
   density?: "sidebar" | "popout";
+  orientation?: "horizontal" | "vertical";
 }) {
   const meta = rangedMeta[constraintKey];
   const total = labels.length;
@@ -1171,33 +1905,65 @@ function ConstraintSegmentBar({
       return;
     }
 
-    const metrics = segmentBarMetrics(bar, total);
-    const x = event.clientX - metrics.left + bar.scrollLeft;
-    const boundary = hitTestBoundary(displayedEntries, x, metrics.cellWidth);
+    const metrics = segmentBarMetrics(bar, total, orientation);
+    const position = segmentPointerPosition(event, bar, metrics, orientation);
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const rangeTarget = target?.closest<HTMLElement>(
+      "[data-ranged-constraint-index]",
+    );
+    const preferredEntryIndex = Number(
+      rangeTarget?.dataset.rangedConstraintIndex ?? Number.NaN,
+    );
+    const preferredSegmentIndex = Number.isInteger(preferredEntryIndex)
+      ? displayedEntries.findIndex(
+          (entry) => entry.index === preferredEntryIndex,
+        )
+      : -1;
+    const explicitHandle = target?.closest<HTMLElement>("[data-range-handle]")
+      ?.dataset.rangeHandle;
+    const boundary: RangeBoundary | null =
+      preferredSegmentIndex >= 0 &&
+      (explicitHandle === "start" || explicitHandle === "end")
+        ? {
+            segmentIndex: preferredSegmentIndex,
+            side: explicitHandle,
+          }
+        : hitTestRangeBoundary(
+            displayedEntries,
+            position,
+            metrics.cellExtent,
+            preferredSegmentIndex,
+          );
     const segmentIndex =
       boundary?.segmentIndex ??
-      hitTestSegment(displayedEntries, x, metrics.cellWidth);
+      (preferredSegmentIndex >= 0
+        ? preferredSegmentIndex
+        : hitTestRangeSegment(displayedEntries, position, metrics.cellExtent));
 
     if (segmentIndex < 0) {
       return;
     }
 
-    const workingEntries = cloneEntries(displayedEntries);
+    const workingEntries = cloneRangedEntries(displayedEntries);
     const selectedEntry = workingEntries[segmentIndex];
     if (!selectedEntry) {
       return;
     }
 
-    onSelect(selectedEntry.index);
+    const gesture = orderedSelectionGesture(event);
+    onSelect(selectedEntry.index, gesture);
     event.preventDefault();
+    if (gesture !== "replace") {
+      return;
+    }
 
-    const clickOrdinal = xToOrdinal(x, metrics.cellWidth, total);
+    const clickOrdinal = positionToOrdinal(position, metrics.cellExtent, total);
     dragRef.current = boundary
       ? {
           changed: false,
           entries: workingEntries,
           mode: "boundary",
-          originalEntries: cloneEntries(displayedEntries),
+          originalEntries: cloneRangedEntries(displayedEntries),
           segmentIndex,
           side: boundary.side,
         }
@@ -1205,12 +1971,9 @@ function ConstraintSegmentBar({
           changed: false,
           entries: workingEntries,
           mode: "segment",
-          originalEntries: cloneEntries(displayedEntries),
+          originalEntries: cloneRangedEntries(displayedEntries),
           segmentIndex,
           offset: clickOrdinal - selectedEntry.constraint.start_ordinal,
-          width:
-            selectedEntry.constraint.end_ordinal -
-            selectedEntry.constraint.start_ordinal,
         };
 
     const handleMove = (moveEvent: globalThis.MouseEvent) => {
@@ -1220,27 +1983,26 @@ function ConstraintSegmentBar({
         return;
       }
 
-      const moveMetrics = segmentBarMetrics(currentBar, total);
-      const nextOrdinal = xToOrdinal(
-        moveEvent.clientX - moveMetrics.left + currentBar.scrollLeft,
-        moveMetrics.cellWidth,
+      const moveMetrics = segmentBarMetrics(currentBar, total, orientation);
+      const nextOrdinal = positionToOrdinal(
+        segmentPointerPosition(moveEvent, currentBar, moveMetrics, orientation),
+        moveMetrics.cellExtent,
         total,
       );
       const nextEntries =
         drag.mode === "boundary"
-          ? dragBoundary(
-              drag.entries,
+          ? resizeRangedSegment(
+              drag.originalEntries,
               drag.segmentIndex,
               drag.side,
               nextOrdinal,
               total,
             )
-          : dragWholeSegment(
-              drag.entries,
+          : moveRangedSegment(
+              drag.originalEntries,
               drag.segmentIndex,
               nextOrdinal,
               drag.offset,
-              drag.width,
               total,
             );
       const displayedNextEntries = manualizeChangedAutoVelocityEntries(
@@ -1287,10 +2049,10 @@ function ConstraintSegmentBar({
       return;
     }
 
-    const metrics = segmentBarMetrics(bar, total);
-    const ordinal = xToOrdinal(
-      event.clientX - metrics.left + bar.scrollLeft,
-      metrics.cellWidth,
+    const metrics = segmentBarMetrics(bar, total, orientation);
+    const ordinal = positionToOrdinal(
+      segmentPointerPosition(event, bar, metrics, orientation),
+      metrics.cellExtent,
       total,
     );
     const gap = contiguousGap(displayedEntries, total, ordinal);
@@ -1299,82 +2061,140 @@ function ConstraintSegmentBar({
     }
   };
 
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (entries.length === 0) {
+      return;
+    }
+
+    const currentPosition = entries.findIndex(
+      (entry) => entry.index === selectedIndex,
+    );
+
+    let nextPosition: number | null = null;
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        nextPosition = currentPosition < 0 ? 0 : currentPosition + 1;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextPosition =
+          currentPosition < 0 ? entries.length - 1 : currentPosition - 1;
+        break;
+      case "Home":
+        nextPosition = 0;
+        break;
+      case "End":
+        nextPosition = entries.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    const clamped = Math.min(Math.max(nextPosition, 0), entries.length - 1);
+    const nextEntry = entries[clamped];
+    if (nextEntry) {
+      event.preventDefault();
+      onSelect(nextEntry.index);
+    }
+  };
+
   return (
     <div
       ref={barRef}
-      className={`ranged-segment-bar ranged-segment-bar--${density}`}
-      style={{
-        gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(54px, 1fr))`,
-      }}
+      className={[
+        "ranged-segment-bar",
+        `ranged-segment-bar--${density}`,
+        orientation === "vertical" ? "ranged-segment-bar--vertical" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={
+        orientation === "vertical"
+          ? {
+              gridTemplateRows: `repeat(${Math.max(total, 1)}, minmax(44px, 1fr))`,
+            }
+          : {
+              gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(54px, 1fr))`,
+            }
+      }
       role="listbox"
+      aria-multiselectable="true"
       aria-label={`${meta.label} segments`}
       tabIndex={0}
       onMouseDown={startDrag}
       onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
     >
-      {labels.map((label, ordinalIndex) => {
-        const ordinal = ordinalIndex + 1;
-        const entry = displayedEntries.find(({ constraint }) =>
-          ordinalInRange(ordinal, constraint),
-        );
+      {orientation === "horizontal"
+        ? labels.map((label, ordinalIndex) => {
+            const ordinal = ordinalIndex + 1;
+            const entry = displayedEntries.find(({ constraint }) =>
+              ordinalInRange(ordinal, constraint),
+            );
 
-        return (
-          <div
-            key={`${constraintKey}-${ordinal}`}
-            className={[
-              "ranged-segment-ordinal",
-              ordinal === total ? "is-last" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            style={{ gridColumn: ordinal, gridRow: 1 }}
-            data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
-            aria-hidden="true"
-          >
-            <span>{label}</span>
-            <span className="visually-hidden">
-              {entry
-                ? `${formatValue(entry.constraint.value)} ${unit}`
-                : "Open"}
-            </span>
-          </div>
-        );
-      })}
+            return (
+              <div
+                key={`${constraintKey}-${ordinal}`}
+                className={[
+                  "ranged-segment-ordinal",
+                  ordinal === total ? "is-last" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ gridColumn: ordinal, gridRow: 1 }}
+                data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+                title={`${describeDomainLabel(label)} · ${meta.label} position ${ordinal} of ${total}`}
+                aria-hidden="true"
+              >
+                <span>{label}</span>
+                <span className="visually-hidden">
+                  {entry
+                    ? `${formatValue(entry.constraint.value)} ${unit}`
+                    : "Open"}
+                </span>
+              </div>
+            );
+          })
+        : labels.map((label, ordinalIndex) => {
+            const ordinal = ordinalIndex + 1;
+            const entry = displayedEntries.find(({ constraint }) =>
+              ordinalInRange(ordinal, constraint),
+            );
 
-      {labels.map((label, ordinalIndex) => {
-        const ordinal = ordinalIndex + 1;
-        const entry = displayedEntries.find(({ constraint }) =>
-          ordinalInRange(ordinal, constraint),
-        );
-
-        if (entry) {
-          return null;
-        }
-
-        return (
-          <div
-            key={`${constraintKey}-gap-${ordinal}`}
-            className={[
-              "ranged-segment-gap",
-              ordinal === total ? "is-last" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            style={{ gridColumn: ordinal, gridRow: 2 }}
-            role="option"
-            aria-selected="false"
-            aria-label={`Create ${meta.label} segment at ${label}`}
-          >
-            <span>Open</span>
-          </div>
-        );
-      })}
+            return entry ? (
+              <div
+                key={`${constraintKey}-cell-${ordinal}`}
+                className="ranged-segment-ledger-cell"
+                style={{ gridColumn: 1, gridRow: ordinal }}
+                data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+                title={`${meta.label} position ${ordinal} of ${total}`}
+                aria-hidden="true"
+              >
+                <span className="visually-hidden">
+                  {formatSegmentValue(entry.constraint.value, unit)}
+                </span>
+              </div>
+            ) : (
+              <div
+                key={`${constraintKey}-gap-${ordinal}`}
+                className="ranged-segment-gap ranged-segment-gap--vertical"
+                style={{ gridColumn: 1, gridRow: ordinal }}
+                data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+                role="option"
+                aria-selected="false"
+                aria-label={`Create ${meta.label} segment at position ${ordinal}`}
+              >
+                <span className="visually-hidden">Open</span>
+              </div>
+            );
+          })}
 
       {displayedEntries.map((entry) => {
         const { constraint } = entry;
         const start = clampOrdinal(constraint.start_ordinal, total);
         const end = clampOrdinal(constraint.end_ordinal, total);
-        const selected = entry.index === selectedIndex;
+        const selected = selectedIndexes.includes(entry.index);
         const segmentNumber =
           entries.findIndex((candidate) => candidate.index === entry.index) + 1;
         const constraintState = rangedConstraintStateForConstraint(
@@ -1405,14 +2225,22 @@ function ConstraintSegmentBar({
               .filter(Boolean)
               .join(" ")}
             style={{
-              gridColumn: `${Math.min(start, end)} / ${Math.max(start, end) + 1}`,
-              gridRow: 2,
+              gridColumn:
+                orientation === "vertical"
+                  ? 1
+                  : `${Math.min(start, end)} / ${Math.max(start, end) + 1}`,
+              gridRow:
+                orientation === "vertical"
+                  ? `${Math.min(start, end)} / ${Math.max(start, end) + 1}`
+                  : 2,
             }}
             data-testid={`constraint-range-${constraintKey}-${entry.index}`}
             data-ranged-constraint-selection={rangedSelectionToken(
               constraintKey,
               entry.index,
             )}
+            data-ranged-constraint-key={constraintKey}
+            data-ranged-constraint-index={entry.index}
             role="option"
             aria-selected={selected}
             aria-keyshortcuts="Delete Backspace"
@@ -1424,6 +2252,22 @@ function ConstraintSegmentBar({
               .join(", ")}
             title={warningTitle}
           >
+            {orientation === "vertical" ? (
+              <>
+                <span
+                  className="ranged-segment-range__handle ranged-segment-range__handle--start"
+                  data-range-handle="start"
+                  data-testid={`constraint-range-handle-${constraintKey}-${entry.index}-start`}
+                  aria-hidden="true"
+                />
+                <span
+                  className="ranged-segment-range__handle ranged-segment-range__handle--end"
+                  data-range-handle="end"
+                  data-testid={`constraint-range-handle-${constraintKey}-${entry.index}-end`}
+                  aria-hidden="true"
+                />
+              </>
+            ) : null}
             {density === "popout" ? (
               <span className="ranged-segment-range__label">
                 {rangeLabel(labels, constraint)}
@@ -1455,195 +2299,46 @@ type SegmentDragState =
       originalEntries: RangedEntry[];
       segmentIndex: number;
       offset: number;
-      width: number;
     };
 
 function segmentBarMetrics(
   bar: HTMLDivElement,
   total: number,
-): { cellWidth: number; left: number } {
+  orientation: "horizontal" | "vertical",
+): { cellExtent: number; start: number } {
   const rect = bar.getBoundingClientRect();
-  return {
-    cellWidth: Math.max(bar.scrollWidth, rect.width) / Math.max(1, total),
-    left: rect.left,
-  };
+  return orientation === "vertical"
+    ? {
+        cellExtent:
+          Math.max(bar.scrollHeight, rect.height) / Math.max(1, total),
+        start: rect.top,
+      }
+    : {
+        cellExtent: Math.max(bar.scrollWidth, rect.width) / Math.max(1, total),
+        start: rect.left,
+      };
 }
 
-function xToOrdinal(x: number, cellWidth: number, total: number): number {
-  return clampOrdinal(Math.floor(x / Math.max(1, cellWidth)) + 1, total);
-}
-
-function cloneEntries(entries: RangedEntry[]): RangedEntry[] {
-  return entries.map((entry) => ({
-    index: entry.index,
-    constraint: { ...entry.constraint },
-  }));
-}
-
-function hitTestBoundary(
-  entries: RangedEntry[],
-  x: number,
-  cellWidth: number,
-): { segmentIndex: number; side: "start" | "end" } | null {
-  const hitWidth = 8;
-  for (const [segmentIndex, { constraint }] of entries.entries()) {
-    const startX = (constraint.start_ordinal - 1) * cellWidth;
-    const endX = constraint.end_ordinal * cellWidth;
-    if (Math.abs(x - startX) <= hitWidth / 2) {
-      return { segmentIndex, side: "start" };
-    }
-    if (Math.abs(x - endX) <= hitWidth / 2) {
-      return { segmentIndex, side: "end" };
-    }
-  }
-
-  return null;
-}
-
-function hitTestSegment(
-  entries: RangedEntry[],
-  x: number,
-  cellWidth: number,
+function segmentPointerPosition(
+  event: Pick<globalThis.MouseEvent, "clientX" | "clientY">,
+  bar: HTMLDivElement,
+  metrics: { start: number },
+  orientation: "horizontal" | "vertical",
 ): number {
-  return entries.findIndex(({ constraint }) => {
-    const startX = (constraint.start_ordinal - 1) * cellWidth;
-    const endX = constraint.end_ordinal * cellWidth;
-    return x >= startX && x < endX;
-  });
+  return orientation === "vertical"
+    ? event.clientY - metrics.start + bar.scrollTop
+    : event.clientX - metrics.start + bar.scrollLeft;
 }
 
-function dragBoundary(
-  entries: RangedEntry[],
-  segmentIndex: number,
-  side: "start" | "end",
-  ordinal: number,
+function positionToOrdinal(
+  position: number,
+  cellExtent: number,
   total: number,
-): RangedEntry[] {
-  const nextEntries = cloneEntries(entries);
-  const entry = nextEntries[segmentIndex];
-  if (!entry) {
-    return entries;
-  }
-
-  const segment = entry.constraint;
-  const adjacentIndex = findAdjacentSegment(nextEntries, segmentIndex, side);
-
-  if (side === "start") {
-    let nextStart = Math.max(1, Math.min(ordinal, segment.end_ordinal));
-    if (adjacentIndex >= 0) {
-      const adjacent = nextEntries[adjacentIndex].constraint;
-      nextStart = Math.max(nextStart, adjacent.start_ordinal + 1);
-      adjacent.end_ordinal = nextStart - 1;
-    } else {
-      for (const candidate of nextEntries) {
-        const other = candidate.constraint;
-        if (other === segment) {
-          continue;
-        }
-        if (
-          other.end_ordinal < segment.end_ordinal &&
-          other.end_ordinal >= nextStart
-        ) {
-          nextStart = other.end_ordinal + 1;
-        }
-      }
-    }
-    segment.start_ordinal = clampOrdinal(nextStart, total);
-  } else {
-    let nextEnd = Math.min(total, Math.max(ordinal, segment.start_ordinal));
-    if (adjacentIndex >= 0) {
-      const adjacent = nextEntries[adjacentIndex].constraint;
-      nextEnd = Math.min(nextEnd, adjacent.end_ordinal - 1);
-      adjacent.start_ordinal = nextEnd + 1;
-    } else {
-      for (const candidate of nextEntries) {
-        const other = candidate.constraint;
-        if (other === segment) {
-          continue;
-        }
-        if (
-          other.start_ordinal > segment.start_ordinal &&
-          other.start_ordinal <= nextEnd
-        ) {
-          nextEnd = other.start_ordinal - 1;
-        }
-      }
-    }
-    segment.end_ordinal = clampOrdinal(nextEnd, total);
-  }
-
-  return nextEntries;
-}
-
-function dragWholeSegment(
-  entries: RangedEntry[],
-  segmentIndex: number,
-  targetOrdinal: number,
-  offset: number,
-  width: number,
-  total: number,
-): RangedEntry[] {
-  const nextEntries = cloneEntries(entries);
-  const entry = nextEntries[segmentIndex];
-  if (!entry) {
-    return entries;
-  }
-
-  const segment = entry.constraint;
-  let nextStart = targetOrdinal - offset;
-  let nextEnd = nextStart + width;
-
-  if (nextStart < 1) {
-    nextStart = 1;
-    nextEnd = nextStart + width;
-  }
-  if (nextEnd > total) {
-    nextEnd = total;
-    nextStart = nextEnd - width;
-  }
-
-  for (const candidate of nextEntries) {
-    const other = candidate.constraint;
-    if (other === segment) {
-      continue;
-    }
-    if (nextStart <= other.end_ordinal && nextEnd >= other.start_ordinal) {
-      if (segment.start_ordinal <= other.start_ordinal) {
-        nextEnd = other.start_ordinal - 1;
-        nextStart = nextEnd - width;
-      } else {
-        nextStart = other.end_ordinal + 1;
-        nextEnd = nextStart + width;
-      }
-    }
-  }
-
-  segment.start_ordinal = clampOrdinal(nextStart, total);
-  segment.end_ordinal = clampOrdinal(nextEnd, total);
-  return nextEntries;
-}
-
-function findAdjacentSegment(
-  entries: RangedEntry[],
-  segmentIndex: number,
-  side: "start" | "end",
 ): number {
-  const segment = entries[segmentIndex]?.constraint;
-  if (!segment) {
-    return -1;
-  }
-
-  return entries.findIndex(({ constraint }, index) => {
-    if (index === segmentIndex) {
-      return false;
-    }
-
-    if (side === "start") {
-      return constraint.end_ordinal === segment.start_ordinal - 1;
-    }
-
-    return constraint.start_ordinal === segment.end_ordinal + 1;
-  });
+  return clampOrdinal(
+    Math.floor(position / Math.max(1, cellExtent)) + 1,
+    total,
+  );
 }
 
 function changedRangeUpdates(
@@ -1701,6 +2396,112 @@ function manualizeChangedAutoVelocityEntries(
   });
 }
 
+function BulkRangedConstraintControls({
+  project,
+  constraintKey,
+  entries,
+  allEntries,
+  autoSettings,
+  autoVelocityRunning,
+  runAutoVelocityTask,
+  onClearSelection,
+}: {
+  project: ProjectDocument;
+  constraintKey: RangedConstraintKey;
+  entries: readonly RangedEntry[];
+  allEntries: readonly RangedEntry[];
+  autoSettings: AutoVelocitySettings;
+  autoVelocityRunning: boolean;
+  runAutoVelocityTask: AutoVelocityTaskRunner;
+  onClearSelection(): void;
+}) {
+  const meta = rangedMeta[constraintKey];
+  const isAutoVelocity = constraintKey === autoVelocityKey;
+  const sources = new Set(
+    entries.map((entry) =>
+      entry.constraint.source === "auto_velocity" ? "auto" : "manual",
+    ),
+  );
+  const mode =
+    isAutoVelocity && sources.size === 1
+      ? (sources.values().next().value ?? null)
+      : null;
+  const firstValue = entries[0]?.constraint.value ?? null;
+  const commonValue =
+    firstValue !== null &&
+    entries.every(
+      (entry) => Math.abs(entry.constraint.value - firstValue) < 1e-9,
+    )
+      ? firstValue
+      : null;
+
+  return (
+    <div
+      className="ranged-constraint-controls"
+      data-testid={`ranged-constraint-bulk-${constraintKey}`}
+      data-ranged-constraint-key={constraintKey}
+    >
+      <div className="ranged-constraint-controls__fields">
+        <p className="bulk-selection-summary">
+          {entries.length} segments selected
+        </p>
+        {isAutoVelocity ? (
+          <AutoVelocityModeControl
+            ariaLabel="Selected velocity constraint mode"
+            disabled={autoVelocityRunning}
+            mode={mode}
+            onModeChange={(nextMode) => {
+              runAutoVelocityTask(() => {
+                applyVelocityModes(project, entries, nextMode, autoSettings);
+                onClearSelection();
+              });
+            }}
+          />
+        ) : null}
+        <label className="ranged-constraint-controls__value">
+          <span>Set all values</span>
+          <div className="constraint-value-input">
+            <NumberStepperControl
+              allowEmpty
+              ariaLabel={`Selected ${meta.label} values`}
+              value={commonValue}
+              step={meta.step}
+              min={meta.min}
+              max={meta.max}
+              disabled={isAutoVelocity && autoVelocityRunning}
+              onChange={(value) => {
+                if (value !== null) {
+                  updateRangedConstraintValues(project, entries, value);
+                }
+              }}
+            />
+            <span>{meta.unit}</span>
+          </div>
+        </label>
+      </div>
+      <div className="ranged-constraint-controls__actions">
+        <SidebarIconButton
+          className="sidebar-icon-button--remove"
+          disabled={isAutoVelocity && autoVelocityRunning}
+          aria-label={`Delete ${entries.length} ${meta.label} segments`}
+          title="Delete selected segments"
+          onClick={() => {
+            removeRangedConstraints(
+              project,
+              constraintKey,
+              allEntries,
+              entries,
+            );
+            onClearSelection();
+          }}
+        >
+          <RemoveIcon size={16} />
+        </SidebarIconButton>
+      </div>
+    </div>
+  );
+}
+
 function RangedConstraintControls({
   project,
   constraintKey,
@@ -1723,7 +2524,7 @@ function RangedConstraintControls({
   autoVelocityRunning?: boolean;
   runAutoVelocityTask?: AutoVelocityTaskRunner;
   onSelect: (index: number) => void;
-  onOpenPopout?: () => void;
+  onOpenPopout?(trigger: HTMLButtonElement): void;
   compact?: boolean;
 }) {
   const meta = rangedMeta[constraintKey];
@@ -1760,86 +2561,100 @@ function RangedConstraintControls({
       data-ranged-constraint-selection={constraintSelectionToken}
     >
       <div className="ranged-constraint-controls__fields">
-        {showAutoVelocityMode ? (
-          <AutoVelocityModeControl
-            disabled={!entry || !constraint || autoVelocityRunning}
-            mode={
-              constraint?.source === "auto_velocity"
-                ? "auto"
-                : constraint
-                  ? "manual"
-                  : null
-            }
-            onModeChange={(mode) => {
-              if (
-                !entry ||
-                !constraint ||
-                !autoSettings ||
-                !runAutoVelocityTask
-              ) {
-                return;
-              }
-              runAutoVelocityTask(() =>
-                applyVelocityMode(project, entry, mode, autoSettings, onSelect),
-              );
-            }}
-          />
-        ) : null}
-        <label className="ranged-constraint-controls__value">
-          <span>Value</span>
-          <div className="constraint-value-input">
-            <NumberStepperControl
-              allowEmpty
-              ariaLabel={valueLabel}
-              value={constraint?.value ?? null}
-              step={meta.step}
-              min={meta.min}
-              max={meta.max}
-              disabled={
-                !constraint || (showAutoVelocityMode && autoVelocityRunning)
-              }
-              onChange={(value) => {
-                if (!entry || !constraint) {
-                  return;
-                }
-
-                updateRangedConstraint(project, entry.index, {
-                  ...constraint,
-                  value: value ?? constraint.value,
-                  source:
-                    constraintKey === autoVelocityKey
+        {entry ? (
+          <>
+            {showAutoVelocityMode ? (
+              <AutoVelocityModeControl
+                disabled={!entry || !constraint || autoVelocityRunning}
+                mode={
+                  constraint?.source === "auto_velocity"
+                    ? "auto"
+                    : constraint
                       ? "manual"
-                      : constraint.source,
-                  auto_velocity:
-                    constraintKey === autoVelocityKey
-                      ? null
-                      : constraint.auto_velocity,
-                });
-              }}
-            />
-            <span>{meta.unit}</span>
-          </div>
-        </label>
-        {constraintState?.globalWarning ? (
-          <span className="auto-velocity-status auto-velocity-status--warning">
-            Above global
-          </span>
-        ) : null}
-        {constraintState?.minMaxWarning ? (
-          <span
-            className="auto-velocity-status auto-velocity-status--warning"
-            title={minimumConflictWarningTitle}
-          >
-            Above max constraint
-          </span>
-        ) : null}
-        {constraintState?.stale ? (
-          <span className="auto-velocity-status">Stale</span>
-        ) : constraintState?.autoWarning ? (
-          <span className="auto-velocity-status auto-velocity-status--warning">
-            Above auto
-          </span>
-        ) : null}
+                      : null
+                }
+                onModeChange={(mode) => {
+                  if (
+                    !entry ||
+                    !constraint ||
+                    !autoSettings ||
+                    !runAutoVelocityTask
+                  ) {
+                    return;
+                  }
+                  runAutoVelocityTask(() =>
+                    applyVelocityMode(
+                      project,
+                      entry,
+                      mode,
+                      autoSettings,
+                      onSelect,
+                    ),
+                  );
+                }}
+              />
+            ) : null}
+            <label className="ranged-constraint-controls__value">
+              <span>Value</span>
+              <div className="constraint-value-input">
+                <NumberStepperControl
+                  allowEmpty
+                  ariaLabel={valueLabel}
+                  value={constraint?.value ?? null}
+                  step={meta.step}
+                  min={meta.min}
+                  max={meta.max}
+                  disabled={
+                    !constraint || (showAutoVelocityMode && autoVelocityRunning)
+                  }
+                  onChange={(value) => {
+                    if (!entry || !constraint) {
+                      return;
+                    }
+
+                    updateRangedConstraint(project, entry.index, {
+                      ...constraint,
+                      value: value ?? constraint.value,
+                      source:
+                        constraintKey === autoVelocityKey
+                          ? "manual"
+                          : constraint.source,
+                      auto_velocity:
+                        constraintKey === autoVelocityKey
+                          ? null
+                          : constraint.auto_velocity,
+                    });
+                  }}
+                />
+                <span>{meta.unit}</span>
+              </div>
+            </label>
+            {constraintState?.globalWarning ? (
+              <span className="auto-velocity-status auto-velocity-status--warning">
+                Above global
+              </span>
+            ) : null}
+            {constraintState?.minMaxWarning ? (
+              <span
+                className="auto-velocity-status auto-velocity-status--warning"
+                title={minimumConflictWarningTitle}
+              >
+                Above max constraint
+              </span>
+            ) : null}
+            {constraintState?.stale ? (
+              <span className="auto-velocity-status">Stale</span>
+            ) : constraintState?.autoWarning ? (
+              <span className="auto-velocity-status auto-velocity-status--warning">
+                Above auto
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <p className="ranged-constraint-controls__empty" role="note">
+            Select a segment to edit its value.
+          </p>
+        )}
       </div>
       <div className="ranged-constraint-controls__actions">
         <SidebarIconButton
@@ -1889,14 +2704,14 @@ function RangedConstraintControls({
           Split
         </SidebarActionButton>
         {onOpenPopout ? (
-          <SidebarActionButton
+          <SidebarIconButton
             className="constraint-popout-button"
-            onClick={onOpenPopout}
-            aria-label={`Show ${meta.label} editor`}
-            title="Show editor"
+            onClick={(event) => onOpenPopout(event.currentTarget)}
+            aria-label={`Expand ${meta.label} editor`}
+            title={`Open ${meta.label} in the expanded editor`}
           >
-            Editor
-          </SidebarActionButton>
+            <Maximize2 aria-hidden="true" size={15} />
+          </SidebarIconButton>
         ) : null}
       </div>
     </div>
@@ -1904,95 +2719,127 @@ function RangedConstraintControls({
 }
 
 function AutoVelocityInlineControls({
-  status,
   settings,
   onSettingsChange,
 }: {
-  status: AutoVelocityStatus;
   settings: AutoVelocitySettings;
   onSettingsChange(settings: AutoVelocitySettings): void;
 }) {
+  const autoSyncEnabled = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.autoSyncEnabled,
+  );
+
   return (
-    <div className="auto-velocity-inline" data-testid="auto-velocity-controls">
-      <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--factors">
-        <legend>Factors</legend>
-        <div className="auto-velocity-inline__group-fields">
-          <label>
-            <span>Velocity</span>
-            <NumberStepperControl
-              ariaLabel="Velocity safety factor"
-              value={settings.velocitySafetyFactor}
-              step={0.05}
-              min={0.05}
-              max={1}
-              onChange={(value) =>
-                onSettingsChange({
-                  ...settings,
-                  velocitySafetyFactor: value ?? settings.velocitySafetyFactor,
-                })
-              }
-            />
-          </label>
-          <label>
-            <span>Accel</span>
-            <NumberStepperControl
-              ariaLabel="Acceleration safety factor"
-              value={settings.accelerationSafetyFactor}
-              step={0.05}
-              min={0.05}
-              max={1}
-              onChange={(value) =>
-                onSettingsChange({
-                  ...settings,
-                  accelerationSafetyFactor:
-                    value ?? settings.accelerationSafetyFactor,
-                })
-              }
-            />
-          </label>
-        </div>
-      </fieldset>
-      <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--merge">
-        <legend>Merge diff</legend>
-        <label>
-          <span>Tolerance</span>
-          <NumberStepperControl
-            ariaLabel="Auto velocity merge diff"
-            value={settings.mergeToleranceMps}
-            step={0.05}
-            min={0}
-            max={20}
-            onChange={(value) =>
-              onSettingsChange({
-                ...settings,
-                mergeToleranceMps: value ?? settings.mergeToleranceMps,
-              })
+    <details
+      className="auto-velocity-inline"
+      data-testid="auto-velocity-controls"
+    >
+      <summary>
+        <ChevronRight
+          className="auto-velocity-inline__caret"
+          aria-hidden="true"
+          size={14}
+        />
+        <span>Optimizer settings</span>
+        <small className="auto-velocity-inline__hint">Factors · Sync</small>
+      </summary>
+      <div className="auto-velocity-inline__settings">
+        <label className="auto-velocity-inline__sync">
+          <input
+            type="checkbox"
+            checked={autoSyncEnabled}
+            onChange={(event) =>
+              autoVelocityStore
+                .getState()
+                .setAutoSyncEnabled(event.currentTarget.checked)
             }
           />
+          <span>Keep in sync</span>
+          <small>
+            Regenerate auto radii and velocity caps whenever the path changes.
+          </small>
         </label>
-      </fieldset>
-      <div className="auto-velocity-inline__summary">
-        <span>{status.autoConstraintCount} auto caps</span>
+        <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--factors">
+          <legend>Factors</legend>
+          <div className="auto-velocity-inline__group-fields">
+            <label>
+              <span>Velocity</span>
+              <NumberStepperControl
+                ariaLabel="Velocity safety factor"
+                value={settings.velocitySafetyFactor}
+                step={0.05}
+                min={0.05}
+                max={1}
+                onChange={(value) =>
+                  onSettingsChange({
+                    ...settings,
+                    velocitySafetyFactor:
+                      value ?? settings.velocitySafetyFactor,
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Accel</span>
+              <NumberStepperControl
+                ariaLabel="Acceleration safety factor"
+                value={settings.accelerationSafetyFactor}
+                step={0.05}
+                min={0.05}
+                max={1}
+                onChange={(value) =>
+                  onSettingsChange({
+                    ...settings,
+                    accelerationSafetyFactor:
+                      value ?? settings.accelerationSafetyFactor,
+                  })
+                }
+              />
+            </label>
+          </div>
+        </fieldset>
+        <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--merge">
+          <legend>Merge diff</legend>
+          <label>
+            <span>Tolerance</span>
+            <NumberStepperControl
+              ariaLabel="Auto velocity merge diff"
+              value={settings.mergeToleranceMps}
+              step={0.05}
+              min={0}
+              max={20}
+              onChange={(value) =>
+                onSettingsChange({
+                  ...settings,
+                  mergeToleranceMps: value ?? settings.mergeToleranceMps,
+                })
+              }
+            />
+          </label>
+        </fieldset>
       </div>
-    </div>
+    </details>
   );
 }
 
 function AutoVelocityStatusIndicator({
   status,
   running,
-  onClick,
-  disabled,
 }: {
   status: AutoVelocityStatus;
   running: boolean;
-  onClick(): void;
-  disabled: boolean;
 }) {
   const isCurrent = autoVelocityStatusIsCurrent(status);
+  const label = running
+    ? "Generating…"
+    : isCurrent
+      ? "Up to date"
+      : status.hasAutoConstraints
+        ? "Path changed"
+        : "Not generated";
   return (
-    <button
-      type="button"
+    <span
       className={[
         "auto-velocity-status",
         running
@@ -2003,45 +2850,43 @@ function AutoVelocityStatusIndicator({
       ]
         .filter(Boolean)
         .join(" ")}
-      disabled={disabled}
-      onClick={onClick}
+      role="status"
       aria-busy={running}
-      aria-label={
-        running
-          ? "Optimizer running"
-          : isCurrent
-            ? "Optimizer up to date"
-            : "Optimizer stale"
-      }
       title={autoVelocityStatusTooltip(status, running)}
     >
-      {running ? "Running" : "Optimizer"}
-    </button>
+      {label}
+    </span>
   );
 }
 
 function AutoVelocityModeControl({
   mode,
   disabled,
+  ariaLabel = "Velocity constraint mode",
   onModeChange,
 }: {
   mode: "auto" | "manual" | null;
   disabled: boolean;
+  ariaLabel?: string;
   onModeChange(mode: "auto" | "manual"): void;
 }) {
   return (
-    <div
-      className="auto-velocity-mode"
-      role="group"
-      aria-label="Velocity constraint mode"
-    >
+    <div className="auto-velocity-mode" role="group" aria-label={ariaLabel}>
       {(["auto", "manual"] as const).map((option) => (
         <button
           key={option}
           type="button"
-          className={mode === option ? "is-active" : ""}
-          disabled={disabled || mode === option}
-          onClick={() => onModeChange(option)}
+          className={[`is-${option}`, mode === option ? "is-active" : ""]
+            .filter(Boolean)
+            .join(" ")}
+          aria-pressed={mode === option}
+          disabled={disabled}
+          onClick={() => {
+            if (mode === option) {
+              return;
+            }
+            onModeChange(option);
+          }}
         >
           {option === "auto" ? "Auto" : "Manual"}
         </button>
@@ -2154,15 +2999,6 @@ function hasAnyConstraint(project: ProjectDocument): boolean {
   );
 }
 
-function countActiveConstraints(project: ProjectDocument): number {
-  return (
-    project.path.ranged_constraints.length +
-    terminalToleranceKeys.filter(
-      (key) => project.path.constraints[key] !== null,
-    ).length
-  );
-}
-
 function projectConfigSignature(project: ProjectDocument): string {
   const constraints = project.config.kinematic_constraints;
   return [
@@ -2170,29 +3006,6 @@ function projectConfigSignature(project: ProjectDocument): string {
     constraints.default_auto_velocity_acceleration_safety_factor,
     constraints.default_auto_velocity_merge_tolerance_meters_per_sec,
   ].join(":");
-}
-
-function constraintCountLabel(count: number): string {
-  if (count === 0) {
-    return "No path constraints";
-  }
-
-  return `${count} ${count === 1 ? "constraint" : "constraints"}`;
-}
-
-function constraintCardMeta(
-  key: RangedConstraintKey,
-  entryCount: number,
-  domainTotal: number,
-): string {
-  if (key === autoVelocityKey) {
-    const pathSegments = Math.max(0, domainTotal - 1);
-    return `${entryCount} constrained, ${pathSegments} ${pathSegments === 1 ? "path segment" : "path segments"}`;
-  }
-
-  return `${entryCount} ${entryCount === 1 ? "segment" : "segments"} across ${domainTotal} ${
-    domainTotal === 1 ? "element" : "elements"
-  }`;
 }
 
 function addConstraint(
@@ -2407,62 +3220,116 @@ function runAfterBrowserPaint(task: () => void, onComplete: () => void): void {
   });
 }
 
-function runAutoVelocityAll(
-  project: ProjectDocument,
-  settings: AutoVelocitySettings,
-): void {
-  const profile = generateAutoVelocityProfile(
-    project.path,
-    project.config,
-    autoVelocityOptionsFromSettings(settings),
-  );
-  applyAutoVelocityAll(project, profile, settings);
+/** The optimizer in one undoable step: handoff radii, then the caps for them. */
+function runGenerateConstraints(settings: AutoVelocitySettings): void {
+  projectStore
+    .getState()
+    .applyCommand(createGenerateConstraintsCommand(settings));
 }
 
-function applyAutoVelocityAll(
-  project: ProjectDocument,
-  profile: AutoVelocityProfile,
-  settings: AutoVelocitySettings,
-): void {
-  const total = domainLabelsForKey(project, autoVelocityKey).length;
-  const existing = ordinalConstraintMap(project, autoVelocityKey, total);
-  const metadata = autoVelocityMetadataFromSettings(project, settings);
-
-  for (const cap of profile.segmentCaps) {
-    const current = existing.get(cap.targetOrdinal);
-    if (current && current.source !== "auto_velocity") {
-      continue;
-    }
-
-    existing.set(
-      cap.targetOrdinal,
-      autoVelocityConstraintForCap(cap, metadata),
-    );
+function clearGeneratedConstraints(project: ProjectDocument): void {
+  if (!canClearGeneratedConstraints(project)) {
+    return;
   }
 
-  replaceVelocityConstraints(
-    project,
-    constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
-    "Apply auto velocity",
-  );
-}
-
-function clearAutoVelocity(project: ProjectDocument): void {
-  const total = domainLabelsForKey(project, autoVelocityKey).length;
-  const existing = ordinalConstraintMap(project, autoVelocityKey, total);
-
-  for (const [ordinal, constraint] of existing) {
-    if (constraint.source === "auto_velocity") {
-      existing.delete(ordinal);
-    }
-  }
-
-  replaceVelocityConstraints(
-    project,
-    constraintsFromOrdinalMap(existing, total),
-    "Clear auto velocity",
-  );
+  projectStore
+    .getState()
+    .applyCommand(createClearGeneratedConstraintsCommand());
   selectionStore.getState().clearRangedConstraintSelection();
+}
+
+/**
+ * Manual pins whatever the chip is showing — including the config default a
+ * still-unset anchor displays. Auto hands the value back to the optimizer, which
+ * re-seeds it on the next Generate or background sync; keeping the current
+ * number meanwhile means the path never jumps to an unrelated radius.
+ */
+function setHandoffRadiusMode(
+  chip: HandoffRadiusChip,
+  mode: "auto" | "manual",
+): void {
+  projectStore.getState().applyCommand(
+    createSetHandoffRadiusCommand(chip.elementIndex, storedHandoffState(chip), {
+      radiusMeters: chip.effectiveValueMeters,
+      source: mode,
+    }),
+  );
+}
+
+function pinHandoffRadius(chip: HandoffRadiusChip, radiusMeters: number): void {
+  projectStore.getState().applyCommand(
+    createSetHandoffRadiusCommand(chip.elementIndex, storedHandoffState(chip), {
+      radiusMeters,
+      source: "manual",
+    }),
+  );
+}
+
+function setHandoffRadiusModes(
+  chips: readonly HandoffRadiusChip[],
+  mode: "auto" | "manual",
+): void {
+  projectStore.getState().applyCommand(
+    createSetHandoffRadiiCommand(
+      chips.map((chip) => ({
+        index: chip.elementIndex,
+        previous: storedHandoffState(chip),
+        next: {
+          radiusMeters: chip.effectiveValueMeters,
+          source: mode,
+        },
+      })),
+      `Set ${chips.length} handoff radii ${mode}`,
+    ),
+  );
+}
+
+function pinHandoffRadii(
+  chips: readonly HandoffRadiusChip[],
+  radiusMeters: number,
+): void {
+  projectStore.getState().applyCommand(
+    createSetHandoffRadiiCommand(
+      chips.map((chip) => ({
+        index: chip.elementIndex,
+        previous: storedHandoffState(chip),
+        next: { radiusMeters, source: "manual" },
+      })),
+      `Set ${chips.length} handoff radius values`,
+    ),
+  );
+}
+
+function clearHandoffRadii(chips: readonly HandoffRadiusChip[]): void {
+  projectStore.getState().applyCommand(
+    createSetHandoffRadiiCommand(
+      chips.map((chip) => ({
+        index: chip.elementIndex,
+        previous: storedHandoffState(chip),
+        next: { radiusMeters: null, source: null },
+      })),
+      `Clear ${chips.length} handoff radii`,
+    ),
+  );
+}
+
+function storedHandoffState(chip: HandoffRadiusChip): HandoffRadiusState {
+  return { radiusMeters: chip.valueMeters, source: chip.source };
+}
+
+function handoffRadiusChipTitle(chip: HandoffRadiusChip): string {
+  if (chip.inert) {
+    return chip.ordinal === 1 ? startAnchorHandoffNote : finalAnchorHandoffNote;
+  }
+
+  switch (chip.state) {
+    case "auto":
+      return `Anchor ${chip.ordinal} · generated radius`;
+    case "manual":
+      return `Anchor ${chip.ordinal} · pinned radius`;
+    case "unset":
+      return `Anchor ${chip.ordinal} · unset, driving at the project default`;
+  }
 }
 
 function applyVelocityMode(
@@ -2472,10 +3339,29 @@ function applyVelocityMode(
   settings: AutoVelocitySettings,
   onSelect: (index: number) => void,
 ): void {
+  applyVelocityModes(project, [entry], mode, settings, onSelect);
+}
+
+function applyVelocityModes(
+  project: ProjectDocument,
+  entries: readonly RangedEntry[],
+  mode: "auto" | "manual",
+  settings: AutoVelocitySettings,
+  onSelect?: (index: number) => void,
+): void {
+  if (entries.length === 0) {
+    return;
+  }
+
   const total = domainLabelsForKey(project, autoVelocityKey).length;
   const existing = ordinalConstraintMap(project, autoVelocityKey, total);
-  const ordinals = ordinalsForConstraint(entry.constraint, total);
-  const selectedOrdinals = new Set(ordinals);
+  const ordinalsByEntry = entries.map((entry) => ({
+    entry,
+    ordinals: ordinalsForConstraint(entry.constraint, total),
+  }));
+  const selectedOrdinals = new Set(
+    ordinalsByEntry.flatMap(({ ordinals }) => ordinals),
+  );
   const profile = generateAutoVelocityProfile(
     project.path,
     project.config,
@@ -2493,25 +3379,33 @@ function applyVelocityMode(
       metadata,
       selectedOrdinals,
     );
-    for (const ordinal of ordinals) {
-      existing.set(ordinal, {
-        key: autoVelocityKey,
-        value: entry.constraint.value,
-        start_ordinal: ordinal,
-        end_ordinal: ordinal,
-      });
+    for (const { entry, ordinals } of ordinalsByEntry) {
+      for (const ordinal of ordinals) {
+        existing.set(ordinal, {
+          key: autoVelocityKey,
+          value: entry.constraint.value,
+          start_ordinal: ordinal,
+          end_ordinal: ordinal,
+        });
+      }
     }
     replaceVelocityConstraints(
       project,
       constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
       "Set manual velocity",
     );
-    selectOrdinalAfterReplace(autoVelocityKey, ordinals[0], onSelect);
+    if (onSelect) {
+      selectOrdinalAfterReplace(
+        autoVelocityKey,
+        ordinalsByEntry[0]?.ordinals[0],
+        onSelect,
+      );
+    }
     return;
   }
 
   refreshExistingAutoVelocityCaps(existing, capsByOrdinal, metadata);
-  for (const ordinal of ordinals) {
+  for (const ordinal of selectedOrdinals) {
     const cap = capsByOrdinal.get(ordinal);
     if (cap) {
       existing.set(ordinal, autoVelocityConstraintForCap(cap, metadata));
@@ -2522,7 +3416,59 @@ function applyVelocityMode(
     constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
     "Set auto velocity",
   );
-  selectOrdinalAfterReplace(autoVelocityKey, ordinals[0], onSelect);
+  if (onSelect) {
+    selectOrdinalAfterReplace(
+      autoVelocityKey,
+      ordinalsByEntry[0]?.ordinals[0],
+      onSelect,
+    );
+  }
+}
+
+function updateRangedConstraintValues(
+  project: ProjectDocument,
+  entries: readonly RangedEntry[],
+  value: number,
+): void {
+  projectStore.getState().applyCommand(
+    createUpdateRangedConstraintsCommand(
+      entries.map((entry) => ({
+        index: entry.index,
+        previous: entry.constraint,
+        next: {
+          ...entry.constraint,
+          value,
+          source:
+            entry.constraint.key === autoVelocityKey
+              ? "manual"
+              : entry.constraint.source,
+          auto_velocity:
+            entry.constraint.key === autoVelocityKey
+              ? null
+              : entry.constraint.auto_velocity,
+        },
+      })),
+    ),
+  );
+}
+
+function removeRangedConstraints(
+  project: ProjectDocument,
+  key: RangedConstraintKey,
+  allEntries: readonly RangedEntry[],
+  selectedEntries: readonly RangedEntry[],
+): void {
+  const selectedIndexes = new Set(selectedEntries.map((entry) => entry.index));
+  projectStore.getState().applyCommand(
+    createReplaceRangedConstraintsForKeyCommand(
+      key,
+      allEntries.map((entry) => entry.constraint),
+      allEntries
+        .filter((entry) => !selectedIndexes.has(entry.index))
+        .map((entry) => entry.constraint),
+      `Delete ${selectedEntries.length} ranged constraints`,
+    ),
+  );
 }
 
 function refreshExistingAutoVelocityCaps(
@@ -2699,14 +3645,6 @@ function ordinalsForConstraint(
   return ordinals;
 }
 
-function hasAutoVelocityConstraints(project: ProjectDocument): boolean {
-  return project.path.ranged_constraints.some(
-    (constraint) =>
-      constraint.key === autoVelocityKey &&
-      constraint.source === "auto_velocity",
-  );
-}
-
 function autoVelocitySettingsFromProject(
   project: ProjectDocument,
 ): AutoVelocitySettings {
@@ -2803,13 +3741,16 @@ function autoVelocityStatusTooltip(
   running: boolean,
 ): string {
   if (running) {
-    return "Optimizer is running. Auto velocity caps will update when it finishes.";
+    return "The optimizer is generating velocity constraints.";
   }
 
   if (autoVelocityStatusIsCurrent(status)) {
-    return "Optimizer is up to date for the current path, handoff radii, rotation constraints, and auto-velocity settings. Click to rerun it.";
+    return "Generated constraints match the current path and optimizer settings.";
   }
-  return "Optimizer is stale or has not been run for the current path/settings. Click to rerun it and update auto velocity caps.";
+  if (status.hasAutoConstraints) {
+    return "The path or optimizer settings changed after these constraints were generated.";
+  }
+  return "No generated velocity constraints are currently applied.";
 }
 
 function autoVelocityMetadataFromSettings(
@@ -3099,6 +4040,26 @@ function chooseSelectedEntry(
   return entries.find((entry) => entry.index === selectedIndex) ?? null;
 }
 
+/**
+ * Segment-bar labels are a type initial plus a per-type index (W1, T2, …),
+ * which means nothing until someone explains it. Expand it for a tooltip.
+ */
+function describeDomainLabel(label: string): string {
+  const index = label.slice(1);
+  switch (label.charAt(0)) {
+    case "W":
+      return `Waypoint ${index}`;
+    case "T":
+      return `Translation target ${index}`;
+    case "R":
+      return `Rotation target ${index}`;
+    case "E":
+      return `Event trigger ${index}`;
+    default:
+      return label;
+  }
+}
+
 function domainLabelsForKey(
   project: ProjectDocument,
   key: RangedConstraintKey,
@@ -3218,7 +4179,7 @@ function initialPopoutPosition(): { left: number; top: number } {
     return { left: 24, top: 72 };
   }
 
-  const estimatedWidth = Math.min(760, window.innerWidth - 32);
+  const estimatedWidth = Math.min(860, window.innerWidth - 32);
   return {
     left: Math.max(16, window.innerWidth - estimatedWidth - 20),
     top: 72,

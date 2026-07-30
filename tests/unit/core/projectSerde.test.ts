@@ -1342,6 +1342,64 @@ describe("project document serde", () => {
     ]);
   });
 
+  it("keeps handoff radius ownership in workspace metadata but out of BLine path JSON", () => {
+    const project = createProjectDocument({
+      project_id: "project-1",
+      display_name: "Bent Path",
+      path_file_name: "bent_path.json",
+      path: createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+          createTranslationTarget({
+            x_meters: 1,
+            y_meters: 0,
+            intermediate_handoff_radius_meters: 0.4,
+            handoff_radius_source: "auto",
+          }),
+          createWaypoint({
+            translation_target: createTranslationTarget({
+              x_meters: 2,
+              y_meters: 1,
+              intermediate_handoff_radius_meters: 0.3,
+              handoff_radius_source: "manual",
+            }),
+          }),
+          createTranslationTarget({ x_meters: 3, y_meters: 1 }),
+        ],
+      }),
+    });
+
+    const serializedPath = serializePath(project.path);
+    expect(serializedPath.path_elements[1]).toEqual({
+      type: "translation",
+      x_meters: 1,
+      y_meters: 0,
+      intermediate_handoff_radius_meters: 0.4,
+    });
+    expect(stringifyBLineJson(serializedPath)).not.toContain(
+      "handoff_radius_source",
+    );
+
+    const serialized = serializeProjectWorkspaceDocument(
+      projectDocumentToWorkspaceDocument(project),
+    );
+    expect(
+      serialized.paths[0]?.editor_metadata?.handoff_radius_sources,
+    ).toEqual([
+      { element_index: 1, source: "auto" },
+      { element_index: 2, source: "manual" },
+    ]);
+
+    const restored = deserializeProjectWorkspaceDocument(serialized);
+    const elements = restored.paths[0]?.path.path_elements ?? [];
+    expect(elements[1]).toMatchObject({ handoff_radius_source: "auto" });
+    expect(elements[2]).toMatchObject({
+      translation_target: { handoff_radius_source: "manual" },
+    });
+    expect("handoff_radius_source" in elements[0]).toBe(false);
+    expect("handoff_radius_source" in elements[3]).toBe(false);
+  });
+
   it("keeps auto velocity ownership in workspace metadata but out of BLine path JSON", () => {
     const autoConstraint: RangedConstraint = {
       key: "max_velocity_meters_per_sec",

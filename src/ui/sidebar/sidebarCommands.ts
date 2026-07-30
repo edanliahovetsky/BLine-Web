@@ -5,8 +5,20 @@ import {
 import {
   applyAutoVelocityConstraintsToOrdinals,
   refreshAutoVelocityConstraints,
+  type AutoVelocitySettings,
 } from "../../core/constraints/autoVelocityApply";
-import { getDefaultOptionalConfigValue } from "../../core/config/projectConfig";
+import {
+  canGenerateAutoConstraints,
+  clearGeneratedAutoConstraints,
+  generateAutoRadiiAndCaps,
+  hasGeneratedAutoConstraints,
+} from "../../core/constraints/autoConstraintGeneration";
+import {
+  anchorHandoffRadii,
+  defaultHandoffRadiusMeters,
+  type AnchorHandoffRadius,
+  type AnchorRadiusState,
+} from "../../core/model/handoffRadii";
 import {
   fieldCoordinateLengthMeters,
   fieldCoordinateWidthMeters,
@@ -27,6 +39,7 @@ import {
   countAnchorElements,
   isAnchorElement,
   isEventTrigger,
+  getHandoffRadiusSource,
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
@@ -39,6 +52,7 @@ import {
   type TranslationTarget,
   type Waypoint,
 } from "../../core/model/path";
+import { setPathElementLinkedTargetId } from "../../core/linkedTargets";
 import type { HistoryCommand } from "../../state/historyStore";
 
 export type AddableElementType = PathElement["type"];
@@ -118,6 +132,97 @@ export function createInsertPathElementCommand(
       } else {
         remapRangedConstraints(nextProject.path, previousElements);
       }
+      return nextProject;
+    },
+  };
+}
+
+export function createDuplicatePathElementCommand(
+  index: number,
+  element: PathElement,
+): HistoryCommand<ProjectDocument> {
+  // A duplicate is an independent copy: drop any linked-target association so
+  // the two elements do not silently move together.
+  const clone = setPathElementLinkedTargetId(structuredClone(element), null);
+  const command = createInsertPathElementCommand(index + 1, clone);
+  return {
+    ...command,
+    description: `Duplicate ${element.type} element`,
+  };
+}
+
+/**
+ * True when Generate would change something: an unpinned cap ordinal or an
+ * unpinned interior-anchor radius for the optimizer to own.
+ */
+export function canGenerateConstraints(
+  project: ProjectDocument | null,
+): boolean {
+  return project !== null && canGenerateAutoConstraints(project.path);
+}
+
+/** True when there is optimizer output of either kind to drop. */
+export function canClearGeneratedConstraints(
+  project: ProjectDocument | null,
+): boolean {
+  return project !== null && hasGeneratedAutoConstraints(project.path);
+}
+
+/**
+ * One undoable step covering the whole optimizer: seed the handoff radii nobody
+ * pinned, trim the ones the follower cannot honor, then solve velocity caps for
+ * the geometry that came out. Pinned radii and pinned cap segments stay put.
+ */
+export function createGenerateConstraintsCommand(
+  settings?: AutoVelocitySettings,
+): HistoryCommand<ProjectDocument> {
+  return pathCommand("Generate constraints", (project) =>
+    generateAutoRadiiAndCaps(project.path, project.config, { settings }),
+  );
+}
+
+/**
+ * The inverse: generated caps go away and generated radii revert to unset.
+ * Pinned values of either kind survive.
+ */
+export function createClearGeneratedConstraintsCommand(): HistoryCommand<ProjectDocument> {
+  return pathCommand("Clear generated constraints", (project) =>
+    clearGeneratedAutoConstraints(project.path),
+  );
+}
+
+export type HandoffRadiusChipState = AnchorRadiusState;
+export type HandoffRadiusChip = AnchorHandoffRadius;
+
+export function handoffRadiusChipsForPath(
+  project: ProjectDocument,
+): HandoffRadiusChip[] {
+  return anchorHandoffRadii(
+    project.path.path_elements,
+    defaultHandoffRadiusMeters(project.config),
+  );
+}
+
+function pathCommand(
+  description: string,
+  nextPath: (project: ProjectDocument) => ProjectDocument["path"],
+): HistoryCommand<ProjectDocument> {
+  let previousPath: ProjectDocument["path"] | null = null;
+
+  return {
+    description,
+    apply: (project) => {
+      const nextProject = structuredClone(project);
+      previousPath ??= structuredClone(nextProject.path);
+      nextProject.path = nextPath(nextProject);
+      return nextProject;
+    },
+    revert: (project) => {
+      if (!previousPath) {
+        return project;
+      }
+      const nextProject = structuredClone(project);
+      nextProject.path = structuredClone(previousPath);
       return nextProject;
     },
   };
@@ -553,7 +658,10 @@ export function createDefaultElement(
     return createTranslationTarget({
       x_meters: position.x_meters,
       y_meters: position.y_meters,
-      intermediate_handoff_radius_meters: defaultHandoffRadius(project),
+      intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(
+        project.config,
+      ),
+      handoff_radius_source: "auto",
     });
   }
 
@@ -562,7 +670,10 @@ export function createDefaultElement(
       translation_target: createTranslationTarget({
         x_meters: position.x_meters,
         y_meters: position.y_meters,
-        intermediate_handoff_radius_meters: defaultHandoffRadius(project),
+        intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(
+          project.config,
+        ),
+        handoff_radius_source: "auto",
       }),
       rotation_target: createRotationTarget({
         rotation_radians: headingRadians,
@@ -584,15 +695,6 @@ export function createDefaultElement(
   });
 }
 
-function defaultHandoffRadius(project: ProjectDocument): number {
-  return (
-    getDefaultOptionalConfigValue(
-      project.config,
-      "intermediate_handoff_radius_meters",
-    ) ?? 0.45
-  );
-}
-
 export function createConvertedElement(
   project: ProjectDocument,
   index: number,
@@ -611,6 +713,7 @@ export function createConvertedElement(
   const headingRadians =
     getElementHeadingRadians(project.path.path_elements, index) ?? 0;
   const handoffRadius = getExistingHandoffRadius(element);
+  const handoffRadiusSource = getHandoffRadiusSource(element) ?? undefined;
   const ratio = getExistingRatio(element);
 
   if (nextType === "translation") {
@@ -619,6 +722,7 @@ export function createConvertedElement(
       x_meters: position?.x_meters ?? field.length_meters / 2,
       y_meters: position?.y_meters ?? field.width_meters / 2,
       intermediate_handoff_radius_meters: handoffRadius,
+      handoff_radius_source: handoffRadiusSource,
     });
   }
 
@@ -629,6 +733,7 @@ export function createConvertedElement(
         x_meters: position?.x_meters ?? field.length_meters / 2,
         y_meters: position?.y_meters ?? field.width_meters / 2,
         intermediate_handoff_radius_meters: handoffRadius,
+        handoff_radius_source: handoffRadiusSource,
       }),
       rotation_target: createRotationTarget({
         rotation_radians: headingRadians,

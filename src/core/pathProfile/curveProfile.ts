@@ -93,6 +93,7 @@ export function createCurveTranslationTargets(
       x_meters: roundMeters(point.x_meters),
       y_meters: roundMeters(point.y_meters),
       intermediate_handoff_radius_meters: roundMeters(handoffRadius),
+      handoff_radius_source: "auto",
     });
   });
 }
