@@ -41,6 +41,8 @@ const minValidatedRadiusMeters = 0.05;
 const maxIncomingLegRatio = 0.9;
 const defaultRadiusMeters = 0.45;
 const radiusSearchPasses = 2;
+const sparseRadiusRefinementSubdivisions = 8;
+const minSparseRadiusIntervalMeters = 0.3;
 const fullSolveRepairRounds = 2;
 const fullSolveRepairThreshold = 1.15;
 const fullSolveRepairFactor = 0.85;
@@ -49,9 +51,10 @@ const fullSolveRepairFactor = 0.85;
  * Selects generated radii by scoring the complete simulated path. Each
  * coordinate tries the same incoming-leg-relative candidate grid while every
  * other radius remains in place, so neighboring corners and manual pins are
- * part of every evaluation. This replaces the old shrink-until-a-gate-passes
- * heuristic, which could not distinguish two passing radii and could not see
- * longitudinally early handoffs on reversals.
+ * part of every evaluation. Corners that would otherwise fall to the absolute
+ * floor receive a bounded local refinement afterward, closing holes between
+ * the floor/default and long-leg-relative candidates without perturbing the
+ * established search for ordinary corners.
  */
 export function validateAutoHandoffRadii(
   path: PathModel,
@@ -135,6 +138,15 @@ export function validateAutoHandoffRadii(
       candidatePath = alternate;
     }
   }
+  candidatePath = refineMinimumRadiusIntervals(
+    candidatePath,
+    autoCoordinates,
+    configuredDefault,
+    fractions,
+    config,
+    velocityOptions,
+    options.objectiveWeights,
+  );
   candidatePath = repairFullSolveFailures(
     candidatePath,
     config,
@@ -196,6 +208,110 @@ function refineCoordinateRadii(
     }
   }
   return candidatePath;
+}
+
+function refineMinimumRadiusIntervals(
+  path: PathModel,
+  coordinates: readonly AutoRadiusCoordinate[],
+  configuredDefault: number,
+  fractions: readonly number[],
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+  weights: AutoHandoffRadiusObjectiveWeights | undefined,
+): PathModel {
+  let candidatePath = path;
+  for (const { elementIndex, incomingLegMeters } of coordinates) {
+    const currentRadius = storedRadius(
+      candidatePath.path_elements[elementIndex],
+    );
+    if (
+      currentRadius === null ||
+      currentRadius > minValidatedRadiusMeters + 1e-9 ||
+      !hasSparseLowRadiusInterval(
+        incomingLegMeters,
+        configuredDefault,
+        fractions,
+      )
+    ) {
+      continue;
+    }
+
+    const firstCoarseCandidate = radiusCandidates(
+      incomingLegMeters,
+      currentRadius,
+      configuredDefault,
+      fractions,
+    ).find((radius) => radius > currentRadius + 1e-9);
+    if (firstCoarseCandidate === undefined) {
+      continue;
+    }
+
+    let bestPath = candidatePath;
+    let bestRadius = currentRadius;
+    let bestCost = radiusCost(candidatePath, config, options, weights);
+    for (const radiusMeters of radiusIntervalCandidates(
+      incomingLegMeters,
+      currentRadius,
+      firstCoarseCandidate,
+    )) {
+      const trial = withRadiusAt(candidatePath, elementIndex, radiusMeters);
+      const cost = radiusCost(trial, config, options, weights);
+      if (
+        cost < bestCost - 1e-9 ||
+        (Math.abs(cost - bestCost) <= 1e-9 && radiusMeters < bestRadius)
+      ) {
+        bestPath = trial;
+        bestRadius = radiusMeters;
+        bestCost = cost;
+      }
+    }
+
+    candidatePath = bestPath;
+  }
+  return candidatePath;
+}
+
+function hasSparseLowRadiusInterval(
+  incomingLegMeters: number,
+  configuredDefault: number,
+  fractions: readonly number[],
+): boolean {
+  const smallestFraction = Math.min(
+    ...fractions.filter(
+      (fraction) => Number.isFinite(fraction) && fraction > 0,
+    ),
+  );
+  if (!Number.isFinite(smallestFraction)) {
+    return false;
+  }
+
+  const firstRelativeRadius = incomingLegMeters * smallestFraction;
+  // Refine only when the relative grid is clustered so far above the default
+  // that a large floor-to-default interval is represented only by its ends.
+  return (
+    configuredDefault - minValidatedRadiusMeters >=
+      minSparseRadiusIntervalMeters &&
+    firstRelativeRadius - configuredDefault >=
+      configuredDefault - minValidatedRadiusMeters
+  );
+}
+
+function radiusIntervalCandidates(
+  incomingLegMeters: number,
+  lowerRadius: number,
+  upperRadius: number,
+): number[] {
+  return [
+    ...new Set(
+      Array.from(
+        { length: sparseRadiusRefinementSubdivisions },
+        (_, index) =>
+          lowerRadius +
+          ((upperRadius - lowerRadius) * (index + 1)) /
+            sparseRadiusRefinementSubdivisions,
+      ).map((radius) => boundedRadius(incomingLegMeters, radius)),
+    ),
+  ];
 }
 
 function hasCoupledMinimumRadii(

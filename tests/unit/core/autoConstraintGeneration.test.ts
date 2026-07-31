@@ -8,9 +8,11 @@ import {
   generateAutoRadiiAndCaps,
   refreshAutoRadiiAndCaps,
 } from "../../../src/core/constraints/autoConstraintGeneration";
+import { autoHandoffRadiusObjectiveCost } from "../../../src/core/constraints/autoHandoffRadiusObjective";
 import { validateAutoHandoffRadii } from "../../../src/core/constraints/autoHandoffRadiusValidation";
 import {
   autoVelocityInputSignature,
+  evaluateAutoHandoffRadiusObjectiveInputs,
   generateAutoVelocityProfile,
 } from "../../../src/core/constraints/autoVelocityConstraints";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
@@ -38,6 +40,18 @@ function radiusAt(path: PathModel, index: number): number | null {
     : element.type === "waypoint"
       ? element.translation_target.intermediate_handoff_radius_meters
       : null;
+}
+
+function radiusObjectiveCost(path: PathModel): number {
+  return Math.min(
+    ...evaluateAutoHandoffRadiusObjectiveInputs(
+      path,
+      {},
+      {
+        includeGeneratedRadiiInCacheKey: true,
+      },
+    ).map((evaluation) => autoHandoffRadiusObjectiveCost(evaluation)),
+  );
 }
 
 /** Element 2's geometric seed clears no gate at any speed; element 1's does. */
@@ -81,6 +95,34 @@ function coupledRadiusBasinPath(): PathModel {
     [14.88016, 2.7264],
     [10.9, 5.5],
   ]);
+}
+
+function candidateGapRegressionPath(): PathModel {
+  const fixture = deserializePath(
+    JSON.parse(
+      readFileSync(
+        new URL(
+          "../../fixtures/simulation/auto_radius_candidate_gap.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+  );
+  const autoRadiusIndexes = new Set([1, 3, 5]);
+
+  return {
+    ...fixture,
+    path_elements: fixture.path_elements.map((element, index) =>
+      autoRadiusIndexes.has(index)
+        ? setHandoffRadiusSource(element, "auto")
+        : element,
+    ),
+    ranged_constraints: fixture.ranged_constraints.map((constraint) => ({
+      ...constraint,
+      source: "auto_velocity",
+    })),
+  };
 }
 
 function strippedCompetitionFixture(): PathModel {
@@ -266,6 +308,21 @@ describe("auto constraint generation", () => {
     ).toBe(true);
     expect(profile.diagnostics.maxHandoffErrorRatio).toBeLessThan(1.05);
     expect(profile.diagnostics.maxCorridorDeviationRatio).toBeLessThan(1);
+  });
+
+  it("refines a skipped interval instead of stranding a valid radius at the floor", () => {
+    const original = candidateGapRegressionPath();
+    const validated = validateAutoHandoffRadii(original, {});
+    const profile = generateAutoVelocityProfile(validated.path, {});
+
+    expect(radiusAt(validated.path, 3)).toBeGreaterThanOrEqual(0.1);
+    expect(radiusAt(validated.path, 3)).toBeLessThanOrEqual(0.45);
+    expect(radiusObjectiveCost(validated.path)).toBeLessThan(
+      radiusObjectiveCost(original),
+    );
+    expect(
+      profile.diagnostics.handoffs.every((handoff) => handoff.passed),
+    ).toBe(true);
   });
 
   it("keeps the dense competition fixture inside its measured corridor", () => {
