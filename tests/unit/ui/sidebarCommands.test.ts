@@ -9,6 +9,7 @@ import {
   type ProjectDocument,
 } from "../../../src/core/io/projectSchema";
 import {
+  createEventTrigger,
   createRotationTarget,
   createPathModel,
   createTranslationTarget,
@@ -41,6 +42,7 @@ import {
   getAddableElementTypes,
   getInsertionIndex,
   getSwitchableElementTypes,
+  handoffRadiusChipsForPath,
   updateWaypoint,
 } from "../../../src/ui/sidebar/sidebarCommands";
 
@@ -610,3 +612,65 @@ function expandedOrdinals(
     })
     .sort((left, right) => left - right);
 }
+
+describe("handoffRadiusChipsForPath", () => {
+  const chipProject = (
+    elements: ProjectDocument["path"]["path_elements"],
+    defaultRadiusMeters = 0.45,
+  ): ProjectDocument =>
+    createProjectDocument({
+      project_id: "handoff-radius-chips",
+      display_name: "Handoff Radius Chips",
+      config: {
+        kinematic_constraints: {
+          default_intermediate_handoff_radius_meters: defaultRadiusMeters,
+        },
+      },
+      path: createPathModel({ path_elements: elements }),
+    });
+
+  it("numbers only anchors and marks both endpoints inert", () => {
+    const chips = handoffRadiusChipsForPath(
+      chipProject([
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createRotationTarget({ t_ratio: 0.5 }),
+        createTranslationTarget({ x_meters: 4, y_meters: 1 }),
+        createEventTrigger({ t_ratio: 0.5, lib_key: "intake" }),
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 4,
+            y_meters: 4,
+          }),
+        }),
+      ]),
+    );
+
+    expect(
+      chips.map((chip) => [chip.elementIndex, chip.ordinal, chip.inert]),
+    ).toEqual([
+      [0, 1, true],
+      [2, 2, false],
+      [4, 3, true],
+    ]);
+  });
+
+  it("treats every stored radius as manual and uses the default when unset", () => {
+    const chips = handoffRadiusChipsForPath(
+      chipProject(
+        [
+          createTranslationTarget({
+            x_meters: 1,
+            y_meters: 1,
+            intermediate_handoff_radius_meters: 0.3,
+          }),
+          createTranslationTarget({ x_meters: 4, y_meters: 1 }),
+        ],
+        0.6,
+      ),
+    );
+
+    expect(chips.map((chip) => chip.state)).toEqual(["manual", "unset"]);
+    expect(chips.map((chip) => chip.valueMeters)).toEqual([0.3, null]);
+    expect(chips.map((chip) => chip.effectiveValueMeters)).toEqual([0.3, 0.6]);
+  });
+});

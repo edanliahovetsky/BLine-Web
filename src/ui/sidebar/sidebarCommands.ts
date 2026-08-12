@@ -138,6 +138,51 @@ export function createDuplicatePathElementCommand(
   };
 }
 
+/** The production generator does not own radii; every stored value is manual. */
+export type HandoffRadiusChipState = "manual" | "unset";
+
+export interface HandoffRadiusChip {
+  elementIndex: number;
+  ordinal: number;
+  valueMeters: number | null;
+  effectiveValueMeters: number;
+  state: HandoffRadiusChipState;
+  inert: boolean;
+}
+
+/**
+ * Presents handoff radii in anchor order without introducing optimizer
+ * ownership metadata. Automatic radius generation is enabled only on the
+ * generator-overhaul branch.
+ */
+export function handoffRadiusChipsForPath(
+  project: ProjectDocument,
+): HandoffRadiusChip[] {
+  const defaultRadiusMeters = defaultHandoffRadius(project);
+  const anchors = project.path.path_elements.flatMap((element, elementIndex) =>
+    isAnchorElement(element) ? [{ element, elementIndex }] : [],
+  );
+
+  return anchors.map(({ element, elementIndex }, position) => {
+    const raw = isTranslationTarget(element)
+      ? element.intermediate_handoff_radius_meters
+      : isWaypoint(element)
+        ? element.translation_target.intermediate_handoff_radius_meters
+        : null;
+    const valueMeters =
+      typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+
+    return {
+      elementIndex,
+      ordinal: position + 1,
+      valueMeters,
+      effectiveValueMeters: valueMeters ?? defaultRadiusMeters,
+      state: valueMeters === null ? "unset" : "manual",
+      inert: position === 0 || position === anchors.length - 1,
+    };
+  });
+}
+
 export function createInsertPathElementsCommand(
   index: number,
   elements: readonly PathElement[],
