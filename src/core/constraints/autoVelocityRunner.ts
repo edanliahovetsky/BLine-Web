@@ -7,9 +7,9 @@ import {
 import type { AutoVelocitySettings } from "./autoVelocityApply";
 import {
   autoVelocityInputSignature,
-  generateAutoVelocityProfile,
   primeAutoVelocityProfileCache,
   type AutoVelocityProfile,
+  type JointAutoConstraintSolveStats,
 } from "./autoVelocityConstraints";
 import type {
   AutoVelocityWorkerRequest,
@@ -25,6 +25,7 @@ export const supersededAutoVelocityProfile = Symbol("superseded");
 export interface AutoRadiiAndCapsRun {
   radii: AutoHandoffRadiusAssignment[];
   profile: AutoVelocityProfile;
+  stats: JointAutoConstraintSolveStats;
 }
 
 export type AutoRadiiAndCapsRunResult =
@@ -75,7 +76,11 @@ export function requestAutoRadiiAndCaps(
           return;
         }
         primeAutoVelocityProfileCache(response.cacheKey, response.profile);
-        resolve({ radii: response.radii, profile: response.profile });
+        resolve({
+          radii: response.radii,
+          profile: response.profile,
+          stats: response.stats,
+        });
       },
       onSuperseded: () => resolve(supersededAutoVelocityProfile),
       reject,
@@ -205,16 +210,11 @@ function solveRadiiAndCapsOnMainThread(
 ): Promise<AutoRadiiAndCapsRunResult> {
   return afterBrowserPaint(() => {
     const input = autoRadiiCapSolveInput(path, config, settings);
-    const profile = generateAutoVelocityProfile(
-      input.path,
-      config,
-      input.options,
-    );
     primeAutoVelocityProfileCache(
       autoVelocityInputSignature(input.path, config, input.options),
-      profile,
+      input.profile,
     );
-    return { radii: input.radii, profile };
+    return { radii: input.radii, profile: input.profile, stats: input.stats };
   });
 }
 

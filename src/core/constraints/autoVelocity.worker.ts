@@ -1,9 +1,6 @@
 /// <reference lib="webworker" />
 import { autoRadiiCapSolveInput } from "./autoConstraintGeneration";
-import {
-  autoVelocityInputSignature,
-  generateAutoVelocityProfile,
-} from "./autoVelocityConstraints";
+import { autoVelocityInputSignature } from "./autoVelocityConstraints";
 import type {
   AutoVelocityWorkerRequest,
   AutoVelocityWorkerResponse,
@@ -41,16 +38,13 @@ function solve(request: AutoVelocityWorkerRequest): AutoVelocityWorkerResponse {
   return {
     kind: "generated-radii-and-caps",
     requestId: request.requestId,
-    profile: generateAutoVelocityProfile(
-      input.path,
-      request.config,
-      input.options,
-    ),
+    profile: input.profile,
     cacheKey: autoVelocityInputSignature(
       input.path,
       request.config,
       input.options,
     ),
     radii: input.radii,
+    stats: input.stats,
   };
 }

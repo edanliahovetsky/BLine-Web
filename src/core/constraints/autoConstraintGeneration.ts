@@ -18,8 +18,15 @@ import {
   refreshAutoVelocityConstraints,
   type AutoVelocitySettings,
 } from "./autoVelocityApply";
-import type { AutoVelocityGenerationOptions } from "./autoVelocityConstraints";
-import { validateAutoHandoffRadii } from "./autoHandoffRadiusValidation";
+import {
+  autoVelocityInputSignature,
+  primeAutoVelocityProfileCache,
+  solveJointAutoConstraints,
+  type AutoVelocityGenerationOptions,
+  type AutoVelocityProfile,
+  type JointAutoConstraintSolveStats,
+  type JointAutoConstraintSolveStatus,
+} from "./autoVelocityConstraints";
 
 export interface AutoConstraintGenerationOptions {
   /** Optimizer settings to solve with, for callers editing them live. */
@@ -68,11 +75,15 @@ function generate(
   const settings =
     options.settings ?? autoVelocitySettingsForPath(path, config);
 
-  return refreshAutoVelocityConstraints(
-    autoRadiiCapSolveInput(path, config, settings).path,
-    config,
-    { whenPresentOnly, settings },
+  const input = autoRadiiCapSolveInput(path, config, settings);
+  primeAutoVelocityProfileCache(
+    autoVelocityInputSignature(input.path, config, input.options),
+    input.profile,
   );
+  return refreshAutoVelocityConstraints(input.path, config, {
+    whenPresentOnly,
+    settings,
+  });
 }
 
 export interface AutoHandoffRadiusAssignment {
@@ -81,15 +92,18 @@ export interface AutoHandoffRadiusAssignment {
 }
 
 export interface AutoRadiiCapSolveInput {
-  /** The path the cap solve runs on: radii seeded, then trace-optimized. */
+  /** The exact radius path the jointly solved profile describes. */
   path: PathModel;
   radii: AutoHandoffRadiusAssignment[];
+  profile: AutoVelocityProfile;
+  stats: JointAutoConstraintSolveStats;
+  status: JointAutoConstraintSolveStatus;
   options: AutoVelocityGenerationOptions;
 }
 
 /**
- * Resolves the radii half of the pipeline. Split out so a worker can do it and
- * hand the main thread both the radii and the profile solved from them.
+ * Resolves the complete joint policy. Split out so a worker can hand the main
+ * thread radii and the exact profile solved with them as one atomic result.
  */
 export function autoRadiiCapSolveInput(
   path: PathModel,
@@ -98,18 +112,21 @@ export function autoRadiiCapSolveInput(
 ): AutoRadiiCapSolveInput {
   const options = autoVelocityGenerationOptions(settings);
   const seeded = seedHandoffRadii(path);
-  const validated = validateAutoHandoffRadii(seeded.path, config, options);
+  const solved = solveJointAutoConstraints(seeded.path, config, options);
 
   return {
-    path: validated.path,
-    radii: autoHandoffRadiusElementIndexes(
-      validated.path.path_elements,
-    ).flatMap((elementIndex) => {
-      const radiusMeters = storedRadius(
-        validated.path.path_elements[elementIndex],
-      );
-      return radiusMeters === null ? [] : [{ elementIndex, radiusMeters }];
-    }),
+    path: solved.path,
+    radii: autoHandoffRadiusElementIndexes(solved.path.path_elements).flatMap(
+      (elementIndex) => {
+        const radiusMeters = storedRadius(
+          solved.path.path_elements[elementIndex],
+        );
+        return radiusMeters === null ? [] : [{ elementIndex, radiusMeters }];
+      },
+    ),
+    profile: solved.profile,
+    stats: solved.stats,
+    status: solved.status,
     options,
   };
 }

@@ -454,6 +454,35 @@ function jointRadiusCoordinates(
   });
 }
 
+function hasImpossibleJointRadius(
+  path: PathModel,
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+): boolean {
+  return corners.some((corner) => {
+    const anchor = anchors[corner.anchorOrdinal - 1];
+    const incoming = segments[corner.anchorOrdinal - 2];
+    const element = anchor ? path.path_elements[anchor.pathIndex] : undefined;
+    if (!anchor || !incoming || !element) {
+      return true;
+    }
+    const rawRadius = isTranslationTarget(element)
+      ? element.intermediate_handoff_radius_meters
+      : isWaypoint(element)
+        ? element.translation_target.intermediate_handoff_radius_meters
+        : null;
+    const generatorOwnsRadius =
+      getHandoffRadiusSource(element) === "auto" ||
+      !(typeof rawRadius === "number" && rawRadius > 0);
+    return (
+      generatorOwnsRadius &&
+      jointRadiusIncomingLegRatio * incoming.lengthMeters <
+        jointRadiusFloorMeters - minPositive
+    );
+  });
+}
+
 function normalizeJointCandidate(
   candidate: JointCandidate,
   coordinates: readonly JointRadiusCoordinate[],
@@ -764,8 +793,11 @@ export function solveJointAutoConstraints(
     setup.segments,
     setup.corners,
   );
-  const hasImpossibleCoordinate = coordinates.some(
-    (coordinate) => coordinate.maxRadiusMeters < coordinate.minRadiusMeters,
+  const hasImpossibleCoordinate = hasImpossibleJointRadius(
+    path,
+    setup.anchors,
+    setup.segments,
+    setup.corners,
   );
   const searchableCoordinates = coordinates.filter(
     (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
