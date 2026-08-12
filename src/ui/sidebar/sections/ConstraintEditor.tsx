@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useLayoutEffect,
@@ -10,7 +11,7 @@ import {
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, Pin } from "lucide-react";
 
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
@@ -53,8 +54,11 @@ import {
   createReplaceRangedConstraintsForKeyCommand,
   createSetScalarConstraintCommand,
   createSplitRangedConstraintCommand,
+  createUpdatePathElementCommand,
   createUpdateRangedConstraintCommand,
   createUpdateRangedConstraintsCommand,
+  handoffRadiusChipsForPath,
+  type HandoffRadiusChip,
 } from "../sidebarCommands";
 
 type RangedEntry = {
@@ -214,6 +218,15 @@ const addConstraintMenuSections: readonly AddConstraintMenuSection[] = [
 ];
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
+const handoffRadiusStep = 0.05;
+const handoffRadiusHint =
+  "Handoff radii are manual in this release. Select an interior anchor to set the value used by the follower.";
+// The property pane says the same thing about the final anchor; the first one is
+// inert for the mirror-image reason, so both endpoints explain themselves here.
+const startAnchorHandoffNote =
+  "Not used on the first element — a handoff happens at the anchor a segment drives to, and nothing drives to the start.";
+const finalAnchorHandoffNote =
+  "Not used on the final element — the path finishes here by tolerance, not by a handoff.";
 const minimumConstraintWarning =
   "Minimum constraints are an advanced tuning feature for paths where the translation PID controller may be undertuned near the end of a path. They are not recommended for most users.";
 const minimumConflictWarningTitle =
@@ -557,19 +570,30 @@ export function ConstraintEditor({
           {project ? (
             <>
               {rangedConstraintKeys.map((key) => (
-                <RangedConstraintCard
+                <Fragment
                   key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
-                  project={project}
-                  constraintKey={key}
-                  selectedIndex={selectedByKey[key] ?? null}
-                  autoSettings={autoSettings}
-                  autoVelocityRunning={autoVelocityRunning}
-                  runAutoVelocityTask={runAutoVelocityTask}
-                  onAutoSettingsChange={setAutoSettings}
-                  onGenerateAutoVelocity={() => generateAutoVelocity(project)}
-                  onSelect={(index) => setSelectedForKey(key, index)}
-                  onOpenPopout={(trigger) => openPopout(key, trigger)}
-                />
+                >
+                  <RangedConstraintCard
+                    project={project}
+                    constraintKey={key}
+                    selectedIndex={selectedByKey[key] ?? null}
+                    autoSettings={autoSettings}
+                    autoVelocityRunning={autoVelocityRunning}
+                    runAutoVelocityTask={runAutoVelocityTask}
+                    onAutoSettingsChange={setAutoSettings}
+                    onGenerateAutoVelocity={() => generateAutoVelocity(project)}
+                    onSelect={(index) => setSelectedForKey(key, index)}
+                    onOpenPopout={(trigger) => openPopout(key, trigger)}
+                  />
+                  {/* Keep the two path-shaping controls adjacent even though
+                      production velocity generation does not own radii. */}
+                  {key === autoVelocityKey ? (
+                    <HandoffRadiiCard
+                      project={project}
+                      autoVelocityRunning={autoVelocityRunning}
+                    />
+                  ) : null}
+                </Fragment>
               ))}
 
               <div className="constraint-terminal-group">
@@ -776,6 +800,166 @@ function RangedConstraintCard({
         onOpenPopout={onOpenPopout}
       />
     </article>
+  );
+}
+
+/**
+ * The authoritative manual editing surface for handoff radii. Automatic radius
+ * ownership is intentionally absent until the generator overhaul lands.
+ */
+function HandoffRadiiCard({
+  project,
+  autoVelocityRunning,
+}: {
+  project: ProjectDocument;
+  autoVelocityRunning: boolean;
+}) {
+  const selectedElementIndex = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedElementIndex,
+  );
+  const chips = useMemo(() => handoffRadiusChipsForPath(project), [project]);
+  // Chip selection is element selection, so the canvas, the element list and
+  // this card always agree on which anchor is being edited.
+  const selectedChip =
+    chips.find(
+      (chip) => chip.elementIndex === selectedElementIndex && !chip.inert,
+    ) ?? null;
+
+  if (chips.length === 0) {
+    return null;
+  }
+
+  return (
+    <article
+      className="constraint-card"
+      data-testid="constraint-card-handoff-radii"
+    >
+      <div className="constraint-card__header">
+        <div className="constraint-heading-row">
+          <h3>Handoff Radii</h3>
+        </div>
+      </div>
+
+      <p className="auto-velocity-hint" role="note">
+        {handoffRadiusHint}
+      </p>
+
+      <div
+        className="handoff-radius-chips"
+        role="group"
+        aria-label="Handoff radii"
+      >
+        {chips.map((chip) => (
+          <HandoffRadiusChipButton
+            key={chip.elementIndex}
+            chip={chip}
+            selected={chip.elementIndex === selectedChip?.elementIndex}
+            onSelect={() => {
+              const latestProject = projectStore.getState().project ?? project;
+              selectionStore
+                .getState()
+                .selectElement(chip.elementIndex, latestProject);
+            }}
+          />
+        ))}
+      </div>
+
+      <HandoffRadiusControls
+        chip={selectedChip}
+        autoVelocityRunning={autoVelocityRunning}
+      />
+    </article>
+  );
+}
+
+function HandoffRadiusChipButton({
+  chip,
+  selected,
+  onSelect,
+}: {
+  chip: HandoffRadiusChip;
+  selected: boolean;
+  onSelect(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className={[
+        "handoff-radius-chip",
+        `handoff-radius-chip--${chip.state}`,
+        selected ? "is-selected" : "",
+        chip.inert ? "is-inert" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-testid={`handoff-radius-chip-${chip.elementIndex}`}
+      disabled={chip.inert}
+      aria-pressed={selected}
+      aria-label={`Select handoff radius ${chip.ordinal}`}
+      title={handoffRadiusChipTitle(chip)}
+      onClick={onSelect}
+    >
+      <span className="handoff-radius-chip__ordinal">{chip.ordinal}</span>
+      <span className="handoff-radius-chip__value">
+        {formatSegmentNumber(chip.effectiveValueMeters)}
+      </span>
+      {/* Inert anchors stay plain: a pin marker there would advertise a value
+          the follower never reads. */}
+      {chip.state === "manual" && !chip.inert ? (
+        <Pin
+          className="handoff-radius-chip__pin"
+          aria-hidden="true"
+          size={10}
+        />
+      ) : null}
+    </button>
+  );
+}
+
+function HandoffRadiusControls({
+  chip,
+  autoVelocityRunning,
+}: {
+  chip: HandoffRadiusChip | null;
+  autoVelocityRunning: boolean;
+}) {
+  return (
+    <div
+      className="ranged-constraint-controls"
+      data-testid="handoff-radius-detail"
+    >
+      <div className="ranged-constraint-controls__fields">
+        {chip ? (
+          <>
+            <span className="handoff-radius-manual-mode">Manual</span>
+            <label className="ranged-constraint-controls__value">
+              <span>Anchor {chip.ordinal}</span>
+              <div className="constraint-value-input">
+                <NumberStepperControl
+                  ariaLabel={`Handoff radius ${chip.ordinal} value`}
+                  value={chip.effectiveValueMeters}
+                  step={handoffRadiusStep}
+                  min={0}
+                  disabled={autoVelocityRunning}
+                  onChange={(value) => {
+                    if (value === null) {
+                      return;
+                    }
+                    pinHandoffRadius(chip, value);
+                  }}
+                />
+                <span>m</span>
+              </div>
+            </label>
+          </>
+        ) : (
+          <p className="ranged-constraint-controls__empty" role="note">
+            Select an anchor to pin its radius.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2180,18 +2364,16 @@ function AutoVelocityStatusIndicator({
 function AutoVelocityModeControl({
   mode,
   disabled,
+  ariaLabel = "Velocity constraint mode",
   onModeChange,
 }: {
   mode: "auto" | "manual" | null;
   disabled: boolean;
+  ariaLabel?: string;
   onModeChange(mode: "auto" | "manual"): void;
 }) {
   return (
-    <div
-      className="auto-velocity-mode"
-      role="group"
-      aria-label="Velocity constraint mode"
-    >
+    <div className="auto-velocity-mode" role="group" aria-label={ariaLabel}>
       {(["auto", "manual"] as const).map((option) => (
         <button
           key={option}
@@ -2610,6 +2792,42 @@ function clearAutoVelocity(project: ProjectDocument): void {
     "Clear auto velocity",
   );
   selectionStore.getState().clearRangedConstraintSelection();
+}
+
+function pinHandoffRadius(chip: HandoffRadiusChip, radiusMeters: number): void {
+  const project = projectStore.getState().project;
+  const previous = project?.path.path_elements[chip.elementIndex];
+  if (!previous) {
+    return;
+  }
+
+  const next = structuredClone(previous);
+  if (next.type === "translation") {
+    next.intermediate_handoff_radius_meters = radiusMeters;
+  } else if (next.type === "waypoint") {
+    next.translation_target.intermediate_handoff_radius_meters = radiusMeters;
+  } else {
+    return;
+  }
+
+  projectStore
+    .getState()
+    .applyCommand(
+      createUpdatePathElementCommand(chip.elementIndex, previous, next),
+    );
+}
+
+function handoffRadiusChipTitle(chip: HandoffRadiusChip): string {
+  if (chip.inert) {
+    return chip.ordinal === 1 ? startAnchorHandoffNote : finalAnchorHandoffNote;
+  }
+
+  switch (chip.state) {
+    case "manual":
+      return `Anchor ${chip.ordinal} · manual radius`;
+    case "unset":
+      return `Anchor ${chip.ordinal} · unset, driving at the project default`;
+  }
 }
 
 function applyVelocityMode(

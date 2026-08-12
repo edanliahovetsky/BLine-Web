@@ -2428,6 +2428,109 @@ select {
   white-space: nowrap;
 }
 
+/* Handoff radii are per-anchor rather than per-range, so they read as a wrapping
+   row of chips instead of a segment bar. The production adapter exposes manual
+   ownership only; the generated treatment is reserved for the overhaul. */
+.handoff-radius-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.handoff-radius-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 7px;
+  border: 1px solid #31404b;
+  border-radius: 5px;
+  color: #e2edf7;
+  background: #1b262e;
+  font-size: 0.68rem;
+  font-weight: 720;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.handoff-radius-chip--auto {
+  border-color: #3f8f66;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.1) 0,
+      rgba(255, 255, 255, 0.1) 5px,
+      transparent 5px,
+      transparent 10px
+    ),
+    linear-gradient(180deg, #23764f, #175338);
+}
+
+.handoff-radius-chip--manual {
+  border-color: #2778ac;
+  background: linear-gradient(180deg, #176f9f, #10527b);
+}
+
+/* Nothing is stored yet, so the chip stays hollow and shows the project default
+   it would drive at. */
+.handoff-radius-chip--unset {
+  border-style: dashed;
+  border-color: #3d4c58;
+  color: #93a4b2;
+  background: transparent;
+}
+
+.handoff-radius-chip.is-selected {
+  border-color: #4ade80;
+  box-shadow: inset 0 0 0 2px #4ade80;
+}
+
+.handoff-radius-chip.is-inert {
+  border-style: dashed;
+  border-color: #333f49;
+  color: #7c8b98;
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.handoff-radius-chip:hover:not(:disabled),
+.handoff-radius-chip:focus-visible:not(:disabled) {
+  color: #f5fbff;
+}
+
+.handoff-radius-chip__ordinal {
+  color: inherit;
+  font-size: 0.63rem;
+  font-weight: 820;
+  opacity: 0.82;
+}
+
+.handoff-radius-chip__ordinal::after {
+  margin-left: 4px;
+  content: "·";
+}
+
+.handoff-radius-chip__pin {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.handoff-radius-manual-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 2px 10px;
+  border: 1px solid #2778ac;
+  border-radius: 6px;
+  color: #eaf7ff;
+  background: #123c57;
+  font-size: 0.68rem;
+  font-weight: 760;
+  line-height: 1.1;
+}
+
 .ranged-constraint-controls {
   display: grid;
   grid-template-columns: minmax(0, 148px) minmax(max-content, 1fr);
