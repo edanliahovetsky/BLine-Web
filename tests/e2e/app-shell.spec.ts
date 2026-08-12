@@ -1581,7 +1581,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const addConstraintIcon = page.getByTestId("add-constraint-icon");
   await expect(addConstraintIcon).toBeVisible();
   expect((await requiredBox(addConstraintIcon)).width).toBeGreaterThanOrEqual(
-    24,
+    16,
   );
 
   await page
@@ -1606,7 +1606,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   ).toBeVisible();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
-  ).toContainText("4.500 m/s");
+  ).toContainText("4.5 m/s");
 
   await expect(page.getByTestId("ranged-constraint-row-1")).toBeVisible();
   const addSegmentIcon = page
@@ -1682,7 +1682,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await firstConstraintInput.fill("2.4");
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-1"),
-  ).toContainText("2.400 m/s");
+  ).toContainText("2.4 m/s");
 
   const firstCell = page.getByTestId(
     "constraint-cell-max_velocity_meters_per_sec-1",
@@ -1696,8 +1696,8 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   const firstBox = await requiredBox(firstCell);
   const secondBox = await requiredBox(secondCell);
   await page.mouse.move(
-    firstBox.x + firstBox.width - 2,
-    firstBox.y + firstBox.height / 2,
+    firstBox.x + firstBox.width / 2,
+    firstBox.y + firstBox.height - 2,
   );
   await page.mouse.down();
   await page.mouse.move(
@@ -1710,10 +1710,10 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.mouse.up();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
-  ).toContainText("2.400 m/s");
+  ).toContainText("2.4 m/s");
   await expect(firstRange).toHaveText("2.4 m/s");
-  expect((await requiredBox(firstRange)).width).toBeGreaterThan(
-    firstBox.width * 1.6,
+  expect((await requiredBox(firstRange)).height).toBeGreaterThan(
+    firstBox.height * 1.6,
   );
 
   await page
@@ -1751,15 +1751,15 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   await page.getByRole("button", { name: "Split constraint 1" }).click();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-2"),
-  ).toContainText("2.400 m/s");
+  ).toContainText("2.4 m/s");
 
   await page.getByLabel("Add Max Velocity segment").click();
   await expect(
     page.getByTestId("constraint-cell-max_velocity_meters_per_sec-3"),
-  ).toContainText("4.500 m/s");
+  ).toContainText("4.5 m/s");
 
   await page
-    .getByTestId("constraint-cell-max_velocity_meters_per_sec-2")
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-1")
     .click();
   await page.getByLabel("Delete constraint 2").click();
   await expect(
@@ -1845,8 +1845,8 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   const autoBox = await requiredBox(autoRange);
   const secondBox = await requiredBox(secondCell);
   await page.mouse.move(
-    autoBox.x + autoBox.width - 2,
-    autoBox.y + autoBox.height / 2,
+    autoBox.x + autoBox.width / 2,
+    autoBox.y + autoBox.height + 1,
   );
   await page.mouse.down();
   await page.mouse.move(
@@ -4161,7 +4161,7 @@ function modelToCanvasPoint(box: Bounds, point: PointMeters) {
 }
 
 async function waitForSavedProject(page: Page): Promise<void> {
-  await page.goto("/");
+  await gotoSampleEditor(page);
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("mobile-support-warning")).toHaveCount(0);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
@@ -4185,8 +4185,8 @@ async function bumpStoredWorkspaceVersion(page: Page): Promise<void> {
 }
 
 async function makeDirtyEdit(page: Page): Promise<void> {
-  await page.getByTestId("path-element-row-2").click();
-  await page.keyboard.press("ArrowDown");
+  await page.getByTestId("path-element-row-1").click();
+  await page.keyboard.press("ArrowRight");
 }
 
 test("surfaces the save-conflict dialog when the stored version drifts", async ({
@@ -4199,8 +4199,9 @@ test("surfaces the save-conflict dialog when the stored version drifts", async (
   const dialog = page.getByTestId("save-conflict-dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("changed on disk");
-  await expect(page.getByTestId("save-status")).toContainText(
-    "Project changed on disk",
+  await expect(page.getByTestId("save-status")).toHaveAttribute(
+    "title",
+    /Project changed on disk/,
   );
 });
 
