@@ -71,7 +71,9 @@ import {
   type AutosaveStatus,
 } from "../../state/autosave";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
+import { generateAutoConstraintsInWorker } from "../../state/autoConstraintGeneration";
 import { startAutoVelocitySync } from "../../state/autoVelocitySync";
+import { autoVelocitySettingsForPath } from "../../core/constraints/autoVelocityApply";
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
@@ -110,7 +112,6 @@ import { Sidebar } from "../sidebar/Sidebar";
 import {
   canGenerateConstraints,
   createDefaultElement,
-  createGenerateConstraintsCommand,
   createInsertPathElementCommand,
   createInsertPathElementsCommand,
 } from "../sidebar/sidebarCommands";
@@ -1621,11 +1622,17 @@ export function AppShell() {
       label: "Generate constraints",
       category: "Path",
       keywords: ["corner", "handoff", "radius", "seed", "optimize", "velocity"],
-      disabled: !project || !canGenerateConstraints(project),
-      run: () =>
-        projectStore
-          .getState()
-          .applyCommand(createGenerateConstraintsCommand()),
+      disabled:
+        !project ||
+        optimizerPhase === "running" ||
+        !canGenerateConstraints(project),
+      run: () => {
+        if (project) {
+          void generateAutoConstraintsInWorker(
+            autoVelocitySettingsForPath(project.path, project.config),
+          );
+        }
+      },
     },
     {
       id: "edit.duplicate-element",

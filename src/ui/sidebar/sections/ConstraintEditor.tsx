@@ -19,12 +19,19 @@ import {
   getDefaultOptionalConfigValue,
 } from "../../../core/config/projectConfig";
 import {
+  autoConstraintLargePathWarningBudget,
+  autoRadiiCapSearchPlan,
+} from "../../../core/constraints/autoConstraintGeneration";
+import {
   autoVelocityConstraintForCap,
   autoVelocityInputSignature,
   generateAutoVelocityProfile,
   type AutoVelocitySegmentCap,
 } from "../../../core/constraints/autoVelocityConstraints";
-import type { AutoVelocitySettings } from "../../../core/constraints/autoVelocityApply";
+import {
+  autoVelocityGenerationOptions,
+  type AutoVelocitySettings,
+} from "../../../core/constraints/autoVelocityApply";
 import {
   createSetHandoffRadiusCommand,
   createSetHandoffRadiiCommand,
@@ -42,6 +49,7 @@ import {
   type RangedConstraintKey,
 } from "../../../core/model/path";
 import { autoVelocityStore } from "../../../state/autoVelocityStore";
+import { generateAutoConstraintsInWorker } from "../../../state/autoConstraintGeneration";
 import { projectStore } from "../../../state/projectStore";
 import { selectionStore } from "../../../state/selectionStore";
 import { useStoreSelector } from "../../../state/react";
@@ -73,7 +81,6 @@ import {
   canGenerateConstraints,
   createAddRangedConstraintCommand,
   createClearGeneratedConstraintsCommand,
-  createGenerateConstraintsCommand,
   createInsertRangedConstraintCommand,
   createRemoveRangedConstraintCommand,
   createReplaceRangedConstraintsForKeyCommand,
@@ -317,7 +324,7 @@ export function ConstraintEditor({
     });
   };
   const generateAutoVelocity = () => {
-    runAutoVelocityTask(() => runGenerateConstraints(autoSettings));
+    void generateAutoConstraintsInWorker(autoSettings);
   };
   const selectedRangedConstraint = useStoreSelector(
     selectionStore,
@@ -867,6 +874,7 @@ function AutoConstraintLedgerCard({
       ) : null}
 
       <AutoVelocityInlineControls
+        project={project}
         settings={autoSettings}
         onSettingsChange={onAutoSettingsChange}
       />
@@ -1168,6 +1176,7 @@ function RangedConstraintCard({
 
       {isAutoVelocityCard && autoStatus ? (
         <AutoVelocityInlineControls
+          project={project}
           settings={autoSettings}
           onSettingsChange={onAutoSettingsChange}
         />
@@ -1686,6 +1695,7 @@ function PopoutConstraintPanel({
 
       {isAutoVelocityPanel && autoStatus ? (
         <AutoVelocityInlineControls
+          project={project}
           settings={autoSettings}
           onSettingsChange={onAutoSettingsChange}
         />
@@ -2719,9 +2729,11 @@ function RangedConstraintControls({
 }
 
 function AutoVelocityInlineControls({
+  project,
   settings,
   onSettingsChange,
 }: {
+  project: ProjectDocument;
   settings: AutoVelocitySettings;
   onSettingsChange(settings: AutoVelocitySettings): void;
 }) {
@@ -2729,6 +2741,31 @@ function AutoVelocityInlineControls({
     autoVelocityStore,
     (state) => state.autoSyncEnabled,
   );
+  const phase = useStoreSelector(autoVelocityStore, (state) => state.phase);
+  const lastRunCandidate = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.lastRun,
+  );
+  const searchPlan = useMemo(
+    () => autoRadiiCapSearchPlan(project.path, project.config, settings),
+    [project, settings],
+  );
+  const inputSignature = useMemo(
+    () =>
+      autoVelocityInputSignature(
+        project.path,
+        project.config,
+        autoVelocityGenerationOptions(settings),
+      ),
+    [project, settings],
+  );
+  const lastRun =
+    lastRunCandidate?.projectId === project.project_id &&
+    lastRunCandidate.inputSignature === inputSignature
+      ? lastRunCandidate
+      : null;
+  const largePath =
+    searchPlan.evaluationBudget > autoConstraintLargePathWarningBudget;
 
   return (
     <details
@@ -2742,9 +2779,53 @@ function AutoVelocityInlineControls({
           size={14}
         />
         <span>Optimizer settings</span>
-        <small className="auto-velocity-inline__hint">Factors · Sync</small>
+        <small className="auto-velocity-inline__hint">
+          {largePath ? "Large path" : "Factors · Sync"}
+        </small>
       </summary>
       <div className="auto-velocity-inline__settings">
+        {largePath ? (
+          <p className="auto-velocity-inline__warning" role="note">
+            <WarningIcon aria-hidden="true" />
+            <span>
+              Large path — optimization may take longer. Up to{" "}
+              {searchPlan.evaluationBudget} candidate evaluations are expected.
+            </span>
+          </p>
+        ) : null}
+        <div
+          className="auto-velocity-inline__diagnostics"
+          data-testid="auto-velocity-diagnostics"
+          role="status"
+          aria-live="polite"
+        >
+          {phase === "running" ? (
+            <strong>
+              Optimizing · up to {searchPlan.evaluationBudget} evaluations
+            </strong>
+          ) : lastRun ? (
+            <>
+              <strong>
+                {lastRun.stats.evaluations} /{" "}
+                {lastRun.stats.evaluationBudget} evaluations
+              </strong>
+              <span>
+                {lastRun.stats.searchableBlocks} blocks ·{" "}
+                {lastRun.stats.cacheHits} cache hits ·{" "}
+                {lastRun.stats.genericEvaluations} validations ·{" "}
+                {lastRun.stats.terminationReason} ·{" "}
+                {Math.round(lastRun.elapsedMs)} ms · {lastRun.status}
+              </span>
+            </>
+          ) : (
+            <>
+              <strong>
+                Up to {searchPlan.evaluationBudget} evaluations
+              </strong>
+              <span>{searchPlan.searchableBlocks} searchable blocks</span>
+            </>
+          )}
+        </div>
         <label className="auto-velocity-inline__sync">
           <input
             type="checkbox"
@@ -3218,13 +3299,6 @@ function runAfterBrowserPaint(task: () => void, onComplete: () => void): void {
   window.requestAnimationFrame(() => {
     window.setTimeout(runTask, 0);
   });
-}
-
-/** The optimizer in one undoable step: handoff radii, then the caps for them. */
-function runGenerateConstraints(settings: AutoVelocitySettings): void {
-  projectStore
-    .getState()
-    .applyCommand(createGenerateConstraintsCommand(settings));
 }
 
 function clearGeneratedConstraints(project: ProjectDocument): void {

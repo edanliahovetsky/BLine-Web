@@ -25,7 +25,7 @@ export function optimizerBeamTitle(
     return "Optimizer queued — velocity caps refresh once the path settles.";
   }
   if (phase === "running") {
-    return "Optimizer running — refreshing the generated velocity caps.";
+    return "Optimizer running — generating handoff radii and velocity caps.";
   }
   if (lastError) {
     return `The velocity optimizer could not finish: ${lastError}`;
@@ -41,7 +41,7 @@ export function optimizerBeamLabel(
     return "Optimizer queued";
   }
   if (phase === "running") {
-    return "Optimizing velocity";
+    return "Optimizing constraints";
   }
   return lastError ? "Optimizer failed" : "Optimizer idle";
 }

@@ -6307,6 +6307,47 @@ body.is-resizing-inspector * {
   padding: 0 8px 8px;
 }
 
+.auto-velocity-inline__warning,
+.auto-velocity-inline__diagnostics {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.auto-velocity-inline__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid rgba(224, 169, 72, 0.32);
+  color: #d9bd88;
+  background: rgba(181, 119, 30, 0.08);
+}
+
+.auto-velocity-inline__warning svg {
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  margin-top: 1px;
+}
+
+.auto-velocity-inline__diagnostics {
+  display: grid;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid var(--bline-border-subtle);
+  color: #8f9ba6;
+  background: rgba(238, 244, 250, 0.022);
+}
+
+.auto-velocity-inline__diagnostics strong {
+  color: #cdd8e1;
+  font-size: 0.72rem;
+  font-weight: 680;
+}
+
 /* Spans both factor columns: it governs the whole optimizer, not one number. */
 .auto-velocity-inline__sync {
   display: grid;

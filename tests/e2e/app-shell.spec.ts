@@ -1856,6 +1856,10 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
   await expect(status).toHaveText("Not generated");
   await generate.click();
   await expect(status).toHaveText("Up to date");
+  await page.getByText("Optimizer settings", { exact: true }).click();
+  await expect(
+    card.getByTestId("auto-velocity-diagnostics"),
+  ).toContainText(/\d+ \/ \d+ evaluations/);
   await expect(
     card.getByRole("button", { name: "Apply", exact: true }),
   ).toHaveCount(0);
@@ -2086,8 +2090,60 @@ test("reads the optimizer settings row as a disclosure", async ({ page }) => {
 
   await expect(controls).toHaveAttribute("open", "");
   await expect(page.getByLabel("Velocity safety factor")).toBeVisible();
+  await expect(
+    controls.getByTestId("auto-velocity-diagnostics"),
+  ).toContainText(/Up to \d+ evaluations/);
   await expect(hint).toHaveCSS("opacity", "0");
   await expect.poll(rotation).toBe("90deg");
+});
+
+test("warns when a large path receives a scaled optimizer budget", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const chooserPromise = page.waitForEvent("filechooser");
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await page.getByRole("menuitem", { name: "Import Path..." }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    buffer: Buffer.from(
+      JSON.stringify({
+        path_elements: Array.from({ length: 17 }, (_, index) => ({
+          type: "translation",
+          x_meters: index,
+          y_meters: index % 2 === 0 ? 0 : 1,
+          intermediate_handoff_radius_meters: null,
+        })),
+        ranged_constraints: [],
+      }),
+    ),
+    mimeType: "application/json",
+    name: "large-optimizer-path.json",
+  });
+  await openConstraintsTab(page);
+
+  const firstRadius = page.getByTestId("handoff-radius-chip-1");
+  const lastRadius = page.getByTestId("handoff-radius-chip-15");
+  await firstRadius.click();
+  await lastRadius.click({ modifiers: ["Shift"] });
+  await page
+    .getByTestId("handoff-radius-bulk-detail")
+    .getByRole("group", { name: "Selected handoff radius mode" })
+    .getByRole("button", { name: "Auto" })
+    .click();
+
+  const controls = page.getByTestId("auto-velocity-controls");
+  await expect(controls.locator(".auto-velocity-inline__hint")).toHaveText(
+    "Large path",
+  );
+  await controls.getByText("Optimizer settings", { exact: true }).click();
+  await expect(controls.getByRole("note")).toContainText(
+    "Large path — optimization may take longer. Up to 244 candidate evaluations are expected.",
+  );
+  await expect(
+    controls.getByTestId("auto-velocity-diagnostics"),
+  ).toContainText("Up to 244 evaluations");
 });
 
 test("turns dragged auto velocity ranges into manual ranges", async ({
