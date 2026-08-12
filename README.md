@@ -40,6 +40,15 @@ paths on the field, tune translation and rotation constraints, preview the
 idealized path simulation, and save/export the same `config.json` plus
 `paths/*.json` files used by the BLine robot library.
 
+The streamlined editor starts with an explicit project center instead of
+silently creating demo content. In the editor, the field stays central:
+canvas tools live on the left, view controls live on the field, element and
+constraint editing share a tabbed inspector, and save health is summarized in
+one status bar. Use the Project Navigator to search paths and collections or
+press `Cmd/Ctrl+K` to find commands without leaving the keyboard. Ranged
+constraints can be opened in a larger, draggable editor when the compact
+inspector does not provide enough working room.
+
 The goal is not to make autonomous path planning look more complicated than it
 has to be. BLine uses practical point-to-point paths, forgiving tuning surfaces,
 and visual feedback so teams can get from "we need an auto" to "we can run,
@@ -86,6 +95,18 @@ autos/
 
 In browser mode, projects are stored under the browser origin. Use import/export
 to move projects between machines or into robot project folders.
+
+Useful editor shortcuts:
+
+- `Cmd/Ctrl+K`: command palette
+- `V`, `1`, `2`, `3`, `4`, `C`: select, waypoint, translation, rotation,
+  event, and curve tools
+- `J` / Left Arrow / Home, `K` / Space, `L` / Right Arrow / End: restart,
+  play or pause, and jump to the end of the simulation
+- Arrow keys: move selection through path elements
+- `Alt` + Arrow keys: reorder the selected path element
+- `Cmd/Ctrl+S`, `Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`: save, undo, and redo
+- `?` or `F1`: keyboard shortcut reference
 
 In Tauri desktop mode:
 
