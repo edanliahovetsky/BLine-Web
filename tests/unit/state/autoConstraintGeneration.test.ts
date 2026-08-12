@@ -28,7 +28,7 @@ describe("manual auto constraint generation", () => {
     expect(status.getState().lastRun).toMatchObject({
       status: "valid",
       stats: {
-        evaluationBudget: 36,
+        evaluationBudget: 68,
         searchableBlocks: 2,
       },
     });
@@ -50,7 +50,11 @@ describe("manual auto constraint generation", () => {
     const projects = projectStoreFor(project);
     const status = createAutoVelocityStore();
     const settings = autoVelocitySettingsForPath(project.path, project.config);
-    const solved = autoRadiiCapSolveInput(project.path, project.config, settings);
+    const solved = autoRadiiCapSolveInput(
+      project.path,
+      project.config,
+      settings,
+    );
     type CompletedRun = {
       radii: typeof solved.radii;
       profile: typeof solved.profile;

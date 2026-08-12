@@ -144,11 +144,15 @@ export type JointAutoConstraintSolveStatus =
   | "unsolvable";
 
 export interface JointAutoConstraintSolveStats {
+  algorithm: "interactive" | "oracle";
   evaluations: number;
   evaluationBudget: number;
   searchableBlocks: number;
   cacheHits: number;
   genericEvaluations: number;
+  objectiveCost: number;
+  genericValidationPassed: boolean;
+  stabilityValidationPassed: boolean;
   terminationReason: "converged" | "evaluation-budget" | "no-coordinates";
 }
 
@@ -162,6 +166,13 @@ export interface JointAutoConstraintSolveResult {
   profile: AutoVelocityProfile;
   status: JointAutoConstraintSolveStatus;
   stats: JointAutoConstraintSolveStats;
+}
+
+export interface JointAutoConstraintOracleOptions {
+  /** Offline reference budget. The production solver never uses this value. */
+  maxEvaluations?: number;
+  /** Deterministic pseudo-random seed for reproducible comparisons. */
+  seed?: number;
 }
 
 interface SegmentGeometry {
@@ -275,12 +286,15 @@ const radiusObjectiveVelocityRatios: readonly number[] = [0.8, 0.5, 0.25];
 const jointSolverStartCandidates = 4;
 const jointSolverMovesPerBlock = 8;
 const jointSolverSweepCount = 2;
+const jointSolverBeamWidth = 2;
 const jointRadiusQuantumMeters = 0.001;
 const jointVelocityQuantumMps = 0.01;
 const jointRadiusFloorMeters = 0.05;
 const jointRadiusIncomingLegRatio = 0.9;
 const jointObjectiveIndifference = 1e-6;
-const autoConstraintSolverVersion = 3;
+const jointRobustRadiusMeters = 0.25;
+const jointRobustRadiusWeight = 4;
+const autoConstraintSolverVersion = 4;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -492,7 +506,10 @@ export function jointAutoConstraintSearchPlan(
 function jointEvaluationBudget(searchableBlocks: number): number {
   return (
     jointSolverStartCandidates +
-    jointSolverMovesPerBlock * jointSolverSweepCount * searchableBlocks
+    jointSolverBeamWidth *
+      jointSolverMovesPerBlock *
+      jointSolverSweepCount *
+      searchableBlocks
   );
 }
 
@@ -817,34 +834,37 @@ interface JointCandidateEvaluation {
   signature: string;
 }
 
-/**
- * Jointly searches generated handoff radii and the velocity caps adjacent to
- * each handoff. Geometry is compiled once, all inner trials use the same fast
- * translation follower, and only the persisted winner is validated through
- * the generic preview simulator.
- */
-export function solveJointAutoConstraints(
+interface JointSearchProblem {
+  setup: AutoVelocitySolveSetup;
+  searchableCoordinates: JointRadiusCoordinate[];
+  canonicalRadii: number[];
+  canonicalCaps: Map<number, number>;
+  hasImpossibleCoordinate: boolean;
+}
+
+interface JointCandidateEvaluator {
+  evaluationBudget: number;
+  evaluations: number;
+  cacheHits: number;
+  budgetReached: boolean;
+  evaluate(candidate: JointCandidate): JointCandidateEvaluation | null;
+  rankedCandidates(limit: number): JointCandidateEvaluation[];
+}
+
+function createJointSearchProblem(
   path: PathModel,
   config: SimulationConfig,
-  options: AutoVelocityGenerationOptions = {},
-): JointAutoConstraintSolveResult {
+  options: AutoVelocityGenerationOptions,
+): JointSearchProblem {
   const setup = createAutoVelocitySolveSetup(path, config, options);
-  const coordinates = jointRadiusCoordinates(
+  const searchableCoordinates = jointRadiusCoordinates(
     path,
     setup.anchors,
     setup.segments,
     setup.corners,
-  );
-  const hasImpossibleCoordinate = hasImpossibleJointRadius(
-    path,
-    setup.anchors,
-    setup.segments,
-    setup.corners,
-  );
-  const searchableCoordinates = coordinates.filter(
+  ).filter(
     (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
   );
-  const evaluationBudget = jointEvaluationBudget(searchableCoordinates.length);
   const canonicalRadii = [
     ...setup.simulationContext.handoffRadiiBySegmentIndex,
   ];
@@ -866,76 +886,122 @@ export function solveJointAutoConstraints(
       setup.anchors.length <= 7 ? 0.85 : 1.6,
     );
   }
-
-  const evaluationCache = new Map<string, JointCandidateEvaluation>();
-  let evaluations = 0;
-  let cacheHits = 0;
-  let budgetReached = false;
-
-  const evaluate = (
-    candidate: JointCandidate,
-  ): JointCandidateEvaluation | null => {
-    const normalized = normalizeJointCandidate(
-      candidate,
-      searchableCoordinates,
-      setup.simulationContext.pinnedCapsByOrdinal,
-      setup.usableMaxVelocityMps,
-    );
-    const signature = jointCandidateSignature(normalized, setup.anchors.length);
-    const cached = evaluationCache.get(signature);
-    if (cached) {
-      cacheHits += 1;
-      return cached;
-    }
-    if (evaluations >= evaluationBudget) {
-      budgetReached = true;
-      return null;
-    }
-
-    const corners = jointCorners(
+  return {
+    setup,
+    searchableCoordinates,
+    canonicalRadii,
+    canonicalCaps,
+    hasImpossibleCoordinate: hasImpossibleJointRadius(
+      path,
+      setup.anchors,
+      setup.segments,
       setup.corners,
-      setup.segments,
-      normalized.radiiBySegmentIndex,
-    );
-    const context: AutoVelocitySimulationContext = {
-      ...setup.simulationContext,
-      handoffRadiiBySegmentIndex: normalized.radiiBySegmentIndex,
-    };
-    const evaluation = evaluateVelocityCapsFast(
-      context,
-      setup.segments,
-      corners,
-      normalized.capsByOrdinal,
-      setup.usableMaxVelocityMps,
-      setup.usableMaxAccelerationMps2,
-    );
-    evaluations += 1;
-    const diagnostics = diagnosticsFromEvaluation(evaluation);
-    const cost =
-      autoHandoffRadiusObjectiveCost({ corners, diagnostics }) +
-      autoVelocityTieBreakCost({
-        reachedEndRatio: reachedEndRatio(evaluation),
-        handoffRatios: evaluationHandoffRatios(evaluation),
-        totalTimeS: evaluation.totalTimeS,
-        capsByOrdinal: normalized.capsByOrdinal,
-      });
-    const result: JointCandidateEvaluation = {
-      candidate: normalized,
-      corners,
-      evaluation,
-      cost,
-      canonicalDistance: jointCanonicalDistance(
-        normalized,
-        canonicalRadii,
-        canonicalCaps,
-        searchableCoordinates,
-        setup.usableMaxVelocityMps,
-      ),
-      signature,
-    };
-    evaluationCache.set(signature, result);
-    return result;
+    ),
   };
+}
+
+function createJointCandidateEvaluator(
+  problem: JointSearchProblem,
+  evaluationBudget: number,
+): JointCandidateEvaluator {
+  const { setup, searchableCoordinates, canonicalRadii, canonicalCaps } =
+    problem;
+  const cache = new Map<string, JointCandidateEvaluation>();
+  const evaluator: JointCandidateEvaluator = {
+    evaluationBudget,
+    evaluations: 0,
+    cacheHits: 0,
+    budgetReached: false,
+    rankedCandidates(limit) {
+      return [...cache.values()]
+        .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1))
+        .slice(0, limit);
+    },
+    evaluate(candidate) {
+      const normalized = normalizeJointCandidate(
+        candidate,
+        searchableCoordinates,
+        setup.simulationContext.pinnedCapsByOrdinal,
+        setup.usableMaxVelocityMps,
+      );
+      const signature = jointCandidateSignature(
+        normalized,
+        setup.anchors.length,
+      );
+      const cached = cache.get(signature);
+      if (cached) {
+        evaluator.cacheHits += 1;
+        return cached;
+      }
+      if (evaluator.evaluations >= evaluationBudget) {
+        evaluator.budgetReached = true;
+        return null;
+      }
+
+      const corners = jointCorners(
+        setup.corners,
+        setup.segments,
+        normalized.radiiBySegmentIndex,
+      );
+      const context: AutoVelocitySimulationContext = {
+        ...setup.simulationContext,
+        handoffRadiiBySegmentIndex: normalized.radiiBySegmentIndex,
+      };
+      const evaluation = evaluateVelocityCapsFast(
+        context,
+        setup.segments,
+        corners,
+        normalized.capsByOrdinal,
+        setup.usableMaxVelocityMps,
+        setup.usableMaxAccelerationMps2,
+      );
+      evaluator.evaluations += 1;
+      const diagnostics = diagnosticsFromEvaluation(evaluation);
+      const result: JointCandidateEvaluation = {
+        candidate: normalized,
+        corners,
+        evaluation,
+        cost:
+          autoHandoffRadiusObjectiveCost({ corners, diagnostics }) +
+          jointRadiusRobustnessCost(corners) +
+          autoVelocityTieBreakCost({
+            reachedEndRatio: reachedEndRatio(evaluation),
+            handoffRatios: evaluationHandoffRatios(evaluation),
+            totalTimeS: evaluation.totalTimeS,
+            capsByOrdinal: normalized.capsByOrdinal,
+          }),
+        canonicalDistance: jointCanonicalDistance(
+          normalized,
+          canonicalRadii,
+          canonicalCaps,
+          searchableCoordinates,
+          setup.usableMaxVelocityMps,
+        ),
+        signature,
+      };
+      cache.set(signature, result);
+      return result;
+    },
+  };
+  return evaluator;
+}
+
+/**
+ * Jointly searches generated handoff radii and the velocity caps adjacent to
+ * each handoff. Geometry is compiled once, all inner trials use the same fast
+ * translation follower, and only the persisted winner is validated through
+ * the generic preview simulator.
+ */
+export function solveJointAutoConstraints(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions = {},
+): JointAutoConstraintSolveResult {
+  const problem = createJointSearchProblem(path, config, options);
+  const { setup, searchableCoordinates, canonicalRadii, canonicalCaps } =
+    problem;
+  const evaluationBudget = jointEvaluationBudget(searchableCoordinates.length);
+  const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
 
   const baseCandidate: JointCandidate = {
     radiiBySegmentIndex: canonicalRadii,
@@ -947,12 +1013,11 @@ export function solveJointAutoConstraints(
     setup.anchors.length,
     setup.usableMaxVelocityMps,
   );
-  let best = starts
-    .map(evaluate)
+  let beam = starts
+    .map((candidate) => evaluator.evaluate(candidate))
     .filter((candidate): candidate is JointCandidateEvaluation => !!candidate)
-    .reduce((current, candidate) =>
-      isBetterJointCandidate(candidate, current) ? candidate : current,
-    );
+    .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1))
+    .slice(0, jointSolverBeamWidth);
 
   const sweeps = [
     {
@@ -968,36 +1033,571 @@ export function solveJointAutoConstraints(
   ];
   for (const sweep of sweeps) {
     for (const coordinate of sweep.coordinates) {
-      if (budgetReached) {
+      if (evaluator.budgetReached) {
         break;
       }
       const candidates = jointBlockCandidates(
-        best.candidate,
+        beam[0]!.candidate,
         coordinate,
         sweep.radiusStepRatio,
         sweep.velocityStepRatio,
         setup.simulationContext.pinnedCapsByOrdinal,
         setup.usableMaxVelocityMps,
       );
-      let blockBest = best;
-      for (const candidate of candidates) {
-        const candidateEvaluation = evaluate(candidate);
-        if (
-          candidateEvaluation &&
-          isBetterJointCandidate(candidateEvaluation, blockBest)
-        ) {
-          blockBest = candidateEvaluation;
+      const pool = [...beam];
+      for (const incumbent of beam) {
+        const blockCandidates =
+          incumbent === beam[0]
+            ? candidates
+            : jointBlockCandidates(
+                incumbent.candidate,
+                coordinate,
+                sweep.radiusStepRatio,
+                sweep.velocityStepRatio,
+                setup.simulationContext.pinnedCapsByOrdinal,
+                setup.usableMaxVelocityMps,
+              );
+        for (const candidate of blockCandidates) {
+          const candidateEvaluation = evaluator.evaluate(candidate);
+          if (candidateEvaluation) {
+            pool.push(candidateEvaluation);
+          }
         }
       }
-      if (blockBest.signature !== best.signature) {
-        best = blockBest;
+      const unique = new Map(
+        pool.map((candidate) => [candidate.signature, candidate]),
+      );
+      beam = [...unique.values()]
+        .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1))
+        .slice(0, jointSolverBeamWidth);
+    }
+  }
+  return finalizeJointCandidates(
+    path,
+    config,
+    options,
+    problem,
+    beam,
+    evaluator,
+    "interactive",
+  );
+}
+
+type JointOracleVariable =
+  | { kind: "radius"; coordinate: JointRadiusCoordinate }
+  | { kind: "cap"; ordinal: number; min: number; max: number };
+
+/**
+ * Deterministic, offline CMA-ES reference solver. It deliberately
+ * spends far more evaluations than the interactive optimizer and searches the
+ * complete persisted radius/cap domains. Production generation never calls it.
+ */
+export function solveJointAutoConstraintsOracle(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions = {},
+  oracleOptions: JointAutoConstraintOracleOptions = {},
+): JointAutoConstraintSolveResult {
+  const productionSeed = solveJointAutoConstraints(path, config, options);
+  const problem = createJointSearchProblem(path, config, options);
+  const variables = jointOracleVariables(problem);
+  const evaluationBudget = Math.max(
+    1,
+    Math.floor(
+      oracleOptions.maxEvaluations ?? Math.max(1_200, variables.length * 80),
+    ),
+  );
+  const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
+  const seedSetup = createAutoVelocitySolveSetup(
+    productionSeed.path,
+    config,
+    options,
+  );
+  const seedCandidate: JointCandidate = {
+    radiiBySegmentIndex: [
+      ...seedSetup.simulationContext.handoffRadiiBySegmentIndex,
+    ],
+    capsByOrdinal: capsByOrdinalFromSegmentCaps(
+      productionSeed.profile.segmentCaps,
+    ),
+  };
+  let best = evaluator.evaluate(seedCandidate);
+  if (!best) {
+    throw new Error("Joint oracle could not evaluate its production seed");
+  }
+
+  if (variables.length > 0 && evaluationBudget > 1) {
+    const seedVector = encodeJointOracleCandidate(best.candidate, variables);
+    for (const fraction of [0.2, 0.5, 0.8]) {
+      const broad = decodeJointOracleCandidate(
+        variables.map((variable) =>
+          variable.kind === "radius" ? fraction : 0.25 + fraction * 0.75,
+        ),
+        variables,
+        best.candidate,
+      );
+      const evaluation = evaluator.evaluate(broad);
+      if (evaluation && isBetterJointCandidate(evaluation, best)) {
+        best = evaluation;
       }
+    }
+
+    const random = createJointOracleRandom(oracleOptions.seed ?? 0x4b1_1e);
+    const dimension = variables.length;
+    const populationSize = Math.max(6, 4 + Math.floor(3 * Math.log(dimension)));
+    const parentCount = Math.floor(populationSize / 2);
+    const rawWeights = Array.from(
+      { length: parentCount },
+      (_, index) => Math.log(parentCount + 0.5) - Math.log(index + 1),
+    );
+    const weightSum = rawWeights.reduce((sum, value) => sum + value, 0);
+    const weights = rawWeights.map((value) => value / weightSum);
+    const effectiveParents =
+      1 / weights.reduce((sum, value) => sum + value * value, 0);
+    const cc =
+      (4 + effectiveParents / dimension) /
+      (dimension + 4 + (2 * effectiveParents) / dimension);
+    const cs = (effectiveParents + 2) / (dimension + effectiveParents + 5);
+    const c1 = 2 / (Math.pow(dimension + 1.3, 2) + effectiveParents);
+    const cmu = Math.min(
+      1 - c1,
+      (2 * (effectiveParents - 2 + 1 / effectiveParents)) /
+        (Math.pow(dimension + 2, 2) + effectiveParents),
+    );
+    const damping =
+      1 +
+      2 * Math.max(0, Math.sqrt((effectiveParents - 1) / (dimension + 1)) - 1) +
+      cs;
+    const expectedNormalLength =
+      Math.sqrt(dimension) *
+      (1 - 1 / (4 * dimension) + 1 / (21 * dimension * dimension));
+    let mean = seedVector;
+    let sigma = 0.28;
+    let covariance = identityMatrix(dimension);
+    let evolutionPath = Array<number>(dimension).fill(0);
+    let sigmaPath = Array<number>(dimension).fill(0);
+    let generation = 0;
+    let generationsWithoutImprovement = 0;
+
+    while (
+      !evaluator.budgetReached &&
+      sigma > 0.002 &&
+      generationsWithoutImprovement < 45
+    ) {
+      const decomposition = symmetricEigenDecomposition(covariance);
+      const population: Array<{
+        vector: number[];
+        evaluation: JointCandidateEvaluation;
+      }> = [];
+      for (
+        let member = 0;
+        member < populationSize && !evaluator.budgetReached;
+        member += 1
+      ) {
+        const normal = Array.from({ length: dimension }, () => random.normal());
+        const step = multiplyEigenBasis(
+          decomposition.vectors,
+          decomposition.values.map((value) =>
+            Math.sqrt(Math.max(value, 1e-12)),
+          ),
+          normal,
+        );
+        const vector = mean.map((value, index) =>
+          reflectUnitInterval(value + sigma * (step[index] ?? 0)),
+        );
+        const evaluation = evaluator.evaluate(
+          decodeJointOracleCandidate(vector, variables, best.candidate),
+        );
+        if (evaluation) {
+          population.push({ vector, evaluation });
+        }
+      }
+      if (population.length < parentCount) {
+        break;
+      }
+      population.sort((left, right) =>
+        isBetterJointCandidate(left.evaluation, right.evaluation) ? -1 : 1,
+      );
+      const previousBest = best;
+      if (isBetterJointCandidate(population[0]!.evaluation, best)) {
+        best = population[0]!.evaluation;
+      }
+      generationsWithoutImprovement =
+        best.signature === previousBest.signature
+          ? generationsWithoutImprovement + 1
+          : 0;
+
+      const oldMean = mean;
+      mean = Array<number>(dimension).fill(0);
+      for (let parent = 0; parent < parentCount; parent += 1) {
+        for (let index = 0; index < dimension; index += 1) {
+          mean[index] +=
+            (weights[parent] ?? 0) * (population[parent]?.vector[index] ?? 0);
+        }
+      }
+      const weightedStep = mean.map(
+        (value, index) => (value - (oldMean[index] ?? 0)) / sigma,
+      );
+      const inverseStep = multiplyEigenBasis(
+        decomposition.vectors,
+        decomposition.values.map(
+          (value) => 1 / Math.sqrt(Math.max(value, 1e-12)),
+        ),
+        weightedStep,
+        true,
+      );
+      const sigmaPathFactor = Math.sqrt(cs * (2 - cs) * effectiveParents);
+      sigmaPath = sigmaPath.map(
+        (value, index) =>
+          (1 - cs) * value + sigmaPathFactor * (inverseStep[index] ?? 0),
+      );
+      const sigmaPathLength = vectorLength(sigmaPath);
+      const hsig =
+        sigmaPathLength /
+          Math.sqrt(1 - Math.pow(1 - cs, 2 * (generation + 1))) /
+          expectedNormalLength <
+        1.4 + 2 / (dimension + 1)
+          ? 1
+          : 0;
+      const evolutionFactor = Math.sqrt(cc * (2 - cc) * effectiveParents);
+      evolutionPath = evolutionPath.map(
+        (value, index) =>
+          (1 - cc) * value +
+          hsig * evolutionFactor * (weightedStep[index] ?? 0),
+      );
+      const oldCovariance = covariance;
+      covariance = Array.from({ length: dimension }, (_, row) =>
+        Array.from({ length: dimension }, (_, column) => {
+          let rankMu = 0;
+          for (let parent = 0; parent < parentCount; parent += 1) {
+            const parentVector = population[parent]?.vector;
+            const rowStep =
+              ((parentVector?.[row] ?? 0) - (oldMean[row] ?? 0)) / sigma;
+            const columnStep =
+              ((parentVector?.[column] ?? 0) - (oldMean[column] ?? 0)) / sigma;
+            rankMu += (weights[parent] ?? 0) * rowStep * columnStep;
+          }
+          const oldValue = oldCovariance[row]?.[column] ?? 0;
+          return (
+            (1 - c1 - cmu) * oldValue +
+            c1 *
+              ((evolutionPath[row] ?? 0) * (evolutionPath[column] ?? 0) +
+                (1 - hsig) * cc * (2 - cc) * oldValue) +
+            cmu * rankMu
+          );
+        }),
+      );
+      sigma *= Math.exp(
+        (cs / damping) * (sigmaPathLength / expectedNormalLength - 1),
+      );
+      generation += 1;
     }
   }
 
+  const oracleResult = finalizeJointCandidates(
+    path,
+    config,
+    options,
+    problem,
+    evaluator.rankedCandidates(4),
+    evaluator,
+    "oracle",
+  );
+  oracleResult.stats.genericEvaluations +=
+    productionSeed.stats.genericEvaluations;
+  if (
+    oracleResult.stats.objectiveCost >
+    productionSeed.stats.objectiveCost + jointObjectiveIndifference
+  ) {
+    return {
+      ...productionSeed,
+      stats: {
+        ...oracleResult.stats,
+        objectiveCost: productionSeed.stats.objectiveCost,
+        genericValidationPassed: productionSeed.stats.genericValidationPassed,
+        stabilityValidationPassed:
+          productionSeed.stats.stabilityValidationPassed,
+      },
+    };
+  }
+  return oracleResult;
+}
+
+function finalizeJointCandidates(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+  problem: JointSearchProblem,
+  candidates: readonly JointCandidateEvaluation[],
+  evaluator: JointCandidateEvaluator,
+  algorithm: JointAutoConstraintSolveStats["algorithm"],
+): JointAutoConstraintSolveResult {
+  const finalized = candidates.map((candidate) =>
+    finalizeJointCandidate(
+      path,
+      config,
+      options,
+      problem,
+      candidate,
+      evaluator,
+      algorithm,
+    ),
+  );
+  const statusRank = (status: JointAutoConstraintSolveStatus): number =>
+    status === "valid" ? 0 : status === "best-effort" ? 1 : 2;
+  finalized.sort((left, right) => {
+    const rankDelta = statusRank(left.status) - statusRank(right.status);
+    if (rankDelta !== 0) {
+      return rankDelta;
+    }
+    return left.stats.objectiveCost - right.stats.objectiveCost;
+  });
+  const result = finalized[0];
+  if (!result) {
+    throw new Error("Joint solver produced no candidate to finalize");
+  }
+  return {
+    ...result,
+    stats: {
+      ...result.stats,
+      genericEvaluations: finalized.length * 2,
+    },
+  };
+}
+
+function jointOracleVariables(
+  problem: JointSearchProblem,
+): JointOracleVariable[] {
+  const variables: JointOracleVariable[] = problem.searchableCoordinates.map(
+    (coordinate) => ({ kind: "radius", coordinate }),
+  );
+  const capOrdinals = new Set<number>();
+  for (const coordinate of problem.searchableCoordinates) {
+    capOrdinals.add(coordinate.anchorOrdinal);
+    capOrdinals.add(coordinate.anchorOrdinal + 1);
+  }
+  for (const ordinal of [...capOrdinals].sort((left, right) => left - right)) {
+    if (!problem.setup.simulationContext.pinnedCapsByOrdinal.has(ordinal)) {
+      variables.push({
+        kind: "cap",
+        ordinal,
+        min: minimumSolverCap(problem.setup.usableMaxVelocityMps),
+        max: problem.setup.usableMaxVelocityMps,
+      });
+    }
+  }
+  return variables;
+}
+
+function encodeJointOracleCandidate(
+  candidate: JointCandidate,
+  variables: readonly JointOracleVariable[],
+): number[] {
+  return variables.map((variable) => {
+    const min =
+      variable.kind === "radius"
+        ? variable.coordinate.minRadiusMeters
+        : variable.min;
+    const max =
+      variable.kind === "radius"
+        ? variable.coordinate.maxRadiusMeters
+        : variable.max;
+    const value =
+      variable.kind === "radius"
+        ? (candidate.radiiBySegmentIndex[variable.coordinate.segmentIndex] ??
+          min)
+        : (candidate.capsByOrdinal.get(variable.ordinal) ?? max);
+    return clamp((value - min) / Math.max(max - min, minPositive), 0, 1);
+  });
+}
+
+function decodeJointOracleCandidate(
+  vector: readonly number[],
+  variables: readonly JointOracleVariable[],
+  base: JointCandidate,
+): JointCandidate {
+  const candidate: JointCandidate = {
+    radiiBySegmentIndex: [...base.radiiBySegmentIndex],
+    capsByOrdinal: new Map(base.capsByOrdinal),
+  };
+  variables.forEach((variable, index) => {
+    const unit = reflectUnitInterval(vector[index] ?? 0.5);
+    if (variable.kind === "radius") {
+      candidate.radiiBySegmentIndex[variable.coordinate.segmentIndex] =
+        variable.coordinate.minRadiusMeters +
+        unit *
+          (variable.coordinate.maxRadiusMeters -
+            variable.coordinate.minRadiusMeters);
+    } else {
+      candidate.capsByOrdinal.set(
+        variable.ordinal,
+        variable.min + unit * (variable.max - variable.min),
+      );
+    }
+  });
+  return candidate;
+}
+
+function reflectUnitInterval(value: number): number {
+  const period = ((value % 2) + 2) % 2;
+  return period <= 1 ? period : 2 - period;
+}
+
+function identityMatrix(size: number): number[][] {
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, column) => (row === column ? 1 : 0)),
+  );
+}
+
+function vectorLength(vector: readonly number[]): number {
+  return Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+}
+
+function symmetricEigenDecomposition(matrix: readonly number[][]): {
+  values: number[];
+  vectors: number[][];
+} {
+  const size = matrix.length;
+  const values = matrix.map((row) => [...row]);
+  const vectors = identityMatrix(size);
+  for (
+    let iteration = 0;
+    iteration < Math.max(12, size * size * 8);
+    iteration += 1
+  ) {
+    let pivotRow = 0;
+    let pivotColumn = 0;
+    let largest = 0;
+    for (let row = 0; row < size; row += 1) {
+      for (let column = row + 1; column < size; column += 1) {
+        const magnitude = Math.abs(values[row]?.[column] ?? 0);
+        if (magnitude > largest) {
+          largest = magnitude;
+          pivotRow = row;
+          pivotColumn = column;
+        }
+      }
+    }
+    if (largest < 1e-10) {
+      break;
+    }
+    const app = values[pivotRow]?.[pivotRow] ?? 0;
+    const aqq = values[pivotColumn]?.[pivotColumn] ?? 0;
+    const apq = values[pivotRow]?.[pivotColumn] ?? 0;
+    const angle = 0.5 * Math.atan2(2 * apq, aqq - app);
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    for (let index = 0; index < size; index += 1) {
+      const vip = values[index]?.[pivotRow] ?? 0;
+      const viq = values[index]?.[pivotColumn] ?? 0;
+      values[index]![pivotRow] = cosine * vip - sine * viq;
+      values[index]![pivotColumn] = sine * vip + cosine * viq;
+    }
+    for (let index = 0; index < size; index += 1) {
+      const vpi = values[pivotRow]?.[index] ?? 0;
+      const vqi = values[pivotColumn]?.[index] ?? 0;
+      values[pivotRow]![index] = cosine * vpi - sine * vqi;
+      values[pivotColumn]![index] = sine * vpi + cosine * vqi;
+    }
+    for (let index = 0; index < size; index += 1) {
+      const vip = vectors[index]?.[pivotRow] ?? 0;
+      const viq = vectors[index]?.[pivotColumn] ?? 0;
+      vectors[index]![pivotRow] = cosine * vip - sine * viq;
+      vectors[index]![pivotColumn] = sine * vip + cosine * viq;
+    }
+  }
+  return {
+    values: Array.from({ length: size }, (_, index) =>
+      Math.max(values[index]?.[index] ?? 0, 1e-12),
+    ),
+    vectors,
+  };
+}
+
+function multiplyEigenBasis(
+  vectors: readonly number[][],
+  scales: readonly number[],
+  input: readonly number[],
+  inverseOrder = false,
+): number[] {
+  const size = input.length;
+  if (inverseOrder) {
+    const projected = Array.from(
+      { length: size },
+      (_, column) =>
+        vectors.reduce(
+          (sum, row, rowIndex) =>
+            sum + (row[column] ?? 0) * (input[rowIndex] ?? 0),
+          0,
+        ) * (scales[column] ?? 0),
+    );
+    return Array.from({ length: size }, (_, row) =>
+      projected.reduce(
+        (sum, value, column) => sum + (vectors[row]?.[column] ?? 0) * value,
+        0,
+      ),
+    );
+  }
+  return Array.from({ length: size }, (_, row) =>
+    input.reduce(
+      (sum, value, column) =>
+        sum + (vectors[row]?.[column] ?? 0) * (scales[column] ?? 0) * value,
+      0,
+    ),
+  );
+}
+
+function createJointOracleRandom(seed: number): { normal(): number } {
+  let state = seed >>> 0;
+  let spare: number | null = null;
+  const uniform = (): number => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+  return {
+    normal() {
+      if (spare !== null) {
+        const value = spare;
+        spare = null;
+        return value;
+      }
+      const radius = Math.sqrt(-2 * Math.log(Math.max(uniform(), 1e-12)));
+      const angle = 2 * Math.PI * uniform();
+      spare = radius * Math.sin(angle);
+      return radius * Math.cos(angle);
+    },
+  };
+}
+
+/** Softly avoids fragile trigger circles while preserving short-leg solves. */
+function jointRadiusRobustnessCost(
+  corners: readonly AutoVelocityCorner[],
+): number {
+  return corners.reduce((cost, corner) => {
+    const deficit = Math.max(
+      0,
+      (jointRobustRadiusMeters - corner.handoffDistanceMeters) /
+        jointRobustRadiusMeters,
+    );
+    return cost + jointRobustRadiusWeight * deficit * deficit;
+  }, 0);
+}
+
+function finalizeJointCandidate(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+  problem: JointSearchProblem,
+  best: JointCandidateEvaluation,
+  evaluator: JointCandidateEvaluator,
+  algorithm: JointAutoConstraintSolveStats["algorithm"],
+): JointAutoConstraintSolveResult {
   const solvedPath = pathWithJointRadii(
     path,
-    setup.anchors,
+    problem.setup.anchors,
     best.candidate.radiiBySegmentIndex,
   );
   const finalSetup = createAutoVelocitySolveSetup(solvedPath, config, options);
@@ -1047,25 +1647,41 @@ export function solveJointAutoConstraints(
     usableMaxVelocityMps: finalSetup.usableMaxVelocityMps,
     usableMaxAccelerationMps2: finalSetup.usableMaxAccelerationMps2,
   };
+  const persistedObjectiveCost =
+    autoHandoffRadiusObjectiveCost({
+      corners: finalSetup.corners,
+      diagnostics: profile.diagnostics,
+    }) +
+    jointRadiusRobustnessCost(finalSetup.corners) +
+    autoVelocityTieBreakCost({
+      reachedEndRatio: reachedEndRatio(finalEvaluation),
+      handoffRatios: evaluationHandoffRatios(finalEvaluation),
+      totalTimeS: finalEvaluation.totalTimeS,
+      capsByOrdinal: persistedCaps,
+    });
 
   return {
     path: solvedPath,
     profile,
-    status: hasImpossibleCoordinate
+    status: problem.hasImpossibleCoordinate
       ? "unsolvable"
       : finalEvaluation.passed && stabilityEvaluation.passed
         ? "valid"
         : "best-effort",
     stats: {
-      evaluations,
-      evaluationBudget,
-      searchableBlocks: searchableCoordinates.length,
-      cacheHits,
+      algorithm,
+      evaluations: evaluator.evaluations,
+      evaluationBudget: evaluator.evaluationBudget,
+      searchableBlocks: problem.searchableCoordinates.length,
+      cacheHits: evaluator.cacheHits,
       genericEvaluations: 2,
+      objectiveCost: persistedObjectiveCost,
+      genericValidationPassed: finalEvaluation.passed,
+      stabilityValidationPassed: stabilityEvaluation.passed,
       terminationReason:
-        searchableCoordinates.length === 0
+        problem.searchableCoordinates.length === 0
           ? "no-coordinates"
-          : budgetReached
+          : evaluator.budgetReached
             ? "evaluation-budget"
             : "converged",
     },

@@ -61,7 +61,7 @@ describe("constraint generation performance", () => {
 
       expect(solved.stats.searchableBlocks).toBe(anchorCount - 2);
       expect(solved.stats.evaluationBudget).toBe(
-        4 + 16 * (anchorCount - 2),
+        4 + 32 * (anchorCount - 2),
       );
       expect(solved.stats.evaluations).toBeLessThanOrEqual(
         solved.stats.evaluationBudget,

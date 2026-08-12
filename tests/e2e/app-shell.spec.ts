@@ -1857,9 +1857,9 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
   await generate.click();
   await expect(status).toHaveText("Up to date");
   await page.getByText("Optimizer settings", { exact: true }).click();
-  await expect(
-    card.getByTestId("auto-velocity-diagnostics"),
-  ).toContainText(/\d+ \/ \d+ evaluations/);
+  await expect(card.getByTestId("auto-velocity-diagnostics")).toContainText(
+    /\d+ \/ \d+ evaluations/,
+  );
   await expect(
     card.getByRole("button", { name: "Apply", exact: true }),
   ).toHaveCount(0);
@@ -2090,9 +2090,9 @@ test("reads the optimizer settings row as a disclosure", async ({ page }) => {
 
   await expect(controls).toHaveAttribute("open", "");
   await expect(page.getByLabel("Velocity safety factor")).toBeVisible();
-  await expect(
-    controls.getByTestId("auto-velocity-diagnostics"),
-  ).toContainText(/Up to \d+ evaluations/);
+  await expect(controls.getByTestId("auto-velocity-diagnostics")).toContainText(
+    /Up to \d+ evaluations/,
+  );
   await expect(hint).toHaveCSS("opacity", "0");
   await expect.poll(rotation).toBe("90deg");
 });
@@ -2139,11 +2139,11 @@ test("warns when a large path receives a scaled optimizer budget", async ({
   );
   await controls.getByText("Optimizer settings", { exact: true }).click();
   await expect(controls.getByRole("note")).toContainText(
-    "Large path — optimization may take longer. Up to 244 candidate evaluations are expected.",
+    "Large path — optimization may take longer. Up to 484 candidate evaluations are expected.",
   );
-  await expect(
-    controls.getByTestId("auto-velocity-diagnostics"),
-  ).toContainText("Up to 244 evaluations");
+  await expect(controls.getByTestId("auto-velocity-diagnostics")).toContainText(
+    "Up to 484 evaluations",
+  );
 });
 
 test("turns dragged auto velocity ranges into manual ranges", async ({
@@ -3884,9 +3884,7 @@ test("uses range and toggle selection for handoff radii", async ({ page }) => {
   await expect(second).toHaveClass(/handoff-radius-chip--unset/);
 });
 
-test("keeps canvas handoff radii visual-only", async ({
-  page,
-}) => {
+test("keeps canvas handoff radii visual-only", async ({ page }) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
 

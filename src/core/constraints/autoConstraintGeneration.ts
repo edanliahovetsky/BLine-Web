@@ -37,7 +37,7 @@ export interface AutoConstraintGenerationOptions {
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
 /** A fully searchable 16-anchor path; larger searches get a quiet UI warning. */
-export const autoConstraintLargePathWarningBudget = 228;
+export const autoConstraintLargePathWarningBudget = 452;
 
 /**
  * The whole optimizer: seed the handoff radii nobody pinned, select generated

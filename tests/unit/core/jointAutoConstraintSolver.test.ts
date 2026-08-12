@@ -46,11 +46,11 @@ describe("solveJointAutoConstraints", () => {
     ).toBe(true);
     expect(result.profile.segmentCaps).toHaveLength(4);
     expect(result.stats.searchableBlocks).toBe(2);
-    expect(result.stats.evaluationBudget).toBe(36);
+    expect(result.stats.evaluationBudget).toBe(68);
     expect(result.stats.evaluations).toBeLessThanOrEqual(
       result.stats.evaluationBudget,
     );
-    expect(result.stats.genericEvaluations).toBe(2);
+    expect(result.stats.genericEvaluations).toBe(4);
     expect(["converged", "evaluation-budget"]).toContain(
       result.stats.terminationReason,
     );
@@ -68,20 +68,17 @@ describe("solveJointAutoConstraints", () => {
     const plan = jointAutoConstraintSearchPlan(seeded, {});
 
     expect(plan.searchableBlocks).toBe(48);
-    expect(plan.evaluationBudget).toBe(772);
+    expect(plan.evaluationBudget).toBe(1_540);
     expect(plan.evaluationBudget).toBeGreaterThan(512);
   });
 
   it("warns only beyond the normal fully searchable 16-anchor workload", () => {
     const planFor = (anchorCount: number) => {
       const path = pathOf(
-        Array.from(
-          { length: anchorCount },
-          (_, index): [number, number] => [
-            index,
-            index % 2 === 0 ? 0 : 1,
-          ],
-        ),
+        Array.from({ length: anchorCount }, (_, index): [number, number] => [
+          index,
+          index % 2 === 0 ? 0 : 1,
+        ]),
       );
       return jointAutoConstraintSearchPlan(seedHandoffRadii(path).path, {});
     };
@@ -221,9 +218,9 @@ describe("solveJointAutoConstraints", () => {
 
     expect(lastSample?.target_anchor_ordinal_1b).toBe(5);
     expect(lastSample?.global_s_m).toBeGreaterThanOrEqual(5.19);
-    expect(trace.trace.every((sample) => Number.isFinite(sample.speed_mps))).toBe(
-      true,
-    );
+    expect(
+      trace.trace.every((sample) => Number.isFinite(sample.speed_mps)),
+    ).toBe(true);
   });
 
   it("keeps a manual 0.05 meter straight trigger executable at runtime", () => {
