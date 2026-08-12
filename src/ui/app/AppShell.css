@@ -2261,6 +2261,68 @@ select {
   min-height: 60px;
 }
 
+.auto-constraint-ledger {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+.auto-constraint-ledger__legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #91a2ae;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.auto-constraint-ledger__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.auto-constraint-ledger__legend-sample {
+  width: 16px;
+  height: 7px;
+  border: 1px solid;
+  border-radius: 2px;
+}
+
+.auto-constraint-ledger__legend-sample.is-auto {
+  border-color: #4ade80;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(74, 222, 128, 0.6) 0 3px,
+      transparent 3px 6px
+    ),
+    #183326;
+}
+
+.auto-constraint-ledger__legend-sample.is-manual {
+  border-color: #58a6ff;
+  background: #1d4f75;
+}
+
+.ranged-segment-bar--vertical {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  overflow: visible;
+}
+
+.ranged-segment-ledger-cell {
+  z-index: 1;
+  min-height: 44px;
+  border-bottom: 1px solid #22313a;
+  pointer-events: none;
+}
+
+.ranged-segment-ledger-cell:last-of-type {
+  border-bottom: 0;
+}
+
 .ranged-segment-ordinal {
   display: grid;
   align-items: center;
@@ -2320,6 +2382,15 @@ select {
 .ranged-segment-gap.is-disabled:focus-visible {
   color: #687985;
   background: #111820;
+}
+
+.ranged-segment-gap--vertical {
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  border-right: 0;
+  border-bottom: 1px dashed #2d3a45;
+  background: rgba(16, 24, 32, 0.58);
 }
 
 .ranged-segment-range {
@@ -2383,6 +2454,32 @@ select {
   background: linear-gradient(180deg, #176f9f, #10527b);
 }
 
+.ranged-segment-bar--vertical .ranged-segment-range {
+  min-width: 0;
+  min-height: 0;
+  margin: 2px;
+  padding: 8px;
+  cursor: grab;
+}
+
+.ranged-segment-bar--vertical .ranged-segment-range::before,
+.ranged-segment-bar--vertical .ranged-segment-range::after {
+  right: 5px;
+  left: 5px;
+  width: auto;
+  height: 2px;
+}
+
+.ranged-segment-bar--vertical .ranged-segment-range::before {
+  top: 2px;
+  bottom: auto;
+}
+
+.ranged-segment-bar--vertical .ranged-segment-range::after {
+  top: auto;
+  bottom: 2px;
+}
+
 .ranged-segment-range.is-stale {
   border-color: #d6a741;
   box-shadow: inset 0 0 0 2px rgba(214, 167, 65, 0.75);
@@ -2436,6 +2533,15 @@ select {
   flex-wrap: wrap;
   gap: 5px;
   min-width: 0;
+}
+
+.handoff-radius-chips--ledger {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #293846;
+  border-radius: 8px;
+  background: #101820;
 }
 
 .handoff-radius-chip {
@@ -2494,6 +2600,35 @@ select {
   cursor: not-allowed;
 }
 
+.handoff-radius-chip--ledger {
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 7px;
+  border-width: 1px;
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.handoff-radius-chip--ledger:not(.is-inert) {
+  margin: 2px 3px;
+  width: calc(100% - 6px);
+  min-height: 40px;
+}
+
+.handoff-radius-chip--ledger.is-inert {
+  border: 0;
+  border-bottom: 1px dashed #22313a;
+  border-radius: 0;
+  background: rgba(16, 24, 32, 0.58);
+}
+
+.handoff-radius-chip--ledger .handoff-radius-chip__value {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
 .handoff-radius-chip:hover:not(:disabled),
 .handoff-radius-chip:focus-visible:not(:disabled) {
   color: #f5fbff;
@@ -2529,6 +2664,16 @@ select {
   font-size: 0.68rem;
   font-weight: 760;
   line-height: 1.1;
+}
+
+.auto-constraint-ledger__empty {
+  padding: 10px;
+  border: 1px dashed #33434e;
+  border-radius: 7px;
+  color: #8fa0ad;
+  background: #121c22;
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .ranged-constraint-controls {

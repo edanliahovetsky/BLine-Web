@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useEffect,
   useId,
   useLayoutEffect,
@@ -11,7 +10,7 @@ import {
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2, Pin } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
@@ -569,11 +568,23 @@ export function ConstraintEditor({
         <div className="constraint-list">
           {project ? (
             <>
-              {rangedConstraintKeys.map((key) => (
-                <Fragment
-                  key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
-                >
+              {rangedConstraintKeys.map((key) =>
+                key === autoVelocityKey ? (
+                  <AutoConstraintLedgerCard
+                    key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
+                    project={project}
+                    selectedIndex={selectedByKey[key] ?? null}
+                    autoSettings={autoSettings}
+                    autoVelocityRunning={autoVelocityRunning}
+                    runAutoVelocityTask={runAutoVelocityTask}
+                    onAutoSettingsChange={setAutoSettings}
+                    onGenerateAutoVelocity={() => generateAutoVelocity(project)}
+                    onSelect={(index) => setSelectedForKey(key, index)}
+                    onOpenPopout={(trigger) => openPopout(key, trigger)}
+                  />
+                ) : (
                   <RangedConstraintCard
+                    key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
                     project={project}
                     constraintKey={key}
                     selectedIndex={selectedByKey[key] ?? null}
@@ -585,16 +596,8 @@ export function ConstraintEditor({
                     onSelect={(index) => setSelectedForKey(key, index)}
                     onOpenPopout={(trigger) => openPopout(key, trigger)}
                   />
-                  {/* Keep the two path-shaping controls adjacent even though
-                      production velocity generation does not own radii. */}
-                  {key === autoVelocityKey ? (
-                    <HandoffRadiiCard
-                      project={project}
-                      autoVelocityRunning={autoVelocityRunning}
-                    />
-                  ) : null}
-                </Fragment>
-              ))}
+                ),
+              )}
 
               <div className="constraint-terminal-group">
                 {terminalToleranceKeys.map((key) =>
@@ -624,6 +627,245 @@ export function ConstraintEditor({
       </SidebarSection>
       {popoutOverlay}
     </>
+  );
+}
+
+/**
+ * The optimizer's two outputs share one path-ordered ledger. Velocity ranges
+ * occupy the left lane and handoff radii occupy the right lane, but their
+ * selection and editing stay type-specific.
+ */
+function AutoConstraintLedgerCard({
+  project,
+  selectedIndex,
+  autoSettings,
+  autoVelocityRunning,
+  runAutoVelocityTask,
+  onAutoSettingsChange,
+  onGenerateAutoVelocity,
+  onSelect,
+  onOpenPopout,
+}: {
+  project: ProjectDocument;
+  selectedIndex: number | null;
+  autoSettings: AutoVelocitySettings;
+  autoVelocityRunning: boolean;
+  runAutoVelocityTask: AutoVelocityTaskRunner;
+  onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onGenerateAutoVelocity(): void;
+  onSelect: (index: number) => void;
+  onOpenPopout(trigger: HTMLButtonElement): void;
+}) {
+  const constraintKey = autoVelocityKey;
+  const meta = rangedMeta[constraintKey];
+  const entries = getRangedEntries(project, constraintKey);
+  const labels = useMemo(
+    () => domainLabelsForKey(project, constraintKey),
+    [constraintKey, project],
+  );
+  const chips = useMemo(() => handoffRadiusChipsForPath(project), [project]);
+  const autoStatus = useMemo(
+    () => autoVelocityStatusForProject(project, autoSettings),
+    [autoSettings, project],
+  );
+  const canGenerate = useMemo(
+    () => canGenerateAutoVelocity(project, autoSettings),
+    [autoSettings, project],
+  );
+  const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
+  const initialSelectedElementIndex =
+    selectionStore.getState().selectedElementIndex;
+  const initiallySelectedRadius = chips.some(
+    (chip) => !chip.inert && chip.elementIndex === initialSelectedElementIndex,
+  );
+  const [activeType, setActiveType] = useState<"velocity" | "radius" | null>(
+    initiallySelectedRadius ? "radius" : selectedEntry ? "velocity" : null,
+  );
+  const selectVelocityEntry = (index: number) => {
+    setActiveType("velocity");
+    onSelect(index);
+  };
+  const selectedLocalIndex = selectedEntry
+    ? entries.findIndex((entry) => entry.index === selectedEntry.index)
+    : -1;
+  const selectedSegmentNumber =
+    selectedLocalIndex >= 0 ? selectedLocalIndex + 1 : 1;
+
+  const selectedElementIndex = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedElementIndex,
+  );
+  const selectedChip =
+    activeType === "radius"
+      ? (chips.find(
+          (chip) =>
+            !chip.inert && chip.elementIndex === selectedElementIndex,
+        ) ?? null)
+      : null;
+  const total = labels.length;
+
+  const selectRadiusChip = (chip: HandoffRadiusChip) => {
+    setActiveType("radius");
+    const latestProject = projectStore.getState().project ?? project;
+    selectionStore.getState().selectElement(chip.elementIndex, latestProject);
+  };
+
+  return (
+    <article
+      className="constraint-card constraint-card--auto-ledger"
+      data-testid={`constraint-card-${constraintKey}`}
+      data-tour="max-velocity-card"
+    >
+      <div className="constraint-card__header constraint-card__header--auto">
+        <div className="constraint-heading-row">
+          <h3>Path Constraints</h3>
+        </div>
+        <AutoVelocityStatusIndicator
+          status={autoStatus}
+          running={autoVelocityRunning}
+        />
+        <div className="constraint-card__auto-actions">
+          <SidebarActionButton
+            onClick={onGenerateAutoVelocity}
+            disabled={total === 0 || autoVelocityRunning || !canGenerate}
+            aria-label="Generate velocity constraints"
+            title={
+              !canGenerate && !autoVelocityRunning
+                ? "All velocity segments are set manually. Switch a segment to Auto to generate."
+                : "Generate and apply velocity constraints"
+            }
+          >
+            Generate
+          </SidebarActionButton>
+          <SidebarActionButton
+            onClick={() => clearAutoVelocity(project)}
+            disabled={
+              autoVelocityRunning || !hasAutoVelocityConstraints(project)
+            }
+            aria-label="Clear generated velocity constraints"
+            title="Clear generated velocity constraints"
+          >
+            Clear
+          </SidebarActionButton>
+        </div>
+      </div>
+
+      {!autoVelocityRunning && !canGenerate ? (
+        <p className="auto-velocity-hint" role="note">
+          All velocity segments are set manually. Switch a segment to Auto to
+          generate.
+        </p>
+      ) : entries.length === 0 && total > 0 ? (
+        <p className="auto-velocity-hint" role="note">
+          No caps yet, so this path drives at the global maximum. Generate
+          proposes caps from its shape.
+        </p>
+      ) : null}
+
+      <AutoVelocityInlineControls
+        settings={autoSettings}
+        onSettingsChange={onAutoSettingsChange}
+      />
+
+      <p className="auto-velocity-hint" role="note">
+        {handoffRadiusHint}
+      </p>
+
+      <div className="auto-constraint-ledger__legend" aria-label="Value modes">
+        <span>
+          <i className="auto-constraint-ledger__legend-sample is-auto" />
+          Auto
+        </span>
+        <span>
+          <i className="auto-constraint-ledger__legend-sample is-manual" />
+          Manual
+        </span>
+      </div>
+
+      <div
+        className="auto-constraint-ledger"
+        data-testid="auto-constraint-ledger"
+      >
+        <ConstraintSegmentBar
+          project={project}
+          constraintKey={constraintKey}
+          entries={entries}
+          labels={labels}
+          unit={meta.unit}
+          autoStatus={autoStatus}
+          selectedIndex={
+            activeType === "velocity" ? (selectedEntry?.index ?? null) : null
+          }
+          orientation="vertical"
+          onSelect={selectVelocityEntry}
+          onPreview={(index, constraint) => {
+            previewRangedConstraint(constraintKey, index, constraint);
+          }}
+          onRangesChange={(updates) =>
+            updateRangedConstraints(project, updates)
+          }
+          onGapDoubleClick={(start, end) => {
+            const insertedIndex = insertRangedConstraint(
+              project,
+              constraintKey,
+              start,
+              end,
+              defaultFor(project, constraintKey, meta.defaultValue),
+            );
+            if (insertedIndex !== null) {
+              selectVelocityEntry(insertedIndex);
+            }
+          }}
+        />
+        <div
+          className="handoff-radius-chips handoff-radius-chips--ledger"
+          data-testid="constraint-card-handoff-radii"
+          role="group"
+          aria-label="Handoff radii"
+          style={{
+            gridTemplateRows: `repeat(${Math.max(total, 1)}, minmax(44px, 1fr))`,
+          }}
+        >
+          {chips.map((chip) => (
+            <HandoffRadiusChipButton
+              key={chip.elementIndex}
+              chip={chip}
+              selected={chip.elementIndex === selectedChip?.elementIndex}
+              ledger
+              style={{ gridRow: chip.ordinal }}
+              onSelect={() => selectRadiusChip(chip)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {activeType === "radius" ? (
+        <HandoffRadiusControls
+          chip={selectedChip}
+          autoVelocityRunning={autoVelocityRunning}
+        />
+      ) : activeType === "velocity" ? (
+        <RangedConstraintControls
+          project={project}
+          constraintKey={constraintKey}
+          entry={selectedEntry}
+          segmentNumber={selectedSegmentNumber}
+          autoStatus={autoStatus}
+          autoSettings={autoSettings}
+          autoVelocityRunning={autoVelocityRunning}
+          runAutoVelocityTask={runAutoVelocityTask}
+          onSelect={(index) => {
+            setActiveType("velocity");
+            onSelect(index);
+          }}
+          onOpenPopout={onOpenPopout}
+        />
+      ) : (
+        <div className="auto-constraint-ledger__empty" role="note">
+          Select a speed or distance value to edit it.
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -803,84 +1045,18 @@ function RangedConstraintCard({
   );
 }
 
-/**
- * The authoritative manual editing surface for handoff radii. Automatic radius
- * ownership is intentionally absent until the generator overhaul lands.
- */
-function HandoffRadiiCard({
-  project,
-  autoVelocityRunning,
-}: {
-  project: ProjectDocument;
-  autoVelocityRunning: boolean;
-}) {
-  const selectedElementIndex = useStoreSelector(
-    selectionStore,
-    (state) => state.selectedElementIndex,
-  );
-  const chips = useMemo(() => handoffRadiusChipsForPath(project), [project]);
-  // Chip selection is element selection, so the canvas, the element list and
-  // this card always agree on which anchor is being edited.
-  const selectedChip =
-    chips.find(
-      (chip) => chip.elementIndex === selectedElementIndex && !chip.inert,
-    ) ?? null;
-
-  if (chips.length === 0) {
-    return null;
-  }
-
-  return (
-    <article
-      className="constraint-card"
-      data-testid="constraint-card-handoff-radii"
-    >
-      <div className="constraint-card__header">
-        <div className="constraint-heading-row">
-          <h3>Handoff Radii</h3>
-        </div>
-      </div>
-
-      <p className="auto-velocity-hint" role="note">
-        {handoffRadiusHint}
-      </p>
-
-      <div
-        className="handoff-radius-chips"
-        role="group"
-        aria-label="Handoff radii"
-      >
-        {chips.map((chip) => (
-          <HandoffRadiusChipButton
-            key={chip.elementIndex}
-            chip={chip}
-            selected={chip.elementIndex === selectedChip?.elementIndex}
-            onSelect={() => {
-              const latestProject = projectStore.getState().project ?? project;
-              selectionStore
-                .getState()
-                .selectElement(chip.elementIndex, latestProject);
-            }}
-          />
-        ))}
-      </div>
-
-      <HandoffRadiusControls
-        chip={selectedChip}
-        autoVelocityRunning={autoVelocityRunning}
-      />
-    </article>
-  );
-}
-
 function HandoffRadiusChipButton({
   chip,
   selected,
+  ledger = false,
+  style,
   onSelect,
 }: {
   chip: HandoffRadiusChip;
   selected: boolean;
-  onSelect(): void;
+  ledger?: boolean;
+  style?: CSSProperties;
+  onSelect(extend: boolean): void;
 }) {
   return (
     <button
@@ -888,6 +1064,7 @@ function HandoffRadiusChipButton({
       className={[
         "handoff-radius-chip",
         `handoff-radius-chip--${chip.state}`,
+        ledger ? "handoff-radius-chip--ledger" : "",
         selected ? "is-selected" : "",
         chip.inert ? "is-inert" : "",
       ]
@@ -895,24 +1072,19 @@ function HandoffRadiusChipButton({
         .join(" ")}
       data-testid={`handoff-radius-chip-${chip.elementIndex}`}
       disabled={chip.inert}
+      style={style}
       aria-pressed={selected}
-      aria-label={`Select handoff radius ${chip.ordinal}`}
+      aria-label={`Handoff radius ${chip.ordinal}, ${formatSegmentNumber(
+        chip.effectiveValueMeters,
+      )} m`}
       title={handoffRadiusChipTitle(chip)}
-      onClick={onSelect}
+      onClick={(event) => onSelect(event.shiftKey)}
     >
-      <span className="handoff-radius-chip__ordinal">{chip.ordinal}</span>
-      <span className="handoff-radius-chip__value">
-        {formatSegmentNumber(chip.effectiveValueMeters)}
-      </span>
-      {/* Inert anchors stay plain: a pin marker there would advertise a value
-          the follower never reads. */}
-      {chip.state === "manual" && !chip.inert ? (
-        <Pin
-          className="handoff-radius-chip__pin"
-          aria-hidden="true"
-          size={10}
-        />
-      ) : null}
+      {chip.inert ? null : (
+        <span className="handoff-radius-chip__value">
+          {formatSegmentNumber(chip.effectiveValueMeters)} m
+        </span>
+      )}
     </button>
   );
 }
@@ -1423,6 +1595,7 @@ function ConstraintSegmentBar({
   onRangesChange,
   onGapDoubleClick,
   density = "sidebar",
+  orientation = "horizontal",
 }: {
   project: ProjectDocument;
   constraintKey: RangedConstraintKey;
@@ -1436,6 +1609,7 @@ function ConstraintSegmentBar({
   onRangesChange: (updates: RangeUpdate[]) => void;
   onGapDoubleClick: (start: number, end: number) => void;
   density?: "sidebar" | "popout";
+  orientation?: "horizontal" | "vertical";
 }) {
   const meta = rangedMeta[constraintKey];
   const total = labels.length;
@@ -1460,12 +1634,16 @@ function ConstraintSegmentBar({
       return;
     }
 
-    const metrics = segmentBarMetrics(bar, total);
-    const x = event.clientX - metrics.left + bar.scrollLeft;
-    const boundary = hitTestBoundary(displayedEntries, x, metrics.cellWidth);
+    const metrics = segmentBarMetrics(bar, total, orientation);
+    const position = segmentPointerPosition(event, bar, metrics, orientation);
+    const boundary = hitTestBoundary(
+      displayedEntries,
+      position,
+      metrics.cellExtent,
+    );
     const segmentIndex =
       boundary?.segmentIndex ??
-      hitTestSegment(displayedEntries, x, metrics.cellWidth);
+      hitTestSegment(displayedEntries, position, metrics.cellExtent);
 
     if (segmentIndex < 0) {
       return;
@@ -1480,7 +1658,7 @@ function ConstraintSegmentBar({
     onSelect(selectedEntry.index);
     event.preventDefault();
 
-    const clickOrdinal = xToOrdinal(x, metrics.cellWidth, total);
+    const clickOrdinal = positionToOrdinal(position, metrics.cellExtent, total);
     dragRef.current = boundary
       ? {
           changed: false,
@@ -1509,10 +1687,10 @@ function ConstraintSegmentBar({
         return;
       }
 
-      const moveMetrics = segmentBarMetrics(currentBar, total);
-      const nextOrdinal = xToOrdinal(
-        moveEvent.clientX - moveMetrics.left + currentBar.scrollLeft,
-        moveMetrics.cellWidth,
+      const moveMetrics = segmentBarMetrics(currentBar, total, orientation);
+      const nextOrdinal = positionToOrdinal(
+        segmentPointerPosition(moveEvent, currentBar, moveMetrics, orientation),
+        moveMetrics.cellExtent,
         total,
       );
       const nextEntries =
@@ -1576,10 +1754,10 @@ function ConstraintSegmentBar({
       return;
     }
 
-    const metrics = segmentBarMetrics(bar, total);
-    const ordinal = xToOrdinal(
-      event.clientX - metrics.left + bar.scrollLeft,
-      metrics.cellWidth,
+    const metrics = segmentBarMetrics(bar, total, orientation);
+    const ordinal = positionToOrdinal(
+      segmentPointerPosition(event, bar, metrics, orientation),
+      metrics.cellExtent,
       total,
     );
     const gap = contiguousGap(displayedEntries, total, ordinal);
@@ -1629,10 +1807,22 @@ function ConstraintSegmentBar({
   return (
     <div
       ref={barRef}
-      className={`ranged-segment-bar ranged-segment-bar--${density}`}
-      style={{
-        gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(54px, 1fr))`,
-      }}
+      className={[
+        "ranged-segment-bar",
+        `ranged-segment-bar--${density}`,
+        orientation === "vertical" ? "ranged-segment-bar--vertical" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={
+        orientation === "vertical"
+          ? {
+              gridTemplateRows: `repeat(${Math.max(total, 1)}, minmax(44px, 1fr))`,
+            }
+          : {
+              gridTemplateColumns: `repeat(${Math.max(total, 1)}, minmax(54px, 1fr))`,
+            }
+      }
       role="listbox"
       aria-label={`${meta.label} segments`}
       tabIndex={0}
@@ -1640,64 +1830,69 @@ function ConstraintSegmentBar({
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
     >
-      {labels.map((label, ordinalIndex) => {
-        const ordinal = ordinalIndex + 1;
-        const entry = displayedEntries.find(({ constraint }) =>
-          ordinalInRange(ordinal, constraint),
-        );
+      {orientation === "horizontal"
+        ? labels.map((label, ordinalIndex) => {
+            const ordinal = ordinalIndex + 1;
+            const entry = displayedEntries.find(({ constraint }) =>
+              ordinalInRange(ordinal, constraint),
+            );
 
-        return (
-          <div
-            key={`${constraintKey}-${ordinal}`}
-            className={[
-              "ranged-segment-ordinal",
-              ordinal === total ? "is-last" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            style={{ gridColumn: ordinal, gridRow: 1 }}
-            data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
-            title={`${describeDomainLabel(label)} · ${meta.label} position ${ordinal} of ${total}`}
-            aria-hidden="true"
-          >
-            <span>{label}</span>
-            <span className="visually-hidden">
-              {entry
-                ? `${formatValue(entry.constraint.value)} ${unit}`
-                : "Open"}
-            </span>
-          </div>
-        );
-      })}
+            return (
+              <div
+                key={`${constraintKey}-${ordinal}`}
+                className={[
+                  "ranged-segment-ordinal",
+                  ordinal === total ? "is-last" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ gridColumn: ordinal, gridRow: 1 }}
+                data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+                title={`${describeDomainLabel(label)} · ${meta.label} position ${ordinal} of ${total}`}
+                aria-hidden="true"
+              >
+                <span>{label}</span>
+                <span className="visually-hidden">
+                  {entry
+                    ? `${formatValue(entry.constraint.value)} ${unit}`
+                    : "Open"}
+                </span>
+              </div>
+            );
+          })
+        : labels.map((label, ordinalIndex) => {
+            const ordinal = ordinalIndex + 1;
+            const entry = displayedEntries.find(({ constraint }) =>
+              ordinalInRange(ordinal, constraint),
+            );
 
-      {labels.map((label, ordinalIndex) => {
-        const ordinal = ordinalIndex + 1;
-        const entry = displayedEntries.find(({ constraint }) =>
-          ordinalInRange(ordinal, constraint),
-        );
-
-        if (entry) {
-          return null;
-        }
-
-        return (
-          <div
-            key={`${constraintKey}-gap-${ordinal}`}
-            className={[
-              "ranged-segment-gap",
-              ordinal === total ? "is-last" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            style={{ gridColumn: ordinal, gridRow: 2 }}
-            role="option"
-            aria-selected="false"
-            aria-label={`Create ${meta.label} segment at ${label}`}
-          >
-            <span>Open</span>
-          </div>
-        );
-      })}
+            return entry ? (
+              <div
+                key={`${constraintKey}-cell-${ordinal}`}
+                className="ranged-segment-ledger-cell"
+                style={{ gridColumn: 1, gridRow: ordinal }}
+                data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+                title={`${meta.label} position ${ordinal} of ${total}`}
+                aria-hidden="true"
+              >
+                <span className="visually-hidden">
+                  {formatSegmentValue(entry.constraint.value, unit)}
+                </span>
+              </div>
+            ) : (
+              <div
+                key={`${constraintKey}-gap-${ordinal}`}
+                className="ranged-segment-gap ranged-segment-gap--vertical"
+                style={{ gridColumn: 1, gridRow: ordinal }}
+                data-testid={`constraint-cell-${constraintKey}-${ordinal}`}
+                role="option"
+                aria-selected="false"
+                aria-label={`Create ${meta.label} segment at position ${ordinal}`}
+              >
+                <span className="visually-hidden">Open</span>
+              </div>
+            );
+          })}
 
       {displayedEntries.map((entry) => {
         const { constraint } = entry;
@@ -1734,8 +1929,14 @@ function ConstraintSegmentBar({
               .filter(Boolean)
               .join(" ")}
             style={{
-              gridColumn: `${Math.min(start, end)} / ${Math.max(start, end) + 1}`,
-              gridRow: 2,
+              gridColumn:
+                orientation === "vertical"
+                  ? 1
+                  : `${Math.min(start, end)} / ${Math.max(start, end) + 1}`,
+              gridRow:
+                orientation === "vertical"
+                  ? `${Math.min(start, end)} / ${Math.max(start, end) + 1}`
+                  : 2,
             }}
             data-testid={`constraint-range-${constraintKey}-${entry.index}`}
             data-ranged-constraint-selection={rangedSelectionToken(
@@ -1790,16 +1991,41 @@ type SegmentDragState =
 function segmentBarMetrics(
   bar: HTMLDivElement,
   total: number,
-): { cellWidth: number; left: number } {
+  orientation: "horizontal" | "vertical",
+): { cellExtent: number; start: number } {
   const rect = bar.getBoundingClientRect();
-  return {
-    cellWidth: Math.max(bar.scrollWidth, rect.width) / Math.max(1, total),
-    left: rect.left,
-  };
+  return orientation === "vertical"
+    ? {
+        cellExtent:
+          Math.max(bar.scrollHeight, rect.height) / Math.max(1, total),
+        start: rect.top,
+      }
+    : {
+        cellExtent: Math.max(bar.scrollWidth, rect.width) / Math.max(1, total),
+        start: rect.left,
+      };
 }
 
-function xToOrdinal(x: number, cellWidth: number, total: number): number {
-  return clampOrdinal(Math.floor(x / Math.max(1, cellWidth)) + 1, total);
+function segmentPointerPosition(
+  event: Pick<globalThis.MouseEvent, "clientX" | "clientY">,
+  bar: HTMLDivElement,
+  metrics: { start: number },
+  orientation: "horizontal" | "vertical",
+): number {
+  return orientation === "vertical"
+    ? event.clientY - metrics.start + bar.scrollTop
+    : event.clientX - metrics.start + bar.scrollLeft;
+}
+
+function positionToOrdinal(
+  position: number,
+  cellExtent: number,
+  total: number,
+): number {
+  return clampOrdinal(
+    Math.floor(position / Math.max(1, cellExtent)) + 1,
+    total,
+  );
 }
 
 function cloneEntries(entries: RangedEntry[]): RangedEntry[] {
