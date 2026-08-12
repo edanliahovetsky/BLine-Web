@@ -10,6 +10,7 @@ import {
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
+  setHandoffRadiusSource,
   type AutoVelocityConstraintMetadata,
   type PathElement,
   type PathModel,
@@ -28,8 +29,14 @@ import {
   shortestAngularDistance,
   wrapAngleRadians,
 } from "../sim/simGeometry";
-import { autoVelocityObjectiveCost } from "./autoVelocityObjective";
-import type { AutoHandoffRadiusObjectiveInput } from "./autoHandoffRadiusObjective";
+import {
+  autoVelocityObjectiveCost,
+  autoVelocityTieBreakCost,
+} from "./autoVelocityObjective";
+import {
+  autoHandoffRadiusObjectiveCost,
+  type AutoHandoffRadiusObjectiveInput,
+} from "./autoHandoffRadiusObjective";
 import type {
   ChassisSpeeds,
   RotationDomainEvent,
@@ -129,6 +136,25 @@ export interface AutoVelocityProfile {
   >;
   usableMaxVelocityMps: number;
   usableMaxAccelerationMps2: number;
+}
+
+export type JointAutoConstraintSolveStatus =
+  | "valid"
+  | "best-effort"
+  | "unsolvable";
+
+export interface JointAutoConstraintSolveStats {
+  evaluations: number;
+  cacheHits: number;
+  genericEvaluations: number;
+  terminationReason: "converged" | "evaluation-budget" | "no-coordinates";
+}
+
+export interface JointAutoConstraintSolveResult {
+  path: PathModel;
+  profile: AutoVelocityProfile;
+  status: JointAutoConstraintSolveStatus;
+  stats: JointAutoConstraintSolveStats;
 }
 
 interface SegmentGeometry {
@@ -239,6 +265,12 @@ const globalVelocitySeedRatios: readonly number[] = [
   0.9, 0.8, 0.65, 0.5, 0.35, 0.25, 0.18, 0.12, 0.08,
 ];
 const radiusObjectiveVelocityRatios: readonly number[] = [0.8, 0.5, 0.25];
+const jointSolverEvaluationBudget = 180;
+const jointRadiusQuantumMeters = 0.001;
+const jointVelocityQuantumMps = 0.01;
+const jointRadiusFloorMeters = 0.05;
+const jointRadiusIncomingLegRatio = 0.9;
+const jointObjectiveIndifference = 1e-6;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -372,6 +404,590 @@ export function generateAutoVelocityProfile(
   cacheProfile(cacheKey, profile);
 
   return profile;
+}
+
+interface JointRadiusCoordinate {
+  cornerIndex: number;
+  anchorOrdinal: number;
+  elementIndex: number;
+  segmentIndex: number;
+  incomingLegMeters: number;
+  minRadiusMeters: number;
+  maxRadiusMeters: number;
+}
+
+function jointRadiusCoordinates(
+  path: PathModel,
+  anchors: readonly AutoVelocityAnchor[],
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+): JointRadiusCoordinate[] {
+  return corners.flatMap((corner, cornerIndex) => {
+    const anchor = anchors[corner.anchorOrdinal - 1];
+    const incoming = segments[corner.anchorOrdinal - 2];
+    if (
+      !anchor ||
+      !incoming ||
+      incoming.lengthMeters <= minPositive ||
+      getHandoffRadiusSource(path.path_elements[anchor.pathIndex]) !== "auto"
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        cornerIndex,
+        anchorOrdinal: corner.anchorOrdinal,
+        elementIndex: anchor.pathIndex,
+        segmentIndex: corner.anchorOrdinal - 2,
+        incomingLegMeters: incoming.lengthMeters,
+        minRadiusMeters: jointRadiusFloorMeters,
+        maxRadiusMeters:
+          Math.floor(
+            jointRadiusIncomingLegRatio *
+              incoming.lengthMeters *
+              (1 / jointRadiusQuantumMeters) +
+              1e-9,
+          ) * jointRadiusQuantumMeters,
+      },
+    ];
+  });
+}
+
+function normalizeJointCandidate(
+  candidate: JointCandidate,
+  coordinates: readonly JointRadiusCoordinate[],
+  pinnedCaps: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+): JointCandidate {
+  const radiiBySegmentIndex = [...candidate.radiiBySegmentIndex];
+  for (const coordinate of coordinates) {
+    radiiBySegmentIndex[coordinate.segmentIndex] = quantizeJointRadius(
+      radiiBySegmentIndex[coordinate.segmentIndex] ??
+        coordinate.minRadiusMeters,
+      coordinate.minRadiusMeters,
+      coordinate.maxRadiusMeters,
+    );
+  }
+
+  const capsByOrdinal = new Map<number, number>();
+  for (const [ordinal, value] of candidate.capsByOrdinal) {
+    capsByOrdinal.set(
+      ordinal,
+      quantizeJointVelocity(value, usableMaxVelocityMps),
+    );
+  }
+  for (const [ordinal, value] of pinnedCaps) {
+    capsByOrdinal.set(
+      ordinal,
+      quantizeJointVelocity(value, usableMaxVelocityMps),
+    );
+  }
+  return { radiiBySegmentIndex, capsByOrdinal };
+}
+
+function jointCorners(
+  baseCorners: readonly AutoVelocityCorner[],
+  segments: readonly SegmentGeometry[],
+  radiiBySegmentIndex: readonly number[],
+): AutoVelocityCorner[] {
+  return baseCorners.map((corner) => {
+    const segmentIndex = corner.anchorOrdinal - 2;
+    const incoming = segments[segmentIndex];
+    const handoffDistanceMeters =
+      radiiBySegmentIndex[segmentIndex] ?? corner.handoffDistanceMeters;
+    const tangentRadius =
+      handoffDistanceMeters / Math.tan(corner.turnAngleRadians / 2);
+    const effectiveRadiusMeters = Math.max(
+      handoffDistanceMeters,
+      Number.isFinite(tangentRadius) ? tangentRadius : 0,
+      1e-4,
+    );
+    const anchorS =
+      incoming?.endS ?? corner.startS + corner.handoffDistanceMeters;
+    return {
+      ...corner,
+      handoffDistanceMeters,
+      effectiveRadiusMeters,
+      curvature: 1 / effectiveRadiusMeters,
+      startS: Math.max(0, anchorS - handoffDistanceMeters),
+      endS: Math.min(
+        segments.at(-1)?.endS ?? anchorS,
+        anchorS + handoffDistanceMeters,
+      ),
+    };
+  });
+}
+
+function jointStartCandidates(
+  base: JointCandidate,
+  coordinates: readonly JointRadiusCoordinate[],
+  anchorCount: number,
+  usableMaxVelocityMps: number,
+): JointCandidate[] {
+  const uniform = (ratio: number): JointCandidate => {
+    const capsByOrdinal = new Map(base.capsByOrdinal);
+    for (let ordinal = 2; ordinal <= anchorCount; ordinal += 1) {
+      capsByOrdinal.set(ordinal, usableMaxVelocityMps * ratio);
+    }
+    return {
+      radiiBySegmentIndex: [...base.radiiBySegmentIndex],
+      capsByOrdinal,
+    };
+  };
+  const moderate = uniform(0.65);
+  for (const coordinate of coordinates) {
+    moderate.radiiBySegmentIndex[coordinate.segmentIndex] =
+      coordinate.incomingLegMeters * 0.25;
+  }
+  return [base, uniform(0.8), uniform(0.5), moderate];
+}
+
+function jointBlockCandidates(
+  base: JointCandidate,
+  coordinate: JointRadiusCoordinate,
+  radiusStepRatio: number,
+  velocityStepRatio: number,
+  pinnedCaps: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+): JointCandidate[] {
+  const incomingOrdinal = coordinate.anchorOrdinal;
+  const outgoingOrdinal = coordinate.anchorOrdinal + 1;
+  const radiusDelta = coordinate.incomingLegMeters * radiusStepRatio;
+  const velocityDelta = usableMaxVelocityMps * velocityStepRatio;
+  const moves: Array<[number, number, number]> = [
+    [-radiusDelta, 0, 0],
+    [radiusDelta, 0, 0],
+    [0, -velocityDelta, 0],
+    [0, velocityDelta, 0],
+    [0, 0, -velocityDelta],
+    [0, 0, velocityDelta],
+    [radiusDelta, -velocityDelta, -velocityDelta],
+    [-radiusDelta, velocityDelta, velocityDelta],
+  ];
+
+  return moves.map(([radiusChange, incomingChange, outgoingChange]) => {
+    const radiiBySegmentIndex = [...base.radiiBySegmentIndex];
+    radiiBySegmentIndex[coordinate.segmentIndex] =
+      (radiiBySegmentIndex[coordinate.segmentIndex] ??
+        coordinate.minRadiusMeters) + radiusChange;
+    const capsByOrdinal = new Map(base.capsByOrdinal);
+    if (!pinnedCaps.has(incomingOrdinal)) {
+      capsByOrdinal.set(
+        incomingOrdinal,
+        (capsByOrdinal.get(incomingOrdinal) ?? usableMaxVelocityMps) +
+          incomingChange,
+      );
+    }
+    if (!pinnedCaps.has(outgoingOrdinal)) {
+      capsByOrdinal.set(
+        outgoingOrdinal,
+        (capsByOrdinal.get(outgoingOrdinal) ?? usableMaxVelocityMps) +
+          outgoingChange,
+      );
+    }
+    return { radiiBySegmentIndex, capsByOrdinal };
+  });
+}
+
+function jointCandidateSignature(
+  candidate: JointCandidate,
+  anchorCount: number,
+): string {
+  const caps = Array.from(
+    { length: Math.max(0, anchorCount - 1) },
+    (_, index) => candidate.capsByOrdinal.get(index + 2) ?? 0,
+  );
+  return `${candidate.radiiBySegmentIndex.join(",")}|${caps.join(",")}`;
+}
+
+function jointCanonicalDistance(
+  candidate: JointCandidate,
+  canonicalRadii: readonly number[],
+  canonicalCaps: ReadonlyMap<number, number>,
+  coordinates: readonly JointRadiusCoordinate[],
+  usableMaxVelocityMps: number,
+): number {
+  let distance = 0;
+  for (const coordinate of coordinates) {
+    distance +=
+      Math.abs(
+        (candidate.radiiBySegmentIndex[coordinate.segmentIndex] ?? 0) -
+          (canonicalRadii[coordinate.segmentIndex] ?? 0),
+      ) / Math.max(coordinate.incomingLegMeters, minPositive);
+  }
+  for (const [ordinal, value] of candidate.capsByOrdinal) {
+    distance +=
+      Math.abs(value - (canonicalCaps.get(ordinal) ?? usableMaxVelocityMps)) /
+      Math.max(usableMaxVelocityMps, minPositive);
+  }
+  return distance;
+}
+
+function isBetterJointCandidate(
+  candidate: JointCandidateEvaluation,
+  current: JointCandidateEvaluation,
+): boolean {
+  if (candidate.cost < current.cost - jointObjectiveIndifference) {
+    return true;
+  }
+  if (Math.abs(candidate.cost - current.cost) > jointObjectiveIndifference) {
+    return false;
+  }
+  if (
+    candidate.canonicalDistance <
+    current.canonicalDistance - jointObjectiveIndifference
+  ) {
+    return true;
+  }
+  if (
+    Math.abs(candidate.canonicalDistance - current.canonicalDistance) >
+    jointObjectiveIndifference
+  ) {
+    return false;
+  }
+  return candidate.signature < current.signature;
+}
+
+function quantizeJointRadius(value: number, min: number, max: number): number {
+  const clamped = clamp(value, min, max);
+  return Number(
+    (
+      Math.round(clamped / jointRadiusQuantumMeters) * jointRadiusQuantumMeters
+    ).toFixed(3),
+  );
+}
+
+function quantizeJointVelocity(
+  value: number,
+  usableMaxVelocityMps: number,
+): number {
+  return Number(
+    (
+      Math.floor(
+        clamp(
+          value,
+          minimumSolverCap(usableMaxVelocityMps),
+          usableMaxVelocityMps,
+        ) /
+          jointVelocityQuantumMps +
+          1e-9,
+      ) * jointVelocityQuantumMps
+    ).toFixed(2),
+  );
+}
+
+function pathWithJointRadii(
+  path: PathModel,
+  anchors: readonly AutoVelocityAnchor[],
+  radiiBySegmentIndex: readonly number[],
+): PathModel {
+  const radiiByElementIndex = new Map<number, number>();
+  for (
+    let segmentIndex = 0;
+    segmentIndex < radiiBySegmentIndex.length;
+    segmentIndex += 1
+  ) {
+    const target = anchors[segmentIndex + 1];
+    const element = target ? path.path_elements[target.pathIndex] : undefined;
+    if (
+      target &&
+      element &&
+      getHandoffRadiusSource(element) === "auto" &&
+      Number.isFinite(radiiBySegmentIndex[segmentIndex])
+    ) {
+      radiiByElementIndex.set(
+        target.pathIndex,
+        radiiBySegmentIndex[segmentIndex],
+      );
+    }
+  }
+  return {
+    ...path,
+    path_elements: path.path_elements.map((element, elementIndex) => {
+      const radius = radiiByElementIndex.get(elementIndex);
+      if (radius === undefined) {
+        return element;
+      }
+      if (isTranslationTarget(element)) {
+        return setHandoffRadiusSource(
+          { ...element, intermediate_handoff_radius_meters: radius },
+          "auto",
+        );
+      }
+      if (isWaypoint(element)) {
+        return setHandoffRadiusSource(
+          {
+            ...element,
+            translation_target: {
+              ...element.translation_target,
+              intermediate_handoff_radius_meters: radius,
+            },
+          },
+          "auto",
+        );
+      }
+      return element;
+    }),
+  };
+}
+
+interface JointCandidate {
+  radiiBySegmentIndex: number[];
+  capsByOrdinal: Map<number, number>;
+}
+
+interface JointCandidateEvaluation {
+  candidate: JointCandidate;
+  corners: AutoVelocityCorner[];
+  evaluation: VelocityCapEvaluation;
+  cost: number;
+  canonicalDistance: number;
+  signature: string;
+}
+
+/**
+ * Jointly searches generated handoff radii and the velocity caps adjacent to
+ * each handoff. Geometry is compiled once, all inner trials use the same fast
+ * translation follower, and only the persisted winner is validated through
+ * the generic preview simulator.
+ */
+export function solveJointAutoConstraints(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions = {},
+): JointAutoConstraintSolveResult {
+  const setup = createAutoVelocitySolveSetup(path, config, options);
+  const coordinates = jointRadiusCoordinates(
+    path,
+    setup.anchors,
+    setup.segments,
+    setup.corners,
+  );
+  const hasImpossibleCoordinate = coordinates.some(
+    (coordinate) => coordinate.maxRadiusMeters < coordinate.minRadiusMeters,
+  );
+  const searchableCoordinates = coordinates.filter(
+    (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
+  );
+  const canonicalRadii = [
+    ...setup.simulationContext.handoffRadiiBySegmentIndex,
+  ];
+  const canonicalCaps = initialCapsByOrdinal(
+    setup.anchors,
+    setup.usableMaxVelocityMps,
+  );
+  applyPinnedCaps(
+    canonicalCaps,
+    setup.simulationContext,
+    setup.usableMaxVelocityMps,
+  );
+  if (setup.simulationContext.rotationKeyframes.length === 0) {
+    seedCapsFromCorners(
+      canonicalCaps,
+      setup.corners,
+      setup.usableMaxVelocityMps,
+      setup.usableMaxAccelerationMps2,
+      setup.anchors.length <= 7 ? 0.85 : 1.6,
+    );
+  }
+
+  const evaluationCache = new Map<string, JointCandidateEvaluation>();
+  let evaluations = 0;
+  let cacheHits = 0;
+  let budgetReached = false;
+
+  const evaluate = (
+    candidate: JointCandidate,
+  ): JointCandidateEvaluation | null => {
+    const normalized = normalizeJointCandidate(
+      candidate,
+      searchableCoordinates,
+      setup.simulationContext.pinnedCapsByOrdinal,
+      setup.usableMaxVelocityMps,
+    );
+    const signature = jointCandidateSignature(normalized, setup.anchors.length);
+    const cached = evaluationCache.get(signature);
+    if (cached) {
+      cacheHits += 1;
+      return cached;
+    }
+    if (evaluations >= jointSolverEvaluationBudget) {
+      budgetReached = true;
+      return null;
+    }
+
+    const corners = jointCorners(
+      setup.corners,
+      setup.segments,
+      normalized.radiiBySegmentIndex,
+    );
+    const context: AutoVelocitySimulationContext = {
+      ...setup.simulationContext,
+      handoffRadiiBySegmentIndex: normalized.radiiBySegmentIndex,
+    };
+    const evaluation = evaluateVelocityCapsFast(
+      context,
+      setup.segments,
+      corners,
+      normalized.capsByOrdinal,
+      setup.usableMaxVelocityMps,
+      setup.usableMaxAccelerationMps2,
+    );
+    evaluations += 1;
+    const diagnostics = diagnosticsFromEvaluation(evaluation);
+    const cost =
+      autoHandoffRadiusObjectiveCost({ corners, diagnostics }) +
+      autoVelocityTieBreakCost({
+        reachedEndRatio: reachedEndRatio(evaluation),
+        handoffRatios: evaluationHandoffRatios(evaluation),
+        totalTimeS: evaluation.totalTimeS,
+        capsByOrdinal: normalized.capsByOrdinal,
+      });
+    const result: JointCandidateEvaluation = {
+      candidate: normalized,
+      corners,
+      evaluation,
+      cost,
+      canonicalDistance: jointCanonicalDistance(
+        normalized,
+        canonicalRadii,
+        canonicalCaps,
+        searchableCoordinates,
+        setup.usableMaxVelocityMps,
+      ),
+      signature,
+    };
+    evaluationCache.set(signature, result);
+    return result;
+  };
+
+  const baseCandidate: JointCandidate = {
+    radiiBySegmentIndex: canonicalRadii,
+    capsByOrdinal: canonicalCaps,
+  };
+  const starts = jointStartCandidates(
+    baseCandidate,
+    searchableCoordinates,
+    setup.anchors.length,
+    setup.usableMaxVelocityMps,
+  );
+  let best = starts
+    .map(evaluate)
+    .filter((candidate): candidate is JointCandidateEvaluation => !!candidate)
+    .reduce((current, candidate) =>
+      isBetterJointCandidate(candidate, current) ? candidate : current,
+    );
+
+  const sweeps = [
+    {
+      coordinates: searchableCoordinates,
+      radiusStepRatio: 0.1,
+      velocityStepRatio: 0.15,
+    },
+    {
+      coordinates: [...searchableCoordinates].reverse(),
+      radiusStepRatio: 0.05,
+      velocityStepRatio: 0.075,
+    },
+  ];
+  let changed = false;
+  for (const sweep of sweeps) {
+    for (const coordinate of sweep.coordinates) {
+      if (budgetReached) {
+        break;
+      }
+      const candidates = jointBlockCandidates(
+        best.candidate,
+        coordinate,
+        sweep.radiusStepRatio,
+        sweep.velocityStepRatio,
+        setup.simulationContext.pinnedCapsByOrdinal,
+        setup.usableMaxVelocityMps,
+      );
+      let blockBest = best;
+      for (const candidate of candidates) {
+        const candidateEvaluation = evaluate(candidate);
+        if (
+          candidateEvaluation &&
+          isBetterJointCandidate(candidateEvaluation, blockBest)
+        ) {
+          blockBest = candidateEvaluation;
+        }
+      }
+      if (blockBest.signature !== best.signature) {
+        changed = true;
+        best = blockBest;
+      }
+    }
+  }
+
+  const solvedPath = pathWithJointRadii(
+    path,
+    setup.anchors,
+    best.candidate.radiiBySegmentIndex,
+  );
+  const finalSetup = createAutoVelocitySolveSetup(solvedPath, config, options);
+  const persistedCaps = capsByOrdinalFromSegmentCaps(
+    segmentCapsFromSolvedCaps(
+      finalSetup.anchors,
+      finalSetup.segments,
+      best.candidate.capsByOrdinal,
+      finalSetup.baseMaxVelocityMps,
+      finalSetup.usableMaxVelocityMps,
+    ),
+  );
+  const finalEvaluation = evaluateVelocityCapsWithGenericSimulation(
+    finalSetup.simulationContext,
+    finalSetup.segments,
+    finalSetup.corners,
+    persistedCaps,
+    finalSetup.usableMaxVelocityMps,
+    finalSetup.usableMaxAccelerationMps2,
+  );
+  const segmentCaps = segmentCapsFromSolvedCaps(
+    finalSetup.anchors,
+    finalSetup.segments,
+    persistedCaps,
+    finalSetup.baseMaxVelocityMps,
+    finalSetup.usableMaxVelocityMps,
+  );
+  const profile: AutoVelocityProfile = {
+    anchors: finalSetup.anchors,
+    corners: finalSetup.corners,
+    samples: samplesFromTrace(
+      finalEvaluation.trace,
+      finalSetup.usableMaxVelocityMps,
+    ),
+    segmentCaps,
+    diagnostics: diagnosticsFromEvaluation(finalEvaluation),
+    settings: finalSetup.settings,
+    usableMaxVelocityMps: finalSetup.usableMaxVelocityMps,
+    usableMaxAccelerationMps2: finalSetup.usableMaxAccelerationMps2,
+  };
+
+  return {
+    path: solvedPath,
+    profile,
+    status: hasImpossibleCoordinate
+      ? "unsolvable"
+      : finalEvaluation.passed
+        ? "valid"
+        : "best-effort",
+    stats: {
+      evaluations,
+      cacheHits,
+      genericEvaluations: 1,
+      terminationReason:
+        searchableCoordinates.length === 0
+          ? "no-coordinates"
+          : budgetReached
+            ? "evaluation-budget"
+            : changed
+              ? "converged"
+              : "converged",
+    },
+  };
 }
 
 interface AutoVelocitySolveSetup {
@@ -2877,6 +3493,24 @@ function evaluateVelocityCaps(
     );
   }
 
+  return evaluateVelocityCapsFast(
+    simulationContext,
+    segments,
+    corners,
+    trialCapsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+  );
+}
+
+function evaluateVelocityCapsFast(
+  simulationContext: AutoVelocitySimulationContext,
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  trialCapsByOrdinal: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+): VelocityCapEvaluation {
   const capsByOrdinal = capsWithPins(
     trialCapsByOrdinal,
     simulationContext.pinnedCapsByOrdinal,
