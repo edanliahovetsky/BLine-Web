@@ -17,7 +17,6 @@ import type {
 } from "../../core/field/fieldConfig";
 import type { CurveAuthoringPreview } from "../curveAuthoring";
 import {
-  isAnchorElement,
   isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
@@ -25,6 +24,11 @@ import {
   type PathModel,
   type PathElement,
 } from "../../core/model/path";
+import {
+  anchorHandoffRadii,
+  defaultHandoffRadiusMeters,
+  type AnchorRadiusState,
+} from "../../core/model/handoffRadii";
 import type { SelectedRangedConstraint } from "../../state/selectionStore";
 import {
   elementCircleRadiusMeters,
@@ -37,11 +41,14 @@ import {
   firstDomainIndexForConstraintRange,
   pathIndexesForConstraintRange,
 } from "../constraintRange";
-import { elementColors, rotatableElementAccent } from "../elementStyle";
+import {
+  elementColors,
+  handoffRingColors,
+  rotatableElementAccent,
+} from "../elementStyle";
 import {
   getElementHeadingRadians,
   getElementPosition,
-  getHandoffRadiusMeters,
   getRenderableElementPositions,
   modelToStagePoint,
   type CanvasSize,
@@ -50,6 +57,7 @@ import {
   type RotationOverrides,
   type StagePoint,
 } from "../geometry";
+import { handoffRingRadiusPx } from "../handoffRadiusInteraction";
 import {
   centeredRobotBounds,
   robotBoundsWithProtrusion,
@@ -64,6 +72,7 @@ import {
 } from "../robotFootprint";
 import { buildElementProtrusionVisibilityByIndex } from "../protrusionVisibility";
 import type { SimResult } from "../../core/sim";
+import type { SimulationTraceSample } from "../../core/sim/types";
 
 export interface PixiRenderInput {
   stageSize: CanvasSize;
@@ -78,6 +87,8 @@ export interface PixiRenderInput {
   rotationPreview: RotationOverrides;
   selectedPulse: number;
   simulationResult: SimResult | null;
+  simulationTrace: readonly SimulationTraceSample[] | null;
+  trajectoryMaxSpeedMps: number;
   simulationTimeS: number;
   simulationPlaying: boolean;
   config: ProjectConfig | null;
@@ -136,6 +147,7 @@ export class PixiPathRenderer {
   private readonly field: ResolvedFieldDefinition;
   private readonly overlayGraphics = new Graphics();
   private readonly pathGraphics = new Graphics();
+  private readonly trajectoryGraphics = new Graphics();
   private readonly curvePreviewGraphics = new Graphics();
   private readonly constraintGraphics = new Graphics();
   private readonly nodeGraphics = new Graphics();
@@ -164,6 +176,7 @@ export class PixiPathRenderer {
       this.fieldSprite,
       this.overlayGraphics,
       this.pathGraphics,
+      this.trajectoryGraphics,
       this.curvePreviewGraphics,
       this.simulationGraphics,
       this.constraintGraphics,
@@ -209,6 +222,7 @@ export class PixiPathRenderer {
     this.drawField(input.viewport);
     this.drawOverlayPaths(input);
     this.drawPath(input);
+    this.drawTrajectory(input);
     this.drawCurvePreview(input);
     this.drawConstraintHighlights(input);
     this.drawNodes(input);
@@ -408,6 +422,77 @@ export class PixiPathRenderer {
     }
   }
 
+  private drawTrajectory(input: PixiRenderInput): void {
+    const graphics = this.trajectoryGraphics.clear();
+    const trace = input.simulationTrace;
+
+    if (trace && trace.length >= 2 && input.project) {
+      const maxSpeed = Math.max(0.1, input.trajectoryMaxSpeedMps);
+      const points: Array<{ x: number; y: number; bucket: number }> = [];
+      let lastPoint: StagePoint | null = null;
+      for (const sample of trace) {
+        if (sample.time_s > input.simulationTimeS) {
+          break;
+        }
+        const point = modelToStagePoint(
+          { x_meters: sample.x_m, y_meters: sample.y_m },
+          input.viewport,
+        );
+        if (
+          lastPoint &&
+          Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) <
+            trajectoryMinSegmentPx
+        ) {
+          continue;
+        }
+        const ratio = Math.max(0, Math.min(1, sample.speed_mps / maxSpeed));
+        points.push({
+          x: point.x,
+          y: point.y,
+          bucket: Math.min(
+            trajectorySpeedBuckets - 1,
+            Math.floor(ratio * trajectorySpeedBuckets),
+          ),
+        });
+        lastPoint = point;
+      }
+
+      if (points.length >= 2) {
+        drawPolyline(
+          graphics,
+          points.flatMap((point) => [point.x, point.y]),
+          { color: 0x05080b, width: 7.5, alpha: 0.55 },
+        );
+
+        let runStart = 0;
+        for (let index = 1; index <= points.length; index += 1) {
+          if (
+            index !== points.length &&
+            points[index].bucket === points[runStart].bucket
+          ) {
+            continue;
+          }
+          const run = points.slice(
+            runStart,
+            Math.min(index + 1, points.length),
+          );
+          drawPolyline(
+            graphics,
+            run.flatMap((point) => [point.x, point.y]),
+            {
+              color: trajectorySpeedColor(
+                points[runStart].bucket / (trajectorySpeedBuckets - 1),
+              ),
+              width: 3.2,
+              alpha: 0.95,
+            },
+          );
+          runStart = index;
+        }
+      }
+    }
+  }
+
   private drawCurvePreview(input: PixiRenderInput): void {
     const graphics = this.curvePreviewGraphics.clear();
     const preview = input.curvePreview;
@@ -537,13 +622,12 @@ export class PixiPathRenderer {
     }
 
     const elements = project.path.path_elements;
-    const anchorIndexes = elements.flatMap((element, index) =>
-      isAnchorElement(element) ? [index] : [],
+    const handoffRadiusByElementIndex = new Map(
+      anchorHandoffRadii(
+        elements,
+        defaultHandoffRadiusMeters(project.config),
+      ).map((radius) => [radius.elementIndex, radius]),
     );
-    const inertHandoffIndexes = new Set([
-      anchorIndexes[0],
-      anchorIndexes.at(-1),
-    ]);
     const robotSize = robotSizeFromConfig(project.config);
     const protrusions = project.config.gui.protrusions;
     const protrusionVisibilityByIndex = buildElementProtrusionVisibilityByIndex(
@@ -574,6 +658,7 @@ export class PixiPathRenderer {
 
     for (const { element, index, position } of orderedNodes) {
       const point = modelToStagePoint(position, input.viewport);
+      const handoffRadius = handoffRadiusByElementIndex.get(index);
       this.debugNodes.set(`path-element-node-${index}`, point);
       drawPathElementNode(graphics, {
         element,
@@ -588,9 +673,11 @@ export class PixiPathRenderer {
           input.rotationPreview,
         ),
         handoffRadiusMeters:
-          inertHandoffIndexes.has(index)
-            ? null
-            : getHandoffRadiusMeters(element),
+          handoffRadius && !handoffRadius.inert
+            ? handoffRadius.effectiveValueMeters
+            : null,
+        handoffRadiusState:
+          handoffRadius && !handoffRadius.inert ? handoffRadius.state : null,
         robotSizeMeters: robotSize,
         metersToPixels: input.viewport.scale,
         protrusionVisible:
@@ -646,6 +733,7 @@ export class PixiPathRenderer {
         headingRadians:
           target.kind === "waypoint" ? (target.rotation_radians ?? 0) : 0,
         handoffRadiusMeters: null,
+        handoffRadiusState: null,
         robotSizeMeters: robotSize,
         metersToPixels: input.viewport.scale,
         protrusionVisible: false,
@@ -745,33 +833,6 @@ export class PixiPathRenderer {
     const result = input.simulationResult;
     if (!result || result.times_sorted.length === 0) {
       return;
-    }
-
-    const visibleTimes = result.times_sorted.filter(
-      (time) => time <= input.simulationTimeS,
-    );
-    const trailPoints = visibleTimes.flatMap((time) => {
-      const pose = result.poses_by_time.get(time);
-      if (!pose) {
-        return [];
-      }
-      const point = modelToStagePoint(
-        { x_meters: pose[0], y_meters: pose[1] },
-        input.viewport,
-      );
-      return [point.x, point.y];
-    });
-    if (trailPoints.length >= 4) {
-      drawPolyline(graphics, trailPoints, {
-        color: 0x05080b,
-        width: 7,
-        alpha: 0.7,
-      });
-      drawPolyline(graphics, trailPoints, {
-        color: elementColors.simulationTrail,
-        width: 2.6,
-        alpha: 0.92,
-      });
     }
 
     const pose = poseAtOrBefore(result, input.simulationTimeS);
@@ -879,6 +940,7 @@ interface DrawNodeInput {
   selectedPulse: number;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
+  handoffRadiusState: AnchorRadiusState | null;
   robotSizeMeters: RobotSizeMeters;
   metersToPixels: number;
   protrusionVisible: boolean;
@@ -890,6 +952,40 @@ interface LocalTransform {
   x: number;
   y: number;
   rotation: number;
+}
+
+function drawHandoffRadiusRing(
+  graphics: Graphics,
+  point: StagePoint,
+  input: {
+    radiusPx: number;
+    state: AnchorRadiusState;
+    selected: boolean;
+    opacity: number;
+  },
+): void {
+  const color = handoffRingColors[input.state];
+  const alpha = (input.selected ? 0.98 : 0.82) * input.opacity;
+  const width =
+    (input.state === "manual" ? 1.9 : 1.45) + (input.selected ? 0.45 : 0);
+  const shadowStyle = {
+    color: 0x05080b,
+    width: width + 2.55,
+    alpha: 0.82 * input.opacity,
+  };
+  const ringStyle = { color, width, alpha };
+
+  if (input.state === "manual") {
+    graphics
+      .circle(point.x, point.y, input.radiusPx)
+      .stroke(shadowStyle)
+      .circle(point.x, point.y, input.radiusPx)
+      .stroke(ringStyle);
+    return;
+  }
+
+  drawDashedCircle(graphics, point.x, point.y, input.radiusPx, shadowStyle);
+  drawDashedCircle(graphics, point.x, point.y, input.radiusPx, ringStyle);
 }
 
 function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
@@ -916,21 +1012,16 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
   const selected = input.selected;
   const point = input.point;
 
-  if (input.handoffRadiusMeters) {
-    const handoffRadius = Math.max(
-      8,
-      input.handoffRadiusMeters * input.metersToPixels,
-    );
-    const ringWidth = 1.9 + (selected ? 0.45 : 0);
-    graphics
-      .circle(point.x, point.y, handoffRadius)
-      .stroke({ color: 0x05080b, width: ringWidth + 2.55, alpha: 0.82 })
-      .circle(point.x, point.y, handoffRadius)
-      .stroke({
-        color: elementColors.handoff,
-        width: ringWidth,
-        alpha: selected ? 0.98 : 0.82,
-      });
+  if (input.handoffRadiusMeters && input.handoffRadiusState) {
+    drawHandoffRadiusRing(graphics, point, {
+      radiusPx: handoffRingRadiusPx(
+        input.handoffRadiusMeters,
+        input.metersToPixels,
+      ),
+      state: input.handoffRadiusState,
+      selected,
+      opacity: elementOpacity,
+    });
   }
 
   if (isTranslationTarget(input.element)) {
@@ -1534,6 +1625,25 @@ function drawSimulationRobot(
     .stroke({ color: elementColors.simulation, width: 1.5, alpha: 0.94 });
 }
 
+const trajectorySpeedBuckets = 20;
+const trajectoryMinSegmentPx = 1.5;
+const trajectorySlowColor = { r: 0x27, g: 0x45, b: 0x5c };
+const trajectoryFastColor = { r: 0x7f, g: 0xdc, b: 0xff };
+
+function trajectorySpeedColor(ratio: number): number {
+  const t = Math.max(0, Math.min(1, ratio));
+  const r = Math.round(
+    trajectorySlowColor.r + (trajectoryFastColor.r - trajectorySlowColor.r) * t,
+  );
+  const g = Math.round(
+    trajectorySlowColor.g + (trajectoryFastColor.g - trajectorySlowColor.g) * t,
+  );
+  const b = Math.round(
+    trajectorySlowColor.b + (trajectoryFastColor.b - trajectorySlowColor.b) * t,
+  );
+  return (r << 16) | (g << 8) | b;
+}
+
 function drawPolyline(
   graphics: Graphics,
   points: number[],
@@ -1666,6 +1776,30 @@ function drawLine(
     cap: "round",
     join: "round",
   });
+}
+
+function drawDashedCircle(
+  graphics: Graphics,
+  x: number,
+  y: number,
+  radius: number,
+  style: { color: string | number; width: number; alpha: number },
+): void {
+  const dashCount = Math.max(18, Math.floor((Math.PI * 2 * radius) / 12));
+  const step = (Math.PI * 2) / dashCount;
+  for (let dash = 0; dash < dashCount; dash += 2) {
+    const start = dash * step;
+    const end = start + step;
+    graphics
+      .moveTo(x + Math.cos(start) * radius, y + Math.sin(start) * radius)
+      .lineTo(x + Math.cos(end) * radius, y + Math.sin(end) * radius)
+      .stroke({
+        color: style.color,
+        width: style.width,
+        alpha: style.alpha,
+        cap: "round",
+      });
+  }
 }
 
 function drawRect(

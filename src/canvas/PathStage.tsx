@@ -27,6 +27,7 @@ import {
   type PathElement,
   type TranslationTarget,
 } from "../core/model/path";
+import { defaultHandoffRadiusMeters } from "../core/model/handoffRadii";
 import type {
   LinkedTarget,
   LinkedTargetKind,
@@ -35,7 +36,8 @@ import type {
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
 import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
-import { simulatePath, type SimResult } from "../core/sim";
+import { simulatePathWithTrace, type SimResult } from "../core/sim";
+import type { SimTraceResult } from "../core/sim/types";
 import { projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
@@ -61,6 +63,7 @@ import {
 } from "../ui/keyboardShortcuts";
 import { fieldAspectRatio } from "./constants";
 import {
+  anchorNodeExclusionRadiusPx,
   createFieldViewport,
   clampModelPoint,
   getElementHeadingRadians,
@@ -82,7 +85,10 @@ import {
   createMoveElementCommand,
   createSetElementRatioCommand,
   createSetElementRotationCommand,
+  createSetHandoffRadiusCommand,
   isTranslationBearingElement,
+  updateProjectElementHandoffRadius,
+  type HandoffRadiusState,
 } from "./modelSync";
 import {
   PixiPathRenderer,
@@ -93,6 +99,14 @@ import {
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
+import {
+  canvasHandoffRadiusEditingEnabled,
+  handoffRadiusForPointer,
+  handoffRingRadiusPx,
+  handoffRingsForPath,
+  hitTestHandoffRing,
+  type HandoffRing,
+} from "./handoffRadiusInteraction";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
@@ -135,6 +149,13 @@ interface ActiveRotationDrag {
   linkedTargetId: string | null;
 }
 
+interface ActiveHandoffRadiusDrag {
+  pointerId: number;
+  ring: HandoffRing;
+  previous: HandoffRadiusState;
+  currentRadiusMeters: number;
+}
+
 interface ActivePanDrag {
   pointerId: number;
   startPointer: StagePoint;
@@ -174,8 +195,12 @@ export function PathStage({
   const activeDragRef = useRef<ActiveDrag | null>(null);
   const dragFrameRef = useRef<number | null>(null);
   const activeRotationDragRef = useRef<ActiveRotationDrag | null>(null);
+  const activeHandoffRadiusDragRef = useRef<ActiveHandoffRadiusDrag | null>(
+    null,
+  );
   const activeCurveDraftRef = useRef<ActiveCurveDraft | null>(null);
   const rotationFrameRef = useRef<number | null>(null);
+  const handoffRadiusFrameRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
   const [showGhostPaths, setShowGhostPaths] = useState(true);
@@ -202,8 +227,12 @@ export function PathStage({
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
   const [activeRotationDrag, setActiveRotationDragState] =
     useState<ActiveRotationDrag | null>(null);
+  const [activeHandoffRadiusDrag, setActiveHandoffRadiusDragState] =
+    useState<ActiveHandoffRadiusDrag | null>(null);
   const [activeCurveDraft, setActiveCurveDraftState] =
     useState<ActiveCurveDraft | null>(null);
+  const [hoveredHandoffRingElementIndex, setHoveredHandoffRingElementIndex] =
+    useState<number | null>(null);
   const [dragPreview, setDragPreview] =
     useState<PositionOverrides>(emptyPreview);
   const [selectedPulse, setSelectedPulse] = useState(0);
@@ -374,6 +403,36 @@ export function PathStage({
     [flushRotationPreview],
   );
 
+  const flushHandoffRadiusPreview = useCallback(() => {
+    handoffRadiusFrameRef.current = null;
+    setActiveHandoffRadiusDragState(activeHandoffRadiusDragRef.current);
+  }, []);
+
+  const setActiveHandoffRadiusDrag = useCallback(
+    (
+      nextDrag: ActiveHandoffRadiusDrag | null,
+      sync: "immediate" | "frame" = "immediate",
+    ) => {
+      activeHandoffRadiusDragRef.current = nextDrag;
+
+      if (sync === "frame") {
+        if (handoffRadiusFrameRef.current === null) {
+          handoffRadiusFrameRef.current = window.requestAnimationFrame(
+            flushHandoffRadiusPreview,
+          );
+        }
+        return;
+      }
+
+      if (handoffRadiusFrameRef.current !== null) {
+        window.cancelAnimationFrame(handoffRadiusFrameRef.current);
+        handoffRadiusFrameRef.current = null;
+      }
+      setActiveHandoffRadiusDragState(nextDrag);
+    },
+    [flushHandoffRadiusPreview],
+  );
+
   const setActiveCurveDraft = useCallback(
     (nextDraft: ActiveCurveDraft | null) => {
       activeCurveDraftRef.current = nextDraft;
@@ -384,7 +443,12 @@ export function PathStage({
 
   useEffect(
     () => () => {
-      for (const frame of [panFrameRef, dragFrameRef, rotationFrameRef]) {
+      for (const frame of [
+        panFrameRef,
+        dragFrameRef,
+        rotationFrameRef,
+        handoffRadiusFrameRef,
+      ]) {
         if (frame.current !== null) {
           window.cancelAnimationFrame(frame.current);
         }
@@ -485,22 +549,67 @@ export function PathStage({
     [baseViewport, panOffset, viewScale],
   );
 
-  const simulationResult: SimResult | null = useMemo(() => {
-    if (!project) {
+  const canvasProject = useMemo(
+    () =>
+      project && activeHandoffRadiusDrag
+        ? updateProjectElementHandoffRadius(
+            project,
+            activeHandoffRadiusDrag.ring.elementIndex,
+            {
+              radiusMeters: activeHandoffRadiusDrag.currentRadiusMeters,
+              source: "manual",
+            },
+          )
+        : project,
+    [activeHandoffRadiusDrag, project],
+  );
+  const handoffRings = useMemo(
+    () =>
+      canvasProject
+        ? handoffRingsForPath(
+            canvasProject.path.path_elements,
+            defaultHandoffRadiusMeters(canvasProject.config),
+            dragPreview,
+          )
+        : [],
+    [canvasProject, dragPreview],
+  );
+
+  const simulationResult: SimTraceResult | null = useMemo(() => {
+    if (!canvasProject) {
       return null;
     }
 
     try {
-      return simulatePath(project.path, project.config, { dt_s: 0.02 });
+      return simulatePathWithTrace(canvasProject.path, canvasProject.config, {
+        dt_s: 0.02,
+      });
     } catch {
       return null;
     }
+  }, [canvasProject]);
+
+  const trajectoryMaxSpeedMps = useMemo(() => {
+    const fromPath = Number(
+      project?.path.constraints.max_velocity_meters_per_sec,
+    );
+    if (Number.isFinite(fromPath) && fromPath > 0) {
+      return fromPath;
+    }
+    const fromConfig = project
+      ? getDefaultOptionalConfigValue(
+          project.config,
+          "max_velocity_meters_per_sec",
+        )
+      : null;
+    return fromConfig !== null && fromConfig > 0 ? fromConfig : 3;
   }, [project]);
 
   const canvasInteractionActive =
     isPanning ||
     activeDrag !== null ||
     activeRotationDrag !== null ||
+    activeHandoffRadiusDrag !== null ||
     activeCurveDraft !== null ||
     curveTool !== null;
   const rotationPreview: RotationOverrides = useMemo(
@@ -562,6 +671,9 @@ export function PathStage({
   const hoveredOverlayPath =
     overlayPaths.find((overlay) => overlay.pathId === hoveredOverlayPathId) ??
     null;
+  const handoffRadiusDragLabelPoint = activeHandoffRadiusDrag
+    ? modelToStagePoint(activeHandoffRadiusDrag.ring.anchorPosition, viewport)
+    : null;
 
   useCanvasInteractionActivity({
     containerRef,
@@ -682,7 +794,7 @@ export function PathStage({
       stageSize,
       viewport,
       field: renderField,
-      project,
+      project: canvasProject,
       overlayPaths,
       hoveredOverlayPathId,
       selectedElementIndex,
@@ -691,16 +803,18 @@ export function PathStage({
       rotationPreview,
       selectedPulse: selectedPulseValue,
       simulationResult,
+      simulationTrace: simulationResult?.trace ?? null,
+      trajectoryMaxSpeedMps,
       simulationTimeS: simulationTime,
       simulationPlaying,
-      config: project?.config ?? null,
+      config: canvasProject?.config ?? null,
       curvePreview,
     }),
     [
       renderField,
+      canvasProject,
       curvePreview,
       dragPreview,
-      project,
       overlayPaths,
       hoveredOverlayPathId,
       rotationPreview,
@@ -711,6 +825,7 @@ export function PathStage({
       simulationResult,
       simulationTime,
       stageSize,
+      trajectoryMaxSpeedMps,
       viewport,
     ],
   );
@@ -725,26 +840,26 @@ export function PathStage({
       return;
     }
 
-    const modifier = event.metaKey || event.ctrlKey;
-    if (modifier && !event.altKey) {
-      if (event.key === "0") {
-        event.preventDefault();
-        resetView();
-        return;
-      }
-      if (event.key === "=" || event.key === "+") {
-        event.preventDefault();
-        zoomFromCenter(1.25);
-        return;
-      }
-      if (event.key === "-") {
-        event.preventDefault();
-        zoomFromCenter(1 / 1.25);
-      }
+    // Command/Ctrl +, -, and 0 belong to the browser or desktop shell so they
+    // can resize the complete interface. Canvas-only view shortcuts are
+    // intentionally unmodified and work while the canvas has focus.
+    if (event.metaKey || event.ctrlKey || event.altKey) {
       return;
     }
 
-    if (event.altKey) {
+    if (event.key === "0") {
+      event.preventDefault();
+      resetView();
+      return;
+    }
+    if (event.key === "=" || event.key === "+") {
+      event.preventDefault();
+      zoomFromCenter(1.25);
+      return;
+    }
+    if (event.key === "-") {
+      event.preventDefault();
+      zoomFromCenter(1 / 1.25);
       return;
     }
 
@@ -755,6 +870,12 @@ export function PathStage({
       event.preventDefault();
       setActiveCurveDraft(null);
       onCurveToolCancel?.();
+      return;
+    }
+
+    if (event.key === "Escape" && activeHandoffRadiusDragRef.current) {
+      event.preventDefault();
+      setActiveHandoffRadiusDrag(null);
       return;
     }
 
@@ -822,33 +943,6 @@ export function PathStage({
     setViewScale(1);
     setPanOffset({ x: 0, y: 0 });
   }, [setPanOffset]);
-
-  useEffect(() => {
-    const handleViewShortcut = (event: globalThis.KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.altKey ||
-        !(event.metaKey || event.ctrlKey) ||
-        isInteractiveShortcutTarget(event.target)
-      ) {
-        return;
-      }
-
-      if (event.key === "0") {
-        event.preventDefault();
-        resetView();
-      } else if (event.key === "=" || event.key === "+") {
-        event.preventDefault();
-        zoomFromCenter(1.25);
-      } else if (event.key === "-") {
-        event.preventDefault();
-        zoomFromCenter(1 / 1.25);
-      }
-    };
-
-    window.addEventListener("keydown", handleViewShortcut);
-    return () => window.removeEventListener("keydown", handleViewShortcut);
-  }, [resetView, zoomFromCenter]);
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (isCanvasChromeEventTarget(event.target)) {
@@ -936,6 +1030,29 @@ export function PathStage({
         startRadians,
         currentRadians: startRadians,
         linkedTargetId,
+      });
+      return;
+    }
+
+    // The ring wins over the broad robot-footprint hit area, but its own hit
+    // band starts outside the anchor exclusion ring so the node still wins
+    // where users expect to move the anchor itself.
+    const handoffRingHit = canvasHandoffRadiusEditingEnabled
+      ? hitTestHandoffRing(handoffRings, viewport, pointer)
+      : null;
+    if (handoffRingHit) {
+      selectionStore
+        .getState()
+        .selectElement(handoffRingHit.elementIndex, project);
+      setHoveredHandoffRingElementIndex(handoffRingHit.elementIndex);
+      setActiveHandoffRadiusDrag({
+        pointerId: event.pointerId,
+        ring: handoffRingHit,
+        previous: {
+          radiusMeters: handoffRingHit.storedRadiusMeters,
+          source: handoffRingHit.source,
+        },
+        currentRadiusMeters: handoffRingHit.radiusMeters,
       });
       return;
     }
@@ -1032,6 +1149,26 @@ export function PathStage({
       return;
     }
 
+    const handoffRadiusDrag = activeHandoffRadiusDragRef.current;
+    if (handoffRadiusDrag && handoffRadiusDrag.pointerId === event.pointerId) {
+      event.preventDefault();
+      const radiusMeters = handoffRadiusForPointer(
+        handoffRadiusDrag.ring,
+        stageToModelPoint(pointer, viewport),
+      );
+      if (radiusMeters === null) {
+        return;
+      }
+      setActiveHandoffRadiusDrag(
+        {
+          ...handoffRadiusDrag,
+          currentRadiusMeters: radiusMeters,
+        },
+        "frame",
+      );
+      return;
+    }
+
     const drag = activeDragRef.current;
     if (drag && project) {
       event.preventDefault();
@@ -1076,10 +1213,17 @@ export function PathStage({
 
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
+      const handoffRingHit =
+        canvasHandoffRadiusEditingEnabled &&
+        project &&
+        !canvasInteractionActive
+          ? hitTestHandoffRing(handoffRings, viewport, pointer)
+          : null;
       const overlayHit =
-        project && !canvasInteractionActive
+        project && !canvasInteractionActive && !handoffRingHit
           ? hitTestOverlayPath(overlayPaths, viewport, pointer)
           : null;
+      setHoveredHandoffRingElementIndex(handoffRingHit?.elementIndex ?? null);
       setHoveredOverlayPathId(overlayHit?.pathId ?? null);
       setHoveredOverlayPoint(overlayHit ? pointer : null);
       return;
@@ -1111,6 +1255,11 @@ export function PathStage({
       return;
     }
 
+    if (activeHandoffRadiusDragRef.current) {
+      finishActiveHandoffRadiusDrag();
+      return;
+    }
+
     finishActiveDrag();
     finishActiveRotation(pointer);
     finishPanDrag();
@@ -1124,6 +1273,11 @@ export function PathStage({
     if (activeCurveDraftRef.current) {
       setActiveCurveDraft(null);
       onCurveToolCancel?.();
+      return;
+    }
+
+    if (activeHandoffRadiusDragRef.current) {
+      setActiveHandoffRadiusDrag(null);
       return;
     }
 
@@ -1211,6 +1365,31 @@ export function PathStage({
     }
   };
 
+  const finishActiveHandoffRadiusDrag = () => {
+    const drag = activeHandoffRadiusDragRef.current;
+    setActiveHandoffRadiusDrag(null);
+    if (!drag || !project) {
+      return;
+    }
+
+    if (
+      Math.abs(drag.currentRadiusMeters - drag.ring.radiusMeters) <
+      minimumHandoffRadiusChangeMeters
+    ) {
+      return;
+    }
+
+    projectStore.getState().applyCommand(
+      createSetHandoffRadiusCommand(drag.ring.elementIndex, drag.previous, {
+        radiusMeters: drag.currentRadiusMeters,
+        source: "manual",
+      }),
+    );
+    selectionStore
+      .getState()
+      .selectElement(drag.ring.elementIndex, projectStore.getState().project);
+  };
+
   const finishActiveRotation = (pointer: StagePoint) => {
     const rotationDrag = activeRotationDragRef.current;
     if (!rotationDrag || !project) {
@@ -1289,6 +1468,48 @@ export function PathStage({
     } else {
       onCurveToolCancel?.();
     }
+  };
+
+  const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (
+      !canvasHandoffRadiusEditingEnabled ||
+      isCanvasChromeEventTarget(event.target) ||
+      !project ||
+      activeDragRef.current ||
+      activeRotationDragRef.current ||
+      activeHandoffRadiusDragRef.current ||
+      activeCurveDraftRef.current ||
+      activePanDragRef.current
+    ) {
+      return;
+    }
+
+    const ring = hitTestHandoffRing(
+      handoffRings,
+      viewport,
+      stagePointFromEvent(event),
+    );
+    if (!ring || ring.state !== "manual") {
+      return;
+    }
+
+    event.preventDefault();
+    projectStore.getState().applyCommand(
+      createSetHandoffRadiusCommand(
+        ring.elementIndex,
+        {
+          radiusMeters: ring.storedRadiusMeters,
+          source: ring.source,
+        },
+        {
+          radiusMeters: ring.radiusMeters,
+          source: "auto",
+        },
+      ),
+    );
+    selectionStore
+      .getState()
+      .selectElement(ring.elementIndex, projectStore.getState().project);
   };
 
   const handleContextMenu = (event: MouseEvent<HTMLDivElement>) => {
@@ -1432,6 +1653,10 @@ export function PathStage({
           isPanning ? "is-panning" : "",
           curveTool ? "is-curve-tool" : "",
           isPlacementTool(activeTool) ? "is-placement-tool" : "",
+          hoveredHandoffRingElementIndex !== null ||
+          activeHandoffRadiusDrag !== null
+            ? "is-handoff-radius-target"
+            : "",
           hoveredOverlayPath ? "has-ghost-hover" : "",
         ]
           .filter(Boolean)
@@ -1441,9 +1666,13 @@ export function PathStage({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        onDoubleClick={handleDoubleClick}
         onPointerLeave={() => {
           if (!activeDragRef.current && !activeCurveDraftRef.current) {
             setPlacementPreview(null);
+          }
+          if (!activeHandoffRadiusDragRef.current) {
+            setHoveredHandoffRingElementIndex(null);
           }
         }}
         onContextMenu={handleContextMenu}
@@ -1498,6 +1727,23 @@ export function PathStage({
             }}
           >
             {hoveredOverlayPath.displayName}
+          </div>
+        ) : null}
+        {activeHandoffRadiusDrag && handoffRadiusDragLabelPoint ? (
+          <div
+            className="path-stage__ghost-label"
+            data-testid="handoff-radius-drag-label"
+            style={{
+              left: handoffRadiusDragLabelPoint.x,
+              top:
+                handoffRadiusDragLabelPoint.y -
+                handoffRingRadiusPx(
+                  activeHandoffRadiusDrag.currentRadiusMeters,
+                  viewport.scale,
+                ),
+            }}
+          >
+            R {activeHandoffRadiusDrag.currentRadiusMeters.toFixed(2)} m
           </div>
         ) : null}
         {contextMenu ? (
@@ -1662,7 +1908,8 @@ function CanvasViewControls({
         type="button"
         className="canvas-view-controls__scale"
         aria-label="Fit view"
-        title="Fit view (Ctrl/Command+0)"
+        aria-keyshortcuts="0"
+        title="Fit view (0)"
         onClick={onFit}
       >
         <Focus aria-hidden="true" size={15} />
@@ -2173,8 +2420,9 @@ function hitTestElementShape(
   robotSizeMeters: ReturnType<typeof robotSizeFromConfig>,
 ): boolean {
   if (isTranslationBearingElement(element)) {
-    const radius = Math.max(7, 0.1 * viewport.scale) + 14;
-    if (pointDistance(point, pointer) <= radius) {
+    if (
+      pointDistance(point, pointer) <= anchorNodeExclusionRadiusPx(viewport)
+    ) {
       return true;
     }
   }
@@ -2413,6 +2661,7 @@ const zoomStepFactor = 1.03;
 const selectionPulseIntervalMs = 40;
 const selectionPulsePeriodMs = 1800;
 const rotationHandleHitRadiusPx = 18;
+const minimumHandoffRadiusChangeMeters = 0.001;
 const curveFitToleranceMeters = 0.18;
 const curveMinTargetSpacingMeters = 0.35;
 const curveEndpointSnapToleranceMeters = 0.22;

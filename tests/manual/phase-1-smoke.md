@@ -32,10 +32,19 @@ Use this checklist for the Phase 1 exit gate after the automated suite is green.
 - Click every canvas tool and view control, confirming the selected/pressed
   state changes without also placing or dragging a path element.
 - Use J/K/L and Left/Right to restart, play or pause, and finish the simulation.
+  Confirm the simulated trajectory grows behind the robot instead of drawing
+  the future route before the robot reaches it.
 - Open Constraints and confirm the velocity status starts at Not generated.
   Choose Generate and confirm the ranges are applied immediately and the status
   becomes Up to date. Edit the path, confirm it becomes Path changed, then
   generate again and clear the generated ranges.
+- Add a new translation target or waypoint and confirm its handoff radius starts
+  in Auto. With Keep in sync enabled, move the anchor and confirm both its auto
+  radius and generated velocity caps refresh.
+- Shift-click two velocity ranges, then two handoff radii. Confirm the shared
+  controls can switch Auto/Manual, set one value, and delete the selection.
+  Auto mode must read green, Manual blue; radius geometry stays purple with
+  dashed/hatched Auto and solid Manual styling.
 - Choose Expand on a ranged constraint. Confirm the larger editor opens for
   that constraint, can be dragged without leaving the viewport, stays
   synchronized with the compact inspector, closes with Escape, and returns

@@ -395,11 +395,17 @@ function runPathSimulation(
     theta = wrapAngleRadians(theta + limited.omega_radps * dt);
 
     const tKey = round3(tS);
+    // Project onto the segment the follower is actually driving, never the
+    // globally nearest one: a path passing close to a later segment would
+    // otherwise teleport global_s toward the end — and the monotone clamp
+    // would pin it there — skewing rotation keyframe timing and every
+    // consumer of the trace.
     const poseGlobalS = Math.min(
       totalPathLength,
       Math.max(
         lastGlobalS,
-        projectPointToGlobalS(x, y, segments, cumulativeLengths, lastGlobalS),
+        (cumulativeLengths[segmentIndex] ?? 0) +
+          projectedDistanceOnSegment(segment, x, y),
       ),
     );
     lastGlobalS = poseGlobalS;
@@ -1003,31 +1009,6 @@ function projectedDistanceOnSegment(
 ): number {
   const projected = dot(x - segment.ax, y - segment.ay, segment.ux, segment.uy);
   return Math.max(0, Math.min(projected, segment.length_m));
-}
-
-function projectPointToGlobalS(
-  x: number,
-  y: number,
-  segments: readonly Segment[],
-  cumulativeLengths: readonly number[],
-  fallbackS: number,
-): number {
-  let bestS = fallbackS;
-  let bestDist2: number | null = null;
-
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    const projected = projectedDistanceOnSegment(segment, x, y);
-    const projX = segment.ax + segment.ux * projected;
-    const projY = segment.ay + segment.uy * projected;
-    const dist2 = (x - projX) ** 2 + (y - projY) ** 2;
-    if (bestDist2 === null || dist2 < bestDist2) {
-      bestDist2 = dist2;
-      bestS = (cumulativeLengths[index] ?? 0) + projected;
-    }
-  }
-
-  return bestS;
 }
 
 function buildProtrusionVisibilityByTime(

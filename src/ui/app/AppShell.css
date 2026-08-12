@@ -785,6 +785,10 @@ select {
   cursor: pointer;
 }
 
+.path-stage__canvas.is-handoff-radius-target canvas {
+  cursor: ew-resize;
+}
+
 .path-stage__ghost-label {
   position: absolute;
   z-index: 7;
@@ -1495,21 +1499,6 @@ select {
   font-weight: 690;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* A property that has no effect for this element: dimmed, with a title
-   explaining why. */
-.property-row--inactive {
-  cursor: help;
-}
-
-/* Outranks the `.property-row span` colour defined later in this file. */
-.property-row.property-row--inactive > span {
-  color: #75828d;
-}
-
-.property-row--inactive .sidebar-number-control {
-  opacity: 0.55;
 }
 
 .path-element-row__role {
@@ -2512,19 +2501,41 @@ select {
 
 .ranged-segment-bar--vertical .ranged-segment-range::before,
 .ranged-segment-bar--vertical .ranged-segment-range::after {
+  display: none;
+}
+
+.ranged-segment-range__handle {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  left: 0;
+  height: 12px;
+  cursor: ns-resize;
+}
+
+.ranged-segment-range__handle::after {
+  position: absolute;
   right: 5px;
   left: 5px;
-  width: auto;
   height: 2px;
+  border-radius: 1px;
+  background: rgba(226, 237, 247, 0.72);
+  content: "";
 }
 
-.ranged-segment-bar--vertical .ranged-segment-range::before {
+.ranged-segment-range__handle--start {
+  top: 0;
+}
+
+.ranged-segment-range__handle--start::after {
   top: 2px;
-  bottom: auto;
 }
 
-.ranged-segment-bar--vertical .ranged-segment-range::after {
-  top: auto;
+.ranged-segment-range__handle--end {
+  bottom: 0;
+}
+
+.ranged-segment-range__handle--end::after {
   bottom: 2px;
 }
 
@@ -2573,9 +2584,8 @@ select {
   white-space: nowrap;
 }
 
-/* Handoff radii are per-anchor rather than per-range, so they read as a wrapping
-   row of chips instead of a segment bar. The production adapter exposes manual
-   ownership only; the generated treatment is reserved for the overhaul. */
+/* Handoff radii keep BLine's original purple identity. Auto values are hatched;
+   manual pins are solid. */
 .handoff-radius-chips {
   display: flex;
   flex-wrap: wrap;
@@ -2609,21 +2619,21 @@ select {
 }
 
 .handoff-radius-chip--auto {
-  border-color: #3f8f66;
+  border-color: #d94fd0;
   background:
     repeating-linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.1) 0,
-      rgba(255, 255, 255, 0.1) 5px,
+      rgba(255, 255, 255, 0.12) 0,
+      rgba(255, 255, 255, 0.12) 5px,
       transparent 5px,
       transparent 10px
     ),
-    linear-gradient(180deg, #23764f, #175338);
+    linear-gradient(180deg, #70246c, #4d194a);
 }
 
 .handoff-radius-chip--manual {
-  border-color: #2778ac;
-  background: linear-gradient(180deg, #176f9f, #10527b);
+  border-color: #d94fd0;
+  background: linear-gradient(180deg, #7b2876, #551c52);
 }
 
 /* Nothing is stored yet, so the chip stays hollow and shows the project default
@@ -2636,8 +2646,8 @@ select {
 }
 
 .handoff-radius-chip.is-selected {
-  border-color: #4ade80;
-  box-shadow: inset 0 0 0 2px #4ade80;
+  border-color: #ffd1fb;
+  box-shadow: inset 0 0 0 2px #ffd1fb;
 }
 
 .handoff-radius-chip.is-inert {
@@ -2697,21 +2707,6 @@ select {
 .handoff-radius-chip__pin {
   flex: 0 0 auto;
   opacity: 0.85;
-}
-
-.handoff-radius-manual-mode {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 30px;
-  padding: 2px 10px;
-  border: 1px solid #2778ac;
-  border-radius: 6px;
-  color: #eaf7ff;
-  background: #123c57;
-  font-size: 0.68rem;
-  font-weight: 760;
-  line-height: 1.1;
 }
 
 .auto-constraint-ledger__empty {
@@ -2877,9 +2872,14 @@ select {
   border-right: 0;
 }
 
-.auto-velocity-mode button.is-active {
+.auto-velocity-mode button.is-active.is-auto {
   color: #f5fbff;
   background: #245d44;
+}
+
+.auto-velocity-mode button.is-active.is-manual {
+  color: #f5fbff;
+  background: #17577f;
 }
 
 .auto-velocity-mode button:hover:not(:disabled),
@@ -2933,6 +2933,19 @@ select {
   color: #97a6b3;
   font-size: 0.74rem;
   line-height: 1.35;
+}
+
+.bulk-selection-hint,
+.bulk-selection-summary {
+  margin: 0;
+  color: #97a6b3;
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
+
+.bulk-selection-summary {
+  color: #d7e5f0;
+  font-weight: 760;
 }
 
 .ranged-constraint-controls__empty {
@@ -5277,6 +5290,96 @@ select {
   position: relative;
 }
 
+/* Optimizer status.
+
+   A running solve traces an orange current around the control that leads to
+   the generated caps. The head is a bright point and the tail fades out behind
+   it, so the direction of travel reads at a glance. Nothing about the host's
+   box changes, so starting a solve never shifts the layout.
+
+   The ring is a conic gradient clipped to the border by an exclude mask, and
+   the sweep is the gradient's own start angle: one compositor-driven property,
+   no per-frame layout. */
+@property --optimizer-beam-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.is-optimizing,
+.is-optimizer-failed {
+  position: relative;
+}
+
+.is-optimizing::before,
+.is-optimizing::after,
+.is-optimizer-failed::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  /* Paints the padding box and the content box, then keeps only the
+     difference — the 2px ring. */
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.is-optimizing::before,
+.is-optimizing::after {
+  background: conic-gradient(
+    from var(--optimizer-beam-angle),
+    rgba(255, 138, 26, 0) 0deg,
+    rgba(255, 138, 26, 0) 248deg,
+    rgba(255, 146, 40, 0.2) 300deg,
+    rgba(255, 170, 78, 0.62) 338deg,
+    #ffc074 353deg,
+    #fff0d8 359.4deg,
+    rgba(255, 138, 26, 0) 360deg
+  );
+  animation: optimizer-beam-sweep 1.5s linear infinite;
+}
+
+/* A blurred copy under the ring: the spark throws a little light onto the
+   surrounding chrome, which is what sells it as current rather than paint. */
+.is-optimizing::before {
+  z-index: 0;
+  filter: blur(3px);
+  opacity: 0.75;
+}
+
+/* A failed run holds a still amber ring rather than a moving one: nothing is
+   happening, and a pulse would read as progress. */
+.is-optimizer-failed::after {
+  background: rgba(214, 138, 52, 0.6);
+}
+
+@keyframes optimizer-beam-sweep {
+  to {
+    --optimizer-beam-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-optimizing::after {
+    animation-duration: 3.4s;
+  }
+}
+
+/* Announced, never drawn. */
+.optimizer-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Pressed feedback for the start center, tours, and help surfaces. */
 
 .start-center__action:active:not(:disabled),
@@ -6132,21 +6235,63 @@ body.is-resizing-inspector * {
   background: #13191e;
 }
 
+/* A bare label read as a heading rather than a control, so the row now carries
+   the three things that say "disclosure": a caret that turns, a preview of
+   what is inside, and a hover state. */
 .auto-velocity-inline > summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   min-height: 34px;
   padding: 0 9px;
+  border-radius: 6px;
   color: #cbd6df;
   cursor: pointer;
   font-size: 0.74rem;
   font-weight: 720;
   list-style: none;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
 }
 
 .auto-velocity-inline > summary::-webkit-details-marker {
   display: none;
+}
+
+.auto-velocity-inline > summary:hover,
+.auto-velocity-inline > summary:focus-visible {
+  color: #f2f6fa;
+  background: rgba(238, 244, 250, 0.055);
+}
+
+.auto-velocity-inline__caret {
+  flex: 0 0 14px;
+  color: #7f8c98;
+  transition:
+    rotate 150ms ease,
+    color 120ms ease;
+}
+
+.auto-velocity-inline[open] > summary .auto-velocity-inline__caret {
+  rotate: 90deg;
+}
+
+.auto-velocity-inline > summary:hover .auto-velocity-inline__caret {
+  color: #b9c6d2;
+}
+
+/* Names what is behind the caret, so the row is worth opening. */
+.auto-velocity-inline__hint {
+  margin-left: auto;
+  color: #77838e;
+  font-size: 0.67rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.auto-velocity-inline[open] > summary .auto-velocity-inline__hint {
+  opacity: 0;
 }
 
 .auto-velocity-inline > summary small {
@@ -6160,6 +6305,40 @@ body.is-resizing-inspector * {
   grid-template-columns: 1fr minmax(90px, 0.65fr);
   gap: 8px;
   padding: 0 8px 8px;
+}
+
+/* Spans both factor columns: it governs the whole optimizer, not one number. */
+.auto-velocity-inline__sync {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 2px 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--bline-border-subtle);
+  border-radius: 6px;
+  background: rgba(238, 244, 250, 0.03);
+  cursor: pointer;
+}
+
+.auto-velocity-inline__sync input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: #4f8fd4;
+}
+
+.auto-velocity-inline__sync > span {
+  color: #dbe4ec;
+  font-size: 0.77rem;
+  font-weight: 650;
+}
+
+.auto-velocity-inline__sync > small {
+  grid-column: 2;
+  color: #8f9ba6;
+  font-size: 0.7rem;
+  line-height: 1.35;
 }
 
 .constraint-popout-button {

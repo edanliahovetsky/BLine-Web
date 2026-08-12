@@ -5,8 +5,20 @@ import {
 import {
   applyAutoVelocityConstraintsToOrdinals,
   refreshAutoVelocityConstraints,
+  type AutoVelocitySettings,
 } from "../../core/constraints/autoVelocityApply";
-import { getDefaultOptionalConfigValue } from "../../core/config/projectConfig";
+import {
+  canGenerateAutoConstraints,
+  clearGeneratedAutoConstraints,
+  generateAutoRadiiAndCaps,
+  hasGeneratedAutoConstraints,
+} from "../../core/constraints/autoConstraintGeneration";
+import {
+  anchorHandoffRadii,
+  defaultHandoffRadiusMeters,
+  type AnchorHandoffRadius,
+  type AnchorRadiusState,
+} from "../../core/model/handoffRadii";
 import {
   fieldCoordinateLengthMeters,
   fieldCoordinateWidthMeters,
@@ -27,6 +39,7 @@ import {
   countAnchorElements,
   isAnchorElement,
   isEventTrigger,
+  getHandoffRadiusSource,
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
@@ -138,49 +151,81 @@ export function createDuplicatePathElementCommand(
   };
 }
 
-/** The production generator does not own radii; every stored value is manual. */
-export type HandoffRadiusChipState = "manual" | "unset";
+/**
+ * True when Generate would change something: an unpinned cap ordinal or an
+ * unpinned interior-anchor radius for the optimizer to own.
+ */
+export function canGenerateConstraints(
+  project: ProjectDocument | null,
+): boolean {
+  return project !== null && canGenerateAutoConstraints(project.path);
+}
 
-export interface HandoffRadiusChip {
-  elementIndex: number;
-  ordinal: number;
-  valueMeters: number | null;
-  effectiveValueMeters: number;
-  state: HandoffRadiusChipState;
-  inert: boolean;
+/** True when there is optimizer output of either kind to drop. */
+export function canClearGeneratedConstraints(
+  project: ProjectDocument | null,
+): boolean {
+  return project !== null && hasGeneratedAutoConstraints(project.path);
 }
 
 /**
- * Presents handoff radii in anchor order without introducing optimizer
- * ownership metadata. Automatic radius generation is enabled only on the
- * generator-overhaul branch.
+ * One undoable step covering the whole optimizer: seed the handoff radii nobody
+ * pinned, trim the ones the follower cannot honor, then solve velocity caps for
+ * the geometry that came out. Pinned radii and pinned cap segments stay put.
  */
+export function createGenerateConstraintsCommand(
+  settings?: AutoVelocitySettings,
+): HistoryCommand<ProjectDocument> {
+  return pathCommand("Generate constraints", (project) =>
+    generateAutoRadiiAndCaps(project.path, project.config, { settings }),
+  );
+}
+
+/**
+ * The inverse: generated caps go away and generated radii revert to unset.
+ * Pinned values of either kind survive.
+ */
+export function createClearGeneratedConstraintsCommand(): HistoryCommand<ProjectDocument> {
+  return pathCommand("Clear generated constraints", (project) =>
+    clearGeneratedAutoConstraints(project.path),
+  );
+}
+
+export type HandoffRadiusChipState = AnchorRadiusState;
+export type HandoffRadiusChip = AnchorHandoffRadius;
+
 export function handoffRadiusChipsForPath(
   project: ProjectDocument,
 ): HandoffRadiusChip[] {
-  const defaultRadiusMeters = defaultHandoffRadius(project);
-  const anchors = project.path.path_elements.flatMap((element, elementIndex) =>
-    isAnchorElement(element) ? [{ element, elementIndex }] : [],
+  return anchorHandoffRadii(
+    project.path.path_elements,
+    defaultHandoffRadiusMeters(project.config),
   );
+}
 
-  return anchors.map(({ element, elementIndex }, position) => {
-    const raw = isTranslationTarget(element)
-      ? element.intermediate_handoff_radius_meters
-      : isWaypoint(element)
-        ? element.translation_target.intermediate_handoff_radius_meters
-        : null;
-    const valueMeters =
-      typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+function pathCommand(
+  description: string,
+  nextPath: (project: ProjectDocument) => ProjectDocument["path"],
+): HistoryCommand<ProjectDocument> {
+  let previousPath: ProjectDocument["path"] | null = null;
 
-    return {
-      elementIndex,
-      ordinal: position + 1,
-      valueMeters,
-      effectiveValueMeters: valueMeters ?? defaultRadiusMeters,
-      state: valueMeters === null ? "unset" : "manual",
-      inert: position === 0 || position === anchors.length - 1,
-    };
-  });
+  return {
+    description,
+    apply: (project) => {
+      const nextProject = structuredClone(project);
+      previousPath ??= structuredClone(nextProject.path);
+      nextProject.path = nextPath(nextProject);
+      return nextProject;
+    },
+    revert: (project) => {
+      if (!previousPath) {
+        return project;
+      }
+      const nextProject = structuredClone(project);
+      nextProject.path = structuredClone(previousPath);
+      return nextProject;
+    },
+  };
 }
 
 export function createInsertPathElementsCommand(
@@ -613,7 +658,10 @@ export function createDefaultElement(
     return createTranslationTarget({
       x_meters: position.x_meters,
       y_meters: position.y_meters,
-      intermediate_handoff_radius_meters: defaultHandoffRadius(project),
+      intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(
+        project.config,
+      ),
+      handoff_radius_source: "auto",
     });
   }
 
@@ -622,7 +670,10 @@ export function createDefaultElement(
       translation_target: createTranslationTarget({
         x_meters: position.x_meters,
         y_meters: position.y_meters,
-        intermediate_handoff_radius_meters: defaultHandoffRadius(project),
+        intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(
+          project.config,
+        ),
+        handoff_radius_source: "auto",
       }),
       rotation_target: createRotationTarget({
         rotation_radians: headingRadians,
@@ -644,15 +695,6 @@ export function createDefaultElement(
   });
 }
 
-function defaultHandoffRadius(project: ProjectDocument): number {
-  return (
-    getDefaultOptionalConfigValue(
-      project.config,
-      "intermediate_handoff_radius_meters",
-    ) ?? 0.45
-  );
-}
-
 export function createConvertedElement(
   project: ProjectDocument,
   index: number,
@@ -671,6 +713,7 @@ export function createConvertedElement(
   const headingRadians =
     getElementHeadingRadians(project.path.path_elements, index) ?? 0;
   const handoffRadius = getExistingHandoffRadius(element);
+  const handoffRadiusSource = getHandoffRadiusSource(element) ?? undefined;
   const ratio = getExistingRatio(element);
 
   if (nextType === "translation") {
@@ -679,6 +722,7 @@ export function createConvertedElement(
       x_meters: position?.x_meters ?? field.length_meters / 2,
       y_meters: position?.y_meters ?? field.width_meters / 2,
       intermediate_handoff_radius_meters: handoffRadius,
+      handoff_radius_source: handoffRadiusSource,
     });
   }
 
@@ -689,6 +733,7 @@ export function createConvertedElement(
         x_meters: position?.x_meters ?? field.length_meters / 2,
         y_meters: position?.y_meters ?? field.width_meters / 2,
         intermediate_handoff_radius_meters: handoffRadius,
+        handoff_radius_source: handoffRadiusSource,
       }),
       rotation_target: createRotationTarget({
         rotation_radians: headingRadians,

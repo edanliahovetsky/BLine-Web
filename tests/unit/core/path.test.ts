@@ -7,8 +7,10 @@ import {
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
+  getHandoffRadiusSource,
   getPathElement,
   reorderPathElements,
+  setHandoffRadiusSource,
 } from "../../../src/core/model/path";
 
 describe("path model", () => {
@@ -53,6 +55,28 @@ describe("path model", () => {
 
     expect(reordered.path_elements).toEqual([third, first, second]);
     expect(path.path_elements).toEqual([first, second, third]);
+  });
+
+  it("leaves handoff radius ownership untagged until someone claims it", () => {
+    const translation = createTranslationTarget();
+    const waypoint = createWaypoint();
+
+    expect("handoff_radius_source" in translation).toBe(false);
+    expect(getHandoffRadiusSource(translation)).toBeNull();
+    expect(getHandoffRadiusSource(waypoint)).toBeNull();
+    expect(getHandoffRadiusSource(createRotationTarget())).toBeNull();
+
+    const tagged = setHandoffRadiusSource(translation, "auto");
+    const taggedWaypoint = setHandoffRadiusSource(waypoint, "manual");
+
+    expect(getHandoffRadiusSource(tagged)).toBe("auto");
+    expect(taggedWaypoint).toMatchObject({
+      translation_target: { handoff_radius_source: "manual" },
+    });
+    expect("handoff_radius_source" in translation).toBe(false);
+    expect(
+      "handoff_radius_source" in setHandoffRadiusSource(tagged, null),
+    ).toBe(false);
   });
 
   it("counts anchor and rotation domains used by ranged constraints", () => {

@@ -11,8 +11,10 @@ import {
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
+  getHandoffRadiusSource,
 } from "../../../src/core/model/path";
 import {
+  anchorNodeExclusionRadiusPx,
   createFieldViewport,
   clampModelPoint,
   getElementHeadingRadians,
@@ -29,6 +31,9 @@ import {
   createMoveElementCommand,
   createSetElementRotationCommand,
   createSetElementRatioCommand,
+  createSetHandoffRadiusCommand,
+  createSetHandoffRadiiCommand,
+  updateProjectElementHandoffRadius,
   updateProjectElementRatio,
   updateProjectElementRotation,
   updateProjectElementPosition,
@@ -274,6 +279,19 @@ describe("canvas geometry", () => {
     expect(getHandoffRadiusMeters(elements[2])).toBe(0.25);
     expect(getHandoffRadiusMeters(elements[1])).toBeNull();
   });
+
+  it("keeps the anchor node exclusion ring on a pixel floor as the view zooms", () => {
+    // The formula mirrors the translation node circle hit-test, so overlay
+    // grabs outside the ring can never contest a node grab.
+    const zoomedOut = {
+      ...createFieldViewport({ width: 960, height: 540 }),
+      scale: 20,
+    };
+    const zoomedIn = { ...zoomedOut, scale: 400 };
+
+    expect(anchorNodeExclusionRadiusPx(zoomedOut)).toBeCloseTo(21, 6);
+    expect(anchorNodeExclusionRadiusPx(zoomedIn)).toBeCloseTo(54, 6);
+  });
 });
 
 describe("canvas model sync", () => {
@@ -399,4 +417,117 @@ describe("canvas model sync", () => {
       getElementHeadingRadians(reverted.path.path_elements, 1),
     ).toBeCloseTo(Math.PI / 4, 6);
   });
+
+  it("applies and reverts handoff radius plus source together", () => {
+    const project = createProjectDocument({
+      project_id: "handoff-radius",
+      display_name: "Handoff Radius",
+      path: handoffRadiusPath(),
+    });
+    const command = createSetHandoffRadiusCommand(
+      2,
+      { radiusMeters: 0.4, source: null },
+      { radiusMeters: 0.75, source: "manual" },
+    );
+
+    const applied = command.apply(project);
+    const appliedElement = applied.path.path_elements[2];
+    expect(
+      appliedElement.type === "translation"
+        ? appliedElement.intermediate_handoff_radius_meters
+        : null,
+    ).toBeCloseTo(0.75, 9);
+    expect(getHandoffRadiusSource(appliedElement)).toBe("manual");
+
+    const reverted = command.revert(applied);
+    const revertedElement = reverted.path.path_elements[2];
+    expect(
+      revertedElement.type === "translation"
+        ? revertedElement.intermediate_handoff_radius_meters
+        : null,
+    ).toBeCloseTo(0.4, 9);
+    expect(getHandoffRadiusSource(revertedElement)).toBeNull();
+  });
+
+  it("writes handoff radii through to waypoint translation targets", () => {
+    const project = createProjectDocument({
+      project_id: "handoff-radius",
+      display_name: "Handoff Radius",
+      path: handoffRadiusPath(),
+    });
+    const updated = updateProjectElementHandoffRadius(project, 3, {
+      radiusMeters: 0.3,
+      source: "auto",
+    });
+    const element = updated.path.path_elements[3];
+    expect(
+      element.type === "waypoint"
+        ? element.translation_target.intermediate_handoff_radius_meters
+        : null,
+    ).toBeCloseTo(0.3, 9);
+    expect(getHandoffRadiusSource(element)).toBe("auto");
+  });
+
+  it("applies and reverts multiple handoff radii as one command", () => {
+    const project = createProjectDocument({
+      project_id: "handoff-radii",
+      display_name: "Handoff Radii",
+      path: handoffRadiusPath(),
+    });
+    const command = createSetHandoffRadiiCommand([
+      {
+        index: 2,
+        previous: { radiusMeters: 0.4, source: null },
+        next: { radiusMeters: 0.65, source: "manual" },
+      },
+      {
+        index: 3,
+        previous: { radiusMeters: null, source: null },
+        next: { radiusMeters: null, source: null },
+      },
+    ]);
+
+    const applied = command.apply(project);
+    expect(getHandoffRadiusSource(applied.path.path_elements[2])).toBe(
+      "manual",
+    );
+    expect(getHandoffRadiusSource(applied.path.path_elements[3])).toBeNull();
+
+    const reverted = command.revert(applied);
+    expect(getHandoffRadiusSource(reverted.path.path_elements[2])).toBeNull();
+    expect(getHandoffRadiusSource(reverted.path.path_elements[3])).toBeNull();
+  });
+
+  it("rejects handoff radius writes on elements without one", () => {
+    const project = createProjectDocument({
+      project_id: "handoff-radius",
+      display_name: "Handoff Radius",
+      path: handoffRadiusPath(),
+    });
+    expect(() =>
+      updateProjectElementHandoffRadius(project, 1, {
+        radiusMeters: 0.2,
+        source: null,
+      }),
+    ).toThrow(/does not carry a handoff radius/);
+  });
 });
+
+const handoffRadiusPath = () =>
+  createPathModel({
+    path_elements: [
+      createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+      createRotationTarget({ t_ratio: 0.5 }),
+      createTranslationTarget({
+        x_meters: 5,
+        y_meters: 1,
+        intermediate_handoff_radius_meters: 0.4,
+      }),
+      createWaypoint({
+        translation_target: createTranslationTarget({
+          x_meters: 5,
+          y_meters: 5,
+        }),
+      }),
+    ],
+  });

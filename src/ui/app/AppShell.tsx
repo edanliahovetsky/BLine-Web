@@ -70,6 +70,8 @@ import {
   type AutosaveCoordinator,
   type AutosaveStatus,
 } from "../../state/autosave";
+import { autoVelocityStore } from "../../state/autoVelocityStore";
+import { startAutoVelocitySync } from "../../state/autoVelocitySync";
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
@@ -106,7 +108,9 @@ import {
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import {
+  canGenerateConstraints,
   createDefaultElement,
+  createGenerateConstraintsCommand,
   createInsertPathElementCommand,
   createInsertPathElementsCommand,
 } from "../sidebar/sidebarCommands";
@@ -131,6 +135,11 @@ import {
   type ShortcutBinding,
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
+import {
+  optimizerBeamClass,
+  optimizerBeamLabel,
+  optimizerBeamTitle,
+} from "../optimizerBeam";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
 import {
@@ -345,6 +354,17 @@ export function AppShell() {
       autosaveRef.current?.cancel();
     };
   }, [refreshWorkspaceSummaries]);
+
+  const optimizerPhase = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.phase,
+  );
+  const optimizerError = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.lastError,
+  );
+
+  useEffect(() => startAutoVelocitySync(), []);
 
   useEffect(() => {
     const mobileQuery = window.matchMedia(mobileSupportMediaQuery);
@@ -1597,6 +1617,17 @@ export function AppShell() {
       run: () => projectStore.getState().redo(),
     },
     {
+      id: "path.generate-constraints",
+      label: "Generate constraints",
+      category: "Path",
+      keywords: ["corner", "handoff", "radius", "seed", "optimize", "velocity"],
+      disabled: !project || !canGenerateConstraints(project),
+      run: () =>
+        projectStore
+          .getState()
+          .applyCommand(createGenerateConstraintsCommand()),
+    },
+    {
       id: "edit.duplicate-element",
       label: "Duplicate element",
       category: "Edit",
@@ -2004,6 +2035,7 @@ export function AppShell() {
               <span>Commands</span>
               <kbd>⌘K</kbd>
             </button>
+            <OptimizerLiveRegion />
             <div className="path-health-control" data-tour="path-health">
               <IconButton
                 className={
@@ -2096,10 +2128,25 @@ export function AppShell() {
               <Settings aria-hidden="true" size={16} />
             </IconButton>
             <IconButton
+              // With the inspector closed the Constraints tab is gone, so the
+              // current traces the control that brings it back.
+              className={
+                inspectorOpen
+                  ? ""
+                  : optimizerBeamClass(optimizerPhase, optimizerError)
+              }
               aria-label="Toggle inspector"
               aria-expanded={inspectorOpen}
               aria-keyshortcuts="Meta+B Control+B"
-              title="Toggle inspector (⌘B)"
+              title={
+                inspectorOpen
+                  ? "Toggle inspector (⌘B)"
+                  : optimizerBeamTitle(
+                      optimizerPhase,
+                      optimizerError,
+                      "Toggle inspector (⌘B)",
+                    )
+              }
               disabled={!project}
               onClick={() => setInspectorOpen((current) => !current)}
             >
@@ -4827,6 +4874,30 @@ function HelpHubPopover({
         </a>
       </div>
     </section>
+  );
+}
+
+/**
+ * The optimizer shows itself visually as a current tracing the Constraints
+ * tab; this is the same news for anyone who cannot see it. It draws nothing,
+ * so the toolbar geometry never shifts when a solve starts.
+ */
+function OptimizerLiveRegion() {
+  const phase = useStoreSelector(autoVelocityStore, (state) => state.phase);
+  const lastError = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.lastError,
+  );
+
+  return (
+    <span
+      className="optimizer-live-region"
+      role="status"
+      aria-live="polite"
+      aria-busy={phase !== "idle"}
+    >
+      {optimizerBeamLabel(phase, lastError)}
+    </span>
   );
 }
 

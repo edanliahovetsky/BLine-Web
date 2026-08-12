@@ -12,8 +12,11 @@ import {
   getElementPosition,
 } from "../../canvas/geometry";
 import { nextLinkedTargetName } from "../../core/linkedTargets";
+import { autoVelocityStore } from "../../state/autoVelocityStore";
 import { projectStore } from "../../state/projectStore";
+import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
+import { optimizerBeamClass, optimizerBeamTitle } from "../optimizerBeam";
 import { ConstraintEditor } from "./sections/ConstraintEditor";
 import { ElementList } from "./sections/ElementList";
 import { PropertyEditor } from "./sections/PropertyEditor";
@@ -67,6 +70,14 @@ export function Sidebar({
 }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<"elements" | "constraints">(
     () => readEditorUiPreferences().inspectorTab,
+  );
+  const optimizerPhase = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.phase,
+  );
+  const optimizerError = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.lastError,
   );
   const selectedElement =
     project && selectedElementIndex !== null
@@ -362,7 +373,13 @@ export function Sidebar({
             role="tab"
             aria-selected={activeTab === "constraints"}
             data-tour="inspector-constraints"
-            className={activeTab === "constraints" ? "is-active" : ""}
+            className={[
+              activeTab === "constraints" ? "is-active" : "",
+              optimizerBeamClass(optimizerPhase, optimizerError),
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            title={optimizerBeamTitle(optimizerPhase, optimizerError)}
             onClick={() => handleSelectTab("constraints")}
           >
             Constraints
