@@ -17,6 +17,7 @@ import type {
 } from "../../core/field/fieldConfig";
 import type { CurveAuthoringPreview } from "../curveAuthoring";
 import {
+  isAnchorElement,
   isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
@@ -536,6 +537,13 @@ export class PixiPathRenderer {
     }
 
     const elements = project.path.path_elements;
+    const anchorIndexes = elements.flatMap((element, index) =>
+      isAnchorElement(element) ? [index] : [],
+    );
+    const inertHandoffIndexes = new Set([
+      anchorIndexes[0],
+      anchorIndexes.at(-1),
+    ]);
     const robotSize = robotSizeFromConfig(project.config);
     const protrusions = project.config.gui.protrusions;
     const protrusionVisibilityByIndex = buildElementProtrusionVisibilityByIndex(
@@ -580,7 +588,7 @@ export class PixiPathRenderer {
           input.rotationPreview,
         ),
         handoffRadiusMeters:
-          index === elements.length - 1
+          inertHandoffIndexes.has(index)
             ? null
             : getHandoffRadiusMeters(element),
         robotSizeMeters: robotSize,
@@ -913,16 +921,16 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
       8,
       input.handoffRadiusMeters * input.metersToPixels,
     );
-    drawDashedCircle(graphics, point.x, point.y, handoffRadius, {
-      color: 0x05080b,
-      width: 4,
-      alpha: 0.82,
-    });
-    drawDashedCircle(graphics, point.x, point.y, handoffRadius, {
-      color: elementColors.handoff,
-      width: 1.45,
-      alpha: 0.82,
-    });
+    const ringWidth = 1.9 + (selected ? 0.45 : 0);
+    graphics
+      .circle(point.x, point.y, handoffRadius)
+      .stroke({ color: 0x05080b, width: ringWidth + 2.55, alpha: 0.82 })
+      .circle(point.x, point.y, handoffRadius)
+      .stroke({
+        color: elementColors.handoff,
+        width: ringWidth,
+        alpha: selected ? 0.98 : 0.82,
+      });
   }
 
   if (isTranslationTarget(input.element)) {
@@ -1658,30 +1666,6 @@ function drawLine(
     cap: "round",
     join: "round",
   });
-}
-
-function drawDashedCircle(
-  graphics: Graphics,
-  x: number,
-  y: number,
-  radius: number,
-  style: { color: string | number; width: number; alpha: number },
-): void {
-  const dashCount = Math.max(18, Math.floor((Math.PI * 2 * radius) / 12));
-  const step = (Math.PI * 2) / dashCount;
-  for (let dash = 0; dash < dashCount; dash += 2) {
-    const start = dash * step;
-    const end = start + step;
-    graphics
-      .moveTo(x + Math.cos(start) * radius, y + Math.sin(start) * radius)
-      .lineTo(x + Math.cos(end) * radius, y + Math.sin(end) * radius)
-      .stroke({
-        color: style.color,
-        width: style.width,
-        alpha: style.alpha,
-        cap: "round",
-      });
-  }
 }
 
 function drawRect(

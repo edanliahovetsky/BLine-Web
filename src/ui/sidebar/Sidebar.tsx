@@ -6,7 +6,7 @@ import type {
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
 import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
-import { isAnchorElement, type PathElement } from "../../core/model/path";
+import type { PathElement } from "../../core/model/path";
 import {
   getElementHeadingRadians,
   getElementPosition,
@@ -406,12 +406,6 @@ export function Sidebar({
                 : []
             }
             fieldGeometry={fieldGeometry}
-            isFinalAnchor={
-              project !== null &&
-              selectedElementIndex !== null &&
-              selectedElementIndex ===
-                lastAnchorIndex(project.path.path_elements)
-            }
             onChangeType={handleChangeElementType}
             onUpdateElement={handleUpdateElement}
             onUnlinkTarget={handleUnlinkTarget}
@@ -450,19 +444,6 @@ function selectionAfterMove(
   }
 
   return selectedElementIndex;
-}
-
-/**
- * Index of the last translation anchor. Its handoff radius is inert: the
- * final anchor completes by tolerance rather than an intermediate handoff.
- */
-function lastAnchorIndex(elements: readonly PathElement[]): number {
-  for (let index = elements.length - 1; index >= 0; index -= 1) {
-    if (isAnchorElement(elements[index])) {
-      return index;
-    }
-  }
-  return -1;
 }
 
 function nextSelectionAfterRemoval(

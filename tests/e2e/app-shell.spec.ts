@@ -82,7 +82,7 @@ test("starts new users in a focused start center", async ({ page }) => {
 
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Max Velocity" }),
+    page.getByRole("article", { name: "Path constraints" }),
   ).toBeVisible();
   await expect(
     page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
@@ -1718,8 +1718,8 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 
   await page
     .getByTestId("constraint-card-max_velocity_meters_per_sec")
-    .getByRole("heading", { name: "Max Velocity" })
-    .click();
+    .locator(".constraint-card__header")
+    .click({ position: { x: 1, y: 1 } });
   const emptyConstraintRow = page.getByTestId(
     "ranged-constraint-row-max_velocity_meters_per_sec-empty",
   );
@@ -3342,32 +3342,50 @@ test("guides the user when every velocity segment is manual", async ({
   ).toBeDisabled();
   await expect(
     card.getByText(
-      "All segments are set manually. Switch a segment to Auto to generate.",
+      "All velocity segments are set manually. Switch a segment to Auto to generate.",
     ),
   ).toBeVisible();
 });
 
-test("flags the inert handoff radius on the final anchor", async ({ page }) => {
+test("keeps handoff radii manual in the aligned constraints ledger", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
+  await openConstraintsTab(page);
 
-  const handoff = page.getByLabel("Handoff Radius (m)");
-  const handoffRow = page.locator(".property-row--inactive");
-  const rows = page.locator('[data-testid^="path-element-row-"]');
-  const lastIndex = (await rows.count()) - 1;
+  const card = page.getByRole("article", { name: "Path constraints" });
+  const radiusLane = card.getByRole("group", { name: "Handoff radii" });
+  const chips = radiusLane.locator('[data-testid^="handoff-radius-chip-"]');
+  await expect(card).toBeVisible();
+  await expect(radiusLane).toBeVisible();
+  await expect(chips).toHaveCount(4);
+  await expect(card).toContainText("Handoff radii are manual in this release");
 
-  // The final anchor completes by tolerance, so its handoff radius is inert:
-  // greyed out, with a tooltip explaining why.
-  await rows.nth(lastIndex).click();
-  await expect(handoff).toBeDisabled();
-  await expect(handoffRow).toHaveAttribute(
+  await expect(chips.first()).toBeDisabled();
+  await expect(chips.first()).toHaveAttribute(
+    "title",
+    /Not used on the first element/,
+  );
+  await expect(chips.last()).toBeDisabled();
+  await expect(chips.last()).toHaveAttribute(
     "title",
     "Not used on the final element — the path finishes here by tolerance, not by a handoff.",
   );
 
-  // Intermediate elements do use their radius, so theirs stays editable.
-  await rows.nth(1).click();
-  await expect(handoff).toBeEnabled();
-  await expect(handoffRow).toHaveCount(0);
+  const manualChip = page.getByTestId("handoff-radius-chip-1");
+  await manualChip.click();
+  await expect(page.getByTestId("handoff-radius-detail")).toContainText(
+    "Manual",
+  );
+  const input = page.getByLabel("Handoff radius 2 value");
+  await input.fill("0.28");
+  await input.press("Enter");
+  await expect(manualChip.locator(".handoff-radius-chip__value")).toHaveText(
+    "0.28 m",
+  );
+
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await expect(page.getByLabel("Handoff Radius (m)")).toHaveCount(0);
 });
 
 test("marks the start and end of the path in the element list", async ({
@@ -3437,7 +3455,7 @@ test("gives the element list the panel height the properties leave over", async 
   const properties = page.locator(".property-editor-section");
 
   await page.getByTestId("path-element-row-1").click();
-  await expect(page.getByLabel("Handoff Radius (m)")).toBeVisible();
+  await expect(page.getByLabel("X (m)")).toBeVisible();
 
   // The sample's elements all fit, so the list must not scroll just because a
   // fixed row cap cut it short.
@@ -3466,12 +3484,11 @@ test("gives the element list the panel height the properties leave over", async 
   expect(listBox.height).toBeGreaterThan(panelBox.height * 0.5);
 });
 
-test("keeps the velocity card header on one compact row", async ({ page }) => {
+test("centers the path constraint status and actions in one row", async ({ page }) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
 
   const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
-  const title = card.getByRole("heading", { name: "Max Velocity" });
   const chip = card.getByRole("status");
   const generate = card.getByRole("button", {
     name: "Generate velocity constraints",
@@ -3480,31 +3497,28 @@ test("keeps the velocity card header on one compact row", async ({ page }) => {
     name: "Clear generated velocity constraints",
   });
 
-  // At a narrow inspector the header degrades to two tidy rows: the title
-  // never breaks mid-name, and Generate/Clear stay together on their own row
-  // rather than Clear dropping alone.
-  expect((await requiredBox(title)).height).toBeLessThan(26);
-  expect((await requiredBox(clear)).y).toBe((await requiredBox(generate)).y);
+  const expectCenteredHeader = async () => {
+    const cardBox = await requiredBox(card);
+    const chipBox = await requiredBox(chip);
+    const generateBox = await requiredBox(generate);
+    const clearBox = await requiredBox(clear);
+    const cardCenter = cardBox.x + cardBox.width / 2;
+    const groupCenter = (chipBox.x + clearBox.x + clearBox.width) / 2;
 
-  // Given room, all four collapse onto a single compact row.
+    expect(Math.abs(clearBox.y - generateBox.y)).toBeLessThanOrEqual(2);
+    expect(Math.abs(chipBox.y - generateBox.y)).toBeLessThanOrEqual(2);
+    expect(Math.abs(groupCenter - cardCenter)).toBeLessThanOrEqual(3);
+  };
+
+  await expectCenteredHeader();
+
   await page.evaluate(() => {
     document
       .querySelector<HTMLElement>(".workspace")
       ?.style.setProperty("--inspector-width", "460px");
   });
 
-  const wideTitle = await requiredBox(title);
-  const wideChip = await requiredBox(chip);
-  const wideGenerate = await requiredBox(generate);
-  const wideClear = await requiredBox(clear);
-  expect(wideTitle.height).toBeLessThan(26);
-  expect(Math.abs(wideChip.y - wideGenerate.y)).toBeLessThanOrEqual(2);
-  expect(Math.abs(wideChip.y - wideClear.y)).toBeLessThanOrEqual(2);
-  expect(
-    Math.abs(
-      wideTitle.y + wideTitle.height / 2 - (wideChip.y + wideChip.height / 2),
-    ),
-  ).toBeLessThanOrEqual(4);
+  await expectCenteredHeader();
 });
 
 test("selects Max Velocity segments with the keyboard", async ({ page }) => {

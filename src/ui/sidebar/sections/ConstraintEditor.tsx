@@ -21,9 +21,9 @@ import {
 import {
   autoVelocityConstraintForCap,
   autoVelocityInputSignature,
-  generateAutoVelocityProfile,
   type AutoVelocitySegmentCap,
 } from "../../../core/constraints/autoVelocityConstraints";
+import { constraintGenerator } from "../../../core/constraints/constraintGenerator";
 import { domainForKey } from "../../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import {
@@ -217,11 +217,15 @@ const addConstraintMenuSections: readonly AddConstraintMenuSection[] = [
 ];
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
+const automaticHandoffRadiiEnabled =
+  constraintGenerator.capabilities.automaticHandoffRadii;
 const handoffRadiusStep = 0.05;
 const handoffRadiusHint =
-  "Handoff radii are manual in this release. Select an interior anchor to set the value used by the follower.";
-// The property pane says the same thing about the final anchor; the first one is
-// inert for the mirror-image reason, so both endpoints explain themselves here.
+  automaticHandoffRadiiEnabled
+    ? "Select an interior anchor to inspect or override its generated radius."
+    : "Handoff radii are manual in this release. Select an interior anchor to set the value used by the follower.";
+// Both endpoint radii are inert, so their chips explain why they cannot be
+// edited from the constraints ledger.
 const startAnchorHandoffNote =
   "Not used on the first element — a handoff happens at the anchor a segment drives to, and nothing drives to the start.";
 const finalAnchorHandoffNote =
@@ -2948,7 +2952,7 @@ function runAutoVelocityAll(
   project: ProjectDocument,
   settings: AutoVelocitySettings,
 ): void {
-  const profile = generateAutoVelocityProfile(
+  const profile = constraintGenerator.generateVelocityProfile(
     project.path,
     project.config,
     autoVelocityOptionsFromSettings(settings),
@@ -2988,7 +2992,7 @@ function canGenerateAutoVelocity(
     return false;
   }
 
-  const profile = generateAutoVelocityProfile(
+  const profile = constraintGenerator.generateVelocityProfile(
     project.path,
     project.config,
     autoVelocityOptionsFromSettings(settings),
@@ -3065,7 +3069,7 @@ function applyVelocityMode(
   const existing = ordinalConstraintMap(project, autoVelocityKey, total);
   const ordinals = ordinalsForConstraint(entry.constraint, total);
   const selectedOrdinals = new Set(ordinals);
-  const profile = generateAutoVelocityProfile(
+  const profile = constraintGenerator.generateVelocityProfile(
     project.path,
     project.config,
     autoVelocityOptionsFromSettings(settings),
