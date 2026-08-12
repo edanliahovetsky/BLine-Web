@@ -16,8 +16,17 @@ import type {
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  CircleHelp,
+  FolderTree,
+  PanelRight,
+  Redo2,
+  Search,
+  Settings,
+  Undo2,
+} from "lucide-react";
 import { LinkedTargetsCanvas } from "../../canvas/LinkedTargetsCanvas";
-import { PathStage } from "../../canvas/PathStage";
+import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { elementColors } from "../../canvas/elementStyle";
 import type {
@@ -69,6 +78,7 @@ import {
   moveSelectedPathElement,
   removeSelectedPathElement,
   removeSelectedRangedConstraint,
+  selectAdjacentPathElement,
 } from "../keyboardShortcuts";
 import {
   ChevronDownIcon,
@@ -92,16 +102,25 @@ import {
 } from "../controls";
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
-import { createInsertPathElementsCommand } from "../sidebar/sidebarCommands";
+import {
+  createDefaultElement,
+  createInsertPathElementCommand,
+  createInsertPathElementsCommand,
+} from "../sidebar/sidebarCommands";
 import "./AppShell.css";
 import { createUpdateProjectConfigCommand } from "./configCommands";
 import {
   createBlankCanvasPath,
-  createInitialCanvasWorkspace,
-  createNewCanvasWorkspace,
+  createNamedCanvasWorkspace,
+  createSampleCanvasWorkspace,
 } from "./initialProject";
 import { ProjectConfigDialog } from "./ProjectConfigDialog";
 import { writeProjectFolder } from "./projectFolderExport";
+import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
+import { useDialogFocusTrap } from "./useDialogFocusTrap";
+import { StartCenter } from "./StartCenter";
+import { type EditorCommand, type EditorTool } from "./editorCommands";
+import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 
 interface LinkedTargetPickerRequest {
   pathId: string;
@@ -142,6 +161,7 @@ export function AppShell() {
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [showNewPathDialog, setShowNewPathDialog] = useState(false);
   const [newPathGroupContextId, setNewPathGroupContextId] = useState<
     string | null | undefined
@@ -150,6 +170,13 @@ export function AppShell() {
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
   const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
   const [showLinkedTargetsDialog, setShowLinkedTargetsDialog] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const [showPathHealth, setShowPathHealth] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth > 1120,
+  );
+  const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [linkedTargetPickerRequest, setLinkedTargetPickerRequest] =
     useState<LinkedTargetPickerRequest | null>(null);
   const [showMobileSupportWarning, setShowMobileSupportWarning] =
@@ -217,6 +244,7 @@ export function AppShell() {
 
   const handleCancelCurveTool = useCallback(() => {
     setCurveToolSession(null);
+    setActiveTool("select");
   }, []);
 
   const handleCommitCurveTool = useCallback(
@@ -236,6 +264,7 @@ export function AppShell() {
         .getState()
         .selectElement(insertionIndex, projectStore.getState().project);
       setCurveToolSession(null);
+      setActiveTool("select");
     },
     [],
   );
@@ -250,13 +279,7 @@ export function AppShell() {
       setInitializing(true);
 
       try {
-        await projectStore
-          .getState()
-          .initializeWorkspace(
-            service.capabilities.supportsProjectFolders
-              ? undefined
-              : createInitialCanvasWorkspace(),
-          );
+        await projectStore.getState().initializeWorkspace();
         if (!cancelled) {
           await refreshWorkspaceSummaries(service);
         }
@@ -408,11 +431,44 @@ export function AppShell() {
     };
   }, [showOpenPanel]);
 
-  const handleNewProject = useCallback(async () => {
+  const handleNewProject = useCallback(() => {
+    setShowOpenPanel(false);
+    setOpenTopMenu(null);
+    setShowNewProjectDialog(true);
+  }, []);
+
+  const handleConfirmCreateProject = useCallback(
+    async ({
+      pathName,
+      projectName,
+    }: {
+      pathName: string;
+      projectName: string;
+    }) => {
+      autosaveRef.current?.cancel();
+
+      try {
+        await projectStore
+          .getState()
+          .createWorkspace(createNamedCanvasWorkspace(projectName, pathName));
+        selectionStore.getState().clearSelection();
+        setShowNewProjectDialog(false);
+        setShowOpenPanel(false);
+        await refreshWorkspaceSummaries();
+      } catch {
+        // The project store already records the error for the status bar.
+      }
+    },
+    [refreshWorkspaceSummaries],
+  );
+
+  const handleOpenSample = useCallback(async () => {
     autosaveRef.current?.cancel();
 
     try {
-      await projectStore.getState().createWorkspace(createNewCanvasWorkspace());
+      await projectStore
+        .getState()
+        .createWorkspace(createSampleCanvasWorkspace());
       selectionStore.getState().clearSelection();
       setShowOpenPanel(false);
       await refreshWorkspaceSummaries();
@@ -422,6 +478,86 @@ export function AppShell() {
       setOpenTopMenu(null);
     }
   }, [refreshWorkspaceSummaries]);
+
+  const handleToolChange = useCallback(
+    (tool: EditorTool) => {
+      setActiveTool(tool);
+      if (tool === "curve") {
+        const activeProject = projectStore.getState().project;
+        if (activeProject) {
+          handleStartCurveTool(activeProject.path.path_elements.length);
+        }
+      } else if (curveToolSession) {
+        setCurveToolSession(null);
+      }
+    },
+    [curveToolSession, handleStartCurveTool],
+  );
+  const handleSelectTool = useCallback(
+    () => handleToolChange("select"),
+    [handleToolChange],
+  );
+  const handleWaypointTool = useCallback(
+    () => handleToolChange("waypoint"),
+    [handleToolChange],
+  );
+  const handleTranslationTool = useCallback(
+    () => handleToolChange("translation"),
+    [handleToolChange],
+  );
+  const handleRotationTool = useCallback(
+    () => handleToolChange("rotation"),
+    [handleToolChange],
+  );
+  const handleEventTool = useCallback(
+    () => handleToolChange("event"),
+    [handleToolChange],
+  );
+  const handleCurveTool = useCallback(
+    () => handleToolChange("curve"),
+    [handleToolChange],
+  );
+
+  const handlePlaceCanvasElement = useCallback(
+    (placement: CanvasElementPlacement) => {
+      const activeProject = projectStore.getState().project;
+      if (!activeProject) {
+        return;
+      }
+
+      const selectedIndex = selectionStore.getState().selectedElementIndex;
+      const element = createDefaultElement(
+        activeProject,
+        placement.type,
+        selectedIndex,
+      );
+      if (element.type === "translation") {
+        element.x_meters = placement.position.x_meters;
+        element.y_meters = placement.position.y_meters;
+      } else if (element.type === "waypoint") {
+        element.translation_target.x_meters = placement.position.x_meters;
+        element.translation_target.y_meters = placement.position.y_meters;
+      } else if (
+        (element.type === "rotation" || element.type === "event_trigger") &&
+        placement.ratio !== undefined
+      ) {
+        element.t_ratio = placement.ratio;
+      }
+
+      projectStore
+        .getState()
+        .applyCommand(
+          createInsertPathElementCommand(placement.insertionIndex, element),
+        );
+      selectionStore
+        .getState()
+        .selectElement(
+          placement.insertionIndex,
+          projectStore.getState().project,
+        );
+    },
+    [],
+  );
 
   const handleDismissMobileSupportWarning = useCallback(() => {
     markMobileSupportWarningDismissed();
@@ -580,8 +716,20 @@ export function AppShell() {
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
 
+      if (event.key === "F1") {
+        event.preventDefault();
+        setShowCommandPalette(true);
+        return;
+      }
+
       if (modifier) {
         if (event.altKey) {
+          return;
+        }
+
+        if (key === "k") {
+          event.preventDefault();
+          setShowCommandPalette(true);
           return;
         }
 
@@ -615,13 +763,15 @@ export function AppShell() {
       }
 
       if (
-        event.altKey ||
         hasActiveBlockingSurface({
           openTopMenu,
+          showCommandPalette,
           showConfigDialog,
+          showNewProjectDialog,
           showNewPathDialog,
           showDeletePathDialog,
           showDeleteProjectDialog,
+          showShortcutHelp,
           showPathGroupsDialog,
           showLinkedTargetsDialog,
           showMobileSupportWarning,
@@ -635,6 +785,26 @@ export function AppShell() {
         return;
       }
 
+      if (event.key === "?") {
+        event.preventDefault();
+        setShowShortcutHelp(true);
+        return;
+      }
+
+      if (event.key === "Escape" && activeTool !== "select") {
+        event.preventDefault();
+        setActiveTool("select");
+        setCurveToolSession(null);
+        return;
+      }
+
+      const toolShortcut = toolForShortcut(event.key);
+      if (toolShortcut && projectStore.getState().project) {
+        event.preventDefault();
+        handleToolChange(toolShortcut);
+        return;
+      }
+
       if (event.key === "Delete" || event.key === "Backspace") {
         if (removeSelectedRangedConstraint() || removeSelectedPathElement()) {
           event.preventDefault();
@@ -644,9 +814,18 @@ export function AppShell() {
 
       if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         const direction = event.key === "ArrowUp" ? -1 : 1;
-        if (moveSelectedPathElement(direction)) {
+        if (
+          event.altKey
+            ? moveSelectedPathElement(direction)
+            : selectAdjacentPathElement(direction)
+        ) {
           event.preventDefault();
         }
+        return;
+      }
+
+      if (event.altKey) {
+        return;
       }
     };
 
@@ -654,11 +833,16 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, [
     handleSaveProject,
+    handleToolChange,
+    activeTool,
     openTopMenu,
+    showCommandPalette,
     showConfigDialog,
+    showNewProjectDialog,
     showDeletePathDialog,
     showDeleteProjectDialog,
     showPathGroupsDialog,
+    showShortcutHelp,
     showLinkedTargetsDialog,
     showMobileSupportWarning,
     showOpenPanel,
@@ -740,24 +924,11 @@ export function AppShell() {
     }
   }, [beginToolbarAction, endToolbarAction, refreshWorkspaceSummaries]);
 
-  const handleCreateWorkspace = useCallback(async () => {
-    if (!beginToolbarAction("open")) {
-      return;
-    }
-
-    autosaveRef.current?.cancel();
-
-    try {
-      await projectStore.getState().createWorkspace(createNewCanvasWorkspace());
-      selectionStore.getState().clearSelection();
-      setShowOpenPanel(false);
-      await refreshWorkspaceSummaries();
-    } catch {
-      // The project store already records the error for the status bar.
-    } finally {
-      endToolbarAction("open");
-    }
-  }, [beginToolbarAction, endToolbarAction, refreshWorkspaceSummaries]);
+  const handleCreateWorkspace = useCallback(() => {
+    setShowOpenPanel(false);
+    setOpenTopMenu(null);
+    setShowNewProjectDialog(true);
+  }, []);
 
   const handleShowDeleteProjects = useCallback(() => {
     void refreshWorkspaceSummaries();
@@ -1173,22 +1344,156 @@ export function AppShell() {
     lastSavedAt,
     status,
   });
-  const handleSelectPathFromToolbar = (pathId: string) => {
+  const pathDiagnostics = useMemo(
+    () => derivePathDiagnostics(project, workspace),
+    [project, workspace],
+  );
+  const handleSelectPathFromToolbar = useCallback((pathId: string) => {
     projectStore.getState().setActivePath(pathId);
     selectionStore.getState().clearSelection();
-  };
-  const handleSelectCollectionFromToolbar = (groupId: string | null) => {
-    projectStore.getState().setActivePathGroup(groupId);
-    selectionStore.getState().clearSelection();
-  };
+  }, []);
+  const handleSelectCollectionFromToolbar = useCallback(
+    (groupId: string | null) => {
+      projectStore.getState().setActivePathGroup(groupId);
+      selectionStore.getState().clearSelection();
+    },
+    [],
+  );
+  const commands: EditorCommand[] = [
+    {
+      id: "project.navigator",
+      label: "Open project navigator",
+      category: "Project",
+      keywords: ["paths", "collections", "library"],
+      disabled: !workspace,
+      run: handleShowPathLibrary,
+    },
+    {
+      id: "project.new-path",
+      label: "Create new path",
+      category: "Project",
+      keywords: ["add"],
+      disabled: !workspace,
+      run: () => void handleCreateNewPath(),
+    },
+    {
+      id: "project.settings",
+      label: "Open project settings",
+      category: "Project",
+      disabled: !project,
+      run: () => setShowConfigDialog(true),
+    },
+    {
+      id: "project.save",
+      label: "Save now",
+      category: "Project",
+      shortcut: { key: "s", metaOrCtrl: true },
+      disabled: !workspace || !projectIo,
+      run: () => void handleSaveProject(),
+    },
+    {
+      id: "edit.undo",
+      label: "Undo",
+      category: "Edit",
+      shortcut: { key: "z", metaOrCtrl: true },
+      disabled: !canUndo,
+      run: () => projectStore.getState().undo(),
+    },
+    {
+      id: "edit.redo",
+      label: "Redo",
+      category: "Edit",
+      shortcut: { key: "z", metaOrCtrl: true, shift: true },
+      disabled: !canRedo,
+      run: () => projectStore.getState().redo(),
+    },
+    {
+      id: "view.inspector",
+      label: "Toggle inspector",
+      category: "View",
+      disabled: !project,
+      run: () => setInspectorOpen((current) => !current),
+    },
+    {
+      id: "help.shortcuts",
+      label: "Keyboard shortcuts",
+      category: "Help",
+      shortcut: { key: "?" },
+      run: () => setShowShortcutHelp(true),
+    },
+    {
+      id: "tool.select",
+      label: "Select tool",
+      category: "Canvas tools",
+      shortcut: { key: "v" },
+      disabled: !project,
+      run: handleSelectTool,
+    },
+    {
+      id: "tool.waypoint",
+      label: "Waypoint tool",
+      category: "Canvas tools",
+      shortcut: { key: "1" },
+      disabled: !project,
+      run: handleWaypointTool,
+    },
+    {
+      id: "tool.translation",
+      label: "Translation tool",
+      category: "Canvas tools",
+      shortcut: { key: "2" },
+      disabled: !project,
+      run: handleTranslationTool,
+    },
+    {
+      id: "tool.rotation",
+      label: "Rotation tool",
+      category: "Canvas tools",
+      shortcut: { key: "3" },
+      disabled: !project,
+      run: handleRotationTool,
+    },
+    {
+      id: "tool.event",
+      label: "Event tool",
+      category: "Canvas tools",
+      shortcut: { key: "4" },
+      disabled: !project,
+      run: handleEventTool,
+    },
+    {
+      id: "tool.curve",
+      label: "Curve tool",
+      category: "Canvas tools",
+      shortcut: { key: "c" },
+      disabled: !project,
+      run: handleCurveTool,
+    },
+    ...pathDocuments.map((path) => ({
+      id: `path.open.${path.path_id}`,
+      label: `Open path: ${path.display_name}`,
+      category: "Paths",
+      keywords: [path.file_name],
+      run: () => handleSelectPathFromToolbar(path.path_id),
+    })),
+  ];
 
   return (
     <main className="app-shell" data-testid="app-shell">
       <header className="app-toolbar" ref={toolbarRef}>
         <nav className="app-tabs" aria-label="Top menu">
+          <IconButton
+            className="app-toolbar__navigator-button"
+            aria-label="Open project navigator"
+            title="Open project navigator"
+            disabled={!workspace}
+            onClick={handleShowPathLibrary}
+          >
+            <FolderTree aria-hidden="true" size={17} />
+          </IconButton>
           <TopMenuButton
             id="project"
-            label="Project"
+            label="File"
             openTopMenu={openTopMenu}
             setOpenTopMenu={setActiveTopMenu}
             onBeforeOpen={refreshWorkspaceSummaries}
@@ -1313,7 +1618,7 @@ export function AppShell() {
             </MenuLabel>
             <div className="top-menu__separator" role="separator" />
             <MenuAction
-              label="Path Library..."
+              label="Project Navigator..."
               disabled={!workspace}
               onAction={handleShowPathLibrary}
             />
@@ -1385,19 +1690,63 @@ export function AppShell() {
               }}
             />
           </TopMenuButton>
-          <button
-            type="button"
-            className="app-tab-button"
-            aria-expanded={showConfigDialog}
-            onClick={() => {
-              setShowOpenPanel(false);
-              setOpenTopMenu(null);
-              setShowConfigDialog(true);
-            }}
-            disabled={!project}
+          <TopMenuButton
+            id="view"
+            label="View"
+            openTopMenu={openTopMenu}
+            setOpenTopMenu={setActiveTopMenu}
           >
-            Settings
-          </button>
+            <MenuAction
+              label="Project Navigator"
+              disabled={!workspace}
+              onAction={handleShowPathLibrary}
+            />
+            <MenuAction
+              label={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
+              disabled={!project}
+              onAction={() => {
+                setInspectorOpen((current) => !current);
+                setOpenTopMenu(null);
+              }}
+            />
+            <MenuAction
+              label="Linked Elements..."
+              disabled={!workspace}
+              onAction={handleShowLinkedTargets}
+            />
+            <div className="top-menu__separator" role="separator" />
+            <MenuAction
+              label="Project Settings..."
+              disabled={!project}
+              onAction={() => {
+                setShowConfigDialog(true);
+                setOpenTopMenu(null);
+              }}
+            />
+          </TopMenuButton>
+          <TopMenuButton
+            id="help"
+            label="Help"
+            openTopMenu={openTopMenu}
+            setOpenTopMenu={setActiveTopMenu}
+          >
+            <MenuAction
+              label="Command Palette..."
+              shortcut="Ctrl+K"
+              onAction={() => {
+                setShowCommandPalette(true);
+                setOpenTopMenu(null);
+              }}
+            />
+            <MenuAction
+              label="Keyboard Shortcuts"
+              shortcut="?"
+              onAction={() => {
+                setShowShortcutHelp(true);
+                setOpenTopMenu(null);
+              }}
+            />
+          </TopMenuButton>
         </nav>
         <nav className="toolbar-actions" aria-label="Project actions">
           <div className="toolbar-actions__quick">
@@ -1490,7 +1839,7 @@ export function AppShell() {
               />
               <div className="top-menu__separator" role="separator" />
               <MenuAction
-                label="Path Library..."
+                label="Project Navigator..."
                 disabled={!workspace}
                 onAction={handleShowPathLibrary}
               />
@@ -1507,16 +1856,81 @@ export function AppShell() {
               />
             </TopMenuButton>
           </div>
-          <button
-            type="button"
-            className="primary-action"
-            onClick={handleSaveProject}
-            disabled={
-              !workspace || !projectIo || status === "saving" || toolbarBusy
-            }
-          >
-            Save
-          </button>
+          <div className="toolbar-actions__buttons">
+            <IconButton
+              aria-label="Undo"
+              title="Undo"
+              disabled={!canUndo}
+              onClick={() => projectStore.getState().undo()}
+            >
+              <Undo2 aria-hidden="true" size={16} />
+            </IconButton>
+            <IconButton
+              aria-label="Redo"
+              title="Redo"
+              disabled={!canRedo}
+              onClick={() => projectStore.getState().redo()}
+            >
+              <Redo2 aria-hidden="true" size={16} />
+            </IconButton>
+            <button
+              type="button"
+              className="command-search-button"
+              aria-label="Search commands and paths"
+              onClick={() => setShowCommandPalette(true)}
+            >
+              <Search aria-hidden="true" size={16} />
+              <span>Commands</span>
+              <kbd>⌘K</kbd>
+            </button>
+            <div className="path-health-control">
+              <IconButton
+                className={pathDiagnostics.length > 0 ? "has-diagnostics" : ""}
+                aria-label={`Path health: ${pathDiagnostics.length} issues`}
+                aria-expanded={showPathHealth}
+                title="Path health"
+                disabled={!project}
+                onClick={() => setShowPathHealth((current) => !current)}
+              >
+                <CircleHelp aria-hidden="true" size={16} />
+                {pathDiagnostics.length > 0 ? (
+                  <span>{pathDiagnostics.length}</span>
+                ) : null}
+              </IconButton>
+              {showPathHealth ? (
+                <PathHealthPopover
+                  diagnostics={pathDiagnostics}
+                  saveError={error}
+                  onSelect={(diagnostic) => {
+                    if (diagnostic.elementIndex !== undefined) {
+                      selectionStore
+                        .getState()
+                        .selectElement(diagnostic.elementIndex, project);
+                      setInspectorOpen(true);
+                    }
+                    setShowPathHealth(false);
+                  }}
+                />
+              ) : null}
+            </div>
+            <IconButton
+              aria-label="Settings"
+              title="Project settings"
+              disabled={!project}
+              onClick={() => setShowConfigDialog(true)}
+            >
+              <Settings aria-hidden="true" size={16} />
+            </IconButton>
+            <IconButton
+              aria-label="Toggle inspector"
+              aria-expanded={inspectorOpen}
+              title="Toggle inspector"
+              disabled={!project}
+              onClick={() => setInspectorOpen((current) => !current)}
+            >
+              <PanelRight aria-hidden="true" size={16} />
+            </IconButton>
+          </div>
           <input
             ref={fileInputRef}
             className="file-import-input"
@@ -1557,70 +1971,134 @@ export function AppShell() {
         </nav>
       </header>
 
-      <div className="workspace">
-        <section className="canvas-region" aria-label="Editor canvas">
-          <PathStage
-            curveTool={curveToolSession}
-            onInteractionStateChange={handleCanvasInteractionStateChange}
-            onCurveToolCommit={handleCommitCurveTool}
-            onCurveToolCancel={handleCancelCurveTool}
+      <div
+        className={[
+          "workspace",
+          workspace && !inspectorOpen ? "is-inspector-collapsed" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {!workspace ? (
+          <StartCenter
+            initializing={initializing}
+            recentWorkspaces={projectSummaries}
+            supportsProjectFolders={supportsProjectFolders}
+            onCreateProject={handleNewProject}
+            onImportArchive={() => queueFileImport("archive")}
+            onImportFolder={queueFolderImport}
+            onOpenProject={() => {
+              if (supportsProjectFolders) {
+                void handleOpenWorkspace();
+              } else {
+                handleOpenProjectPanel();
+              }
+            }}
+            onOpenRecent={(id) => {
+              if (supportsProjectFolders) {
+                void handleSwitchWorkspace(id);
+              } else {
+                void handleOpenWorkspaceById(id);
+              }
+            }}
+            onOpenSample={() => void handleOpenSample()}
           />
-        </section>
+        ) : (
+          <>
+            <section className="canvas-region" aria-label="Editor canvas">
+              <PathStage
+                activeTool={activeTool}
+                curveTool={curveToolSession}
+                onToolChange={handleToolChange}
+                onPlaceElement={handlePlaceCanvasElement}
+                onInteractionStateChange={handleCanvasInteractionStateChange}
+                onCurveToolCommit={handleCommitCurveTool}
+                onCurveToolCancel={handleCancelCurveTool}
+              />
+              {project?.path.path_elements.length === 0 ? (
+                <div className="canvas-empty-guide">
+                  <strong>Place your first waypoint</strong>
+                  <span>Choose Waypoint or press 1, then click the field.</span>
+                  <button
+                    type="button"
+                    onClick={() => handleToolChange("waypoint")}
+                  >
+                    Use waypoint tool
+                  </button>
+                </div>
+              ) : null}
+            </section>
 
-        <Sidebar
-          project={project}
-          workspace={workspace}
-          selectedElementIndex={selectedElementIndex}
-          curveToolActive={curveToolSession !== null}
-          onStartCurve={handleStartCurveTool}
-          onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
-        />
+            {inspectorOpen ? (
+              <button
+                type="button"
+                className="inspector-backdrop is-open"
+                aria-label="Dismiss inspector"
+                onClick={() => setInspectorOpen(false)}
+              />
+            ) : null}
+            <Sidebar
+              project={project}
+              workspace={workspace}
+              selectedElementIndex={selectedElementIndex}
+              open={inspectorOpen}
+              curveToolActive={curveToolSession !== null}
+              onClose={() => setInspectorOpen(false)}
+              onStartCurve={handleStartCurveTool}
+              onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
+            />
+          </>
+        )}
       </div>
 
       <footer className="status-bar" aria-label="Workspace status">
-        <div className="status-bar__context">
-          <span
-            className="status-bar__item status-bar__item--path"
-            data-testid="current-path-status"
-            title={currentPathSummary}
-          >
-            <span className="status-bar__marker" aria-hidden="true" />
-            <span className="status-bar__text">{currentPathSummary}</span>
-          </span>
-          <span
-            className="status-bar__item status-bar__item--project"
-            data-testid="current-project-status"
-            title={currentProjectSummary}
-          >
-            <span className="status-bar__marker" aria-hidden="true" />
-            <span className="status-bar__text">{currentProjectSummary}</span>
-          </span>
-          <span
-            className="status-bar__item status-bar__item--selection"
-            data-testid="selected-element-status"
-            title={selectedSummary}
-          >
-            <span className="status-bar__marker" aria-hidden="true" />
-            <span className="status-bar__text">{selectedSummary}</span>
-          </span>
-        </div>
+        <span
+          className="status-bar__selection"
+          data-testid="selected-element-status"
+          title={selectedSummary}
+        >
+          {selectedElement && selectedElementIndex !== null
+            ? `${getElementLabel(selectedElement)} ${selectedElementIndex + 1} · ${formatPointMeters(selectedPosition)}`
+            : workspace
+              ? "Nothing selected"
+              : "Ready"}
+        </span>
+        <span className="status-bar__hint">
+          {workspace ? toolHint(activeTool, curveToolSession !== null) : ""}
+        </span>
         <div className="status-bar__system">
-          <span
-            className="status-bar__item status-bar__item--storage"
-            data-testid="storage-status"
-            title={storageLabel}
-          >
-            <span className="status-bar__marker" aria-hidden="true" />
-            <span className="status-bar__text">{storageLabel}</span>
+          {pathDiagnostics.length > 0 ? (
+            <button
+              type="button"
+              className="status-bar__diagnostics"
+              onClick={() => setShowPathHealth(true)}
+            >
+              {pathDiagnostics.length}{" "}
+              {pathDiagnostics.length === 1 ? "issue" : "issues"}
+            </button>
+          ) : null}
+          <span className="sr-only" data-testid="current-path-status">
+            {currentPathSummary}
           </span>
-          <span
-            className={`status-bar__item status-bar__item--save status-bar__save--${saveStatusTone}`}
+          <span className="sr-only" data-testid="current-project-status">
+            {currentProjectSummary}
+          </span>
+          <span className="sr-only" data-testid="storage-status">
+            {storageLabel}
+          </span>
+          <button
+            type="button"
+            className={`status-bar__save status-bar__save--${saveStatusTone}`}
             data-testid="save-status"
-            title={saveStatus}
+            title={`${storageLabel}. ${saveStatus}`}
+            aria-label="Save"
+            aria-live="polite"
+            onClick={() => void handleSaveProject()}
           >
-            <span className="status-bar__marker" aria-hidden="true" />
-            <span className="status-bar__text">{saveStatus}</span>
-          </span>
+            <span className="status-bar__save-dot" aria-hidden="true" />
+            <span>{compactSaveStatus(saveStatus, saveStatusTone)}</span>
+            {saveStatusTone === "danger" ? <strong>Retry</strong> : null}
+          </button>
         </div>
       </footer>
 
@@ -1631,6 +2109,12 @@ export function AppShell() {
           onSave={handleSaveConfig}
           onUploadFieldImage={handleUploadFieldImage}
           onLoadFieldImage={handleLoadFieldImage}
+        />
+      ) : null}
+      {showNewProjectDialog ? (
+        <CreateProjectDialog
+          onCancel={() => setShowNewProjectDialog(false)}
+          onCreate={(input) => void handleConfirmCreateProject(input)}
         />
       ) : null}
       {showDeleteProjectDialog ? (
@@ -1705,11 +2189,23 @@ export function AppShell() {
           onOverwrite={() => void handleOverwriteConflict()}
         />
       ) : null}
+      {showCommandPalette ? (
+        <CommandPalette
+          commands={commands}
+          onClose={() => setShowCommandPalette(false)}
+        />
+      ) : null}
+      {showShortcutHelp ? (
+        <ShortcutHelpDialog
+          commands={commands}
+          onClose={() => setShowShortcutHelp(false)}
+        />
+      ) : null}
     </main>
   );
 }
 
-type TopMenuId = "project" | "path" | "edit" | "actions";
+type TopMenuId = "project" | "path" | "edit" | "view" | "help" | "actions";
 type ImportMode = "archive" | "path" | "config";
 type PendingToolbarAction = "open" | "import" | "export" | null;
 
@@ -2021,7 +2517,7 @@ function ToolbarPathNavigator({
         onClick={onOpenLibrary}
         disabled={!workspace}
       >
-        Path Library
+        Navigator
       </button>
       <span className="path-toolbar-navigator__count">
         {activeGroup
@@ -2170,6 +2666,89 @@ function toolbarSelectWidthStyle(label: string, minCh: number, maxCh: number) {
   } as CSSProperties;
 }
 
+function CreateProjectDialog({
+  onCancel,
+  onCreate,
+}: {
+  onCancel(): void;
+  onCreate(input: { projectName: string; pathName: string }): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLFormElement>();
+  const projectInputRef = useRef<HTMLInputElement | null>(null);
+  const [projectName, setProjectName] = useState("My Robot Project");
+  const [pathName, setPathName] = useState("Path 1");
+
+  useEffect(() => {
+    projectInputRef.current?.focus();
+    projectInputRef.current?.select();
+  }, []);
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <form
+        ref={dialogRef}
+        className="create-project-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-project-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onCreate({
+            projectName: projectName.trim() || "Untitled Project",
+            pathName: pathName.trim() || "Path 1",
+          });
+        }}
+      >
+        <header className="config-dialog__header">
+          <div>
+            <strong id="create-project-title">Create project</strong>
+            <span>Give your team a clear starting point.</span>
+          </div>
+          <CloseButton ariaLabel="Close create project" onClick={onCancel} />
+        </header>
+        <section className="create-project-dialog__body">
+          <label className="dialog-field">
+            <span>Project name</span>
+            <input
+              ref={projectInputRef}
+              aria-label="Project name"
+              type="text"
+              value={projectName}
+              onChange={(event) => setProjectName(event.currentTarget.value)}
+            />
+            <small>Use your robot, event, or season name.</small>
+          </label>
+          <label className="dialog-field">
+            <span>First path</span>
+            <input
+              aria-label="First path name"
+              type="text"
+              value={pathName}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setPathName(event.currentTarget.value)}
+            />
+            <small>You can add collections and more paths later.</small>
+          </label>
+        </section>
+        <footer className="config-dialog__footer">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="primary-dialog-action">
+            Create project
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
 function NewPathDialog({
   activeGroup,
   onCancel,
@@ -2262,23 +2841,37 @@ function PathLibraryDialog({
   onExportPath(): void;
   onImportPath(): void;
 }) {
+  const dialogRef = useDialogFocusTrap<HTMLElement>();
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
     workspace.active_path_group_id ?? null,
   );
   const [selectedPathId, setSelectedPathId] = useState<string | null>(
     workspace.active_path_id ?? workspace.paths[0]?.path_id ?? null,
   );
+  const [query, setQuery] = useState("");
   const [showCreateCollectionDialog, setShowCreateCollectionDialog] =
     useState(false);
   const [deletingGroup, setDeletingGroup] =
     useState<ProjectPathGroupDocument | null>(null);
+
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
   const selectedGroup =
     workspace.path_groups.find((group) => group.group_id === selectedGroupId) ??
     null;
   const selectedCollectionPaths = visiblePathsForGroup(
     workspace.paths,
     selectedGroup,
-  );
+  ).filter((path) => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return (
+      !normalizedQuery ||
+      path.display_name.toLocaleLowerCase().includes(normalizedQuery) ||
+      path.file_name.toLocaleLowerCase().includes(normalizedQuery)
+    );
+  });
   const selectedPathFromState =
     workspace.paths.find((path) => path.path_id === selectedPathId) ?? null;
   const selectedPath =
@@ -2427,17 +3020,30 @@ function PathLibraryDialog({
   };
 
   return (
-    <div className="config-dialog-backdrop" role="presentation">
+    <div className="project-navigator-backdrop" role="presentation">
       <section
-        className="path-library-dialog"
+        ref={dialogRef}
+        className="path-library-dialog project-navigator"
         role="dialog"
         aria-modal="true"
-        aria-label="Path Library"
+        aria-label="Project Navigator"
         data-testid="path-library-dialog"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (event.key === "F2" && selectedPath) {
+            event.preventDefault();
+            handleRenameSelectedPath();
+          }
+        }}
       >
         <header className="config-dialog__header">
-          <strong>Path Library</strong>
-          <CloseButton ariaLabel="Close path library" onClick={onCancel} />
+          <div>
+            <strong>Project Navigator</strong>
+            <span>{workspace.display_name}</span>
+          </div>
+          <CloseButton ariaLabel="Close project navigator" onClick={onCancel} />
         </header>
 
         <div className="path-library-dialog__utility-bar">
@@ -2448,6 +3054,17 @@ function PathLibraryDialog({
               {selectedCollectionPaths.length === 1 ? "path" : "paths"} visible
             </span>
           </div>
+          <label className="project-navigator__search">
+            <Search aria-hidden="true" size={15} />
+            <input
+              ref={searchInputRef}
+              type="search"
+              aria-label="Search paths"
+              placeholder="Search paths…"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+            />
+          </label>
           <button
             type="button"
             className="path-library-dialog__utility-button"
@@ -2502,7 +3119,11 @@ function PathLibraryDialog({
                 </PathLibraryHeaderButton>
               </div>
             </div>
-            <div className="path-library-dialog__group-list" role="list">
+            <div
+              className="path-library-dialog__group-list"
+              role="listbox"
+              aria-label="Collection list"
+            >
               <button
                 type="button"
                 className={[
@@ -2512,8 +3133,8 @@ function PathLibraryDialog({
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                role="listitem"
-                aria-pressed={!selectedGroup}
+                role="option"
+                aria-selected={!selectedGroup}
                 onClick={() => handleSelectLibraryGroup(null)}
               >
                 <span>All Paths</span>
@@ -2530,8 +3151,8 @@ function PathLibraryDialog({
                       ? "path-library-dialog__group is-selected"
                       : "path-library-dialog__group"
                   }
-                  role="listitem"
-                  aria-pressed={selectedGroup?.group_id === group.group_id}
+                  role="option"
+                  aria-selected={selectedGroup?.group_id === group.group_id}
                   onClick={() => handleSelectLibraryGroup(group.group_id)}
                 >
                   <span>{group.display_name}</span>
@@ -2595,13 +3216,17 @@ function PathLibraryDialog({
                 </PathLibraryHeaderButton>
               </div>
             </div>
-            <div className="path-library-dialog__path-list" role="list">
+            <div
+              className="path-library-dialog__path-list"
+              role="listbox"
+              aria-label="Path list"
+            >
               {selectedCollectionPaths.length > 0 ? (
                 selectedCollectionPaths.map((path) => (
                   <button
                     key={path.path_id}
                     type="button"
-                    role="listitem"
+                    role="option"
                     className={[
                       "path-library-dialog__path",
                       path.path_id === effectiveSelectedPathId
@@ -2613,7 +3238,7 @@ function PathLibraryDialog({
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    aria-pressed={path.path_id === effectiveSelectedPathId}
+                    aria-selected={path.path_id === effectiveSelectedPathId}
                     onClick={() => setSelectedPathId(path.path_id)}
                     onDoubleClick={() => handleUsePath(path.path_id)}
                   >
@@ -2639,7 +3264,7 @@ function PathLibraryDialog({
             aria-label="Collection membership"
           >
             <div className="path-library-dialog__column-header">
-              <strong>Collection Membership</strong>
+              <strong>Membership</strong>
               <span>
                 {selectedPath ? selectedPath.display_name : "No path"}
               </span>
@@ -3754,7 +4379,9 @@ function pointInsideRect(
 
 function hasActiveBlockingSurface({
   openTopMenu,
+  showCommandPalette,
   showConfigDialog,
+  showNewProjectDialog,
   showNewPathDialog,
   showDeletePathDialog,
   showDeleteProjectDialog,
@@ -3762,9 +4389,12 @@ function hasActiveBlockingSurface({
   showLinkedTargetsDialog,
   showMobileSupportWarning,
   showOpenPanel,
+  showShortcutHelp,
 }: {
   openTopMenu: TopMenuId | null;
+  showCommandPalette: boolean;
   showConfigDialog: boolean;
+  showNewProjectDialog: boolean;
   showNewPathDialog: boolean;
   showDeletePathDialog: boolean;
   showDeleteProjectDialog: boolean;
@@ -3772,17 +4402,21 @@ function hasActiveBlockingSurface({
   showLinkedTargetsDialog: boolean;
   showMobileSupportWarning: boolean;
   showOpenPanel: boolean;
+  showShortcutHelp: boolean;
 }): boolean {
   return Boolean(
     openTopMenu ||
+    showCommandPalette ||
     showConfigDialog ||
+    showNewProjectDialog ||
     showNewPathDialog ||
     showDeletePathDialog ||
     showDeleteProjectDialog ||
     showPathGroupsDialog ||
     showLinkedTargetsDialog ||
     showMobileSupportWarning ||
-    showOpenPanel,
+    showOpenPanel ||
+    showShortcutHelp,
   );
 }
 
@@ -3797,6 +4431,63 @@ function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
     Boolean(target.closest("[data-ranged-constraint-selection]"))
+  );
+}
+
+function PathHealthPopover({
+  diagnostics,
+  saveError,
+  onSelect,
+}: {
+  diagnostics: readonly PathDiagnostic[];
+  saveError: string | null;
+  onSelect(diagnostic: PathDiagnostic): void;
+}) {
+  return (
+    <section
+      className="path-health-popover"
+      role="dialog"
+      aria-label="Path health"
+    >
+      <header>
+        <div>
+          <strong>Path health</strong>
+          <span>
+            {diagnostics.length === 0 && !saveError
+              ? "No editor issues found"
+              : "Fix these before heading to the robot"}
+          </span>
+        </div>
+      </header>
+      <div className="path-health-popover__list">
+        {saveError ? (
+          <div className="path-health-popover__issue is-error">
+            <span>Save failed</span>
+            <small>{saveError}</small>
+          </div>
+        ) : null}
+        {diagnostics.map((diagnostic) => (
+          <button
+            key={diagnostic.id}
+            type="button"
+            className={`path-health-popover__issue is-${diagnostic.severity}`}
+            onClick={() => onSelect(diagnostic)}
+          >
+            <span>{diagnostic.summary}</span>
+            {diagnostic.elementIndex !== undefined ? (
+              <small>Show element {diagnostic.elementIndex + 1}</small>
+            ) : (
+              <small>Path guidance</small>
+            )}
+          </button>
+        ))}
+        {diagnostics.length === 0 && !saveError ? (
+          <div className="path-health-popover__clear">
+            BLine’s editor-level checks are clear.
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -4221,6 +4912,22 @@ function formatSaveStatus({
 
 type SaveStatusTone = "danger" | "loading" | "pending" | "saved" | "saving";
 
+function compactSaveStatus(statusLabel: string, tone: SaveStatusTone): string {
+  if (tone === "danger") {
+    return "Save failed";
+  }
+  if (tone === "saving") {
+    return "Saving…";
+  }
+  if (tone === "pending") {
+    return "Autosave pending";
+  }
+  if (tone === "loading") {
+    return "Loading…";
+  }
+  return statusLabel.replace(/^Saved/, "Saved locally");
+}
+
 function getSaveStatusTone({
   autosaveStatus,
   dirty,
@@ -4386,6 +5093,47 @@ function safeDownloadName(value: string): string {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "") || "bline-project"
   );
+}
+
+function toolForShortcut(key: string): EditorTool | null {
+  const normalized = key.toLocaleLowerCase();
+  if (normalized === "v") {
+    return "select";
+  }
+  if (normalized === "1") {
+    return "waypoint";
+  }
+  if (normalized === "2") {
+    return "translation";
+  }
+  if (normalized === "3") {
+    return "rotation";
+  }
+  if (normalized === "4") {
+    return "event";
+  }
+  if (normalized === "c") {
+    return "curve";
+  }
+  return null;
+}
+
+function toolHint(tool: EditorTool, curveDrawing: boolean): string {
+  if (curveDrawing) {
+    return "Draw across the field · Esc cancels";
+  }
+  if (tool === "select") {
+    return "Drag anchors to refine the path · V selects";
+  }
+  if (tool === "rotation" || tool === "event") {
+    return `Click near a path segment to place ${
+      tool === "event" ? "an event" : "a rotation"
+    } · Esc cancels`;
+  }
+  if (tool === "curve") {
+    return "Drag across the field to sketch a curve · Esc cancels";
+  }
+  return `Click the field to place a ${tool} · Esc cancels`;
 }
 
 interface BrowserSaveWindow extends Window {

@@ -143,11 +143,19 @@ export function createNewCanvasProject(now = new Date()) {
 
   return createBlankCanvasProject({
     projectId: `phase-1-path-${stamp}-${random}`,
-    displayName: `Untitled Path ${stamp}-${random}`,
+    displayName: "Untitled Path",
   });
 }
 
 export function createNewCanvasWorkspace(now = new Date()) {
+  return createNamedCanvasWorkspace("Untitled Project", "Path 1", now);
+}
+
+export function createNamedCanvasWorkspace(
+  projectName: string,
+  pathName: string,
+  now = new Date(),
+) {
   const stamp = now
     .toISOString()
     .replace(/[-:.TZ]/g, "")
@@ -156,8 +164,42 @@ export function createNewCanvasWorkspace(now = new Date()) {
     globalThis.crypto?.randomUUID?.().slice(0, 8) ??
     Math.random().toString(36).slice(2, 10);
 
-  return createBlankCanvasWorkspace({
-    projectId: `workspace-${stamp}-${random}`,
-    displayName: `Untitled Project ${stamp}-${random}`,
+  const workspaceId = `workspace-${stamp}-${random}`;
+  const pathId = `path-${stamp}-${random}`;
+  const path = createProjectPathDocument({
+    path_id: pathId,
+    display_name: pathName.trim() || "Path 1",
+    file_name: `${safePathFileStem(pathName) || "path-1"}.json`,
+    path: createBlankCanvasPath(),
   });
+
+  return createProjectWorkspaceDocument({
+    project_id: workspaceId,
+    display_name: projectName.trim() || "Untitled Project",
+    paths: [path],
+    active_path_id: path.path_id,
+  });
+}
+
+export function createSampleCanvasWorkspace(now = new Date()) {
+  const workspace = createNamedCanvasWorkspace(
+    "Phase 1 Canvas Draft",
+    "Phase 1 Canvas Draft",
+    now,
+  );
+  return {
+    ...workspace,
+    paths: workspace.paths.map((path) => ({
+      ...path,
+      path: createExampleCanvasPath(),
+    })),
+  };
+}
+
+function safePathFileStem(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }

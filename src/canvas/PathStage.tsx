@@ -11,6 +11,14 @@ import {
   type WheelEvent,
 } from "react";
 import {
+  Eye,
+  EyeOff,
+  Focus,
+  MousePointer2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import {
   isAnchorElement,
   isEventTrigger,
   isRotationTarget,
@@ -19,7 +27,11 @@ import {
   type PathElement,
   type TranslationTarget,
 } from "../core/model/path";
-import type { LinkedTarget, LinkedTargetKind } from "../core/io/projectSchema";
+import type {
+  LinkedTarget,
+  LinkedTargetKind,
+  ProjectDocument,
+} from "../core/io/projectSchema";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
 import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
@@ -34,7 +46,14 @@ import {
   linkedTargetForPathElement,
   nextLinkedTargetName,
 } from "../core/linkedTargets";
-import { SkipBackIcon, SkipForwardIcon } from "../ui/icons";
+import {
+  CurveIcon,
+  ElementIcon,
+  SkipBackIcon,
+  SkipForwardIcon,
+} from "../ui/icons";
+import { IconButton } from "../ui/controls";
+import type { EditorTool } from "../ui/app/editorCommands";
 import {
   isInteractiveShortcutTarget,
   removeSelectedPathElement,
@@ -43,6 +62,7 @@ import {
 import { fieldAspectRatio } from "./constants";
 import {
   createFieldViewport,
+  clampModelPoint,
   getElementHeadingRadians,
   getElementPosition,
   getRenderableElementPositions,
@@ -80,13 +100,23 @@ const fallbackStageSize: CanvasSize = {
 };
 
 interface PathStageProps {
+  activeTool?: EditorTool;
   curveTool?: CurveToolSession | null;
+  onToolChange?(tool: EditorTool): void;
+  onPlaceElement?(placement: CanvasElementPlacement): void;
   onInteractionStateChange?: (active: boolean) => void;
   onCurveToolCommit?(
     insertionIndex: number,
     targets: readonly TranslationTarget[],
   ): void;
   onCurveToolCancel?(): void;
+}
+
+export interface CanvasElementPlacement {
+  type: "waypoint" | "translation" | "rotation" | "event_trigger";
+  insertionIndex: number;
+  position: PointMeters;
+  ratio?: number;
 }
 
 interface ActiveDrag {
@@ -125,7 +155,10 @@ interface ActiveCanvasContextMenu {
 }
 
 export function PathStage({
+  activeTool = "select",
   curveTool = null,
+  onToolChange,
+  onPlaceElement,
   onInteractionStateChange,
   onCurveToolCommit,
   onCurveToolCancel,
@@ -145,6 +178,7 @@ export function PathStage({
   const rotationFrameRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
+  const [showGhostPaths, setShowGhostPaths] = useState(true);
   const [panOffset, setPanOffsetState] = useState<StagePoint>({ x: 0, y: 0 });
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [customFieldImage, setCustomFieldImage] = useState<{
@@ -159,6 +193,10 @@ export function PathStage({
   >(null);
   const [hoveredOverlayPoint, setHoveredOverlayPoint] =
     useState<StagePoint | null>(null);
+  const [placementPreview, setPlacementPreview] = useState<{
+    point: StagePoint;
+    placement: CanvasElementPlacement | null;
+  } | null>(null);
   const [contextMenu, setContextMenu] =
     useState<ActiveCanvasContextMenu | null>(null);
   const [activeDrag, setActiveDragState] = useState<ActiveDrag | null>(null);
@@ -492,7 +530,7 @@ export function PathStage({
     [activeCurveDraft],
   );
   const overlayPaths = useMemo<PixiPathOverlay[]>(() => {
-    if (!workspace?.active_path_group_id) {
+    if (!showGhostPaths || !workspace?.active_path_group_id) {
       return [];
     }
 
@@ -520,7 +558,7 @@ export function PathStage({
           ]
         : [];
     });
-  }, [workspace]);
+  }, [showGhostPaths, workspace]);
   const hoveredOverlayPath =
     overlayPaths.find((overlay) => overlay.pathId === hoveredOverlayPathId) ??
     null;
@@ -615,19 +653,20 @@ export function PathStage({
         return;
       }
 
-      if (event.key === " " || event.key.toLowerCase() === "k") {
+      const key = event.key.toLowerCase();
+      if (event.key === " " || key === "k") {
         event.preventDefault();
         toggleSimulationPlaying();
         return;
       }
 
-      if (event.key === "ArrowLeft" || event.key === "Home") {
+      if (event.key === "Home" || event.key === "ArrowLeft" || key === "j") {
         event.preventDefault();
         resetSimulation();
         return;
       }
 
-      if (event.key === "ArrowRight" || event.key === "End") {
+      if (event.key === "End" || event.key === "ArrowRight" || key === "l") {
         event.preventDefault();
         finishSimulation();
       }
@@ -682,29 +721,47 @@ export function PathStage({
   }, [renderInput]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (
-      event.defaultPrevented ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.altKey ||
-      isInteractiveShortcutTarget(event.target)
-    ) {
+    if (event.defaultPrevented || isInteractiveShortcutTarget(event.target)) {
       return;
     }
 
-    if (event.key === " " || event.key.toLowerCase() === "k") {
+    const modifier = event.metaKey || event.ctrlKey;
+    if (modifier && !event.altKey) {
+      if (event.key === "0") {
+        event.preventDefault();
+        resetView();
+        return;
+      }
+      if (event.key === "=" || event.key === "+") {
+        event.preventDefault();
+        zoomFromCenter(1.25);
+        return;
+      }
+      if (event.key === "-") {
+        event.preventDefault();
+        zoomFromCenter(1 / 1.25);
+      }
+      return;
+    }
+
+    if (event.altKey) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (event.key === " " || key === "k") {
       event.preventDefault();
       toggleSimulationPlaying();
       return;
     }
 
-    if (event.key === "ArrowLeft" || event.key === "Home") {
+    if (event.key === "Home" || event.key === "ArrowLeft" || key === "j") {
       event.preventDefault();
       resetSimulation();
       return;
     }
 
-    if (event.key === "ArrowRight" || event.key === "End") {
+    if (event.key === "End" || event.key === "ArrowRight" || key === "l") {
       event.preventDefault();
       finishSimulation();
       return;
@@ -720,6 +777,13 @@ export function PathStage({
     if (event.key === "Escape" && contextMenu) {
       event.preventDefault();
       setContextMenu(null);
+      return;
+    }
+
+    if (event.key === "Escape" && activeTool !== "select") {
+      event.preventDefault();
+      setPlacementPreview(null);
+      onToolChange?.("select");
       return;
     }
 
@@ -761,8 +825,49 @@ export function PathStage({
     [baseViewport, setPanOffset, stageSize, viewScale, viewport],
   );
 
+  const zoomFromCenter = useCallback(
+    (factor: number) =>
+      zoomAtStagePoint(
+        { x: stageSize.width / 2, y: stageSize.height / 2 },
+        factor,
+      ),
+    [stageSize.height, stageSize.width, zoomAtStagePoint],
+  );
+
+  const resetView = useCallback(() => {
+    setViewScale(1);
+    setPanOffset({ x: 0, y: 0 });
+  }, [setPanOffset]);
+
+  useEffect(() => {
+    const handleViewShortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        !(event.metaKey || event.ctrlKey) ||
+        isInteractiveShortcutTarget(event.target)
+      ) {
+        return;
+      }
+
+      if (event.key === "0") {
+        event.preventDefault();
+        resetView();
+      } else if (event.key === "=" || event.key === "+") {
+        event.preventDefault();
+        zoomFromCenter(1.25);
+      } else if (event.key === "-") {
+        event.preventDefault();
+        zoomFromCenter(1 / 1.25);
+      }
+    };
+
+    window.addEventListener("keydown", handleViewShortcut);
+    return () => window.removeEventListener("keydown", handleViewShortcut);
+  }, [resetView, zoomFromCenter]);
+
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (isTransportEventTarget(event.target)) {
+    if (isCanvasChromeEventTarget(event.target)) {
       return;
     }
 
@@ -773,7 +878,7 @@ export function PathStage({
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (isTransportEventTarget(event.target)) {
+    if (isCanvasChromeEventTarget(event.target)) {
       return;
     }
     if (event.button !== 0) {
@@ -801,6 +906,20 @@ export function PathStage({
           [sample],
         ),
       });
+      return;
+    }
+
+    if (isPlacementTool(activeTool)) {
+      const placement = placementForPointer(
+        project,
+        activeTool,
+        pointer,
+        viewport,
+      );
+      setPlacementPreview({ point: pointer, placement });
+      if (placement) {
+        onPlaceElement?.(placement);
+      }
       return;
     }
 
@@ -892,11 +1011,26 @@ export function PathStage({
   };
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (isTransportEventTarget(event.target)) {
+    if (isCanvasChromeEventTarget(event.target)) {
       return;
     }
 
     const pointer = stagePointFromEvent(event);
+    if (
+      project &&
+      isPlacementTool(activeTool) &&
+      !activeDragRef.current &&
+      !activeRotationDragRef.current
+    ) {
+      setPlacementPreview({
+        point: pointer,
+        placement: placementForPointer(project, activeTool, pointer, viewport),
+      });
+      setHoveredOverlayPathId(null);
+      setHoveredOverlayPoint(null);
+      return;
+    }
+
     const curveDraft = activeCurveDraftRef.current;
     if (curveDraft && project && curveDraft.pointerId === event.pointerId) {
       event.preventDefault();
@@ -1174,7 +1308,7 @@ export function PathStage({
   };
 
   const handleContextMenu = (event: MouseEvent<HTMLDivElement>) => {
-    if (isTransportEventTarget(event.target)) {
+    if (isCanvasChromeEventTarget(event.target)) {
       return;
     }
     event.preventDefault();
@@ -1312,6 +1446,7 @@ export function PathStage({
           "path-stage__canvas",
           isPanning ? "is-panning" : "",
           curveTool ? "is-curve-tool" : "",
+          isPlacementTool(activeTool) ? "is-placement-tool" : "",
           hoveredOverlayPath ? "has-ghost-hover" : "",
         ]
           .filter(Boolean)
@@ -1321,12 +1456,51 @@ export function PathStage({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        onPointerLeave={() => {
+          if (!activeDragRef.current && !activeCurveDraftRef.current) {
+            setPlacementPreview(null);
+          }
+        }}
         onContextMenu={handleContextMenu}
         onWheel={handleWheel}
       >
+        <CanvasToolRail
+          activeTool={activeTool}
+          project={project}
+          onToolChange={(tool) => {
+            setPlacementPreview(null);
+            onToolChange?.(tool);
+          }}
+        />
+        <CanvasViewControls
+          scale={viewScale}
+          showGhostPaths={showGhostPaths}
+          onFit={resetView}
+          onToggleGhostPaths={() => setShowGhostPaths((current) => !current)}
+          onZoomIn={() => zoomFromCenter(1.25)}
+          onZoomOut={() => zoomFromCenter(1 / 1.25)}
+        />
         {rendererError ? (
           <div className="path-stage__renderer-error">
             Canvas renderer failed: {rendererError}
+          </div>
+        ) : null}
+        {placementPreview && isPlacementTool(activeTool) ? (
+          <div
+            className={[
+              "path-stage__placement-preview",
+              placementPreview.placement ? "is-valid" : "is-invalid",
+            ].join(" ")}
+            style={{
+              left: placementPreview.point.x,
+              top: placementPreview.point.y,
+            }}
+            aria-hidden="true"
+          >
+            <ElementIcon
+              type={placementToolElementType(activeTool)}
+              size={18}
+            />
           </div>
         ) : null}
         {hoveredOverlayPath && hoveredOverlayPoint ? (
@@ -1377,6 +1551,238 @@ export function PathStage({
   );
 }
 
+function CanvasToolRail({
+  activeTool,
+  project,
+  onToolChange,
+}: {
+  activeTool: EditorTool;
+  project: ProjectDocument | null;
+  onToolChange(tool: EditorTool): void;
+}) {
+  const anchorCount =
+    project?.path.path_elements.filter(isAnchorElement).length ?? 0;
+  const tools: Array<{
+    tool: EditorTool;
+    label: string;
+    shortcut: string;
+    disabled?: boolean;
+  }> = [
+    { tool: "select", label: "Select", shortcut: "V" },
+    { tool: "waypoint", label: "Waypoint", shortcut: "1" },
+    { tool: "translation", label: "Translation", shortcut: "2" },
+    {
+      tool: "rotation",
+      label: "Rotation",
+      shortcut: "3",
+      disabled: anchorCount < 2,
+    },
+    {
+      tool: "event",
+      label: "Event",
+      shortcut: "4",
+      disabled: anchorCount < 2,
+    },
+    { tool: "curve", label: "Curve", shortcut: "C" },
+  ];
+
+  return (
+    <aside
+      className="canvas-tool-rail"
+      aria-label="Canvas tools"
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {tools.map(({ tool, label, shortcut, disabled }) => (
+        <button
+          key={tool}
+          type="button"
+          className={activeTool === tool ? "is-active" : ""}
+          aria-label={`${label} tool`}
+          aria-keyshortcuts={shortcut}
+          aria-pressed={activeTool === tool}
+          disabled={!project || disabled}
+          title={
+            disabled
+              ? `${label} needs two anchors`
+              : `${label} tool (${shortcut})`
+          }
+          onClick={() => onToolChange(tool)}
+        >
+          {tool === "select" ? (
+            <MousePointer2 aria-hidden="true" size={18} />
+          ) : tool === "curve" ? (
+            <CurveIcon size={18} />
+          ) : (
+            <ElementIcon type={placementToolElementType(tool)} size={18} />
+          )}
+          <kbd>{shortcut}</kbd>
+        </button>
+      ))}
+    </aside>
+  );
+}
+
+function CanvasViewControls({
+  scale,
+  showGhostPaths,
+  onFit,
+  onToggleGhostPaths,
+  onZoomIn,
+  onZoomOut,
+}: {
+  scale: number;
+  showGhostPaths: boolean;
+  onFit(): void;
+  onToggleGhostPaths(): void;
+  onZoomIn(): void;
+  onZoomOut(): void;
+}) {
+  return (
+    <div
+      className="canvas-view-controls"
+      aria-label="Canvas view controls"
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <IconButton
+        className={showGhostPaths ? "is-active" : ""}
+        aria-label={
+          showGhostPaths ? "Hide collection paths" : "Show collection paths"
+        }
+        aria-pressed={showGhostPaths}
+        title={
+          showGhostPaths ? "Hide collection paths" : "Show collection paths"
+        }
+        onClick={onToggleGhostPaths}
+      >
+        {showGhostPaths ? (
+          <Eye aria-hidden="true" size={16} />
+        ) : (
+          <EyeOff aria-hidden="true" size={16} />
+        )}
+      </IconButton>
+      <IconButton aria-label="Zoom out" title="Zoom out" onClick={onZoomOut}>
+        <ZoomOut aria-hidden="true" size={16} />
+      </IconButton>
+      <button
+        type="button"
+        className="canvas-view-controls__scale"
+        aria-label="Fit view"
+        title="Fit view (Ctrl/Command+0)"
+        onClick={onFit}
+      >
+        <Focus aria-hidden="true" size={15} />
+        <span>{Math.round(scale * 100)}%</span>
+      </button>
+      <IconButton aria-label="Zoom in" title="Zoom in" onClick={onZoomIn}>
+        <ZoomIn aria-hidden="true" size={16} />
+      </IconButton>
+    </div>
+  );
+}
+
+function isPlacementTool(
+  tool: EditorTool,
+): tool is "waypoint" | "translation" | "rotation" | "event" {
+  return (
+    tool === "waypoint" ||
+    tool === "translation" ||
+    tool === "rotation" ||
+    tool === "event"
+  );
+}
+
+function placementToolElementType(
+  tool: EditorTool,
+): "waypoint" | "translation" | "rotation" | "event_trigger" {
+  if (tool === "event") {
+    return "event_trigger";
+  }
+  if (tool === "rotation" || tool === "translation" || tool === "waypoint") {
+    return tool;
+  }
+  return "waypoint";
+}
+
+function placementForPointer(
+  project: ProjectDocument,
+  tool: "waypoint" | "translation" | "rotation" | "event",
+  pointer: StagePoint,
+  viewport: FieldViewport,
+): CanvasElementPlacement | null {
+  const position = clampModelPoint(
+    stageToModelPoint(pointer, viewport),
+    viewport.field,
+  );
+  const elements = project.path.path_elements;
+
+  if (tool === "waypoint" || tool === "translation") {
+    const selectedIndex = selectionStore.getState().selectedElementIndex;
+    return {
+      type: tool,
+      position,
+      insertionIndex: Math.min(
+        elements.length,
+        Math.max(
+          0,
+          selectedIndex === null ? elements.length : selectedIndex + 1,
+        ),
+      ),
+    };
+  }
+
+  const anchors = elements.flatMap((element, index) => {
+    if (!isAnchorElement(element)) {
+      return [];
+    }
+    const anchorPosition = getElementPosition(elements, index);
+    return anchorPosition ? [{ index, position: anchorPosition }] : [];
+  });
+  if (anchors.length < 2) {
+    return null;
+  }
+
+  let nearest:
+    | {
+        insertionIndex: number;
+        position: PointMeters;
+        ratio: number;
+        distance: number;
+      }
+    | undefined;
+  for (let index = 0; index < anchors.length - 1; index += 1) {
+    const start = anchors[index];
+    const end = anchors[index + 1];
+    const ratio = projectPointToSegmentRatio(
+      position,
+      start.position,
+      end.position,
+    );
+    const projected = interpolateSegmentPosition(
+      start.position,
+      end.position,
+      ratio,
+    );
+    const distance = modelPointDistance(position, projected);
+    if (!nearest || distance < nearest.distance) {
+      nearest = {
+        insertionIndex: end.index,
+        position: projected,
+        ratio,
+        distance,
+      };
+    }
+  }
+
+  return nearest
+    ? {
+        type: placementToolElementType(tool),
+        insertionIndex: nearest.insertionIndex,
+        position: nearest.position,
+        ratio: nearest.ratio,
+      }
+    : null;
+}
+
 function SimulationTransport({
   result,
   currentTimeS,
@@ -1409,8 +1815,8 @@ function SimulationTransport({
           type="button"
           className="transport-step-button"
           aria-label="Reset simulation"
-          aria-keyshortcuts="ArrowLeft Home"
-          title="Reset simulation (Left Arrow)"
+          aria-keyshortcuts="J ArrowLeft Home"
+          title="Restart simulation (J, Left Arrow, or Home)"
           onClick={onReset}
           disabled={disabled || safeCurrent <= 0}
         >
@@ -1435,8 +1841,8 @@ function SimulationTransport({
           type="button"
           className="transport-step-button"
           aria-label="Fast forward simulation"
-          aria-keyshortcuts="ArrowRight End"
-          title="Fast forward simulation (Right Arrow)"
+          aria-keyshortcuts="L ArrowRight End"
+          title="Jump to end (L, Right Arrow, or End)"
           onClick={onFinish}
           disabled={disabled || safeCurrent >= total}
         >
@@ -1856,10 +2262,14 @@ function stagePointFromEvent(
   };
 }
 
-function isTransportEventTarget(target: EventTarget): boolean {
+function isCanvasChromeEventTarget(target: EventTarget): boolean {
   return (
     target instanceof Element &&
-    Boolean(target.closest(".simulation-transport"))
+    Boolean(
+      target.closest(
+        ".simulation-transport, .canvas-tool-rail, .canvas-view-controls",
+      ),
+    )
   );
 }
 

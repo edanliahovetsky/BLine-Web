@@ -24,7 +24,7 @@ interface ElementListProps {
   onSelectElement(index: number): void;
   onRemoveElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
-  onToggleSection(): void;
+  onToggleSection?(): void;
 }
 
 export function ElementList({
@@ -183,7 +183,7 @@ export function ElementList({
                   type="button"
                   className="path-element-row"
                   data-testid={`path-element-row-${index}`}
-                  aria-keyshortcuts="ArrowUp ArrowDown Delete Backspace"
+                  aria-keyshortcuts="ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown Delete Backspace"
                   aria-pressed={selected}
                   onMouseDown={(event) => handleMouseDown(event, index)}
                   onClick={() => {

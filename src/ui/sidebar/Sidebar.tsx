@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { X } from "lucide-react";
 import type {
   LinkedTargetKind,
   ProjectDocument,
@@ -29,23 +30,19 @@ import {
   getSwitchableElementTypes,
   type AddableElementType,
 } from "./sidebarCommands";
-
-type SidebarSectionKey = "pathElements" | "properties" | "constraints";
-
-type SidebarSectionState = Record<SidebarSectionKey, boolean>;
-
-const sidebarSectionStorageKey = "bline.sidebar.sections.v1";
-const defaultSidebarSectionState: SidebarSectionState = {
-  pathElements: true,
-  properties: true,
-  constraints: true,
-};
+import {
+  readEditorUiPreferences,
+  writeEditorUiPreferences,
+} from "../app/editorCommands";
+import { IconButton } from "../controls";
 
 interface SidebarProps {
   project: ProjectDocument | null;
   workspace: ProjectWorkspaceDocument | null;
   selectedElementIndex: number | null;
+  open?: boolean;
   curveToolActive?: boolean;
+  onClose?(): void;
   onStartCurve?(insertionIndex: number): void;
   onOpenLinkedTargetPicker?(): void;
 }
@@ -54,12 +51,14 @@ export function Sidebar({
   project,
   workspace,
   selectedElementIndex,
+  open = false,
   curveToolActive = false,
+  onClose,
   onStartCurve,
   onOpenLinkedTargetPicker,
 }: SidebarProps) {
-  const [sectionState, setSectionState] = useState<SidebarSectionState>(() =>
-    readSidebarSectionState(),
+  const [activeTab, setActiveTab] = useState<"elements" | "constraints">(
+    () => readEditorUiPreferences().inspectorTab,
   );
   const selectedElement =
     project && selectedElementIndex !== null
@@ -239,51 +238,91 @@ export function Sidebar({
       .selectElement(selectedElementIndex, projectStore.getState().project);
   };
 
-  const handleToggleSection = (key: SidebarSectionKey) => {
-    setSectionState((current) => {
-      const next = { ...current, [key]: !current[key] };
-      writeSidebarSectionState(next);
-      return next;
+  const handleSelectTab = (tab: "elements" | "constraints") => {
+    setActiveTab(tab);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      inspectorTab: tab,
     });
   };
 
   return (
-    <aside className="inspector-sidebar" aria-label="Path inspector">
-      <ElementList
-        project={project}
-        selectedElementIndex={selectedElementIndex}
-        curveToolActive={curveToolActive}
-        open={sectionState.pathElements}
-        onToggleSection={() => handleToggleSection("pathElements")}
-        onAddElement={handleAddElement}
-        onAddCurve={handleAddCurve}
-        onSelectElement={handleSelectElement}
-        onRemoveElement={handleRemoveElement}
-        onMoveElement={handleMoveElement}
-      />
-      <PropertyEditor
-        element={selectedElement}
-        workspace={workspace}
-        selectedElementIndex={selectedElementIndex}
-        open={sectionState.properties}
-        typeOptions={
-          project && selectedElementIndex !== null
-            ? getSwitchableElementTypes(project, selectedElementIndex)
-            : []
-        }
-        fieldGeometry={fieldGeometry}
-        onToggleSection={() => handleToggleSection("properties")}
-        onChangeType={handleChangeElementType}
-        onUpdateElement={handleUpdateElement}
-        onUnlinkTarget={handleUnlinkTarget}
-        onCreateLinkedTarget={handleCreateLinkedTarget}
-        onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
-      />
-      <ConstraintEditor
-        project={project}
-        open={sectionState.constraints}
-        onToggleSection={() => handleToggleSection("constraints")}
-      />
+    <aside
+      className={`inspector-sidebar ${open ? "is-open" : ""}`}
+      aria-label="Path inspector"
+    >
+      <header className="inspector-sidebar__header">
+        <div className="inspector-tabs" role="tablist" aria-label="Inspector">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "elements"}
+            className={activeTab === "elements" ? "is-active" : ""}
+            onClick={() => handleSelectTab("elements")}
+          >
+            Elements
+            <span>{project?.path.path_elements.length ?? 0}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "constraints"}
+            className={activeTab === "constraints" ? "is-active" : ""}
+            onClick={() => handleSelectTab("constraints")}
+          >
+            Constraints
+            <span>{project?.path.ranged_constraints.length ?? 0}</span>
+          </button>
+        </div>
+        <IconButton
+          className="inspector-sidebar__close"
+          aria-label="Close inspector"
+          title="Close inspector"
+          onClick={onClose}
+        >
+          <X aria-hidden="true" size={16} />
+        </IconButton>
+      </header>
+
+      {activeTab === "elements" ? (
+        <div
+          className="inspector-sidebar__panel inspector-sidebar__panel--elements"
+          role="tabpanel"
+        >
+          <ElementList
+            project={project}
+            selectedElementIndex={selectedElementIndex}
+            curveToolActive={curveToolActive}
+            open
+            onAddElement={handleAddElement}
+            onAddCurve={handleAddCurve}
+            onSelectElement={handleSelectElement}
+            onRemoveElement={handleRemoveElement}
+            onMoveElement={handleMoveElement}
+          />
+          <PropertyEditor
+            element={selectedElement}
+            workspace={workspace}
+            selectedElementIndex={selectedElementIndex}
+            open
+            typeOptions={
+              project && selectedElementIndex !== null
+                ? getSwitchableElementTypes(project, selectedElementIndex)
+                : []
+            }
+            fieldGeometry={fieldGeometry}
+            onChangeType={handleChangeElementType}
+            onUpdateElement={handleUpdateElement}
+            onUnlinkTarget={handleUnlinkTarget}
+            onCreateLinkedTarget={handleCreateLinkedTarget}
+            onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
+          />
+        </div>
+      ) : (
+        <div className="inspector-sidebar__panel" role="tabpanel">
+          <ConstraintEditor project={project} open />
+        </div>
+      )}
     </aside>
   );
 }
@@ -325,50 +364,4 @@ function nextSelectionAfterRemoval(
   }
 
   return selectedElementIndex;
-}
-
-function readSidebarSectionState(): SidebarSectionState {
-  if (typeof window === "undefined") {
-    return defaultSidebarSectionState;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(sidebarSectionStorageKey);
-    if (!rawValue) {
-      return defaultSidebarSectionState;
-    }
-
-    const parsed = JSON.parse(rawValue) as Partial<SidebarSectionState>;
-    return {
-      pathElements:
-        typeof parsed.pathElements === "boolean"
-          ? parsed.pathElements
-          : defaultSidebarSectionState.pathElements,
-      properties:
-        typeof parsed.properties === "boolean"
-          ? parsed.properties
-          : defaultSidebarSectionState.properties,
-      constraints:
-        typeof parsed.constraints === "boolean"
-          ? parsed.constraints
-          : defaultSidebarSectionState.constraints,
-    };
-  } catch {
-    return defaultSidebarSectionState;
-  }
-}
-
-function writeSidebarSectionState(state: SidebarSectionState): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      sidebarSectionStorageKey,
-      JSON.stringify(state),
-    );
-  } catch {
-    // Local UI preferences should never block editing.
-  }
 }

@@ -188,9 +188,7 @@ export class StorageProjectIoService implements ProjectIoService {
     this.currentWorkspace = null;
     this.currentVersion = undefined;
     this.lastSavedAt = null;
-    return this.capabilities.supportsProjectFolders
-      ? null
-      : this.createWorkspace();
+    return null;
   }
 
   async saveWorkspace(

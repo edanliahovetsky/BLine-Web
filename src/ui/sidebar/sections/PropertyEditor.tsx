@@ -42,7 +42,7 @@ interface PropertyEditorProps {
   selectedElementIndex: number | null;
   open: boolean;
   typeOptions: readonly AddableElementType[];
-  onToggleSection(): void;
+  onToggleSection?(): void;
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
   onUnlinkTarget(): void;

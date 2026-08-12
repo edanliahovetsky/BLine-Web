@@ -9,6 +9,7 @@ import {
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { Maximize2, Move } from "lucide-react";
 
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
@@ -115,6 +116,12 @@ type AutoVelocityStatus = {
 };
 
 type AutoVelocityTaskRunner = (task: () => void) => void;
+
+type AutoVelocityPreview = {
+  projectId: string;
+  profile: AutoVelocityProfile;
+  settings: AutoVelocitySettings;
+};
 
 const rangedMeta: Record<RangedConstraintKey, RangedMeta> = {
   max_velocity_meters_per_sec: {
@@ -231,18 +238,21 @@ export function ConstraintEditor({
 }: {
   project: ProjectDocument | null;
   open: boolean;
-  onToggleSection(): void;
+  onToggleSection?(): void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDetailsElement | null>(null);
   const menuSummaryRef = useRef<HTMLElement | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const [menuPanelStyle, setMenuPanelStyle] = useState<CSSProperties>();
-  const [popoutOpen, setPopoutOpen] = useState(false);
+  const [popoutKey, setPopoutKey] = useState<RangedConstraintKey | null>(null);
+  const popoutTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [selectedByKey, setSelectedByKey] = useState<
     Partial<Record<RangedConstraintKey, number>>
   >({});
   const [autoVelocityRunning, setAutoVelocityRunning] = useState(false);
+  const [autoVelocityPreview, setAutoVelocityPreview] =
+    useState<AutoVelocityPreview | null>(null);
   const autoVelocityRunningRef = useRef(false);
   const projectAutoVelocitySettings = project
     ? autoVelocitySettingsFromProject(project)
@@ -271,6 +281,7 @@ export function ConstraintEditor({
       ? autoSettingsState.settings
       : projectAutoVelocitySettings;
   const setAutoSettings = (settings: AutoVelocitySettings) => {
+    setAutoVelocityPreview(null);
     setAutoSettingsState({
       resetKey: autoSettingsResetKey,
       settings,
@@ -287,6 +298,34 @@ export function ConstraintEditor({
       autoVelocityRunningRef.current = false;
       setAutoVelocityRunning(false);
     });
+  };
+  const previewAutoVelocity = (activeProject: ProjectDocument) => {
+    runAutoVelocityTask(() => {
+      const profile = generateAutoVelocityProfile(
+        activeProject.path,
+        activeProject.config,
+        autoVelocityOptionsFromSettings(autoSettings),
+      );
+      setAutoVelocityPreview({
+        projectId: activeProject.project_id,
+        profile,
+        settings: autoSettings,
+      });
+    });
+  };
+  const applyAutoVelocityPreview = (activeProject: ProjectDocument) => {
+    if (
+      !autoVelocityPreview ||
+      autoVelocityPreview.projectId !== activeProject.project_id
+    ) {
+      return;
+    }
+    applyAutoVelocityAll(
+      activeProject,
+      autoVelocityPreview.profile,
+      autoVelocityPreview.settings,
+    );
+    setAutoVelocityPreview(null);
   };
   const selectedRangedConstraint = useStoreSelector(
     selectionStore,
@@ -387,6 +426,16 @@ export function ConstraintEditor({
     }
   };
 
+  const openPopout = (key: RangedConstraintKey, trigger: HTMLButtonElement) => {
+    popoutTriggerRef.current = trigger;
+    setPopoutKey(key);
+  };
+
+  const closePopout = () => {
+    setPopoutKey(null);
+    window.requestAnimationFrame(() => popoutTriggerRef.current?.focus());
+  };
+
   useEffect(() => {
     if (!selectedRangedConstraint) {
       return;
@@ -424,16 +473,26 @@ export function ConstraintEditor({
   }, [selectedRangedConstraint]);
 
   const popoutOverlay =
-    popoutOpen && project
+    popoutKey && project
       ? createPortal(
           <ConstraintPopout
             project={project}
+            constraintKey={popoutKey}
             selectedByKey={selectedByKey}
             autoSettings={autoSettings}
+            autoVelocityPreview={
+              autoVelocityPreview?.projectId === project.project_id
+                ? autoVelocityPreview
+                : null
+            }
             autoVelocityRunning={autoVelocityRunning}
             runAutoVelocityTask={runAutoVelocityTask}
+            onAutoSettingsChange={setAutoSettings}
+            onApplyAutoVelocityPreview={() => applyAutoVelocityPreview(project)}
+            onCancelAutoVelocityPreview={() => setAutoVelocityPreview(null)}
+            onPreviewAutoVelocity={() => previewAutoVelocity(project)}
             onSelect={setSelectedForKey}
-            onClose={() => setPopoutOpen(false)}
+            onClose={closePopout}
           />,
           document.body,
         )
@@ -547,11 +606,23 @@ export function ConstraintEditor({
                   constraintKey={key}
                   selectedIndex={selectedByKey[key] ?? null}
                   autoSettings={autoSettings}
+                  autoVelocityPreview={
+                    autoVelocityPreview?.projectId === project.project_id
+                      ? autoVelocityPreview
+                      : null
+                  }
                   autoVelocityRunning={autoVelocityRunning}
                   runAutoVelocityTask={runAutoVelocityTask}
                   onAutoSettingsChange={setAutoSettings}
+                  onApplyAutoVelocityPreview={() =>
+                    applyAutoVelocityPreview(project)
+                  }
+                  onCancelAutoVelocityPreview={() =>
+                    setAutoVelocityPreview(null)
+                  }
+                  onPreviewAutoVelocity={() => previewAutoVelocity(project)}
                   onSelect={(index) => setSelectedForKey(key, index)}
-                  onOpenPopout={() => setPopoutOpen(true)}
+                  onOpenPopout={(trigger) => openPopout(key, trigger)}
                 />
               ))}
 
@@ -591,9 +662,13 @@ function RangedConstraintCard({
   constraintKey,
   selectedIndex,
   autoSettings,
+  autoVelocityPreview,
   autoVelocityRunning,
   runAutoVelocityTask,
   onAutoSettingsChange,
+  onApplyAutoVelocityPreview,
+  onCancelAutoVelocityPreview,
+  onPreviewAutoVelocity,
   onSelect,
   onOpenPopout,
 }: {
@@ -601,11 +676,15 @@ function RangedConstraintCard({
   constraintKey: RangedConstraintKey;
   selectedIndex: number | null;
   autoSettings: AutoVelocitySettings;
+  autoVelocityPreview: AutoVelocityPreview | null;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
   onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onApplyAutoVelocityPreview(): void;
+  onCancelAutoVelocityPreview(): void;
+  onPreviewAutoVelocity(): void;
   onSelect: (index: number) => void;
-  onOpenPopout: () => void;
+  onOpenPopout(trigger: HTMLButtonElement): void;
 }) {
   const meta = rangedMeta[constraintKey];
   const entries = getRangedEntries(project, constraintKey);
@@ -656,45 +735,64 @@ function RangedConstraintCard({
             <AutoVelocityStatusIndicator
               status={autoStatus}
               running={autoVelocityRunning}
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
+              onClick={onPreviewAutoVelocity}
               disabled={total === 0 || autoVelocityRunning}
             />
             <SidebarActionButton
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
+              onClick={onPreviewAutoVelocity}
               disabled={total === 0 || autoVelocityRunning}
-              aria-label="Apply auto velocity to open segments"
-              title="Apply auto velocity to open and auto segments"
+              aria-label="Generate velocity constraints for open segments"
+              title="Generate a velocity-constraint preview for open segments"
             >
-              Auto all
+              Generate
             </SidebarActionButton>
             <SidebarActionButton
               onClick={() => clearAutoVelocity(project)}
               disabled={
                 autoVelocityRunning || !hasAutoVelocityConstraints(project)
               }
-              aria-label="Clear auto velocity segments"
-              title="Clear auto velocity segments"
+              aria-label="Clear generated velocity constraints"
+              title="Clear generated velocity constraints"
             >
-              Clear auto
+              Clear
             </SidebarActionButton>
           </div>
         ) : null}
       </div>
 
       {isAutoVelocityCard && autoStatus ? (
-        <AutoVelocityInlineControls
-          status={autoStatus}
-          settings={autoSettings}
-          onSettingsChange={onAutoSettingsChange}
-        />
+        <>
+          <AutoVelocityInlineControls
+            status={autoStatus}
+            settings={autoSettings}
+            onSettingsChange={onAutoSettingsChange}
+          />
+          {autoVelocityPreview ? (
+            <div
+              className="auto-velocity-preview"
+              data-testid="auto-velocity-preview"
+            >
+              <div>
+                <strong>Generated constraints ready</strong>
+                <span>
+                  {autoVelocityPreview.profile.segmentCaps.length} proposed
+                  caps. Manual ranges stay unchanged.
+                </span>
+              </div>
+              <div>
+                <SidebarActionButton onClick={onCancelAutoVelocityPreview}>
+                  Cancel
+                </SidebarActionButton>
+                <SidebarActionButton
+                  className="auto-velocity-preview__apply"
+                  onClick={onApplyAutoVelocityPreview}
+                >
+                  Apply
+                </SidebarActionButton>
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <ConstraintSegmentBar
@@ -742,33 +840,80 @@ function RangedConstraintCard({
 
 function ConstraintPopout({
   project,
+  constraintKey,
   selectedByKey,
   autoSettings,
+  autoVelocityPreview,
   autoVelocityRunning,
   runAutoVelocityTask,
+  onAutoSettingsChange,
+  onApplyAutoVelocityPreview,
+  onCancelAutoVelocityPreview,
+  onPreviewAutoVelocity,
   onSelect,
   onClose,
 }: {
   project: ProjectDocument;
+  constraintKey: RangedConstraintKey;
   selectedByKey: Partial<Record<RangedConstraintKey, number>>;
   autoSettings: AutoVelocitySettings;
+  autoVelocityPreview: AutoVelocityPreview | null;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
+  onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onApplyAutoVelocityPreview(): void;
+  onCancelAutoVelocityPreview(): void;
+  onPreviewAutoVelocity(): void;
   onSelect: (key: RangedConstraintKey, index: number) => void;
   onClose: () => void;
 }) {
-  const activeKeys = rangedConstraintKeys.filter((key) => {
-    if (getRangedEntries(project, key).length > 0) {
-      return true;
-    }
-
-    return (
-      key === autoVelocityKey && domainLabelsForKey(project, key).length > 0
-    );
-  });
+  const meta = rangedMeta[constraintKey];
+  const descriptionId = useId();
   const popoutRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const [position, setPosition] = useState(() => initialPopoutPosition());
+
+  useLayoutEffect(() => {
+    popoutRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  useEffect(() => {
+    const keepWindowInViewport = () => {
+      const popout = popoutRef.current;
+      if (!popout) {
+        return;
+      }
+
+      const rect = popout.getBoundingClientRect();
+      setPosition((current) => ({
+        left: clamp(
+          current.left,
+          8,
+          Math.max(8, window.innerWidth - rect.width - 8),
+        ),
+        top: clamp(
+          current.top,
+          8,
+          Math.max(8, window.innerHeight - rect.height - 8),
+        ),
+      }));
+    };
+
+    window.addEventListener("resize", keepWindowInViewport);
+    return () => window.removeEventListener("resize", keepWindowInViewport);
+  }, []);
 
   const startWindowDrag = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button")) {
@@ -827,8 +972,10 @@ function ConstraintPopout({
         className="constraint-popout"
         role="dialog"
         aria-modal="false"
-        aria-label="Constraint Editor"
+        aria-label={`${meta.label} expanded editor`}
+        aria-describedby={descriptionId}
         data-testid="constraint-popout-window"
+        tabIndex={-1}
         style={{ left: position.left, top: position.top }}
       >
         <div
@@ -836,36 +983,48 @@ function ConstraintPopout({
           data-testid="constraint-popout-drag-handle"
           onMouseDown={startWindowDrag}
         >
-          <div>
-            <h2>Constraint Editor</h2>
-            <span>Ranged constraints</span>
+          <div className="constraint-popout__title">
+            <span className="constraint-popout__eyebrow">
+              Expanded constraint
+            </span>
+            <h2>{meta.label}</h2>
+            <span id={descriptionId}>
+              Edit segment coverage and values with more room.
+            </span>
           </div>
-          <CloseButton
-            className="dialog-close-button"
-            onClick={onClose}
-            ariaLabel="Close Constraint Editor"
-          />
+          <div className="constraint-popout__window-actions">
+            <span className="constraint-popout__drag-hint">
+              <Move aria-hidden="true" size={14} />
+              Drag to move
+            </span>
+            <CloseButton
+              className="dialog-close-button"
+              onClick={onClose}
+              ariaLabel={`Close ${meta.label} expanded editor`}
+            />
+          </div>
         </div>
 
         <div className="constraint-popout__content">
-          {activeKeys.length === 0 ? (
-            <p className="constraint-empty-state">
-              No ranged constraints defined.
-            </p>
-          ) : (
-            activeKeys.map((key) => (
-              <PopoutConstraintPanel
-                key={key}
-                project={project}
-                constraintKey={key}
-                selectedIndex={selectedByKey[key] ?? null}
-                autoSettings={autoSettings}
-                autoVelocityRunning={autoVelocityRunning}
-                runAutoVelocityTask={runAutoVelocityTask}
-                onSelect={(index) => onSelect(key, index)}
-              />
-            ))
-          )}
+          <div className="constraint-popout__sync-note">
+            Changes apply immediately to the path and stay synchronized with the
+            inspector.
+            <kbd>Esc</kbd>
+          </div>
+          <PopoutConstraintPanel
+            project={project}
+            constraintKey={constraintKey}
+            selectedIndex={selectedByKey[constraintKey] ?? null}
+            autoSettings={autoSettings}
+            autoVelocityPreview={autoVelocityPreview}
+            autoVelocityRunning={autoVelocityRunning}
+            runAutoVelocityTask={runAutoVelocityTask}
+            onAutoSettingsChange={onAutoSettingsChange}
+            onApplyAutoVelocityPreview={onApplyAutoVelocityPreview}
+            onCancelAutoVelocityPreview={onCancelAutoVelocityPreview}
+            onPreviewAutoVelocity={onPreviewAutoVelocity}
+            onSelect={(index) => onSelect(constraintKey, index)}
+          />
         </div>
       </div>
     </div>
@@ -877,16 +1036,26 @@ function PopoutConstraintPanel({
   constraintKey,
   selectedIndex,
   autoSettings,
+  autoVelocityPreview,
   autoVelocityRunning,
   runAutoVelocityTask,
+  onAutoSettingsChange,
+  onApplyAutoVelocityPreview,
+  onCancelAutoVelocityPreview,
+  onPreviewAutoVelocity,
   onSelect,
 }: {
   project: ProjectDocument;
   constraintKey: RangedConstraintKey;
   selectedIndex: number | null;
   autoSettings: AutoVelocitySettings;
+  autoVelocityPreview: AutoVelocityPreview | null;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
+  onAutoSettingsChange(settings: AutoVelocitySettings): void;
+  onApplyAutoVelocityPreview(): void;
+  onCancelAutoVelocityPreview(): void;
+  onPreviewAutoVelocity(): void;
   onSelect: (index: number) => void;
 }) {
   const meta = rangedMeta[constraintKey];
@@ -928,38 +1097,65 @@ function PopoutConstraintPanel({
             <AutoVelocityStatusIndicator
               status={autoStatus}
               running={autoVelocityRunning}
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
+              onClick={onPreviewAutoVelocity}
               disabled={labels.length === 0 || autoVelocityRunning}
             />
             <SidebarActionButton
-              onClick={() =>
-                runAutoVelocityTask(() =>
-                  runAutoVelocityAll(project, autoSettings),
-                )
-              }
+              onClick={onPreviewAutoVelocity}
               disabled={labels.length === 0 || autoVelocityRunning}
-              aria-label="Apply auto velocity to open segments"
-              title="Apply auto velocity to open and auto segments"
+              aria-label="Generate velocity constraints for open segments"
+              title="Generate a velocity-constraint preview for open segments"
             >
-              Auto all
+              Generate
             </SidebarActionButton>
             <SidebarActionButton
               onClick={() => clearAutoVelocity(project)}
               disabled={
                 autoVelocityRunning || !hasAutoVelocityConstraints(project)
               }
-              aria-label="Clear auto velocity segments"
-              title="Clear auto velocity segments"
+              aria-label="Clear generated velocity constraints"
+              title="Clear generated velocity constraints"
             >
-              Clear auto
+              Clear
             </SidebarActionButton>
           </div>
         ) : null}
       </div>
+
+      {isAutoVelocityPanel && autoStatus ? (
+        <>
+          <AutoVelocityInlineControls
+            status={autoStatus}
+            settings={autoSettings}
+            onSettingsChange={onAutoSettingsChange}
+          />
+          {autoVelocityPreview ? (
+            <div
+              className="auto-velocity-preview"
+              data-testid="auto-velocity-popout-preview"
+            >
+              <div>
+                <strong>Generated constraints ready</strong>
+                <span>
+                  {autoVelocityPreview.profile.segmentCaps.length} proposed
+                  caps. Manual ranges stay unchanged.
+                </span>
+              </div>
+              <div>
+                <SidebarActionButton onClick={onCancelAutoVelocityPreview}>
+                  Cancel
+                </SidebarActionButton>
+                <SidebarActionButton
+                  className="auto-velocity-preview__apply"
+                  onClick={onApplyAutoVelocityPreview}
+                >
+                  Apply
+                </SidebarActionButton>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       <ConstraintSegmentBar
         project={project}
@@ -1723,7 +1919,7 @@ function RangedConstraintControls({
   autoVelocityRunning?: boolean;
   runAutoVelocityTask?: AutoVelocityTaskRunner;
   onSelect: (index: number) => void;
-  onOpenPopout?: () => void;
+  onOpenPopout?(trigger: HTMLButtonElement): void;
   compact?: boolean;
 }) {
   const meta = rangedMeta[constraintKey];
@@ -1891,11 +2087,12 @@ function RangedConstraintControls({
         {onOpenPopout ? (
           <SidebarActionButton
             className="constraint-popout-button"
-            onClick={onOpenPopout}
-            aria-label={`Show ${meta.label} editor`}
-            title="Show editor"
+            onClick={(event) => onOpenPopout(event.currentTarget)}
+            aria-label={`Expand ${meta.label} editor`}
+            title={`Open ${meta.label} in the expanded editor`}
           >
-            Editor
+            <Maximize2 aria-hidden="true" size={15} />
+            Expand
           </SidebarActionButton>
         ) : null}
       </div>
@@ -1913,68 +2110,75 @@ function AutoVelocityInlineControls({
   onSettingsChange(settings: AutoVelocitySettings): void;
 }) {
   return (
-    <div className="auto-velocity-inline" data-testid="auto-velocity-controls">
-      <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--factors">
-        <legend>Factors</legend>
-        <div className="auto-velocity-inline__group-fields">
+    <details
+      className="auto-velocity-inline"
+      data-testid="auto-velocity-controls"
+    >
+      <summary>
+        <span>Optimizer settings</span>
+        <small>{status.autoConstraintCount} auto caps</small>
+      </summary>
+      <div className="auto-velocity-inline__settings">
+        <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--factors">
+          <legend>Factors</legend>
+          <div className="auto-velocity-inline__group-fields">
+            <label>
+              <span>Velocity</span>
+              <NumberStepperControl
+                ariaLabel="Velocity safety factor"
+                value={settings.velocitySafetyFactor}
+                step={0.05}
+                min={0.05}
+                max={1}
+                onChange={(value) =>
+                  onSettingsChange({
+                    ...settings,
+                    velocitySafetyFactor:
+                      value ?? settings.velocitySafetyFactor,
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Accel</span>
+              <NumberStepperControl
+                ariaLabel="Acceleration safety factor"
+                value={settings.accelerationSafetyFactor}
+                step={0.05}
+                min={0.05}
+                max={1}
+                onChange={(value) =>
+                  onSettingsChange({
+                    ...settings,
+                    accelerationSafetyFactor:
+                      value ?? settings.accelerationSafetyFactor,
+                  })
+                }
+              />
+            </label>
+          </div>
+        </fieldset>
+        <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--merge">
+          <legend>Merge diff</legend>
           <label>
-            <span>Velocity</span>
+            <span>Tolerance</span>
             <NumberStepperControl
-              ariaLabel="Velocity safety factor"
-              value={settings.velocitySafetyFactor}
+              ariaLabel="Auto velocity merge diff"
+              value={settings.mergeToleranceMps}
               step={0.05}
-              min={0.05}
-              max={1}
+              min={0}
+              max={20}
               onChange={(value) =>
                 onSettingsChange({
                   ...settings,
-                  velocitySafetyFactor: value ?? settings.velocitySafetyFactor,
+                  mergeToleranceMps: value ?? settings.mergeToleranceMps,
                 })
               }
             />
           </label>
-          <label>
-            <span>Accel</span>
-            <NumberStepperControl
-              ariaLabel="Acceleration safety factor"
-              value={settings.accelerationSafetyFactor}
-              step={0.05}
-              min={0.05}
-              max={1}
-              onChange={(value) =>
-                onSettingsChange({
-                  ...settings,
-                  accelerationSafetyFactor:
-                    value ?? settings.accelerationSafetyFactor,
-                })
-              }
-            />
-          </label>
-        </div>
-      </fieldset>
-      <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--merge">
-        <legend>Merge diff</legend>
-        <label>
-          <span>Tolerance</span>
-          <NumberStepperControl
-            ariaLabel="Auto velocity merge diff"
-            value={settings.mergeToleranceMps}
-            step={0.05}
-            min={0}
-            max={20}
-            onChange={(value) =>
-              onSettingsChange({
-                ...settings,
-                mergeToleranceMps: value ?? settings.mergeToleranceMps,
-              })
-            }
-          />
-        </label>
-      </fieldset>
-      <div className="auto-velocity-inline__summary">
-        <span>{status.autoConstraintCount} auto caps</span>
+        </fieldset>
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -2008,14 +2212,14 @@ function AutoVelocityStatusIndicator({
       aria-busy={running}
       aria-label={
         running
-          ? "Optimizer running"
+          ? "Generating velocity constraints"
           : isCurrent
-            ? "Optimizer up to date"
-            : "Optimizer stale"
+            ? "Generated velocity constraints are up to date"
+            : "Path changed, generate velocity constraints again"
       }
       title={autoVelocityStatusTooltip(status, running)}
     >
-      {running ? "Running" : "Optimizer"}
+      {running ? "Generating…" : isCurrent ? "Up to date" : "Path changed"}
     </button>
   );
 }
@@ -2407,18 +2611,6 @@ function runAfterBrowserPaint(task: () => void, onComplete: () => void): void {
   });
 }
 
-function runAutoVelocityAll(
-  project: ProjectDocument,
-  settings: AutoVelocitySettings,
-): void {
-  const profile = generateAutoVelocityProfile(
-    project.path,
-    project.config,
-    autoVelocityOptionsFromSettings(settings),
-  );
-  applyAutoVelocityAll(project, profile, settings);
-}
-
 function applyAutoVelocityAll(
   project: ProjectDocument,
   profile: AutoVelocityProfile,
@@ -2803,13 +2995,13 @@ function autoVelocityStatusTooltip(
   running: boolean,
 ): string {
   if (running) {
-    return "Optimizer is running. Auto velocity caps will update when it finishes.";
+    return "The optimizer is generating velocity constraints.";
   }
 
   if (autoVelocityStatusIsCurrent(status)) {
-    return "Optimizer is up to date for the current path, handoff radii, rotation constraints, and auto-velocity settings. Click to rerun it.";
+    return "Generated constraints match the current path and optimizer settings. Click to generate them again.";
   }
-  return "Optimizer is stale or has not been run for the current path/settings. Click to rerun it and update auto velocity caps.";
+  return "Generated constraints are missing or out of date. Click to generate them.";
 }
 
 function autoVelocityMetadataFromSettings(
@@ -3218,7 +3410,7 @@ function initialPopoutPosition(): { left: number; top: number } {
     return { left: 24, top: 72 };
   }
 
-  const estimatedWidth = Math.min(760, window.innerWidth - 32);
+  const estimatedWidth = Math.min(860, window.innerWidth - 32);
   return {
     left: Math.max(16, window.innerWidth - estimatedWidth - 20),
     top: 72,

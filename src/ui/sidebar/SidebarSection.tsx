@@ -7,7 +7,7 @@ interface SidebarSectionProps {
   children: ReactNode;
   className?: string;
   meta?: string;
-  onToggle(): void;
+  onToggle?(): void;
   open: boolean;
   overlay?: ReactNode;
   sectionId: string;
@@ -36,18 +36,24 @@ export function SidebarSection({
     >
       <header className="inspector-section__header">
         <div className="sidebar-section-heading">
-          <button
-            type="button"
-            className="sidebar-section-toggle"
-            aria-label={open ? "Collapse section" : "Expand section"}
-            aria-controls={bodyId}
-            aria-expanded={open}
-            data-testid={`sidebar-section-${sectionId}-toggle`}
-            onClick={onToggle}
-          >
-            <ChevronDownIcon size={15} />
-            <span className="sidebar-section-title">{title}</span>
-          </button>
+          {onToggle ? (
+            <button
+              type="button"
+              className="sidebar-section-toggle"
+              aria-label={open ? "Collapse section" : "Expand section"}
+              aria-controls={bodyId}
+              aria-expanded={open}
+              data-testid={`sidebar-section-${sectionId}-toggle`}
+              onClick={onToggle}
+            >
+              <ChevronDownIcon size={15} />
+              <span className="sidebar-section-title">{title}</span>
+            </button>
+          ) : (
+            <span className="sidebar-section-toggle sidebar-section-toggle--static">
+              <span className="sidebar-section-title">{title}</span>
+            </span>
+          )}
           {meta ? <span className="sidebar-section-meta">{meta}</span> : null}
         </div>
         {actions ? (

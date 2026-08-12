@@ -94,6 +94,31 @@ export function moveSelectedPathElement(direction: -1 | 1): boolean {
   return true;
 }
 
+export function selectAdjacentPathElement(direction: -1 | 1): boolean {
+  const project = projectStore.getState().project;
+  if (!project || project.path.path_elements.length === 0) {
+    return false;
+  }
+
+  const selectedElementIndex = selectionStore.getState().selectedElementIndex;
+  const nextIndex =
+    selectedElementIndex === null
+      ? direction > 0
+        ? 0
+        : project.path.path_elements.length - 1
+      : Math.min(
+          project.path.path_elements.length - 1,
+          Math.max(0, selectedElementIndex + direction),
+        );
+
+  if (nextIndex === selectedElementIndex) {
+    return false;
+  }
+
+  selectionStore.getState().selectElement(nextIndex, project);
+  return true;
+}
+
 export function removeSelectedRangedConstraint(): boolean {
   const project = projectStore.getState().project;
   const selectedRangedConstraint =
