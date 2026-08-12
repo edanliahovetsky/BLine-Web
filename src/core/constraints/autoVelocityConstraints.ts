@@ -271,6 +271,7 @@ const jointVelocityQuantumMps = 0.01;
 const jointRadiusFloorMeters = 0.05;
 const jointRadiusIncomingLegRatio = 0.9;
 const jointObjectiveIndifference = 1e-6;
+const autoConstraintSolverVersion = 2;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -923,7 +924,6 @@ export function solveJointAutoConstraints(
       velocityStepRatio: 0.075,
     },
   ];
-  let changed = false;
   for (const sweep of sweeps) {
     for (const coordinate of sweep.coordinates) {
       if (budgetReached) {
@@ -948,7 +948,6 @@ export function solveJointAutoConstraints(
         }
       }
       if (blockBest.signature !== best.signature) {
-        changed = true;
         best = blockBest;
       }
     }
@@ -977,6 +976,15 @@ export function solveJointAutoConstraints(
     finalSetup.usableMaxVelocityMps,
     finalSetup.usableMaxAccelerationMps2,
   );
+  const stabilityEvaluation = evaluateVelocityCapsWithGenericSimulation(
+    finalSetup.simulationContext,
+    finalSetup.segments,
+    finalSetup.corners,
+    persistedCaps,
+    finalSetup.usableMaxVelocityMps,
+    finalSetup.usableMaxAccelerationMps2,
+    solverDtSeconds / 2,
+  );
   const segmentCaps = segmentCapsFromSolvedCaps(
     finalSetup.anchors,
     finalSetup.segments,
@@ -1003,21 +1011,19 @@ export function solveJointAutoConstraints(
     profile,
     status: hasImpossibleCoordinate
       ? "unsolvable"
-      : finalEvaluation.passed
+      : finalEvaluation.passed && stabilityEvaluation.passed
         ? "valid"
         : "best-effort",
     stats: {
       evaluations,
       cacheHits,
-      genericEvaluations: 1,
+      genericEvaluations: 2,
       terminationReason:
         searchableCoordinates.length === 0
           ? "no-coordinates"
           : budgetReached
             ? "evaluation-budget"
-            : changed
-              ? "converged"
-              : "converged",
+            : "converged",
     },
   };
 }
@@ -1356,6 +1362,7 @@ export function autoVelocityInputSignature(
 ): string | null {
   try {
     return JSON.stringify({
+      solverVersion: autoConstraintSolverVersion,
       pathElements: path.path_elements.map((element) =>
         autoVelocityElementCacheSignature(
           element,
@@ -3593,6 +3600,7 @@ function evaluateVelocityCapsWithGenericSimulation(
   trialCapsByOrdinal: ReadonlyMap<number, number>,
   usableMaxVelocityMps: number,
   usableMaxAccelerationMps2: number,
+  dtSeconds: number = solverDtSeconds,
 ): VelocityCapEvaluation {
   const capsByOrdinal = capsWithPins(
     trialCapsByOrdinal,
@@ -3606,7 +3614,7 @@ function evaluateVelocityCapsWithGenericSimulation(
     usableMaxAccelerationMps2,
   );
   const result = simulatePathWithTrace(candidate, simulationContext.config, {
-    dt_s: solverDtSeconds,
+    dt_s: dtSeconds,
   });
   const finalGlobalS =
     result.global_s_by_time.get(result.times_sorted.at(-1) ?? 0) ?? 0;

@@ -33,6 +33,7 @@ export function seedHandoffRadii(path: PathModel): AutoSeedHandoffResult {
   }));
   const radii: (number | null)[] = anchors.map(() => null);
   const seedableOrdinals: number[] = [];
+  const clearableOrdinals: number[] = [];
 
   for (let ordinal = 1; ordinal < anchors.length - 1; ordinal += 1) {
     const element = path.path_elements[anchors[ordinal].elementIndex];
@@ -42,18 +43,24 @@ export function seedHandoffRadii(path: PathModel): AutoSeedHandoffResult {
       if (seeded !== null) {
         radii[ordinal] = seeded;
         seedableOrdinals.push(ordinal);
+      } else if (getHandoffRadiusSource(element) === "auto") {
+        clearableOrdinals.push(ordinal);
       }
     } else {
       radii[ordinal] = storedRadius(element);
     }
   }
 
-  if (seedableOrdinals.length === 0) {
+  if (seedableOrdinals.length === 0 && clearableOrdinals.length === 0) {
     return { path, seededElementIndexes: [] };
   }
 
   const seededElementIndexes: number[] = [];
   const elements = [...path.path_elements];
+  for (const ordinal of clearableOrdinals) {
+    const elementIndex = anchors[ordinal].elementIndex;
+    elements[elementIndex] = withoutHandoffRadius(elements[elementIndex]);
+  }
   for (const ordinal of seedableOrdinals) {
     const value = radii[ordinal];
     if (value === null) {
@@ -73,6 +80,30 @@ export function seedHandoffRadii(path: PathModel): AutoSeedHandoffResult {
     path: { ...path, path_elements: elements },
     seededElementIndexes,
   };
+}
+
+function withoutHandoffRadius(element: PathElement): PathElement {
+  if (isTranslationTarget(element)) {
+    return setHandoffRadiusSource(
+      { ...element, intermediate_handoff_radius_meters: null },
+      null,
+    );
+  }
+
+  if (isWaypoint(element)) {
+    return setHandoffRadiusSource(
+      {
+        ...element,
+        translation_target: {
+          ...element.translation_target,
+          intermediate_handoff_radius_meters: null,
+        },
+      },
+      null,
+    );
+  }
+
+  return element;
 }
 
 export function seedableHandoffElementIndexes(

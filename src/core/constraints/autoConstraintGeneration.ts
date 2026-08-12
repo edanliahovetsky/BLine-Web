@@ -88,7 +88,8 @@ function generate(
 
 export interface AutoHandoffRadiusAssignment {
   elementIndex: number;
-  radiusMeters: number;
+  /** Null clears radius output that stopped being geometrically observable. */
+  radiusMeters: number | null;
 }
 
 export interface AutoRadiiCapSolveInput {
@@ -113,17 +114,23 @@ export function autoRadiiCapSolveInput(
   const options = autoVelocityGenerationOptions(settings);
   const seeded = seedHandoffRadii(path);
   const solved = solveJointAutoConstraints(seeded.path, config, options);
+  const assignedElementIndexes = new Set([
+    ...autoHandoffRadiusElementIndexes(path.path_elements),
+    ...autoHandoffRadiusElementIndexes(solved.path.path_elements),
+  ]);
 
   return {
     path: solved.path,
-    radii: autoHandoffRadiusElementIndexes(solved.path.path_elements).flatMap(
-      (elementIndex) => {
-        const radiusMeters = storedRadius(
-          solved.path.path_elements[elementIndex],
-        );
-        return radiusMeters === null ? [] : [{ elementIndex, radiusMeters }];
-      },
-    ),
+    radii: [...assignedElementIndexes]
+      .sort((left, right) => left - right)
+      .map((elementIndex) => ({
+        elementIndex,
+        radiusMeters:
+          getHandoffRadiusSource(solved.path.path_elements[elementIndex]) ===
+          "auto"
+            ? storedRadius(solved.path.path_elements[elementIndex])
+            : null,
+      })),
     profile: solved.profile,
     stats: solved.stats,
     status: solved.status,
@@ -150,13 +157,19 @@ export function applyGeneratedAutoRadii(
   return {
     ...path,
     path_elements: path.path_elements.map((element, index) => {
-      const radiusMeters = byElementIndex.get(index);
-      return radiusMeters === undefined
-        ? element
-        : setHandoffRadiusSource(
-            withHandoffRadius(element, radiusMeters),
-            "auto",
-          );
+      if (!byElementIndex.has(index)) {
+        return element;
+      }
+      const radiusMeters = byElementIndex.get(index) ?? null;
+      if (radiusMeters === null) {
+        return getHandoffRadiusSource(element) === "auto"
+          ? withClearedHandoffRadius(element)
+          : element;
+      }
+      return setHandoffRadiusSource(
+        withHandoffRadius(element, radiusMeters),
+        "auto",
+      );
     }),
   };
 }

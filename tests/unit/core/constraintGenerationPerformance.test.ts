@@ -12,11 +12,10 @@ import {
   type PathModel,
 } from "../../../src/core/model/path";
 
-// The generation pipeline must stay interactive: the plan's budget is roughly
-// sub-second for 15+ anchor paths on a development machine. CI runners are
-// slower and noisier, so the hard assertion is looser; the local expectation
-// is documented by the console output.
-const ciBudgetMs = 4_000;
+// Keep the core comfortably below the product's 500 ms Chromebook envelope so
+// worker startup, structured cloning, rendering, and application still fit.
+// CI runners are slower and noisier than the calibrated local machine.
+const generationBudgetMs = process.env.CI ? 1_000 : 250;
 
 function densePath(anchorCount: number): PathModel {
   const elements = [];
@@ -50,9 +49,8 @@ function translationOnlyPath(anchorCount: number): PathModel {
 
 describe("constraint generation performance", () => {
   it("generates radii and caps for a 16-anchor path within budget", () => {
-    // Rotation-bearing waypoints force the solver onto its slower generic
-    // simulation, so this is the worst-case flavor; the translation-only
-    // flavor documents the common case.
+    // Rotation is final-validation-only for this translation-policy solver;
+    // both shapes must still fit the same interactive core budget.
     for (const [label, path] of [
       ["translation-only", translationOnlyPath(16)],
       ["rotation-heavy", densePath(16)],
@@ -73,7 +71,7 @@ describe("constraint generation performance", () => {
       console.info(
         `generate (seed + validate + caps), 16 anchors, ${label}: ${elapsedMs.toFixed(0)} ms`,
       );
-      expect(elapsedMs).toBeLessThan(ciBudgetMs);
+      expect(elapsedMs).toBeLessThan(generationBudgetMs);
     }
   });
 
@@ -106,6 +104,6 @@ describe("constraint generation performance", () => {
     console.info(
       `refresh (cached caps), 16 anchors, rotation-heavy: ${elapsedMs.toFixed(0)} ms`,
     );
-    expect(elapsedMs).toBeLessThan(ciBudgetMs);
+    expect(elapsedMs).toBeLessThan(generationBudgetMs);
   });
 });

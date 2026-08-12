@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
+import { generateAutoRadiiAndCaps } from "../../../src/core/constraints/autoConstraintGeneration";
 import { solveJointAutoConstraints } from "../../../src/core/constraints/autoVelocityConstraints";
 import {
   createPathModel,
@@ -8,6 +9,7 @@ import {
   setHandoffRadiusSource,
   type PathModel,
 } from "../../../src/core/model/path";
+import { simulatePathWithTrace } from "../../../src/core/sim";
 
 function pathOf(points: Array<[number, number]>): PathModel {
   return createPathModel({
@@ -38,6 +40,7 @@ describe("solveJointAutoConstraints", () => {
     ).toBe(true);
     expect(result.profile.segmentCaps).toHaveLength(4);
     expect(result.stats.evaluations).toBeLessThanOrEqual(180);
+    expect(result.stats.genericEvaluations).toBe(2);
     expect(["converged", "evaluation-budget"]).toContain(
       result.stats.terminationReason,
     );
@@ -64,6 +67,29 @@ describe("solveJointAutoConstraints", () => {
       ],
     );
     expect(result.profile.diagnostics.reachedEnd).toBe(true);
+  });
+
+  it("clears a stale generated radius when its corner becomes straight", () => {
+    const path = pathOf([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ]);
+    path.path_elements[1] = setHandoffRadiusSource(
+      createTranslationTarget({
+        x_meters: 1,
+        y_meters: 0,
+        intermediate_handoff_radius_meters: 0.3,
+      }),
+      "auto",
+    );
+
+    const seeded = seedHandoffRadii(path).path;
+
+    expect(seeded.path_elements[1]).toMatchObject({
+      intermediate_handoff_radius_meters: null,
+    });
+    expect(getHandoffRadiusSource(seeded.path_elements[1])).toBeNull();
   });
 
   it("reports an unset corner whose incoming leg cannot fit the radius lattice", () => {
@@ -130,5 +156,49 @@ describe("solveJointAutoConstraints", () => {
     expect(solveJointAutoConstraints(seeded, {})).toEqual(
       solveJointAutoConstraints(seeded, {}),
     );
+  });
+
+  it("produces a persisted policy that the production simulator completes", () => {
+    const path = pathOf([
+      [0, 0],
+      [1.4, 0],
+      [1.4, 1.2],
+      [2.8, 1.2],
+      [2.8, 2.4],
+    ]);
+
+    const generated = generateAutoRadiiAndCaps(path, {});
+    const trace = simulatePathWithTrace(generated, {}, { dt_s: 0.02 });
+    const lastSample = trace.trace.at(-1);
+
+    expect(lastSample?.target_anchor_ordinal_1b).toBe(5);
+    expect(lastSample?.global_s_m).toBeGreaterThanOrEqual(5.19);
+    expect(trace.trace.every((sample) => Number.isFinite(sample.speed_mps))).toBe(
+      true,
+    );
+  });
+
+  it("keeps a manual 0.05 meter straight trigger executable at runtime", () => {
+    const path = pathOf([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ]);
+    path.path_elements[1] = setHandoffRadiusSource(
+      createTranslationTarget({
+        x_meters: 1,
+        y_meters: 0,
+        intermediate_handoff_radius_meters: 0.05,
+      }),
+      "manual",
+    );
+
+    const generated = generateAutoRadiiAndCaps(path, {});
+    const trace = simulatePathWithTrace(generated, {}, { dt_s: 0.02 });
+
+    expect(trace.trace.at(-1)?.global_s_m).toBeGreaterThanOrEqual(1.98);
+    expect(generated.path_elements[1]).toMatchObject({
+      intermediate_handoff_radius_meters: 0.05,
+    });
   });
 });

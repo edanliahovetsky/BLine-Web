@@ -116,6 +116,38 @@ describe("auto velocity sync", () => {
     stop();
   });
 
+  it("clears a generated radius when an edited corner becomes straight", async () => {
+    const { store, stop, status } = await startedSync({
+      workspace: generatedRadiiWorkspace(),
+    });
+    expect(secondAnchorRadius(store)).not.toBeNull();
+
+    store.getState().applyCommand({
+      description: "Straighten anchor",
+      apply: (project) => ({
+        ...project,
+        path: {
+          ...project.path,
+          path_elements: project.path.path_elements.map((element, index) =>
+            index === 1 && isTranslationTarget(element)
+              ? { ...element, x_meters: 0.8, y_meters: 0.4 }
+              : element,
+          ),
+        },
+      }),
+      revert: (project) => project,
+    });
+    await waitForIdle(status);
+
+    expect(secondAnchorRadius(store)).toBeNull();
+    expect(
+      getHandoffRadiusSource(
+        store.getState().project?.path.path_elements[1] as PathElement,
+      ),
+    ).toBeNull();
+    stop();
+  });
+
   it("keeps the regeneration off the undo stack", async () => {
     const { store, stop, status } = await startedSync();
     const history = store.getState().history;

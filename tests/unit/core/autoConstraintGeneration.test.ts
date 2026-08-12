@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyGeneratedAutoRadii,
+  autoRadiiCapSolveInput,
   autoHandoffRadiusElementIndexes,
   canGenerateAutoConstraints,
   clearGeneratedAutoConstraints,
   generateAutoRadiiAndCaps,
   refreshAutoRadiiAndCaps,
 } from "../../../src/core/constraints/autoConstraintGeneration";
+import { autoVelocitySettingsForPath } from "../../../src/core/constraints/autoVelocityApply";
 import { autoHandoffRadiusObjectiveCost } from "../../../src/core/constraints/autoHandoffRadiusObjective";
 import { validateAutoHandoffRadii } from "../../../src/core/constraints/autoHandoffRadiusValidation";
 import {
@@ -440,6 +442,55 @@ describe("auto constraint generation", () => {
 
     expect(radiusAt(applied, 1)).toBeCloseTo(0.31, 9);
     expect(getHandoffRadiusSource(applied.path_elements[1])).toBe("auto");
+  });
+
+  it("carries a generated-radius clear across the worker assignment seam", () => {
+    const straight = pathOf([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ]);
+    straight.path_elements[1] = setHandoffRadiusSource(
+      createTranslationTarget({
+        x_meters: 1,
+        y_meters: 0,
+        intermediate_handoff_radius_meters: 0.3,
+      }),
+      "auto",
+    );
+
+    const solved = autoRadiiCapSolveInput(
+      straight,
+      {},
+      autoVelocitySettingsForPath(straight, {}),
+    );
+    const applied = applyGeneratedAutoRadii(straight, solved.radii);
+
+    expect(solved.radii).toContainEqual({
+      elementIndex: 1,
+      radiusMeters: null,
+    });
+    expect(radiusAt(applied, 1)).toBeNull();
+    expect(getHandoffRadiusSource(applied.path_elements[1])).toBeNull();
+  });
+
+  it("does not let a stale clear erase a manually pinned radius", () => {
+    const square = squarePath();
+    square.path_elements[1] = setHandoffRadiusSource(
+      createTranslationTarget({
+        x_meters: 4,
+        y_meters: 0,
+        intermediate_handoff_radius_meters: 0.4,
+      }),
+      "manual",
+    );
+
+    const applied = applyGeneratedAutoRadii(square, [
+      { elementIndex: 1, radiusMeters: null },
+    ]);
+
+    expect(radiusAt(applied, 1)).toBe(0.4);
+    expect(getHandoffRadiusSource(applied.path_elements[1])).toBe("manual");
   });
 
   it("clears generated values and keeps pinned ones", () => {
