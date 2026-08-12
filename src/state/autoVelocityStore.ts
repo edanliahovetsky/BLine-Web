@@ -1,4 +1,8 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
+import type {
+  JointAutoConstraintSolveStats,
+  JointAutoConstraintSolveStatus,
+} from "../core/constraints/autoVelocityConstraints";
 
 /**
  * `pending` covers the quiet period after an edit, before the solve starts.
@@ -6,15 +10,30 @@ import { createStore, type StoreApi } from "zustand/vanilla";
  * the user, but only `running` costs CPU.
  */
 export type AutoVelocityPhase = "idle" | "pending" | "running";
+export type AutoVelocityRunSource = "manual" | "sync";
+
+export interface AutoVelocityRunSummary {
+  elapsedMs: number;
+  inputSignature: string | null;
+  projectId: string;
+  stats: JointAutoConstraintSolveStats;
+  status: JointAutoConstraintSolveStatus;
+}
 
 export interface AutoVelocityState {
   phase: AutoVelocityPhase;
+  runSource: AutoVelocityRunSource | null;
   /** False once the user turns off keeping generated constraints in sync. */
   autoSyncEnabled: boolean;
   lastError: string | null;
-  setPhase(phase: AutoVelocityPhase): void;
+  lastRun: AutoVelocityRunSummary | null;
+  setPhase(
+    phase: AutoVelocityPhase,
+    source?: AutoVelocityRunSource | null,
+  ): void;
   setAutoSyncEnabled(enabled: boolean): void;
   setLastError(message: string | null): void;
+  setLastRun(run: AutoVelocityRunSummary | null): void;
   reset(): void;
 }
 
@@ -28,11 +47,14 @@ export function createAutoVelocityStore(): AutoVelocityStore {
   // that is trying to fire.
   return createStore<AutoVelocityState>((set, get) => ({
     phase: "idle",
+    runSource: null,
     autoSyncEnabled: readStoredAutoSync(),
     lastError: null,
-    setPhase(phase) {
-      if (get().phase !== phase) {
-        set({ phase });
+    lastRun: null,
+    setPhase(phase, source = null) {
+      const runSource = phase === "idle" ? null : source;
+      if (get().phase !== phase || get().runSource !== runSource) {
+        set({ phase, runSource });
       }
     },
     setAutoSyncEnabled(enabled) {
@@ -47,9 +69,22 @@ export function createAutoVelocityStore(): AutoVelocityStore {
         set({ lastError: message });
       }
     },
+    setLastRun(run) {
+      set({ lastRun: run });
+    },
     reset() {
-      if (get().phase !== "idle" || get().lastError !== null) {
-        set({ phase: "idle", lastError: null });
+      if (
+        get().phase !== "idle" ||
+        get().runSource !== null ||
+        get().lastError !== null ||
+        get().lastRun !== null
+      ) {
+        set({
+          phase: "idle",
+          runSource: null,
+          lastError: null,
+          lastRun: null,
+        });
       }
     },
   }));

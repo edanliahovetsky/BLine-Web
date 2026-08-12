@@ -10,6 +10,7 @@ import {
   primeAutoVelocityProfileCache,
   type AutoVelocityProfile,
   type JointAutoConstraintSolveStats,
+  type JointAutoConstraintSolveStatus,
 } from "./autoVelocityConstraints";
 import type {
   AutoVelocityWorkerRequest,
@@ -26,6 +27,8 @@ export interface AutoRadiiAndCapsRun {
   radii: AutoHandoffRadiusAssignment[];
   profile: AutoVelocityProfile;
   stats: JointAutoConstraintSolveStats;
+  status: JointAutoConstraintSolveStatus;
+  elapsedMs: number;
 }
 
 export type AutoRadiiAndCapsRunResult =
@@ -59,6 +62,7 @@ export function requestAutoRadiiAndCaps(
   config: SimulationConfig,
   settings: AutoVelocitySettings,
 ): Promise<AutoRadiiAndCapsRunResult> {
+  const startedAtMs = optimizerNowMs();
   supersedePending();
 
   const activeWorker = ensureWorker();
@@ -80,6 +84,8 @@ export function requestAutoRadiiAndCaps(
           radii: response.radii,
           profile: response.profile,
           stats: response.stats,
+          status: response.status,
+          elapsedMs: optimizerNowMs() - startedAtMs,
         });
       },
       onSuperseded: () => resolve(supersededAutoVelocityProfile),
@@ -208,14 +214,25 @@ function solveRadiiAndCapsOnMainThread(
   config: SimulationConfig,
   settings: AutoVelocitySettings,
 ): Promise<AutoRadiiAndCapsRunResult> {
+  const startedAtMs = optimizerNowMs();
   return afterBrowserPaint(() => {
     const input = autoRadiiCapSolveInput(path, config, settings);
     primeAutoVelocityProfileCache(
       autoVelocityInputSignature(input.path, config, input.options),
       input.profile,
     );
-    return { radii: input.radii, profile: input.profile, stats: input.stats };
+    return {
+      radii: input.radii,
+      profile: input.profile,
+      stats: input.stats,
+      status: input.status,
+      elapsedMs: optimizerNowMs() - startedAtMs,
+    };
   });
+}
+
+function optimizerNowMs(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
 }
 
 function afterBrowserPaint<T>(solve: () => T): Promise<T> {

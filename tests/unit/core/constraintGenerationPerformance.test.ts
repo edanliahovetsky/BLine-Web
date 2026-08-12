@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   autoHandoffRadiusElementIndexes,
+  autoRadiiCapSolveInput,
   generateAutoRadiiAndCaps,
   refreshAutoRadiiAndCaps,
 } from "../../../src/core/constraints/autoConstraintGeneration";
+import { autoVelocitySettingsForPath } from "../../../src/core/constraints/autoVelocityApply";
 import { simulatePathWithTrace } from "../../../src/core/sim";
 import {
   createPathModel,
@@ -16,6 +18,7 @@ import {
 // worker startup, structured cloning, rendering, and application still fit.
 // CI runners are slower and noisier than the calibrated local machine.
 const generationBudgetMs = process.env.CI ? 1_000 : 250;
+const typicalPathBudgetMs = process.env.CI ? 1_000 : 200;
 
 function densePath(anchorCount: number): PathModel {
   const elements = [];
@@ -48,6 +51,30 @@ function translationOnlyPath(anchorCount: number): PathModel {
 }
 
 describe("constraint generation performance", () => {
+  it("keeps a typical 12-anchor solve interactive while scaling larger paths", () => {
+    for (const anchorCount of [8, 12, 16, 20, 24]) {
+      const path = translationOnlyPath(anchorCount);
+      const settings = autoVelocitySettingsForPath(path, {});
+      const startedAt = performance.now();
+      const solved = autoRadiiCapSolveInput(path, {}, settings);
+      const elapsedMs = performance.now() - startedAt;
+
+      expect(solved.stats.searchableBlocks).toBe(anchorCount - 2);
+      expect(solved.stats.evaluationBudget).toBe(
+        4 + 16 * (anchorCount - 2),
+      );
+      expect(solved.stats.evaluations).toBeLessThanOrEqual(
+        solved.stats.evaluationBudget,
+      );
+      console.info(
+        `joint solve, ${anchorCount} anchors, ${solved.stats.evaluationBudget} budget: ${elapsedMs.toFixed(0)} ms`,
+      );
+      if (anchorCount === 12) {
+        expect(elapsedMs).toBeLessThan(typicalPathBudgetMs);
+      }
+    }
+  });
+
   it("generates radii and caps for a 16-anchor path within budget", () => {
     // Rotation is final-validation-only for this translation-policy solver;
     // both shapes must still fit the same interactive core budget.

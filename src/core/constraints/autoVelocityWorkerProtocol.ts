@@ -5,6 +5,7 @@ import type { AutoHandoffRadiusAssignment } from "./autoConstraintGeneration";
 import type {
   AutoVelocityProfile,
   JointAutoConstraintSolveStats,
+  JointAutoConstraintSolveStatus,
 } from "./autoVelocityConstraints";
 
 export interface AutoVelocityWorkerRequest {
@@ -24,6 +25,7 @@ export type AutoVelocityWorkerResponse =
       cacheKey: string | null;
       radii: AutoHandoffRadiusAssignment[];
       stats: JointAutoConstraintSolveStats;
+      status: JointAutoConstraintSolveStatus;
     }
   | {
       kind: "failed";

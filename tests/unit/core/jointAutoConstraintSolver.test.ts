@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
-import { generateAutoRadiiAndCaps } from "../../../src/core/constraints/autoConstraintGeneration";
-import { solveJointAutoConstraints } from "../../../src/core/constraints/autoVelocityConstraints";
+import {
+  autoConstraintLargePathWarningBudget,
+  generateAutoRadiiAndCaps,
+} from "../../../src/core/constraints/autoConstraintGeneration";
+import {
+  jointAutoConstraintSearchPlan,
+  solveJointAutoConstraints,
+} from "../../../src/core/constraints/autoVelocityConstraints";
 import {
   createPathModel,
   createTranslationTarget,
@@ -39,10 +45,52 @@ describe("solveJointAutoConstraints", () => {
       ),
     ).toBe(true);
     expect(result.profile.segmentCaps).toHaveLength(4);
-    expect(result.stats.evaluations).toBeLessThanOrEqual(180);
+    expect(result.stats.searchableBlocks).toBe(2);
+    expect(result.stats.evaluationBudget).toBe(36);
+    expect(result.stats.evaluations).toBeLessThanOrEqual(
+      result.stats.evaluationBudget,
+    );
     expect(result.stats.genericEvaluations).toBe(2);
     expect(["converged", "evaluation-budget"]).toContain(
       result.stats.terminationReason,
+    );
+  });
+
+  it("scales without a global cap so every large-path block gets both passes", () => {
+    const path = pathOf(
+      Array.from({ length: 50 }, (_, index) => [
+        index,
+        index % 2 === 0 ? 0 : 1,
+      ]),
+    );
+    const seeded = seedHandoffRadii(path).path;
+
+    const plan = jointAutoConstraintSearchPlan(seeded, {});
+
+    expect(plan.searchableBlocks).toBe(48);
+    expect(plan.evaluationBudget).toBe(772);
+    expect(plan.evaluationBudget).toBeGreaterThan(512);
+  });
+
+  it("warns only beyond the normal fully searchable 16-anchor workload", () => {
+    const planFor = (anchorCount: number) => {
+      const path = pathOf(
+        Array.from(
+          { length: anchorCount },
+          (_, index): [number, number] => [
+            index,
+            index % 2 === 0 ? 0 : 1,
+          ],
+        ),
+      );
+      return jointAutoConstraintSearchPlan(seedHandoffRadii(path).path, {});
+    };
+
+    expect(planFor(16).evaluationBudget).toBe(
+      autoConstraintLargePathWarningBudget,
+    );
+    expect(planFor(17).evaluationBudget).toBeGreaterThan(
+      autoConstraintLargePathWarningBudget,
     );
   });
 

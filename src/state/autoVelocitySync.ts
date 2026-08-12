@@ -60,7 +60,7 @@ export function startAutoVelocitySync(
   };
 
   const settle = () => {
-    if (!disposed && status.getState().phase !== "idle") {
+    if (!disposed && status.getState().runSource === "sync") {
       status.getState().setPhase("idle");
     }
   };
@@ -83,7 +83,7 @@ export function startAutoVelocitySync(
     }
 
     inFlightSignature = signature;
-    status.getState().setPhase("running");
+    status.getState().setPhase("running", "sync");
 
     requestAutoRadiiAndCaps(project.path, project.config, request.settings)
       .then((run) => {
@@ -104,6 +104,13 @@ export function startAutoVelocitySync(
           applyRefresh(projects, run.radii, request.settings);
         }
         status.getState().setLastError(null);
+        status.getState().setLastRun({
+          elapsedMs: run.elapsedMs,
+          inputSignature: request.signature,
+          projectId: project.project_id,
+          stats: run.stats,
+          status: run.status,
+        });
       })
       .catch((error: unknown) => {
         if (disposed) {
@@ -123,6 +130,11 @@ export function startAutoVelocitySync(
 
   const evaluate = () => {
     if (disposed) {
+      return;
+    }
+
+    if (status.getState().runSource === "manual") {
+      cancelTimer();
       return;
     }
 
@@ -152,7 +164,7 @@ export function startAutoVelocitySync(
     }
 
     cancelTimer();
-    status.getState().setPhase("pending");
+    status.getState().setPhase("pending", "sync");
     const signature = request.signature;
     timer = setTimeout(() => {
       timer = null;
@@ -164,11 +176,16 @@ export function startAutoVelocitySync(
   // Only the toggle should restart the loop. Re-evaluating on every phase
   // write would cancel and reschedule the debounce that is trying to fire.
   let lastAutoSyncEnabled = status.getState().autoSyncEnabled;
+  let lastRunSource = status.getState().runSource;
   const unsubscribeStatus = status.subscribe((state) => {
-    if (state.autoSyncEnabled === lastAutoSyncEnabled) {
+    const autoSyncChanged = state.autoSyncEnabled !== lastAutoSyncEnabled;
+    const manualActivityChanged =
+      state.runSource === "manual" || lastRunSource === "manual";
+    lastAutoSyncEnabled = state.autoSyncEnabled;
+    lastRunSource = state.runSource;
+    if (!autoSyncChanged && !manualActivityChanged) {
       return;
     }
-    lastAutoSyncEnabled = state.autoSyncEnabled;
     evaluate();
   });
   evaluate();

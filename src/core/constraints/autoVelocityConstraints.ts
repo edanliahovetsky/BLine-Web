@@ -145,9 +145,16 @@ export type JointAutoConstraintSolveStatus =
 
 export interface JointAutoConstraintSolveStats {
   evaluations: number;
+  evaluationBudget: number;
+  searchableBlocks: number;
   cacheHits: number;
   genericEvaluations: number;
   terminationReason: "converged" | "evaluation-budget" | "no-coordinates";
+}
+
+export interface JointAutoConstraintSearchPlan {
+  evaluationBudget: number;
+  searchableBlocks: number;
 }
 
 export interface JointAutoConstraintSolveResult {
@@ -265,13 +272,15 @@ const globalVelocitySeedRatios: readonly number[] = [
   0.9, 0.8, 0.65, 0.5, 0.35, 0.25, 0.18, 0.12, 0.08,
 ];
 const radiusObjectiveVelocityRatios: readonly number[] = [0.8, 0.5, 0.25];
-const jointSolverEvaluationBudget = 180;
+const jointSolverStartCandidates = 4;
+const jointSolverMovesPerBlock = 8;
+const jointSolverSweepCount = 2;
 const jointRadiusQuantumMeters = 0.001;
 const jointVelocityQuantumMps = 0.01;
 const jointRadiusFloorMeters = 0.05;
 const jointRadiusIncomingLegRatio = 0.9;
 const jointObjectiveIndifference = 1e-6;
-const autoConstraintSolverVersion = 2;
+const autoConstraintSolverVersion = 3;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -453,6 +462,38 @@ function jointRadiusCoordinates(
       },
     ];
   });
+}
+
+/**
+ * The joint search completes both directional passes for every searchable
+ * handoff. Deliberately uncapped: unusually large paths take proportionally
+ * longer instead of receiving a path-order-dependent partial refinement.
+ */
+export function jointAutoConstraintSearchPlan(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions = {},
+): JointAutoConstraintSearchPlan {
+  const setup = createAutoVelocitySolveSetup(path, config, options);
+  const searchableBlocks = jointRadiusCoordinates(
+    path,
+    setup.anchors,
+    setup.segments,
+    setup.corners,
+  ).filter(
+    (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
+  ).length;
+  return {
+    searchableBlocks,
+    evaluationBudget: jointEvaluationBudget(searchableBlocks),
+  };
+}
+
+function jointEvaluationBudget(searchableBlocks: number): number {
+  return (
+    jointSolverStartCandidates +
+    jointSolverMovesPerBlock * jointSolverSweepCount * searchableBlocks
+  );
 }
 
 function hasImpossibleJointRadius(
@@ -803,6 +844,7 @@ export function solveJointAutoConstraints(
   const searchableCoordinates = coordinates.filter(
     (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
   );
+  const evaluationBudget = jointEvaluationBudget(searchableCoordinates.length);
   const canonicalRadii = [
     ...setup.simulationContext.handoffRadiiBySegmentIndex,
   ];
@@ -845,7 +887,7 @@ export function solveJointAutoConstraints(
       cacheHits += 1;
       return cached;
     }
-    if (evaluations >= jointSolverEvaluationBudget) {
+    if (evaluations >= evaluationBudget) {
       budgetReached = true;
       return null;
     }
@@ -1016,6 +1058,8 @@ export function solveJointAutoConstraints(
         : "best-effort",
     stats: {
       evaluations,
+      evaluationBudget,
+      searchableBlocks: searchableCoordinates.length,
       cacheHits,
       genericEvaluations: 2,
       terminationReason:

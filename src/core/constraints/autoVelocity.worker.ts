@@ -46,5 +46,6 @@ function solve(request: AutoVelocityWorkerRequest): AutoVelocityWorkerResponse {
     ),
     radii: input.radii,
     stats: input.stats,
+    status: input.status,
   };
 }

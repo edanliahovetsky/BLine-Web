@@ -187,6 +187,28 @@ describe("auto velocity sync", () => {
     expect(generatedValues(store)).toEqual(staleValuesBeforeMove);
     stop();
   });
+
+  it("yields a queued refresh to manual generation, then resumes afterward", async () => {
+    const { store, stop, status } = await startedSync();
+
+    moveSecondAnchor(store, 3.2);
+    expect(status.getState().phase).toBe("pending");
+    status.getState().setPhase("running", "manual");
+    await new Promise((resolve) => setTimeout(resolve, syncDelayMs * 3));
+
+    expect(status.getState()).toMatchObject({
+      phase: "running",
+      runSource: "manual",
+    });
+    expect(generatedValues(store)).toEqual(staleValuesBeforeMove);
+
+    status.getState().setPhase("idle");
+    await waitForIdle(status);
+    expect(generatedValues(store)).toEqual(
+      generatedValues(refreshedStore(store)),
+    );
+    stop();
+  });
 });
 
 let staleValuesBeforeMove: number[] = [];

@@ -20,12 +20,14 @@ import {
 } from "./autoVelocityApply";
 import {
   autoVelocityInputSignature,
+  jointAutoConstraintSearchPlan,
   primeAutoVelocityProfileCache,
   solveJointAutoConstraints,
   type AutoVelocityGenerationOptions,
   type AutoVelocityProfile,
   type JointAutoConstraintSolveStats,
   type JointAutoConstraintSolveStatus,
+  type JointAutoConstraintSearchPlan,
 } from "./autoVelocityConstraints";
 
 export interface AutoConstraintGenerationOptions {
@@ -34,6 +36,8 @@ export interface AutoConstraintGenerationOptions {
 }
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
+/** A fully searchable 16-anchor path; larger searches get a quiet UI warning. */
+export const autoConstraintLargePathWarningBudget = 228;
 
 /**
  * The whole optimizer: seed the handoff radii nobody pinned, select generated
@@ -100,6 +104,20 @@ export interface AutoRadiiCapSolveInput {
   stats: JointAutoConstraintSolveStats;
   status: JointAutoConstraintSolveStatus;
   options: AutoVelocityGenerationOptions;
+}
+
+/** Work projected for the same seeded search domain production generation uses. */
+export function autoRadiiCapSearchPlan(
+  path: PathModel,
+  config: SimulationConfig,
+  settings: AutoVelocitySettings,
+): JointAutoConstraintSearchPlan {
+  const seeded = seedHandoffRadii(path);
+  return jointAutoConstraintSearchPlan(
+    seeded.path,
+    config,
+    autoVelocityGenerationOptions(settings),
+  );
 }
 
 /**
