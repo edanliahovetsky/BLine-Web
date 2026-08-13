@@ -7,8 +7,8 @@ import {
 export type ProtrusionSide = "none" | "left" | "right" | "front" | "back";
 export type ProtrusionState = "" | "shown" | "hidden";
 
-export const defaultAutoVelocityVelocitySafetyFactor = 0.9;
-export const defaultAutoVelocityAccelerationSafetyFactor = 0.8;
+export const defaultAutoVelocityVelocitySafetyFactor = 1;
+export const defaultAutoVelocityAccelerationSafetyFactor = 1;
 export const defaultAutoVelocityMergeToleranceMetersPerSec = 0.3;
 
 export interface CanonicalProjectConfig {

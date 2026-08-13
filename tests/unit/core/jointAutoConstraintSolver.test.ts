@@ -37,6 +37,16 @@ function generatedRadii(path: PathModel): number[] {
   });
 }
 
+// These basin-regression fixtures were captured against the original policy.
+// Pin its factors so changing application defaults does not silently redefine
+// the objective that the fixtures are intended to hold constant.
+const basinRegressionConfig = {
+  kinematic_constraints: {
+    default_auto_velocity_velocity_safety_factor: 0.9,
+    default_auto_velocity_acceleration_safety_factor: 0.8,
+  },
+};
+
 describe("solveJointAutoConstraints", () => {
   it("solves coupled handoff radii and adjacent velocity caps as one bounded policy", () => {
     const path = pathOf([
@@ -140,11 +150,11 @@ describe("solveJointAutoConstraints", () => {
     );
     const base = solveJointAutoConstraints(
       seedHandoffRadii(pathOf(points)).path,
-      {},
+      basinRegressionConfig,
     );
     const edited = solveJointAutoConstraints(
       seedHandoffRadii(pathOf(editedPoints)).path,
-      {},
+      basinRegressionConfig,
     );
 
     expect(generatedRadii(edited.path).slice(0, -2)).toEqual(
@@ -164,7 +174,7 @@ describe("solveJointAutoConstraints", () => {
     ) as { paths: Array<{ points: Array<[number, number]> }> };
     const result = solveJointAutoConstraints(
       seedHandoffRadii(pathOf(corpus.paths[3]!.points)).path,
-      {},
+      basinRegressionConfig,
     );
 
     expect(result.status).toBe("valid");

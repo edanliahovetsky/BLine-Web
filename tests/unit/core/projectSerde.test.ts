@@ -901,7 +901,7 @@ describe("project document serde", () => {
     expect(state.editor_config.gui.robot.length_meters).toBe(0.75);
     expect(state.editor_config.kinematic_constraints).toEqual({
       default_auto_velocity_velocity_safety_factor: 0.65,
-      default_auto_velocity_acceleration_safety_factor: 0.8,
+      default_auto_velocity_acceleration_safety_factor: 1,
       default_auto_velocity_merge_tolerance_meters_per_sec: 0.3,
     });
     expect(state.paths).toEqual({

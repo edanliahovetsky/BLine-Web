@@ -26,6 +26,14 @@ describe("project config", () => {
     expect(
       config.kinematic_constraints.default_intermediate_handoff_radius_meters,
     ).toBe(0.45);
+    expect(
+      config.kinematic_constraints
+        .default_auto_velocity_velocity_safety_factor,
+    ).toBe(1);
+    expect(
+      config.kinematic_constraints
+        .default_auto_velocity_acceleration_safety_factor,
+    ).toBe(1);
     expect(config.gui.field).toMatchObject({
       selected_field_id: defaultFieldId,
       custom_fields: [],
@@ -192,7 +200,7 @@ describe("project config", () => {
       default_max_velocity_meters_per_sec: 3,
       default_intermediate_handoff_radius_meters: 0.55,
       default_auto_velocity_velocity_safety_factor: 0.85,
-      default_auto_velocity_acceleration_safety_factor: 0.8,
+      default_auto_velocity_acceleration_safety_factor: 1,
       default_auto_velocity_merge_tolerance_meters_per_sec: 0.25,
     });
   });
