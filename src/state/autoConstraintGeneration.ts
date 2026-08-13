@@ -1,5 +1,4 @@
 import { applyGeneratedAutoRadii } from "../core/constraints/autoConstraintGeneration";
-import type { AutoConstraintSolver } from "../core/constraints/autoConstraintGeneration";
 import {
   autoVelocityGenerationOptions,
   refreshAutoVelocityConstraints,
@@ -21,7 +20,6 @@ export interface ManualAutoConstraintGenerationOptions {
   projects?: ProjectStore;
   request?: typeof requestAutoRadiiAndCaps;
   status?: AutoVelocityStore;
-  solver?: AutoConstraintSolver;
 }
 
 /**
@@ -35,7 +33,6 @@ export async function generateAutoConstraintsInWorker(
   const projects = options.projects ?? projectStore;
   const request = options.request ?? requestAutoRadiiAndCaps;
   const status = options.status ?? autoVelocityStore;
-  const solver = options.solver ?? "production";
   const initial = projects.getState().project;
   if (!initial || status.getState().runSource === "manual") {
     return;
@@ -50,7 +47,6 @@ export async function generateAutoConstraintsInWorker(
       initial.path,
       initial.config,
       settings,
-      solver,
     );
     if (run === supersededAutoVelocityProfile) {
       return;
@@ -75,10 +71,7 @@ export async function generateAutoConstraintsInWorker(
 
     let previousPath: ProjectDocument["path"] | null = null;
     projects.getState().applyCommand({
-      description:
-        solver === "oracle"
-          ? "Generate constraints with oracle"
-          : "Generate constraints",
+      description: "Generate constraints",
       apply: (project) => {
         previousPath = project.path;
         return {

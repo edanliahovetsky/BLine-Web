@@ -1848,26 +1848,17 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
   const generate = card.getByRole("button", {
     name: "Generate constraints",
   });
-  const oracle = card.getByRole("button", {
-    name: "Run oracle optimizer",
-  });
 
   await page
     .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
     .click();
   await page.getByLabel("Delete constraint 1").click();
   await expect(status).toHaveText("Not generated");
-  await expect(oracle).toBeEnabled();
   await generate.click();
   await expect(status).toHaveText("Up to date");
   await page.getByText("Optimizer settings", { exact: true }).click();
   await expect(card.getByTestId("auto-velocity-diagnostics")).toContainText(
     /\d+ \/ \d+ evaluations/,
-  );
-  await oracle.click();
-  await expect(card.getByTestId("auto-velocity-diagnostics")).toContainText(
-    "Oracle",
-    { timeout: 30_000 },
   );
   await expect(
     card.getByRole("button", { name: "Apply", exact: true }),

@@ -33,7 +33,6 @@ function solve(request: AutoVelocityWorkerRequest): AutoVelocityWorkerResponse {
     request.path,
     request.config,
     request.settings,
-    request.solver,
   );
 
   return {
