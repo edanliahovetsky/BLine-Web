@@ -54,6 +54,13 @@ function translationOnlyPath(anchorCount: number): PathModel {
 
 describe("constraint generation performance", () => {
   it("keeps a typical 12-anchor solve interactive while scaling larger paths", () => {
+    const expectedBudgets = new Map([
+      [8, 8_000],
+      [12, 6_784],
+      [16, 7_268],
+      [20, 7_844],
+      [24, 8_676],
+    ]);
     for (const anchorCount of [8, 12, 16, 20, 24]) {
       const path = translationOnlyPath(anchorCount);
       const settings = autoVelocitySettingsForPath(path, {});
@@ -63,7 +70,7 @@ describe("constraint generation performance", () => {
 
       expect(solved.stats.searchableBlocks).toBe(anchorCount - 2);
       expect(solved.stats.evaluationBudget).toBe(
-        4 + 80 * (anchorCount - 2),
+        expectedBudgets.get(anchorCount),
       );
       expect(solved.stats.evaluations).toBeLessThanOrEqual(
         solved.stats.evaluationBudget,

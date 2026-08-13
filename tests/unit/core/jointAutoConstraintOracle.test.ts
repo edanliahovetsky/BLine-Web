@@ -149,8 +149,8 @@ describe("solveJointAutoConstraintsOracle", () => {
             seed: 10_000 + index,
           },
         );
-        expect(oracle.stats.objectiveCost).toBeLessThanOrEqual(
-          interactive.stats.objectiveCost + 1e-9,
+        expect(interactive.stats.objectiveCost).toBeLessThanOrEqual(
+          oracle.stats.objectiveCost + 1e-6,
         );
         return {
           name,

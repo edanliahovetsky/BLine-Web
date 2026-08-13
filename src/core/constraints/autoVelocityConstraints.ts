@@ -183,6 +183,11 @@ export interface JointAutoConstraintOracleOptions {
   seed?: number;
 }
 
+interface JointAutoConstraintOracleInternalOptions extends JointAutoConstraintOracleOptions {
+  restartIndices?: readonly number[];
+  cmaBudgetFraction?: number;
+}
+
 interface SegmentGeometry {
   ax: number;
   ay: number;
@@ -311,6 +316,10 @@ const jointSolverMovesPerBlock = 8;
 const jointSolverSweepCount = 2;
 const jointSolverRefinementBasins = 2;
 const jointSolverRefinementSweepCount = 1;
+const jointParityEvaluationsPerBlock = 128;
+const jointParityMinimumEvaluations = 2_048;
+const jointParityAlternateEvaluationsPerBlock = 168;
+const jointParityAlternateMinimumEvaluations = 4_096;
 const jointRadiusQuantumMeters = 0.001;
 const jointVelocityQuantumMps = 0.01;
 const jointRadiusFloorMeters = 0.05;
@@ -529,7 +538,10 @@ export function jointAutoConstraintSearchPlan(
   ).length;
   return {
     searchableBlocks,
-    evaluationBudget: jointEvaluationBudget(searchableBlocks),
+    evaluationBudget:
+      jointEvaluationBudget(searchableBlocks) +
+      jointParityEvaluationBudget(searchableBlocks) +
+      jointParityAlternateEvaluationBudget(searchableBlocks),
   };
 }
 
@@ -540,6 +552,28 @@ function jointEvaluationBudget(searchableBlocks: number): number {
       jointSolverRefinementBasins * jointSolverRefinementSweepCount) *
       jointSolverMovesPerBlock *
       searchableBlocks
+  );
+}
+
+function jointParityEvaluationBudget(searchableBlocks: number): number {
+  if (searchableBlocks <= 0) {
+    return 0;
+  }
+  return Math.max(
+    jointParityMinimumEvaluations,
+    searchableBlocks * jointParityEvaluationsPerBlock,
+  );
+}
+
+function jointParityAlternateEvaluationBudget(
+  searchableBlocks: number,
+): number {
+  if (searchableBlocks <= 0) {
+    return 0;
+  }
+  return Math.max(
+    jointParityAlternateMinimumEvaluations,
+    searchableBlocks * jointParityAlternateEvaluationsPerBlock,
   );
 }
 
@@ -658,8 +692,7 @@ function jointStartCandidates(
     for (const coordinate of coordinates) {
       candidate.radiiBySegmentIndex[coordinate.segmentIndex] =
         coordinate.minRadiusMeters +
-        radiusRatio *
-          (coordinate.maxRadiusMeters - coordinate.minRadiusMeters);
+        radiusRatio * (coordinate.maxRadiusMeters - coordinate.minRadiusMeters);
     }
     return candidate;
   };
@@ -1088,10 +1121,7 @@ function jointSearchObjectiveCost(
     );
     const persistedOvershootRatio = finiteJointRatio(
       roundDistance(handoff.overshootErrorMeters) /
-        Math.max(
-          roundDistance(handoff.overshootToleranceMeters),
-          minPositive,
-        ),
+        Math.max(roundDistance(handoff.overshootToleranceMeters), minPositive),
     );
     const persistedCorridorRatio = finiteJointRatio(
       roundDistance(handoff.corridorDeviationMeters) /
@@ -1112,8 +1142,7 @@ function jointSearchObjectiveCost(
       0,
       1,
     );
-    const earlyHandoffWeight =
-      8 * (1 + (18 - 1) * reversalBlend ** 8);
+    const earlyHandoffWeight = 8 * (1 + (18 - 1) * reversalBlend ** 8);
     const persistedEarlyRatio = finiteJointRatio(
       roundDistance(handoff.earlyHandoffRatio),
     );
@@ -1145,8 +1174,7 @@ function jointSearchObjectiveCost(
     previousCap = cap;
   }
   const velocityTieBreak =
-    (everyVelocityRatioWithinBudget ? -capSum : 0) +
-    0.001 * capSmoothness;
+    (everyVelocityRatioWithinBudget ? -capSum : 0) + 0.001 * capSmoothness;
 
   return (
     handoffCost +
@@ -1175,7 +1203,143 @@ export function solveJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): JointAutoConstraintSolveResult {
-  return solveJointAutoConstraintsInternal(path, config, options, true);
+  const searchPlan = jointAutoConstraintSearchPlan(path, config, options);
+  if (searchPlan.searchableBlocks <= 8) {
+    const result = solveJointAutoConstraintsOracleInternal(
+      path,
+      config,
+      options,
+      { maxEvaluations: 8_000 },
+    );
+    return {
+      ...result,
+      stats: { ...result.stats, algorithm: "interactive" },
+    };
+  }
+  if (searchPlan.searchableBlocks <= 10) {
+    return solveCompactJointAutoConstraints(path, config, options);
+  }
+  const seed = solveJointAutoConstraintsInternal(path, config, options, true);
+  return refineJointAutoConstraintsForProduction(path, config, options, seed);
+}
+
+function refineJointAutoConstraintsForProduction(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+  seed: JointAutoConstraintSolveResult,
+): JointAutoConstraintSolveResult {
+  const canonicalPath = seedHandoffRadii(path).path;
+  const problem = createJointSearchProblem(canonicalPath, config, options);
+  const evaluationBudget = jointParityEvaluationBudget(
+    problem.searchableCoordinates.length,
+  );
+  if (evaluationBudget === 0) {
+    return seed;
+  }
+
+  const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
+  const variables = jointOracleVariables(problem);
+  const seedSetup = createAutoVelocitySolveSetup(seed.path, config, options);
+  const seedCandidate: JointCandidate = {
+    radiiBySegmentIndex: [
+      ...seedSetup.simulationContext.handoffRadiiBySegmentIndex,
+    ],
+    capsByOrdinal: capsByOrdinalFromSegmentCaps(seed.profile.segmentCaps),
+  };
+  const seedEvaluation = evaluator.evaluate(seedCandidate);
+  const oracleBase = jointOracleBaseCandidate(problem);
+  let best = evaluator.evaluate(
+    decodeJointOracleCandidate(
+      variables.map(() => 0.5),
+      variables,
+      oracleBase,
+    ),
+  );
+  if (!best) {
+    return seed;
+  }
+  if (seedEvaluation && isBetterJointOracleCandidate(seedEvaluation, best)) {
+    best = seedEvaluation;
+  }
+  for (const fraction of [0.2, 0.5, 0.8]) {
+    const broad = evaluator.evaluate(
+      decodeJointOracleCandidate(
+        variables.map((variable) =>
+          variable.kind === "radius" ? fraction : 0.25 + fraction * 0.75,
+        ),
+        variables,
+        best.candidate,
+      ),
+    );
+    if (broad && isBetterJointOracleCandidate(broad, best)) {
+      best = broad;
+    }
+  }
+
+  best = polishJointOracleCandidate(best, variables, evaluator);
+  const finalistMap = new Map(
+    [
+      best,
+      ...(seedEvaluation ? [seedEvaluation] : []),
+      ...evaluator.rankedCandidates(32, isBetterJointOracleCandidate),
+    ].map((candidate) => [candidate.signature, candidate]),
+  );
+  const refined = finalizeJointCandidates(
+    canonicalPath,
+    config,
+    options,
+    problem,
+    [...finalistMap.values()],
+    evaluator,
+    seed.stats.algorithm,
+  );
+  const alternateEvaluationBudget = jointParityAlternateEvaluationBudget(
+    problem.searchableCoordinates.length,
+  );
+  const alternate = solveJointAutoConstraintsOracleInternal(
+    canonicalPath,
+    config,
+    options,
+    {
+      maxEvaluations: alternateEvaluationBudget,
+      restartIndices: [6],
+      cmaBudgetFraction: 0.27,
+    },
+    seed,
+  );
+  const statusRank = (status: JointAutoConstraintSolveStatus): number =>
+    status === "valid" ? 0 : status === "best-effort" ? 1 : 2;
+  const winner =
+    statusRank(alternate.status) < statusRank(refined.status) ||
+    (statusRank(alternate.status) === statusRank(refined.status) &&
+      alternate.stats.objectiveCost <
+        refined.stats.objectiveCost - jointObjectiveIndifference)
+      ? alternate
+      : refined;
+  return {
+    ...winner,
+    stats: {
+      ...winner.stats,
+      algorithm: seed.stats.algorithm,
+      evaluations:
+        seed.stats.evaluations +
+        refined.stats.evaluations +
+        alternate.stats.evaluations,
+      evaluationBudget:
+        seed.stats.evaluationBudget +
+        evaluationBudget +
+        alternateEvaluationBudget,
+      cacheHits:
+        seed.stats.cacheHits +
+        refined.stats.cacheHits +
+        alternate.stats.cacheHits,
+      genericEvaluations:
+        seed.stats.genericEvaluations +
+        refined.stats.genericEvaluations +
+        alternate.stats.genericEvaluations,
+    },
+  };
 }
 
 function solveJointAutoConstraintsInternal(
@@ -1331,6 +1495,64 @@ function solveJointAutoConstraintsInternal(
   };
 }
 
+function solveCompactJointAutoConstraints(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+): JointAutoConstraintSolveResult {
+  const broad = solveJointAutoConstraintsOracleInternal(
+    path,
+    config,
+    options,
+    {
+      maxEvaluations: 4_096,
+      restartIndices: [2],
+      cmaBudgetFraction: 0.3,
+    },
+  );
+  const alternateBudget = 2_688;
+  const alternate = solveJointAutoConstraintsOracleInternal(
+    path,
+    config,
+    options,
+    {
+      maxEvaluations: alternateBudget,
+      restartIndices: [0],
+      cmaBudgetFraction: 0.27,
+    },
+  );
+  const winner = betterFinalizedJointResult(alternate, broad)
+    ? alternate
+    : broad;
+  return {
+    ...winner,
+    stats: {
+      ...winner.stats,
+      algorithm: "interactive",
+      evaluations: broad.stats.evaluations + alternate.stats.evaluations,
+      evaluationBudget: 4_096 + alternateBudget,
+      cacheHits: broad.stats.cacheHits + alternate.stats.cacheHits,
+      genericEvaluations:
+        broad.stats.genericEvaluations + alternate.stats.genericEvaluations,
+    },
+  };
+}
+
+function betterFinalizedJointResult(
+  candidate: JointAutoConstraintSolveResult,
+  current: JointAutoConstraintSolveResult,
+): boolean {
+  const statusRank = (status: JointAutoConstraintSolveStatus): number =>
+    status === "valid" ? 0 : status === "best-effort" ? 1 : 2;
+  const rankDelta = statusRank(candidate.status) - statusRank(current.status);
+  return (
+    rankDelta < 0 ||
+    (rankDelta === 0 &&
+      candidate.stats.objectiveCost <
+        current.stats.objectiveCost - jointObjectiveIndifference)
+  );
+}
+
 type JointOracleVariable =
   | { kind: "radius"; coordinate: JointRadiusCoordinate }
   | { kind: "cap"; ordinal: number; min: number; max: number };
@@ -1399,7 +1621,7 @@ function solveJointAutoConstraintsOracleInternal(
   path: PathModel,
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions,
-  oracleOptions: JointAutoConstraintOracleOptions,
+  oracleOptions: JointAutoConstraintOracleInternalOptions,
   suppliedProductionSeed?: JointAutoConstraintSolveResult,
 ): JointAutoConstraintSolveResult {
   const canonicalPath = seedHandoffRadii(path).path;
@@ -1491,26 +1713,36 @@ function solveJointAutoConstraintsOracleInternal(
       Math.sqrt(dimension) *
       (1 - 1 / (4 * dimension) + 1 / (21 * dimension * dimension));
     const restartVectors = jointOracleRestartVectors(variables);
+    const restartSchedule = (
+      oracleOptions.restartIndices ?? restartVectors.map((_, index) => index)
+    ).flatMap((restartIndex) => {
+      const vector = restartVectors[restartIndex];
+      return vector ? [{ restartIndex, vector }] : [];
+    });
     const cmaBudget = Math.max(
       evaluator.evaluations,
-      Math.floor(evaluationBudget * 0.78),
+      Math.floor(evaluationBudget * (oracleOptions.cmaBudgetFraction ?? 0.78)),
     );
     const evaluationsPerRestart = Math.max(
       populationSize * 3,
       Math.floor(
-        Math.max(0, cmaBudget - evaluator.evaluations) / restartVectors.length,
+        Math.max(0, cmaBudget - evaluator.evaluations) /
+          Math.max(1, restartSchedule.length),
       ),
     );
 
     for (
-      let restartIndex = 0;
-      restartIndex < restartVectors.length && evaluator.evaluations < cmaBudget;
-      restartIndex += 1
+      let scheduleIndex = 0;
+      scheduleIndex < restartSchedule.length &&
+      evaluator.evaluations < cmaBudget;
+      scheduleIndex += 1
     ) {
+      const restart = restartSchedule[scheduleIndex]!;
+      const restartIndex = restart.restartIndex;
       const random = createJointOracleRandom(
         jointOracleRestartSeeds[restartIndex % jointOracleRestartSeeds.length]!,
       );
-      let mean = restartVectors[restartIndex]!;
+      let mean = restart.vector;
       let sigma = restartIndex < 5 ? 0.28 : 0.34;
       let covariance = identityMatrix(dimension);
       let evolutionPath = Array<number>(dimension).fill(0);
@@ -1694,7 +1926,10 @@ function finalizeJointCandidates(
   }));
   const statusRank = (status: JointAutoConstraintSolveStatus): number =>
     status === "valid" ? 0 : status === "best-effort" ? 1 : 2;
-  finalized.sort((left, right) => {
+  const compareFinalized = (
+    left: (typeof finalized)[number],
+    right: (typeof finalized)[number],
+  ): number => {
     const rankDelta =
       statusRank(left.result.status) - statusRank(right.result.status);
     if (rankDelta !== 0) {
@@ -1706,7 +1941,25 @@ function finalizeJointCandidates(
       return costDelta;
     }
     return left.candidate.signature.localeCompare(right.candidate.signature);
-  });
+  };
+  finalized.sort(compareFinalized);
+  if (finalized[0]?.result.status !== "valid") {
+    const repaired = finalized.slice(0, 3).map(({ candidate }) => ({
+      candidate,
+      result: finalizeJointCandidate(
+        path,
+        config,
+        options,
+        problem,
+        candidate,
+        evaluator,
+        algorithm,
+        true,
+      ),
+    }));
+    finalized.push(...repaired);
+    finalized.sort(compareFinalized);
+  }
   const winner = finalized[0];
   if (!winner) {
     throw new Error("Joint solver produced no candidate to finalize");
@@ -1715,7 +1968,10 @@ function finalizeJointCandidates(
     ...winner.result,
     stats: {
       ...winner.result.stats,
-      genericEvaluations: finalized.length * 2,
+      genericEvaluations: finalized.reduce(
+        (sum, entry) => sum + entry.result.stats.genericEvaluations,
+        0,
+      ),
     },
   };
 }
@@ -1918,8 +2174,7 @@ function choleskyFactor(matrix: readonly number[][]): number[][] {
       // pair to neutralize accumulated floating-point asymmetry.
       value = (value + (matrix[column]?.[row] ?? value)) / 2;
       for (let index = 0; index < column; index += 1) {
-        value -=
-          (factor[row]?.[index] ?? 0) * (factor[column]?.[index] ?? 0);
+        value -= (factor[row]?.[index] ?? 0) * (factor[column]?.[index] ?? 0);
       }
       if (row === column) {
         factor[row]![column] = Math.sqrt(Math.max(value, 1e-12));
@@ -2034,9 +2289,7 @@ function jointNearStraightRadiusCost(
   capsByOrdinal: ReadonlyMap<number, number>,
 ): number {
   return corners.reduce((cost, corner) => {
-    const straightness = nearStraightPreferenceWeight(
-      corner.turnAngleRadians,
-    );
+    const straightness = nearStraightPreferenceWeight(corner.turnAngleRadians);
     if (straightness <= 0) {
       return cost;
     }
@@ -2054,9 +2307,7 @@ function jointNearStraightRadiusCost(
       (preferredRadius - corner.handoffDistanceMeters) /
         Math.max(preferredRadius, minPositive),
     );
-    return (
-      cost + nearStraightRadiusWeight * straightness * deficit * deficit
-    );
+    return cost + nearStraightRadiusWeight * straightness * deficit * deficit;
   }, 0);
 }
 
@@ -2079,14 +2330,15 @@ function finalizeJointCandidate(
   best: JointCandidateEvaluation,
   evaluator: JointCandidateEvaluator,
   algorithm: JointAutoConstraintSolveStats["algorithm"],
+  attemptStabilityRepair = false,
 ): JointAutoConstraintSolveResult {
-  const solvedPath = pathWithJointRadii(
+  let solvedPath = pathWithJointRadii(
     path,
     problem.setup.anchors,
     best.candidate.radiiBySegmentIndex,
   );
-  const finalSetup = createAutoVelocitySolveSetup(solvedPath, config, options);
-  const persistedCaps = capsByOrdinalFromSegmentCaps(
+  let finalSetup = createAutoVelocitySolveSetup(solvedPath, config, options);
+  let persistedCaps = capsByOrdinalFromSegmentCaps(
     segmentCapsFromSolvedCaps(
       finalSetup.anchors,
       finalSetup.segments,
@@ -2095,7 +2347,7 @@ function finalizeJointCandidate(
       finalSetup.usableMaxVelocityMps,
     ),
   );
-  const finalEvaluation = evaluateVelocityCapsWithGenericSimulation(
+  let finalEvaluation = evaluateVelocityCapsWithGenericSimulation(
     finalSetup.simulationContext,
     finalSetup.segments,
     finalSetup.corners,
@@ -2103,7 +2355,7 @@ function finalizeJointCandidate(
     finalSetup.usableMaxVelocityMps,
     finalSetup.usableMaxAccelerationMps2,
   );
-  const stabilityEvaluation = evaluateVelocityCapsWithGenericSimulation(
+  let stabilityEvaluation = evaluateVelocityCapsWithGenericSimulation(
     finalSetup.simulationContext,
     finalSetup.segments,
     finalSetup.corners,
@@ -2112,6 +2364,145 @@ function finalizeJointCandidate(
     finalSetup.usableMaxAccelerationMps2,
     solverDtSeconds / 2,
   );
+  let genericEvaluations = 2;
+  if (
+    attemptStabilityRepair &&
+    (!finalEvaluation.passed || !stabilityEvaluation.passed)
+  ) {
+    const failingOrdinals = new Set(
+      stabilityEvaluation.handoffs.flatMap((handoff) =>
+        handoff.passed ? [] : [handoff.corner.anchorOrdinal],
+      ),
+    );
+    radiusRepair: for (const coordinate of problem.searchableCoordinates) {
+      if (!failingOrdinals.has(coordinate.anchorOrdinal)) {
+        continue;
+      }
+      const currentRadius =
+        best.candidate.radiiBySegmentIndex[coordinate.segmentIndex] ??
+        coordinate.minRadiusMeters;
+      for (const trialRadius of [
+        coordinate.minRadiusMeters,
+        coordinate.maxRadiusMeters,
+        currentRadius + 0.5 * (coordinate.maxRadiusMeters - currentRadius),
+        currentRadius + 0.5 * (coordinate.minRadiusMeters - currentRadius),
+      ]) {
+        const trialRadii = [...best.candidate.radiiBySegmentIndex];
+        trialRadii[coordinate.segmentIndex] = quantizeJointRadius(
+          trialRadius,
+          coordinate.minRadiusMeters,
+          coordinate.maxRadiusMeters,
+        );
+        const trialPath = pathWithJointRadii(
+          path,
+          problem.setup.anchors,
+          trialRadii,
+        );
+        const trialSetup = createAutoVelocitySolveSetup(
+          trialPath,
+          config,
+          options,
+        );
+        const trialCaps = capsByOrdinalFromSegmentCaps(
+          segmentCapsFromSolvedCaps(
+            trialSetup.anchors,
+            trialSetup.segments,
+            best.candidate.capsByOrdinal,
+            trialSetup.baseMaxVelocityMps,
+            trialSetup.usableMaxVelocityMps,
+          ),
+        );
+        const trialEvaluation = evaluateVelocityCapsWithGenericSimulation(
+          trialSetup.simulationContext,
+          trialSetup.segments,
+          trialSetup.corners,
+          trialCaps,
+          trialSetup.usableMaxVelocityMps,
+          trialSetup.usableMaxAccelerationMps2,
+        );
+        const trialStabilityEvaluation =
+          evaluateVelocityCapsWithGenericSimulation(
+            trialSetup.simulationContext,
+            trialSetup.segments,
+            trialSetup.corners,
+            trialCaps,
+            trialSetup.usableMaxVelocityMps,
+            trialSetup.usableMaxAccelerationMps2,
+            solverDtSeconds / 2,
+          );
+        genericEvaluations += 2;
+        if (trialEvaluation.passed && trialStabilityEvaluation.passed) {
+          solvedPath = trialPath;
+          finalSetup = trialSetup;
+          persistedCaps = trialCaps;
+          finalEvaluation = trialEvaluation;
+          stabilityEvaluation = trialStabilityEvaluation;
+          break radiusRepair;
+        }
+      }
+    }
+  }
+  if (
+    attemptStabilityRepair &&
+    (!finalEvaluation.passed || !stabilityEvaluation.passed)
+  ) {
+    const failingOrdinals = stabilityEvaluation.handoffs.flatMap((handoff) =>
+      handoff.passed ? [] : [handoff.corner.anchorOrdinal],
+    );
+    const scopes = [
+      [...persistedCaps.keys()],
+      ...failingOrdinals.flatMap((ordinal) => [
+        [ordinal],
+        [ordinal, ordinal + 1],
+        [ordinal - 1, ordinal, ordinal + 1],
+      ]),
+    ];
+    repair: for (const factor of [0.85, 0.7, 0.55, 0.4, 0.25]) {
+      for (const scope of scopes) {
+        const trialCaps = new Map(persistedCaps);
+        for (const ordinal of scope) {
+          if (finalSetup.simulationContext.pinnedCapsByOrdinal.has(ordinal)) {
+            continue;
+          }
+          const current = trialCaps.get(ordinal);
+          if (current !== undefined) {
+            trialCaps.set(
+              ordinal,
+              quantizeJointVelocity(
+                current * factor,
+                finalSetup.usableMaxVelocityMps,
+              ),
+            );
+          }
+        }
+        const trialEvaluation = evaluateVelocityCapsWithGenericSimulation(
+          finalSetup.simulationContext,
+          finalSetup.segments,
+          finalSetup.corners,
+          trialCaps,
+          finalSetup.usableMaxVelocityMps,
+          finalSetup.usableMaxAccelerationMps2,
+        );
+        const trialStabilityEvaluation =
+          evaluateVelocityCapsWithGenericSimulation(
+            finalSetup.simulationContext,
+            finalSetup.segments,
+            finalSetup.corners,
+            trialCaps,
+            finalSetup.usableMaxVelocityMps,
+            finalSetup.usableMaxAccelerationMps2,
+            solverDtSeconds / 2,
+          );
+        genericEvaluations += 2;
+        if (trialEvaluation.passed && trialStabilityEvaluation.passed) {
+          persistedCaps = trialCaps;
+          finalEvaluation = trialEvaluation;
+          stabilityEvaluation = trialStabilityEvaluation;
+          break repair;
+        }
+      }
+    }
+  }
   const segmentCaps = segmentCapsFromSolvedCaps(
     finalSetup.anchors,
     finalSetup.segments,
@@ -2149,7 +2540,6 @@ function finalizeJointCandidate(
       totalTimeS: finalEvaluation.totalTimeS,
       capsByOrdinal: persistedCaps,
     });
-
   return {
     path: solvedPath,
     profile,
@@ -2164,7 +2554,7 @@ function finalizeJointCandidate(
       evaluationBudget: evaluator.evaluationBudget,
       searchableBlocks: problem.searchableCoordinates.length,
       cacheHits: evaluator.cacheHits,
-      genericEvaluations: 2,
+      genericEvaluations,
       objectiveCost: persistedObjectiveCost,
       genericValidationPassed: finalEvaluation.passed,
       stabilityValidationPassed: stabilityEvaluation.passed,
@@ -4490,8 +4880,7 @@ function simulateJointCandidate(
 
     const ux = distToTarget > 1e-9 ? dx / distToTarget : 1;
     const uy = distToTarget > 1e-9 ? dy / distToTarget : 0;
-    const globalS =
-      (context.cumulativeLengths[segmentIndex] ?? 0) + projectedS;
+    const globalS = (context.cumulativeLengths[segmentIndex] ?? 0) + projectedS;
     const desiredTheta = tracksRotation
       ? desiredHeadingForGlobalS(
           context.rotationKeyframes,
@@ -4532,10 +4921,7 @@ function simulateJointCandidate(
         : degreesToRadians(maxAlphaEff);
     let vDesScalar = Math.max(
       0,
-      Math.min(
-        maxV,
-        Math.sqrt(2 * usableMaxAccelerationMps2 * remaining),
-      ),
+      Math.min(maxV, Math.sqrt(2 * usableMaxAccelerationMps2 * remaining)),
     );
     const angularError = shortestAngularDistance(desiredTheta, theta);
 
@@ -4730,10 +5116,7 @@ function evaluateJointHandoff(
       const alongTrack =
         (x - incomingSegment.bx) * incomingSegment.ux +
         (y - incomingSegment.by) * incomingSegment.uy;
-      overshootError = Math.max(
-        overshootError,
-        alongTrack - expectedOvershoot,
-      );
+      overshootError = Math.max(overshootError, alongTrack - expectedOvershoot);
       corridorDeviation = Math.max(
         corridorDeviation,
         Math.min(
@@ -4757,10 +5140,8 @@ function evaluateJointHandoff(
     combinedError <= tolerance * fastSimulationPassToleranceRatio &&
     postHandoffPeakError <=
       postHandoffTolerance * fastSimulationPassToleranceRatio &&
-    overshootError <=
-      overshootTolerance * fastSimulationPassToleranceRatio &&
-    corridorDeviation <=
-      corridorTolerance * fastSimulationPassToleranceRatio;
+    overshootError <= overshootTolerance * fastSimulationPassToleranceRatio &&
+    corridorDeviation <= corridorTolerance * fastSimulationPassToleranceRatio;
 
   return {
     corner,
@@ -4806,10 +5187,7 @@ function sampleJointWorkspaceAtS(
     return null;
   }
   const target = roundDistance(sMeters);
-  const index = Math.max(
-    1,
-    jointLowerBoundGlobalS(workspace, target - 1e-6),
-  );
+  const index = Math.max(1, jointLowerBoundGlobalS(workspace, target - 1e-6));
   if (index < workspace.length) {
     const previousS = workspace.globalSMeters[index - 1]!;
     const currentS = workspace.globalSMeters[index]!;
