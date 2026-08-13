@@ -265,6 +265,21 @@ interface VelocityCapEvaluation {
   trace: SimulationTraceSample[];
 }
 
+/**
+ * Reused by the joint search's inner evaluator. CMA-ES never needs the rich
+ * preview trace, only position, progress, and the segment selected by the
+ * runtime. Keeping those as parallel numeric buffers avoids allocating
+ * hundreds of trace objects for every candidate.
+ */
+interface JointSimulationWorkspace {
+  xMeters: number[];
+  yMeters: number[];
+  globalSMeters: number[];
+  segmentIndices: number[];
+  capsMps: number[];
+  length: number;
+}
+
 const defaultMaxVelocityMps = 4.5;
 const defaultMaxAccelerationMps2 = 7;
 const defaultMaxOmegaDegPerSec = 180;
@@ -951,6 +966,14 @@ function createJointCandidateEvaluator(
   const { setup, searchableCoordinates, canonicalRadii, canonicalCaps } =
     problem;
   const cache = new Map<string, JointCandidateEvaluation>();
+  const simulationWorkspace: JointSimulationWorkspace = {
+    xMeters: [],
+    yMeters: [],
+    globalSMeters: [],
+    segmentIndices: [],
+    capsMps: [],
+    length: 0,
+  };
   const evaluator: JointCandidateEvaluator = {
     evaluationBudget,
     evaluations: 0,
@@ -991,33 +1014,26 @@ function createJointCandidateEvaluator(
         ...setup.simulationContext,
         handoffRadiiBySegmentIndex: normalized.radiiBySegmentIndex,
       };
-      const evaluation = evaluateVelocityCapsFast(
+      const evaluation = evaluateJointCandidateFast(
         context,
         setup.segments,
         corners,
         normalized.capsByOrdinal,
         setup.usableMaxVelocityMps,
         setup.usableMaxAccelerationMps2,
+        simulationWorkspace,
       );
       evaluator.evaluations += 1;
-      const diagnostics = diagnosticsFromEvaluation(evaluation);
       const result: JointCandidateEvaluation = {
         candidate: normalized,
         corners,
-        cost:
-          autoHandoffRadiusObjectiveCost({ corners, diagnostics }) +
-          jointRadiusRobustnessCost(corners) +
-          jointNearStraightRadiusCost(
-            corners,
-            setup.segments,
-            normalized.capsByOrdinal,
-          ) +
-          autoVelocityTieBreakCost({
-            reachedEndRatio: reachedEndRatio(evaluation),
-            handoffRatios: evaluationHandoffRatios(evaluation),
-            totalTimeS: evaluation.totalTimeS,
-            capsByOrdinal: normalized.capsByOrdinal,
-          }),
+        cost: jointSearchObjectiveCost(
+          evaluation,
+          corners,
+          setup.segments,
+          normalized.capsByOrdinal,
+          setup.anchors.length,
+        ),
         canonicalDistance: jointCanonicalDistance(
           normalized,
           canonicalRadii,
@@ -1032,6 +1048,120 @@ function createJointCandidateEvaluator(
     },
   };
   return evaluator;
+}
+
+/**
+ * Allocation-light equivalent of the shared public objective. The handoff
+ * objective intentionally consumes persisted diagnostics precision, while the
+ * velocity tie-break intentionally consumes the raw fast-simulation ratios.
+ * Keeping both details here makes search ranking identical without building a
+ * public diagnostics tree for every CMA member.
+ */
+function jointSearchObjectiveCost(
+  evaluation: VelocityCapEvaluation,
+  corners: readonly AutoVelocityCorner[],
+  segments: readonly SegmentGeometry[],
+  capsByOrdinal: ReadonlyMap<number, number>,
+  anchorCount: number,
+): number {
+  let handoffCost =
+    finiteJointPositive(roundDistance(evaluation.totalTimeS)) * 4.5;
+  if (!evaluation.reachedEnd) {
+    handoffCost += 1_000_000;
+  }
+
+  let everyVelocityRatioWithinBudget = evaluation.reachedEnd;
+  for (const handoff of evaluation.handoffs) {
+    if (handoff.skippedOutgoingSegment) {
+      handoffCost += 1_000_000;
+    }
+    const persistedHandoffRatio = finiteJointRatio(
+      roundDistance(handoff.combinedErrorMeters) /
+        Math.max(roundDistance(handoff.toleranceMeters), minPositive),
+    );
+    const persistedPostRatio = finiteJointRatio(
+      roundDistance(handoff.postHandoffPeakErrorMeters) /
+        Math.max(
+          roundDistance(handoff.postHandoffToleranceMeters),
+          minPositive,
+        ),
+    );
+    const persistedOvershootRatio = finiteJointRatio(
+      roundDistance(handoff.overshootErrorMeters) /
+        Math.max(
+          roundDistance(handoff.overshootToleranceMeters),
+          minPositive,
+        ),
+    );
+    const persistedCorridorRatio = finiteJointRatio(
+      roundDistance(handoff.corridorDeviationMeters) /
+        Math.max(roundDistance(handoff.corridorToleranceMeters), minPositive),
+    );
+    for (const ratio of [
+      persistedHandoffRatio,
+      persistedPostRatio,
+      persistedOvershootRatio,
+      persistedCorridorRatio,
+    ]) {
+      handoffCost += 20_000 * Math.max(0, ratio - 1) ** 2;
+    }
+
+    const reversalBlend = clamp(
+      (handoff.corner.turnAngleRadians - (150 * Math.PI) / 180) /
+        (Math.PI - (150 * Math.PI) / 180),
+      0,
+      1,
+    );
+    const earlyHandoffWeight =
+      8 * (1 + (18 - 1) * reversalBlend ** 8);
+    const persistedEarlyRatio = finiteJointRatio(
+      roundDistance(handoff.earlyHandoffRatio),
+    );
+    handoffCost += earlyHandoffWeight * persistedEarlyRatio ** 2;
+    handoffCost += 3 * persistedCorridorRatio ** 2;
+    handoffCost +=
+      2 *
+      (persistedHandoffRatio ** 2 +
+        persistedPostRatio ** 2 +
+        persistedOvershootRatio ** 2);
+
+    everyVelocityRatioWithinBudget &&=
+      handoff.combinedErrorMeters <= handoff.toleranceMeters &&
+      handoff.postHandoffPeakErrorMeters <=
+        handoff.postHandoffToleranceMeters &&
+      handoff.overshootErrorMeters <= handoff.overshootToleranceMeters &&
+      handoff.corridorDeviationMeters <= handoff.corridorToleranceMeters;
+  }
+
+  let capSum = 0;
+  let capSmoothness = 0;
+  let previousCap: number | undefined;
+  for (let ordinal = 2; ordinal <= anchorCount; ordinal += 1) {
+    const cap = capsByOrdinal.get(ordinal) ?? 0;
+    capSum += cap;
+    if (previousCap !== undefined) {
+      capSmoothness += (cap - previousCap) ** 2;
+    }
+    previousCap = cap;
+  }
+  const velocityTieBreak =
+    (everyVelocityRatioWithinBudget ? -capSum : 0) +
+    0.001 * capSmoothness;
+
+  return (
+    handoffCost +
+    jointRadiusRobustnessCost(corners) +
+    jointNearStraightRadiusCost(corners, segments, capsByOrdinal) +
+    velocityTieBreak
+  );
+}
+
+function finiteJointRatio(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, value) : 1_000;
+}
+
+function finiteJointPositive(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 1_000;
 }
 
 /**
@@ -4237,6 +4367,593 @@ function optimizeHandoffPairWithGenericSimulation(
     incomingCap: bestIncoming,
     outgoingCap: bestOutgoing,
     evaluation: bestEvaluation,
+  };
+}
+
+function evaluateJointCandidateFast(
+  simulationContext: AutoVelocitySimulationContext,
+  segments: readonly SegmentGeometry[],
+  corners: readonly AutoVelocityCorner[],
+  capsByOrdinal: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  workspace: JointSimulationWorkspace,
+): VelocityCapEvaluation {
+  const result = simulateJointCandidate(
+    simulationContext,
+    capsByOrdinal,
+    usableMaxVelocityMps,
+    usableMaxAccelerationMps2,
+    workspace,
+  );
+  const totalLength = segments.at(-1)?.endS ?? 0;
+  const reachedEnd =
+    totalLength <= minPositive ||
+    result.finalGlobalSMeters >= totalLength - 0.02;
+  const handoffs = corners.map((corner) =>
+    evaluateJointHandoff(corner, segments, workspace),
+  );
+
+  return {
+    handoffs,
+    passed: reachedEnd && handoffs.every((handoff) => handoff.passed),
+    reachedEnd,
+    totalTimeS: result.totalTimeS,
+    finalGlobalSMeters: result.finalGlobalSMeters,
+    totalLengthMeters: totalLength,
+    trace: [],
+  };
+}
+
+function simulateJointCandidate(
+  context: AutoVelocitySimulationContext,
+  capsByOrdinal: ReadonlyMap<number, number>,
+  usableMaxVelocityMps: number,
+  usableMaxAccelerationMps2: number,
+  workspace: JointSimulationWorkspace,
+): { totalTimeS: number; finalGlobalSMeters: number } {
+  const firstSegment = context.segments[0];
+  workspace.length = 0;
+  if (!firstSegment) {
+    return { totalTimeS: 0, finalGlobalSMeters: 0 };
+  }
+
+  let sampleCount = 1;
+  workspace.xMeters[0] = firstSegment.ax;
+  workspace.yMeters[0] = firstSegment.ay;
+  workspace.globalSMeters[0] = 0;
+  workspace.segmentIndices[0] = 0;
+
+  let x = firstSegment.ax;
+  let y = firstSegment.ay;
+  let theta = context.initialHeading;
+  let vx = 0;
+  let vy = 0;
+  let omega = 0;
+  let tS = 0;
+  let segmentIndex = 0;
+  let lastGlobalS = 0;
+  const minTransV = minimumCapValue(capsByOrdinal, usableMaxVelocityMps);
+  for (let index = 0; index < context.segments.length; index += 1) {
+    workspace.capsMps[index] = effectiveCapValue(
+      capsByOrdinal.get(index + 2),
+      usableMaxVelocityMps,
+    );
+  }
+  const minRotOmega = degreesToRadians(
+    Math.max(
+      0.001,
+      minimumRotationLimitValue(
+        context.maxRotationVelocityConstraints,
+        context.baseMaxOmegaRadps / (Math.PI / 180),
+      ),
+    ),
+  );
+  const estTransTime =
+    context.totalPathLength /
+    Math.max(0.1, Math.min(minTransV, usableMaxVelocityMps));
+  const estRotTime = Math.PI / minRotOmega;
+  const guardTime = Math.max(3, 2 * estTransTime + 1.5 * estRotTime);
+  const epsPos = 1e-3;
+  const epsAng = degreesToRadians(0.5);
+  const maxTranslationDelta = usableMaxAccelerationMps2 * solverDtSeconds;
+  const tracksRotation = context.rotationKeyframes.length > 0;
+
+  while (tS <= guardTime) {
+    if (segmentIndex >= context.segments.length) {
+      break;
+    }
+
+    let segment = context.segments[segmentIndex]!;
+    let dx = segment.bx - x;
+    let dy = segment.by - y;
+    let distToTarget = Math.sqrt(dx * dx + dy * dy);
+    let projectedS = projectedDistanceOnSegment(segment, x, y);
+    let handoffRadius =
+      context.handoffRadiiBySegmentIndex[segmentIndex] ??
+      context.defaultHandoffRadiusMeters;
+
+    while (
+      segmentIndex < context.segments.length - 1 &&
+      distToTarget <= handoffRadius
+    ) {
+      segmentIndex += 1;
+      segment = context.segments[segmentIndex]!;
+      dx = segment.bx - x;
+      dy = segment.by - y;
+      distToTarget = Math.sqrt(dx * dx + dy * dy);
+      projectedS = projectedDistanceOnSegment(segment, x, y);
+      handoffRadius =
+        context.handoffRadiiBySegmentIndex[segmentIndex] ??
+        context.defaultHandoffRadiusMeters;
+    }
+
+    const ux = distToTarget > 1e-9 ? dx / distToTarget : 1;
+    const uy = distToTarget > 1e-9 ? dy / distToTarget : 0;
+    const globalS =
+      (context.cumulativeLengths[segmentIndex] ?? 0) + projectedS;
+    const desiredTheta = tracksRotation
+      ? desiredHeadingForGlobalS(
+          context.rotationKeyframes,
+          globalS,
+          context.startHeadingBase,
+        ).desiredTheta
+      : theta;
+    const remaining =
+      distToTarget +
+      Math.max(
+        0,
+        context.totalPathLength -
+          (context.cumulativeLengths[segmentIndex + 1] ??
+            context.totalPathLength),
+      );
+    const maxV = workspace.capsMps[segmentIndex] ?? usableMaxVelocityMps;
+    const maxOmegaEff = tracksRotation
+      ? activeRotationLimit(
+          context.rotationDomainEvents,
+          context.maxRotationVelocityConstraints,
+          globalS,
+        )
+      : null;
+    const maxAlphaEff = tracksRotation
+      ? activeRotationLimit(
+          context.rotationDomainEvents,
+          context.maxRotationAccelerationConstraints,
+          globalS,
+        )
+      : null;
+    const maxOmega =
+      maxOmegaEff === null
+        ? context.baseMaxOmegaRadps
+        : degreesToRadians(maxOmegaEff);
+    const maxAlpha =
+      maxAlphaEff === null
+        ? context.baseMaxAlphaRadps2
+        : degreesToRadians(maxAlphaEff);
+    let vDesScalar = Math.max(
+      0,
+      Math.min(
+        maxV,
+        Math.sqrt(2 * usableMaxAccelerationMps2 * remaining),
+      ),
+    );
+    const angularError = shortestAngularDistance(desiredTheta, theta);
+
+    if (
+      segmentIndex === context.segments.length - 1 &&
+      vDesScalar <= 1e-9 &&
+      distToTarget > epsPos
+    ) {
+      vDesScalar = Math.min(maxV, distToTarget / solverDtSeconds);
+    }
+
+    const omegaControl = Math.sqrt(2 * maxAlpha * Math.abs(angularError));
+    const desiredOmega =
+      angularError < 0
+        ? -Math.min(omegaControl, maxOmega)
+        : Math.min(omegaControl, maxOmega);
+    const desiredVx = vDesScalar * ux;
+    const desiredVy = vDesScalar * uy;
+    const dvx = desiredVx - vx;
+    const dvy = desiredVy - vy;
+    const desiredDelta = Math.sqrt(dvx * dvx + dvy * dvy);
+    const obtainableDelta = Math.max(
+      0,
+      Math.min(desiredDelta, maxTranslationDelta),
+    );
+    const translationScale =
+      desiredDelta > minPositive ? obtainableDelta / desiredDelta : 0;
+    let limitedVx = vx + dvx * translationScale;
+    let limitedVy = vy + dvy * translationScale;
+    let limitedOmega = 0;
+    if (tracksRotation) {
+      const desiredAlpha = (desiredOmega - omega) / solverDtSeconds;
+      const obtainableAlpha = Math.max(
+        -maxAlpha,
+        Math.min(desiredAlpha, maxAlpha),
+      );
+      limitedOmega = omega + obtainableAlpha * solverDtSeconds;
+      if (Math.abs(limitedOmega) > maxOmega && maxOmega > 0) {
+        limitedOmega = Math.sign(limitedOmega) * maxOmega;
+      }
+    }
+
+    const stepDx = limitedVx * solverDtSeconds;
+    const stepDy = limitedVy * solverDtSeconds;
+    let snappedPosition = false;
+    let snappedRotation = !tracksRotation;
+
+    if (segmentIndex === context.segments.length - 1) {
+      if (
+        Math.sqrt(stepDx * stepDx + stepDy * stepDy) >=
+        Math.max(0, distToTarget - epsPos)
+      ) {
+        x = context.endX;
+        y = context.endY;
+        limitedVx = 0;
+        limitedVy = 0;
+        snappedPosition = true;
+      } else {
+        x += stepDx;
+        y += stepDy;
+      }
+    } else {
+      x += stepDx;
+      y += stepDy;
+    }
+    if (tracksRotation) {
+      theta = wrapAngleRadians(theta + limitedOmega * solverDtSeconds);
+    }
+
+    lastGlobalS = Math.min(
+      context.totalPathLength,
+      Math.max(
+        lastGlobalS,
+        (context.cumulativeLengths[segmentIndex] ?? 0) +
+          projectedDistanceOnSegment(segment, x, y),
+      ),
+    );
+
+    if (segmentIndex === context.segments.length - 1) {
+      const finalDx = context.endX - x;
+      const finalDy = context.endY - y;
+      const distToFinal = Math.sqrt(finalDx * finalDx + finalDy * finalDy);
+      let rotErr = tracksRotation
+        ? Math.abs(shortestAngularDistance(context.endHeadingTarget, theta))
+        : 0;
+      let snappedPos = false;
+      let snappedRot = false;
+
+      if (distToFinal <= epsPos) {
+        x = context.endX;
+        y = context.endY;
+        snappedPos = true;
+      }
+      if (distToFinal < 0.1 && rotErr <= epsAng) {
+        theta = context.endHeadingTarget;
+        rotErr = 0;
+        snappedRot = true;
+        snappedRotation = true;
+      }
+      if (snappedPos) {
+        snappedPosition = true;
+        lastGlobalS = context.totalPathLength;
+        limitedVx = 0;
+        limitedVy = 0;
+        vx = 0;
+        vy = 0;
+      }
+      if (snappedRot || rotErr === 0) {
+        limitedOmega = 0;
+        omega = 0;
+      }
+      if (snappedPos && snappedRot) {
+        vx = 0;
+        vy = 0;
+        omega = 0;
+      }
+    }
+
+    workspace.xMeters[sampleCount] = x;
+    workspace.yMeters[sampleCount] = y;
+    workspace.globalSMeters[sampleCount] = lastGlobalS;
+    workspace.segmentIndices[sampleCount] = segmentIndex;
+    sampleCount += 1;
+
+    if (snappedPosition && snappedRotation) {
+      break;
+    }
+
+    tS += solverDtSeconds;
+    vx = limitedVx;
+    vy = limitedVy;
+    omega = limitedOmega;
+  }
+
+  workspace.length = sampleCount;
+  return {
+    totalTimeS: roundTime(tS),
+    finalGlobalSMeters: lastGlobalS,
+  };
+}
+
+function evaluateJointHandoff(
+  corner: AutoVelocityCorner,
+  segments: readonly SegmentGeometry[],
+  workspace: JointSimulationWorkspace,
+): HandoffEvaluation {
+  const incomingSegment = segments[corner.anchorOrdinal - 2];
+  const outgoingSegment = segments[corner.anchorOrdinal - 1];
+  const tolerance = handoffTolerance(corner.handoffDistanceMeters);
+  const postHandoffTolerance = postHandoffToleranceMeters(
+    corner.handoffDistanceMeters,
+  );
+  const overshootTolerance = overshootToleranceMeters(
+    corner.handoffDistanceMeters,
+  );
+  const corridorTolerance = autoCorridorDeviationBudgetMeters;
+  const entryPoint = sampleJointWorkspaceAtS(workspace, corner.startS);
+  const exitPoint = sampleJointWorkspaceAtS(workspace, corner.endS);
+  const entryError =
+    entryPoint && incomingSegment
+      ? crossTrackError(entryPoint.x, entryPoint.y, incomingSegment)
+      : Number.POSITIVE_INFINITY;
+  const exitError =
+    exitPoint && outgoingSegment
+      ? crossTrackError(exitPoint.x, exitPoint.y, outgoingSegment)
+      : Number.POSITIVE_INFINITY;
+  const postHandoffPeakError = outgoingSegment
+    ? jointPostHandoffPeakError(corner, outgoingSegment, workspace)
+    : Number.POSITIVE_INFINITY;
+  const combinedError = Math.sqrt(
+    entryError * entryError + exitError * exitError,
+  );
+  let overshootError = 0;
+  let corridorDeviation = Number.NEGATIVE_INFINITY;
+  const expectedOvershoot = Math.max(
+    0,
+    corner.handoffDistanceMeters * Math.cos(corner.turnAngleRadians),
+  );
+
+  if (incomingSegment && outgoingSegment) {
+    for (
+      let index = jointLowerBoundGlobalS(workspace, corner.startS - 1e-6);
+      index < workspace.length;
+      index += 1
+    ) {
+      const globalS = workspace.globalSMeters[index]!;
+      if (globalS > corner.endS + 1e-6) {
+        break;
+      }
+      const x = workspace.xMeters[index]!;
+      const y = workspace.yMeters[index]!;
+      const alongTrack =
+        (x - incomingSegment.bx) * incomingSegment.ux +
+        (y - incomingSegment.by) * incomingSegment.uy;
+      overshootError = Math.max(
+        overshootError,
+        alongTrack - expectedOvershoot,
+      );
+      corridorDeviation = Math.max(
+        corridorDeviation,
+        Math.min(
+          jointDistanceToSegment(x, y, incomingSegment),
+          jointDistanceToSegment(x, y, outgoingSegment),
+        ),
+      );
+    }
+  }
+  if (!Number.isFinite(corridorDeviation)) {
+    corridorDeviation = Number.POSITIVE_INFINITY;
+  }
+
+  const transition = jointObservedHandoffTransition(
+    corner,
+    incomingSegment,
+    workspace,
+  );
+  const passed =
+    !transition.skippedOutgoingSegment &&
+    combinedError <= tolerance * fastSimulationPassToleranceRatio &&
+    postHandoffPeakError <=
+      postHandoffTolerance * fastSimulationPassToleranceRatio &&
+    overshootError <=
+      overshootTolerance * fastSimulationPassToleranceRatio &&
+    corridorDeviation <=
+      corridorTolerance * fastSimulationPassToleranceRatio;
+
+  return {
+    corner,
+    incomingOrdinal: corner.anchorOrdinal,
+    outgoingOrdinal: corner.anchorOrdinal + 1,
+    toleranceMeters: tolerance,
+    postHandoffToleranceMeters: postHandoffTolerance,
+    overshootToleranceMeters: overshootTolerance,
+    corridorToleranceMeters: corridorTolerance,
+    entryErrorMeters: entryError,
+    exitErrorMeters: exitError,
+    postHandoffPeakErrorMeters: postHandoffPeakError,
+    overshootErrorMeters: overshootError,
+    corridorDeviationMeters: corridorDeviation,
+    combinedErrorMeters: combinedError,
+    incomingProgressRatio: transition.incomingProgressRatio,
+    earlyHandoffRatio: transition.earlyHandoffRatio,
+    skippedOutgoingSegment: transition.skippedOutgoingSegment,
+    passed,
+  };
+}
+
+function jointDistanceToSegment(
+  x: number,
+  y: number,
+  segment: SegmentGeometry,
+): number {
+  const along = clamp(
+    (x - segment.ax) * segment.ux + (y - segment.ay) * segment.uy,
+    0,
+    segment.lengthMeters,
+  );
+  const dx = x - (segment.ax + along * segment.ux);
+  const dy = y - (segment.ay + along * segment.uy);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function sampleJointWorkspaceAtS(
+  workspace: JointSimulationWorkspace,
+  sMeters: number,
+): { x: number; y: number } | null {
+  if (workspace.length === 0) {
+    return null;
+  }
+  const target = roundDistance(sMeters);
+  const index = Math.max(
+    1,
+    jointLowerBoundGlobalS(workspace, target - 1e-6),
+  );
+  if (index < workspace.length) {
+    const previousS = workspace.globalSMeters[index - 1]!;
+    const currentS = workspace.globalSMeters[index]!;
+    if (target >= previousS - 1e-6 && target <= currentS + 1e-6) {
+      const ds = currentS - previousS;
+      if (Math.abs(ds) <= minPositive) {
+        return {
+          x: workspace.xMeters[index]!,
+          y: workspace.yMeters[index]!,
+        };
+      }
+      const alpha = clamp((target - previousS) / ds, 0, 1);
+      return {
+        x:
+          workspace.xMeters[index - 1]! +
+          (workspace.xMeters[index]! - workspace.xMeters[index - 1]!) * alpha,
+        y:
+          workspace.yMeters[index - 1]! +
+          (workspace.yMeters[index]! - workspace.yMeters[index - 1]!) * alpha,
+      };
+    }
+  }
+  return null;
+}
+
+function jointLowerBoundGlobalS(
+  workspace: JointSimulationWorkspace,
+  target: number,
+): number {
+  let low = 0;
+  let high = workspace.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (workspace.globalSMeters[middle]! < target) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+function jointLowerBoundSegmentIndex(
+  workspace: JointSimulationWorkspace,
+  target: number,
+): number {
+  let low = 0;
+  let high = workspace.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (workspace.segmentIndices[middle]! < target) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+function jointPostHandoffPeakError(
+  corner: AutoVelocityCorner,
+  outgoingSegment: SegmentGeometry,
+  workspace: JointSimulationWorkspace,
+): number {
+  const startS = corner.endS;
+  const endS = Math.min(
+    outgoingSegment.endS,
+    startS + postHandoffLookaheadMeters,
+  );
+  let peak = 0;
+  let foundSample = false;
+  for (const sMeters of [startS, endS]) {
+    const point = sampleJointWorkspaceAtS(workspace, sMeters);
+    if (point) {
+      peak = Math.max(peak, crossTrackError(point.x, point.y, outgoingSegment));
+      foundSample = true;
+    }
+  }
+  for (
+    let index = jointLowerBoundGlobalS(workspace, startS - 1e-6);
+    index < workspace.length;
+    index += 1
+  ) {
+    const globalS = workspace.globalSMeters[index]!;
+    if (globalS > endS + 1e-6) {
+      break;
+    }
+    peak = Math.max(
+      peak,
+      crossTrackError(
+        workspace.xMeters[index]!,
+        workspace.yMeters[index]!,
+        outgoingSegment,
+      ),
+    );
+    foundSample = true;
+  }
+  return foundSample ? peak : Number.POSITIVE_INFINITY;
+}
+
+function jointObservedHandoffTransition(
+  corner: AutoVelocityCorner,
+  incomingSegment: SegmentGeometry | undefined,
+  workspace: JointSimulationWorkspace,
+): {
+  incomingProgressRatio: number;
+  earlyHandoffRatio: number;
+  skippedOutgoingSegment: boolean;
+} {
+  if (!incomingSegment || incomingSegment.lengthMeters <= minPositive) {
+    return {
+      incomingProgressRatio: 0,
+      earlyHandoffRatio: 1,
+      skippedOutgoingSegment: true,
+    };
+  }
+  const outgoingSegmentIndex = corner.anchorOrdinal - 1;
+  for (
+    let index = jointLowerBoundSegmentIndex(workspace, outgoingSegmentIndex);
+    index < workspace.length;
+    index += 1
+  ) {
+    const segmentIndex = workspace.segmentIndices[index]!;
+    if (segmentIndex < outgoingSegmentIndex) {
+      continue;
+    }
+    const projectedMeters =
+      (workspace.xMeters[index]! - incomingSegment.ax) * incomingSegment.ux +
+      (workspace.yMeters[index]! - incomingSegment.ay) * incomingSegment.uy;
+    const incomingProgressRatio = clamp(
+      projectedMeters / incomingSegment.lengthMeters,
+      0,
+      1,
+    );
+    return {
+      incomingProgressRatio,
+      earlyHandoffRatio: 1 - incomingProgressRatio,
+      skippedOutgoingSegment: segmentIndex > outgoingSegmentIndex,
+    };
+  }
+  return {
+    incomingProgressRatio: 0,
+    earlyHandoffRatio: 1,
+    skippedOutgoingSegment: true,
   };
 }
 
