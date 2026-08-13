@@ -304,7 +304,12 @@ const jointObjectiveIndifference = 1e-6;
 const jointGlobalRecoveryObjectiveThreshold = 100;
 const jointRobustRadiusMeters = 0.25;
 const jointRobustRadiusWeight = 4;
-const autoConstraintSolverVersion = 4;
+const nearStraightFullPreferenceRadians = (15 * Math.PI) / 180;
+const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
+const nearStraightBaseRadiusMeters = 0.3;
+const nearStraightVelocityLookaheadSeconds = 0.08;
+const nearStraightRadiusWeight = 12;
+const autoConstraintSolverVersion = 5;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -1002,6 +1007,11 @@ function createJointCandidateEvaluator(
         cost:
           autoHandoffRadiusObjectiveCost({ corners, diagnostics }) +
           jointRadiusRobustnessCost(corners) +
+          jointNearStraightRadiusCost(
+            corners,
+            setup.segments,
+            normalized.capsByOrdinal,
+          ) +
           autoVelocityTieBreakCost({
             reachedEndRatio: reachedEndRatio(evaluation),
             handoffRatios: evaluationHandoffRatios(evaluation),
@@ -1859,6 +1869,78 @@ function jointRadiusRobustnessCost(
   }, 0);
 }
 
+/**
+ * Preferred trigger radius for a nearly straight handoff. A larger trigger
+ * gives a fast follower more time to transition to the outgoing target, while
+ * the incoming-leg clamp keeps short segments feasible. The preference fades
+ * smoothly into the existing generic 0.25 m robustness target as the turn
+ * approaches 60 degrees.
+ */
+export function preferredNearStraightHandoffRadiusMeters(
+  turnAngleRadians: number,
+  incomingVelocityMps: number,
+  incomingLegMeters: number,
+): number {
+  const straightness = nearStraightPreferenceWeight(turnAngleRadians);
+  const speedRadius = Math.max(
+    nearStraightBaseRadiusMeters,
+    Math.max(0, incomingVelocityMps) * nearStraightVelocityLookaheadSeconds,
+  );
+  const blendedRadius =
+    jointRobustRadiusMeters +
+    straightness * (speedRadius - jointRobustRadiusMeters);
+  return Math.max(
+    0,
+    Math.min(
+      jointRadiusIncomingLegRatio * Math.max(0, incomingLegMeters),
+      blendedRadius,
+    ),
+  );
+}
+
+function jointNearStraightRadiusCost(
+  corners: readonly AutoVelocityCorner[],
+  segments: readonly SegmentGeometry[],
+  capsByOrdinal: ReadonlyMap<number, number>,
+): number {
+  return corners.reduce((cost, corner) => {
+    const straightness = nearStraightPreferenceWeight(
+      corner.turnAngleRadians,
+    );
+    if (straightness <= 0) {
+      return cost;
+    }
+    const incoming = segments[corner.anchorOrdinal - 2];
+    if (!incoming) {
+      return cost;
+    }
+    const preferredRadius = preferredNearStraightHandoffRadiusMeters(
+      corner.turnAngleRadians,
+      capsByOrdinal.get(corner.anchorOrdinal) ?? 0,
+      incoming.lengthMeters,
+    );
+    const deficit = Math.max(
+      0,
+      (preferredRadius - corner.handoffDistanceMeters) /
+        Math.max(preferredRadius, minPositive),
+    );
+    return (
+      cost + nearStraightRadiusWeight * straightness * deficit * deficit
+    );
+  }, 0);
+}
+
+function nearStraightPreferenceWeight(turnAngleRadians: number): number {
+  const normalized = clamp(
+    (Math.max(0, turnAngleRadians) - nearStraightFullPreferenceRadians) /
+      (nearStraightNoPreferenceRadians - nearStraightFullPreferenceRadians),
+    0,
+    1,
+  );
+  const smoothstep = normalized * normalized * (3 - 2 * normalized);
+  return 1 - smoothstep;
+}
+
 function finalizeJointCandidate(
   path: PathModel,
   config: SimulationConfig,
@@ -1926,6 +2008,11 @@ function finalizeJointCandidate(
       diagnostics: profile.diagnostics,
     }) +
     jointRadiusRobustnessCost(finalSetup.corners) +
+    jointNearStraightRadiusCost(
+      finalSetup.corners,
+      finalSetup.segments,
+      persistedCaps,
+    ) +
     autoVelocityTieBreakCost({
       reachedEndRatio: reachedEndRatio(finalEvaluation),
       handoffRatios: evaluationHandoffRatios(finalEvaluation),

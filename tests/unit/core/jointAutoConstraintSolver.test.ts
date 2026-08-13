@@ -7,6 +7,7 @@ import {
 } from "../../../src/core/constraints/autoConstraintGeneration";
 import {
   jointAutoConstraintSearchPlan,
+  preferredNearStraightHandoffRadiusMeters,
   solveJointAutoConstraints,
 } from "../../../src/core/constraints/autoVelocityConstraints";
 import {
@@ -48,6 +49,85 @@ const basinRegressionConfig = {
 };
 
 describe("solveJointAutoConstraints", () => {
+  it("prefers larger near-straight radii as velocity rises", () => {
+    const tenDegreeTurn = (10 * Math.PI) / 180;
+
+    expect(
+      preferredNearStraightHandoffRadiusMeters(tenDegreeTurn, 2, 2),
+    ).toBeCloseTo(0.3, 9);
+    expect(
+      preferredNearStraightHandoffRadiusMeters(tenDegreeTurn, 4, 2),
+    ).toBeCloseTo(0.32, 9);
+    expect(
+      preferredNearStraightHandoffRadiusMeters(tenDegreeTurn, 4.5, 2),
+    ).toBeCloseTo(0.36, 9);
+  });
+
+  it("clamps the near-straight preference to a short incoming leg", () => {
+    expect(
+      preferredNearStraightHandoffRadiusMeters(
+        (10 * Math.PI) / 180,
+        4.5,
+        0.2,
+      ),
+    ).toBeCloseTo(0.18, 9);
+  });
+
+  it("smoothly fades the near-straight preference into the generic target", () => {
+    const at15Degrees = preferredNearStraightHandoffRadiusMeters(
+      (15 * Math.PI) / 180,
+      4.5,
+      2,
+    );
+    const at37Degrees = preferredNearStraightHandoffRadiusMeters(
+      (37.5 * Math.PI) / 180,
+      4.5,
+      2,
+    );
+    const at60Degrees = preferredNearStraightHandoffRadiusMeters(
+      (60 * Math.PI) / 180,
+      4.5,
+      2,
+    );
+
+    expect(at15Degrees).toBeCloseTo(0.36, 9);
+    expect(at37Degrees).toBeCloseTo(0.305, 9);
+    expect(at60Degrees).toBeCloseTo(0.25, 9);
+    expect(at15Degrees).toBeGreaterThan(at37Degrees);
+    expect(at37Degrees).toBeGreaterThan(at60Degrees);
+  });
+
+  it("applies the near-straight preference in a complete production solve", () => {
+    const path = pathOf([
+      [0, 0],
+      [2, 0],
+      [4, 0.35],
+    ]);
+
+    const lowSpeed = solveJointAutoConstraints(
+      seedHandoffRadii(path).path,
+      {
+        kinematic_constraints: {
+          default_max_velocity_meters_per_sec: 2,
+          default_max_acceleration_meters_per_sec2: 12,
+        },
+      },
+    );
+    const highSpeed = solveJointAutoConstraints(
+      seedHandoffRadii(path).path,
+      {},
+    );
+    const lowSpeedRadius = generatedRadii(lowSpeed.path)[0];
+    const highSpeedRadius = generatedRadii(highSpeed.path)[0];
+
+    expect(lowSpeed.status).toBe("valid");
+    expect(highSpeed.status).toBe("valid");
+    expect(highSpeed.profile.diagnostics.reachedEnd).toBe(true);
+    expect(lowSpeedRadius).toBeGreaterThanOrEqual(0.29);
+    expect(highSpeedRadius).toBeGreaterThanOrEqual(lowSpeedRadius ?? 0);
+  });
+
+
   it("solves coupled handoff radii and adjacent velocity caps as one bounded policy", () => {
     const path = pathOf([
       [5.7, 2.5],
