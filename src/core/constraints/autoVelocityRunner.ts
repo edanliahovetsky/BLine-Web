@@ -2,6 +2,7 @@ import type { PathModel } from "../model/path";
 import type { SimulationConfig } from "../sim/types";
 import {
   autoRadiiCapSolveInput,
+  type AutoConstraintSolver,
   type AutoHandoffRadiusAssignment,
 } from "./autoConstraintGeneration";
 import type { AutoVelocitySettings } from "./autoVelocityApply";
@@ -61,13 +62,14 @@ export function requestAutoRadiiAndCaps(
   path: PathModel,
   config: SimulationConfig,
   settings: AutoVelocitySettings,
+  solver: AutoConstraintSolver = "production",
 ): Promise<AutoRadiiAndCapsRunResult> {
   const startedAtMs = optimizerNowMs();
   supersedePending();
 
   const activeWorker = ensureWorker();
   if (!activeWorker) {
-    return solveRadiiAndCapsOnMainThread(path, config, settings);
+    return solveRadiiAndCapsOnMainThread(path, config, settings, solver);
   }
 
   const requestId = takeRequestId();
@@ -94,8 +96,15 @@ export function requestAutoRadiiAndCaps(
 
     postOrFallBack(
       activeWorker,
-      { kind: "generate-radii-and-caps", requestId, path, config, settings },
-      () => solveRadiiAndCapsOnMainThread(path, config, settings),
+      {
+        kind: "generate-radii-and-caps",
+        requestId,
+        path,
+        config,
+        settings,
+        solver,
+      },
+      () => solveRadiiAndCapsOnMainThread(path, config, settings, solver),
       resolve,
       reject,
     );
@@ -213,10 +222,11 @@ function solveRadiiAndCapsOnMainThread(
   path: PathModel,
   config: SimulationConfig,
   settings: AutoVelocitySettings,
+  solver: AutoConstraintSolver,
 ): Promise<AutoRadiiAndCapsRunResult> {
   const startedAtMs = optimizerNowMs();
   return afterBrowserPaint(() => {
-    const input = autoRadiiCapSolveInput(path, config, settings);
+    const input = autoRadiiCapSolveInput(path, config, settings, solver);
     primeAutoVelocityProfileCache(
       autoVelocityInputSignature(input.path, config, input.options),
       input.profile,

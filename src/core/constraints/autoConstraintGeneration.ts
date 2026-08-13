@@ -23,6 +23,7 @@ import {
   jointAutoConstraintSearchPlan,
   primeAutoVelocityProfileCache,
   solveJointAutoConstraints,
+  solveJointAutoConstraintsOracle,
   type AutoVelocityGenerationOptions,
   type AutoVelocityProfile,
   type JointAutoConstraintSolveStats,
@@ -34,6 +35,8 @@ export interface AutoConstraintGenerationOptions {
   /** Optimizer settings to solve with, for callers editing them live. */
   settings?: AutoVelocitySettings;
 }
+
+export type AutoConstraintSolver = "production" | "oracle";
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
 /** A fully searchable 16-anchor path; larger searches get a quiet UI warning. */
@@ -128,10 +131,16 @@ export function autoRadiiCapSolveInput(
   path: PathModel,
   config: SimulationConfig,
   settings: AutoVelocitySettings,
+  solver: AutoConstraintSolver = "production",
 ): AutoRadiiCapSolveInput {
   const options = autoVelocityGenerationOptions(settings);
   const seeded = seedHandoffRadii(path);
-  const solved = solveJointAutoConstraints(seeded.path, config, options);
+  const solved =
+    solver === "oracle"
+      ? solveJointAutoConstraintsOracle(seeded.path, config, options, {
+          maxEvaluations: 8_000,
+        })
+      : solveJointAutoConstraints(seeded.path, config, options);
   const assignedElementIndexes = new Set([
     ...autoHandoffRadiusElementIndexes(path.path_elements),
     ...autoHandoffRadiusElementIndexes(solved.path.path_elements),

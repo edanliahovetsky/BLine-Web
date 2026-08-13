@@ -101,6 +101,43 @@ describe("manual auto constraint generation", () => {
     expect(projects.getState().history.getState().undoStack).toHaveLength(0);
     expect(status.getState().phase).toBe("idle");
   });
+
+  it("forwards an explicit oracle comparison run to the worker", async () => {
+    const project = testProject();
+    const projects = projectStoreFor(project);
+    const status = createAutoVelocityStore();
+    const settings = autoVelocitySettingsForPath(project.path, project.config);
+    const solved = autoRadiiCapSolveInput(
+      project.path,
+      project.config,
+      settings,
+    );
+    const request = vi.fn().mockResolvedValue({
+      radii: solved.radii,
+      profile: solved.profile,
+      stats: { ...solved.stats, algorithm: "oracle" as const },
+      status: solved.status,
+      elapsedMs: 12,
+    });
+
+    await generateAutoConstraintsInWorker(settings, {
+      projects,
+      request,
+      solver: "oracle",
+      status,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      project.path,
+      project.config,
+      settings,
+      "oracle",
+    );
+    expect(status.getState().lastRun?.stats.algorithm).toBe("oracle");
+    expect(
+      projects.getState().history.getState().undoStack.at(-1)?.description,
+    ).toBe("Generate constraints with oracle");
+  });
 });
 
 function testProject() {

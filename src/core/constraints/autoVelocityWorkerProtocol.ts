@@ -1,7 +1,10 @@
 import type { PathModel } from "../model/path";
 import type { SimulationConfig } from "../sim/types";
 import type { AutoVelocitySettings } from "./autoVelocityApply";
-import type { AutoHandoffRadiusAssignment } from "./autoConstraintGeneration";
+import type {
+  AutoConstraintSolver,
+  AutoHandoffRadiusAssignment,
+} from "./autoConstraintGeneration";
 import type {
   AutoVelocityProfile,
   JointAutoConstraintSolveStats,
@@ -14,6 +17,7 @@ export interface AutoVelocityWorkerRequest {
   path: PathModel;
   config: SimulationConfig;
   settings: AutoVelocitySettings;
+  solver: AutoConstraintSolver;
 }
 
 export type AutoVelocityWorkerResponse =

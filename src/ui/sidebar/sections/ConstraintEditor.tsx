@@ -326,6 +326,9 @@ export function ConstraintEditor({
   const generateAutoVelocity = () => {
     void generateAutoConstraintsInWorker(autoSettings);
   };
+  const generateAutoVelocityOracle = () => {
+    void generateAutoConstraintsInWorker(autoSettings, { solver: "oracle" });
+  };
   const selectedRangedConstraint = useStoreSelector(
     selectionStore,
     (state) => state.selectedRangedConstraint,
@@ -490,6 +493,7 @@ export function ConstraintEditor({
             runAutoVelocityTask={runAutoVelocityTask}
             onAutoSettingsChange={setAutoSettings}
             onGenerateAutoVelocity={generateAutoVelocity}
+            onGenerateAutoVelocityOracle={generateAutoVelocityOracle}
             onSelect={setSelectedForKey}
             onClose={closePopout}
           />,
@@ -520,6 +524,7 @@ export function ConstraintEditor({
                     runAutoVelocityTask={runAutoVelocityTask}
                     onAutoSettingsChange={setAutoSettings}
                     onGenerateAutoVelocity={generateAutoVelocity}
+                    onGenerateAutoVelocityOracle={generateAutoVelocityOracle}
                     onSelect={(index) => setSelectedForKey(key, index)}
                     onOpenPopout={(trigger) => openPopout(key, trigger)}
                   />
@@ -674,6 +679,7 @@ function AutoConstraintLedgerCard({
   runAutoVelocityTask,
   onAutoSettingsChange,
   onGenerateAutoVelocity,
+  onGenerateAutoVelocityOracle,
   onSelect,
   onOpenPopout,
 }: {
@@ -684,6 +690,7 @@ function AutoConstraintLedgerCard({
   runAutoVelocityTask: AutoVelocityTaskRunner;
   onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onGenerateAutoVelocity(): void;
+  onGenerateAutoVelocityOracle(): void;
   onSelect: (index: number) => void;
   onOpenPopout(trigger: HTMLButtonElement): void;
 }) {
@@ -847,7 +854,19 @@ function AutoConstraintLedgerCard({
                 : "Generate handoff radii and velocity constraints"
             }
           >
-            Generate
+            Production
+          </SidebarActionButton>
+          <SidebarActionButton
+            onClick={onGenerateAutoVelocityOracle}
+            disabled={total === 0 || autoVelocityRunning || !canGenerate}
+            aria-label="Run oracle optimizer"
+            title={
+              !canGenerate && !autoVelocityRunning
+                ? "Every handoff radius and velocity segment is set manually. Switch one to Auto to generate."
+                : "Run the slower 8,000-evaluation reference oracle"
+            }
+          >
+            Oracle
           </SidebarActionButton>
           <SidebarActionButton
             onClick={() => clearGeneratedConstraints(project)}
@@ -1425,6 +1444,7 @@ function ConstraintPopout({
   runAutoVelocityTask,
   onAutoSettingsChange,
   onGenerateAutoVelocity,
+  onGenerateAutoVelocityOracle,
   onSelect,
   onClose,
 }: {
@@ -1436,6 +1456,7 @@ function ConstraintPopout({
   runAutoVelocityTask: AutoVelocityTaskRunner;
   onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onGenerateAutoVelocity(): void;
+  onGenerateAutoVelocityOracle(): void;
   onSelect: (key: RangedConstraintKey, index: number) => void;
   onClose: () => void;
 }) {
@@ -1578,6 +1599,7 @@ function ConstraintPopout({
             runAutoVelocityTask={runAutoVelocityTask}
             onAutoSettingsChange={onAutoSettingsChange}
             onGenerateAutoVelocity={onGenerateAutoVelocity}
+            onGenerateAutoVelocityOracle={onGenerateAutoVelocityOracle}
             onSelect={(index) => onSelect(constraintKey, index)}
           />
         </div>
@@ -1595,6 +1617,7 @@ function PopoutConstraintPanel({
   runAutoVelocityTask,
   onAutoSettingsChange,
   onGenerateAutoVelocity,
+  onGenerateAutoVelocityOracle,
   onSelect,
 }: {
   project: ProjectDocument;
@@ -1605,6 +1628,7 @@ function PopoutConstraintPanel({
   runAutoVelocityTask: AutoVelocityTaskRunner;
   onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onGenerateAutoVelocity(): void;
+  onGenerateAutoVelocityOracle(): void;
   onSelect: (index: number) => void;
 }) {
   const meta = rangedMeta[constraintKey];
@@ -1668,7 +1692,21 @@ function PopoutConstraintPanel({
                     : "Generate handoff radii and velocity constraints"
                 }
               >
-                Generate
+                Production
+              </SidebarActionButton>
+              <SidebarActionButton
+                onClick={onGenerateAutoVelocityOracle}
+                disabled={
+                  labels.length === 0 || autoVelocityRunning || !canGenerate
+                }
+                aria-label="Run oracle optimizer"
+                title={
+                  !canGenerate && !autoVelocityRunning
+                    ? "Every handoff radius and velocity segment is set manually. Switch one to Auto to generate."
+                    : "Run the slower 8,000-evaluation reference oracle"
+                }
+              >
+                Oracle
               </SidebarActionButton>
               <SidebarActionButton
                 onClick={() => clearGeneratedConstraints(project)}
@@ -2811,7 +2849,10 @@ function AutoVelocityInlineControls({
                 {lastRun.stats.evaluationBudget} evaluations
               </strong>
               <span>
-                {lastRun.stats.searchableBlocks} blocks ·{" "}
+                {lastRun.stats.algorithm === "oracle"
+                  ? "Oracle"
+                  : "Production"}{" "}
+                · {lastRun.stats.searchableBlocks} blocks ·{" "}
                 {lastRun.stats.cacheHits} cache hits ·{" "}
                 {lastRun.stats.genericEvaluations} validations ·{" "}
                 {lastRun.stats.terminationReason} ·{" "}
