@@ -85,7 +85,7 @@ describe("solveJointAutoConstraintsOracle", () => {
       {},
       {
         maxEvaluations: 180,
-        seed: 42,
+        seed: 9_999,
       },
     );
 
@@ -96,6 +96,32 @@ describe("solveJointAutoConstraintsOracle", () => {
     );
     expect(first.profile.diagnostics.reachedEnd).toBe(true);
   });
+
+  it("converges to the same Path 2 basin from independent initial policies", () => {
+    const pathTwo = loadCorpus().paths[1];
+    expect(pathTwo).toBeDefined();
+    const geometric = pathOf(pathTwo!.points);
+    const alternate = solveJointAutoConstraints(geometric, {}).path;
+    const first = solveJointAutoConstraintsOracle(
+      geometric,
+      {},
+      {},
+      { maxEvaluations: 8_000, seed: 1 },
+    );
+    const second = solveJointAutoConstraintsOracle(
+      alternate,
+      {},
+      {},
+      { maxEvaluations: 8_000, seed: 2 },
+    );
+
+    expect(second.stats.objectiveCost).toBeCloseTo(
+      first.stats.objectiveCost,
+      6,
+    );
+    expect(generatedRadii(second.path)).toEqual(generatedRadii(first.path));
+    expect(second.profile.segmentCaps).toEqual(first.profile.segmentCaps);
+  }, 120_000);
 
   it("escapes the exported large-path basin without fragile Path 1 radii", () => {
     const [pathOne, pathTwo] = loadCorpus().paths;
@@ -125,7 +151,7 @@ describe("solveJointAutoConstraintsOracle", () => {
           {},
           {},
           {
-            maxEvaluations: 1_500,
+            maxEvaluations: 8_000,
             seed: 10_000 + index,
           },
         );

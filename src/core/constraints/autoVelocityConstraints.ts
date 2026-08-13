@@ -4,6 +4,7 @@ import {
   getDefaultOptionalConfigValue,
 } from "../config/projectConfig";
 import { autoCorridorDeviationBudgetMeters } from "../bend/cornerBend";
+import { seedHandoffRadii } from "../bend/autoSeedHandoffRadii";
 import {
   getHandoffRadiusSource,
   isEventTrigger,
@@ -171,7 +172,10 @@ export interface JointAutoConstraintSolveResult {
 export interface JointAutoConstraintOracleOptions {
   /** Offline reference budget. The production solver never uses this value. */
   maxEvaluations?: number;
-  /** Deterministic pseudo-random seed for reproducible comparisons. */
+  /**
+   * Retained for comparison-call compatibility. The reference solver covers
+   * a fixed ensemble of random sequences, so this value cannot select a basin.
+   */
   seed?: number;
 }
 
@@ -737,6 +741,20 @@ function isBetterJointCandidate(
   return candidate.signature < current.signature;
 }
 
+/** Oracle ranking must not depend on whichever candidate seeded the solve. */
+function isBetterJointOracleCandidate(
+  candidate: JointCandidateEvaluation,
+  current: JointCandidateEvaluation,
+): boolean {
+  if (candidate.cost < current.cost - jointObjectiveIndifference) {
+    return true;
+  }
+  if (Math.abs(candidate.cost - current.cost) > jointObjectiveIndifference) {
+    return false;
+  }
+  return candidate.signature < current.signature;
+}
+
 function quantizeJointRadius(value: number, min: number, max: number): number {
   const clamped = clamp(value, min, max);
   return Number(
@@ -848,7 +866,13 @@ interface JointCandidateEvaluator {
   cacheHits: number;
   budgetReached: boolean;
   evaluate(candidate: JointCandidate): JointCandidateEvaluation | null;
-  rankedCandidates(limit: number): JointCandidateEvaluation[];
+  rankedCandidates(
+    limit: number,
+    comparator?: (
+      candidate: JointCandidateEvaluation,
+      current: JointCandidateEvaluation,
+    ) => boolean,
+  ): JointCandidateEvaluation[];
 }
 
 function createJointSearchProblem(
@@ -912,9 +936,9 @@ function createJointCandidateEvaluator(
     evaluations: 0,
     cacheHits: 0,
     budgetReached: false,
-    rankedCandidates(limit) {
+    rankedCandidates(limit, comparator = isBetterJointCandidate) {
       return [...cache.values()]
-        .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1))
+        .sort((left, right) => (comparator(left, right) ? -1 : 1))
         .slice(0, limit);
     },
     evaluate(candidate) {
@@ -1087,6 +1111,48 @@ type JointOracleVariable =
   | { kind: "radius"; coordinate: JointRadiusCoordinate }
   | { kind: "cap"; ordinal: number; min: number; max: number };
 
+const jointOracleRestartSeeds = [
+  0x4b11e, 0x9e3779b9, 0x243f6a88, 0xb7e15162, 0xdeadbeef, 0x85ebca6b,
+  0xc2b2ae35, 0x27d4eb2f, 0x165667b1, 0xd3a2646c,
+] as const;
+const jointOracleHaltonBases = [
+  2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
+  73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151,
+  157, 163, 167, 173,
+] as const;
+
+function jointOracleRestartVectors(
+  productionVector: readonly number[],
+  variables: readonly JointOracleVariable[],
+): number[][] {
+  const structured = [0.15, 0.35, 0.5, 0.65, 0.85].map((fraction) =>
+    variables.map((variable) =>
+      variable.kind === "radius" ? fraction : 1 - fraction * 0.75,
+    ),
+  );
+  const lowDiscrepancy = Array.from({ length: 5 }, (_, sampleIndex) =>
+    variables.map((_, dimension) =>
+      radicalInverse(
+        sampleIndex + 1,
+        jointOracleHaltonBases[dimension % jointOracleHaltonBases.length]!,
+      ),
+    ),
+  );
+  return [[...productionVector], ...structured, ...lowDiscrepancy];
+}
+
+function radicalInverse(index: number, base: number): number {
+  let value = 0;
+  let fraction = 1 / base;
+  let remaining = index;
+  while (remaining > 0) {
+    value += fraction * (remaining % base);
+    remaining = Math.floor(remaining / base);
+    fraction /= base;
+  }
+  return value;
+}
+
 /**
  * Deterministic, offline CMA-ES reference solver. It deliberately
  * spends far more evaluations than the interactive optimizer and searches the
@@ -1098,32 +1164,51 @@ export function solveJointAutoConstraintsOracle(
   options: AutoVelocityGenerationOptions = {},
   oracleOptions: JointAutoConstraintOracleOptions = {},
 ): JointAutoConstraintSolveResult {
-  const productionSeed = solveJointAutoConstraints(path, config, options);
-  const problem = createJointSearchProblem(path, config, options);
+  const canonicalPath = seedHandoffRadii(path).path;
+  const canonicalProductionSeed = solveJointAutoConstraints(
+    canonicalPath,
+    config,
+    options,
+  );
+  const problem = createJointSearchProblem(canonicalPath, config, options);
   const variables = jointOracleVariables(problem);
   const evaluationBudget = Math.max(
     1,
     Math.floor(
-      oracleOptions.maxEvaluations ?? Math.max(1_200, variables.length * 80),
+      oracleOptions.maxEvaluations ?? Math.max(8_000, variables.length * 300),
     ),
   );
   const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
-  const seedSetup = createAutoVelocitySolveSetup(
-    productionSeed.path,
+  const oracleBase = jointOracleBaseCandidate(problem);
+  const canonicalProductionSetup = createAutoVelocitySolveSetup(
+    canonicalProductionSeed.path,
     config,
     options,
   );
-  const seedCandidate: JointCandidate = {
+  const canonicalProductionCandidate: JointCandidate = {
     radiiBySegmentIndex: [
-      ...seedSetup.simulationContext.handoffRadiiBySegmentIndex,
+      ...canonicalProductionSetup.simulationContext.handoffRadiiBySegmentIndex,
     ],
     capsByOrdinal: capsByOrdinalFromSegmentCaps(
-      productionSeed.profile.segmentCaps,
+      canonicalProductionSeed.profile.segmentCaps,
     ),
   };
-  let best = evaluator.evaluate(seedCandidate);
+  const productionEvaluation = evaluator.evaluate(canonicalProductionCandidate);
+  let best = evaluator.evaluate(
+    decodeJointOracleCandidate(
+      variables.map(() => 0.5),
+      variables,
+      oracleBase,
+    ),
+  );
   if (!best) {
-    throw new Error("Joint oracle could not evaluate its production seed");
+    throw new Error("Joint oracle could not evaluate its canonical seed");
+  }
+  if (
+    productionEvaluation &&
+    isBetterJointOracleCandidate(productionEvaluation, best)
+  ) {
+    best = productionEvaluation;
   }
 
   if (variables.length > 0 && evaluationBudget > 1) {
@@ -1137,12 +1222,11 @@ export function solveJointAutoConstraintsOracle(
         best.candidate,
       );
       const evaluation = evaluator.evaluate(broad);
-      if (evaluation && isBetterJointCandidate(evaluation, best)) {
+      if (evaluation && isBetterJointOracleCandidate(evaluation, best)) {
         best = evaluation;
       }
     }
 
-    const random = createJointOracleRandom(oracleOptions.seed ?? 0x4b1_1e);
     const dimension = variables.length;
     const populationSize = Math.max(6, 4 + Math.floor(3 * Math.log(dimension)));
     const parentCount = Math.floor(populationSize / 2);
@@ -1171,155 +1255,194 @@ export function solveJointAutoConstraintsOracle(
     const expectedNormalLength =
       Math.sqrt(dimension) *
       (1 - 1 / (4 * dimension) + 1 / (21 * dimension * dimension));
-    let mean = seedVector;
-    let sigma = 0.28;
-    let covariance = identityMatrix(dimension);
-    let evolutionPath = Array<number>(dimension).fill(0);
-    let sigmaPath = Array<number>(dimension).fill(0);
-    let generation = 0;
-    let generationsWithoutImprovement = 0;
+    const restartVectors = jointOracleRestartVectors(seedVector, variables);
+    const cmaBudget = Math.max(
+      evaluator.evaluations,
+      Math.floor(evaluationBudget * 0.78),
+    );
+    const evaluationsPerRestart = Math.max(
+      populationSize * 3,
+      Math.floor(
+        Math.max(0, cmaBudget - evaluator.evaluations) / restartVectors.length,
+      ),
+    );
 
-    while (
-      !evaluator.budgetReached &&
-      sigma > 0.002 &&
-      generationsWithoutImprovement < 45
+    for (
+      let restartIndex = 0;
+      restartIndex < restartVectors.length && evaluator.evaluations < cmaBudget;
+      restartIndex += 1
     ) {
-      const decomposition = symmetricEigenDecomposition(covariance);
-      const population: Array<{
-        vector: number[];
-        evaluation: JointCandidateEvaluation;
-      }> = [];
-      for (
-        let member = 0;
-        member < populationSize && !evaluator.budgetReached;
-        member += 1
-      ) {
-        const normal = Array.from({ length: dimension }, () => random.normal());
-        const step = multiplyEigenBasis(
-          decomposition.vectors,
-          decomposition.values.map((value) =>
-            Math.sqrt(Math.max(value, 1e-12)),
-          ),
-          normal,
-        );
-        const vector = mean.map((value, index) =>
-          reflectUnitInterval(value + sigma * (step[index] ?? 0)),
-        );
-        const evaluation = evaluator.evaluate(
-          decodeJointOracleCandidate(vector, variables, best.candidate),
-        );
-        if (evaluation) {
-          population.push({ vector, evaluation });
+      const random = createJointOracleRandom(
+        jointOracleRestartSeeds[restartIndex % jointOracleRestartSeeds.length]!,
+      );
+      let mean = restartVectors[restartIndex]!;
+      let sigma = restartIndex === 0 ? 0.2 : 0.34;
+      let covariance = identityMatrix(dimension);
+      let evolutionPath = Array<number>(dimension).fill(0);
+      let sigmaPath = Array<number>(dimension).fill(0);
+      let generation = 0;
+      let generationsWithoutImprovement = 0;
+      let restartBest: JointCandidateEvaluation | null = null;
+      const restartLimit = Math.min(
+        cmaBudget,
+        evaluator.evaluations + evaluationsPerRestart,
+      );
+      const startEvaluation = evaluator.evaluate(
+        decodeJointOracleCandidate(mean, variables, best.candidate),
+      );
+      if (startEvaluation) {
+        restartBest = startEvaluation;
+        if (isBetterJointOracleCandidate(startEvaluation, best)) {
+          best = startEvaluation;
         }
       }
-      if (population.length < parentCount) {
-        break;
-      }
-      population.sort((left, right) =>
-        isBetterJointCandidate(left.evaluation, right.evaluation) ? -1 : 1,
-      );
-      const previousBest = best;
-      if (isBetterJointCandidate(population[0]!.evaluation, best)) {
-        best = population[0]!.evaluation;
-      }
-      generationsWithoutImprovement =
-        best.signature === previousBest.signature
-          ? generationsWithoutImprovement + 1
-          : 0;
 
-      const oldMean = mean;
-      mean = Array<number>(dimension).fill(0);
-      for (let parent = 0; parent < parentCount; parent += 1) {
-        for (let index = 0; index < dimension; index += 1) {
-          mean[index] +=
-            (weights[parent] ?? 0) * (population[parent]?.vector[index] ?? 0);
-        }
-      }
-      const weightedStep = mean.map(
-        (value, index) => (value - (oldMean[index] ?? 0)) / sigma,
-      );
-      const inverseStep = multiplyEigenBasis(
-        decomposition.vectors,
-        decomposition.values.map(
-          (value) => 1 / Math.sqrt(Math.max(value, 1e-12)),
-        ),
-        weightedStep,
-        true,
-      );
-      const sigmaPathFactor = Math.sqrt(cs * (2 - cs) * effectiveParents);
-      sigmaPath = sigmaPath.map(
-        (value, index) =>
-          (1 - cs) * value + sigmaPathFactor * (inverseStep[index] ?? 0),
-      );
-      const sigmaPathLength = vectorLength(sigmaPath);
-      const hsig =
-        sigmaPathLength /
-          Math.sqrt(1 - Math.pow(1 - cs, 2 * (generation + 1))) /
-          expectedNormalLength <
-        1.4 + 2 / (dimension + 1)
-          ? 1
-          : 0;
-      const evolutionFactor = Math.sqrt(cc * (2 - cc) * effectiveParents);
-      evolutionPath = evolutionPath.map(
-        (value, index) =>
-          (1 - cc) * value +
-          hsig * evolutionFactor * (weightedStep[index] ?? 0),
-      );
-      const oldCovariance = covariance;
-      covariance = Array.from({ length: dimension }, (_, row) =>
-        Array.from({ length: dimension }, (_, column) => {
-          let rankMu = 0;
-          for (let parent = 0; parent < parentCount; parent += 1) {
-            const parentVector = population[parent]?.vector;
-            const rowStep =
-              ((parentVector?.[row] ?? 0) - (oldMean[row] ?? 0)) / sigma;
-            const columnStep =
-              ((parentVector?.[column] ?? 0) - (oldMean[column] ?? 0)) / sigma;
-            rankMu += (weights[parent] ?? 0) * rowStep * columnStep;
-          }
-          const oldValue = oldCovariance[row]?.[column] ?? 0;
-          return (
-            (1 - c1 - cmu) * oldValue +
-            c1 *
-              ((evolutionPath[row] ?? 0) * (evolutionPath[column] ?? 0) +
-                (1 - hsig) * cc * (2 - cc) * oldValue) +
-            cmu * rankMu
+      while (
+        !evaluator.budgetReached &&
+        evaluator.evaluations < restartLimit &&
+        sigma > 0.002 &&
+        generationsWithoutImprovement < 30
+      ) {
+        const decomposition = symmetricEigenDecomposition(covariance);
+        const population: Array<{
+          vector: number[];
+          evaluation: JointCandidateEvaluation;
+        }> = [];
+        for (
+          let member = 0;
+          member < populationSize &&
+          !evaluator.budgetReached &&
+          evaluator.evaluations < restartLimit;
+          member += 1
+        ) {
+          const normal = Array.from({ length: dimension }, () =>
+            random.normal(),
           );
-        }),
-      );
-      sigma *= Math.exp(
-        (cs / damping) * (sigmaPathLength / expectedNormalLength - 1),
-      );
-      generation += 1;
+          const step = multiplyEigenBasis(
+            decomposition.vectors,
+            decomposition.values.map((value) =>
+              Math.sqrt(Math.max(value, 1e-12)),
+            ),
+            normal,
+          );
+          const vector = mean.map((value, index) =>
+            reflectUnitInterval(value + sigma * (step[index] ?? 0)),
+          );
+          const evaluation = evaluator.evaluate(
+            decodeJointOracleCandidate(vector, variables, best.candidate),
+          );
+          if (evaluation) {
+            population.push({ vector, evaluation });
+          }
+        }
+        if (population.length < parentCount) {
+          break;
+        }
+        population.sort((left, right) =>
+          isBetterJointOracleCandidate(left.evaluation, right.evaluation)
+            ? -1
+            : 1,
+        );
+        const populationBest = population[0]!.evaluation;
+        if (
+          restartBest === null ||
+          isBetterJointOracleCandidate(populationBest, restartBest)
+        ) {
+          restartBest = populationBest;
+          generationsWithoutImprovement = 0;
+        } else {
+          generationsWithoutImprovement += 1;
+        }
+        if (isBetterJointOracleCandidate(populationBest, best)) {
+          best = populationBest;
+        }
+
+        const oldMean = mean;
+        mean = Array<number>(dimension).fill(0);
+        for (let parent = 0; parent < parentCount; parent += 1) {
+          for (let index = 0; index < dimension; index += 1) {
+            mean[index] +=
+              (weights[parent] ?? 0) * (population[parent]?.vector[index] ?? 0);
+          }
+        }
+        const weightedStep = mean.map(
+          (value, index) => (value - (oldMean[index] ?? 0)) / sigma,
+        );
+        const inverseStep = multiplyEigenBasis(
+          decomposition.vectors,
+          decomposition.values.map(
+            (value) => 1 / Math.sqrt(Math.max(value, 1e-12)),
+          ),
+          weightedStep,
+          true,
+        );
+        const sigmaPathFactor = Math.sqrt(cs * (2 - cs) * effectiveParents);
+        sigmaPath = sigmaPath.map(
+          (value, index) =>
+            (1 - cs) * value + sigmaPathFactor * (inverseStep[index] ?? 0),
+        );
+        const sigmaPathLength = vectorLength(sigmaPath);
+        const hsig =
+          sigmaPathLength /
+            Math.sqrt(1 - Math.pow(1 - cs, 2 * (generation + 1))) /
+            expectedNormalLength <
+          1.4 + 2 / (dimension + 1)
+            ? 1
+            : 0;
+        const evolutionFactor = Math.sqrt(cc * (2 - cc) * effectiveParents);
+        evolutionPath = evolutionPath.map(
+          (value, index) =>
+            (1 - cc) * value +
+            hsig * evolutionFactor * (weightedStep[index] ?? 0),
+        );
+        const oldCovariance = covariance;
+        covariance = Array.from({ length: dimension }, (_, row) =>
+          Array.from({ length: dimension }, (_, column) => {
+            let rankMu = 0;
+            for (let parent = 0; parent < parentCount; parent += 1) {
+              const parentVector = population[parent]?.vector;
+              const rowStep =
+                ((parentVector?.[row] ?? 0) - (oldMean[row] ?? 0)) / sigma;
+              const columnStep =
+                ((parentVector?.[column] ?? 0) - (oldMean[column] ?? 0)) /
+                sigma;
+              rankMu += (weights[parent] ?? 0) * rowStep * columnStep;
+            }
+            const oldValue = oldCovariance[row]?.[column] ?? 0;
+            return (
+              (1 - c1 - cmu) * oldValue +
+              c1 *
+                ((evolutionPath[row] ?? 0) * (evolutionPath[column] ?? 0) +
+                  (1 - hsig) * cc * (2 - cc) * oldValue) +
+              cmu * rankMu
+            );
+          }),
+        );
+        sigma *= Math.exp(
+          (cs / damping) * (sigmaPathLength / expectedNormalLength - 1),
+        );
+        generation += 1;
+      }
     }
   }
 
+  best = polishJointOracleCandidate(best, variables, evaluator);
+  const finalistMap = new Map(
+    [
+      best,
+      ...(productionEvaluation ? [productionEvaluation] : []),
+      ...evaluator.rankedCandidates(7, isBetterJointOracleCandidate),
+    ].map((candidate) => [candidate.signature, candidate]),
+  );
   const oracleResult = finalizeJointCandidates(
-    path,
+    canonicalPath,
     config,
     options,
     problem,
-    evaluator.rankedCandidates(4),
+    [...finalistMap.values()],
     evaluator,
     "oracle",
   );
-  oracleResult.stats.genericEvaluations +=
-    productionSeed.stats.genericEvaluations;
-  if (
-    oracleResult.stats.objectiveCost >
-    productionSeed.stats.objectiveCost + jointObjectiveIndifference
-  ) {
-    return {
-      ...productionSeed,
-      stats: {
-        ...oracleResult.stats,
-        objectiveCost: productionSeed.stats.objectiveCost,
-        genericValidationPassed: productionSeed.stats.genericValidationPassed,
-        stabilityValidationPassed:
-          productionSeed.stats.stabilityValidationPassed,
-      },
-    };
-  }
   return oracleResult;
 }
 
@@ -1332,8 +1455,9 @@ function finalizeJointCandidates(
   evaluator: JointCandidateEvaluator,
   algorithm: JointAutoConstraintSolveStats["algorithm"],
 ): JointAutoConstraintSolveResult {
-  const finalized = candidates.map((candidate) =>
-    finalizeJointCandidate(
+  const finalized = candidates.map((candidate) => ({
+    candidate,
+    result: finalizeJointCandidate(
       path,
       config,
       options,
@@ -1342,24 +1466,30 @@ function finalizeJointCandidates(
       evaluator,
       algorithm,
     ),
-  );
+  }));
   const statusRank = (status: JointAutoConstraintSolveStatus): number =>
     status === "valid" ? 0 : status === "best-effort" ? 1 : 2;
   finalized.sort((left, right) => {
-    const rankDelta = statusRank(left.status) - statusRank(right.status);
+    const rankDelta =
+      statusRank(left.result.status) - statusRank(right.result.status);
     if (rankDelta !== 0) {
       return rankDelta;
     }
-    return left.stats.objectiveCost - right.stats.objectiveCost;
+    const costDelta =
+      left.result.stats.objectiveCost - right.result.stats.objectiveCost;
+    if (Math.abs(costDelta) > jointObjectiveIndifference) {
+      return costDelta;
+    }
+    return left.candidate.signature.localeCompare(right.candidate.signature);
   });
-  const result = finalized[0];
-  if (!result) {
+  const winner = finalized[0];
+  if (!winner) {
     throw new Error("Joint solver produced no candidate to finalize");
   }
   return {
-    ...result,
+    ...winner.result,
     stats: {
-      ...result.stats,
+      ...winner.result.stats,
       genericEvaluations: finalized.length * 2,
     },
   };
@@ -1387,6 +1517,24 @@ function jointOracleVariables(
     }
   }
   return variables;
+}
+
+function jointOracleBaseCandidate(problem: JointSearchProblem): JointCandidate {
+  const capsByOrdinal = initialCapsByOrdinal(
+    problem.setup.anchors,
+    problem.setup.usableMaxVelocityMps,
+  );
+  applyPinnedCaps(
+    capsByOrdinal,
+    problem.setup.simulationContext,
+    problem.setup.usableMaxVelocityMps,
+  );
+  return {
+    radiiBySegmentIndex: [
+      ...problem.setup.simulationContext.handoffRadiiBySegmentIndex,
+    ],
+    capsByOrdinal,
+  };
 }
 
 function encodeJointOracleCandidate(
@@ -1436,6 +1584,86 @@ function decodeJointOracleCandidate(
     }
   });
   return candidate;
+}
+
+function polishJointOracleCandidate(
+  initial: JointCandidateEvaluation,
+  variables: readonly JointOracleVariable[],
+  evaluator: JointCandidateEvaluator,
+): JointCandidateEvaluation {
+  let best = initial;
+  const sweep = (
+    stepFor: (variable: JointOracleVariable) => number,
+  ): boolean => {
+    let changed = false;
+    for (const variableOrder of [
+      variables,
+      [...variables].reverse(),
+    ] as const) {
+      for (const variable of variableOrder) {
+        if (evaluator.budgetReached) {
+          return changed;
+        }
+        const variableIndex = variables.indexOf(variable);
+        const vector = encodeJointOracleCandidate(best.candidate, variables);
+        let coordinateBest = best;
+        for (const direction of [-1, 1]) {
+          const trialVector = [...vector];
+          trialVector[variableIndex] = clamp(
+            (trialVector[variableIndex] ?? 0.5) + direction * stepFor(variable),
+            0,
+            1,
+          );
+          const evaluation = evaluator.evaluate(
+            decodeJointOracleCandidate(trialVector, variables, best.candidate),
+          );
+          if (
+            evaluation &&
+            isBetterJointOracleCandidate(evaluation, coordinateBest)
+          ) {
+            coordinateBest = evaluation;
+          }
+        }
+        if (coordinateBest.signature !== best.signature) {
+          best = coordinateBest;
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  };
+
+  for (const normalizedStep of [0.08, 0.03, 0.01]) {
+    for (let pass = 0; pass < 3 && !evaluator.budgetReached; pass += 1) {
+      if (!sweep(() => normalizedStep)) {
+        break;
+      }
+    }
+  }
+  for (let pass = 0; pass < 24 && !evaluator.budgetReached; pass += 1) {
+    if (!sweep(jointOraclePersistedQuantumRatio)) {
+      break;
+    }
+  }
+  return best;
+}
+
+function jointOraclePersistedQuantumRatio(
+  variable: JointOracleVariable,
+): number {
+  const min =
+    variable.kind === "radius"
+      ? variable.coordinate.minRadiusMeters
+      : variable.min;
+  const max =
+    variable.kind === "radius"
+      ? variable.coordinate.maxRadiusMeters
+      : variable.max;
+  const quantum =
+    variable.kind === "radius"
+      ? jointRadiusQuantumMeters
+      : jointVelocityQuantumMps;
+  return quantum / Math.max(max - min, quantum);
 }
 
 function reflectUnitInterval(value: number): number {
