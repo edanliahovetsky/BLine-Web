@@ -10,7 +10,7 @@ import {
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Maximize2 } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
@@ -29,7 +29,7 @@ import {
   type AutoVelocitySegmentCap,
 } from "../../../core/constraints/autoVelocityConstraints";
 import {
-  autoVelocityGenerationOptions,
+  autoVelocitySettingsForPath,
   type AutoVelocitySettings,
 } from "../../../core/constraints/autoVelocityApply";
 import {
@@ -279,38 +279,9 @@ export function ConstraintEditor({
   // The background sync and the Generate button drive the same optimizer, so
   // the card locks for either.
   const autoVelocityRunning = manualRunActive || syncPhase === "running";
-  const projectAutoVelocitySettings = project
-    ? autoVelocitySettingsFromProject(project)
+  const autoSettings = project
+    ? autoVelocitySettingsForPath(project.path, project.config)
     : defaultAutoVelocitySettings;
-  const resetProjectId = project?.project_id ?? null;
-  const resetVelocitySafetyFactor =
-    projectAutoVelocitySettings.velocitySafetyFactor;
-  const resetAccelerationSafetyFactor =
-    projectAutoVelocitySettings.accelerationSafetyFactor;
-  const resetMergeToleranceMps = projectAutoVelocitySettings.mergeToleranceMps;
-  const autoSettingsResetKey = [
-    resetProjectId ?? "no-project",
-    resetVelocitySafetyFactor,
-    resetAccelerationSafetyFactor,
-    resetMergeToleranceMps,
-  ].join(":");
-  const [autoSettingsState, setAutoSettingsState] = useState<{
-    resetKey: string;
-    settings: AutoVelocitySettings;
-  }>(() => ({
-    resetKey: autoSettingsResetKey,
-    settings: projectAutoVelocitySettings,
-  }));
-  const autoSettings =
-    autoSettingsState.resetKey === autoSettingsResetKey
-      ? autoSettingsState.settings
-      : projectAutoVelocitySettings;
-  const setAutoSettings = (settings: AutoVelocitySettings) => {
-    setAutoSettingsState({
-      resetKey: autoSettingsResetKey,
-      settings,
-    });
-  };
   const runAutoVelocityTask: AutoVelocityTaskRunner = (task) => {
     if (autoVelocityRunningRef.current) {
       return;
@@ -488,7 +459,6 @@ export function ConstraintEditor({
             autoSettings={autoSettings}
             autoVelocityRunning={autoVelocityRunning}
             runAutoVelocityTask={runAutoVelocityTask}
-            onAutoSettingsChange={setAutoSettings}
             onGenerateAutoVelocity={generateAutoVelocity}
             onSelect={setSelectedForKey}
             onClose={closePopout}
@@ -518,7 +488,6 @@ export function ConstraintEditor({
                     autoSettings={autoSettings}
                     autoVelocityRunning={autoVelocityRunning}
                     runAutoVelocityTask={runAutoVelocityTask}
-                    onAutoSettingsChange={setAutoSettings}
                     onGenerateAutoVelocity={generateAutoVelocity}
                     onSelect={(index) => setSelectedForKey(key, index)}
                     onOpenPopout={(trigger) => openPopout(key, trigger)}
@@ -532,7 +501,6 @@ export function ConstraintEditor({
                     autoSettings={autoSettings}
                     autoVelocityRunning={autoVelocityRunning}
                     runAutoVelocityTask={runAutoVelocityTask}
-                    onAutoSettingsChange={setAutoSettings}
                     onGenerateAutoVelocity={generateAutoVelocity}
                     onSelect={(index) => setSelectedForKey(key, index)}
                     onOpenPopout={(trigger) => openPopout(key, trigger)}
@@ -672,7 +640,6 @@ function AutoConstraintLedgerCard({
   autoSettings,
   autoVelocityRunning,
   runAutoVelocityTask,
-  onAutoSettingsChange,
   onGenerateAutoVelocity,
   onSelect,
   onOpenPopout,
@@ -682,7 +649,6 @@ function AutoConstraintLedgerCard({
   autoSettings: AutoVelocitySettings;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
-  onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onGenerateAutoVelocity(): void;
   onSelect: (index: number) => void;
   onOpenPopout(trigger: HTMLButtonElement): void;
@@ -873,11 +839,7 @@ function AutoConstraintLedgerCard({
         </p>
       ) : null}
 
-      <AutoVelocityInlineControls
-        project={project}
-        settings={autoSettings}
-        onSettingsChange={onAutoSettingsChange}
-      />
+      <AutoVelocityWorkloadWarning project={project} settings={autoSettings} />
 
       <div className="auto-constraint-ledger__legend" aria-label="Value modes">
         <span>
@@ -1025,7 +987,6 @@ function RangedConstraintCard({
   autoSettings,
   autoVelocityRunning,
   runAutoVelocityTask,
-  onAutoSettingsChange,
   onGenerateAutoVelocity,
   onSelect,
   onOpenPopout,
@@ -1036,7 +997,6 @@ function RangedConstraintCard({
   autoSettings: AutoVelocitySettings;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
-  onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onGenerateAutoVelocity(): void;
   onSelect: (index: number) => void;
   onOpenPopout(trigger: HTMLButtonElement): void;
@@ -1175,11 +1135,7 @@ function RangedConstraintCard({
       ) : null}
 
       {isAutoVelocityCard && autoStatus ? (
-        <AutoVelocityInlineControls
-          project={project}
-          settings={autoSettings}
-          onSettingsChange={onAutoSettingsChange}
-        />
+        <AutoVelocityWorkloadWarning project={project} settings={autoSettings} />
       ) : null}
 
       <ConstraintSegmentBar
@@ -1423,7 +1379,6 @@ function ConstraintPopout({
   autoSettings,
   autoVelocityRunning,
   runAutoVelocityTask,
-  onAutoSettingsChange,
   onGenerateAutoVelocity,
   onSelect,
   onClose,
@@ -1434,7 +1389,6 @@ function ConstraintPopout({
   autoSettings: AutoVelocitySettings;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
-  onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onGenerateAutoVelocity(): void;
   onSelect: (key: RangedConstraintKey, index: number) => void;
   onClose: () => void;
@@ -1576,7 +1530,6 @@ function ConstraintPopout({
             autoSettings={autoSettings}
             autoVelocityRunning={autoVelocityRunning}
             runAutoVelocityTask={runAutoVelocityTask}
-            onAutoSettingsChange={onAutoSettingsChange}
             onGenerateAutoVelocity={onGenerateAutoVelocity}
             onSelect={(index) => onSelect(constraintKey, index)}
           />
@@ -1593,7 +1546,6 @@ function PopoutConstraintPanel({
   autoSettings,
   autoVelocityRunning,
   runAutoVelocityTask,
-  onAutoSettingsChange,
   onGenerateAutoVelocity,
   onSelect,
 }: {
@@ -1603,7 +1555,6 @@ function PopoutConstraintPanel({
   autoSettings: AutoVelocitySettings;
   autoVelocityRunning: boolean;
   runAutoVelocityTask: AutoVelocityTaskRunner;
-  onAutoSettingsChange(settings: AutoVelocitySettings): void;
   onGenerateAutoVelocity(): void;
   onSelect: (index: number) => void;
 }) {
@@ -1694,11 +1645,7 @@ function PopoutConstraintPanel({
       </div>
 
       {isAutoVelocityPanel && autoStatus ? (
-        <AutoVelocityInlineControls
-          project={project}
-          settings={autoSettings}
-          onSettingsChange={onAutoSettingsChange}
-        />
+        <AutoVelocityWorkloadWarning project={project} settings={autoSettings} />
       ) : null}
 
       <ConstraintSegmentBar
@@ -2728,180 +2675,36 @@ function RangedConstraintControls({
   );
 }
 
-function AutoVelocityInlineControls({
+function AutoVelocityWorkloadWarning({
   project,
   settings,
-  onSettingsChange,
 }: {
   project: ProjectDocument;
   settings: AutoVelocitySettings;
-  onSettingsChange(settings: AutoVelocitySettings): void;
 }) {
-  const autoSyncEnabled = useStoreSelector(
-    autoVelocityStore,
-    (state) => state.autoSyncEnabled,
-  );
-  const phase = useStoreSelector(autoVelocityStore, (state) => state.phase);
-  const lastRunCandidate = useStoreSelector(
-    autoVelocityStore,
-    (state) => state.lastRun,
-  );
   const searchPlan = useMemo(
     () => autoRadiiCapSearchPlan(project.path, project.config, settings),
     [project, settings],
   );
-  const inputSignature = useMemo(
-    () =>
-      autoVelocityInputSignature(
-        project.path,
-        project.config,
-        autoVelocityGenerationOptions(settings),
-      ),
-    [project, settings],
-  );
-  const lastRun =
-    lastRunCandidate?.projectId === project.project_id &&
-    lastRunCandidate.inputSignature === inputSignature
-      ? lastRunCandidate
-      : null;
   const largePath =
     searchPlan.evaluationBudget > autoConstraintLargePathWarningBudget;
 
+  if (!largePath) {
+    return null;
+  }
+
   return (
-    <details
-      className="auto-velocity-inline"
-      data-testid="auto-velocity-controls"
+    <p
+      className="auto-velocity-workload-warning"
+      data-testid="auto-velocity-workload-warning"
+      role="note"
     >
-      <summary>
-        <ChevronRight
-          className="auto-velocity-inline__caret"
-          aria-hidden="true"
-          size={14}
-        />
-        <span>Optimizer settings</span>
-        <small className="auto-velocity-inline__hint">
-          {largePath ? "Large path" : "Factors · Sync"}
-        </small>
-      </summary>
-      <div className="auto-velocity-inline__settings">
-        {largePath ? (
-          <p className="auto-velocity-inline__warning" role="note">
-            <WarningIcon aria-hidden="true" />
-            <span>
-              Large path — optimization may take longer. Up to{" "}
-              {searchPlan.evaluationBudget} candidate evaluations are expected.
-            </span>
-          </p>
-        ) : null}
-        <div
-          className="auto-velocity-inline__diagnostics"
-          data-testid="auto-velocity-diagnostics"
-          role="status"
-          aria-live="polite"
-        >
-          {phase === "running" ? (
-            <strong>
-              Optimizing · up to {searchPlan.evaluationBudget} projected
-              evaluations
-            </strong>
-          ) : lastRun ? (
-            <>
-              <strong>
-                {lastRun.stats.evaluations} /{" "}
-                {lastRun.stats.evaluationBudget} evaluations
-              </strong>
-              <span>
-                {lastRun.stats.searchableBlocks} blocks ·{" "}
-                {lastRun.stats.cacheHits} cache hits ·{" "}
-                {lastRun.stats.genericEvaluations} validations ·{" "}
-                {lastRun.stats.terminationReason} ·{" "}
-                {Math.round(lastRun.elapsedMs)} ms · {lastRun.status}
-              </span>
-            </>
-          ) : (
-            <>
-              <strong>
-                Up to {searchPlan.evaluationBudget} projected evaluations
-              </strong>
-              <span>{searchPlan.searchableBlocks} searchable blocks</span>
-            </>
-          )}
-        </div>
-        <label className="auto-velocity-inline__sync">
-          <input
-            type="checkbox"
-            checked={autoSyncEnabled}
-            onChange={(event) =>
-              autoVelocityStore
-                .getState()
-                .setAutoSyncEnabled(event.currentTarget.checked)
-            }
-          />
-          <span>Keep in sync</span>
-          <small>
-            Regenerate auto radii and velocity caps whenever the path changes.
-          </small>
-        </label>
-        <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--factors">
-          <legend>Factors</legend>
-          <div className="auto-velocity-inline__group-fields">
-            <label>
-              <span>Velocity</span>
-              <NumberStepperControl
-                ariaLabel="Velocity safety factor"
-                value={settings.velocitySafetyFactor}
-                step={0.05}
-                min={0.05}
-                max={1}
-                onChange={(value) =>
-                  onSettingsChange({
-                    ...settings,
-                    velocitySafetyFactor:
-                      value ?? settings.velocitySafetyFactor,
-                  })
-                }
-              />
-            </label>
-            <label>
-              <span>Accel</span>
-              <NumberStepperControl
-                ariaLabel="Acceleration safety factor"
-                value={settings.accelerationSafetyFactor}
-                step={0.05}
-                min={0.05}
-                max={1}
-                onChange={(value) =>
-                  onSettingsChange({
-                    ...settings,
-                    accelerationSafetyFactor:
-                      value ?? settings.accelerationSafetyFactor,
-                  })
-                }
-              />
-            </label>
-          </div>
-        </fieldset>
-        <fieldset className="auto-velocity-inline__group auto-velocity-inline__group--merge">
-          <legend>Merge diff</legend>
-          <label>
-            <span>Tolerance</span>
-            <NumberStepperControl
-              ariaLabel="Auto velocity merge diff"
-              value={settings.mergeToleranceMps}
-              step={0.05}
-              min={0}
-              max={20}
-              onChange={(value) =>
-                onSettingsChange({
-                  ...settings,
-                  mergeToleranceMps: value ?? settings.mergeToleranceMps,
-                })
-              }
-            />
-          </label>
-        </fieldset>
-      </div>
-    </details>
+      <WarningIcon aria-hidden="true" />
+      <span>
+        Large path — optimization may take longer. Up to{" "}
+        {searchPlan.evaluationBudget} candidate evaluations are expected.
+      </span>
+    </p>
   );
 }
 
@@ -3718,50 +3521,6 @@ function ordinalsForConstraint(
     ordinals.push(ordinal);
   }
   return ordinals;
-}
-
-function autoVelocitySettingsFromProject(
-  project: ProjectDocument,
-): AutoVelocitySettings {
-  const metadata = project.path.ranged_constraints.find(
-    (constraint) =>
-      constraint.key === autoVelocityKey &&
-      constraint.source === "auto_velocity",
-  )?.auto_velocity;
-  const configDefaults = autoVelocitySettingsFromConfig(project);
-
-  return {
-    velocitySafetyFactor:
-      metadata?.velocity_safety_factor ?? configDefaults.velocitySafetyFactor,
-    accelerationSafetyFactor:
-      metadata?.acceleration_safety_factor ??
-      configDefaults.accelerationSafetyFactor,
-    mergeToleranceMps:
-      metadata?.merge_tolerance_meters_per_sec ??
-      configDefaults.mergeToleranceMps,
-  };
-}
-
-function autoVelocitySettingsFromConfig(
-  project: ProjectDocument,
-): AutoVelocitySettings {
-  return {
-    velocitySafetyFactor:
-      getDefaultOptionalConfigValue(
-        project.config,
-        "auto_velocity_velocity_safety_factor",
-      ) ?? defaultAutoVelocitySettings.velocitySafetyFactor,
-    accelerationSafetyFactor:
-      getDefaultOptionalConfigValue(
-        project.config,
-        "auto_velocity_acceleration_safety_factor",
-      ) ?? defaultAutoVelocitySettings.accelerationSafetyFactor,
-    mergeToleranceMps:
-      getDefaultOptionalConfigValue(
-        project.config,
-        "auto_velocity_merge_tolerance_meters_per_sec",
-      ) ?? defaultAutoVelocitySettings.mergeToleranceMps,
-  };
 }
 
 function autoVelocityOptionsFromSettings(settings: AutoVelocitySettings) {

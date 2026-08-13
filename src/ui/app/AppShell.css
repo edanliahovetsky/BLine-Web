@@ -2738,8 +2738,7 @@ select {
   min-width: 0;
 }
 
-.ranged-constraint-controls label > span,
-.auto-velocity-inline label > span {
+.ranged-constraint-controls label > span {
   color: #90a1b1;
   font-size: 0.67rem;
   font-weight: 740;
@@ -2772,73 +2771,6 @@ select {
   justify-content: flex-end;
   gap: 4px;
   min-width: 0;
-}
-
-.auto-velocity-inline {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(92px, 1fr);
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid #2e3b43;
-  border-radius: 7px;
-  background: #141f25;
-}
-
-.auto-velocity-inline__group {
-  display: grid;
-  gap: 4px;
-  min-inline-size: 0;
-  min-width: 0;
-  margin: 0;
-  padding: 4px 7px 7px;
-  border: 1px solid #2d3d48;
-  border-radius: 6px;
-  background: #111a20;
-}
-
-.auto-velocity-inline__group legend {
-  min-width: 0;
-  padding: 0 4px;
-  color: #c0ccd6;
-  font-size: 0.68rem;
-  font-weight: 780;
-  line-height: 1.1;
-  text-transform: uppercase;
-}
-
-.auto-velocity-inline__group-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 4px;
-  min-width: 0;
-}
-
-.auto-velocity-inline__group--merge > label {
-  margin-top: 4px;
-}
-
-.auto-velocity-inline label {
-  display: grid;
-  grid-template-rows: auto 29px;
-  align-content: start;
-  gap: 4px;
-  min-width: 0;
-}
-
-.auto-velocity-inline label > span {
-  min-height: 0;
-  line-height: 1.2;
-}
-
-.auto-velocity-inline__summary {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  color: #9aabb8;
-  font-size: 0.7rem;
-  font-weight: 680;
 }
 
 .auto-velocity-mode {
@@ -3549,6 +3481,18 @@ select {
   font-size: 0.8rem;
   font-weight: 620;
   line-height: 1.2;
+}
+
+.config-row__copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.config-row__copy small {
+  color: #93a0ab;
+  font-size: 0.7rem;
+  line-height: 1.35;
 }
 
 .config-row input:not([type="checkbox"]),
@@ -6227,159 +6171,25 @@ body.is-resizing-inspector * {
   box-shadow: none;
 }
 
-.auto-velocity-inline {
-  display: block;
-  padding: 0;
-  border: 1px solid #2c3740;
-  border-radius: 7px;
-  background: #13191e;
-}
-
-/* A bare label read as a heading rather than a control, so the row now carries
-   the three things that say "disclosure": a caret that turns, a preview of
-   what is inside, and a hover state. */
-.auto-velocity-inline > summary {
+.auto-velocity-workload-warning {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
-  min-height: 34px;
-  padding: 0 9px;
-  border-radius: 6px;
-  color: #cbd6df;
-  cursor: pointer;
-  font-size: 0.74rem;
-  font-weight: 720;
-  list-style: none;
-  transition:
-    color 120ms ease,
-    background 120ms ease;
-}
-
-.auto-velocity-inline > summary::-webkit-details-marker {
-  display: none;
-}
-
-.auto-velocity-inline > summary:hover,
-.auto-velocity-inline > summary:focus-visible {
-  color: #f2f6fa;
-  background: rgba(238, 244, 250, 0.055);
-}
-
-.auto-velocity-inline__caret {
-  flex: 0 0 14px;
-  color: #7f8c98;
-  transition:
-    rotate 150ms ease,
-    color 120ms ease;
-}
-
-.auto-velocity-inline[open] > summary .auto-velocity-inline__caret {
-  rotate: 90deg;
-}
-
-.auto-velocity-inline > summary:hover .auto-velocity-inline__caret {
-  color: #b9c6d2;
-}
-
-/* Names what is behind the caret, so the row is worth opening. */
-.auto-velocity-inline__hint {
-  margin-left: auto;
-  color: #77838e;
-  font-size: 0.67rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-}
-
-.auto-velocity-inline[open] > summary .auto-velocity-inline__hint {
-  opacity: 0;
-}
-
-.auto-velocity-inline > summary small {
-  color: #8795a1;
-  font-size: 0.68rem;
-  font-weight: 650;
-}
-
-.auto-velocity-inline__settings {
-  display: grid;
-  grid-template-columns: 1fr minmax(90px, 0.65fr);
-  gap: 8px;
-  padding: 0 8px 8px;
-}
-
-.auto-velocity-inline__warning,
-.auto-velocity-inline__diagnostics {
-  grid-column: 1 / -1;
   margin: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(224, 169, 72, 0.32);
   border-radius: 6px;
+  color: #d9bd88;
+  background: rgba(181, 119, 30, 0.08);
   font-size: 0.7rem;
   line-height: 1.35;
 }
 
-.auto-velocity-inline__warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 7px 8px;
-  border: 1px solid rgba(224, 169, 72, 0.32);
-  color: #d9bd88;
-  background: rgba(181, 119, 30, 0.08);
-}
-
-.auto-velocity-inline__warning svg {
+.auto-velocity-workload-warning svg {
   flex: 0 0 13px;
   width: 13px;
   height: 13px;
   margin-top: 1px;
-}
-
-.auto-velocity-inline__diagnostics {
-  display: grid;
-  gap: 1px;
-  padding: 6px 8px;
-  border: 1px solid var(--bline-border-subtle);
-  color: #8f9ba6;
-  background: rgba(238, 244, 250, 0.022);
-}
-
-.auto-velocity-inline__diagnostics strong {
-  color: #cdd8e1;
-  font-size: 0.72rem;
-  font-weight: 680;
-}
-
-/* Spans both factor columns: it governs the whole optimizer, not one number. */
-.auto-velocity-inline__sync {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 2px 7px;
-  padding: 7px 8px;
-  border: 1px solid var(--bline-border-subtle);
-  border-radius: 6px;
-  background: rgba(238, 244, 250, 0.03);
-  cursor: pointer;
-}
-
-.auto-velocity-inline__sync input {
-  width: 13px;
-  height: 13px;
-  margin: 0;
-  accent-color: #4f8fd4;
-}
-
-.auto-velocity-inline__sync > span {
-  color: #dbe4ec;
-  font-size: 0.77rem;
-  font-weight: 650;
-}
-
-.auto-velocity-inline__sync > small {
-  grid-column: 2;
-  color: #8f9ba6;
-  font-size: 0.7rem;
-  line-height: 1.35;
 }
 
 .constraint-popout-button {

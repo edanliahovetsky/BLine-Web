@@ -495,22 +495,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         ".ranged-constraint-controls__actions button",
       ),
     ).toHaveCount(4);
-    const autoVelocityControls = page.getByTestId("auto-velocity-controls");
-    await autoVelocityControls
-      .getByText("Optimizer settings", { exact: true })
-      .click();
-    await expect(
-      autoVelocityControls.getByText("Factors", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      autoVelocityControls.getByText("Merge diff", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      autoVelocityControls.getByText("Velocity factor", { exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      autoVelocityControls.getByText("Accel factor", { exact: true }),
-    ).toHaveCount(0);
+    await expect(page.getByTestId("auto-velocity-controls")).toHaveCount(0);
     // Select the segment last (clicking elsewhere clears the selection) so its
     // value control renders for the overflow measurement below.
     await page
@@ -570,32 +555,6 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
           bottom: rect.bottom,
         };
       });
-      const autoVelocityControlBoxes = Array.from(
-        document.querySelectorAll(
-          ".auto-velocity-inline .sidebar-number-control",
-        ),
-      ).map((control) => {
-        const input = control.querySelector("input");
-        const stepper = control.querySelector(".sidebar-stepper");
-        if (!input || !stepper) {
-          throw new Error(
-            "Expected auto velocity number controls to include input and stepper",
-          );
-        }
-        const controlRect = control.getBoundingClientRect();
-        const inputRect = input.getBoundingClientRect();
-        const stepperRect = stepper.getBoundingClientRect();
-        return {
-          top: controlRect.top,
-          bottom: controlRect.bottom,
-          height: controlRect.height,
-          inputTop: inputRect.top,
-          inputBottom: inputRect.bottom,
-          stepperTop: stepperRect.top,
-          stepperBottom: stepperRect.bottom,
-        };
-      });
-
       return {
         viewportWidth: window.innerWidth,
         documentClientWidth: documentScroller.clientWidth,
@@ -609,7 +568,6 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         valueInputClientWidth: valueInput.clientWidth,
         valueInputScrollWidth: valueInput.scrollWidth,
         actionButtonBoxes,
-        autoVelocityControlBoxes,
       };
     });
 
@@ -633,23 +591,6 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     for (const actionButtonBox of metrics.actionButtonBoxes) {
       expect(
         Math.abs(actionButtonBox.bottom - metrics.valueControlBottom),
-      ).toBeLessThanOrEqual(1);
-    }
-
-    expect(metrics.autoVelocityControlBoxes.length).toBe(3);
-    const autoControlTop = metrics.autoVelocityControlBoxes[0].top;
-    const autoControlBottom = metrics.autoVelocityControlBoxes[0].bottom;
-    for (const controlBox of metrics.autoVelocityControlBoxes) {
-      expect(Math.abs(controlBox.top - autoControlTop)).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs(controlBox.bottom - autoControlBottom),
-      ).toBeLessThanOrEqual(1);
-      expect(controlBox.height).toBeGreaterThanOrEqual(28);
-      expect(
-        Math.abs(controlBox.inputTop - controlBox.stepperTop),
-      ).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs(controlBox.inputBottom - controlBox.stepperBottom),
       ).toBeLessThanOrEqual(1);
     }
 
@@ -1856,10 +1797,6 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
   await expect(status).toHaveText("Not generated");
   await generate.click();
   await expect(status).toHaveText("Up to date");
-  await page.getByText("Optimizer settings", { exact: true }).click();
-  await expect(card.getByTestId("auto-velocity-diagnostics")).toContainText(
-    /\d+ \/ \d+ evaluations/,
-  );
   await expect(
     card.getByRole("button", { name: "Apply", exact: true }),
   ).toHaveCount(0);
@@ -2070,31 +2007,35 @@ test("refreshes the generated policy in the background after a path edit", async
   );
 });
 
-test("reads the optimizer settings row as a disclosure", async ({ page }) => {
+test("keeps optimizer controls in Settings instead of Constraints", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
 
-  const controls = page.getByTestId("auto-velocity-controls");
-  const caret = controls.locator(".auto-velocity-inline__caret");
-  const hint = controls.locator(".auto-velocity-inline__hint");
-  const rotation = async () =>
-    await caret.evaluate((node) => getComputedStyle(node).rotate);
+  await expect(page.getByTestId("auto-velocity-controls")).toHaveCount(0);
+  await expect(
+    page.getByText("Optimizer settings", { exact: true }),
+  ).toHaveCount(0);
 
-  // Closed, the row advertises what it hides.
-  await expect(controls).not.toHaveAttribute("open", "");
-  await expect(caret).toBeVisible();
-  await expect(hint).toHaveText("Factors · Sync");
-  expect(await rotation()).not.toBe("90deg");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Optimizer" }).click();
 
-  await controls.getByText("Optimizer settings", { exact: true }).click();
-
-  await expect(controls).toHaveAttribute("open", "");
-  await expect(page.getByLabel("Velocity safety factor")).toBeVisible();
-  await expect(controls.getByTestId("auto-velocity-diagnostics")).toContainText(
-    /Up to \d+ projected evaluations/,
+  await expect(dialog.getByLabel("Keep in sync")).toBeChecked();
+  await expect(dialog.getByLabel("Velocity safety factor")).toHaveValue("1");
+  await expect(dialog.getByLabel("Acceleration safety factor")).toHaveValue(
+    "1",
   );
-  await expect(hint).toHaveCSS("opacity", "0");
-  await expect.poll(rotation).toBe("90deg");
+  await expect(dialog.getByLabel("Merge difference (m/s)")).toHaveValue(
+    "0.3",
+  );
+
+  await dialog.getByLabel("Keep in sync").uncheck();
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Optimizer" }).click();
+  await expect(page.getByLabel("Keep in sync")).not.toBeChecked();
 });
 
 test("warns when a large path receives a scaled optimizer budget", async ({
@@ -2133,16 +2074,9 @@ test("warns when a large path receives a scaled optimizer budget", async ({
     .getByRole("button", { name: "Auto" })
     .click();
 
-  const controls = page.getByTestId("auto-velocity-controls");
-  await expect(controls.locator(".auto-velocity-inline__hint")).toHaveText(
-    "Large path",
-  );
-  await controls.getByText("Optimizer settings", { exact: true }).click();
-  await expect(controls.getByRole("note")).toContainText(
+  const warning = page.getByTestId("auto-velocity-workload-warning");
+  await expect(warning).toContainText(
     "Large path — optimization may take longer. Up to 7348 candidate evaluations are expected.",
-  );
-  await expect(controls.getByTestId("auto-velocity-diagnostics")).toContainText(
-    "Up to 7348 projected evaluations",
   );
 });
 
@@ -2150,6 +2084,11 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
+  await page.getByRole("button", { name: "Settings" }).click();
+  const settingsDialog = page.getByRole("dialog", { name: "Edit Config" });
+  await settingsDialog.getByRole("button", { name: "Optimizer" }).click();
+  await settingsDialog.getByLabel("Merge difference (m/s)").fill("20");
+  await settingsDialog.getByRole("button", { name: "Save" }).click();
   await openConstraintsTab(page);
 
   const firstRange = page.getByTestId(
@@ -2159,8 +2098,6 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   await page.getByLabel("Delete constraint 1").click();
   await expect(firstRange).toHaveCount(0);
 
-  await page.getByText("Optimizer settings", { exact: true }).click();
-  await page.getByLabel("Auto velocity merge diff").fill("20");
   await page
     .getByRole("button", {
       name: "Generate constraints",
@@ -2324,7 +2261,7 @@ test("edits project config with undo support", async ({ page }) => {
   );
   await dialog.getByRole("button", { name: "Optimizer" }).click();
   await expect(
-    dialog.getByRole("heading", { name: "Auto Constrain" }),
+    dialog.getByRole("heading", { name: "Constraint Generation" }),
   ).toBeVisible();
   await expect(
     dialog.getByRole("heading", { name: "Optimizer" }),

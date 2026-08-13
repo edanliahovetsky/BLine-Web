@@ -43,8 +43,12 @@ type ConfigSectionId = (typeof configSections)[number]["id"];
 
 interface ProjectConfigDialogProps {
   config: ProjectConfig;
+  autoSyncEnabled: boolean;
   onCancel(): void;
-  onSave(config: ProjectConfig): void;
+  onSave(
+    config: ProjectConfig,
+    options: { autoSyncEnabled: boolean; configChanged: boolean },
+  ): void;
   onUploadFieldImage(
     file: File,
     geometry: FieldGeometry,
@@ -54,6 +58,7 @@ interface ProjectConfigDialogProps {
 
 export function ProjectConfigDialog({
   config,
+  autoSyncEnabled,
   onCancel,
   onSave,
   onUploadFieldImage,
@@ -63,6 +68,8 @@ export function ProjectConfigDialog({
   const [draft, setDraft] = useState<ProjectConfig>(() =>
     createProjectConfig(config),
   );
+  const [draftAutoSyncEnabled, setDraftAutoSyncEnabled] =
+    useState(autoSyncEnabled);
   const fieldInputRef = useRef<HTMLInputElement | null>(null);
   const [activeSection, setActiveSection] = useState<ConfigSectionId>("robot");
   const [fieldPreview, setFieldPreview] = useState<{
@@ -72,7 +79,9 @@ export function ProjectConfigDialog({
   const [fieldUploadError, setFieldUploadError] = useState<string | null>(null);
   const [fieldUploading, setFieldUploading] = useState(false);
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
-  const isDirty = !configsEqual(initialConfig, normalizedDraft);
+  const configChanged = !configsEqual(initialConfig, normalizedDraft);
+  const isDirty =
+    configChanged || draftAutoSyncEnabled !== autoSyncEnabled;
   const selectedField = useMemo(
     () => resolveFieldDefinition(draft.gui.field),
     [draft.gui.field],
@@ -85,7 +94,10 @@ export function ProjectConfigDialog({
 
   const saveDraft = () => {
     if (isDirty) {
-      onSave(normalizedDraft);
+      onSave(normalizedDraft, {
+        autoSyncEnabled: draftAutoSyncEnabled,
+        configChanged,
+      });
     }
   };
 
@@ -192,7 +204,12 @@ export function ProjectConfigDialog({
             ) : null}
 
             {activeSection === "optimizer" ? (
-              <OptimizerSettingsSection draft={draft} setDraft={setDraft} />
+              <OptimizerSettingsSection
+                autoSyncEnabled={draftAutoSyncEnabled}
+                draft={draft}
+                setAutoSyncEnabled={setDraftAutoSyncEnabled}
+                setDraft={setDraft}
+              />
             ) : null}
           </div>
         </div>
@@ -651,18 +668,28 @@ function PathDefaultsSettingsSection({
 }
 
 function OptimizerSettingsSection({
+  autoSyncEnabled,
   draft,
+  setAutoSyncEnabled,
   setDraft,
 }: {
+  autoSyncEnabled: boolean;
   draft: ProjectConfig;
+  setAutoSyncEnabled(enabled: boolean): void;
   setDraft: Dispatch<SetStateAction<ProjectConfig>>;
 }) {
   return (
     <ConfigSection title="Optimizer">
-      <ConfigSubsection title="Auto Constrain">
+      <ConfigSubsection title="Constraint Generation">
+        <CheckboxRow
+          label="Keep in sync"
+          description="Regenerate automatic radii and velocity caps whenever the path or optimizer settings change."
+          checked={autoSyncEnabled}
+          onChange={setAutoSyncEnabled}
+        />
         <KinematicNumberRow
           draft={draft}
-          label="Default Auto Velocity Factor"
+          label="Velocity safety factor"
           configKey="default_auto_velocity_velocity_safety_factor"
           min={0.05}
           max={1}
@@ -671,7 +698,7 @@ function OptimizerSettingsSection({
         />
         <KinematicNumberRow
           draft={draft}
-          label="Default Auto Accel Factor"
+          label="Acceleration safety factor"
           configKey="default_auto_velocity_acceleration_safety_factor"
           min={0.05}
           max={1}
@@ -680,7 +707,7 @@ function OptimizerSettingsSection({
         />
         <KinematicNumberRow
           draft={draft}
-          label="Auto Merge Diff (m/s)"
+          label="Merge difference (m/s)"
           configKey="default_auto_velocity_merge_tolerance_meters_per_sec"
           max={20}
           step={0.05}
@@ -794,16 +821,21 @@ function NumberRow({
 
 function CheckboxRow({
   label,
+  description,
   checked,
   onChange,
 }: {
   label: string;
+  description?: string;
   checked: boolean;
   onChange(checked: boolean): void;
 }) {
   return (
     <label className="config-row config-row--switch">
-      <span className="config-row__label">{label}</span>
+      <span className="config-row__copy">
+        <span className="config-row__label">{label}</span>
+        {description ? <small>{description}</small> : null}
+      </span>
       <SwitchInput ariaLabel={label} checked={checked} onChange={onChange} />
     </label>
   );

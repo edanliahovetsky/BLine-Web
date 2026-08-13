@@ -364,6 +364,10 @@ export function AppShell() {
     autoVelocityStore,
     (state) => state.lastError,
   );
+  const autoSyncEnabled = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.autoSyncEnabled,
+  );
 
   useEffect(() => startAutoVelocitySync(), []);
 
@@ -1460,17 +1464,25 @@ export function AppShell() {
   );
 
   const handleSaveConfig = useCallback(
-    (nextConfig: NonNullable<typeof project>["config"]) => {
+    (
+      nextConfig: NonNullable<typeof project>["config"],
+      options: { autoSyncEnabled: boolean; configChanged: boolean },
+    ) => {
       const activeProject = projectStore.getState().project;
       if (!activeProject) {
         return;
       }
 
-      projectStore
+      if (options.configChanged) {
+        projectStore
+          .getState()
+          .applyCommand(
+            createUpdateProjectConfigCommand(activeProject.config, nextConfig),
+          );
+      }
+      autoVelocityStore
         .getState()
-        .applyCommand(
-          createUpdateProjectConfigCommand(activeProject.config, nextConfig),
-        );
+        .setAutoSyncEnabled(options.autoSyncEnabled);
       setShowConfigDialog(false);
     },
     [],
@@ -2350,6 +2362,7 @@ export function AppShell() {
 
       {project && showConfigDialog ? (
         <ProjectConfigDialog
+          autoSyncEnabled={autoSyncEnabled}
           config={project.config}
           onCancel={() => setShowConfigDialog(false)}
           onSave={handleSaveConfig}

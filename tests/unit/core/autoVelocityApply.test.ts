@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   autoVelocityRefreshRequest,
+  autoVelocitySettingsForPath,
   refreshAutoVelocityConstraints,
 } from "../../../src/core/constraints/autoVelocityApply";
 import {
@@ -68,6 +69,48 @@ describe("autoVelocityRefreshRequest", () => {
     expect(autoVelocityRefreshRequest(moved, config)?.stale).toBe(true);
     expect(autoVelocityRefreshRequest(generate(moved), config)?.stale).toBe(
       false,
+    );
+  });
+
+  it("uses project optimizer settings instead of stale generated metadata", () => {
+    const generated = generate(examplePath());
+    const changedConfig = {
+      ...config,
+      kinematic_constraints: {
+        ...config.kinematic_constraints,
+        default_auto_velocity_velocity_safety_factor: 0.75,
+        default_auto_velocity_acceleration_safety_factor: 0.65,
+        default_auto_velocity_merge_tolerance_meters_per_sec: 0.2,
+      },
+    };
+
+    expect(autoVelocitySettingsForPath(generated, changedConfig)).toEqual({
+      velocitySafetyFactor: 0.75,
+      accelerationSafetyFactor: 0.65,
+      mergeToleranceMps: 0.2,
+    });
+    expect(autoVelocityRefreshRequest(generated, changedConfig)).toMatchObject({
+      settings: {
+        velocitySafetyFactor: 0.75,
+        accelerationSafetyFactor: 0.65,
+        mergeToleranceMps: 0.2,
+      },
+      stale: true,
+    });
+  });
+
+  it("resynchronizes when only merge tolerance changes", () => {
+    const generated = generate(examplePath());
+    const changedConfig = {
+      ...config,
+      kinematic_constraints: {
+        ...config.kinematic_constraints,
+        default_auto_velocity_merge_tolerance_meters_per_sec: 0.2,
+      },
+    };
+
+    expect(autoVelocityRefreshRequest(generated, changedConfig)?.stale).toBe(
+      true,
     );
   });
 

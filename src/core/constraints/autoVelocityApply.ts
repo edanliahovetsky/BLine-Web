@@ -56,7 +56,7 @@ export function refreshAutoVelocityConstraints(
     return path;
   }
 
-  const settings = options.settings ?? autoVelocitySettings(path, config);
+  const settings = options.settings ?? autoVelocitySettings(config);
   const profile = generateAutoVelocityProfile(
     path,
     config,
@@ -108,7 +108,7 @@ export function applyAutoVelocityConstraintsToOrdinals(
     return path;
   }
 
-  const settings = autoVelocitySettings(path, config);
+  const settings = autoVelocitySettings(config);
   const profile = generateAutoVelocityProfile(
     path,
     config,
@@ -186,7 +186,7 @@ export function autoVelocityRefreshRequest(
     return null;
   }
 
-  const settings = autoVelocitySettings(path, config);
+  const settings = autoVelocitySettings(config);
   const options = autoVelocityOptions(settings);
   const signature = autoVelocityInputSignature(path, config, options);
 
@@ -200,8 +200,29 @@ export function autoVelocityRefreshRequest(
       signature === null ||
       generated.some(
         (constraint) => constraint.auto_velocity?.input_signature !== signature,
+      ) ||
+      generated.some(
+        (constraint) =>
+          !autoVelocityMetadataMatchesSettings(
+            constraint.auto_velocity,
+            settings,
+          ),
       ),
   };
+}
+
+function autoVelocityMetadataMatchesSettings(
+  metadata: AutoVelocityConstraintMetadata | null | undefined,
+  settings: AutoVelocitySettings,
+): boolean {
+  return (
+    metadata?.velocity_safety_factor === settings.velocitySafetyFactor &&
+    metadata.acceleration_safety_factor ===
+      settings.accelerationSafetyFactor &&
+    (metadata.merge_tolerance_meters_per_sec ??
+      defaultAutoVelocityMergeToleranceMetersPerSec) ===
+      settings.mergeToleranceMps
+  );
 }
 
 export function autoVelocityGenerationOptions(settings: {
@@ -250,41 +271,29 @@ function autoVelocityMetadataFor(
   return metadata;
 }
 
-/** Settings the path's generated caps were solved with, or the config's. */
+/** Project settings that should be used for the next optimizer run. */
 export function autoVelocitySettingsForPath(
-  path: PathModel,
+  _path: PathModel,
   config: SimulationConfig,
 ): AutoVelocitySettings {
-  return autoVelocitySettings(path, config);
+  return autoVelocitySettings(config);
 }
 
-function autoVelocitySettings(
-  path: PathModel,
-  config: SimulationConfig,
-): AutoVelocitySettings {
-  const metadata = path.ranged_constraints.find(
-    (constraint) =>
-      constraint.key === autoVelocityKey &&
-      constraint.source === "auto_velocity",
-  )?.auto_velocity;
-
+function autoVelocitySettings(config: SimulationConfig): AutoVelocitySettings {
   return {
     velocitySafetyFactor:
-      metadata?.velocity_safety_factor ??
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_velocity_safety_factor",
       ) ??
       defaultAutoVelocityVelocitySafetyFactor,
     accelerationSafetyFactor:
-      metadata?.acceleration_safety_factor ??
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_acceleration_safety_factor",
       ) ??
       defaultAutoVelocityAccelerationSafetyFactor,
     mergeToleranceMps:
-      metadata?.merge_tolerance_meters_per_sec ??
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_merge_tolerance_meters_per_sec",
