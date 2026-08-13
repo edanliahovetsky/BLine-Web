@@ -2789,7 +2789,8 @@ function AutoVelocityInlineControls({
             <WarningIcon aria-hidden="true" />
             <span>
               Large path — optimization may take longer. Up to{" "}
-              {searchPlan.evaluationBudget} candidate evaluations are expected.
+              {searchPlan.evaluationBudget} base candidate evaluations are
+              expected; recovery search may add more.
             </span>
           </p>
         ) : null}
@@ -2801,7 +2802,7 @@ function AutoVelocityInlineControls({
         >
           {phase === "running" ? (
             <strong>
-              Optimizing · up to {searchPlan.evaluationBudget} evaluations
+              Optimizing · up to {searchPlan.evaluationBudget} base evaluations
             </strong>
           ) : lastRun ? (
             <>
@@ -2820,7 +2821,7 @@ function AutoVelocityInlineControls({
           ) : (
             <>
               <strong>
-                Up to {searchPlan.evaluationBudget} evaluations
+                Up to {searchPlan.evaluationBudget} base evaluations
               </strong>
               <span>{searchPlan.searchableBlocks} searchable blocks</span>
             </>

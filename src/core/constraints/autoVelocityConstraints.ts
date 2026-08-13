@@ -145,7 +145,7 @@ export type JointAutoConstraintSolveStatus =
   | "unsolvable";
 
 export interface JointAutoConstraintSolveStats {
-  algorithm: "interactive" | "oracle";
+  algorithm: "interactive" | "interactive-global" | "oracle";
   evaluations: number;
   evaluationBudget: number;
   searchableBlocks: number;
@@ -154,7 +154,11 @@ export interface JointAutoConstraintSolveStats {
   objectiveCost: number;
   genericValidationPassed: boolean;
   stabilityValidationPassed: boolean;
-  terminationReason: "converged" | "evaluation-budget" | "no-coordinates";
+  terminationReason:
+    | "converged"
+    | "evaluation-budget"
+    | "global-recovery"
+    | "no-coordinates";
 }
 
 export interface JointAutoConstraintSearchPlan {
@@ -290,12 +294,14 @@ const radiusObjectiveVelocityRatios: readonly number[] = [0.8, 0.5, 0.25];
 const jointSolverStartCandidates = 4;
 const jointSolverMovesPerBlock = 8;
 const jointSolverSweepCount = 2;
-const jointSolverBeamWidth = 2;
+const jointSolverRefinementBasins = 2;
+const jointSolverRefinementSweepCount = 1;
 const jointRadiusQuantumMeters = 0.001;
 const jointVelocityQuantumMps = 0.01;
 const jointRadiusFloorMeters = 0.05;
 const jointRadiusIncomingLegRatio = 0.9;
 const jointObjectiveIndifference = 1e-6;
+const jointGlobalRecoveryObjectiveThreshold = 100;
 const jointRobustRadiusMeters = 0.25;
 const jointRobustRadiusWeight = 4;
 const autoConstraintSolverVersion = 4;
@@ -510,9 +516,9 @@ export function jointAutoConstraintSearchPlan(
 function jointEvaluationBudget(searchableBlocks: number): number {
   return (
     jointSolverStartCandidates +
-    jointSolverBeamWidth *
+    (jointSolverStartCandidates * jointSolverSweepCount +
+      jointSolverRefinementBasins * jointSolverRefinementSweepCount) *
       jointSolverMovesPerBlock *
-      jointSolverSweepCount *
       searchableBlocks
   );
 }
@@ -617,22 +623,32 @@ function jointStartCandidates(
   anchorCount: number,
   usableMaxVelocityMps: number,
 ): JointCandidate[] {
-  const uniform = (ratio: number): JointCandidate => {
+  const structured = (
+    radiusRatio: number,
+    velocityRatio: number,
+  ): JointCandidate => {
     const capsByOrdinal = new Map(base.capsByOrdinal);
     for (let ordinal = 2; ordinal <= anchorCount; ordinal += 1) {
-      capsByOrdinal.set(ordinal, usableMaxVelocityMps * ratio);
+      capsByOrdinal.set(ordinal, usableMaxVelocityMps * velocityRatio);
     }
-    return {
+    const candidate: JointCandidate = {
       radiiBySegmentIndex: [...base.radiiBySegmentIndex],
       capsByOrdinal,
     };
+    for (const coordinate of coordinates) {
+      candidate.radiiBySegmentIndex[coordinate.segmentIndex] =
+        coordinate.minRadiusMeters +
+        radiusRatio *
+          (coordinate.maxRadiusMeters - coordinate.minRadiusMeters);
+    }
+    return candidate;
   };
-  const moderate = uniform(0.65);
-  for (const coordinate of coordinates) {
-    moderate.radiiBySegmentIndex[coordinate.segmentIndex] =
-      coordinate.incomingLegMeters * 0.25;
-  }
-  return [base, uniform(0.8), uniform(0.5), moderate];
+  return [
+    base,
+    structured(0.2, 0.8),
+    structured(0.5, 0.55),
+    structured(0.8, 0.35),
+  ];
 }
 
 function jointBlockCandidates(
@@ -846,7 +862,6 @@ interface JointCandidate {
 interface JointCandidateEvaluation {
   candidate: JointCandidate;
   corners: AutoVelocityCorner[];
-  evaluation: VelocityCapEvaluation;
   cost: number;
   canonicalDistance: number;
   signature: string;
@@ -984,7 +999,6 @@ function createJointCandidateEvaluator(
       const result: JointCandidateEvaluation = {
         candidate: normalized,
         corners,
-        evaluation,
         cost:
           autoHandoffRadiusObjectiveCost({ corners, diagnostics }) +
           jointRadiusRobustnessCost(corners) +
@@ -1021,7 +1035,20 @@ export function solveJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): JointAutoConstraintSolveResult {
-  const problem = createJointSearchProblem(path, config, options);
+  return solveJointAutoConstraintsInternal(path, config, options, true);
+}
+
+function solveJointAutoConstraintsInternal(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+  allowGlobalRecovery: boolean,
+): JointAutoConstraintSolveResult {
+  // Generated values are outputs, not search seeds. Reconstruct the same
+  // geometric starting policy on every solve so a refresh cannot select a
+  // different basin merely because it contains an older generated answer.
+  const canonicalPath = seedHandoffRadii(path).path;
+  const problem = createJointSearchProblem(canonicalPath, config, options);
   const { setup, searchableCoordinates, canonicalRadii, canonicalCaps } =
     problem;
   const evaluationBudget = jointEvaluationBudget(searchableCoordinates.length);
@@ -1037,11 +1064,9 @@ export function solveJointAutoConstraints(
     setup.anchors.length,
     setup.usableMaxVelocityMps,
   );
-  let beam = starts
+  const startEvaluations = starts
     .map((candidate) => evaluator.evaluate(candidate))
-    .filter((candidate): candidate is JointCandidateEvaluation => !!candidate)
-    .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1))
-    .slice(0, jointSolverBeamWidth);
+    .filter((candidate): candidate is JointCandidateEvaluation => !!candidate);
 
   const sweeps = [
     {
@@ -1055,56 +1080,115 @@ export function solveJointAutoConstraints(
       velocityStepRatio: 0.075,
     },
   ];
-  for (const sweep of sweeps) {
-    for (const coordinate of sweep.coordinates) {
-      if (evaluator.budgetReached) {
-        break;
-      }
-      const candidates = jointBlockCandidates(
-        beam[0]!.candidate,
-        coordinate,
-        sweep.radiusStepRatio,
-        sweep.velocityStepRatio,
-        setup.simulationContext.pinnedCapsByOrdinal,
-        setup.usableMaxVelocityMps,
-      );
-      const pool = [...beam];
-      for (const incumbent of beam) {
-        const blockCandidates =
-          incumbent === beam[0]
-            ? candidates
-            : jointBlockCandidates(
-                incumbent.candidate,
-                coordinate,
-                sweep.radiusStepRatio,
-                sweep.velocityStepRatio,
-                setup.simulationContext.pinnedCapsByOrdinal,
-                setup.usableMaxVelocityMps,
-              );
-        for (const candidate of blockCandidates) {
-          const candidateEvaluation = evaluator.evaluate(candidate);
-          if (candidateEvaluation) {
-            pool.push(candidateEvaluation);
+  const runBasin = (
+    initial: JointCandidateEvaluation,
+    basinSweeps: readonly (typeof sweeps)[number][],
+  ): JointCandidateEvaluation => {
+    let incumbent = initial;
+    for (const sweep of basinSweeps) {
+      for (const coordinate of sweep.coordinates) {
+        if (evaluator.budgetReached) {
+          return incumbent;
+        }
+        for (const candidate of jointBlockCandidates(
+          incumbent.candidate,
+          coordinate,
+          sweep.radiusStepRatio,
+          sweep.velocityStepRatio,
+          setup.simulationContext.pinnedCapsByOrdinal,
+          setup.usableMaxVelocityMps,
+        )) {
+          const evaluation = evaluator.evaluate(candidate);
+          if (evaluation && isBetterJointCandidate(evaluation, incumbent)) {
+            incumbent = evaluation;
           }
         }
       }
-      const unique = new Map(
-        pool.map((candidate) => [candidate.signature, candidate]),
-      );
-      beam = [...unique.values()]
-        .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1))
-        .slice(0, jointSolverBeamWidth);
     }
-  }
-  return finalizeJointCandidates(
-    path,
+    return incumbent;
+  };
+
+  // Complete a broad forward/reverse search in every deterministic basin.
+  // Comparing basins only after those searches prevents an early coordinate
+  // from pruning a globally better region of the path-wide objective.
+  const completedBasins = startEvaluations
+    .map((start) => runBasin(start, sweeps))
+    .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1));
+  const refinementSweeps = [
+    {
+      coordinates: [...searchableCoordinates].reverse(),
+      radiusStepRatio: 0.025,
+      velocityStepRatio: 0.04,
+    },
+  ];
+  const refinedBasins = completedBasins
+    .slice(0, jointSolverRefinementBasins)
+    .map((basin) => runBasin(basin, refinementSweeps))
+    .sort((left, right) => (isBetterJointCandidate(left, right) ? -1 : 1));
+  const finalistMap = new Map(
+    [
+      ...refinedBasins,
+      ...completedBasins,
+      ...evaluator.rankedCandidates(8),
+    ].map((candidate) => [candidate.signature, candidate]),
+  );
+  // Exact validation is inexpensive relative to the search. Preserve one
+  // completed result from every basin so the fast objective cannot hide a
+  // runtime-valid policy behind a locally attractive but fragile one.
+  const finalCandidates = [...finalistMap.values()];
+
+  const interactiveResult = finalizeJointCandidates(
+    canonicalPath,
     config,
     options,
     problem,
-    beam,
+    finalCandidates,
     evaluator,
     "interactive",
   );
+  const shouldRecoverGlobally =
+    allowGlobalRecovery &&
+    interactiveResult.status === "best-effort" &&
+    interactiveResult.stats.objectiveCost >=
+      jointGlobalRecoveryObjectiveThreshold &&
+    setup.simulationContext.rotationKeyframes.length === 0 &&
+    searchableCoordinates.length > 0;
+  if (!shouldRecoverGlobally) {
+    return interactiveResult;
+  }
+
+  const globalResult = solveJointAutoConstraintsOracleInternal(
+    canonicalPath,
+    config,
+    options,
+    { maxEvaluations: Math.max(2_500, evaluationBudget) },
+    interactiveResult,
+  );
+  const winner =
+    globalResult.status === "valid" ||
+    (globalResult.status === interactiveResult.status &&
+      globalResult.stats.objectiveCost <
+        interactiveResult.stats.objectiveCost - jointObjectiveIndifference)
+      ? globalResult
+      : interactiveResult;
+  return {
+    ...winner,
+    stats: {
+      ...winner.stats,
+      algorithm: "interactive-global",
+      evaluations:
+        interactiveResult.stats.evaluations + globalResult.stats.evaluations,
+      evaluationBudget:
+        interactiveResult.stats.evaluationBudget +
+        globalResult.stats.evaluationBudget,
+      cacheHits:
+        interactiveResult.stats.cacheHits + globalResult.stats.cacheHits,
+      genericEvaluations:
+        interactiveResult.stats.genericEvaluations +
+        globalResult.stats.genericEvaluations,
+      terminationReason: "global-recovery",
+    },
+  };
 }
 
 type JointOracleVariable =
@@ -1122,7 +1206,6 @@ const jointOracleHaltonBases = [
 ] as const;
 
 function jointOracleRestartVectors(
-  productionVector: readonly number[],
   variables: readonly JointOracleVariable[],
 ): number[][] {
   const structured = [0.15, 0.35, 0.5, 0.65, 0.85].map((fraction) =>
@@ -1138,7 +1221,7 @@ function jointOracleRestartVectors(
       ),
     ),
   );
-  return [[...productionVector], ...structured, ...lowDiscrepancy];
+  return [...structured, ...lowDiscrepancy];
 }
 
 function radicalInverse(index: number, base: number): number {
@@ -1164,12 +1247,25 @@ export function solveJointAutoConstraintsOracle(
   options: AutoVelocityGenerationOptions = {},
   oracleOptions: JointAutoConstraintOracleOptions = {},
 ): JointAutoConstraintSolveResult {
-  const canonicalPath = seedHandoffRadii(path).path;
-  const canonicalProductionSeed = solveJointAutoConstraints(
-    canonicalPath,
+  return solveJointAutoConstraintsOracleInternal(
+    path,
     config,
     options,
+    oracleOptions,
   );
+}
+
+function solveJointAutoConstraintsOracleInternal(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+  oracleOptions: JointAutoConstraintOracleOptions,
+  suppliedProductionSeed?: JointAutoConstraintSolveResult,
+): JointAutoConstraintSolveResult {
+  const canonicalPath = seedHandoffRadii(path).path;
+  const canonicalProductionSeed =
+    suppliedProductionSeed ??
+    solveJointAutoConstraintsInternal(canonicalPath, config, options, false);
   const problem = createJointSearchProblem(canonicalPath, config, options);
   const variables = jointOracleVariables(problem);
   const evaluationBudget = Math.max(
@@ -1212,7 +1308,6 @@ export function solveJointAutoConstraintsOracle(
   }
 
   if (variables.length > 0 && evaluationBudget > 1) {
-    const seedVector = encodeJointOracleCandidate(best.candidate, variables);
     for (const fraction of [0.2, 0.5, 0.8]) {
       const broad = decodeJointOracleCandidate(
         variables.map((variable) =>
@@ -1255,7 +1350,7 @@ export function solveJointAutoConstraintsOracle(
     const expectedNormalLength =
       Math.sqrt(dimension) *
       (1 - 1 / (4 * dimension) + 1 / (21 * dimension * dimension));
-    const restartVectors = jointOracleRestartVectors(seedVector, variables);
+    const restartVectors = jointOracleRestartVectors(variables);
     const cmaBudget = Math.max(
       evaluator.evaluations,
       Math.floor(evaluationBudget * 0.78),
@@ -1276,7 +1371,7 @@ export function solveJointAutoConstraintsOracle(
         jointOracleRestartSeeds[restartIndex % jointOracleRestartSeeds.length]!,
       );
       let mean = restartVectors[restartIndex]!;
-      let sigma = restartIndex === 0 ? 0.2 : 0.34;
+      let sigma = restartIndex < 5 ? 0.28 : 0.34;
       let covariance = identityMatrix(dimension);
       let evolutionPath = Array<number>(dimension).fill(0);
       let sigmaPath = Array<number>(dimension).fill(0);
@@ -1303,7 +1398,7 @@ export function solveJointAutoConstraintsOracle(
         sigma > 0.002 &&
         generationsWithoutImprovement < 30
       ) {
-        const decomposition = symmetricEigenDecomposition(covariance);
+        const covarianceFactor = choleskyFactor(covariance);
         const population: Array<{
           vector: number[];
           evaluation: JointCandidateEvaluation;
@@ -1318,13 +1413,7 @@ export function solveJointAutoConstraintsOracle(
           const normal = Array.from({ length: dimension }, () =>
             random.normal(),
           );
-          const step = multiplyEigenBasis(
-            decomposition.vectors,
-            decomposition.values.map((value) =>
-              Math.sqrt(Math.max(value, 1e-12)),
-            ),
-            normal,
-          );
+          const step = multiplyLowerTriangular(covarianceFactor, normal);
           const vector = mean.map((value, index) =>
             reflectUnitInterval(value + sigma * (step[index] ?? 0)),
           );
@@ -1368,13 +1457,9 @@ export function solveJointAutoConstraintsOracle(
         const weightedStep = mean.map(
           (value, index) => (value - (oldMean[index] ?? 0)) / sigma,
         );
-        const inverseStep = multiplyEigenBasis(
-          decomposition.vectors,
-          decomposition.values.map(
-            (value) => 1 / Math.sqrt(Math.max(value, 1e-12)),
-          ),
+        const inverseStep = solveLowerTriangular(
+          covarianceFactor,
           weightedStep,
-          true,
         );
         const sigmaPathFactor = Math.sqrt(cs * (2 - cs) * effectiveParents);
         sigmaPath = sigmaPath.map(
@@ -1681,98 +1766,58 @@ function vectorLength(vector: readonly number[]): number {
   return Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
 }
 
-function symmetricEigenDecomposition(matrix: readonly number[][]): {
-  values: number[];
-  vectors: number[][];
-} {
+function choleskyFactor(matrix: readonly number[][]): number[][] {
   const size = matrix.length;
-  const values = matrix.map((row) => [...row]);
-  const vectors = identityMatrix(size);
-  for (
-    let iteration = 0;
-    iteration < Math.max(12, size * size * 8);
-    iteration += 1
-  ) {
-    let pivotRow = 0;
-    let pivotColumn = 0;
-    let largest = 0;
-    for (let row = 0; row < size; row += 1) {
-      for (let column = row + 1; column < size; column += 1) {
-        const magnitude = Math.abs(values[row]?.[column] ?? 0);
-        if (magnitude > largest) {
-          largest = magnitude;
-          pivotRow = row;
-          pivotColumn = column;
-        }
+  const factor = Array.from({ length: size }, () =>
+    Array<number>(size).fill(0),
+  );
+  for (let row = 0; row < size; row += 1) {
+    for (let column = 0; column <= row; column += 1) {
+      let value = matrix[row]?.[column] ?? 0;
+      // Covariance updates are mathematically symmetric. Average the stored
+      // pair to neutralize accumulated floating-point asymmetry.
+      value = (value + (matrix[column]?.[row] ?? value)) / 2;
+      for (let index = 0; index < column; index += 1) {
+        value -=
+          (factor[row]?.[index] ?? 0) * (factor[column]?.[index] ?? 0);
+      }
+      if (row === column) {
+        factor[row]![column] = Math.sqrt(Math.max(value, 1e-12));
+      } else {
+        factor[row]![column] =
+          value / Math.max(factor[column]?.[column] ?? 0, 1e-12);
       }
     }
-    if (largest < 1e-10) {
-      break;
-    }
-    const app = values[pivotRow]?.[pivotRow] ?? 0;
-    const aqq = values[pivotColumn]?.[pivotColumn] ?? 0;
-    const apq = values[pivotRow]?.[pivotColumn] ?? 0;
-    const angle = 0.5 * Math.atan2(2 * apq, aqq - app);
-    const cosine = Math.cos(angle);
-    const sine = Math.sin(angle);
-    for (let index = 0; index < size; index += 1) {
-      const vip = values[index]?.[pivotRow] ?? 0;
-      const viq = values[index]?.[pivotColumn] ?? 0;
-      values[index]![pivotRow] = cosine * vip - sine * viq;
-      values[index]![pivotColumn] = sine * vip + cosine * viq;
-    }
-    for (let index = 0; index < size; index += 1) {
-      const vpi = values[pivotRow]?.[index] ?? 0;
-      const vqi = values[pivotColumn]?.[index] ?? 0;
-      values[pivotRow]![index] = cosine * vpi - sine * vqi;
-      values[pivotColumn]![index] = sine * vpi + cosine * vqi;
-    }
-    for (let index = 0; index < size; index += 1) {
-      const vip = vectors[index]?.[pivotRow] ?? 0;
-      const viq = vectors[index]?.[pivotColumn] ?? 0;
-      vectors[index]![pivotRow] = cosine * vip - sine * viq;
-      vectors[index]![pivotColumn] = sine * vip + cosine * viq;
-    }
   }
-  return {
-    values: Array.from({ length: size }, (_, index) =>
-      Math.max(values[index]?.[index] ?? 0, 1e-12),
-    ),
-    vectors,
-  };
+  return factor;
 }
 
-function multiplyEigenBasis(
-  vectors: readonly number[][],
-  scales: readonly number[],
-  input: readonly number[],
-  inverseOrder = false,
+function multiplyLowerTriangular(
+  factor: readonly number[][],
+  vector: readonly number[],
 ): number[] {
-  const size = input.length;
-  if (inverseOrder) {
-    const projected = Array.from(
-      { length: size },
-      (_, column) =>
-        vectors.reduce(
-          (sum, row, rowIndex) =>
-            sum + (row[column] ?? 0) * (input[rowIndex] ?? 0),
-          0,
-        ) * (scales[column] ?? 0),
-    );
-    return Array.from({ length: size }, (_, row) =>
-      projected.reduce(
-        (sum, value, column) => sum + (vectors[row]?.[column] ?? 0) * value,
-        0,
-      ),
-    );
+  return factor.map((row, rowIndex) => {
+    let value = 0;
+    for (let column = 0; column <= rowIndex; column += 1) {
+      value += (row[column] ?? 0) * (vector[column] ?? 0);
+    }
+    return value;
+  });
+}
+
+function solveLowerTriangular(
+  factor: readonly number[][],
+  vector: readonly number[],
+): number[] {
+  const result = Array<number>(vector.length).fill(0);
+  for (let row = 0; row < vector.length; row += 1) {
+    let value = vector[row] ?? 0;
+    for (let column = 0; column < row; column += 1) {
+      value -= (factor[row]?.[column] ?? 0) * (result[column] ?? 0);
+    }
+    result[row] = value / Math.max(factor[row]?.[row] ?? 0, 1e-12);
   }
-  return Array.from({ length: size }, (_, row) =>
-    input.reduce(
-      (sum, value, column) =>
-        sum + (vectors[row]?.[column] ?? 0) * (scales[column] ?? 0) * value,
-      0,
-    ),
-  );
+  return result;
 }
 
 function createJointOracleRandom(seed: number): { normal(): number } {

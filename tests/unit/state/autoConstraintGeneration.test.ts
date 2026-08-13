@@ -28,7 +28,7 @@ describe("manual auto constraint generation", () => {
     expect(status.getState().lastRun).toMatchObject({
       status: "valid",
       stats: {
-        evaluationBudget: 68,
+        evaluationBudget: 164,
         searchableBlocks: 2,
       },
     });

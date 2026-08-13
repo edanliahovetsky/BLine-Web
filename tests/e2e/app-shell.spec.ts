@@ -2139,10 +2139,10 @@ test("warns when a large path receives a scaled optimizer budget", async ({
   );
   await controls.getByText("Optimizer settings", { exact: true }).click();
   await expect(controls.getByRole("note")).toContainText(
-    "Large path — optimization may take longer. Up to 484 candidate evaluations are expected.",
+    "Large path — optimization may take longer. Up to 1204 base candidate evaluations are expected; recovery search may add more.",
   );
   await expect(controls.getByTestId("auto-velocity-diagnostics")).toContainText(
-    "Up to 484 evaluations",
+    "Up to 1204 base evaluations",
   );
 });
 

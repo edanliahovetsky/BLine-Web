@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import {
   autoConstraintLargePathWarningBudget,
@@ -25,6 +26,17 @@ function pathOf(points: Array<[number, number]>): PathModel {
   });
 }
 
+function generatedRadii(path: PathModel): number[] {
+  return path.path_elements.flatMap((element) => {
+    if (element.type === "translation") {
+      return element.intermediate_handoff_radius_meters ?? [];
+    }
+    return element.type === "waypoint"
+      ? (element.translation_target.intermediate_handoff_radius_meters ?? [])
+      : [];
+  });
+}
+
 describe("solveJointAutoConstraints", () => {
   it("solves coupled handoff radii and adjacent velocity caps as one bounded policy", () => {
     const path = pathOf([
@@ -46,11 +58,11 @@ describe("solveJointAutoConstraints", () => {
     ).toBe(true);
     expect(result.profile.segmentCaps).toHaveLength(4);
     expect(result.stats.searchableBlocks).toBe(2);
-    expect(result.stats.evaluationBudget).toBe(68);
+    expect(result.stats.evaluationBudget).toBe(164);
     expect(result.stats.evaluations).toBeLessThanOrEqual(
       result.stats.evaluationBudget,
     );
-    expect(result.stats.genericEvaluations).toBe(4);
+    expect(result.stats.genericEvaluations).toBeGreaterThanOrEqual(8);
     expect(["converged", "evaluation-budget"]).toContain(
       result.stats.terminationReason,
     );
@@ -68,7 +80,7 @@ describe("solveJointAutoConstraints", () => {
     const plan = jointAutoConstraintSearchPlan(seeded, {});
 
     expect(plan.searchableBlocks).toBe(48);
-    expect(plan.evaluationBudget).toBe(1_540);
+    expect(plan.evaluationBudget).toBe(3_844);
     expect(plan.evaluationBudget).toBeGreaterThan(512);
   });
 
@@ -90,6 +102,78 @@ describe("solveJointAutoConstraints", () => {
       autoConstraintLargePathWarningBudget,
     );
   });
+
+  it("is independent of generated values from a previous solve", () => {
+    const corpus = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../fixtures/simulation/auto_joint_oracle_corpus.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { paths: Array<{ points: Array<[number, number]> }> };
+    const geometric = seedHandoffRadii(pathOf(corpus.paths[1]!.points)).path;
+    const first = solveJointAutoConstraints(geometric, {});
+    const refreshed = solveJointAutoConstraints(first.path, {});
+
+    expect(generatedRadii(refreshed.path)).toEqual(
+      generatedRadii(first.path),
+    );
+    expect(refreshed.profile.segmentCaps).toEqual(first.profile.segmentCaps);
+  }, 30_000);
+
+  it("keeps remote radii stable for a local Path 2 endpoint edit", () => {
+    const corpus = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../fixtures/simulation/auto_joint_oracle_corpus.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { paths: Array<{ points: Array<[number, number]> }> };
+    const points = corpus.paths[1]!.points;
+    const editedPoints = points.map(
+      ([x, y], index): [number, number] =>
+        index === points.length - 1 ? [x + 0.2, y] : [x, y],
+    );
+    const base = solveJointAutoConstraints(
+      seedHandoffRadii(pathOf(points)).path,
+      {},
+    );
+    const edited = solveJointAutoConstraints(
+      seedHandoffRadii(pathOf(editedPoints)).path,
+      {},
+    );
+
+    expect(generatedRadii(edited.path).slice(0, -2)).toEqual(
+      generatedRadii(base.path).slice(0, -2),
+    );
+  }, 30_000);
+
+  it("recovers the supplied complex path when local search is best-effort", () => {
+    const corpus = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../fixtures/simulation/auto_joint_oracle_corpus.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { paths: Array<{ points: Array<[number, number]> }> };
+    const result = solveJointAutoConstraints(
+      seedHandoffRadii(pathOf(corpus.paths[3]!.points)).path,
+      {},
+    );
+
+    expect(result.status).toBe("valid");
+    expect(result.stats.algorithm).toBe("interactive-global");
+    expect(result.stats.terminationReason).toBe("global-recovery");
+    expect(result.stats.evaluations).toBeLessThanOrEqual(
+      result.stats.evaluationBudget,
+    );
+  }, 30_000);
 
   it("keeps a straight-through anchor canonical instead of inventing a tiny corner", () => {
     const path = pathOf([
