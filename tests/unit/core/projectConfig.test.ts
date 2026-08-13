@@ -34,6 +34,10 @@ describe("project config", () => {
       config.kinematic_constraints
         .default_auto_velocity_acceleration_safety_factor,
     ).toBe(1);
+    expect(
+      config.kinematic_constraints
+        .default_auto_velocity_merge_tolerance_meters_per_sec,
+    ).toBe(0.3);
     expect(config.gui.field).toMatchObject({
       selected_field_id: defaultFieldId,
       custom_fields: [],
