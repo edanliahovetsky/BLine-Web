@@ -2100,7 +2100,7 @@ test("reads the optimizer settings row as a disclosure", async ({ page }) => {
   await expect(controls).toHaveAttribute("open", "");
   await expect(page.getByLabel("Velocity safety factor")).toBeVisible();
   await expect(controls.getByTestId("auto-velocity-diagnostics")).toContainText(
-    /Up to \d+ evaluations/,
+    /Up to \d+ projected evaluations/,
   );
   await expect(hint).toHaveCSS("opacity", "0");
   await expect.poll(rotation).toBe("90deg");
@@ -2148,10 +2148,10 @@ test("warns when a large path receives a scaled optimizer budget", async ({
   );
   await controls.getByText("Optimizer settings", { exact: true }).click();
   await expect(controls.getByRole("note")).toContainText(
-    "Large path — optimization may take longer. Up to 1204 base candidate evaluations are expected; recovery search may add more.",
+    "Large path — optimization may take longer. Up to 7348 candidate evaluations are expected.",
   );
   await expect(controls.getByTestId("auto-velocity-diagnostics")).toContainText(
-    "Up to 1204 base evaluations",
+    "Up to 7348 projected evaluations",
   );
 });
 
