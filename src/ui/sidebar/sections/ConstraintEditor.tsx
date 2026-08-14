@@ -29,6 +29,8 @@ import {
   type AutoVelocitySegmentCap,
 } from "../../../core/constraints/autoVelocityConstraints";
 import {
+  autoVelocityConstraintsByOrdinal,
+  autoVelocityConstraintsFromOrdinalMap,
   autoVelocitySettingsForPath,
   type AutoVelocitySettings,
 } from "../../../core/constraints/autoVelocityApply";
@@ -37,7 +39,10 @@ import {
   createSetHandoffRadiiCommand,
   type HandoffRadiusState,
 } from "../../../canvas/modelSync";
-import { domainForKey } from "../../../core/constraints/rangedConstraints";
+import {
+  domainForKey,
+  ordinalsForConstraint,
+} from "../../../core/constraints/rangedConstraints";
 import type { ProjectDocument } from "../../../core/io/projectSchema";
 import {
   constraintKeys,
@@ -3163,7 +3168,10 @@ function applyVelocityModes(
   }
 
   const total = domainLabelsForKey(project, autoVelocityKey).length;
-  const existing = ordinalConstraintMap(project, autoVelocityKey, total);
+  const existing = autoVelocityConstraintsByOrdinal(
+    project.path.ranged_constraints,
+    total,
+  );
   const ordinalsByEntry = entries.map((entry) => ({
     entry,
     ordinals: ordinalsForConstraint(entry.constraint, total),
@@ -3200,7 +3208,11 @@ function applyVelocityModes(
     }
     replaceVelocityConstraints(
       project,
-      constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
+      autoVelocityConstraintsFromOrdinalMap(
+        existing,
+        total,
+        settings.mergeToleranceMps,
+      ),
       "Set manual velocity",
     );
     if (onSelect) {
@@ -3222,7 +3234,11 @@ function applyVelocityModes(
   }
   replaceVelocityConstraints(
     project,
-    constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
+    autoVelocityConstraintsFromOrdinalMap(
+      existing,
+      total,
+      settings.mergeToleranceMps,
+    ),
     "Set auto velocity",
   );
   if (onSelect) {
@@ -3336,122 +3352,6 @@ function selectOrdinalAfterReplace(
   if (index >= 0) {
     onSelect(index);
   }
-}
-
-function ordinalConstraintMap(
-  project: ProjectDocument,
-  key: RangedConstraintKey,
-  total: number,
-): Map<number, RangedConstraint> {
-  const map = new Map<number, RangedConstraint>();
-
-  for (const constraint of project.path.ranged_constraints) {
-    if (constraint.key !== key) {
-      continue;
-    }
-
-    for (const ordinal of ordinalsForConstraint(constraint, total)) {
-      map.set(ordinal, {
-        ...constraint,
-        source:
-          constraint.source === "auto_velocity" ? "auto_velocity" : undefined,
-        auto_velocity:
-          constraint.source === "auto_velocity"
-            ? (constraint.auto_velocity ?? null)
-            : null,
-        start_ordinal: ordinal,
-        end_ordinal: ordinal,
-      });
-    }
-  }
-
-  return map;
-}
-
-function constraintsFromOrdinalMap(
-  map: ReadonlyMap<number, RangedConstraint>,
-  total: number,
-  autoMergeToleranceMps = 0,
-): RangedConstraint[] {
-  const constraints: RangedConstraint[] = [];
-
-  for (let ordinal = 1; ordinal <= total; ordinal += 1) {
-    const constraint = map.get(ordinal);
-    if (!constraint) {
-      continue;
-    }
-
-    const last = constraints.at(-1);
-    if (
-      last &&
-      canMergeOrdinalConstraint(
-        last,
-        constraint,
-        ordinal,
-        autoMergeToleranceMps,
-      )
-    ) {
-      last.value = mergedOrdinalConstraintValue(last, constraint);
-      last.end_ordinal = ordinal;
-      continue;
-    }
-
-    constraints.push({
-      ...constraint,
-      start_ordinal: ordinal,
-      end_ordinal: ordinal,
-    });
-  }
-
-  return constraints;
-}
-
-function canMergeOrdinalConstraint(
-  previous: RangedConstraint,
-  next: RangedConstraint,
-  nextOrdinal: number,
-  autoMergeToleranceMps: number,
-): boolean {
-  const valuesMatch =
-    previous.source === "auto_velocity" &&
-    next.source === "auto_velocity" &&
-    previous.key === autoVelocityKey
-      ? Math.abs(previous.value - next.value) <= autoMergeToleranceMps
-      : previous.value === next.value;
-
-  return (
-    previous.end_ordinal === nextOrdinal - 1 &&
-    previous.key === next.key &&
-    valuesMatch &&
-    previous.source === next.source &&
-    sameAutoVelocityMetadata(previous.auto_velocity, next.auto_velocity)
-  );
-}
-
-function mergedOrdinalConstraintValue(
-  previous: RangedConstraint,
-  next: RangedConstraint,
-): number {
-  return previous.source === "auto_velocity" && next.source === "auto_velocity"
-    ? Math.min(previous.value, next.value)
-    : previous.value;
-}
-
-function ordinalsForConstraint(
-  constraint: RangedConstraint,
-  total: number,
-): number[] {
-  const start = clampOrdinal(constraint.start_ordinal, total);
-  const end = clampOrdinal(constraint.end_ordinal, total);
-  const ordinals: number[] = [];
-  for (
-    let ordinal = Math.min(start, end);
-    ordinal <= Math.max(start, end);
-    ordinal += 1
-  ) {
-    ordinals.push(ordinal);
-  }
-  return ordinals;
 }
 
 function autoVelocityOptionsFromSettings(settings: AutoVelocitySettings) {

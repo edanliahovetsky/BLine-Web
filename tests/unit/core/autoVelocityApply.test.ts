@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  autoVelocityConstraintsByOrdinal,
+  autoVelocityConstraintsFromOrdinalMap,
   autoVelocityRefreshRequest,
   autoVelocitySettingsForPath,
   refreshAutoVelocityConstraints,
@@ -9,6 +11,7 @@ import {
   createTranslationTarget,
   setHandoffRadiusSource,
   type PathModel,
+  type RangedConstraint,
 } from "../../../src/core/model/path";
 
 const config = {
@@ -36,6 +39,61 @@ describe("refreshAutoVelocityConstraints", () => {
     }
     // Without the stamp the caps would read as stale the instant they landed.
     expect(autoVelocityRefreshRequest(generated, config)?.stale).toBe(false);
+  });
+});
+
+describe("auto velocity ordinal constraints", () => {
+  it("restores sparse manual and generated ranges in path order", () => {
+    const metadata = {
+      velocity_safety_factor: 0.9,
+      acceleration_safety_factor: 0.8,
+      merge_tolerance_meters_per_sec: 0.2,
+      input_signature: "same-inputs",
+    };
+    const constraints: RangedConstraint[] = [
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2.3,
+        start_ordinal: 5,
+        end_ordinal: 4,
+        source: "auto_velocity",
+        auto_velocity: metadata,
+      },
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 3,
+        start_ordinal: 1,
+        end_ordinal: 2,
+      },
+      {
+        key: "max_acceleration_meters_per_sec2",
+        value: 4,
+        start_ordinal: 3,
+        end_ordinal: 3,
+      },
+    ];
+
+    const byOrdinal = autoVelocityConstraintsByOrdinal(constraints, 5);
+    byOrdinal.set(5, { ...byOrdinal.get(5)!, value: 2.4 });
+
+    expect(autoVelocityConstraintsFromOrdinalMap(byOrdinal, 5, 0.2)).toEqual([
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 3,
+        start_ordinal: 1,
+        end_ordinal: 2,
+        source: undefined,
+        auto_velocity: null,
+      },
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 2.3,
+        start_ordinal: 4,
+        end_ordinal: 5,
+        source: "auto_velocity",
+        auto_velocity: metadata,
+      },
+    ]);
   });
 });
 
