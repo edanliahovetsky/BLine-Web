@@ -1730,7 +1730,7 @@ mod tests {
                         "intermediate_handoff_radius_meters": 0.15000000000000002
                     },
                     "rotation_target": {
-                        "rotation_radians": 3.141592653589793,
+                        "rotation_radians": std::f64::consts::PI,
                         "profiled_rotation": true
                     }
                 },
