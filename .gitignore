@@ -6,6 +6,7 @@ test-results/
 playwright-report/
 .vite/
 .ci/
+.omc/
 
 # Tauri / Rust
 src-tauri/target/
