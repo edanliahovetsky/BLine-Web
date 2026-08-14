@@ -10,7 +10,10 @@ import { defineConfig, devices } from "@playwright/test";
 const checkoutDir = path.dirname(fileURLToPath(import.meta.url));
 const derivedPort =
   24200 +
-  (parseInt(createHash("sha256").update(checkoutDir).digest("hex").slice(0, 8), 16) %
+  (parseInt(
+    createHash("sha256").update(checkoutDir).digest("hex").slice(0, 8),
+    16,
+  ) %
     600);
 const port = Number(process.env.PLAYWRIGHT_PORT ?? derivedPort);
 const baseURL = `http://127.0.0.1:${port}`;

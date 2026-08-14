@@ -1500,16 +1500,11 @@ function solveCompactJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions,
 ): JointAutoConstraintSolveResult {
-  const broad = solveJointAutoConstraintsOracleInternal(
-    path,
-    config,
-    options,
-    {
-      maxEvaluations: 4_096,
-      restartIndices: [2],
-      cmaBudgetFraction: 0.3,
-    },
-  );
+  const broad = solveJointAutoConstraintsOracleInternal(path, config, options, {
+    maxEvaluations: 4_096,
+    restartIndices: [2],
+    cmaBudgetFraction: 0.3,
+  });
   const alternateBudget = 2_688;
   const alternate = solveJointAutoConstraintsOracleInternal(
     path,

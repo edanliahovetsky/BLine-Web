@@ -1135,7 +1135,10 @@ function RangedConstraintCard({
       ) : null}
 
       {isAutoVelocityCard && autoStatus ? (
-        <AutoVelocityWorkloadWarning project={project} settings={autoSettings} />
+        <AutoVelocityWorkloadWarning
+          project={project}
+          settings={autoSettings}
+        />
       ) : null}
 
       <ConstraintSegmentBar
@@ -1645,7 +1648,10 @@ function PopoutConstraintPanel({
       </div>
 
       {isAutoVelocityPanel && autoStatus ? (
-        <AutoVelocityWorkloadWarning project={project} settings={autoSettings} />
+        <AutoVelocityWorkloadWarning
+          project={project}
+          settings={autoSettings}
+        />
       ) : null}
 
       <ConstraintSegmentBar

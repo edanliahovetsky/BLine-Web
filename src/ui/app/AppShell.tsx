@@ -725,9 +725,8 @@ export function AppShell() {
   }, []);
 
   const [resolvingConflict, setResolvingConflict] = useState(false);
-  const [conflictDiff, setConflictDiff] = useState<WorkspaceConflictDiff | null>(
-    null,
-  );
+  const [conflictDiff, setConflictDiff] =
+    useState<WorkspaceConflictDiff | null>(null);
   const [conflictDiffLoading, setConflictDiffLoading] = useState(false);
 
   useEffect(() => {
@@ -1480,9 +1479,7 @@ export function AppShell() {
             createUpdateProjectConfigCommand(activeProject.config, nextConfig),
           );
       }
-      autoVelocityStore
-        .getState()
-        .setAutoSyncEnabled(options.autoSyncEnabled);
+      autoVelocityStore.getState().setAutoSyncEnabled(options.autoSyncEnabled);
       setShowConfigDialog(false);
     },
     [],
@@ -2755,14 +2752,17 @@ function SaveConflictDiffSummary({
   if (!diff.hasChanges) {
     return (
       <p className="save-conflict-diff save-conflict-diff--muted">
-        The files were touched but the contents match your version. Either option
-        is safe.
+        The files were touched but the contents match your version. Either
+        option is safe.
       </p>
     );
   }
 
   const rows: { label: string; items: string[] }[] = [
-    { label: "Only in your version (will be added on disk)", items: diff.addedPaths },
+    {
+      label: "Only in your version (will be added on disk)",
+      items: diff.addedPaths,
+    },
     {
       label: "Only on disk (will be removed if you overwrite)",
       items: diff.removedPaths,

@@ -101,7 +101,6 @@ describe("manual auto constraint generation", () => {
     expect(projects.getState().history.getState().undoStack).toHaveLength(0);
     expect(status.getState().phase).toBe("idle");
   });
-
 });
 
 function testProject() {

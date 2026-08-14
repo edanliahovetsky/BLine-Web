@@ -2027,9 +2027,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
   await expect(dialog.getByLabel("Acceleration safety factor")).toHaveValue(
     "1",
   );
-  await expect(dialog.getByLabel("Merge difference (m/s)")).toHaveValue(
-    "0.3",
-  );
+  await expect(dialog.getByLabel("Merge difference (m/s)")).toHaveValue("0.3");
 
   await dialog.getByLabel("Keep in sync").uncheck();
   await dialog.getByRole("button", { name: "Save" }).click();

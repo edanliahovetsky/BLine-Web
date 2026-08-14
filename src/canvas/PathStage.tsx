@@ -1214,9 +1214,7 @@ export function PathStage({
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
       const handoffRingHit =
-        canvasHandoffRadiusEditingEnabled &&
-        project &&
-        !canvasInteractionActive
+        canvasHandoffRadiusEditingEnabled && project && !canvasInteractionActive
           ? hitTestHandoffRing(handoffRings, viewport, pointer)
           : null;
       const overlayHit =

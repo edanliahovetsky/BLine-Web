@@ -27,8 +27,7 @@ describe("project config", () => {
       config.kinematic_constraints.default_intermediate_handoff_radius_meters,
     ).toBe(0.45);
     expect(
-      config.kinematic_constraints
-        .default_auto_velocity_velocity_safety_factor,
+      config.kinematic_constraints.default_auto_velocity_velocity_safety_factor,
     ).toBe(1);
     expect(
       config.kinematic_constraints

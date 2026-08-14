@@ -217,8 +217,7 @@ function autoVelocityMetadataMatchesSettings(
 ): boolean {
   return (
     metadata?.velocity_safety_factor === settings.velocitySafetyFactor &&
-    metadata.acceleration_safety_factor ===
-      settings.accelerationSafetyFactor &&
+    metadata.acceleration_safety_factor === settings.accelerationSafetyFactor &&
     (metadata.merge_tolerance_meters_per_sec ??
       defaultAutoVelocityMergeToleranceMetersPerSec) ===
       settings.mergeToleranceMps
@@ -285,20 +284,17 @@ function autoVelocitySettings(config: SimulationConfig): AutoVelocitySettings {
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_velocity_safety_factor",
-      ) ??
-      defaultAutoVelocityVelocitySafetyFactor,
+      ) ?? defaultAutoVelocityVelocitySafetyFactor,
     accelerationSafetyFactor:
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_acceleration_safety_factor",
-      ) ??
-      defaultAutoVelocityAccelerationSafetyFactor,
+      ) ?? defaultAutoVelocityAccelerationSafetyFactor,
     mergeToleranceMps:
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_merge_tolerance_meters_per_sec",
-      ) ??
-      defaultAutoVelocityMergeToleranceMetersPerSec,
+      ) ?? defaultAutoVelocityMergeToleranceMetersPerSec,
   };
 }
 

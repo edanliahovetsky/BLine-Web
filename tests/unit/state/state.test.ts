@@ -691,7 +691,8 @@ describe("workspace conflict diff", () => {
         ...exampleWorkspace("project-a", "Alpha", 1),
         // Edit Alpha's contents so it counts as "changed".
         paths: exampleWorkspace("project-a", "Alpha", 3).paths,
-        active_path_id: exampleWorkspace("project-a", "Alpha", 3).active_path_id,
+        active_path_id: exampleWorkspace("project-a", "Alpha", 3)
+          .active_path_id,
       },
       { display_name: "Gamma", file_name: "gamma.json", makeActive: false },
     );
@@ -716,7 +717,9 @@ describe("isStorageConflict", () => {
       isStorageConflict("storage-conflict: workspace version mismatch"),
     ).toBe(true);
     expect(
-      isStorageConflict(new Error("storage-conflict: project version mismatch")),
+      isStorageConflict(
+        new Error("storage-conflict: project version mismatch"),
+      ),
     ).toBe(true);
   });
 

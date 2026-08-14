@@ -10,10 +10,7 @@ import {
   supersededAutoVelocityProfile,
 } from "../core/constraints/autoVelocityRunner";
 import type { ProjectDocument } from "../core/io/projectSchema";
-import {
-  autoVelocityStore,
-  type AutoVelocityStore,
-} from "./autoVelocityStore";
+import { autoVelocityStore, type AutoVelocityStore } from "./autoVelocityStore";
 import { projectStore, type ProjectStore } from "./projectStore";
 
 export interface ManualAutoConstraintGenerationOptions {
@@ -43,11 +40,7 @@ export async function generateAutoConstraintsInWorker(
   status.getState().setPhase("running", "manual");
 
   try {
-    const run = await request(
-      initial.path,
-      initial.config,
-      settings,
-    );
+    const run = await request(initial.path, initial.config, settings);
     if (run === supersededAutoVelocityProfile) {
       return;
     }
