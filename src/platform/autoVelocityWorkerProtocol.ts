@@ -1,12 +1,12 @@
-import type { PathModel } from "../model/path";
-import type { SimulationConfig } from "../sim/types";
-import type { AutoVelocitySettings } from "./autoVelocityApply";
-import type { AutoHandoffRadiusAssignment } from "./autoConstraintGeneration";
+import type { PathModel } from "../core/model/path";
+import type { SimulationConfig } from "../core/sim/types";
+import type { AutoVelocitySettings } from "../core/constraints/autoVelocityApply";
+import type { AutoHandoffRadiusAssignment } from "../core/constraints/autoConstraintGeneration";
 import type {
   AutoVelocityProfile,
   JointAutoConstraintSolveStats,
   JointAutoConstraintSolveStatus,
-} from "./autoVelocityConstraints";
+} from "../core/constraints/autoVelocityConstraints";
 
 export interface AutoVelocityWorkerRequest {
   kind: "generate-radii-and-caps";

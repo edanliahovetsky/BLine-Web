@@ -39,4 +39,33 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["src/core/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        "window",
+        "document",
+        "Worker",
+        "self",
+        "navigator",
+        "localStorage",
+        "sessionStorage",
+      ],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: ["react", "react-dom", "lucide-react", "pixi.js", "zustand"],
+          patterns: [
+            "react/*",
+            "react-dom/*",
+            "@tauri-apps/*",
+            "lucide-react/*",
+            "pixi.js/*",
+            "zustand/*",
+          ],
+        },
+      ],
+    },
+  },
 );

@@ -8,7 +8,7 @@ import { autoVelocityInputSignature } from "../core/constraints/autoVelocityCons
 import {
   requestAutoRadiiAndCaps,
   supersededAutoVelocityProfile,
-} from "../core/constraints/autoVelocityRunner";
+} from "../platform/autoVelocityRunner";
 import type { ProjectDocument } from "../core/io/projectSchema";
 import { autoVelocityStore, type AutoVelocityStore } from "./autoVelocityStore";
 import { projectStore, type ProjectStore } from "./projectStore";

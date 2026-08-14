@@ -4,6 +4,10 @@ Shell detection, capability resolution, and high-level project IO services live
 here. UI code should consume `projectIo` capabilities/actions instead of
 branching directly on browser, Tauri, or shell-specific storage details.
 
+The auto-constraint worker runner and worker entry live here because Worker
+lifecycle, browser scheduling, and main-thread fallback are platform concerns;
+the optimizer itself remains framework-free under `core`.
+
 Project-level import/export should go through the service as either the expanded
 BLine autos folder (`config.json`, `paths/*.json`, and editor state under
 `.bline-web/`) or the secondary project archive format. Single path and config

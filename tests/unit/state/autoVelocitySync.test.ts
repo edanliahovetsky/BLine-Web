@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import { refreshAutoVelocityConstraints } from "../../../src/core/constraints/autoVelocityApply";
-import { resetAutoVelocityRunner } from "../../../src/core/constraints/autoVelocityRunner";
+import { resetAutoVelocityRunner } from "../../../src/platform/autoVelocityRunner";
 import {
   createProjectDocument,
   type ProjectDocument,

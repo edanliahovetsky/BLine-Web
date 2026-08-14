@@ -12,7 +12,7 @@ import {
   requestAutoRadiiAndCaps,
   resetAutoVelocityRunner,
   supersededAutoVelocityProfile,
-} from "../../../src/core/constraints/autoVelocityRunner";
+} from "../../../src/platform/autoVelocityRunner";
 import { simulatePathWithTrace } from "../../../src/core/sim";
 import {
   createPathModel,

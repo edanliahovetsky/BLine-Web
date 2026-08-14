@@ -12,7 +12,7 @@ import {
   requestAutoRadiiAndCaps,
   resetAutoVelocityRunner,
   supersededAutoVelocityProfile,
-} from "../../../src/core/constraints/autoVelocityRunner";
+} from "../../../src/platform/autoVelocityRunner";
 import { createProjectDocument } from "../../../src/core/io/projectSchema";
 import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {

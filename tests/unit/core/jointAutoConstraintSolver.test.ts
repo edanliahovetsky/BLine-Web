@@ -13,7 +13,7 @@ import {
   requestAutoRadiiAndCaps,
   resetAutoVelocityRunner,
   supersededAutoVelocityProfile,
-} from "../../../src/core/constraints/autoVelocityRunner";
+} from "../../../src/platform/autoVelocityRunner";
 import {
   jointAutoConstraintSearchPlan,
   preferredNearStraightHandoffRadiusMeters,
