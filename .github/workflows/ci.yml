@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - web-deploy
+      - ui-overhaul-housekeeping
       - "codex/**"
 
 jobs:
