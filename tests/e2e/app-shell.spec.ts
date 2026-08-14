@@ -4175,6 +4175,68 @@ test("selects Max Velocity segments with the keyboard", async ({ page }) => {
   await expect(page.getByLabel("Constraint 1 value")).toBeEnabled();
 });
 
+test("filters and runs command palette actions from the keyboard", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await page.keyboard.press("F1");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  const search = palette.getByRole("searchbox", {
+    name: "Search commands and paths",
+  });
+  const selectTool = palette.getByRole("option", { name: /^Select tool/ });
+  const waypointTool = palette.getByRole("option", {
+    name: /^Waypoint tool/,
+  });
+
+  await expect(palette).toBeVisible();
+  await expect(search).toBeFocused();
+  await search.fill("tool");
+  await expect(selectTool).toHaveAttribute("aria-selected", "true");
+  await expect(waypointTool).toBeVisible();
+  await expect(
+    palette.getByRole("option", { name: /^Toggle inspector/ }),
+  ).toHaveCount(0);
+
+  await page.keyboard.press("ArrowDown");
+  await expect(waypointTool).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Enter");
+
+  await expect(palette).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Waypoint tool" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("keeps disabled palette actions inert and restores focus on Escape", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const trigger = page.getByRole("button", {
+    name: "Search commands and paths",
+  });
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+  await trigger.focus();
+  await page.keyboard.press(`${shortcut}+K`);
+
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  const search = palette.getByRole("searchbox", {
+    name: "Search commands and paths",
+  });
+  await search.fill("undo");
+  const undo = palette.getByRole("option", { name: /^Undo/ });
+  await expect(undo).toBeDisabled();
+
+  await page.keyboard.press("Enter");
+  await expect(palette).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
 test("supports common keyboard shortcuts", async ({ page }) => {
   await gotoSampleEditor(page);
 
