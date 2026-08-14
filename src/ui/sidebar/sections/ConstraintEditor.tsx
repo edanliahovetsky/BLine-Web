@@ -2033,7 +2033,7 @@ function ConstraintSegmentBar({
               </div>
             );
           })
-        : labels.map((label, ordinalIndex) => {
+        : labels.map((_label, ordinalIndex) => {
             const ordinal = ordinalIndex + 1;
             const entry = displayedEntries.find(({ constraint }) =>
               ordinalInRange(ordinal, constraint),
@@ -2362,7 +2362,7 @@ function BulkRangedConstraintControls(
               }
               onChange={(value) => {
                 if (value !== null) {
-                  updateRangedConstraintValues(project, entries, value);
+                  updateRangedConstraintValues(entries, value);
                 }
               }}
             />
@@ -2379,12 +2379,7 @@ function BulkRangedConstraintControls(
           aria-label={`Delete ${entries.length} ${meta.label} segments`}
           title="Delete selected segments"
           onClick={() => {
-            removeRangedConstraints(
-              project,
-              constraintKey,
-              allEntries,
-              entries,
-            );
+            removeRangedConstraints(constraintKey, allEntries, entries);
             onClearSelection();
           }}
         >
@@ -2584,7 +2579,7 @@ function RangedConstraintControls({
         <SidebarActionButton
           onClick={() => {
             if (entry) {
-              splitRangedConstraint(project, entry.index);
+              splitRangedConstraint(entry.index);
             }
           }}
           disabled={
@@ -3016,7 +3011,7 @@ function deleteRangedConstraint(project: ProjectDocument, index: number): void {
   }
 }
 
-function splitRangedConstraint(project: ProjectDocument, index: number): void {
+function splitRangedConstraint(index: number): void {
   projectStore
     .getState()
     .applyCommand(createSplitRangedConstraintCommand(index));
@@ -3251,7 +3246,6 @@ function applyVelocityModes(
 }
 
 function updateRangedConstraintValues(
-  project: ProjectDocument,
   entries: readonly RangedEntry[],
   value: number,
 ): void {
@@ -3278,7 +3272,6 @@ function updateRangedConstraintValues(
 }
 
 function removeRangedConstraints(
-  project: ProjectDocument,
   key: RangedConstraintKey,
   allEntries: readonly RangedEntry[],
   selectedEntries: readonly RangedEntry[],
