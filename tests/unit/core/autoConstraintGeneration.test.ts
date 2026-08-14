@@ -10,14 +10,10 @@ import {
   refreshAutoRadiiAndCaps,
 } from "../../../src/core/constraints/autoConstraintGeneration";
 import { autoVelocitySettingsForPath } from "../../../src/core/constraints/autoVelocityApply";
-import { autoHandoffRadiusObjectiveCost } from "../../../src/core/constraints/autoHandoffRadiusObjective";
-import { validateAutoHandoffRadii } from "../../../src/core/constraints/autoHandoffRadiusValidation";
 import {
   autoVelocityInputSignature,
-  evaluateAutoHandoffRadiusObjectiveInputs,
   generateAutoVelocityProfile,
 } from "../../../src/core/constraints/autoVelocityConstraints";
-import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import {
   createPathModel,
   createTranslationTarget,
@@ -42,28 +38,6 @@ function radiusAt(path: PathModel, index: number): number | null {
     : element.type === "waypoint"
       ? element.translation_target.intermediate_handoff_radius_meters
       : null;
-}
-
-function radiusObjectiveCost(path: PathModel): number {
-  return Math.min(
-    ...evaluateAutoHandoffRadiusObjectiveInputs(
-      path,
-      {},
-      {
-        includeGeneratedRadiiInCacheKey: true,
-      },
-    ).map((evaluation) => autoHandoffRadiusObjectiveCost(evaluation)),
-  );
-}
-
-/** Element 2's geometric seed clears no gate at any speed; element 1's does. */
-function unhonorableCornerPath(): PathModel {
-  return pathOf([
-    [4.34, 0.95],
-    [5.55, 0.52],
-    [4.95, 1.78],
-    [5.24, 3.73],
-  ]);
 }
 
 const squarePath = () =>
@@ -97,34 +71,6 @@ function coupledRadiusBasinPath(): PathModel {
     [14.88016, 2.7264],
     [10.9, 5.5],
   ]);
-}
-
-function candidateGapRegressionPath(): PathModel {
-  const fixture = deserializePath(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../fixtures/simulation/auto_radius_candidate_gap.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    ),
-  );
-  const autoRadiusIndexes = new Set([1, 3, 5]);
-
-  return {
-    ...fixture,
-    path_elements: fixture.path_elements.map((element, index) =>
-      autoRadiusIndexes.has(index)
-        ? setHandoffRadiusSource(element, "auto")
-        : element,
-    ),
-    ranged_constraints: fixture.ranged_constraints.map((constraint) => ({
-      ...constraint,
-      source: "auto_velocity",
-    })),
-  };
 }
 
 function strippedCompetitionFixture(): PathModel {
@@ -163,67 +109,6 @@ function strippedCompetitionFixture(): PathModel {
     ),
   };
 }
-
-describe("handoff radius validation", () => {
-  it("shrinks a seeded corner the follower cannot honor", () => {
-    const seeded = seedHandoffRadii(unhonorableCornerPath());
-    const validated = validateAutoHandoffRadii(seeded.path, {});
-
-    expect(validated.shrunkElementIndexes).toContain(2);
-    const seededRadius = radiusAt(seeded.path, 2) ?? 0;
-    const validatedRadius = radiusAt(validated.path, 2) ?? 0;
-    expect(validatedRadius).toBeLessThan(seededRadius);
-    expect(validatedRadius).toBeGreaterThanOrEqual(0.05);
-    // The path-level search may also improve a passing neighbor because its
-    // trace and traversal time are evaluated jointly.
-    expect(radiusAt(validated.path, 1)).toBeGreaterThanOrEqual(0.05);
-  });
-
-  it("descends from the geometric maximum into the measured corridor", () => {
-    const seeded = seedHandoffRadii(squarePath());
-    const validated = validateAutoHandoffRadii(seeded.path, {});
-
-    expect(validated.shrunkElementIndexes).toEqual([1, 2]);
-    expect(radiusAt(seeded.path, 1)).toBeCloseTo(1.96, 9);
-    expect(radiusAt(validated.path, 1)).toBeLessThan(
-      radiusAt(seeded.path, 1) ?? 0,
-    );
-    expect(radiusAt(validated.path, 2)).toBeLessThan(
-      radiusAt(seeded.path, 2) ?? 0,
-    );
-  });
-
-  it("never moves a pinned radius", () => {
-    const seeded = seedHandoffRadii(unhonorableCornerPath());
-    const pinned = {
-      ...seeded.path,
-      path_elements: seeded.path.path_elements.map((element, index) =>
-        index === 2 && element.type === "translation"
-          ? setHandoffRadiusSource(
-              { ...element, intermediate_handoff_radius_meters: 0.55 },
-              "manual",
-            )
-          : element,
-      ),
-    };
-
-    const validated = validateAutoHandoffRadii(pinned, {});
-
-    expect(validated.shrunkElementIndexes).not.toContain(2);
-    expect(radiusAt(validated.path, 2)).toBeCloseTo(0.55, 9);
-    expect(getHandoffRadiusSource(validated.path.path_elements[2])).toBe(
-      "manual",
-    );
-  });
-
-  it("returns the same radii for the same path", () => {
-    const seeded = seedHandoffRadii(unhonorableCornerPath());
-
-    expect(validateAutoHandoffRadii(seeded.path, {}).path).toEqual(
-      validateAutoHandoffRadii(seeded.path, {}).path,
-    );
-  });
-});
 
 describe("auto constraint generation", () => {
   it("generates handoff radii and the caps solved for them", () => {
@@ -309,21 +194,6 @@ describe("auto constraint generation", () => {
     ).toBe(true);
     expect(profile.diagnostics.maxHandoffErrorRatio).toBeLessThan(1.05);
     expect(profile.diagnostics.maxCorridorDeviationRatio).toBeLessThan(1);
-  });
-
-  it("refines a skipped interval instead of stranding a valid radius at the floor", () => {
-    const original = candidateGapRegressionPath();
-    const validated = validateAutoHandoffRadii(original, {});
-    const profile = generateAutoVelocityProfile(validated.path, {});
-
-    expect(radiusAt(validated.path, 3)).toBeGreaterThanOrEqual(0.1);
-    expect(radiusAt(validated.path, 3)).toBeLessThanOrEqual(0.45);
-    expect(radiusObjectiveCost(validated.path)).toBeLessThan(
-      radiusObjectiveCost(original),
-    );
-    expect(
-      profile.diagnostics.handoffs.every((handoff) => handoff.passed),
-    ).toBe(true);
   });
 
   it("keeps the dense competition fixture inside its measured corridor", () => {

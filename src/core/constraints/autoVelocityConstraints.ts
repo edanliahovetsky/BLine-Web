@@ -34,10 +34,7 @@ import {
   autoVelocityObjectiveCost,
   autoVelocityTieBreakCost,
 } from "./autoVelocityObjective";
-import {
-  autoHandoffRadiusObjectiveCost,
-  type AutoHandoffRadiusObjectiveInput,
-} from "./autoHandoffRadiusObjective";
+import { autoHandoffRadiusObjectiveCost } from "./autoHandoffRadiusObjective";
 import type {
   ChassisSpeeds,
   RotationDomainEvent,
@@ -309,7 +306,6 @@ const fastSimulationPassToleranceRatio = 0.97;
 const globalVelocitySeedRatios: readonly number[] = [
   0.9, 0.8, 0.65, 0.5, 0.35, 0.25, 0.18, 0.12, 0.08,
 ];
-const radiusObjectiveVelocityRatios: readonly number[] = [0.8, 0.5, 0.25];
 const jointSolverStartCandidates = 4;
 const jointSolverMovesPerBlock = 8;
 const jointSolverSweepCount = 2;
@@ -2643,49 +2639,6 @@ function createAutoVelocitySolveSetup(
     usableMaxAccelerationMps2:
       baseMaxAcceleration * settings.accelerationSafetyFactor,
   };
-}
-
-/**
- * Lightweight whole-path traces for radius selection. A full velocity solve
- * for every radius candidate is prohibitively expensive; these representative
- * uniform caps preserve the important geometry/speed interaction, after which
- * the winning radius path receives one full cap solve.
- */
-export function evaluateAutoHandoffRadiusObjectiveInputs(
-  path: PathModel,
-  config: SimulationConfig,
-  options: AutoVelocityGenerationOptions = {},
-): AutoHandoffRadiusObjectiveInput[] {
-  const setup = createAutoVelocitySolveSetup(path, config, options);
-  if (setup.corners.length === 0) {
-    return [];
-  }
-
-  const minCap = minimumSolverCap(setup.usableMaxVelocityMps);
-  return radiusObjectiveVelocityRatios.map((ratio) => {
-    const capValue = clamp(
-      setup.usableMaxVelocityMps * ratio,
-      minCap,
-      setup.usableMaxVelocityMps,
-    );
-    const capsByOrdinal = new Map<number, number>();
-    for (let ordinal = 2; ordinal <= setup.anchors.length; ordinal += 1) {
-      capsByOrdinal.set(ordinal, capValue);
-    }
-    const evaluation = evaluateVelocityCaps(
-      setup.simulationContext,
-      setup.segments,
-      setup.corners,
-      capsByOrdinal,
-      setup.usableMaxVelocityMps,
-      setup.usableMaxAccelerationMps2,
-    );
-
-    return {
-      corners: setup.corners,
-      diagnostics: diagnosticsFromEvaluation(evaluation),
-    };
-  });
 }
 
 /**
