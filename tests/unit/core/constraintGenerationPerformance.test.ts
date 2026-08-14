@@ -1,11 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  applyGeneratedAutoRadii,
   autoHandoffRadiusElementIndexes,
   autoRadiiCapSolveInput,
-  generateAutoRadiiAndCaps,
-  refreshAutoRadiiAndCaps,
 } from "../../../src/core/constraints/autoConstraintGeneration";
-import { autoVelocitySettingsForPath } from "../../../src/core/constraints/autoVelocityApply";
+import {
+  autoVelocitySettingsForPath,
+  refreshAutoVelocityConstraints,
+} from "../../../src/core/constraints/autoVelocityApply";
+import {
+  requestAutoRadiiAndCaps,
+  resetAutoVelocityRunner,
+  supersededAutoVelocityProfile,
+} from "../../../src/core/constraints/autoVelocityRunner";
 import { simulatePathWithTrace } from "../../../src/core/sim";
 import {
   createPathModel,
@@ -21,6 +28,8 @@ const generationBudgetMs = process.env.CI ? 1_000 : 500;
 const typicalPathBudgetMs = process.env.CI ? 1_000 : 250;
 const enforceWallClockBudget =
   process.env.BLINE_ENFORCE_CONSTRAINT_PERFORMANCE === "1";
+
+afterEach(() => resetAutoVelocityRunner());
 
 function densePath(anchorCount: number): PathModel {
   const elements = [];
@@ -91,18 +100,15 @@ describe("constraint generation performance", () => {
       ["translation-only", translationOnlyPath(16)],
       ["rotation-heavy", densePath(16)],
     ] as const) {
+      const settings = autoVelocitySettingsForPath(path, {});
       const startedAt = performance.now();
-      const generated = generateAutoRadiiAndCaps(path, {});
+      const solved = autoRadiiCapSolveInput(path, {}, settings);
       const elapsedMs = performance.now() - startedAt;
 
       expect(
-        autoHandoffRadiusElementIndexes(generated.path_elements).length,
+        autoHandoffRadiusElementIndexes(solved.path.path_elements).length,
       ).toBeGreaterThanOrEqual(14);
-      expect(
-        generated.ranged_constraints.some(
-          (constraint) => constraint.source === "auto_velocity",
-        ),
-      ).toBe(true);
+      expect(solved.profile.segmentCaps.length).toBeGreaterThan(0);
 
       console.info(
         `generate (seed + validate + caps), 16 anchors, ${label}: ${elapsedMs.toFixed(0)} ms`,
@@ -113,37 +119,44 @@ describe("constraint generation performance", () => {
     }
   });
 
-  it("re-simulates a generated 16-anchor path fast enough for live preview", () => {
-    const generated = generateAutoRadiiAndCaps(densePath(16), {});
+  it("applies and re-simulates a live generated policy within budget", async () => {
+    const path = densePath(16);
+    const settings = autoVelocitySettingsForPath(path, {});
+    const run = await requestAutoRadiiAndCaps(path, {}, settings);
+    if (run === supersededAutoVelocityProfile) {
+      throw new Error("Expected the live generation request to complete");
+    }
 
-    const startedAt = performance.now();
+    const applyStartedAt = performance.now();
+    const generated = refreshAutoVelocityConstraints(
+      applyGeneratedAutoRadii(path, run.radii),
+      {},
+      { whenPresentOnly: false, settings },
+    );
+    const applyElapsedMs = performance.now() - applyStartedAt;
+
+    expect(
+      generated.ranged_constraints.some(
+        (constraint) => constraint.source === "auto_velocity",
+      ),
+    ).toBe(true);
+    console.info(
+      `apply live worker result from primed cache: ${applyElapsedMs.toFixed(1)} ms`,
+    );
+    if (enforceWallClockBudget) {
+      expect(applyElapsedMs).toBeLessThan(generationBudgetMs);
+    }
+
+    const simulationStartedAt = performance.now();
     const result = simulatePathWithTrace(generated, {}, { dt_s: 0.02 });
-    const elapsedMs = performance.now() - startedAt;
+    const simulationElapsedMs = performance.now() - simulationStartedAt;
 
     expect(result.total_time_s).toBeGreaterThan(0);
     console.info(
-      `single trace simulation, 16 anchors: ${elapsedMs.toFixed(1)} ms`,
+      `single trace simulation, 16 anchors: ${simulationElapsedMs.toFixed(1)} ms`,
     );
     // The canvas re-simulates whenever the path changes; this must stay far
     // below a 60 Hz frame budget even on CI.
-    expect(elapsedMs).toBeLessThan(250);
-  });
-
-  it("refreshes an already generated 16-anchor path from cache", () => {
-    const generated = generateAutoRadiiAndCaps(densePath(16), {});
-
-    const startedAt = performance.now();
-    const refreshed = refreshAutoRadiiAndCaps(generated, {});
-    const elapsedMs = performance.now() - startedAt;
-
-    // The background sync re-runs the pipeline on its own output, so the
-    // cached solve has to be the cheap path.
-    expect(refreshed).toEqual(generated);
-    console.info(
-      `refresh (cached caps), 16 anchors, rotation-heavy: ${elapsedMs.toFixed(0)} ms`,
-    );
-    if (enforceWallClockBudget) {
-      expect(elapsedMs).toBeLessThan(generationBudgetMs);
-    }
+    expect(simulationElapsedMs).toBeLessThan(250);
   });
 });

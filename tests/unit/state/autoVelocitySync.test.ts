@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateAutoRadiiAndCaps } from "../../../src/core/constraints/autoConstraintGeneration";
+import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import { refreshAutoVelocityConstraints } from "../../../src/core/constraints/autoVelocityApply";
 import { resetAutoVelocityRunner } from "../../../src/core/constraints/autoVelocityRunner";
 import {
@@ -357,19 +357,23 @@ function generatedRadiiWorkspace(): ProjectWorkspaceDocument {
   const project = createProjectDocument({
     project_id: "sync-radii-project",
     display_name: "Sync Radii",
-    path: createPathModel({
-      path_elements: [
-        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
-        createTranslationTarget({ x_meters: 1, y_meters: 0 }),
-        createTranslationTarget({ x_meters: 1.6, y_meters: 0.8 }),
-        createTranslationTarget({ x_meters: 3, y_meters: 0.8 }),
-      ],
-    }),
+    path: seedHandoffRadii(
+      createPathModel({
+        path_elements: [
+          createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+          createTranslationTarget({ x_meters: 1, y_meters: 0 }),
+          createTranslationTarget({ x_meters: 1.6, y_meters: 0.8 }),
+          createTranslationTarget({ x_meters: 3, y_meters: 0.8 }),
+        ],
+      }),
+    ).path,
   });
 
   return projectDocumentToWorkspaceDocument({
     ...project,
-    path: generateAutoRadiiAndCaps(project.path, project.config),
+    path: refreshAutoVelocityConstraints(project.path, project.config, {
+      whenPresentOnly: false,
+    }),
   });
 }
 

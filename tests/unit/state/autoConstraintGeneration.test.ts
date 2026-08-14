@@ -1,12 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { autoRadiiCapSolveInput } from "../../../src/core/constraints/autoConstraintGeneration";
-import { autoVelocitySettingsForPath } from "../../../src/core/constraints/autoVelocityApply";
-import { resetAutoVelocityRunner } from "../../../src/core/constraints/autoVelocityRunner";
+import {
+  autoVelocityGenerationOptions,
+  autoVelocitySettingsForPath,
+} from "../../../src/core/constraints/autoVelocityApply";
+import {
+  generateAutoVelocityProfile,
+  type AutoVelocityProfile,
+} from "../../../src/core/constraints/autoVelocityConstraints";
+import {
+  requestAutoRadiiAndCaps,
+  resetAutoVelocityRunner,
+  supersededAutoVelocityProfile,
+} from "../../../src/core/constraints/autoVelocityRunner";
 import { createProjectDocument } from "../../../src/core/io/projectSchema";
 import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   createPathModel,
   createTranslationTarget,
+  createWaypoint,
+  getHandoffRadiusSource,
 } from "../../../src/core/model/path";
 import { generateAutoConstraintsInWorker } from "../../../src/state/autoConstraintGeneration";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
@@ -15,13 +28,27 @@ import { createProjectStore } from "../../../src/state/projectStore";
 afterEach(() => resetAutoVelocityRunner());
 
 describe("manual auto constraint generation", () => {
-  it("applies a worker result as one undoable command and records diagnostics", async () => {
+  it("applies the cached worker result as one undoable command and records diagnostics", async () => {
     const project = testProject();
     const projects = projectStoreFor(project);
     const status = createAutoVelocityStore();
     const settings = autoVelocitySettingsForPath(project.path, project.config);
+    let workerProfile: AutoVelocityProfile | null = null;
+    const request = async (
+      ...args: Parameters<typeof requestAutoRadiiAndCaps>
+    ) => {
+      const run = await requestAutoRadiiAndCaps(...args);
+      if (run !== supersededAutoVelocityProfile) {
+        workerProfile = run.profile;
+      }
+      return run;
+    };
 
-    await generateAutoConstraintsInWorker(settings, { projects, status });
+    await generateAutoConstraintsInWorker(settings, {
+      projects,
+      request,
+      status,
+    });
 
     expect(status.getState().phase).toBe("idle");
     expect(status.getState().runSource).toBeNull();
@@ -29,7 +56,7 @@ describe("manual auto constraint generation", () => {
       status: "valid",
       stats: {
         evaluationBudget: 8_000,
-        searchableBlocks: 2,
+        searchableBlocks: 1,
       },
     });
     expect(
@@ -39,6 +66,26 @@ describe("manual auto constraint generation", () => {
           (constraint) => constraint.source === "auto_velocity",
         ),
     ).toBe(true);
+    const generatedPath = projects.getState().project?.path;
+    expect(generatedPath).toBeDefined();
+    expect(getHandoffRadiusSource(generatedPath!.path_elements[1])).toBe(
+      "auto",
+    );
+    expect(generatedPath!.path_elements[2]).toMatchObject({
+      translation_target: {
+        intermediate_handoff_radius_meters: 0.2,
+      },
+    });
+    expect(getHandoffRadiusSource(generatedPath!.path_elements[2])).toBeNull();
+    // The runner primes this exact solve for the cap-application step; a cache
+    // miss would replace it with a newly computed profile object.
+    expect(
+      generateAutoVelocityProfile(
+        generatedPath!,
+        project.config,
+        autoVelocityGenerationOptions(settings),
+      ),
+    ).toBe(workerProfile);
     expect(projects.getState().history.getState().undoStack).toHaveLength(1);
 
     projects.getState().undo();
@@ -111,7 +158,13 @@ function testProject() {
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
         createTranslationTarget({ x_meters: 1, y_meters: 0 }),
-        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 1,
+            y_meters: 1,
+            intermediate_handoff_radius_meters: 0.2,
+          }),
+        }),
         createTranslationTarget({ x_meters: 2, y_meters: 1 }),
       ],
     }),

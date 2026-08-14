@@ -5,12 +5,10 @@ import {
 import {
   applyAutoVelocityConstraintsToOrdinals,
   refreshAutoVelocityConstraints,
-  type AutoVelocitySettings,
 } from "../../core/constraints/autoVelocityApply";
 import {
   canGenerateAutoConstraints,
   clearGeneratedAutoConstraints,
-  generateAutoRadiiAndCaps,
   hasGeneratedAutoConstraints,
 } from "../../core/constraints/autoConstraintGeneration";
 import {
@@ -166,19 +164,6 @@ export function canClearGeneratedConstraints(
   project: ProjectDocument | null,
 ): boolean {
   return project !== null && hasGeneratedAutoConstraints(project.path);
-}
-
-/**
- * One undoable step covering the whole optimizer: seed the handoff radii nobody
- * pinned, trim the ones the follower cannot honor, then solve velocity caps for
- * the geometry that came out. Pinned radii and pinned cap segments stay put.
- */
-export function createGenerateConstraintsCommand(
-  settings?: AutoVelocitySettings,
-): HistoryCommand<ProjectDocument> {
-  return pathCommand("Generate constraints", (project) =>
-    generateAutoRadiiAndCaps(project.path, project.config, { settings }),
-  );
 }
 
 /**
