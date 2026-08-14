@@ -677,6 +677,205 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
 });
 
+test("creates every path element type from the inspector menu", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewProject(page);
+
+  const addElement = page.getByRole("button", { name: "Add element" });
+  await addElement.click();
+  let menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Waypoint",
+    "Translation",
+  ]);
+  await menu.getByRole("menuitem", { name: "Translation" }).click();
+  await expect(page.getByLabel("X (m)")).toHaveValue("9.52");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("4.89");
+
+  await addElement.click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("0");
+  await expect(page.getByLabel("X (m)")).toHaveValue("10.27");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("5.24");
+
+  await addElement.click();
+  menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Waypoint",
+    "Translation",
+    "Rotation",
+    "Event Trigger",
+  ]);
+  await menu.getByRole("menuitem", { name: "Rotation" }).click();
+  await expect(page.getByLabel("Rotation Pos (0-1)")).toHaveValue("0.5");
+
+  await addElement.click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  await expectPathElementTypes(page, [
+    "Translation",
+    "Rotation",
+    "Event Trigger",
+    "Waypoint",
+  ]);
+  await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.5");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+});
+
+test("places every path element type with the canvas tools", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewProject(page);
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const canvasBox = await requiredBox(canvas);
+  const tools = page.getByRole("complementary", { name: "Canvas tools" });
+  const waypointTool = tools.getByRole("button", {
+    name: "Waypoint tool",
+    exact: true,
+  });
+  const translationTool = tools.getByRole("button", {
+    name: "Translation tool",
+    exact: true,
+  });
+  const rotationTool = tools.getByRole("button", {
+    name: "Rotation tool",
+    exact: true,
+  });
+  const eventTool = tools.getByRole("button", {
+    name: "Event tool",
+    exact: true,
+  });
+  await expect(rotationTool).toBeDisabled();
+  await expect(eventTool).toBeDisabled();
+
+  const waypointPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 3,
+    y_meters: 3,
+  });
+  await waypointTool.click();
+  await page.mouse.click(waypointPoint.x, waypointPoint.y);
+  await expect(page.getByLabel("X (m)")).toHaveValue("3");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("3");
+
+  const translationPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 9,
+    y_meters: 3,
+  });
+  await translationTool.click();
+  await page.mouse.click(translationPoint.x, translationPoint.y);
+  await expect(page.getByLabel("X (m)")).toHaveValue("9");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("3");
+  await expect(rotationTool).toBeEnabled();
+  await expect(eventTool).toBeEnabled();
+
+  const rotationPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 6,
+    y_meters: 3,
+  });
+  await rotationTool.click();
+  await page.mouse.click(rotationPoint.x, rotationPoint.y);
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("0");
+  await expect(page.getByLabel("Rotation Pos (0-1)")).toHaveValue("0.5");
+
+  const eventPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 7.5,
+    y_meters: 3,
+  });
+  await eventTool.click();
+  await page.mouse.click(eventPoint.x, eventPoint.y);
+  await expectPathElementTypes(page, [
+    "Waypoint",
+    "Rotation",
+    "Event Trigger",
+    "Translation",
+  ]);
+  await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.75");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+});
+
+test("draws curves at the requested insertion point and cancels safely", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const canvasBox = await requiredBox(canvas);
+  const addCurve = page.getByRole("button", { name: "Add curve" });
+  const curveTool = page.getByRole("button", { name: "Curve tool" });
+  const selectTool = page.getByRole("button", { name: "Select tool" });
+  const cancelledStart = modelToCanvasPoint(canvasBox, {
+    x_meters: 6.1,
+    y_meters: 3.3,
+  });
+
+  await page.getByTestId("path-element-row-0").click();
+  await addCurve.click();
+  await expect(addCurve).toBeDisabled();
+  await page.mouse.move(cancelledStart.x, cancelledStart.y);
+  await page.mouse.down();
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    6,
+  );
+  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+
+  const insertedEnd = modelToCanvasPoint(canvasBox, {
+    x_meters: 6.6,
+    y_meters: 3.6,
+  });
+  await addCurve.click();
+  await page.mouse.move(cancelledStart.x, cancelledStart.y);
+  await page.mouse.down();
+  await page.mouse.move(insertedEnd.x, insertedEnd.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    8,
+  );
+  await expect(page.getByTestId("path-element-row-1")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByLabel("X (m)")).toHaveValue("6.1");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("3.3");
+
+  const appendedStart = modelToCanvasPoint(canvasBox, {
+    x_meters: 12,
+    y_meters: 4,
+  });
+  const appendedEnd = modelToCanvasPoint(canvasBox, {
+    x_meters: 14,
+    y_meters: 6,
+  });
+  await curveTool.click();
+  await page.mouse.move(appendedStart.x, appendedStart.y);
+  await page.mouse.down();
+  await page.mouse.move(appendedEnd.x, appendedEnd.y, { steps: 8 });
+  await page.mouse.up();
+  await expectPathElementTypes(page, [
+    "Waypoint",
+    "Translation",
+    "Translation",
+    "Translation",
+    "Rotation",
+    "Translation",
+    "Event Trigger",
+    "Waypoint",
+    "Translation",
+    "Translation",
+  ]);
+  await expect(page.getByTestId("path-element-row-8")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByLabel("X (m)")).toHaveValue("12");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("4");
+  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+});
+
 test("adds edits and removes path elements from the inspector", async ({
   page,
 }) => {
@@ -5010,6 +5209,17 @@ function modelToCanvasPoint(box: Bounds, point: PointMeters) {
       viewportY +
       (fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters) * scale,
   };
+}
+
+async function expectPathElementTypes(
+  page: Page,
+  expectedTypes: readonly string[],
+): Promise<void> {
+  const rows = page.locator('[data-testid^="path-element-row-"]');
+  await expect(rows).toHaveCount(expectedTypes.length);
+  for (const [index, type] of expectedTypes.entries()) {
+    await expect(rows.nth(index)).toContainText(`${index + 1}. ${type}`);
+  }
 }
 
 async function waitForSavedProject(page: Page): Promise<void> {
