@@ -785,10 +785,6 @@ select {
   cursor: pointer;
 }
 
-.path-stage__canvas.is-handoff-radius-target canvas {
-  cursor: ew-resize;
-}
-
 .path-stage__ghost-label {
   position: absolute;
   z-index: 7;
