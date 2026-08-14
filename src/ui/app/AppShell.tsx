@@ -897,6 +897,28 @@ export function AppShell() {
         return;
       }
 
+      if (
+        hasActiveBlockingSurface({
+          openTopMenu,
+          showCommandPalette,
+          showConfigDialog,
+          showDeletePathDialog,
+          showDeleteProjectDialog,
+          showLinkedTargetsDialog,
+          showMobileSupportWarning,
+          showNameEntryDialog: pathNameAction !== null,
+          showNewPathDialog,
+          showNewProjectDialog,
+          showOpenPanel,
+          showPathGroupsDialog,
+          showSaveConflict: status === "conflict",
+          showShortcutHelp,
+          showTourPicker,
+        })
+      ) {
+        return;
+      }
+
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
 
@@ -960,20 +982,6 @@ export function AppShell() {
       }
 
       if (
-        hasActiveBlockingSurface({
-          openTopMenu,
-          showCommandPalette,
-          showConfigDialog,
-          showNewProjectDialog,
-          showNewPathDialog,
-          showDeletePathDialog,
-          showDeleteProjectDialog,
-          showShortcutHelp,
-          showPathGroupsDialog,
-          showLinkedTargetsDialog,
-          showMobileSupportWarning,
-          showOpenPanel,
-        }) ||
         isEditableShortcutTarget(event.target) ||
         (isInteractiveShortcutTarget(event.target) &&
           !isPathElementShortcutTarget(event.target) &&
@@ -1077,6 +1085,9 @@ export function AppShell() {
     showMobileSupportWarning,
     showOpenPanel,
     showNewPathDialog,
+    pathNameAction,
+    showTourPicker,
+    status,
   ]);
 
   const beginToolbarAction = useCallback(
@@ -4932,42 +4943,51 @@ function hasActiveBlockingSurface({
   openTopMenu,
   showCommandPalette,
   showConfigDialog,
-  showNewProjectDialog,
-  showNewPathDialog,
   showDeletePathDialog,
   showDeleteProjectDialog,
-  showPathGroupsDialog,
   showLinkedTargetsDialog,
   showMobileSupportWarning,
+  showNameEntryDialog,
+  showNewPathDialog,
+  showNewProjectDialog,
   showOpenPanel,
+  showPathGroupsDialog,
+  showSaveConflict,
   showShortcutHelp,
+  showTourPicker,
 }: {
   openTopMenu: TopMenuId | null;
   showCommandPalette: boolean;
   showConfigDialog: boolean;
-  showNewProjectDialog: boolean;
-  showNewPathDialog: boolean;
   showDeletePathDialog: boolean;
   showDeleteProjectDialog: boolean;
-  showPathGroupsDialog: boolean;
   showLinkedTargetsDialog: boolean;
   showMobileSupportWarning: boolean;
+  showNameEntryDialog: boolean;
+  showNewPathDialog: boolean;
+  showNewProjectDialog: boolean;
   showOpenPanel: boolean;
+  showPathGroupsDialog: boolean;
+  showSaveConflict: boolean;
   showShortcutHelp: boolean;
+  showTourPicker: boolean;
 }): boolean {
   return Boolean(
     openTopMenu ||
     showCommandPalette ||
     showConfigDialog ||
-    showNewProjectDialog ||
-    showNewPathDialog ||
     showDeletePathDialog ||
     showDeleteProjectDialog ||
-    showPathGroupsDialog ||
     showLinkedTargetsDialog ||
     showMobileSupportWarning ||
+    showNameEntryDialog ||
+    showNewPathDialog ||
+    showNewProjectDialog ||
     showOpenPanel ||
-    showShortcutHelp,
+    showPathGroupsDialog ||
+    showSaveConflict ||
+    showShortcutHelp ||
+    showTourPicker,
   );
 }
 

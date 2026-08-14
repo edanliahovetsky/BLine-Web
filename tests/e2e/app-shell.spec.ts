@@ -4217,6 +4217,148 @@ test("supports common keyboard shortcuts", async ({ page }) => {
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 });
 
+test("keeps global shortcuts behind the path name dialog", async ({ page }) => {
+  await gotoSampleEditor(page);
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Save Path As" });
+  const input = dialog.getByRole("textbox", { name: "Path name" });
+  await expect(input).toBeFocused();
+
+  await expectGlobalShortcutsBlockedByDialog(page, dialog, input);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
+
+test("keeps global shortcuts behind the linked element picker", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const pathMenu = await openPathMenu(page);
+  await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
+  const linkedElementsDialog = page.getByRole("dialog", {
+    name: "Linked Elements",
+  });
+  await linkedElementsDialog
+    .getByRole("button", { name: "New Translation" })
+    .click();
+  await linkedElementsDialog
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved", {
+    timeout: 5_000,
+  });
+
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByRole("button", { name: "Link element" }).click();
+  await page
+    .getByRole("group", { name: "Linked element actions" })
+    .getByRole("button", { name: /Choose Existing/ })
+    .click();
+
+  const picker = page.getByRole("dialog", { name: "Choose Linked Element" });
+  const closePicker = picker.getByRole("button", {
+    name: "Close linked elements",
+  });
+  await closePicker.focus();
+
+  await expectGlobalShortcutsBlockedByDialog(page, picker, closePicker);
+});
+
+test("keeps global shortcuts behind the save conflict dialog", async ({
+  page,
+}) => {
+  await waitForSavedProject(page);
+  await bumpStoredWorkspaceVersion(page);
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByLabel("X (m)").fill("7.25");
+
+  const dialog = page.getByTestId("save-conflict-dialog");
+  const overwrite = dialog.getByRole("button", { name: "Keep my changes" });
+  await expect(dialog).toBeVisible();
+  await expect(overwrite).toBeFocused();
+
+  await expectGlobalShortcutsBlockedByDialog(page, dialog, overwrite);
+  await expect(page.getByTestId("save-status")).toHaveAttribute(
+    "title",
+    /Project changed on disk/,
+  );
+});
+
+test("keeps global shortcuts behind the guided tour picker", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+
+  const picker = page.getByTestId("tour-picker");
+  const firstTour = page.getByTestId("tour-picker-editor-basics");
+  await firstTour.focus();
+
+  await expectGlobalShortcutsBlockedByDialog(page, picker, firstTour);
+
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+});
+
+async function expectGlobalShortcutsBlockedByDialog(
+  page: Page,
+  dialog: Locator,
+  focusTarget: Locator,
+): Promise<void> {
+  await expect(dialog).toBeVisible();
+  await expect(focusTarget).toBeFocused();
+
+  const inspectorToggle = page.getByRole("button", {
+    name: "Toggle inspector",
+  });
+  const inspectorExpanded = await inspectorToggle.getAttribute("aria-expanded");
+  const useMetaKey = process.platform === "darwin";
+  const results = await page.evaluate(
+    ({ metaKey }) => {
+      const target = document.activeElement;
+      if (!(target instanceof HTMLElement)) {
+        throw new Error("Expected the blocking surface to own focus");
+      }
+
+      return ["b", "s", "k", "F1"].map((key) => {
+        const event = new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: key === "F1" ? false : !metaKey,
+          key,
+          metaKey: key === "F1" ? false : metaKey,
+        });
+        target.dispatchEvent(event);
+        return { defaultPrevented: event.defaultPrevented, key };
+      });
+    },
+    { metaKey: useMetaKey },
+  );
+
+  expect(results).toEqual([
+    { defaultPrevented: false, key: "b" },
+    { defaultPrevented: false, key: "s" },
+    { defaultPrevented: false, key: "k" },
+    { defaultPrevented: false, key: "F1" },
+  ]);
+  await expect(inspectorToggle).toHaveAttribute(
+    "aria-expanded",
+    inspectorExpanded ?? "false",
+  );
+  await expect(
+    page.getByRole("dialog", { name: "Command palette" }),
+  ).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(focusTarget).toBeFocused();
+}
+
 async function gotoSampleEditor(page: Page): Promise<void> {
   await page.goto("/");
 
