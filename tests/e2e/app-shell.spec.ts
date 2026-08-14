@@ -792,13 +792,10 @@ test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
 
   await createPathGroupFromTopMenu(page, "Score Autos");
 
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept("Ghost Copy");
-  });
   await page.getByRole("button", { name: "Path", exact: true }).click();
   await page.getByRole("menuitem", { name: "Manage Paths" }).click();
   await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+  await submitNameDialog(page, "Save Path As", "Ghost Copy", "Save Copy");
 
   await addPathToGroupFromLibrary(page, "Score Autos", "Ghost Copy");
 
@@ -879,11 +876,8 @@ test("manages paths from the canonical path library", async ({ page }) => {
     dialog.locator(".path-library-dialog__path-actions"),
   ).toHaveCount(0);
 
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept("Library Branch");
-  });
   await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await submitNameDialog(page, "Save Path As", "Library Branch", "Save Copy");
   await expect(
     dialog.locator(".path-library-dialog__path").filter({
       hasText: "Library Branch",
@@ -928,6 +922,173 @@ test("manages paths from the canonical path library", async ({ page }) => {
   await expect(page.getByTestId("path-library-dock")).toHaveCount(0);
 });
 
+test("uses focused name dialogs for every path and collection launch point", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const pathMenuButton = page.getByRole("button", {
+    name: "Path",
+    exact: true,
+  });
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+  let nameDialog = page.getByRole("dialog", { name: "Save Path As" });
+  let nameInput = nameDialog.getByRole("textbox", { name: "Path name" });
+  const closeNameDialog = nameDialog.getByRole("button", {
+    name: "Close save path as",
+  });
+  const saveCopyButton = nameDialog.getByRole("button", {
+    name: "Save Copy",
+    exact: true,
+  });
+
+  await expect(nameDialog).toHaveAttribute("aria-modal", "true");
+  await expect(nameInput).toBeFocused();
+  await expect(nameInput).toHaveValue("Phase 1 Canvas Draft");
+  const initialName = await nameInput.inputValue();
+  expect(
+    await nameInput.evaluate((input) => ({
+      end: (input as HTMLInputElement).selectionEnd,
+      start: (input as HTMLInputElement).selectionStart,
+    })),
+  ).toEqual({ end: initialName.length, start: 0 });
+
+  await closeNameDialog.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(saveCopyButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeNameDialog).toBeFocused();
+
+  await nameInput.fill("   ");
+  await expect(saveCopyButton).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(nameDialog).toHaveCount(0);
+  await expect(pathMenuButton).toBeFocused();
+  await expect(page.getByLabel("Toolbar path")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+  await submitNameDialog(page, "Save Path As", "  Menu Copy  ", "Save Copy");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Copy");
+  await expect(pathMenuButton).toBeFocused();
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Rename Path..." }).click();
+  nameDialog = page.getByRole("dialog", { name: "Rename Path" });
+  await expect(nameDialog.getByLabel("Path name")).toHaveValue("Menu Copy");
+  await submitNameDialog(page, "Rename Path", "  Menu Renamed  ", "Rename");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Renamed");
+  await expect(pathMenuButton).toBeFocused();
+
+  await runEditMenuAction(page, "Undo");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Copy");
+  await runEditMenuAction(page, "Redo");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Renamed");
+
+  const navigatorButton = page.getByRole("button", {
+    name: "Open project navigator",
+    exact: true,
+  });
+  const library = await openPathLibraryDialog(page);
+  await library.getByRole("button", { name: "Create collection" }).click();
+  await page.getByTestId("path-collection-new-name").fill("Library Autos");
+  await page.getByTestId("create-path-collection").click();
+
+  const renameCollectionButton = library.getByRole("button", {
+    name: "Rename collection",
+  });
+  await renameCollectionButton.click();
+  nameDialog = page.getByRole("dialog", { name: "Rename Collection" });
+  await expect(nameDialog.getByLabel("Collection name")).toHaveValue(
+    "Library Autos",
+  );
+  await submitNameDialog(
+    page,
+    "Rename Collection",
+    "  Renamed Autos  ",
+    "Rename",
+  );
+  await expect(library).toBeVisible();
+  await expect(renameCollectionButton).toBeFocused();
+  await expect(
+    library
+      .locator(".path-library-dialog__group")
+      .filter({ hasText: "Renamed Autos" }),
+  ).toBeVisible();
+
+  const pathHeaderActions = library.locator(
+    ".path-library-dialog__paths .path-library-dialog__header-actions",
+  );
+  const savePathAsButton = pathHeaderActions.getByRole("button", {
+    name: "Save path as",
+  });
+  await savePathAsButton.click();
+  nameDialog = page.getByRole("dialog", { name: "Save Path As" });
+  await expect(nameDialog.getByLabel("Path name")).toHaveValue("Menu Renamed");
+  await submitNameDialog(page, "Save Path As", "  Library Copy  ", "Save Copy");
+  await expect(library).toBeVisible();
+  await expect(savePathAsButton).toBeFocused();
+  await expect(
+    library
+      .locator(".path-library-dialog__group")
+      .filter({ hasText: "Renamed Autos" }),
+  ).toContainText("2 paths");
+
+  const renamePathButton = pathHeaderActions.getByRole("button", {
+    name: "Rename path",
+  });
+  await renamePathButton.click();
+  nameDialog = page.getByRole("dialog", { name: "Rename Path" });
+  await expect(nameDialog.getByLabel("Path name")).toHaveValue("Library Copy");
+  await submitNameDialog(
+    page,
+    "Rename Path",
+    "  Library Button Renamed  ",
+    "Rename",
+  );
+  await expect(renamePathButton).toBeFocused();
+
+  let selectedPath = library
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Library Button Renamed" });
+  await expect(selectedPath).toBeVisible();
+  await selectedPath.focus();
+  await page.keyboard.press("F2");
+  nameDialog = page.getByRole("dialog", { name: "Rename Path" });
+  nameInput = nameDialog.getByLabel("Path name");
+  await expect(nameInput).toBeFocused();
+  await expect(nameInput).toHaveValue("Library Button Renamed");
+  await page.keyboard.press("Escape");
+  await expect(nameDialog).toHaveCount(0);
+  await expect(selectedPath).toBeFocused();
+
+  await page.keyboard.press("F2");
+  await submitNameDialog(
+    page,
+    "Rename Path",
+    "  Library F2 Renamed  ",
+    "Rename",
+  );
+  selectedPath = library
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Library F2 Renamed" });
+  await expect(selectedPath).toBeVisible();
+  await expect(selectedPath).toBeFocused();
+  await expect(
+    library
+      .locator(".path-library-dialog__path")
+      .filter({ hasText: "Menu Renamed" }),
+  ).toBeVisible();
+
+  await library.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(library).toHaveCount(0);
+  await expect(navigatorButton).toBeFocused();
+});
+
 test("supports undo and redo for path library content edits", async ({
   page,
 }) => {
@@ -961,11 +1122,8 @@ test("supports undo and redo for path library content edits", async ({
 
   await allPathsGroup.click();
   await phasePath.click();
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept("Undo Copy");
-  });
   await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await submitNameDialog(page, "Save Path As", "Undo Copy", "Save Copy");
   const undoCopyPath = dialog
     .locator(".path-library-dialog__path")
     .filter({ hasText: "Undo Copy" });
@@ -4552,17 +4710,27 @@ async function duplicateSelectedLibraryPath(
   pathHeaderActions: Locator,
   displayName: string,
 ): Promise<void> {
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept(displayName);
-  });
   await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await submitNameDialog(page, "Save Path As", displayName, "Save Copy");
   await expect(
     page
       .getByRole("dialog", { name: "Project Navigator" })
       .locator(".path-library-dialog__path")
       .filter({ hasText: displayName }),
   ).toBeVisible();
+}
+
+async function submitNameDialog(
+  page: Page,
+  dialogName: "Rename Collection" | "Rename Path" | "Save Path As",
+  displayName: string,
+  submitLabel: "Rename" | "Save Copy",
+): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: dialogName });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("textbox").fill(displayName);
+  await dialog.getByRole("button", { name: submitLabel, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
 }
 
 async function createNewProject(
