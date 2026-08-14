@@ -3376,6 +3376,41 @@ function PathLibraryDialog({
   useEffect(() => {
     searchInputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        deletingGroup ||
+        showCreateCollectionDialog ||
+        nameAction
+      ) {
+        return;
+      }
+
+      const modifier = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (
+        !modifier ||
+        event.altKey ||
+        isEditableShortcutTarget(event.target) ||
+        (key !== "z" && key !== "y")
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      if (key === "y" || event.shiftKey) {
+        projectStore.getState().redo();
+      } else {
+        projectStore.getState().undo();
+      }
+    };
+
+    window.addEventListener("keydown", handleHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+  }, [deletingGroup, nameAction, showCreateCollectionDialog]);
+
   const selectedGroup =
     workspace.path_groups.find((group) => group.group_id === selectedGroupId) ??
     null;
