@@ -238,6 +238,10 @@ const addConstraintMenuSections: readonly AddConstraintMenuSection[] = [
 ];
 
 const autoVelocityKey = "max_velocity_meters_per_sec";
+type NonAutoRangedConstraintKey = Exclude<
+  RangedConstraintKey,
+  typeof autoVelocityKey
+>;
 const handoffRadiusStep = 0.05;
 // The property pane says the same thing about the final anchor; the first one is
 // inert for the mirror-image reason, so both endpoints explain themselves here.
@@ -498,10 +502,6 @@ export function ConstraintEditor({
                     project={project}
                     constraintKey={key}
                     selectedIndex={selectedByKey[key] ?? null}
-                    autoSettings={autoSettings}
-                    autoVelocityRunning={autoVelocityRunning}
-                    runAutoVelocityTask={runAutoVelocityTask}
-                    onGenerateAutoVelocity={generateAutoVelocity}
                     onSelect={(index) => setSelectedForKey(key, index)}
                     onOpenPopout={(trigger) => openPopout(key, trigger)}
                   />
@@ -984,20 +984,12 @@ function RangedConstraintCard({
   project,
   constraintKey,
   selectedIndex,
-  autoSettings,
-  autoVelocityRunning,
-  runAutoVelocityTask,
-  onGenerateAutoVelocity,
   onSelect,
   onOpenPopout,
 }: {
   project: ProjectDocument;
-  constraintKey: RangedConstraintKey;
+  constraintKey: NonAutoRangedConstraintKey;
   selectedIndex: number | null;
-  autoSettings: AutoVelocitySettings;
-  autoVelocityRunning: boolean;
-  runAutoVelocityTask: AutoVelocityTaskRunner;
-  onGenerateAutoVelocity(): void;
   onSelect: (index: number) => void;
   onOpenPopout(trigger: HTMLButtonElement): void;
 }) {
@@ -1006,18 +998,6 @@ function RangedConstraintCard({
   const labels = useMemo(
     () => domainLabelsForKey(project, constraintKey),
     [project, constraintKey],
-  );
-  const isAutoVelocityCard = constraintKey === autoVelocityKey;
-  const autoStatus = useMemo(
-    () =>
-      isAutoVelocityCard
-        ? autoVelocityStatusForProject(project, autoSettings)
-        : null,
-    [autoSettings, isAutoVelocityCard, project],
-  );
-  const canGenerate = useMemo(
-    () => (isAutoVelocityCard ? canGenerateConstraints(project) : false),
-    [isAutoVelocityCard, project],
   );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
   const [localSelectedIndexes, setLocalSelectedIndexes] = useState<number[]>(
@@ -1056,9 +1036,8 @@ function RangedConstraintCard({
   const selectedLocalIndex = selectedEntry
     ? entries.findIndex((entry) => entry.index === selectedEntry.index)
     : -1;
-  const total = labels.length;
 
-  if (entries.length === 0 && !isAutoVelocityCard) {
+  if (entries.length === 0) {
     return null;
   }
 
@@ -1069,77 +1048,15 @@ function RangedConstraintCard({
     <article
       className="constraint-card"
       data-testid={`constraint-card-${constraintKey}`}
-      data-tour={isAutoVelocityCard ? "max-velocity-card" : undefined}
     >
-      <div
-        className={[
-          "constraint-card__header",
-          isAutoVelocityCard && autoStatus
-            ? "constraint-card__header--auto"
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
+      <div className="constraint-card__header">
         <div className="constraint-heading-row">
           <h3>{meta.label}</h3>
           {isMinimumVelocityConstraintKey(constraintKey) ? (
             <MinimumConstraintTooltip />
           ) : null}
         </div>
-        {isAutoVelocityCard && autoStatus ? (
-          <>
-            <AutoVelocityStatusIndicator
-              status={autoStatus}
-              running={autoVelocityRunning}
-            />
-            <div className="constraint-card__auto-actions">
-              <SidebarActionButton
-                onClick={onGenerateAutoVelocity}
-                disabled={total === 0 || autoVelocityRunning || !canGenerate}
-                aria-label="Generate constraints"
-                title={
-                  !canGenerate && !autoVelocityRunning
-                    ? "Every handoff radius and velocity segment is set manually. Switch one to Auto to generate."
-                    : "Generate handoff radii and velocity constraints"
-                }
-              >
-                Generate
-              </SidebarActionButton>
-              <SidebarActionButton
-                onClick={() => clearGeneratedConstraints(project)}
-                disabled={
-                  autoVelocityRunning || !canClearGeneratedConstraints(project)
-                }
-                aria-label="Clear generated constraints"
-                title="Clear generated handoff radii and velocity constraints"
-              >
-                Clear
-              </SidebarActionButton>
-            </div>
-          </>
-        ) : null}
       </div>
-
-      {isAutoVelocityCard && autoStatus && !autoVelocityRunning ? (
-        !canGenerate ? (
-          <p className="auto-velocity-hint" role="note">
-            All segments are set manually. Switch a segment to Auto to generate.
-          </p>
-        ) : entries.length === 0 && total > 0 ? (
-          <p className="auto-velocity-hint" role="note">
-            No caps yet, so this path drives at the global maximum. Generate
-            proposes caps from its shape — then review them.
-          </p>
-        ) : null
-      ) : null}
-
-      {isAutoVelocityCard && autoStatus ? (
-        <AutoVelocityWorkloadWarning
-          project={project}
-          settings={autoSettings}
-        />
-      ) : null}
 
       <ConstraintSegmentBar
         project={project}
@@ -1147,7 +1064,6 @@ function RangedConstraintCard({
         entries={entries}
         labels={labels}
         unit={meta.unit}
-        autoStatus={autoStatus}
         selectedIndex={selectedEntry?.index ?? null}
         selectedIndexes={selectedIndexes}
         onSelect={selectEntry}
@@ -1180,9 +1096,6 @@ function RangedConstraintCard({
           constraintKey={constraintKey}
           entries={selectedEntries}
           allEntries={entries}
-          autoSettings={autoSettings}
-          autoVelocityRunning={autoVelocityRunning}
-          runAutoVelocityTask={runAutoVelocityTask}
           onClearSelection={() => {
             setLocalSelectedIndexes([]);
             selectionStore.getState().clearRangedConstraintSelection();
@@ -1194,10 +1107,6 @@ function RangedConstraintCard({
           constraintKey={constraintKey}
           entry={selectedEntry}
           segmentNumber={selectedSegmentNumber}
-          autoStatus={autoStatus}
-          autoSettings={autoSettings}
-          autoVelocityRunning={autoVelocityRunning}
-          runAutoVelocityTask={runAutoVelocityTask}
           onSelect={onSelect}
           onOpenPopout={onOpenPopout}
         />
@@ -2359,25 +2268,31 @@ function manualizeChangedAutoVelocityEntries(
   });
 }
 
-function BulkRangedConstraintControls({
-  project,
-  constraintKey,
-  entries,
-  allEntries,
-  autoSettings,
-  autoVelocityRunning,
-  runAutoVelocityTask,
-  onClearSelection,
-}: {
+type BulkRangedConstraintControlsProps = {
   project: ProjectDocument;
-  constraintKey: RangedConstraintKey;
   entries: readonly RangedEntry[];
   allEntries: readonly RangedEntry[];
-  autoSettings: AutoVelocitySettings;
-  autoVelocityRunning: boolean;
-  runAutoVelocityTask: AutoVelocityTaskRunner;
   onClearSelection(): void;
-}) {
+} & (
+  | {
+      constraintKey: typeof autoVelocityKey;
+      autoSettings: AutoVelocitySettings;
+      autoVelocityRunning: boolean;
+      runAutoVelocityTask: AutoVelocityTaskRunner;
+    }
+  | {
+      constraintKey: NonAutoRangedConstraintKey;
+      autoSettings?: never;
+      autoVelocityRunning?: never;
+      runAutoVelocityTask?: never;
+    }
+);
+
+function BulkRangedConstraintControls(
+  props: BulkRangedConstraintControlsProps,
+) {
+  const { project, constraintKey, entries, allEntries, onClearSelection } =
+    props;
   const meta = rangedMeta[constraintKey];
   const isAutoVelocity = constraintKey === autoVelocityKey;
   const sources = new Set(
@@ -2408,14 +2323,19 @@ function BulkRangedConstraintControls({
         <p className="bulk-selection-summary">
           {entries.length} segments selected
         </p>
-        {isAutoVelocity ? (
+        {props.constraintKey === autoVelocityKey ? (
           <AutoVelocityModeControl
             ariaLabel="Selected velocity constraint mode"
-            disabled={autoVelocityRunning}
+            disabled={props.autoVelocityRunning}
             mode={mode}
             onModeChange={(nextMode) => {
-              runAutoVelocityTask(() => {
-                applyVelocityModes(project, entries, nextMode, autoSettings);
+              props.runAutoVelocityTask(() => {
+                applyVelocityModes(
+                  project,
+                  entries,
+                  nextMode,
+                  props.autoSettings,
+                );
                 onClearSelection();
               });
             }}
@@ -2431,7 +2351,10 @@ function BulkRangedConstraintControls({
               step={meta.step}
               min={meta.min}
               max={meta.max}
-              disabled={isAutoVelocity && autoVelocityRunning}
+              disabled={
+                props.constraintKey === autoVelocityKey &&
+                props.autoVelocityRunning
+              }
               onChange={(value) => {
                 if (value !== null) {
                   updateRangedConstraintValues(project, entries, value);
@@ -2445,7 +2368,9 @@ function BulkRangedConstraintControls({
       <div className="ranged-constraint-controls__actions">
         <SidebarIconButton
           className="sidebar-icon-button--remove"
-          disabled={isAutoVelocity && autoVelocityRunning}
+          disabled={
+            props.constraintKey === autoVelocityKey && props.autoVelocityRunning
+          }
           aria-label={`Delete ${entries.length} ${meta.label} segments`}
           title="Delete selected segments"
           onClick={() => {
