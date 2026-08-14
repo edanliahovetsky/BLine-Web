@@ -8,6 +8,7 @@
   },
   "include": [
     "vite.config.ts",
+    "vitest.parity.config.ts",
     "vitest.bline-lib-io.config.ts",
     "playwright.config.ts",
     "eslint.config.js"

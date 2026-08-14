@@ -11,7 +11,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc -b --emitDeclarationOnly",
     "test": "vitest run",
-    "parity": "vitest run parity-harness",
+    "parity": "vitest run --config vitest.parity.config.ts",
     "validate:bline-lib-io": "vitest run --config vitest.bline-lib-io.config.ts",
     "test:e2e": "playwright test",
     "build": "tsc -b --emitDeclarationOnly && vite build",
