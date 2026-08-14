@@ -295,7 +295,6 @@ const defaultFirstOrdinalVelocityRatio = 0.5;
 const solverDtSeconds = 0.02;
 const solverPairPasses = 1;
 const solverRefinementRounds = 1;
-const solverWindowPasses = 0;
 const solverCapToleranceMps = 0.01;
 const solverMinVelocityRatio = 0.05;
 const gateToleranceFloorMeters = 0.05;
@@ -2646,116 +2645,6 @@ function createAutoVelocitySolveSetup(
   };
 }
 
-export interface HandoffFeasibility {
-  anchorOrdinal: number;
-  /** Index of the corner anchor in `path_elements`. */
-  pathIndex: number;
-  handoffDistanceMeters: number;
-  /** True where some uniform cap the solver would try clears both gates. */
-  feasible: boolean;
-  /** Worst gate ratio at the corner's best uniform cap; 1 is the gate. */
-  bestErrorRatio: number;
-}
-
-export interface HandoffLadderRung {
-  seedRatio: number;
-  /** Corner anchors (as `path_elements` indexes) failing at this rung. */
-  failingPathIndexes: number[];
-}
-
-export interface HandoffFeasibilityLadder {
-  corners: HandoffFeasibility[];
-  rungs: HandoffLadderRung[];
-}
-
-/**
- * Asks, corner by corner, whether any speed clears the solver's own handoff
- * gates. The gates are not monotone in speed — a corner cut too slowly misses
- * its window as badly as one taken too fast — so a single reference speed says
- * nothing. Sweeping the uniform caps the solver itself seeds from does: a
- * corner that fails at every one of them is asking for a radius the follower
- * cannot honor at any speed.
- */
-export function evaluateHandoffFeasibility(
-  path: PathModel,
-  config: SimulationConfig,
-  options: AutoVelocityGenerationOptions = {},
-): HandoffFeasibility[] {
-  return evaluateHandoffFeasibilityLadder(path, config, options).corners;
-}
-
-/**
- * The full rung-by-rung picture behind `evaluateHandoffFeasibility`. Per-corner
- * feasibility is not enough to pick radii: two corners each feasible only at
- * different speeds leave the cap solver no profile that satisfies both. The
- * rung with the fewest failing corners is the geometry's best joint offer, and
- * radius selection descends against that.
- */
-export function evaluateHandoffFeasibilityLadder(
-  path: PathModel,
-  config: SimulationConfig,
-  options: AutoVelocityGenerationOptions = {},
-): HandoffFeasibilityLadder {
-  const setup = createAutoVelocitySolveSetup(path, config, options);
-  if (setup.corners.length === 0) {
-    return { corners: [], rungs: [] };
-  }
-
-  const results = setup.corners.map((corner) => ({
-    anchorOrdinal: corner.anchorOrdinal,
-    pathIndex: setup.anchors[corner.anchorOrdinal - 1]?.pathIndex ?? -1,
-    handoffDistanceMeters: corner.handoffDistanceMeters,
-    feasible: false,
-    bestErrorRatio: Number.POSITIVE_INFINITY,
-  }));
-  const byOrdinal = new Map(
-    results.map((result) => [result.anchorOrdinal, result]),
-  );
-  const rungs: HandoffLadderRung[] = [];
-  const minCap = minimumSolverCap(setup.usableMaxVelocityMps);
-
-  for (const ratio of globalVelocitySeedRatios) {
-    const capValue = clamp(
-      setup.usableMaxVelocityMps * ratio,
-      minCap,
-      setup.usableMaxVelocityMps,
-    );
-    const capsByOrdinal = new Map<number, number>();
-    for (let ordinal = 2; ordinal <= setup.anchors.length; ordinal += 1) {
-      capsByOrdinal.set(ordinal, capValue);
-    }
-
-    const evaluation = evaluateVelocityCaps(
-      setup.simulationContext,
-      setup.segments,
-      setup.corners,
-      capsByOrdinal,
-      setup.usableMaxVelocityMps,
-      setup.usableMaxAccelerationMps2,
-    );
-    const failingPathIndexes: number[] = [];
-
-    for (const handoff of evaluation.handoffs) {
-      const result = byOrdinal.get(handoff.corner.anchorOrdinal);
-      if (!result) {
-        continue;
-      }
-      result.feasible = result.feasible || handoff.passed;
-      result.bestErrorRatio = Math.min(
-        result.bestErrorRatio,
-        handoffViolationRatio(handoff),
-      );
-      if (!handoff.passed) {
-        failingPathIndexes.push(result.pathIndex);
-      }
-    }
-
-    rungs.push({ seedRatio: ratio, failingPathIndexes });
-  }
-
-  return { corners: results, rungs };
-}
-
 /**
  * Lightweight whole-path traces for radius selection. A full velocity solve
  * for every radius candidate is prohibitively expensive; these representative
@@ -2827,31 +2716,6 @@ function cacheProfile(
     }
     profileCache.delete(oldestKey);
   }
-}
-
-/** True when the exact inputs already have a solved profile in memory. */
-export function hasCachedAutoVelocityProfile(cacheKey: string | null): boolean {
-  return cacheKey !== null && profileCache.has(cacheKey);
-}
-
-export function autoVelocityMetadata(
-  settings: Pick<
-    AutoVelocityConstraintMetadata,
-    | "velocity_safety_factor"
-    | "acceleration_safety_factor"
-    | "merge_tolerance_meters_per_sec"
-    | "input_signature"
-  >,
-): AutoVelocityConstraintMetadata {
-  const metadata: AutoVelocityConstraintMetadata = {
-    velocity_safety_factor: settings.velocity_safety_factor,
-    acceleration_safety_factor: settings.acceleration_safety_factor,
-    merge_tolerance_meters_per_sec: settings.merge_tolerance_meters_per_sec,
-  };
-  if (settings.input_signature) {
-    metadata.input_signature = settings.input_signature;
-  }
-  return metadata;
 }
 
 export function autoVelocityConstraintForCap(
@@ -3464,17 +3328,6 @@ function solveSegmentCapsWithSimulation(
     );
   }
 
-  evaluation = optimizeVelocityWindows(
-    simulationContext,
-    anchors,
-    segments,
-    corners,
-    capsByOrdinal,
-    usableMaxVelocityMps,
-    usableMaxAccelerationMps2,
-    evaluation,
-  );
-
   evaluation = relaxVelocityWindowDipsWithinTimeBudget(
     simulationContext,
     anchors,
@@ -3796,82 +3649,6 @@ function liftBudgetCapsAtObjectiveRatios(
     if (bestValue > current + solverCapToleranceMps) {
       capsByOrdinal.set(ordinal, bestValue);
       evaluation = bestEvaluation;
-    }
-  }
-
-  return evaluation;
-}
-
-function optimizeVelocityWindows(
-  simulationContext: AutoVelocitySimulationContext,
-  anchors: readonly AutoVelocityAnchor[],
-  segments: readonly SegmentGeometry[],
-  corners: readonly AutoVelocityCorner[],
-  capsByOrdinal: Map<number, number>,
-  usableMaxVelocityMps: number,
-  usableMaxAccelerationMps2: number,
-  currentEvaluation: VelocityCapEvaluation,
-): VelocityCapEvaluation {
-  let evaluation = currentEvaluation;
-  const ordinals = Array.from(
-    { length: Math.max(0, anchors.length - 1) },
-    (_, index) => index + 2,
-  );
-  if (ordinals.length < 3) {
-    return evaluation;
-  }
-
-  for (let pass = 0; pass < solverWindowPasses; pass += 1) {
-    const starts =
-      pass % 2 === 0 ? ordinals.slice(0, -2) : ordinals.slice(0, -2).reverse();
-
-    for (const startOrdinal of starts) {
-      const windowOrdinals = [startOrdinal, startOrdinal + 1, startOrdinal + 2];
-      let bestCaps = new Map(capsByOrdinal);
-      let bestEvaluation = evaluation;
-      const minCap = minimumSolverCap(usableMaxVelocityMps);
-
-      for (const ordinal of windowOrdinals) {
-        const current = bestCaps.get(ordinal) ?? usableMaxVelocityMps;
-        for (const candidate of windowVelocityGrid(
-          current,
-          minCap,
-          usableMaxVelocityMps,
-        )) {
-          const trialCaps = new Map(bestCaps);
-          trialCaps.set(ordinal, candidate);
-          const trialEvaluation = evaluateVelocityCaps(
-            simulationContext,
-            segments,
-            corners,
-            trialCaps,
-            usableMaxVelocityMps,
-            usableMaxAccelerationMps2,
-          );
-
-          if (
-            isBetterEvaluation(
-              trialEvaluation,
-              trialCaps,
-              bestEvaluation,
-              bestCaps,
-            )
-          ) {
-            bestCaps = trialCaps;
-            bestEvaluation = trialEvaluation;
-          }
-        }
-      }
-
-      if (bestEvaluation !== evaluation) {
-        for (const ordinal of windowOrdinals) {
-          const value = bestCaps.get(ordinal);
-          if (value !== undefined) {
-            capsByOrdinal.set(ordinal, value);
-          }
-        }
-        evaluation = bestEvaluation;
-      }
     }
   }
 
