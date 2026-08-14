@@ -39,6 +39,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Install dependencies
         run: npm ci
@@ -48,6 +50,9 @@ jobs:
 
       - name: Release metadata check
         run: npm run release:check
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint
@@ -71,6 +76,15 @@ jobs:
 
       - name: Browser smoke
         run: npm run test:e2e
+
+      - name: Rust format check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Rust lint
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets --all-features -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Tauri build
         run: npm run tauri:build
