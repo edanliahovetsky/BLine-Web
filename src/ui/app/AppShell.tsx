@@ -15,7 +15,6 @@ import type {
 } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Activity,
   CircleHelp,
@@ -65,6 +64,11 @@ import {
   createProjectIoService,
   type ProjectIoCapabilities,
 } from "../../platform/projectIo";
+import {
+  downloadBlob,
+  isAbortError,
+  saveBlobAs,
+} from "../../platform/fileExport";
 import {
   createProjectAutosaveCoordinator,
   type AutosaveCoordinator,
@@ -5733,61 +5737,6 @@ function formatTimestamp(value: string): string {
   });
 }
 
-async function saveBlobAs(
-  blob: Blob,
-  fileName: string,
-  {
-    title,
-    useNativeSaveDialog,
-  }: {
-    title: string;
-    useNativeSaveDialog: boolean;
-  },
-): Promise<boolean> {
-  if (useNativeSaveDialog) {
-    return invoke<boolean>("storage_write_text_file_dialog", {
-      contents: await blob.text(),
-      defaultFileName: fileName,
-      title,
-    });
-  }
-
-  const saveFilePicker = (window as BrowserSaveWindow).showSaveFilePicker;
-  if (saveFilePicker) {
-    const fileHandle = await saveFilePicker.call(window, {
-      suggestedName: fileName,
-      types: [
-        {
-          accept: {
-            "application/json": [".json"],
-          },
-          description: "JSON files",
-        },
-      ],
-    });
-    const writable = await fileHandle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    return true;
-  }
-
-  downloadBlob(blob, fileName);
-  return true;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
-}
-
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 function safeDownloadName(value: string): string {
   return (
     value
@@ -5837,23 +5786,4 @@ function toolHint(tool: EditorTool, curveDrawing: boolean): string {
     return "Drag across the field to sketch a curve · Esc cancels";
   }
   return `Click the field to place a ${tool} · Esc cancels`;
-}
-
-interface BrowserSaveWindow extends Window {
-  showSaveFilePicker?: (options?: {
-    suggestedName?: string;
-    types?: Array<{
-      accept: Record<string, string[]>;
-      description: string;
-    }>;
-  }) => Promise<BrowserFileHandle>;
-}
-
-interface BrowserFileHandle {
-  createWritable(): Promise<BrowserWritableFileStream>;
-}
-
-interface BrowserWritableFileStream {
-  write(data: Blob): Promise<void>;
-  close(): Promise<void>;
 }

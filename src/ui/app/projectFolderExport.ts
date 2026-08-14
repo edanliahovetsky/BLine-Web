@@ -1,4 +1,5 @@
 import type { ProjectFolderExport } from "../../platform/projectIo";
+import { downloadBlob } from "../../platform/fileExport";
 
 export interface ProjectExportWindow extends Window {
   showDirectoryPicker?: (options?: {
@@ -401,13 +402,4 @@ async function writeFolderFile(
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
   await writable.close();
-}
-
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }
