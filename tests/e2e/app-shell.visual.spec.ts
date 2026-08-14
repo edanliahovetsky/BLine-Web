@@ -3,6 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 test.describe("app shell visual baselines", () => {
   test.use({
     deviceScaleFactor: 1,
+    locale: "en-US",
+    timezoneId: "America/New_York",
     viewport: { width: 1440, height: 900 },
   });
 
@@ -100,11 +102,9 @@ async function expectVisualSnapshot(page: Page, name: string): Promise<void> {
     await document.fonts.ready;
   });
 
-  const pixiCanvas = page.getByTestId("path-stage-canvas").locator("canvas");
-  await pixiCanvas.evaluateAll((canvases) => {
-    for (const canvas of canvases) {
-      canvas.style.visibility = "hidden";
-    }
+  await page.addStyleTag({
+    content:
+      '[data-testid="path-stage-canvas"] canvas { visibility: hidden !important; }',
   });
 
   await expect(page).toHaveScreenshot(name, {
