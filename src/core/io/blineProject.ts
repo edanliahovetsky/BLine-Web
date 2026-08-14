@@ -7,7 +7,6 @@ import type {
   SerializedPathEditorMetadata,
   SerializedPathDocument,
 } from "./projectSchema";
-import { createProjectDocument } from "./projectSchema";
 import {
   deserializeProjectWorkspaceDocument,
   ensureJsonFileName,
@@ -180,22 +179,6 @@ export function deserializeBLineProjectArchive(
       linked_targets: input.linked_targets,
     },
     options,
-  );
-}
-
-export function deserializeBLineProjectArchiveAsProjects(
-  input: unknown,
-): ProjectDocument[] {
-  const workspace = deserializeBLineProjectArchive(input);
-
-  return workspace.paths.map((path) =>
-    createProjectDocument({
-      project_id: path.path_id,
-      display_name: path.display_name,
-      path_file_name: path.file_name,
-      path: path.path,
-      config: workspace.config,
-    }),
   );
 }
 

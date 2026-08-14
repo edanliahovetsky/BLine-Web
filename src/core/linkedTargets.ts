@@ -298,19 +298,6 @@ export function linkedTargetUseCount(
   );
 }
 
-export function linkedTargetUses(
-  workspace: ProjectWorkspaceDocument,
-  targetId: string,
-): PathElementReference[] {
-  return workspace.paths.flatMap((path) =>
-    path.path.path_elements.flatMap((element, elementIndex) =>
-      getPathElementLinkedTargetId(element) === targetId
-        ? [{ pathId: path.path_id, elementIndex }]
-        : [],
-    ),
-  );
-}
-
 export function normalizeLinkedTargets(
   input: readonly LinkedTargetInputLike[] | undefined,
 ): LinkedTarget[] {
