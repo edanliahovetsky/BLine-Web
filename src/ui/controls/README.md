@@ -7,9 +7,7 @@ primitives directly into feature code without first wrapping them here.
 
 ## Use The Shared Controls
 
-Import from `src/ui/controls`; `Controls.tsx` is the canonical implementation
-file and `SidebarControls.tsx` exists only as a compatibility shim for older
-imports:
+Import from `src/ui/controls`; `Controls.tsx` is the canonical implementation:
 
 ```tsx
 import { CloseButton, NumberStepperControl, SwitchInput } from "../controls";

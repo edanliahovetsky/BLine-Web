@@ -677,6 +677,205 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
 });
 
+test("creates every path element type from the inspector menu", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewProject(page);
+
+  const addElement = page.getByRole("button", { name: "Add element" });
+  await addElement.click();
+  let menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Waypoint",
+    "Translation",
+  ]);
+  await menu.getByRole("menuitem", { name: "Translation" }).click();
+  await expect(page.getByLabel("X (m)")).toHaveValue("9.52");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("4.89");
+
+  await addElement.click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("0");
+  await expect(page.getByLabel("X (m)")).toHaveValue("10.27");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("5.24");
+
+  await addElement.click();
+  menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Waypoint",
+    "Translation",
+    "Rotation",
+    "Event Trigger",
+  ]);
+  await menu.getByRole("menuitem", { name: "Rotation" }).click();
+  await expect(page.getByLabel("Rotation Pos (0-1)")).toHaveValue("0.5");
+
+  await addElement.click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  await expectPathElementTypes(page, [
+    "Translation",
+    "Rotation",
+    "Event Trigger",
+    "Waypoint",
+  ]);
+  await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.5");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+});
+
+test("places every path element type with the canvas tools", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewProject(page);
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const canvasBox = await requiredBox(canvas);
+  const tools = page.getByRole("complementary", { name: "Canvas tools" });
+  const waypointTool = tools.getByRole("button", {
+    name: "Waypoint tool",
+    exact: true,
+  });
+  const translationTool = tools.getByRole("button", {
+    name: "Translation tool",
+    exact: true,
+  });
+  const rotationTool = tools.getByRole("button", {
+    name: "Rotation tool",
+    exact: true,
+  });
+  const eventTool = tools.getByRole("button", {
+    name: "Event tool",
+    exact: true,
+  });
+  await expect(rotationTool).toBeDisabled();
+  await expect(eventTool).toBeDisabled();
+
+  const waypointPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 3,
+    y_meters: 3,
+  });
+  await waypointTool.click();
+  await page.mouse.click(waypointPoint.x, waypointPoint.y);
+  await expect(page.getByLabel("X (m)")).toHaveValue("3");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("3");
+
+  const translationPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 9,
+    y_meters: 3,
+  });
+  await translationTool.click();
+  await page.mouse.click(translationPoint.x, translationPoint.y);
+  await expect(page.getByLabel("X (m)")).toHaveValue("9");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("3");
+  await expect(rotationTool).toBeEnabled();
+  await expect(eventTool).toBeEnabled();
+
+  const rotationPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 6,
+    y_meters: 3,
+  });
+  await rotationTool.click();
+  await page.mouse.click(rotationPoint.x, rotationPoint.y);
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("0");
+  await expect(page.getByLabel("Rotation Pos (0-1)")).toHaveValue("0.5");
+
+  const eventPoint = modelToCanvasPoint(canvasBox, {
+    x_meters: 7.5,
+    y_meters: 3,
+  });
+  await eventTool.click();
+  await page.mouse.click(eventPoint.x, eventPoint.y);
+  await expectPathElementTypes(page, [
+    "Waypoint",
+    "Rotation",
+    "Event Trigger",
+    "Translation",
+  ]);
+  await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.75");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+});
+
+test("draws curves at the requested insertion point and cancels safely", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const canvasBox = await requiredBox(canvas);
+  const addCurve = page.getByRole("button", { name: "Add curve" });
+  const curveTool = page.getByRole("button", { name: "Curve tool" });
+  const selectTool = page.getByRole("button", { name: "Select tool" });
+  const cancelledStart = modelToCanvasPoint(canvasBox, {
+    x_meters: 6.1,
+    y_meters: 3.3,
+  });
+
+  await page.getByTestId("path-element-row-0").click();
+  await addCurve.click();
+  await expect(addCurve).toBeDisabled();
+  await page.mouse.move(cancelledStart.x, cancelledStart.y);
+  await page.mouse.down();
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    6,
+  );
+  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+
+  const insertedEnd = modelToCanvasPoint(canvasBox, {
+    x_meters: 6.6,
+    y_meters: 3.6,
+  });
+  await addCurve.click();
+  await page.mouse.move(cancelledStart.x, cancelledStart.y);
+  await page.mouse.down();
+  await page.mouse.move(insertedEnd.x, insertedEnd.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    8,
+  );
+  await expect(page.getByTestId("path-element-row-1")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByLabel("X (m)")).toHaveValue("6.1");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("3.3");
+
+  const appendedStart = modelToCanvasPoint(canvasBox, {
+    x_meters: 12,
+    y_meters: 4,
+  });
+  const appendedEnd = modelToCanvasPoint(canvasBox, {
+    x_meters: 14,
+    y_meters: 6,
+  });
+  await curveTool.click();
+  await page.mouse.move(appendedStart.x, appendedStart.y);
+  await page.mouse.down();
+  await page.mouse.move(appendedEnd.x, appendedEnd.y, { steps: 8 });
+  await page.mouse.up();
+  await expectPathElementTypes(page, [
+    "Waypoint",
+    "Translation",
+    "Translation",
+    "Translation",
+    "Rotation",
+    "Translation",
+    "Event Trigger",
+    "Waypoint",
+    "Translation",
+    "Translation",
+  ]);
+  await expect(page.getByTestId("path-element-row-8")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByLabel("X (m)")).toHaveValue("12");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("4");
+  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
+});
+
 test("adds edits and removes path elements from the inspector", async ({
   page,
 }) => {
@@ -792,13 +991,10 @@ test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
 
   await createPathGroupFromTopMenu(page, "Score Autos");
 
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept("Ghost Copy");
-  });
   await page.getByRole("button", { name: "Path", exact: true }).click();
   await page.getByRole("menuitem", { name: "Manage Paths" }).click();
   await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+  await submitNameDialog(page, "Save Path As", "Ghost Copy", "Save Copy");
 
   await addPathToGroupFromLibrary(page, "Score Autos", "Ghost Copy");
 
@@ -879,11 +1075,8 @@ test("manages paths from the canonical path library", async ({ page }) => {
     dialog.locator(".path-library-dialog__path-actions"),
   ).toHaveCount(0);
 
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept("Library Branch");
-  });
   await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await submitNameDialog(page, "Save Path As", "Library Branch", "Save Copy");
   await expect(
     dialog.locator(".path-library-dialog__path").filter({
       hasText: "Library Branch",
@@ -928,6 +1121,173 @@ test("manages paths from the canonical path library", async ({ page }) => {
   await expect(page.getByTestId("path-library-dock")).toHaveCount(0);
 });
 
+test("uses focused name dialogs for every path and collection launch point", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const pathMenuButton = page.getByRole("button", {
+    name: "Path",
+    exact: true,
+  });
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+  let nameDialog = page.getByRole("dialog", { name: "Save Path As" });
+  let nameInput = nameDialog.getByRole("textbox", { name: "Path name" });
+  const closeNameDialog = nameDialog.getByRole("button", {
+    name: "Close save path as",
+  });
+  const saveCopyButton = nameDialog.getByRole("button", {
+    name: "Save Copy",
+    exact: true,
+  });
+
+  await expect(nameDialog).toHaveAttribute("aria-modal", "true");
+  await expect(nameInput).toBeFocused();
+  await expect(nameInput).toHaveValue("Phase 1 Canvas Draft");
+  const initialName = await nameInput.inputValue();
+  expect(
+    await nameInput.evaluate((input) => ({
+      end: (input as HTMLInputElement).selectionEnd,
+      start: (input as HTMLInputElement).selectionStart,
+    })),
+  ).toEqual({ end: initialName.length, start: 0 });
+
+  await closeNameDialog.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(saveCopyButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeNameDialog).toBeFocused();
+
+  await nameInput.fill("   ");
+  await expect(saveCopyButton).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(nameDialog).toHaveCount(0);
+  await expect(pathMenuButton).toBeFocused();
+  await expect(page.getByLabel("Toolbar path")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+  await submitNameDialog(page, "Save Path As", "  Menu Copy  ", "Save Copy");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Copy");
+  await expect(pathMenuButton).toBeFocused();
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Rename Path..." }).click();
+  nameDialog = page.getByRole("dialog", { name: "Rename Path" });
+  await expect(nameDialog.getByLabel("Path name")).toHaveValue("Menu Copy");
+  await submitNameDialog(page, "Rename Path", "  Menu Renamed  ", "Rename");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Renamed");
+  await expect(pathMenuButton).toBeFocused();
+
+  await runEditMenuAction(page, "Undo");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Copy");
+  await runEditMenuAction(page, "Redo");
+  await expect(page.getByLabel("Toolbar path")).toContainText("Menu Renamed");
+
+  const navigatorButton = page.getByRole("button", {
+    name: "Open project navigator",
+    exact: true,
+  });
+  const library = await openPathLibraryDialog(page);
+  await library.getByRole("button", { name: "Create collection" }).click();
+  await page.getByTestId("path-collection-new-name").fill("Library Autos");
+  await page.getByTestId("create-path-collection").click();
+
+  const renameCollectionButton = library.getByRole("button", {
+    name: "Rename collection",
+  });
+  await renameCollectionButton.click();
+  nameDialog = page.getByRole("dialog", { name: "Rename Collection" });
+  await expect(nameDialog.getByLabel("Collection name")).toHaveValue(
+    "Library Autos",
+  );
+  await submitNameDialog(
+    page,
+    "Rename Collection",
+    "  Renamed Autos  ",
+    "Rename",
+  );
+  await expect(library).toBeVisible();
+  await expect(renameCollectionButton).toBeFocused();
+  await expect(
+    library
+      .locator(".path-library-dialog__group")
+      .filter({ hasText: "Renamed Autos" }),
+  ).toBeVisible();
+
+  const pathHeaderActions = library.locator(
+    ".path-library-dialog__paths .path-library-dialog__header-actions",
+  );
+  const savePathAsButton = pathHeaderActions.getByRole("button", {
+    name: "Save path as",
+  });
+  await savePathAsButton.click();
+  nameDialog = page.getByRole("dialog", { name: "Save Path As" });
+  await expect(nameDialog.getByLabel("Path name")).toHaveValue("Menu Renamed");
+  await submitNameDialog(page, "Save Path As", "  Library Copy  ", "Save Copy");
+  await expect(library).toBeVisible();
+  await expect(savePathAsButton).toBeFocused();
+  await expect(
+    library
+      .locator(".path-library-dialog__group")
+      .filter({ hasText: "Renamed Autos" }),
+  ).toContainText("2 paths");
+
+  const renamePathButton = pathHeaderActions.getByRole("button", {
+    name: "Rename path",
+  });
+  await renamePathButton.click();
+  nameDialog = page.getByRole("dialog", { name: "Rename Path" });
+  await expect(nameDialog.getByLabel("Path name")).toHaveValue("Library Copy");
+  await submitNameDialog(
+    page,
+    "Rename Path",
+    "  Library Button Renamed  ",
+    "Rename",
+  );
+  await expect(renamePathButton).toBeFocused();
+
+  let selectedPath = library
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Library Button Renamed" });
+  await expect(selectedPath).toBeVisible();
+  await selectedPath.focus();
+  await page.keyboard.press("F2");
+  nameDialog = page.getByRole("dialog", { name: "Rename Path" });
+  nameInput = nameDialog.getByLabel("Path name");
+  await expect(nameInput).toBeFocused();
+  await expect(nameInput).toHaveValue("Library Button Renamed");
+  await page.keyboard.press("Escape");
+  await expect(nameDialog).toHaveCount(0);
+  await expect(selectedPath).toBeFocused();
+
+  await page.keyboard.press("F2");
+  await submitNameDialog(
+    page,
+    "Rename Path",
+    "  Library F2 Renamed  ",
+    "Rename",
+  );
+  selectedPath = library
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Library F2 Renamed" });
+  await expect(selectedPath).toBeVisible();
+  await expect(selectedPath).toBeFocused();
+  await expect(
+    library
+      .locator(".path-library-dialog__path")
+      .filter({ hasText: "Menu Renamed" }),
+  ).toBeVisible();
+
+  await library.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(library).toHaveCount(0);
+  await expect(navigatorButton).toBeFocused();
+});
+
 test("supports undo and redo for path library content edits", async ({
   page,
 }) => {
@@ -961,11 +1321,8 @@ test("supports undo and redo for path library content edits", async ({
 
   await allPathsGroup.click();
   await phasePath.click();
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept("Undo Copy");
-  });
   await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await submitNameDialog(page, "Save Path As", "Undo Copy", "Save Copy");
   const undoCopyPath = dialog
     .locator(".path-library-dialog__path")
     .filter({ hasText: "Undo Copy" });
@@ -2027,9 +2384,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
   await expect(dialog.getByLabel("Acceleration safety factor")).toHaveValue(
     "1",
   );
-  await expect(dialog.getByLabel("Merge difference (m/s)")).toHaveValue(
-    "0.3",
-  );
+  await expect(dialog.getByLabel("Merge difference (m/s)")).toHaveValue("0.3");
 
   await dialog.getByLabel("Keep in sync").uncheck();
   await dialog.getByRole("button", { name: "Save" }).click();
@@ -4019,6 +4374,68 @@ test("selects Max Velocity segments with the keyboard", async ({ page }) => {
   await expect(page.getByLabel("Constraint 1 value")).toBeEnabled();
 });
 
+test("filters and runs command palette actions from the keyboard", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await page.keyboard.press("F1");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  const search = palette.getByRole("searchbox", {
+    name: "Search commands and paths",
+  });
+  const selectTool = palette.getByRole("option", { name: /^Select tool/ });
+  const waypointTool = palette.getByRole("option", {
+    name: /^Waypoint tool/,
+  });
+
+  await expect(palette).toBeVisible();
+  await expect(search).toBeFocused();
+  await search.fill("tool");
+  await expect(selectTool).toHaveAttribute("aria-selected", "true");
+  await expect(waypointTool).toBeVisible();
+  await expect(
+    palette.getByRole("option", { name: /^Toggle inspector/ }),
+  ).toHaveCount(0);
+
+  await page.keyboard.press("ArrowDown");
+  await expect(waypointTool).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Enter");
+
+  await expect(palette).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Waypoint tool" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("keeps disabled palette actions inert and restores focus on Escape", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const trigger = page.getByRole("button", {
+    name: "Search commands and paths",
+  });
+  const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+  await trigger.focus();
+  await page.keyboard.press(`${shortcut}+K`);
+
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  const search = palette.getByRole("searchbox", {
+    name: "Search commands and paths",
+  });
+  await search.fill("undo");
+  const undo = palette.getByRole("option", { name: /^Undo/ });
+  await expect(undo).toBeDisabled();
+
+  await page.keyboard.press("Enter");
+  await expect(palette).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
 test("supports common keyboard shortcuts", async ({ page }) => {
   await gotoSampleEditor(page);
 
@@ -4060,6 +4477,148 @@ test("supports common keyboard shortcuts", async ({ page }) => {
   await page.keyboard.press(`${shortcut}+S`);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 });
+
+test("keeps global shortcuts behind the path name dialog", async ({ page }) => {
+  await gotoSampleEditor(page);
+
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Save Path As..." }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Save Path As" });
+  const input = dialog.getByRole("textbox", { name: "Path name" });
+  await expect(input).toBeFocused();
+
+  await expectGlobalShortcutsBlockedByDialog(page, dialog, input);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
+
+test("keeps global shortcuts behind the linked element picker", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const pathMenu = await openPathMenu(page);
+  await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
+  const linkedElementsDialog = page.getByRole("dialog", {
+    name: "Linked Elements",
+  });
+  await linkedElementsDialog
+    .getByRole("button", { name: "New Translation" })
+    .click();
+  await linkedElementsDialog
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved", {
+    timeout: 5_000,
+  });
+
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByRole("button", { name: "Link element" }).click();
+  await page
+    .getByRole("group", { name: "Linked element actions" })
+    .getByRole("button", { name: /Choose Existing/ })
+    .click();
+
+  const picker = page.getByRole("dialog", { name: "Choose Linked Element" });
+  const closePicker = picker.getByRole("button", {
+    name: "Close linked elements",
+  });
+  await closePicker.focus();
+
+  await expectGlobalShortcutsBlockedByDialog(page, picker, closePicker);
+});
+
+test("keeps global shortcuts behind the save conflict dialog", async ({
+  page,
+}) => {
+  await waitForSavedProject(page);
+  await bumpStoredWorkspaceVersion(page);
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByLabel("X (m)").fill("7.25");
+
+  const dialog = page.getByTestId("save-conflict-dialog");
+  const overwrite = dialog.getByRole("button", { name: "Keep my changes" });
+  await expect(dialog).toBeVisible();
+  await expect(overwrite).toBeFocused();
+
+  await expectGlobalShortcutsBlockedByDialog(page, dialog, overwrite);
+  await expect(page.getByTestId("save-status")).toHaveAttribute(
+    "title",
+    /Project changed on disk/,
+  );
+});
+
+test("keeps global shortcuts behind the guided tour picker", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+
+  const picker = page.getByTestId("tour-picker");
+  const firstTour = page.getByTestId("tour-picker-editor-basics");
+  await firstTour.focus();
+
+  await expectGlobalShortcutsBlockedByDialog(page, picker, firstTour);
+
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+});
+
+async function expectGlobalShortcutsBlockedByDialog(
+  page: Page,
+  dialog: Locator,
+  focusTarget: Locator,
+): Promise<void> {
+  await expect(dialog).toBeVisible();
+  await expect(focusTarget).toBeFocused();
+
+  const inspectorToggle = page.getByRole("button", {
+    name: "Toggle inspector",
+  });
+  const inspectorExpanded = await inspectorToggle.getAttribute("aria-expanded");
+  const useMetaKey = process.platform === "darwin";
+  const results = await page.evaluate(
+    ({ metaKey }) => {
+      const target = document.activeElement;
+      if (!(target instanceof HTMLElement)) {
+        throw new Error("Expected the blocking surface to own focus");
+      }
+
+      return ["b", "s", "k", "F1"].map((key) => {
+        const event = new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: key === "F1" ? false : !metaKey,
+          key,
+          metaKey: key === "F1" ? false : metaKey,
+        });
+        target.dispatchEvent(event);
+        return { defaultPrevented: event.defaultPrevented, key };
+      });
+    },
+    { metaKey: useMetaKey },
+  );
+
+  expect(results).toEqual([
+    { defaultPrevented: false, key: "b" },
+    { defaultPrevented: false, key: "s" },
+    { defaultPrevented: false, key: "k" },
+    { defaultPrevented: false, key: "F1" },
+  ]);
+  await expect(inspectorToggle).toHaveAttribute(
+    "aria-expanded",
+    inspectorExpanded ?? "false",
+  );
+  await expect(
+    page.getByRole("dialog", { name: "Command palette" }),
+  ).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(focusTarget).toBeFocused();
+}
 
 async function gotoSampleEditor(page: Page): Promise<void> {
   await page.goto("/");
@@ -4554,17 +5113,27 @@ async function duplicateSelectedLibraryPath(
   pathHeaderActions: Locator,
   displayName: string,
 ): Promise<void> {
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Save Path As");
-    await dialog.accept(displayName);
-  });
   await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
+  await submitNameDialog(page, "Save Path As", displayName, "Save Copy");
   await expect(
     page
       .getByRole("dialog", { name: "Project Navigator" })
       .locator(".path-library-dialog__path")
       .filter({ hasText: displayName }),
   ).toBeVisible();
+}
+
+async function submitNameDialog(
+  page: Page,
+  dialogName: "Rename Collection" | "Rename Path" | "Save Path As",
+  displayName: string,
+  submitLabel: "Rename" | "Save Copy",
+): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: dialogName });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("textbox").fill(displayName);
+  await dialog.getByRole("button", { name: submitLabel, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
 }
 
 async function createNewProject(
@@ -4640,6 +5209,17 @@ function modelToCanvasPoint(box: Bounds, point: PointMeters) {
       viewportY +
       (fieldWidthMeters - point.y_meters - fieldCoordinateOffsetMeters) * scale,
   };
+}
+
+async function expectPathElementTypes(
+  page: Page,
+  expectedTypes: readonly string[],
+): Promise<void> {
+  const rows = page.locator('[data-testid^="path-element-row-"]');
+  await expect(rows).toHaveCount(expectedTypes.length);
+  for (const [index, type] of expectedTypes.entries()) {
+    await expect(rows.nth(index)).toContainText(`${index + 1}. ${type}`);
+  }
 }
 
 async function waitForSavedProject(page: Page): Promise<void> {

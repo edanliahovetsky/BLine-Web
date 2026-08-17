@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import {
   fieldCoordinateOffsetMeters,
   fieldLengthMeters,
@@ -31,7 +32,6 @@ import {
   canMovePathElement,
   createChangePathElementTypeCommand,
   createClearGeneratedConstraintsCommand,
-  createGenerateConstraintsCommand,
   createConvertedElement,
   createDefaultElement,
   createDuplicatePathElementCommand,
@@ -621,7 +621,7 @@ function expandedOrdinals(
     .sort((left, right) => left - right);
 }
 
-describe("createGenerateConstraintsCommand", () => {
+describe("generated constraint commands", () => {
   const generatableProject = (): ProjectDocument =>
     createProjectDocument({
       project_id: "generate-constraints",
@@ -678,48 +678,33 @@ describe("createGenerateConstraintsCommand", () => {
     };
   };
 
-  it("generates radii and caps in one undoable step", () => {
+  const generatedProject = (): ProjectDocument => {
     const project = generatableProject();
-    expect(canGenerateConstraints(project)).toBe(true);
-    expect(canClearGeneratedConstraints(project)).toBe(false);
-
-    const command = createGenerateConstraintsCommand();
-    const applied = command.apply(project);
-
-    const generated = applied.path.path_elements[1];
-    expect(
-      generated.type === "translation"
-        ? generated.intermediate_handoff_radius_meters
-        : null,
-    ).not.toBeNull();
-    expect(getHandoffRadiusSource(generated)).toBe("auto");
-
-    // The manually valued waypoint radius stays untouched and untagged.
-    const pinned = applied.path.path_elements[2];
-    expect(
-      pinned.type === "waypoint"
-        ? pinned.translation_target.intermediate_handoff_radius_meters
-        : null,
-    ).toBeCloseTo(0.2, 9);
-    expect(getHandoffRadiusSource(pinned)).toBeNull();
-
-    expect(
-      applied.path.ranged_constraints.some(
-        (constraint) => constraint.source === "auto_velocity",
-      ),
-    ).toBe(true);
-
-    const reverted = command.revert(applied);
-    expect(reverted.path).toEqual(project.path);
-  });
+    return {
+      ...project,
+      path: {
+        ...seedHandoffRadii(project.path).path,
+        ranged_constraints: [
+          {
+            key: "max_velocity_meters_per_sec",
+            value: 2,
+            start_ordinal: 1,
+            end_ordinal: 4,
+            source: "auto_velocity",
+            auto_velocity: null,
+          },
+        ],
+      },
+    };
+  };
 
   it("reports a fully pinned path as nothing to generate", () => {
+    expect(canGenerateConstraints(generatableProject())).toBe(true);
     expect(canGenerateConstraints(pinnedProject())).toBe(false);
   });
 
   it("clears generated values and keeps pinned ones", () => {
-    const generated =
-      createGenerateConstraintsCommand().apply(generatableProject());
+    const generated = generatedProject();
     expect(canClearGeneratedConstraints(generated)).toBe(true);
 
     const command = createClearGeneratedConstraintsCommand();

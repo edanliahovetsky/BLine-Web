@@ -27,12 +27,6 @@ export interface ProjectWorkspaceSummary {
   directoryPath?: string;
 }
 
-export interface ProjectPathSummary {
-  id: string;
-  displayName: string;
-  fileName: string;
-}
-
 export interface WriteResult {
   version: string;
   updatedAt: string;
@@ -162,28 +156,6 @@ export function workspaceFromRecord(
   record: StoredWorkspaceRecord,
 ): ProjectWorkspaceDocument {
   return deserializeProjectWorkspaceDocument(record.document);
-}
-
-export async function createWorkspaceBundle(
-  adapter: Pick<StorageAdapter, "readWorkspace">,
-  ids: readonly string[],
-  exportedAt: string,
-): Promise<Blob> {
-  const workspaces = await Promise.all(
-    ids.map(async (id) =>
-      serializeProjectWorkspaceDocument(await adapter.readWorkspace(id)),
-    ),
-  );
-
-  const bundle: WorkspaceBundle = {
-    bundle_schema_version: 2,
-    exported_at: exportedAt,
-    workspaces,
-  };
-
-  return new Blob([JSON.stringify(bundle, null, 2)], {
-    type: "application/json",
-  });
 }
 
 export async function createBLineWorkspaceArchive(

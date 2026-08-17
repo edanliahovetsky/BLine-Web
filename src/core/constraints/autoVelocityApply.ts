@@ -12,6 +12,7 @@ import {
   type RangedConstraint,
 } from "../model/path";
 import type { SimulationConfig } from "../sim/types";
+import { ordinalsForConstraint } from "./rangedConstraints";
 import {
   autoVelocityConstraintForCap,
   autoVelocityInputSignature,
@@ -62,7 +63,10 @@ export function refreshAutoVelocityConstraints(
     config,
     autoVelocityOptions(settings),
   );
-  const existing = ordinalConstraintMap(path.ranged_constraints, total);
+  const existing = autoVelocityConstraintsByOrdinal(
+    path.ranged_constraints,
+    total,
+  );
   const metadata = autoVelocityMetadataFor(path, config, settings);
 
   for (const cap of profile.segmentCaps) {
@@ -82,7 +86,11 @@ export function refreshAutoVelocityConstraints(
       ...path.ranged_constraints.filter(
         (constraint) => constraint.key !== autoVelocityKey,
       ),
-      ...constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
+      ...autoVelocityConstraintsFromOrdinalMap(
+        existing,
+        total,
+        settings.mergeToleranceMps,
+      ),
     ],
   };
 }
@@ -114,7 +122,10 @@ export function applyAutoVelocityConstraintsToOrdinals(
     config,
     autoVelocityOptions(settings),
   );
-  const existing = ordinalConstraintMap(path.ranged_constraints, total);
+  const existing = autoVelocityConstraintsByOrdinal(
+    path.ranged_constraints,
+    total,
+  );
   const metadata = autoVelocityMetadataFor(path, config, settings);
   let changed = false;
 
@@ -147,7 +158,11 @@ export function applyAutoVelocityConstraintsToOrdinals(
       ...path.ranged_constraints.filter(
         (constraint) => constraint.key !== autoVelocityKey,
       ),
-      ...constraintsFromOrdinalMap(existing, total, settings.mergeToleranceMps),
+      ...autoVelocityConstraintsFromOrdinalMap(
+        existing,
+        total,
+        settings.mergeToleranceMps,
+      ),
     ],
   };
 }
@@ -217,8 +232,7 @@ function autoVelocityMetadataMatchesSettings(
 ): boolean {
   return (
     metadata?.velocity_safety_factor === settings.velocitySafetyFactor &&
-    metadata.acceleration_safety_factor ===
-      settings.accelerationSafetyFactor &&
+    metadata.acceleration_safety_factor === settings.accelerationSafetyFactor &&
     (metadata.merge_tolerance_meters_per_sec ??
       defaultAutoVelocityMergeToleranceMetersPerSec) ===
       settings.mergeToleranceMps
@@ -285,24 +299,21 @@ function autoVelocitySettings(config: SimulationConfig): AutoVelocitySettings {
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_velocity_safety_factor",
-      ) ??
-      defaultAutoVelocityVelocitySafetyFactor,
+      ) ?? defaultAutoVelocityVelocitySafetyFactor,
     accelerationSafetyFactor:
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_acceleration_safety_factor",
-      ) ??
-      defaultAutoVelocityAccelerationSafetyFactor,
+      ) ?? defaultAutoVelocityAccelerationSafetyFactor,
     mergeToleranceMps:
       getDefaultOptionalConfigValue(
         config,
         "auto_velocity_merge_tolerance_meters_per_sec",
-      ) ??
-      defaultAutoVelocityMergeToleranceMetersPerSec,
+      ) ?? defaultAutoVelocityMergeToleranceMetersPerSec,
   };
 }
 
-function ordinalConstraintMap(
+export function autoVelocityConstraintsByOrdinal(
   constraints: readonly RangedConstraint[],
   total: number,
 ): Map<number, RangedConstraint> {
@@ -331,7 +342,7 @@ function ordinalConstraintMap(
   return map;
 }
 
-function constraintsFromOrdinalMap(
+export function autoVelocityConstraintsFromOrdinalMap(
   map: ReadonlyMap<number, RangedConstraint>,
   total: number,
   autoMergeToleranceMps: number,
@@ -412,25 +423,4 @@ function sameAutoVelocityMetadata(
     (left?.merge_tolerance_meters_per_sec ?? null) ===
       (right?.merge_tolerance_meters_per_sec ?? null)
   );
-}
-
-function ordinalsForConstraint(
-  constraint: RangedConstraint,
-  total: number,
-): number[] {
-  const start = clampOrdinal(constraint.start_ordinal, total);
-  const end = clampOrdinal(constraint.end_ordinal, total);
-  const ordinals: number[] = [];
-  for (
-    let ordinal = Math.min(start, end);
-    ordinal <= Math.max(start, end);
-    ordinal += 1
-  ) {
-    ordinals.push(ordinal);
-  }
-  return ordinals;
-}
-
-function clampOrdinal(ordinal: number, total: number): number {
-  return Math.max(1, Math.min(Math.trunc(ordinal), Math.max(1, total)));
 }

@@ -23,16 +23,17 @@ export function createProjectIoService(
   environment: EnvironmentCapabilities,
   options: CreateProjectIoServiceOptions = {},
 ): ProjectIoService {
+  const desktop = environment.shell === "tauri";
   if (options.storage) {
     return new StorageProjectIoService(
       options.storage,
-      environment.canWriteRealFiles
+      desktop
         ? createDesktopProjectIoCapabilities()
         : createBrowserProjectIoCapabilities(),
     );
   }
 
-  if (environment.canWriteRealFiles) {
+  if (desktop) {
     return new StorageProjectIoService(
       new TauriStorage(options.tauri),
       createDesktopProjectIoCapabilities(),

@@ -181,6 +181,14 @@ export function domainForKey(
   return [];
 }
 
+export function ordinalsForConstraint(
+  constraint: RangedConstraint,
+  total: number,
+): number[] {
+  const [start, end] = normalizedBounds(constraint, Math.max(1, total));
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
 function constraintsForKey(
   constraints: readonly RangedConstraint[],
   key: RangedConstraintKey,

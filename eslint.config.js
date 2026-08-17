@@ -6,7 +6,13 @@ import eslintConfigPrettier from "eslint-config-prettier/flat";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "node_modules", "src-tauri/target", "src-tauri/gen"],
+    ignores: [
+      ".ci",
+      "dist",
+      "node_modules",
+      "src-tauri/target",
+      "src-tauri/gen",
+    ],
   },
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
@@ -36,6 +42,35 @@ export default tseslint.config(
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },
+      ],
+    },
+  },
+  {
+    files: ["src/core/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        "window",
+        "document",
+        "Worker",
+        "self",
+        "navigator",
+        "localStorage",
+        "sessionStorage",
+      ],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: ["react", "react-dom", "lucide-react", "pixi.js", "zustand"],
+          patterns: [
+            "react/*",
+            "react-dom/*",
+            "@tauri-apps/*",
+            "lucide-react/*",
+            "pixi.js/*",
+            "zustand/*",
+          ],
+        },
       ],
     },
   },

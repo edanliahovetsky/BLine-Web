@@ -2,22 +2,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyGeneratedAutoRadii,
-  autoRadiiCapSolveInput,
   autoHandoffRadiusElementIndexes,
+  autoRadiiCapSolveInput,
   canGenerateAutoConstraints,
   clearGeneratedAutoConstraints,
-  generateAutoRadiiAndCaps,
-  refreshAutoRadiiAndCaps,
 } from "../../../src/core/constraints/autoConstraintGeneration";
 import { autoVelocitySettingsForPath } from "../../../src/core/constraints/autoVelocityApply";
-import { autoHandoffRadiusObjectiveCost } from "../../../src/core/constraints/autoHandoffRadiusObjective";
-import { validateAutoHandoffRadii } from "../../../src/core/constraints/autoHandoffRadiusValidation";
-import {
-  autoVelocityInputSignature,
-  evaluateAutoHandoffRadiusObjectiveInputs,
-  generateAutoVelocityProfile,
-} from "../../../src/core/constraints/autoVelocityConstraints";
-import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
+import { autoVelocityInputSignature } from "../../../src/core/constraints/autoVelocityConstraints";
+import { deserializePath } from "../../../src/core/io/projectSerde";
 import {
   createPathModel,
   createTranslationTarget,
@@ -25,7 +17,6 @@ import {
   setHandoffRadiusSource,
   type PathModel,
 } from "../../../src/core/model/path";
-import { deserializePath } from "../../../src/core/io/projectSerde";
 
 function pathOf(points: Array<[number, number]>): PathModel {
   return createPathModel({
@@ -44,26 +35,15 @@ function radiusAt(path: PathModel, index: number): number | null {
       : null;
 }
 
-function radiusObjectiveCost(path: PathModel): number {
-  return Math.min(
-    ...evaluateAutoHandoffRadiusObjectiveInputs(
-      path,
-      {},
-      {
-        includeGeneratedRadiiInCacheKey: true,
-      },
-    ).map((evaluation) => autoHandoffRadiusObjectiveCost(evaluation)),
+function solveInput(
+  path: PathModel,
+  config: Parameters<typeof autoRadiiCapSolveInput>[1] = {},
+) {
+  return autoRadiiCapSolveInput(
+    path,
+    config,
+    autoVelocitySettingsForPath(path, config),
   );
-}
-
-/** Element 2's geometric seed clears no gate at any speed; element 1's does. */
-function unhonorableCornerPath(): PathModel {
-  return pathOf([
-    [4.34, 0.95],
-    [5.55, 0.52],
-    [4.95, 1.78],
-    [5.24, 3.73],
-  ]);
 }
 
 const squarePath = () =>
@@ -74,6 +54,22 @@ const squarePath = () =>
     [8, 4],
   ]);
 
+function withGeneratedRadii(path: PathModel): PathModel {
+  return {
+    ...path,
+    path_elements: path.path_elements.map((element, index) =>
+      index > 0 &&
+      index < path.path_elements.length - 1 &&
+      element.type === "translation"
+        ? setHandoffRadiusSource(
+            { ...element, intermediate_handoff_radius_meters: 0.3 },
+            "auto",
+          )
+        : element,
+    ),
+  };
+}
+
 function sharpCornerPath(): PathModel {
   const turnRadians = (149.2 * Math.PI) / 180;
   return pathOf([
@@ -81,50 +77,6 @@ function sharpCornerPath(): PathModel {
     [3.65, 0],
     [3.65 + 3.78 * Math.cos(turnRadians), 3.78 * Math.sin(turnRadians)],
   ]);
-}
-
-const reversalPath = () =>
-  pathOf([
-    [0, 0],
-    [4, 0],
-    [0, 0],
-  ]);
-
-function coupledRadiusBasinPath(): PathModel {
-  return pathOf([
-    [5.7, 2.5],
-    [7, 4],
-    [14.88016, 2.7264],
-    [10.9, 5.5],
-  ]);
-}
-
-function candidateGapRegressionPath(): PathModel {
-  const fixture = deserializePath(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../fixtures/simulation/auto_radius_candidate_gap.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    ),
-  );
-  const autoRadiusIndexes = new Set([1, 3, 5]);
-
-  return {
-    ...fixture,
-    path_elements: fixture.path_elements.map((element, index) =>
-      autoRadiusIndexes.has(index)
-        ? setHandoffRadiusSource(element, "auto")
-        : element,
-    ),
-    ranged_constraints: fixture.ranged_constraints.map((constraint) => ({
-      ...constraint,
-      source: "auto_velocity",
-    })),
-  };
 }
 
 function strippedCompetitionFixture(): PathModel {
@@ -144,10 +96,7 @@ function strippedCompetitionFixture(): PathModel {
     ...fixture,
     path_elements: fixture.path_elements.map((element) =>
       element.type === "translation"
-        ? {
-            ...element,
-            intermediate_handoff_radius_meters: null,
-          }
+        ? { ...element, intermediate_handoff_radius_meters: null }
         : element.type === "waypoint"
           ? {
               ...element,
@@ -164,88 +113,9 @@ function strippedCompetitionFixture(): PathModel {
   };
 }
 
-describe("handoff radius validation", () => {
-  it("shrinks a seeded corner the follower cannot honor", () => {
-    const seeded = seedHandoffRadii(unhonorableCornerPath());
-    const validated = validateAutoHandoffRadii(seeded.path, {});
-
-    expect(validated.shrunkElementIndexes).toContain(2);
-    const seededRadius = radiusAt(seeded.path, 2) ?? 0;
-    const validatedRadius = radiusAt(validated.path, 2) ?? 0;
-    expect(validatedRadius).toBeLessThan(seededRadius);
-    expect(validatedRadius).toBeGreaterThanOrEqual(0.05);
-    // The path-level search may also improve a passing neighbor because its
-    // trace and traversal time are evaluated jointly.
-    expect(radiusAt(validated.path, 1)).toBeGreaterThanOrEqual(0.05);
-  });
-
-  it("descends from the geometric maximum into the measured corridor", () => {
-    const seeded = seedHandoffRadii(squarePath());
-    const validated = validateAutoHandoffRadii(seeded.path, {});
-
-    expect(validated.shrunkElementIndexes).toEqual([1, 2]);
-    expect(radiusAt(seeded.path, 1)).toBeCloseTo(1.96, 9);
-    expect(radiusAt(validated.path, 1)).toBeLessThan(
-      radiusAt(seeded.path, 1) ?? 0,
-    );
-    expect(radiusAt(validated.path, 2)).toBeLessThan(
-      radiusAt(seeded.path, 2) ?? 0,
-    );
-  });
-
-  it("never moves a pinned radius", () => {
-    const seeded = seedHandoffRadii(unhonorableCornerPath());
-    const pinned = {
-      ...seeded.path,
-      path_elements: seeded.path.path_elements.map((element, index) =>
-        index === 2 && element.type === "translation"
-          ? setHandoffRadiusSource(
-              { ...element, intermediate_handoff_radius_meters: 0.55 },
-              "manual",
-            )
-          : element,
-      ),
-    };
-
-    const validated = validateAutoHandoffRadii(pinned, {});
-
-    expect(validated.shrunkElementIndexes).not.toContain(2);
-    expect(radiusAt(validated.path, 2)).toBeCloseTo(0.55, 9);
-    expect(getHandoffRadiusSource(validated.path.path_elements[2])).toBe(
-      "manual",
-    );
-  });
-
-  it("returns the same radii for the same path", () => {
-    const seeded = seedHandoffRadii(unhonorableCornerPath());
-
-    expect(validateAutoHandoffRadii(seeded.path, {}).path).toEqual(
-      validateAutoHandoffRadii(seeded.path, {}).path,
-    );
-  });
-});
-
 describe("auto constraint generation", () => {
-  it("generates handoff radii and the caps solved for them", () => {
-    const path = squarePath();
-    expect(canGenerateAutoConstraints(path)).toBe(true);
-
-    const generated = generateAutoRadiiAndCaps(path, {});
-
-    expect(autoHandoffRadiusElementIndexes(generated.path_elements)).toEqual([
-      1, 2,
-    ]);
-    expect(radiusAt(generated, 1)).toBeGreaterThan(0);
-    expect(
-      generated.ranged_constraints.some(
-        (constraint) => constraint.source === "auto_velocity",
-      ),
-    ).toBe(true);
-  });
-
-  it("balances sharp-corner time against measured trace fidelity", () => {
-    const generated = generateAutoRadiiAndCaps(sharpCornerPath(), {});
-    const profile = generateAutoVelocityProfile(generated, {});
+  it("retains the sharp-corner radius and measured-fidelity policy", () => {
+    const solved = solveInput(sharpCornerPath());
     const legacyRadiusPath = {
       ...sharpCornerPath(),
       path_elements: sharpCornerPath().path_elements.map((element, index) =>
@@ -257,76 +127,66 @@ describe("auto constraint generation", () => {
           : element,
       ),
     };
-    const legacyProfile = generateAutoVelocityProfile(
-      generateAutoRadiiAndCaps(legacyRadiusPath, {}),
-      {},
-    );
+    const legacy = solveInput(legacyRadiusPath);
 
-    expect(radiusAt(generated, 1)).toBeGreaterThan(0.05);
-    expect(profile.diagnostics.totalTimeS).toBeLessThan(
-      legacyProfile.diagnostics.totalTimeS,
-    );
-    expect(profile.diagnostics.maxCorridorDeviationRatio).toBeLessThanOrEqual(
-      1,
+    expect(radiusAt(solved.path, 1)).toBeGreaterThan(0.05);
+    expect(solved.profile.diagnostics.totalTimeS).toBeLessThan(
+      legacy.profile.diagnostics.totalTimeS,
     );
     expect(
-      profile.diagnostics.handoffs[0]?.corridorDeviationMeters,
+      solved.profile.diagnostics.maxCorridorDeviationRatio,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      solved.profile.diagnostics.handoffs[0]?.corridorDeviationMeters,
     ).toBeLessThanOrEqual(0.26);
   });
 
-  it("limits early handoff on a reversal despite its shared corridor", () => {
-    const generated = generateAutoRadiiAndCaps(reversalPath(), {});
-    const profile = generateAutoVelocityProfile(generated, {});
+  it("retains the reversal radius and handoff-safety policy", () => {
+    const solved = solveInput(
+      pathOf([
+        [0, 0],
+        [4, 0],
+        [0, 0],
+      ]),
+    );
+    const handoff = solved.profile.diagnostics.handoffs[0];
 
-    expect(radiusAt(generated, 1)).toBeGreaterThanOrEqual(0.5);
-    expect(radiusAt(generated, 1)).toBeLessThanOrEqual(0.9);
-    expect(
-      profile.diagnostics.handoffs[0]?.corridorDeviationMeters,
-    ).toBeLessThanOrEqual(
-      profile.diagnostics.handoffs[0]?.corridorToleranceMeters ?? 0,
+    expect(radiusAt(solved.path, 1)).toBeGreaterThanOrEqual(0.5);
+    expect(radiusAt(solved.path, 1)).toBeLessThanOrEqual(0.9);
+    expect(handoff?.earlyHandoffRatio).toBeLessThanOrEqual(0.2);
+    expect(handoff?.corridorDeviationMeters).toBeLessThanOrEqual(
+      handoff?.corridorToleranceMeters ?? 0,
     );
-    expect(
-      profile.diagnostics.handoffs[0]?.overshootErrorMeters,
-    ).toBeLessThanOrEqual(
-      profile.diagnostics.handoffs[0]?.overshootToleranceMeters ?? 0,
+    expect(handoff?.overshootErrorMeters).toBeLessThanOrEqual(
+      handoff?.overshootToleranceMeters ?? 0,
     );
-    expect(
-      profile.diagnostics.handoffs[0]?.earlyHandoffRatio,
-    ).toBeLessThanOrEqual(0.2);
   });
 
-  it("escapes a coupled minimum-radius basin before coordinate refinement", () => {
-    const generated = generateAutoRadiiAndCaps(coupledRadiusBasinPath(), {});
-    const profile = generateAutoVelocityProfile(generated, {});
+  it("retains the coupled minimum-radius basin policy", () => {
+    const solved = solveInput(
+      pathOf([
+        [5.7, 2.5],
+        [7, 4],
+        [14.88016, 2.7264],
+        [10.9, 5.5],
+      ]),
+    );
 
-    expect(radiusAt(generated, 1)).toBeGreaterThan(0.2);
-    expect(radiusAt(generated, 2)).toBeGreaterThan(0.4);
-    expect(profile.diagnostics.totalTimeS).toBeLessThan(6);
+    expect(radiusAt(solved.path, 1)).toBeGreaterThan(0.2);
+    expect(radiusAt(solved.path, 2)).toBeGreaterThan(0.4);
+    expect(solved.profile.diagnostics.totalTimeS).toBeLessThan(6);
     expect(
-      profile.diagnostics.handoffs.every(
+      solved.profile.diagnostics.handoffs.every(
         (handoff) => !handoff.skippedOutgoingSegment,
       ),
     ).toBe(true);
-    expect(profile.diagnostics.maxHandoffErrorRatio).toBeLessThan(1.05);
-    expect(profile.diagnostics.maxCorridorDeviationRatio).toBeLessThan(1);
-  });
-
-  it("refines a skipped interval instead of stranding a valid radius at the floor", () => {
-    const original = candidateGapRegressionPath();
-    const validated = validateAutoHandoffRadii(original, {});
-    const profile = generateAutoVelocityProfile(validated.path, {});
-
-    expect(radiusAt(validated.path, 3)).toBeGreaterThanOrEqual(0.1);
-    expect(radiusAt(validated.path, 3)).toBeLessThanOrEqual(0.45);
-    expect(radiusObjectiveCost(validated.path)).toBeLessThan(
-      radiusObjectiveCost(original),
+    expect(solved.profile.diagnostics.maxHandoffErrorRatio).toBeLessThan(1.05);
+    expect(solved.profile.diagnostics.maxCorridorDeviationRatio).toBeLessThan(
+      1,
     );
-    expect(
-      profile.diagnostics.handoffs.every((handoff) => handoff.passed),
-    ).toBe(true);
   });
 
-  it("keeps the dense competition fixture inside its measured corridor", () => {
+  it("retains the real competition-path radius and corridor policy", () => {
     const config = {
       default_max_velocity_meters_per_sec: 4.5,
       default_max_acceleration_meters_per_sec2: 12,
@@ -334,64 +194,24 @@ describe("auto constraint generation", () => {
       default_max_velocity_deg_per_sec: 720,
       default_max_acceleration_deg_per_sec2: 2000,
     };
-    const generated = generateAutoRadiiAndCaps(
-      strippedCompetitionFixture(),
-      config,
-    );
-    const profile = generateAutoVelocityProfile(generated, config);
+    const solved = solveInput(strippedCompetitionFixture(), config);
     const generatedRadii = autoHandoffRadiusElementIndexes(
-      generated.path_elements,
-    ).map((index) => radiusAt(generated, index) ?? 0);
+      solved.path.path_elements,
+    ).map((index) => radiusAt(solved.path, index) ?? 0);
 
-    // One interior run is effectively collinear, so fourteen of the fifteen
-    // interior anchors carry a meaningful generated corner radius.
     expect(generatedRadii).toHaveLength(14);
     expect(generatedRadii.every((radius) => radius >= 0.05)).toBe(true);
-    expect(profile.diagnostics.reachedEnd).toBe(true);
-    expect(profile.diagnostics.maxCorridorDeviationRatio).toBeLessThanOrEqual(
-      1,
-    );
+    expect(solved.profile.diagnostics.reachedEnd).toBe(true);
     expect(
-      profile.diagnostics.handoffs.every((handoff) => handoff.passed),
+      solved.profile.diagnostics.maxCorridorDeviationRatio,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      solved.profile.diagnostics.handoffs.every((handoff) => handoff.passed),
     ).toBe(true);
   }, 15_000);
 
-  it("refreshes only a path that already carries generated values", () => {
-    const path = squarePath();
-    expect(refreshAutoRadiiAndCaps(path, {})).toBe(path);
-
-    const generated = generateAutoRadiiAndCaps(path, {});
-    // Deterministic and idempotent: the sync applies this to its own output.
-    expect(refreshAutoRadiiAndCaps(generated, {})).toEqual(generated);
-  });
-
-  it("regenerates radii and caps after the geometry moves", () => {
-    const generated = generateAutoRadiiAndCaps(
-      pathOf([
-        [0, 0],
-        [1, 0],
-        [1.6, 0.8],
-        [3, 0.8],
-      ]),
-      {},
-    );
-    const moved = {
-      ...generated,
-      path_elements: generated.path_elements.map((element, index) =>
-        index === 1 && element.type === "translation"
-          ? { ...element, x_meters: 0.6 }
-          : element,
-      ),
-    };
-
-    const refreshed = refreshAutoRadiiAndCaps(moved, {});
-
-    expect(radiusAt(refreshed, 1)).toBeLessThan(radiusAt(generated, 1) ?? 0);
-    expect(getHandoffRadiusSource(refreshed.path_elements[1])).toBe("auto");
-  });
-
   it("keeps generated radii out of the input signature", () => {
-    const generated = generateAutoRadiiAndCaps(squarePath(), {});
+    const generated = withGeneratedRadii(squarePath());
     const nudged = {
       ...generated,
       path_elements: generated.path_elements.map((element, index) =>
@@ -494,7 +314,20 @@ describe("auto constraint generation", () => {
   });
 
   it("clears generated values and keeps pinned ones", () => {
-    const generated = generateAutoRadiiAndCaps(squarePath(), {});
+    const generatedRadii = withGeneratedRadii(squarePath());
+    const generated = {
+      ...generatedRadii,
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec" as const,
+          value: 2,
+          start_ordinal: 1,
+          end_ordinal: 4,
+          source: "auto_velocity" as const,
+          auto_velocity: null,
+        },
+      ],
+    };
     const withPin = {
       ...generated,
       path_elements: generated.path_elements.map((element, index) =>
@@ -517,7 +350,7 @@ describe("auto constraint generation", () => {
   });
 
   it("reports a fully pinned path as nothing to generate", () => {
-    const generated = generateAutoRadiiAndCaps(squarePath(), {});
+    const generated = withGeneratedRadii(squarePath());
     const pinned = {
       ...generated,
       path_elements: generated.path_elements.map((element) =>

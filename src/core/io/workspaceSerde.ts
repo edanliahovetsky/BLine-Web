@@ -33,8 +33,6 @@ import {
   type SerializedHandoffRadiusSource,
   type SerializedLinkedPathElementTarget,
   type SerializedLinkedTarget,
-  type SerializedProjectPathGroupDocument,
-  type SerializedProjectPathDocument,
   type SerializedPathEditorMetadata,
   type SerializedProjectWorkspaceDocument,
   type SerializedRangedConstraintMetadata,
@@ -48,18 +46,6 @@ import {
 export interface DeserializeWorkspaceOptions {
   fallbackProjectId?: string;
   fallbackDisplayName?: string;
-}
-
-export interface ProjectWorkspaceArchive {
-  schema_version: 1;
-  project_id: string;
-  display_name: string;
-  config: ProjectConfig;
-  paths: SerializedProjectPathDocument[];
-  active_path_id?: string | null;
-  path_groups?: SerializedProjectPathGroupDocument[];
-  active_path_group_id?: string | null;
-  linked_targets?: SerializedLinkedTarget[];
 }
 
 export interface SerializedPathGroupsFile {
@@ -580,15 +566,6 @@ export function removePathsFromGroupInWorkspace(
   return nextWorkspace.active_path_group_id === groupId
     ? setActivePathGroupInWorkspace(nextWorkspace, groupId)
     : nextWorkspace;
-}
-
-export function pathGroupsFromFile(
-  input: unknown,
-  paths: readonly ProjectPathDocument[],
-): ProjectPathGroupDocument[] {
-  return deserializeProjectPathGroups(readPathGroupArray(input), paths, {
-    preferFileNames: true,
-  });
 }
 
 export function serializePathGroupsFile(

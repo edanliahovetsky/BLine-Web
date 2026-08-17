@@ -291,9 +291,7 @@ describe("production joint optimizer parity", () => {
           expect(
             production.stats.objectiveCost,
             `${name} at ${configName}`,
-          ).toBeLessThanOrEqual(
-            oracle.stats.objectiveCost + 1e-6,
-          );
+          ).toBeLessThanOrEqual(oracle.stats.objectiveCost + 1e-6);
           report.push({
             name,
             config: configName,

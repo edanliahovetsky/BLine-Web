@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
-import { autoRadiiCapSolveInput } from "./autoConstraintGeneration";
-import { autoVelocityInputSignature } from "./autoVelocityConstraints";
+import { autoRadiiCapSolveInput } from "../core/constraints/autoConstraintGeneration";
+import { autoVelocityInputSignature } from "../core/constraints/autoVelocityConstraints";
 import type {
   AutoVelocityWorkerRequest,
   AutoVelocityWorkerResponse,

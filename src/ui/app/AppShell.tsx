@@ -13,9 +13,8 @@ import type {
   FocusEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Activity,
   CircleHelp,
@@ -65,6 +64,11 @@ import {
   createProjectIoService,
   type ProjectIoCapabilities,
 } from "../../platform/projectIo";
+import {
+  downloadBlob,
+  isAbortError,
+  saveBlobAs,
+} from "../../platform/fileExport";
 import {
   createProjectAutosaveCoordinator,
   type AutosaveCoordinator,
@@ -156,6 +160,25 @@ interface LinkedTargetPickerRequest {
   element: PathElement;
 }
 
+interface PathNameAction {
+  kind: "duplicate" | "rename";
+  pathId: string;
+  initialName: string;
+}
+
+type LibraryNameAction =
+  | {
+      kind: "rename-group";
+      groupId: string;
+      initialName: string;
+    }
+  | {
+      kind: "duplicate-path" | "rename-path";
+      pathId: string;
+      initialName: string;
+      addToGroupId: string | null;
+    };
+
 export function AppShell() {
   const workspace = useStoreSelector(projectStore, (state) => state.workspace);
   const project = useStoreSelector(projectStore, (state) => state.project);
@@ -207,6 +230,9 @@ export function AppShell() {
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
   const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
+  const [pathNameAction, setPathNameAction] = useState<PathNameAction | null>(
+    null,
+  );
   const [showLinkedTargetsDialog, setShowLinkedTargetsDialog] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
@@ -252,6 +278,7 @@ export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
+  const pathMenuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const setActiveTopMenu = useCallback((menu: TopMenuId | null) => {
     if (menu) {
@@ -725,9 +752,8 @@ export function AppShell() {
   }, []);
 
   const [resolvingConflict, setResolvingConflict] = useState(false);
-  const [conflictDiff, setConflictDiff] = useState<WorkspaceConflictDiff | null>(
-    null,
-  );
+  const [conflictDiff, setConflictDiff] =
+    useState<WorkspaceConflictDiff | null>(null);
   const [conflictDiffLoading, setConflictDiffLoading] = useState(false);
 
   useEffect(() => {
@@ -875,6 +901,28 @@ export function AppShell() {
         return;
       }
 
+      if (
+        hasActiveBlockingSurface({
+          openTopMenu,
+          showCommandPalette,
+          showConfigDialog,
+          showDeletePathDialog,
+          showDeleteProjectDialog,
+          showLinkedTargetsDialog,
+          showMobileSupportWarning,
+          showNameEntryDialog: pathNameAction !== null,
+          showNewPathDialog,
+          showNewProjectDialog,
+          showOpenPanel,
+          showPathGroupsDialog,
+          showSaveConflict: status === "conflict",
+          showShortcutHelp,
+          showTourPicker,
+        })
+      ) {
+        return;
+      }
+
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
 
@@ -938,20 +986,6 @@ export function AppShell() {
       }
 
       if (
-        hasActiveBlockingSurface({
-          openTopMenu,
-          showCommandPalette,
-          showConfigDialog,
-          showNewProjectDialog,
-          showNewPathDialog,
-          showDeletePathDialog,
-          showDeleteProjectDialog,
-          showShortcutHelp,
-          showPathGroupsDialog,
-          showLinkedTargetsDialog,
-          showMobileSupportWarning,
-          showOpenPanel,
-        }) ||
         isEditableShortcutTarget(event.target) ||
         (isInteractiveShortcutTarget(event.target) &&
           !isPathElementShortcutTarget(event.target) &&
@@ -1055,6 +1089,9 @@ export function AppShell() {
     showMobileSupportWarning,
     showOpenPanel,
     showNewPathDialog,
+    pathNameAction,
+    showTourPicker,
+    status,
   ]);
 
   const beginToolbarAction = useCallback(
@@ -1333,28 +1370,20 @@ export function AppShell() {
     input.click();
   }, [beginToolbarAction, endToolbarAction]);
 
-  const handleSavePathAs = useCallback(async () => {
+  const handleSavePathAs = useCallback(() => {
     const activeWorkspace = projectStore.getState().workspace;
     const activePath = activePathDocument(activeWorkspace);
     if (!activePath) {
       return;
     }
 
-    const rawName = window.prompt("Save Path As", activePath.display_name);
-    const displayName = rawName?.trim();
-    if (!displayName) {
-      setOpenTopMenu(null);
-      return;
-    }
-
-    try {
-      projectStore.getState().duplicatePath(activePath.path_id, displayName);
-      selectionStore.getState().clearSelection();
-    } catch (caughtError) {
-      projectStore.getState().markSaveError(caughtError);
-    } finally {
-      setOpenTopMenu(null);
-    }
+    pathMenuButtonRef.current?.focus();
+    setPathNameAction({
+      kind: "duplicate",
+      pathId: activePath.path_id,
+      initialName: activePath.display_name,
+    });
+    setOpenTopMenu(null);
   }, []);
 
   const handleRenamePath = useCallback(() => {
@@ -1364,16 +1393,39 @@ export function AppShell() {
       return;
     }
 
-    const rawName = window.prompt("Rename Path", activePath.display_name);
-    const displayName = rawName?.trim();
-    if (!displayName) {
-      setOpenTopMenu(null);
-      return;
-    }
-
-    projectStore.getState().renamePath(activePath.path_id, displayName);
+    pathMenuButtonRef.current?.focus();
+    setPathNameAction({
+      kind: "rename",
+      pathId: activePath.path_id,
+      initialName: activePath.display_name,
+    });
     setOpenTopMenu(null);
   }, []);
+
+  const handleConfirmPathNameAction = useCallback(
+    (displayName: string) => {
+      if (!pathNameAction) {
+        return;
+      }
+
+      try {
+        if (pathNameAction.kind === "duplicate") {
+          projectStore
+            .getState()
+            .duplicatePath(pathNameAction.pathId, displayName);
+          selectionStore.getState().clearSelection();
+        } else {
+          projectStore
+            .getState()
+            .renamePath(pathNameAction.pathId, displayName);
+        }
+        setPathNameAction(null);
+      } catch (caughtError) {
+        projectStore.getState().markSaveError(caughtError);
+      }
+    },
+    [pathNameAction],
+  );
 
   const handleShowDeletePaths = useCallback(() => {
     setShowDeletePathDialog(true);
@@ -1480,9 +1532,7 @@ export function AppShell() {
             createUpdateProjectConfigCommand(activeProject.config, nextConfig),
           );
       }
-      autoVelocityStore
-        .getState()
-        .setAutoSyncEnabled(options.autoSyncEnabled);
+      autoVelocityStore.getState().setAutoSyncEnabled(options.autoSyncEnabled);
       setShowConfigDialog(false);
     },
     [],
@@ -1860,6 +1910,7 @@ export function AppShell() {
             id="path"
             label="Path"
             active
+            triggerRef={pathMenuButtonRef}
             openTopMenu={openTopMenu}
             setOpenTopMenu={setActiveTopMenu}
           >
@@ -2401,6 +2452,28 @@ export function AppShell() {
           onImportPath={() => queueFileImport("path")}
         />
       ) : null}
+      {pathNameAction ? (
+        <NameEntryDialog
+          ariaLabel={
+            pathNameAction.kind === "duplicate" ? "Save Path As" : "Rename Path"
+          }
+          title={
+            pathNameAction.kind === "duplicate" ? "Save Path As" : "Rename Path"
+          }
+          description={
+            pathNameAction.kind === "duplicate"
+              ? "Create a separate editable copy of this path."
+              : "Update the path name everywhere it appears in this project."
+          }
+          fieldLabel="Path name"
+          initialValue={pathNameAction.initialName}
+          submitLabel={
+            pathNameAction.kind === "duplicate" ? "Save Copy" : "Rename"
+          }
+          onCancel={() => setPathNameAction(null)}
+          onSubmit={handleConfirmPathNameAction}
+        />
+      ) : null}
       {workspace && showLinkedTargetsDialog ? (
         <LinkedTargetsDialog
           linkRequest={linkedTargetPickerRequest}
@@ -2755,14 +2828,17 @@ function SaveConflictDiffSummary({
   if (!diff.hasChanges) {
     return (
       <p className="save-conflict-diff save-conflict-diff--muted">
-        The files were touched but the contents match your version. Either option
-        is safe.
+        The files were touched but the contents match your version. Either
+        option is safe.
       </p>
     );
   }
 
   const rows: { label: string; items: string[] }[] = [
-    { label: "Only in your version (will be added on disk)", items: diff.addedPaths },
+    {
+      label: "Only in your version (will be added on disk)",
+      items: diff.addedPaths,
+    },
     {
       label: "Only on disk (will be removed if you overwrite)",
       items: diff.removedPaths,
@@ -3178,6 +3254,95 @@ function NewPathDialog({
   );
 }
 
+function NameEntryDialog({
+  ariaLabel,
+  description,
+  fieldLabel,
+  initialValue,
+  onCancel,
+  onSubmit,
+  submitLabel,
+  title,
+}: {
+  ariaLabel: string;
+  description: string;
+  fieldLabel: string;
+  initialValue: string;
+  onCancel(): void;
+  onSubmit(displayName: string): void;
+  submitLabel: string;
+  title: string;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLFormElement>();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [displayName, setDisplayName] = useState(initialValue);
+  const normalizedName = displayName.trim();
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <form
+        ref={dialogRef}
+        className="new-path-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (normalizedName) {
+            onSubmit(normalizedName);
+          }
+        }}
+      >
+        <header className="config-dialog__header">
+          <div>
+            <strong>{title}</strong>
+            <span>{description}</span>
+          </div>
+          <CloseButton
+            ariaLabel={`Close ${ariaLabel.toLocaleLowerCase()}`}
+            onClick={onCancel}
+          />
+        </header>
+        <section className="new-path-dialog__body">
+          <label className="dialog-field">
+            <span>{fieldLabel}</span>
+            <input
+              ref={inputRef}
+              aria-label={fieldLabel}
+              type="text"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.currentTarget.value)}
+            />
+          </label>
+        </section>
+        <footer className="config-dialog__footer">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="primary-dialog-action"
+            disabled={!normalizedName}
+          >
+            {submitLabel}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
 function PathLibraryDialog({
   workspace,
   onCancel,
@@ -3206,10 +3371,46 @@ function PathLibraryDialog({
     useState(false);
   const [deletingGroup, setDeletingGroup] =
     useState<ProjectPathGroupDocument | null>(null);
+  const [nameAction, setNameAction] = useState<LibraryNameAction | null>(null);
 
   useEffect(() => {
     searchInputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        deletingGroup ||
+        showCreateCollectionDialog ||
+        nameAction
+      ) {
+        return;
+      }
+
+      const modifier = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (
+        !modifier ||
+        event.altKey ||
+        isEditableShortcutTarget(event.target) ||
+        (key !== "z" && key !== "y")
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      if (key === "y" || event.shiftKey) {
+        projectStore.getState().redo();
+      } else {
+        projectStore.getState().undo();
+      }
+    };
+
+    window.addEventListener("keydown", handleHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+  }, [deletingGroup, nameAction, showCreateCollectionDialog]);
+
   const selectedGroup =
     workspace.path_groups.find((group) => group.group_id === selectedGroupId) ??
     null;
@@ -3280,18 +3481,11 @@ function PathLibraryDialog({
       return;
     }
 
-    const rawName = window.prompt(
-      "Rename Collection",
-      selectedGroup.display_name,
-    );
-    const displayName = rawName?.trim();
-    if (!displayName) {
-      return;
-    }
-
-    projectStore
-      .getState()
-      .renamePathGroup(selectedGroup.group_id, displayName);
+    setNameAction({
+      kind: "rename-group",
+      groupId: selectedGroup.group_id,
+      initialName: selectedGroup.display_name,
+    });
   };
 
   const handleToggleSelectedPathMembership = (
@@ -3322,23 +3516,12 @@ function PathLibraryDialog({
       return;
     }
 
-    const rawName = window.prompt("Save Path As", selectedPath.display_name);
-    const displayName = rawName?.trim();
-    if (!displayName) {
-      return;
-    }
-
-    try {
-      projectStore.getState().duplicatePath(selectedPath.path_id, displayName, {
-        addToGroupId: selectedGroup?.group_id ?? null,
-      });
-      const nextPathId =
-        projectStore.getState().workspace?.active_path_id ?? null;
-      selectionStore.getState().clearSelection();
-      setSelectedPathId(nextPathId);
-    } catch (caughtError) {
-      projectStore.getState().markSaveError(caughtError);
-    }
+    setNameAction({
+      kind: "duplicate-path",
+      pathId: selectedPath.path_id,
+      initialName: selectedPath.display_name,
+      addToGroupId: selectedGroup?.group_id ?? null,
+    });
   };
 
   const handleRenameSelectedPath = () => {
@@ -3346,14 +3529,40 @@ function PathLibraryDialog({
       return;
     }
 
-    const rawName = window.prompt("Rename Path", selectedPath.display_name);
-    const displayName = rawName?.trim();
-    if (!displayName) {
+    setNameAction({
+      kind: "rename-path",
+      pathId: selectedPath.path_id,
+      initialName: selectedPath.display_name,
+      addToGroupId: selectedGroup?.group_id ?? null,
+    });
+  };
+
+  const handleConfirmNameAction = (displayName: string) => {
+    if (!nameAction) {
       return;
     }
 
-    projectStore.getState().renamePath(selectedPath.path_id, displayName);
-    setSelectedPathId(selectedPath.path_id);
+    try {
+      if (nameAction.kind === "rename-group") {
+        projectStore
+          .getState()
+          .renamePathGroup(nameAction.groupId, displayName);
+      } else if (nameAction.kind === "duplicate-path") {
+        projectStore.getState().duplicatePath(nameAction.pathId, displayName, {
+          addToGroupId: nameAction.addToGroupId,
+        });
+        const nextPathId =
+          projectStore.getState().workspace?.active_path_id ?? null;
+        selectionStore.getState().clearSelection();
+        setSelectedPathId(nextPathId);
+      } else {
+        projectStore.getState().renamePath(nameAction.pathId, displayName);
+        setSelectedPathId(nameAction.pathId);
+      }
+      setNameAction(null);
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    }
   };
 
   const handleExportSelectedPath = () => {
@@ -3700,6 +3909,40 @@ function PathLibraryDialog({
         <CreateCollectionDialog
           onCancel={() => setShowCreateCollectionDialog(false)}
           onCreate={handleCreateGroup}
+        />
+      ) : null}
+      {nameAction ? (
+        <NameEntryDialog
+          ariaLabel={
+            nameAction.kind === "rename-group"
+              ? "Rename Collection"
+              : nameAction.kind === "duplicate-path"
+                ? "Save Path As"
+                : "Rename Path"
+          }
+          title={
+            nameAction.kind === "rename-group"
+              ? "Rename Collection"
+              : nameAction.kind === "duplicate-path"
+                ? "Save Path As"
+                : "Rename Path"
+          }
+          description={
+            nameAction.kind === "rename-group"
+              ? "Update this collection name without changing its paths."
+              : nameAction.kind === "duplicate-path"
+                ? "Create a separate editable copy of this path."
+                : "Update the path name everywhere it appears in this project."
+          }
+          fieldLabel={
+            nameAction.kind === "rename-group" ? "Collection name" : "Path name"
+          }
+          initialValue={nameAction.initialName}
+          submitLabel={
+            nameAction.kind === "duplicate-path" ? "Save Copy" : "Rename"
+          }
+          onCancel={() => setNameAction(null)}
+          onSubmit={handleConfirmNameAction}
         />
       ) : null}
     </div>
@@ -4321,6 +4564,7 @@ function TopMenuButton({
   label,
   active = false,
   disabled = false,
+  triggerRef,
   openTopMenu,
   setOpenTopMenu,
   onBeforeOpen,
@@ -4331,6 +4575,7 @@ function TopMenuButton({
   label: string;
   active?: boolean;
   disabled?: boolean;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   openTopMenu: TopMenuId | null;
   setOpenTopMenu(menu: TopMenuId | null): void;
   onBeforeOpen?: () => Promise<unknown> | void;
@@ -4351,6 +4596,7 @@ function TopMenuButton({
   return (
     <div className={className}>
       <button
+        ref={triggerRef}
         type="button"
         className={active ? "is-active" : undefined}
         aria-haspopup="menu"
@@ -4736,42 +4982,51 @@ function hasActiveBlockingSurface({
   openTopMenu,
   showCommandPalette,
   showConfigDialog,
-  showNewProjectDialog,
-  showNewPathDialog,
   showDeletePathDialog,
   showDeleteProjectDialog,
-  showPathGroupsDialog,
   showLinkedTargetsDialog,
   showMobileSupportWarning,
+  showNameEntryDialog,
+  showNewPathDialog,
+  showNewProjectDialog,
   showOpenPanel,
+  showPathGroupsDialog,
+  showSaveConflict,
   showShortcutHelp,
+  showTourPicker,
 }: {
   openTopMenu: TopMenuId | null;
   showCommandPalette: boolean;
   showConfigDialog: boolean;
-  showNewProjectDialog: boolean;
-  showNewPathDialog: boolean;
   showDeletePathDialog: boolean;
   showDeleteProjectDialog: boolean;
-  showPathGroupsDialog: boolean;
   showLinkedTargetsDialog: boolean;
   showMobileSupportWarning: boolean;
+  showNameEntryDialog: boolean;
+  showNewPathDialog: boolean;
+  showNewProjectDialog: boolean;
   showOpenPanel: boolean;
+  showPathGroupsDialog: boolean;
+  showSaveConflict: boolean;
   showShortcutHelp: boolean;
+  showTourPicker: boolean;
 }): boolean {
   return Boolean(
     openTopMenu ||
     showCommandPalette ||
     showConfigDialog ||
-    showNewProjectDialog ||
-    showNewPathDialog ||
     showDeletePathDialog ||
     showDeleteProjectDialog ||
-    showPathGroupsDialog ||
     showLinkedTargetsDialog ||
     showMobileSupportWarning ||
+    showNameEntryDialog ||
+    showNewPathDialog ||
+    showNewProjectDialog ||
     showOpenPanel ||
-    showShortcutHelp,
+    showPathGroupsDialog ||
+    showSaveConflict ||
+    showShortcutHelp ||
+    showTourPicker,
   );
 }
 
@@ -5517,61 +5772,6 @@ function formatTimestamp(value: string): string {
   });
 }
 
-async function saveBlobAs(
-  blob: Blob,
-  fileName: string,
-  {
-    title,
-    useNativeSaveDialog,
-  }: {
-    title: string;
-    useNativeSaveDialog: boolean;
-  },
-): Promise<boolean> {
-  if (useNativeSaveDialog) {
-    return invoke<boolean>("storage_write_text_file_dialog", {
-      contents: await blob.text(),
-      defaultFileName: fileName,
-      title,
-    });
-  }
-
-  const saveFilePicker = (window as BrowserSaveWindow).showSaveFilePicker;
-  if (saveFilePicker) {
-    const fileHandle = await saveFilePicker.call(window, {
-      suggestedName: fileName,
-      types: [
-        {
-          accept: {
-            "application/json": [".json"],
-          },
-          description: "JSON files",
-        },
-      ],
-    });
-    const writable = await fileHandle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    return true;
-  }
-
-  downloadBlob(blob, fileName);
-  return true;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
-}
-
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 function safeDownloadName(value: string): string {
   return (
     value
@@ -5621,23 +5821,4 @@ function toolHint(tool: EditorTool, curveDrawing: boolean): string {
     return "Drag across the field to sketch a curve · Esc cancels";
   }
   return `Click the field to place a ${tool} · Esc cancels`;
-}
-
-interface BrowserSaveWindow extends Window {
-  showSaveFilePicker?: (options?: {
-    suggestedName?: string;
-    types?: Array<{
-      accept: Record<string, string[]>;
-      description: string;
-    }>;
-  }) => Promise<BrowserFileHandle>;
-}
-
-interface BrowserFileHandle {
-  createWritable(): Promise<BrowserWritableFileStream>;
-}
-
-interface BrowserWritableFileStream {
-  write(data: Blob): Promise<void>;
-  close(): Promise<void>;
 }

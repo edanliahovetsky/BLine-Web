@@ -80,8 +80,7 @@ export function ProjectConfigDialog({
   const [fieldUploading, setFieldUploading] = useState(false);
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
   const configChanged = !configsEqual(initialConfig, normalizedDraft);
-  const isDirty =
-    configChanged || draftAutoSyncEnabled !== autoSyncEnabled;
+  const isDirty = configChanged || draftAutoSyncEnabled !== autoSyncEnabled;
   const selectedField = useMemo(
     () => resolveFieldDefinition(draft.gui.field),
     [draft.gui.field],

@@ -14,14 +14,10 @@ import {
 import type { SimulationConfig } from "../sim/types";
 import {
   autoVelocityGenerationOptions,
-  autoVelocitySettingsForPath,
-  refreshAutoVelocityConstraints,
   type AutoVelocitySettings,
 } from "./autoVelocityApply";
 import {
-  autoVelocityInputSignature,
   jointAutoConstraintSearchPlan,
-  primeAutoVelocityProfileCache,
   solveJointAutoConstraints,
   type AutoVelocityGenerationOptions,
   type AutoVelocityProfile,
@@ -30,65 +26,9 @@ import {
   type JointAutoConstraintSearchPlan,
 } from "./autoVelocityConstraints";
 
-export interface AutoConstraintGenerationOptions {
-  /** Optimizer settings to solve with, for callers editing them live. */
-  settings?: AutoVelocitySettings;
-}
-
 const autoVelocityKey = "max_velocity_meters_per_sec";
 /** A fully searchable 16-anchor path; larger searches get a quiet UI warning. */
 export const autoConstraintLargePathWarningBudget = 7_268;
-
-/**
- * The whole optimizer: seed the handoff radii nobody pinned, select generated
- * radii against whole-path traces, then solve velocity caps for that geometry.
- * One pass, because the radii are inputs to the cap solve.
- */
-export function generateAutoRadiiAndCaps(
-  path: PathModel,
-  config: SimulationConfig,
-  options: AutoConstraintGenerationOptions = {},
-): PathModel {
-  return generate(path, config, options, false);
-}
-
-/**
- * The background variant: only touches a path already carrying generated
- * values, so a first Generate stays an explicit choice. Deterministic and
- * idempotent — re-seeding ignores whatever the last pass wrote — which is what
- * keeps the sync from chasing its own output.
- */
-export function refreshAutoRadiiAndCaps(
-  path: PathModel,
-  config: SimulationConfig,
-  options: AutoConstraintGenerationOptions = {},
-): PathModel {
-  if (!hasGeneratedAutoConstraints(path)) {
-    return path;
-  }
-
-  return generate(path, config, options, true);
-}
-
-function generate(
-  path: PathModel,
-  config: SimulationConfig,
-  options: AutoConstraintGenerationOptions,
-  whenPresentOnly: boolean,
-): PathModel {
-  const settings =
-    options.settings ?? autoVelocitySettingsForPath(path, config);
-
-  const input = autoRadiiCapSolveInput(path, config, settings);
-  primeAutoVelocityProfileCache(
-    autoVelocityInputSignature(input.path, config, input.options),
-    input.profile,
-  );
-  return refreshAutoVelocityConstraints(input.path, config, {
-    whenPresentOnly,
-    settings,
-  });
-}
 
 export interface AutoHandoffRadiusAssignment {
   elementIndex: number;

@@ -1,10 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import {
+  applyGeneratedAutoRadii,
   autoConstraintLargePathWarningBudget,
-  generateAutoRadiiAndCaps,
 } from "../../../src/core/constraints/autoConstraintGeneration";
+import {
+  autoVelocitySettingsForPath,
+  refreshAutoVelocityConstraints,
+} from "../../../src/core/constraints/autoVelocityApply";
+import {
+  requestAutoRadiiAndCaps,
+  resetAutoVelocityRunner,
+  supersededAutoVelocityProfile,
+} from "../../../src/platform/autoVelocityRunner";
 import {
   jointAutoConstraintSearchPlan,
   preferredNearStraightHandoffRadiusMeters,
@@ -26,6 +35,24 @@ function pathOf(points: Array<[number, number]>): PathModel {
     ),
   });
 }
+
+async function generatePersistedPolicy(
+  path: PathModel,
+  config: Parameters<typeof requestAutoRadiiAndCaps>[1] = {},
+): Promise<PathModel> {
+  const settings = autoVelocitySettingsForPath(path, config);
+  const run = await requestAutoRadiiAndCaps(path, config, settings);
+  if (run === supersededAutoVelocityProfile) {
+    throw new Error("Expected the live generation request to complete");
+  }
+  return refreshAutoVelocityConstraints(
+    applyGeneratedAutoRadii(path, run.radii),
+    config,
+    { whenPresentOnly: false, settings },
+  );
+}
+
+afterEach(() => resetAutoVelocityRunner());
 
 function generatedRadii(path: PathModel): number[] {
   return path.path_elements.flatMap((element) => {
@@ -375,7 +402,7 @@ describe("solveJointAutoConstraints", () => {
     );
   });
 
-  it("produces a persisted policy that the production simulator completes", () => {
+  it("produces a persisted policy that the production simulator completes", async () => {
     const path = pathOf([
       [0, 0],
       [1.4, 0],
@@ -384,7 +411,7 @@ describe("solveJointAutoConstraints", () => {
       [2.8, 2.4],
     ]);
 
-    const generated = generateAutoRadiiAndCaps(path, {});
+    const generated = await generatePersistedPolicy(path);
     const trace = simulatePathWithTrace(generated, {}, { dt_s: 0.02 });
     const lastSample = trace.trace.at(-1);
 
@@ -393,9 +420,14 @@ describe("solveJointAutoConstraints", () => {
     expect(
       trace.trace.every((sample) => Number.isFinite(sample.speed_mps)),
     ).toBe(true);
+    expect(
+      generated.ranged_constraints.some(
+        (constraint) => constraint.source === "auto_velocity",
+      ),
+    ).toBe(true);
   });
 
-  it("keeps a manual 0.05 meter straight trigger executable at runtime", () => {
+  it("keeps a manual 0.05 meter straight trigger executable at runtime", async () => {
     const path = pathOf([
       [0, 0],
       [1, 0],
@@ -410,12 +442,17 @@ describe("solveJointAutoConstraints", () => {
       "manual",
     );
 
-    const generated = generateAutoRadiiAndCaps(path, {});
+    const generated = await generatePersistedPolicy(path);
     const trace = simulatePathWithTrace(generated, {}, { dt_s: 0.02 });
 
     expect(trace.trace.at(-1)?.global_s_m).toBeGreaterThanOrEqual(1.98);
     expect(generated.path_elements[1]).toMatchObject({
       intermediate_handoff_radius_meters: 0.05,
     });
+    expect(
+      generated.ranged_constraints.some(
+        (constraint) => constraint.source === "auto_velocity",
+      ),
+    ).toBe(true);
   });
 });

@@ -1,17 +1,17 @@
-import type { PathModel } from "../model/path";
-import type { SimulationConfig } from "../sim/types";
+import type { PathModel } from "../core/model/path";
+import type { SimulationConfig } from "../core/sim/types";
 import {
   autoRadiiCapSolveInput,
   type AutoHandoffRadiusAssignment,
-} from "./autoConstraintGeneration";
-import type { AutoVelocitySettings } from "./autoVelocityApply";
+} from "../core/constraints/autoConstraintGeneration";
+import type { AutoVelocitySettings } from "../core/constraints/autoVelocityApply";
 import {
   autoVelocityInputSignature,
   primeAutoVelocityProfileCache,
   type AutoVelocityProfile,
   type JointAutoConstraintSolveStats,
   type JointAutoConstraintSolveStatus,
-} from "./autoVelocityConstraints";
+} from "../core/constraints/autoVelocityConstraints";
 import type {
   AutoVelocityWorkerRequest,
   AutoVelocityWorkerResponse,
