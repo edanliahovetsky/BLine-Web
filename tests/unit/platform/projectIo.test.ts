@@ -37,11 +37,15 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
     });
-    const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
+    const workspace = exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]);
+    const activePathId = workspace.paths[1]?.path_id;
+    if (!activePathId) {
+      throw new Error("Expected a second path in the test workspace");
+    }
 
-    await service.createWorkspace({ workspace });
-    const withSecondPath = await service.createPath({ displayName: "Two" });
-    await service.setActivePath(withSecondPath.paths[1].path_id);
+    await service.createWorkspace({
+      workspace: { ...workspace, active_path_id: activePathId },
+    });
 
     const restoredService = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
@@ -56,7 +60,7 @@ describe("ProjectIoService", () => {
       "One",
       "Two",
     ]);
-    expect(restored?.active_path_id).toBe(withSecondPath.paths[1].path_id);
+    expect(restored?.active_path_id).toBe(activePathId);
   });
 
   it("exposes browser and desktop primary actions from capabilities", () => {

@@ -35,11 +35,6 @@ export interface CreateWorkspaceInput {
   workspace?: ProjectWorkspaceDocument;
 }
 
-export interface CreatePathInput {
-  displayName: string;
-  fileName?: string;
-}
-
 export interface CreateFieldImageAssetInput {
   file: File;
   name?: string;
@@ -69,14 +64,6 @@ export interface ProjectIoService {
   ): Promise<WriteResult>;
   listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
   switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
-  setActivePath(pathId: string): Promise<ProjectWorkspaceDocument>;
-  createPath(input: CreatePathInput): Promise<ProjectWorkspaceDocument>;
-  renamePath(pathId: string, name: string): Promise<ProjectWorkspaceDocument>;
-  duplicatePath(
-    pathId: string,
-    name: string,
-  ): Promise<ProjectWorkspaceDocument>;
-  deletePaths(pathIds: readonly string[]): Promise<ProjectWorkspaceDocument>;
   importPath(file: File): Promise<ProjectWorkspaceDocument>;
   exportPath(pathId: string): Promise<Blob>;
   importConfig(file: File): Promise<ProjectWorkspaceDocument>;

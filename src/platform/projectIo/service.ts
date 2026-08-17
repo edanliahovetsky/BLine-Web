@@ -21,13 +21,10 @@ import { deserializePath, serializePath } from "../../core/io/projectSerde";
 import {
   activePathFromWorkspace,
   addPathToWorkspace,
-  deletePathsFromWorkspace,
   deserializeProjectWorkspaceDocument,
   displayNameFromFileName,
-  duplicatePathInWorkspace,
   ensureJsonFileName,
   ensureWorkspaceHasActivePath,
-  renamePathInWorkspace,
 } from "../../core/io/workspaceSerde";
 import {
   decodeWorkspaceArchive,
@@ -38,7 +35,6 @@ import {
   type WriteResult,
 } from "../../storage";
 import type {
-  CreatePathInput,
   CreateFieldImageAssetInput,
   CreateWorkspaceInput,
   ProjectIoCapabilities,
@@ -219,63 +215,6 @@ export class StorageProjectIoService implements ProjectIoService {
     }
 
     return this.readAndAdopt(id);
-  }
-
-  async setActivePath(pathId: string): Promise<ProjectWorkspaceDocument> {
-    const workspace = this.requireWorkspace();
-    const nextWorkspace = ensureWorkspaceHasActivePath({
-      ...workspace,
-      active_path_id: pathId,
-    });
-    await this.saveWorkspace(nextWorkspace, this.currentVersion);
-    return nextWorkspace;
-  }
-
-  async createPath(input: CreatePathInput): Promise<ProjectWorkspaceDocument> {
-    const nextWorkspace = addPathToWorkspace(this.requireWorkspace(), {
-      display_name: input.displayName,
-      file_name: input.fileName,
-      makeActive: true,
-    });
-    await this.saveWorkspace(nextWorkspace, this.currentVersion);
-    return nextWorkspace;
-  }
-
-  async renamePath(
-    pathId: string,
-    name: string,
-  ): Promise<ProjectWorkspaceDocument> {
-    const nextWorkspace = renamePathInWorkspace(
-      this.requireWorkspace(),
-      pathId,
-      name,
-    );
-    await this.saveWorkspace(nextWorkspace, this.currentVersion);
-    return nextWorkspace;
-  }
-
-  async duplicatePath(
-    pathId: string,
-    name: string,
-  ): Promise<ProjectWorkspaceDocument> {
-    const nextWorkspace = duplicatePathInWorkspace(
-      this.requireWorkspace(),
-      pathId,
-      name,
-    );
-    await this.saveWorkspace(nextWorkspace, this.currentVersion);
-    return nextWorkspace;
-  }
-
-  async deletePaths(
-    pathIds: readonly string[],
-  ): Promise<ProjectWorkspaceDocument> {
-    const nextWorkspace = deletePathsFromWorkspace(
-      this.requireWorkspace(),
-      pathIds,
-    );
-    await this.saveWorkspace(nextWorkspace, this.currentVersion);
-    return nextWorkspace;
   }
 
   async importPath(file: File): Promise<ProjectWorkspaceDocument> {

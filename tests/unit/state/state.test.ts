@@ -951,26 +951,6 @@ class RecordingIo implements ProjectIoService {
     return this.getWorkspace();
   }
 
-  async setActivePath(): Promise<ProjectWorkspaceDocument> {
-    return this.requireWorkspace();
-  }
-
-  async createPath(): Promise<ProjectWorkspaceDocument> {
-    return this.requireWorkspace();
-  }
-
-  async renamePath(): Promise<ProjectWorkspaceDocument> {
-    return this.requireWorkspace();
-  }
-
-  async duplicatePath(): Promise<ProjectWorkspaceDocument> {
-    return this.requireWorkspace();
-  }
-
-  async deletePaths(): Promise<ProjectWorkspaceDocument> {
-    return this.requireWorkspace();
-  }
-
   async importPath(file: File): Promise<ProjectWorkspaceDocument> {
     const parsed = JSON.parse(await file.text()) as {
       display_name?: unknown;
