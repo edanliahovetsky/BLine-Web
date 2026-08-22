@@ -9,6 +9,7 @@ import {
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
 import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
+import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import { createProjectIoService } from "../../../src/platform/projectIo";
 import {
   browserWebCapabilities,
@@ -16,6 +17,7 @@ import {
 } from "../../../src/env/capabilities";
 import {
   BrowserStorage,
+  ProjectPersistenceDamageError,
   TauriStorage,
   type StorageLike,
 } from "../../../src/storage";
@@ -27,7 +29,7 @@ describe("ProjectIoService", () => {
     memory.setItem(
       "bline-web:workspace:legacy-locator",
       JSON.stringify({
-        document: project,
+        document: serializeProjectWorkspaceDocument(project),
         version: "legacy-v1",
         updatedAt: "2026-08-21T11:00:00.000Z",
       }),
@@ -457,6 +459,69 @@ describe("ProjectIoService", () => {
 
     expect(project?.paths).toHaveLength(1);
     expect(service.getLegacyProjectViewMigration()).toBeNull();
+    expect(commands).not.toContain("storage_prepare_legacy_project_files");
+  });
+
+  it("opens unsupported desktop runtime data as damaged without migrating it", async () => {
+    const source = exampleWorkspace("discarded", "Runtime Autos", ["One"]);
+    const futureConfig = JSON.stringify({
+      ...source.config,
+      future_runtime_setting: true,
+    });
+    const runtimeFiles = serializeProjectFiles(source)
+      .filter((file) => file.relativePath !== "project.json")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        contents:
+          file.relativePath === "config.json" ? futureConfig : file.text,
+      }));
+    const summary = {
+      id: "/repo/future/autos",
+      displayName: "autos",
+      directoryPath: "/repo/future/autos",
+      version: "runtime-v1",
+      updatedAt: "2026-08-21T12:00:00.000Z",
+    };
+    const commands: string[] = [];
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string) => {
+        commands.push(command);
+        if (command === "storage_get_current_workspace") {
+          return summary as T;
+        }
+        if (command === "storage_read_project_files") {
+          return {
+            directoryLocator: summary.id,
+            files: runtimeFiles,
+            legacyFiles: [
+              {
+                relativePath: "pathgroups.json",
+                contents: '{"schema_version":1,"groups":[]}',
+              },
+            ],
+            version: summary.version,
+            updatedAt: summary.updatedAt,
+          } as T;
+        }
+        if (command === "storage_list_recent_workspaces") {
+          return [summary] as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+    const service = createProjectIoService(tauriCapabilities, { storage });
+
+    const project = await service.initialize();
+
+    expect(project?.paths).toHaveLength(1);
+    expect(service.getPersistenceDamage()).toMatchObject({
+      sourcePath: "config.json",
+      rawText: futureConfig,
+    });
+    expect(service.getLegacyProjectViewMigration()).toBeNull();
+    await expect(service.saveWorkspace(project!)).rejects.toBeInstanceOf(
+      ProjectPersistenceDamageError,
+    );
     expect(commands).not.toContain("storage_prepare_legacy_project_files");
   });
 });

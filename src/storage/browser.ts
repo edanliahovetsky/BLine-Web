@@ -93,17 +93,38 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       throw new ProjectNotFoundError("workspace");
     }
 
+    const canonicalRecord = this.readRecord(workspaceId);
+    const legacyProjectRecord = canonicalRecord
+      ? null
+      : this.readLegacyProjectRecord(workspaceId);
+    if (legacyProjectRecord) {
+      let damage: ProjectFileDamage | null = null;
+      try {
+        assertLegacyEnvelope(legacyProjectRecord);
+        assertLegacyProjectDocument(legacyProjectRecord.document);
+      } catch (error) {
+        damage = legacyDamage(error, legacyProjectRecord.rawText);
+      }
+      const document = recoverLegacyProjectDocument(
+        legacyProjectRecord.document,
+      );
+      const project = openProjectFromLegacyWorkspace(
+        projectDocumentToWorkspaceDocument(document),
+      ).project;
+      this.pendingLegacyProjects.set(workspaceId, project);
+      if (damage) this.damageById.set(workspaceId, damage);
+      else this.damageById.delete(workspaceId);
+      return project;
+    }
+
     const legacyRecord = this.readLegacyWorkspaceRecord(workspaceId);
     if (legacyRecord) {
       let damage: ProjectFileDamage | null = null;
       try {
+        assertLegacyEnvelope(legacyRecord);
         assertLegacyProjectWorkspaceDocument(legacyRecord.document);
       } catch (error) {
-        damage = {
-          sourcePath: "legacy Project metadata",
-          message: error instanceof Error ? error.message : String(error),
-          rawText: JSON.stringify(legacyRecord.document),
-        };
+        damage = legacyDamage(error, legacyRecord.rawText);
       }
       const project = openProjectFromLegacyWorkspace(
         deserializeProjectWorkspaceDocument(legacyRecord.document),
@@ -117,7 +138,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       return project;
     }
 
-    const record = this.requireRecord(workspaceId);
+    const record = canonicalRecord ?? this.requireRecord(workspaceId);
     const opened = openProjectFiles(record.files, {
       fallbackProjectId: workspaceId,
     });
@@ -129,6 +150,23 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       isLegacyWorkspaceDocument(record.legacyDocument)
     ) {
       try {
+        if (record.legacySourceRecord) {
+          const provenance = parseLegacyWorkspaceRecord(
+            record.legacySourceRecord,
+          );
+          if (!provenance) {
+            throw new Error("Legacy Project migration provenance is malformed");
+          }
+          assertLegacyEnvelope(provenance);
+          if (
+            provenance.version !== record.legacySourceVersion ||
+            !sameJsonDocument(provenance.document, record.legacyDocument)
+          ) {
+            throw new Error(
+              "Legacy Project migration provenance no longer matches",
+            );
+          }
+        }
         assertLegacyProjectWorkspaceDocument(record.legacyDocument);
         const legacyProject = openProjectFromLegacyWorkspace(
           deserializeProjectWorkspaceDocument(record.legacyDocument),
@@ -148,7 +186,8 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
         damage = {
           sourcePath: "legacy Project metadata",
           message: error instanceof Error ? error.message : String(error),
-          rawText: JSON.stringify(record.legacyDocument),
+          rawText:
+            record.legacySourceRecord ?? JSON.stringify(record.legacyDocument),
         };
       }
     }
@@ -189,8 +228,29 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult> {
-    const result = await this.writeProjectFilesRecord(project, expectedVersion);
+    const storageId =
+      (await this.getCurrentWorkspaceId()) ?? project.project_id;
+    const legacy = this.readLegacyProjectRecord(storageId);
+    if (legacy && expectedVersion !== undefined) {
+      assertExpectedVersion(legacy, expectedVersion);
+    }
+    const canonicalTarget = legacy ? this.readRecord(project.project_id) : null;
+    if (legacy && canonicalTarget) {
+      throw new StorageConflictError(
+        `A different Project already uses ID ${project.project_id}`,
+        expectedVersion,
+        canonicalTarget.version,
+      );
+    }
+    const result = await this.writeProjectFilesRecord(
+      project,
+      legacy ? undefined : expectedVersion,
+      legacy ? storageId : project.project_id,
+    );
+    if (legacy) this.storage.removeItem(this.legacyProjectKey(storageId));
     this.damageById.delete(project.project_id);
+    this.damageById.delete(storageId);
+    this.pendingLegacyProjects.delete(storageId);
     return result;
   }
 
@@ -250,6 +310,22 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     ) {
       return null;
     }
+    const legacy = parseLegacyWorkspaceRecord(record.legacySourceRecord);
+    if (!legacy) {
+      throw new Error("Legacy Project migration provenance is missing");
+    }
+    assertLegacyEnvelope(legacy);
+    assertLegacyProjectWorkspaceDocument(legacy.document);
+    const sourceProject = openProjectFromLegacyWorkspace(
+      deserializeProjectWorkspaceDocument(legacy.document),
+    ).project;
+    if (
+      legacy.version !== record.legacySourceVersion ||
+      !sameJsonDocument(record.legacyDocument, legacy.document) ||
+      !sameProjectFiles(record.files, serializeProjectFiles(sourceProject))
+    ) {
+      throw new Error("Legacy Project migration provenance no longer matches");
+    }
     assertExpectedVersion(record, expectedVersion);
     const updatedAt = this.now().toISOString();
     const version = createBrowserVersion(updatedAt);
@@ -282,6 +358,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     if (!legacy) {
       return null;
     }
+    assertLegacyEnvelope(legacy);
     assertLegacyProjectWorkspaceDocument(legacy.document);
     assertExpectedVersion(legacy, expectedVersion);
 
@@ -296,6 +373,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
         preparedTarget?.legacyDocument &&
         preparedTarget.legacySourceStorageId === sourceStorageId &&
         preparedTarget.legacySourceVersion === legacy.version &&
+        preparedTarget.legacySourceRecord === legacy.rawText &&
         sameProjectFiles(
           preparedTarget.files,
           serializeProjectFiles(project),
@@ -337,6 +415,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       legacyDocument: structuredClone(legacy.document),
       legacySourceStorageId: sourceStorageId,
       legacySourceVersion: legacy.version,
+      legacySourceRecord: legacy.rawText,
     };
     this.storage.setItem(
       this.storageKey(project.project_id),
@@ -432,7 +511,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   private listSummaries(): ProjectWorkspaceSummary[] {
-    return this.storageKeys().flatMap((key) => {
+    const canonical = this.storageKeys().flatMap((key) => {
       if (!key.startsWith(this.keyPrefix)) {
         return [];
       }
@@ -457,6 +536,28 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
         },
       ];
     });
+    const known = new Set(canonical.map((summary) => summary.id));
+    const oldProjects = this.storageKeys().flatMap((key) => {
+      if (!key.startsWith(this.legacyProjectKeyPrefix)) return [];
+      const id = this.legacyProjectStorageId(key);
+      if (known.has(id)) return [];
+      const record = this.parseLegacyProjectRecord(this.storage.getItem(key));
+      if (!record) return [];
+      const document = record.document as unknown as Record<string, unknown>;
+      return [
+        {
+          id,
+          displayName:
+            typeof document.display_name === "string" &&
+            document.display_name.trim()
+              ? document.display_name
+              : `Recovery Project ${id}`,
+          updatedAt: record.updatedAt,
+          version: record.version,
+        },
+      ];
+    });
+    return [...canonical, ...oldProjects];
   }
 
   private requireRecord(id: string): ParsedProjectFilesRecord {
@@ -473,17 +574,10 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   private readLegacyWorkspaceRecord(
     id: string,
-  ): LegacyStoredWorkspaceRecord | null {
-    const value = this.storage.getItem(this.storageKey(id));
-    if (value === null) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return isLegacyStoredWorkspaceRecord(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
+  ): ParsedLegacyWorkspaceRecord | null {
+    return parseLegacyWorkspaceRecord(
+      this.storage.getItem(this.storageKey(id)),
+    );
   }
 
   private readVersionedRecord(
@@ -526,10 +620,16 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
         continue;
       }
 
-      assertLegacyProjectDocument(legacyRecord.document);
-      const workspace = projectDocumentToWorkspaceDocument(
-        deserializeProjectDocument(legacyRecord.document),
-      );
+      let workspace;
+      try {
+        assertLegacyEnvelope(legacyRecord);
+        assertLegacyProjectDocument(legacyRecord.document);
+        workspace = projectDocumentToWorkspaceDocument(
+          deserializeProjectDocument(legacyRecord.document),
+        );
+      } catch {
+        continue;
+      }
       const projectKey = this.storageKey(workspace.project_id);
       const sourceStorageId = this.legacyProjectStorageId(key);
       const migratedFiles = serializeProjectFiles(workspace);
@@ -581,6 +681,18 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     } catch {
       return encodedId;
     }
+  }
+
+  private legacyProjectKey(id: string): string {
+    return `${this.legacyProjectKeyPrefix}${encodeURIComponent(id)}`;
+  }
+
+  private readLegacyProjectRecord(
+    id: string,
+  ): ParsedLegacyProjectRecord | null {
+    const rawText = this.storage.getItem(this.legacyProjectKey(id));
+    const record = this.parseLegacyProjectRecord(rawText);
+    return record && rawText ? { ...record, rawText } : null;
   }
 
   private parseLegacyProjectRecord(
@@ -655,6 +767,14 @@ interface StoredProjectFilesRecord {
 
 interface ParsedProjectFilesRecord extends StoredProjectFilesRecord {
   storageId: string;
+}
+
+interface ParsedLegacyWorkspaceRecord extends LegacyStoredWorkspaceRecord {
+  rawText: string;
+}
+
+interface ParsedLegacyProjectRecord extends StoredProjectRecord {
+  rawText: string;
 }
 
 function assertExpectedVersion(
@@ -743,6 +863,61 @@ function isLegacyStoredWorkspaceRecord(
   );
 }
 
+function parseLegacyWorkspaceRecord(
+  value: string | null | undefined,
+): ParsedLegacyWorkspaceRecord | null {
+  if (value == null) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isLegacyStoredWorkspaceRecord(parsed)
+      ? { ...parsed, rawText: value }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function assertLegacyEnvelope(input: object): void {
+  const source =
+    "rawText" in input && typeof input.rawText === "string"
+      ? (JSON.parse(input.rawText) as unknown)
+      : input;
+  const keys =
+    typeof source === "object" && source !== null && !Array.isArray(source)
+      ? Object.keys(source).sort()
+      : [];
+  if (
+    keys.length !== 3 ||
+    keys[0] !== "document" ||
+    keys[1] !== "updatedAt" ||
+    keys[2] !== "version"
+  ) {
+    throw new Error("Legacy Project envelope contains unsupported data");
+  }
+}
+
+function legacyDamage(error: unknown, rawText: string): ProjectFileDamage {
+  return {
+    sourcePath: "legacy Project metadata",
+    message: error instanceof Error ? error.message : String(error),
+    rawText,
+  };
+}
+
+function recoverLegacyProjectDocument(input: unknown) {
+  try {
+    return deserializeProjectDocument(input);
+  } catch (error) {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      throw error;
+    }
+    return deserializeProjectDocument({
+      ...(input as Record<string, unknown>),
+      schema_version: 1,
+    });
+  }
+}
+
 function isLegacyWorkspaceDocument(
   input: unknown,
 ): input is LegacyStoredWorkspaceRecord["document"] {
@@ -810,10 +985,6 @@ function isStoredProjectRecord(input: unknown): input is StoredProjectRecord {
 
   const candidate = input as Partial<StoredProjectRecord>;
   return (
-    Object.keys(input).length === 3 &&
-    Object.keys(input).every((key) =>
-      ["document", "version", "updatedAt"].includes(key),
-    ) &&
     typeof candidate.version === "string" &&
     typeof candidate.updatedAt === "string" &&
     typeof candidate.document === "object" &&

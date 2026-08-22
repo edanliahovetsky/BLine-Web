@@ -2804,7 +2804,9 @@ test("migrates a legacy Project field image before deleting its old bytes", asyn
           config: { gui: { field: fieldConfig } },
           paths,
           path_groups: projectMetadata.path_groups,
-          linked_targets: projectMetadata.linked_targets,
+          ...(projectMetadata.linked_targets?.length
+            ? { linked_targets: projectMetadata.linked_targets }
+            : {}),
           active_path_id: paths[0]?.path_id ?? null,
           active_path_group_id: null,
         },

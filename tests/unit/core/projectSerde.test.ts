@@ -21,8 +21,12 @@ import {
 import {
   deserializeProjectWorkspaceDocument,
   projectDocumentToWorkspaceDocument,
+  serializeProjectWorkspaceDocument,
 } from "../../../src/core/io/workspaceSerde";
-import { assertLegacyProjectWorkspaceDocument } from "../../../src/core/io/legacyMigrationValidation";
+import {
+  assertCanonicalProjectRoundTrip,
+  assertLegacyProjectWorkspaceDocument,
+} from "../../../src/core/io/legacyMigrationValidation";
 import {
   deserializeProjectFiles,
   serializeProjectFiles,
@@ -37,6 +41,7 @@ import {
 import { stringifyBLineJson } from "../../../src/core/io/blineJson";
 import {
   deserializeBLineProjectFolder,
+  ProjectFolderLosslessMigrationError,
   serializeBLineProjectFolder,
 } from "../../../src/core/io/projectFolder";
 
@@ -575,180 +580,250 @@ describe("project path serde", () => {
       },
     });
   });
-  it("rejects unsafe combined-workspace metadata before destructive migration", () => {
-    const valid = {
-      schema_version: 1,
-      project_id: "project-1",
-      display_name: "Robot Autos",
-      paths: [
-        {
-          path_id: "top",
-          display_name: "Top",
-          file_name: "top.json",
-          path: { path_elements: [] },
-        },
-      ],
-      active_path_id: "top",
-      path_groups: [],
-      linked_targets: [],
-      active_path_group_id: null,
-    };
-
-    expect(() => assertLegacyProjectWorkspaceDocument(valid)).not.toThrow();
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({ ...valid, schema_version: 2 }),
-    ).toThrow(/Unsupported legacy Project workspace schema version/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
-        paths: [{ ...valid.paths[0], path_id: "" }],
-      }),
-    ).toThrow(/identity/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
-        paths: [valid.paths[0], { ...valid.paths[0] }],
-      }),
-    ).toThrow(/Duplicate legacy Project Path identity/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
+  it("proves combined-workspace migration through its genuine former writer", () => {
+    const workspace = {
+      ...createProject({
+        project_id: "project-1",
+        display_name: "Robot Autos",
         paths: [
           {
-            ...valid.paths[0],
-            path: { path_elements: [{ type: "translation", x_meters: 1 }] },
+            path_id: "top",
+            display_name: "Top",
+            file_name: "top.json",
+            path: createPathModel({
+              path_elements: [
+                createTranslationTarget({
+                  x_meters: 1,
+                  y_meters: 2,
+                  intermediate_handoff_radius_meters: 0.45,
+                }),
+              ],
+            }),
           },
         ],
-      }),
-    ).toThrow(/malformed path entry/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
-        active_path_id: "missing",
-      }),
-    ).toThrow(/active Path reference/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
-        paths: [
-          {
-            ...valid.paths[0],
-            editor_metadata: { linked_targets: [{ target_id: "lost" }] },
-          },
-        ],
-      }),
-    ).toThrow(/editor metadata\.linked_targets is malformed/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
-        paths: [
-          {
-            ...valid.paths[0],
-            editor_metadata: { bend_targets: [] },
-          },
-        ],
-      }),
-    ).toThrow(/unsupported field bend_targets/);
-
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
         linked_targets: [
           {
             target_id: "point-1",
-            display_name: "Linked Point 1",
-            kind: "point",
+            display_name: "Target A",
+            kind: "translation",
             x_meters: 1,
             y_meters: 2,
           },
+          {
+            target_id: "pose-1",
+            display_name: "Target B",
+            kind: "waypoint",
+            x_meters: 3,
+            y_meters: 4,
+            rotation_radians: 0.5,
+          },
         ],
+      }),
+      active_path_id: "top",
+      active_path_group_id: null,
+    };
+    const valid = serializeProjectWorkspaceDocument(workspace);
+
+    expect(() => assertLegacyProjectWorkspaceDocument(valid)).not.toThrow();
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        future_setting: true,
+      }),
+    ).toThrow(/loses field future_setting/);
+
+    const [path] = valid.paths;
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        paths: [
+          {
+            ...path,
+            editor_metadata: {
+              linked_targets: [
+                { element_index: 0, target_id: "point-1" },
+                { element_index: 0, target_id: "point-1" },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toThrow(/has 2 entries, but the projection has 1/);
+
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        linked_targets: valid.linked_targets?.map((target) => ({
+          ...target,
+          kind: target.kind === "translation" ? "point" : "pose",
+        })),
       }),
     ).not.toThrow();
     expect(() =>
       assertLegacyProjectWorkspaceDocument({
         ...valid,
-        linked_targets: [
-          {
-            target_id: "pose-1",
-            display_name: "Linked Pose 1",
-            kind: "pose",
-            x_meters: 1,
-            y_meters: 2,
-            rotation_radians: "corrupt",
-          },
-        ],
+        linked_targets: valid.linked_targets?.map((target, index) => ({
+          ...target,
+          kind: target.kind === "translation" ? "point" : "pose",
+          display_name: index === 0 ? "Linked Point 1" : target.display_name,
+        })),
       }),
-    ).toThrow(/linked target pose-1 is malformed/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
-        config: { future_setting: true },
-      }),
-    ).toThrow(/unsupported or malformed data/);
-    expect(() =>
-      assertLegacyProjectWorkspaceDocument({
-        ...valid,
-        config: {
-          gui: { robot: { length_meters: "corrupt" } },
-        },
-      }),
-    ).toThrow(/unsupported or malformed data/);
+    ).toThrow(/display_name changes "Linked Point 1"/);
+
+    expect(() => assertCanonicalProjectRoundTrip(workspace)).not.toThrow();
   });
 
-  it("rejects future and malformed desktop legacy sidecars", async () => {
-    const runtimePath = textImportFile("autos/paths/auto.json", {
+  it("blocks destructive folder migration when runtime JSON has unknown fields", async () => {
+    const config = {
+      kinematic_constraints: {
+        default_max_velocity_meters_per_sec: 4.5,
+      },
+      future_runtime_setting: true,
+    };
+    const path = {
       path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
-    });
-    const baseState = {
-      schema_version: 1,
-      editor_config: { gui: {}, kinematic_constraints: {} },
-      active_path_file_name: "auto.json",
-      active_path_group_id: null,
-      path_groups: [],
-      linked_targets: [],
-      paths: {},
     };
 
     await expect(
-      deserializeBLineProjectFolder([
-        runtimePath,
-        textImportFile("autos/.bline-web/state.json", {
-          ...baseState,
-          schema_version: 2,
-        }),
-      ]),
-    ).rejects.toThrow(/Unsupported legacy editor state schema version/);
+      deserializeBLineProjectFolder(
+        [
+          textImportFile("autos/config.json", config),
+          textImportFile("autos/paths/auto.json", path),
+          textImportFile("autos/pathgroups.json", {
+            schema_version: 1,
+            groups: [],
+          }),
+        ],
+        { requireLosslessMigration: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectFolderLosslessMigrationError",
+      sourcePath: "config.json",
+      rawText: JSON.stringify(config),
+    } satisfies Partial<ProjectFolderLosslessMigrationError>);
+
+    const futurePath = { ...path, future_path_setting: true };
+    await expect(
+      deserializeBLineProjectFolder(
+        [
+          textImportFile("autos/paths/auto.json", futurePath),
+          textImportFile("autos/pathgroups.json", {
+            schema_version: 1,
+            groups: [],
+          }),
+        ],
+        { requireLosslessMigration: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectFolderLosslessMigrationError",
+      sourcePath: "paths/auto.json",
+      rawText: JSON.stringify(futurePath),
+    } satisfies Partial<ProjectFolderLosslessMigrationError>);
 
     await expect(
-      deserializeBLineProjectFolder([
-        runtimePath,
-        textImportFile("autos/.bline-web/state.json", {
-          ...baseState,
-          paths: {
-            "auto.json": {
-              display_name: "Auto",
-              editor_metadata: { ranged_constraints: "not-an-array" },
-            },
+      deserializeBLineProjectFolder(
+        [
+          {
+            name: "config.json",
+            webkitRelativePath: "autos/config.json",
+            text: async () => "{not-json",
           },
-        }),
-      ]),
-    ).rejects.toThrow(/ranged_constraints is malformed/);
+          textImportFile("autos/paths/auto.json", path),
+          textImportFile("autos/pathgroups.json", {
+            schema_version: 1,
+            groups: [],
+          }),
+        ],
+        { requireLosslessMigration: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectFolderLosslessMigrationError",
+      sourcePath: "config.json",
+      rawText: "{not-json",
+    } satisfies Partial<ProjectFolderLosslessMigrationError>);
+  });
 
-    await expect(
-      deserializeBLineProjectFolder([
-        runtimePath,
+  it("uses pathgroups.json when editor state omits path_groups", async () => {
+    const restored = await deserializeBLineProjectFolder(
+      [
+        textImportFile("autos/paths/auto.json", {
+          path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
+        }),
+        textImportFile("autos/.bline-web/state.json", {
+          schema_version: 1,
+          editor_config: { gui: {}, kinematic_constraints: {} },
+          active_path_file_name: "auto.json",
+          active_path_group_id: null,
+          linked_targets: [],
+          paths: {},
+        }),
         textImportFile("autos/pathgroups.json", {
           schema_version: 1,
           groups: [
             {
               group_id: "group-1",
               display_name: "Group",
-              path_file_names: ["missing.json"],
+              path_file_names: ["auto.json"],
             },
           ],
         }),
-      ]),
-    ).rejects.toThrow(/references missing Path/);
+      ],
+      { requireLosslessMigration: true },
+    );
+
+    expect(restored.path_groups).toEqual([
+      {
+        group_id: "group-1",
+        display_name: "Group",
+        path_ids: ["auto.json"],
+      },
+    ]);
+  });
+
+  it("accepts valid lower-priority desktop sidecars independently", async () => {
+    const restored = await deserializeBLineProjectFolder(
+      [
+        textImportFile("autos/config.json", {
+          kinematic_constraints: {
+            default_auto_velocity_velocity_safety_factor: 0.8,
+          },
+        }),
+        textImportFile("autos/paths/auto.json", {
+          path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
+        }),
+        textImportFile("autos/.bline-web/state.json", {
+          schema_version: 1,
+          editor_config: {
+            gui: {},
+            kinematic_constraints: {
+              default_auto_velocity_velocity_safety_factor: 0.6,
+            },
+          },
+          active_path_file_name: "auto.json",
+          active_path_group_id: null,
+          path_groups: [],
+          linked_targets: [],
+          paths: {},
+        }),
+        textImportFile("autos/pathgroups.json", {
+          schema_version: 1,
+          groups: [
+            {
+              group_id: "stale-group",
+              display_name: "Stale Group",
+              path_file_names: ["auto.json"],
+            },
+          ],
+        }),
+      ],
+      { requireLosslessMigration: true },
+    );
+
+    expect(restored.path_groups).toEqual([]);
+    expect(
+      restored.config.kinematic_constraints
+        .default_auto_velocity_velocity_safety_factor,
+    ).toBe(0.8);
   });
 });
 

@@ -7,7 +7,10 @@ import {
   type ProjectTextFile,
 } from "../core/io/projectFiles";
 import { openProjectFromLegacyWorkspace } from "../core/io/legacyWorkspace";
-import { deserializeBLineProjectFolder } from "../core/io/projectFolder";
+import {
+  deserializeBLineProjectFolder,
+  ProjectFolderLosslessMigrationError,
+} from "../core/io/projectFolder";
 import {
   createBLineWorkspaceArchive,
   importWorkspaceArchive,
@@ -375,6 +378,9 @@ async function openLegacyOrRuntimeProject(
               webkitRelativePath: `autos/${file.relativePath}`,
               text: async () => file.contents,
             })),
+            {
+              requireLosslessMigration: (result.legacyFiles?.length ?? 0) > 0,
+            },
           ),
         ).project,
         display_name: displayName,
@@ -385,15 +391,21 @@ async function openLegacyOrRuntimeProject(
     const runtime = openProjectFiles(toProjectTextFiles(result.files), {
       fallbackDisplayName: displayName,
     });
-    const malformed =
-      firstMalformedLegacyFile(result.legacyFiles ?? []) ??
-      result.legacyFiles?.[0];
+    const losslessDamage =
+      error instanceof ProjectFolderLosslessMigrationError ? error : null;
+    const malformed = losslessDamage
+      ? null
+      : (firstMalformedLegacyFile(result.legacyFiles ?? []) ??
+        result.legacyFiles?.[0]);
     return {
       project: runtime.project,
       damage: {
-        sourcePath: malformed?.relativePath ?? "legacy Project metadata",
+        sourcePath:
+          losslessDamage?.sourcePath ??
+          malformed?.relativePath ??
+          "legacy Project metadata",
         message: error instanceof Error ? error.message : String(error),
-        rawText: malformed?.contents ?? "",
+        rawText: losslessDamage?.rawText ?? malformed?.contents ?? "",
       },
     };
   }

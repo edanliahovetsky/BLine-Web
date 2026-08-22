@@ -27,10 +27,17 @@ import {
   type ProjectPathDocument,
   type ProjectWorkspaceDocument,
   type SerializedHandoffRadiusSource,
+  type SerializedLinkedTarget,
   type SerializedLinkedPathElementTarget,
+  type SerializedProjectWorkspaceDocument,
   type SerializedRangedConstraintMetadata,
 } from "./projectSchema";
-import { deserializePath, deserializeProjectDocument } from "./projectSerde";
+import { serializePathEditorMetadata } from "./blineProject";
+import {
+  deserializePath,
+  deserializeProjectDocument,
+  serializePath,
+} from "./projectSerde";
 
 export interface DeserializeWorkspaceOptions {
   fallbackProjectId?: string;
@@ -42,6 +49,37 @@ export interface SerializedPathGroupFileEntry {
   group_id: string;
   display_name: string;
   path_file_names: string[];
+}
+
+/**
+ * The former combined-workspace writer, retained as a lossless migration
+ * projection for data written before canonical Project files replaced it.
+ */
+export function serializeProjectWorkspaceDocument(
+  workspace: ProjectWorkspaceDocument,
+): SerializedProjectWorkspaceDocument {
+  const linkedTargets = workspace.linked_targets.map(serializeLinkedTarget);
+  return {
+    schema_version: workspace.schema_version,
+    project_id: workspace.project_id,
+    display_name: workspace.display_name,
+    config: workspace.config,
+    paths: workspace.paths.map((path) => ({
+      path_id: path.path_id,
+      display_name: path.display_name,
+      file_name: ensureJsonFileName(path.file_name),
+      path: serializePath(path.path),
+      editor_metadata: serializePathEditorMetadata(path.path),
+    })),
+    active_path_id: workspace.active_path_id,
+    path_groups: workspace.path_groups.map((group) => ({
+      group_id: group.group_id,
+      display_name: group.display_name,
+      path_ids: [...group.path_ids],
+    })),
+    active_path_group_id: workspace.active_path_group_id,
+    ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
+  };
 }
 
 export function deserializeProjectWorkspaceDocument(
@@ -427,6 +465,27 @@ function readLinkedTargets(input: unknown): LinkedTarget[] {
       ];
     }),
   );
+}
+
+function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
+  return target.kind === "waypoint"
+    ? {
+        target_id: target.target_id,
+        display_name: target.display_name,
+        kind: "waypoint",
+        x_meters: Number(target.x_meters),
+        y_meters: Number(target.y_meters),
+        rotation_radians: Number(target.rotation_radians ?? 0),
+        ...(target.locked ? { locked: true } : {}),
+      }
+    : {
+        target_id: target.target_id,
+        display_name: target.display_name,
+        kind: "translation",
+        x_meters: Number(target.x_meters),
+        y_meters: Number(target.y_meters),
+        ...(target.locked ? { locked: true } : {}),
+      };
 }
 
 export function applyPathEditorMetadata(
