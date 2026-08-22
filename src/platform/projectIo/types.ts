@@ -1,6 +1,7 @@
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
 import type { ProjectWorkspaceDocument } from "../../core/io/projectSchema";
 import type { CustomFieldImage } from "../../core/field/fieldConfig";
+import type { Project } from "../../core/model/project";
 import type { ProjectWorkspaceSummary, WriteResult } from "../../storage";
 
 export type { ProjectFolderExport } from "../../core/io/projectFolder";
@@ -56,15 +57,15 @@ export interface ProjectIoService {
   listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
   switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
   importPath(file: File): Promise<ProjectWorkspaceDocument>;
-  exportPath(pathId: string): Promise<Blob>;
+  exportPath(project: Project, pathId: string): Promise<Blob>;
   importConfig(file: File): Promise<ProjectWorkspaceDocument>;
-  exportConfig(): Promise<Blob>;
+  exportConfig(project: Project): Promise<Blob>;
   importProjectFolder(
     files: readonly File[],
   ): Promise<ProjectWorkspaceDocument>;
-  exportProjectFolder(): Promise<ProjectFolderExport>;
+  exportProjectFolder(project: Project): Promise<ProjectFolderExport>;
   importProjectArchive(file: File): Promise<ProjectWorkspaceDocument>;
-  exportProjectArchive(): Promise<Blob>;
+  exportProjectArchive(project: Project): Promise<Blob>;
   readLegacyFieldImageAsset(
     projectId: string,
     field: CustomFieldImage,

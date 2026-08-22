@@ -9,6 +9,7 @@ import {
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
+import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import { autosEditorStatePath } from "../../../src/core/io/projectFolder";
 import { createProjectIoService } from "../../../src/platform/projectIo";
 import {
@@ -86,7 +87,9 @@ describe("ProjectIoService", () => {
       workspace: exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]),
     });
 
-    const folder = await service.exportProjectFolder();
+    const folder = await service.exportProjectFolder(
+      await currentProject(service),
+    );
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
       autosEditorStatePath,
@@ -165,14 +168,18 @@ describe("ProjectIoService", () => {
     });
 
     const archiveText = await (
-      await sourceService.exportProjectArchive()
+      await sourceService.exportProjectArchive(
+        await currentProject(sourceService),
+      )
     ).text();
     const archive = JSON.parse(archiveText) as Record<string, unknown>;
     expect(archive).not.toHaveProperty("field_assets");
     expect(archive).not.toHaveProperty("config.gui.field");
     expect(archiveText).not.toContain("AQIDBA");
 
-    const folder = await sourceService.exportProjectFolder();
+    const folder = await sourceService.exportProjectFolder(
+      await currentProject(sourceService),
+    );
     expect(folder.files.map((file) => file.relativePath)).not.toEqual(
       expect.arrayContaining([expect.stringContaining("assets/fields")]),
     );
@@ -232,6 +239,16 @@ describe("ProjectIoService", () => {
     await expect(service.listWorkspaces()).resolves.toEqual([]);
   });
 });
+
+async function currentProject(
+  service: ReturnType<typeof createProjectIoService>,
+) {
+  const workspace = await service.getWorkspace();
+  if (!workspace) {
+    throw new Error("Expected an open Project");
+  }
+  return openProjectFromLegacyWorkspace(workspace).project;
+}
 
 function exampleWorkspace(
   project_id: string,

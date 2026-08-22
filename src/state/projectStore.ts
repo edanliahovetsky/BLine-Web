@@ -823,10 +823,7 @@ export function createProjectStore(
       if (!project) {
         return null;
       }
-      if (get().dirty) {
-        await get().saveWorkspace();
-      }
-      return io.exportPath(pathId ?? get().activePathId ?? "");
+      return io.exportPath(project, pathId ?? get().activePathId ?? "");
     },
     async importConfig(file) {
       const io = requireProjectIo(get().io);
@@ -845,13 +842,11 @@ export function createProjectStore(
     },
     async exportConfig() {
       const io = requireProjectIo(get().io);
-      if (!get().project) {
+      const project = get().project;
+      if (!project) {
         return null;
       }
-      if (get().dirty) {
-        await get().saveWorkspace();
-      }
-      return io.exportConfig();
+      return io.exportConfig(project);
     },
     async importProjectFolder(files) {
       const io = requireProjectIo(get().io);
@@ -870,13 +865,11 @@ export function createProjectStore(
     },
     async exportProjectFolder() {
       const io = requireProjectIo(get().io);
-      if (!get().project) {
+      const project = get().project;
+      if (!project) {
         return null;
       }
-      if (get().dirty) {
-        await get().saveWorkspace();
-      }
-      return io.exportProjectFolder();
+      return io.exportProjectFolder(project);
     },
     async importProjectArchive(file) {
       const io = requireProjectIo(get().io);
@@ -895,13 +888,11 @@ export function createProjectStore(
     },
     async exportProjectArchive() {
       const io = requireProjectIo(get().io);
-      if (!get().project) {
+      const project = get().project;
+      if (!project) {
         return null;
       }
-      if (get().dirty) {
-        await get().saveWorkspace();
-      }
-      return io.exportProjectArchive();
+      return io.exportProjectArchive(project);
     },
     applyPathCommand(command, requestedPathId) {
       const project = requireProject(get().project);

@@ -13,6 +13,8 @@ import {
 } from "../../core/io/projectFolder";
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
 import type { ProjectWorkspaceDocument } from "../../core/io/projectSchema";
+import { legacyWorkspaceForPersistence } from "../../core/io/legacyWorkspace";
+import type { Project } from "../../core/model/project";
 import { deserializePath, serializePath } from "../../core/io/projectSerde";
 import {
   activePathFromWorkspace,
@@ -246,8 +248,8 @@ export class StorageProjectIoService implements ProjectIoService {
     return nextWorkspace;
   }
 
-  async exportPath(pathId: string): Promise<Blob> {
-    const path = this.requireWorkspace().paths.find(
+  async exportPath(project: Project, pathId: string): Promise<Blob> {
+    const path = project.paths.find(
       (candidate) => candidate.path_id === pathId,
     );
     if (!path) {
@@ -269,10 +271,8 @@ export class StorageProjectIoService implements ProjectIoService {
     return nextWorkspace;
   }
 
-  async exportConfig(): Promise<Blob> {
-    return jsonBlob(
-      serializeBLineRuntimeConfig(this.requireWorkspace().config),
-    );
+  async exportConfig(project: Project): Promise<Blob> {
+    return jsonBlob(serializeBLineRuntimeConfig(project.config));
   }
 
   async importProjectFolder(
@@ -297,8 +297,8 @@ export class StorageProjectIoService implements ProjectIoService {
     return imported;
   }
 
-  async exportProjectFolder(): Promise<ProjectFolderExport> {
-    return serializeBLineProjectFolder(this.requireWorkspace());
+  async exportProjectFolder(project: Project): Promise<ProjectFolderExport> {
+    return serializeBLineProjectFolder(legacyWorkspaceForPersistence(project));
   }
 
   async importProjectArchive(file: File): Promise<ProjectWorkspaceDocument> {
@@ -325,10 +325,10 @@ export class StorageProjectIoService implements ProjectIoService {
     return imported;
   }
 
-  async exportProjectArchive(): Promise<Blob> {
+  async exportProjectArchive(project: Project): Promise<Blob> {
     return jsonBlob(
       createBLineProjectArchive(
-        this.requireWorkspace(),
+        legacyWorkspaceForPersistence(project),
         new Date().toISOString(),
       ),
     );

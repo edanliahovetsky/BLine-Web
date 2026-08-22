@@ -14,6 +14,7 @@ import {
   createPathModel,
   createTranslationTarget,
 } from "../../../src/core/model/path";
+import type { Project } from "../../../src/core/model/project";
 import {
   createAutosaveCoordinator,
   createProjectAutosaveCoordinator,
@@ -211,6 +212,42 @@ describe("project store", () => {
       dirty: false,
       status: "idle",
       lastSavedAt: null,
+    });
+  });
+
+  it("exports the current unsaved Project without clearing dirty state", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    renameActivePath(store, "Unsaved Name");
+
+    await store.getState().exportProjectFolder();
+
+    expect(io.exportedProjectNames).toEqual(["Unsaved Name"]);
+    expect(io.writes).toHaveLength(0);
+    expect(store.getState()).toMatchObject({
+      dirty: true,
+      revision: 1,
+      version: io.initialVersion,
+    });
+  });
+
+  it("keeps the Project dirty when a one-off export fails", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    renameActivePath(store, "Unsaved Name");
+    io.failExports = true;
+
+    await expect(store.getState().exportProjectFolder()).rejects.toThrow(
+      "export failed",
+    );
+
+    expect(io.writes).toHaveLength(0);
+    expect(store.getState()).toMatchObject({
+      dirty: true,
+      revision: 1,
+      version: io.initialVersion,
     });
   });
 
@@ -947,6 +984,8 @@ class RecordingIo implements ProjectIoService {
     pathName: string;
     expectedVersion: string | undefined;
   }> = [];
+  readonly exportedProjectNames: string[] = [];
+  failExports = false;
 
   private workspace: ProjectWorkspaceDocument | null;
   private version: string | undefined = this.initialVersion;
@@ -1122,7 +1161,11 @@ class RecordingIo implements ProjectIoService {
     return this.requireWorkspace();
   }
 
-  async exportProjectFolder() {
+  async exportProjectFolder(project: Project) {
+    if (this.failExports) {
+      throw new Error("export failed");
+    }
+    this.exportedProjectNames.push(project.paths[0]?.display_name ?? "");
     return {
       folderName: "autos",
       files: [],
