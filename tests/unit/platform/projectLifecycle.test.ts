@@ -3,7 +3,6 @@ import { createPathModel } from "../../../src/core/model/path";
 import { createProject, type Project } from "../../../src/core/model/project";
 import type {
   ProjectIoWorkspace,
-  ProjectIoWorkspaceHandle,
   ProjectIoWriteOutcome,
 } from "../../../src/platform/projectIo";
 import {
@@ -109,7 +108,7 @@ describe("Project platform lifecycle", () => {
     const initialWorkspace = recoveryWorkspace(project("first-dirty"), "v1");
     const saveWorkspace = vi.fn(
       async (
-        _handle: ProjectIoWorkspaceHandle,
+        _current: ProjectIoWorkspace,
         recovered: Project,
       ): Promise<ProjectIoWriteOutcome> =>
         recoveryWriteOutcome(recoveryWorkspace(recovered, "v2")),
@@ -154,6 +153,37 @@ describe("Project platform lifecycle", () => {
     ).toThrow("already active");
     expect(storage.length).toBe(0);
     first.releaseOwnership?.();
+  });
+
+  it("allocates a fresh owner when a duplicated tab inherits a live session owner", async () => {
+    const storage = new MapStorage();
+    const firstSession = new MapStorage();
+    const duplicateSession = new MapStorage();
+    firstSession.setItem("bline.autosave-recovery.owner.v1", "inherited-owner");
+    duplicateSession.setItem(
+      "bline.autosave-recovery.owner.v1",
+      "inherited-owner",
+    );
+    const locks = new TestLockManager();
+    const first = createBrowserAutosaveRecoveryJournal(storage, {
+      sessionStorage: firstSession,
+      lockManager: locks,
+    });
+    await first.ready?.();
+    const duplicate = createBrowserAutosaveRecoveryJournal(storage, {
+      sessionStorage: duplicateSession,
+      lockManager: locks,
+    });
+
+    await expect(duplicate.ready?.()).resolves.toBeUndefined();
+    expect(
+      duplicateSession.getItem("bline.autosave-recovery.owner.v1"),
+    ).not.toBe("inherited-owner");
+    first.write({ project: project("first-tab"), dirty: true });
+    duplicate.write({ project: project("duplicate-tab"), dirty: true });
+    expect(storage.length).toBe(2);
+    first.releaseOwnership?.();
+    duplicate.releaseOwnership?.();
   });
 
   it("surfaces browsers that cannot prove journal ownership", async () => {
@@ -262,6 +292,33 @@ describe("Project platform lifecycle", () => {
     expect(close.destroyed).toBe(true);
   });
 
+  it("retries User Data persistence on a later close request", async () => {
+    const close = new RecordingCloseTarget();
+    const flushUserData = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("metadata write failed"))
+      .mockResolvedValue(undefined);
+    const onError = vi.fn();
+    await installDurableProjectCloseHandler(close, {
+      getProjectState: () => ({
+        dirty: false,
+        activeSave: null,
+        blocked: false,
+      }),
+      flushProject: vi.fn(),
+      flushUserData,
+      onError,
+    });
+
+    await close.requestClose();
+    expect(close.destroyed).toBe(false);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+
+    await close.requestClose();
+    expect(flushUserData).toHaveBeenCalledTimes(2);
+    expect(close.destroyed).toBe(true);
+  });
+
   it("drains a Project mutation that arrives during the first close-time save", async () => {
     const close = new RecordingCloseTarget();
     const firstSave = deferred<void>();
@@ -341,7 +398,7 @@ function recoveryWorkspace(
   const savedAt = "2026-08-22T12:00:00.000Z";
   return {
     project,
-    handle: { recoveryTestId: project.project_id },
+    handle: { storageId: project.project_id },
     version,
     lastSavedAt: savedAt,
     summary: {
@@ -362,7 +419,7 @@ function recoveryWriteOutcome(
     version: workspace.version ?? "v1",
     updatedAt: workspace.lastSavedAt ?? "2026-08-22T12:00:00.000Z",
   };
-  return { ...result, result, workspace };
+  return { result, workspace };
 }
 
 class MapStorage {

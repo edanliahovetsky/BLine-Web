@@ -269,6 +269,11 @@ export class UserDataService {
             revision > this.durableRevision && revision <= targetRevision,
         )
         .sort(([left], [right]) => right - left)[0]?.[1];
+      // Keep a transient fire-and-forget failure visible to this flush while
+      // also making the latest unsaved snapshot retryable by a later flush.
+      // queueWrite() captures the snapshot only when its turn begins, so edits
+      // arriving around this failure are included in the CAS retry.
+      this.queueWrite();
       throw failure ?? new UserDataVerificationError();
     }
   }

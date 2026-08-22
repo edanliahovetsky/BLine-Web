@@ -7,16 +7,6 @@ import {
   useState,
 } from "react";
 import type { ChangeEvent, CSSProperties } from "react";
-import {
-  Activity,
-  CircleHelp,
-  FolderTree,
-  PanelRight,
-  Redo2,
-  Search,
-  Settings,
-  Undo2,
-} from "lucide-react";
 import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { activeProjectPath } from "../../core/model/editorNavigation";
@@ -65,7 +55,7 @@ import {
   removeSelectedRangedConstraint,
   selectAdjacentPathElement,
 } from "../keyboardShortcuts";
-import { CloseButton, IconButton } from "../controls";
+import { CloseButton } from "../controls";
 import { Sidebar } from "../sidebar/Sidebar";
 import { createDefaultElement } from "../sidebar/sidebarCommands";
 import "./AppShell.css";
@@ -84,19 +74,13 @@ import {
   clampInspectorWidth,
   commandForShortcut,
   executeCommand,
-  formatShortcut,
   readEditorUiPreferences,
   writeEditorUiPreferences,
   type EditorCommand,
   type EditorTool,
   type EditorUiPreferencesV1,
 } from "./editorCommands";
-import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
-import {
-  optimizerBeamClass,
-  optimizerBeamLabel,
-  optimizerBeamTitle,
-} from "../optimizerBeam";
+import { derivePathDiagnostics } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
 import {
@@ -108,16 +92,12 @@ import {
   flushUserData,
   importFieldBackgroundFromBytes,
   listFieldBackgrounds,
-  migrateProjectViewIdentity,
   readFieldBackgroundImage,
   rememberSelectedFieldBackground,
   selectedFieldBackgroundForProject,
   updateFieldBackgroundMetadata,
 } from "../../userData";
-import {
-  migrateImportedLegacyFieldBackgrounds,
-  migrateLegacyProjectFieldBackgrounds,
-} from "../../userData/legacyFieldMigration";
+import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
 import { pathDisplayNameFromFileName } from "../../core/model/projectIdentity";
 import { editorBasicsTour, tours } from "../tours/tours";
 import {
@@ -126,6 +106,7 @@ import {
 } from "./projectStoragePresentation";
 import { parseProjectTimestamp } from "./projectTimestamp";
 import { useProjectLifecycle } from "./useProjectLifecycle";
+import { useLegacyFieldMigration } from "./useLegacyFieldMigration";
 import {
   CreateProjectDialog,
   DeletePathsDialog,
@@ -138,14 +119,8 @@ import {
   type LinkedTargetPickerRequest,
 } from "./LinkedTargetsDialog";
 import { PathLibraryDialog } from "./PathLibraryDialog";
-import {
-  MenuAction,
-  MenuLabel,
-  MenuSubmenu,
-  ToolbarPathNavigator,
-  TopMenuButton,
-  type TopMenuId,
-} from "./ToolbarMenus";
+import type { TopMenuId } from "./ToolbarMenus";
+import { AppToolbar } from "./AppToolbar";
 
 interface PathNameAction {
   kind: "duplicate" | "rename";
@@ -289,9 +264,6 @@ export function AppShell() {
     useState<ImportMode>("archive");
   const [pendingToolbarAction, setPendingToolbarAction] =
     useState<PendingToolbarAction>(null);
-  const [legacyFieldMigrationAttempt, setLegacyFieldMigrationAttempt] =
-    useState<{ key: string; phase: "running" | "failed" } | null>(null);
-  const [legacyFieldMigrationRetry, setLegacyFieldMigrationRetry] = useState(0);
   const [canvasInteractionActive, setCanvasInteractionActive] = useState(false);
   const [curveToolSession, setCurveToolSession] =
     useState<CurveToolSession | null>(null);
@@ -300,7 +272,6 @@ export function AppShell() {
   const nextCurveToolSessionIdRef = useRef(1);
   const importHandlingRef = useRef(false);
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
-  const attemptedFieldMigrationKeysRef = useRef(new Set<string>());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
@@ -456,6 +427,10 @@ export function AppShell() {
     setOpenTopMenu(menu);
   }, []);
 
+  const attachFileInput = useCallback((element: HTMLInputElement | null) => {
+    fileInputRef.current = element;
+  }, []);
+
   const attachFolderInput = useCallback((element: HTMLInputElement | null) => {
     folderInputRef.current = element;
     element?.setAttribute("webkitdirectory", "");
@@ -529,131 +504,15 @@ export function AppShell() {
     [],
   );
 
-  const legacyFieldMigrationKey =
-    durableProject && projectSessionId
-      ? JSON.stringify({
-          projectSessionId,
-          projectId: durableProject.project_id,
-          field: durableProject.config.gui.field,
-        })
-      : null;
-
-  useEffect(() => {
-    const migrationProject = projectStore.getState().project;
-    if (!migrationProject || !projectSessionId) {
-      return;
-    }
-
-    const projectId = migrationProject.project_id;
-    const migrationSessionId = projectSessionId;
-    const migration = projectStore.getState().legacyProjectViewMigration;
-
-    if (
-      !projectIo ||
-      !migration ||
-      migration.stableProjectId !== projectId ||
-      !legacyFieldMigrationKey ||
-      attemptedFieldMigrationKeysRef.current.has(legacyFieldMigrationKey)
-    ) {
-      return;
-    }
-    attemptedFieldMigrationKeysRef.current.add(legacyFieldMigrationKey);
-    setLegacyFieldMigrationAttempt({
-      key: legacyFieldMigrationKey,
-      phase: "running",
+  const { phase: legacyFieldMigrationPhase, retry: retryLegacyFieldMigration } =
+    useLegacyFieldMigration({
+      project: durableProject,
+      projectIo,
+      projectSessionId,
+      defaultFieldId,
+      onFieldBackgroundsChange: setFieldBackgrounds,
+      onFieldSelectionChange: setFieldSelectionOverride,
     });
-    let cancelled = false;
-    let finished = false;
-    const ownsMigrationSession = () => {
-      const state = projectStore.getState();
-      return (
-        !cancelled &&
-        state.io === projectIo &&
-        state.projectSessionId === migrationSessionId &&
-        state.project?.project_id === projectId
-      );
-    };
-    const abandonAttempt = () => {
-      attemptedFieldMigrationKeysRef.current.delete(legacyFieldMigrationKey);
-    };
-
-    void (async () => {
-      const preparation = await projectStore
-        .getState()
-        .prepareLegacyProjectMigration(migrationSessionId, migration);
-      if (!ownsMigrationSession()) {
-        abandonAttempt();
-        return;
-      }
-      if (preparation.status === "rejected") {
-        throw new Error("Legacy Project migration could not be prepared");
-      }
-      await migrateProjectViewIdentity(
-        migration.legacyProjectId,
-        migration.stableProjectId,
-        migration.pathIdByLegacyReference,
-      );
-      if (!ownsMigrationSession()) {
-        abandonAttempt();
-        return;
-      }
-      const { errors } = await migrateLegacyProjectFieldBackgrounds(
-        migrationProject,
-        projectIo,
-        migration.legacyProjectId,
-      );
-      if (!ownsMigrationSession()) {
-        abandonAttempt();
-        return;
-      }
-      if (errors[0]) {
-        throw errors[0];
-      }
-      await projectStore
-        .getState()
-        .completeLegacyProjectMigration(migrationSessionId, migration);
-      if (!ownsMigrationSession()) {
-        abandonAttempt();
-        return;
-      }
-      setFieldBackgrounds(listFieldBackgrounds());
-      setFieldSelectionOverride({
-        projectId,
-        fieldId:
-          selectedFieldBackgroundForProject(projectId, defaultFieldId) ??
-          defaultFieldId,
-      });
-      finished = true;
-      setLegacyFieldMigrationAttempt(null);
-    })().catch((migrationError: unknown) => {
-      abandonAttempt();
-      if (ownsMigrationSession()) {
-        setLegacyFieldMigrationAttempt({
-          key: legacyFieldMigrationKey,
-          phase: "failed",
-        });
-        projectStore.getState().markLegacyMigrationError(migrationError);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      if (!finished) {
-        abandonAttempt();
-      }
-    };
-  }, [
-    legacyFieldMigrationKey,
-    legacyFieldMigrationRetry,
-    projectIo,
-    projectSessionId,
-    setFieldBackgrounds,
-  ]);
-
-  const legacyFieldMigrationPhase =
-    legacyFieldMigrationAttempt?.key === legacyFieldMigrationKey
-      ? legacyFieldMigrationAttempt.phase
-      : null;
 
   const selectedFieldId = durableProject
     ? fieldSelectionOverride?.projectId === durableProject.project_id
@@ -1036,7 +895,7 @@ export function AppShell() {
       return;
     }
     if (legacyFieldMigrationPhase === "failed") {
-      setLegacyFieldMigrationRetry((generation) => generation + 1);
+      retryLegacyFieldMigration();
       return;
     }
 
@@ -1046,7 +905,12 @@ export function AppShell() {
     } catch {
       // The project store already records the error for the status bar.
     }
-  }, [cancelAutosave, legacyFieldMigrationPhase, refreshWorkspaceSummaries]);
+  }, [
+    cancelAutosave,
+    legacyFieldMigrationPhase,
+    refreshWorkspaceSummaries,
+    retryLegacyFieldMigration,
+  ]);
 
   const beginToolbarAction = useCallback(
     (action: Exclude<PendingToolbarAction, null>) => {
@@ -1648,12 +1512,6 @@ export function AppShell() {
       ),
     [activeField.geometry, activePath, durableProject],
   );
-  // A broken reference should read as more urgent than a soft warning.
-  const pathHealthSeverity = pathDiagnostics.some(
-    (diagnostic) => diagnostic.severity === "error",
-  )
-    ? "error"
-    : "warning";
   const handleSelectPathFromToolbar = useCallback((pathId: string) => {
     if (projectStore.getState().projectTransitionInProgress) {
       return;
@@ -2003,483 +1861,97 @@ export function AppShell() {
       data-testid="app-shell"
       aria-busy={projectTransitionInProgress}
     >
-      <header className="app-toolbar" ref={toolbarRef}>
-        <nav className="app-tabs" aria-label="Top menu">
-          <IconButton
-            className="app-toolbar__navigator-button"
-            aria-label={navigatorCommand.label}
-            title={navigatorCommand.label}
-            disabled={navigatorCommand.disabled}
-            onClick={() => executeCommand(navigatorCommand)}
-          >
-            <FolderTree aria-hidden="true" size={17} />
-          </IconButton>
-          <TopMenuButton
-            id="project"
-            label="File"
-            openTopMenu={openTopMenu}
-            setOpenTopMenu={setActiveTopMenu}
-            onBeforeOpen={refreshWorkspaceSummaries}
-          >
-            {supportsProjectFolders ? (
-              <>
-                <MenuSubmenu label="Folder" testId="top-menu-project-folder">
-                  <MenuAction
-                    label="Open Project Folder..."
-                    disabled={!projectIo || toolbarBusy}
-                    onAction={() => void handleOpenWorkspace()}
-                  />
-                  <MenuAction
-                    label="Create Project Folder..."
-                    disabled={!projectIo || toolbarBusy}
-                    onAction={() => void handleCreateWorkspace()}
-                  />
-                </MenuSubmenu>
-              </>
-            ) : (
-              <>
-                <MenuSubmenu
-                  label="Workspace"
-                  testId="top-menu-project-workspace"
-                >
-                  <MenuAction
-                    label="New Project"
-                    disabled={!projectIo || toolbarBusy}
-                    onAction={() => void handleNewProject()}
-                  />
-                  <MenuAction
-                    label="Open Project..."
-                    disabled={!projectIo || toolbarBusy}
-                    onAction={handleOpenProjectPanel}
-                  />
-                  <MenuAction
-                    label="Delete Projects..."
-                    disabled={!durableProject || !projectIo || toolbarBusy}
-                    onAction={handleShowDeleteProjects}
-                  />
-                </MenuSubmenu>
-              </>
-            )}
-            <MenuSubmenu
-              label="Import / Export"
-              testId="top-menu-project-transfer"
-            >
-              {!supportsProjectFolders ? (
-                <>
-                  <MenuAction
-                    label="Import Autos Folder..."
-                    disabled={!projectIo || toolbarBusy}
-                    onAction={queueFolderImport}
-                  />
-                  <MenuAction
-                    label="Export Autos Folder..."
-                    disabled={!durableProject || !projectIo}
-                    onAction={() => void handleExportProjectFolder()}
-                  />
-                  <div className="top-menu__separator" role="separator" />
-                </>
-              ) : null}
-              <MenuAction
-                label="Import Project Archive..."
-                disabled={!projectIo || toolbarBusy}
-                onAction={() => queueFileImport("archive")}
-              />
-              <MenuAction
-                label="Export Project Archive..."
-                disabled={!durableProject || !projectIo}
-                onAction={() => {
-                  setOpenTopMenu(null);
-                  void handleExportProjectArchive();
-                }}
-              />
-            </MenuSubmenu>
-            <MenuSubmenu label="Config" testId="top-menu-project-config">
-              <MenuAction
-                label="Import Config..."
-                disabled={!durableProject || !projectIo || toolbarBusy}
-                onAction={() => queueFileImport("config")}
-              />
-              <MenuAction
-                label="Export Config..."
-                disabled={!durableProject || !projectIo}
-                onAction={() => void handleExportConfig()}
-              />
-            </MenuSubmenu>
-            <MenuSubmenu
-              label={
-                supportsProjectFolders
-                  ? "Recent Project Folders"
-                  : "Recent Projects"
-              }
-              testId="top-menu-project-recent"
-            >
-              <WorkspaceMenuList
-                emptyLabel={
-                  supportsProjectFolders
-                    ? "(No recent folders)"
-                    : "(No saved projects)"
-                }
-                workspaces={projectSummaries}
-                onOpen={
-                  supportsProjectFolders
-                    ? handleSwitchWorkspace
-                    : handleOpenWorkspaceFromMenu
-                }
-              />
-            </MenuSubmenu>
-          </TopMenuButton>
-          <TopMenuButton
-            id="path"
-            label="Path"
-            active
-            triggerRef={pathMenuButtonRef}
-            openTopMenu={openTopMenu}
-            setOpenTopMenu={setActiveTopMenu}
-          >
-            <MenuLabel>Current: {pathLabel}</MenuLabel>
-            <MenuLabel>
-              Collection: {activePathGroup?.display_name ?? "All Paths"}
-            </MenuLabel>
-            <div className="top-menu__separator" role="separator" />
-            <MenuAction
-              label="Linked Elements..."
-              disabled={!durableProject || toolbarBusy}
-              onAction={handleShowLinkedTargets}
-            />
-            <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
-              <MenuAction
-                label="Create New Path"
-                disabled={newPathCommand.disabled}
-                onAction={() => executeCommand(newPathCommand)}
-              />
-              <MenuAction
-                label="Save Path As..."
-                disabled={!activePath || !projectIo || toolbarBusy}
-                onAction={() => void handleSavePathAs()}
-              />
-              <MenuAction
-                label="Rename Path..."
-                disabled={!activePath || toolbarBusy}
-                onAction={handleRenamePath}
-              />
-              <MenuAction
-                label="Delete Paths..."
-                disabled={
-                  !durableProject || pathDocuments.length === 0 || toolbarBusy
-                }
-                onAction={handleShowDeletePaths}
-              />
-            </MenuSubmenu>
-            <MenuSubmenu
-              label="Import / Export"
-              testId="top-menu-path-transfer"
-            >
-              <MenuAction
-                label="Import Path..."
-                disabled={!durableProject || !projectIo || toolbarBusy}
-                onAction={() => queueFileImport("path")}
-              />
-              <MenuAction
-                label="Export Path..."
-                disabled={!activePath || !projectIo}
-                onAction={() => void handleExportPath()}
-              />
-            </MenuSubmenu>
-          </TopMenuButton>
-        </nav>
-        <nav className="toolbar-actions" aria-label="Project actions">
-          <div className="toolbar-actions__quick">
-            <ToolbarPathNavigator
-              project={durableProject}
-              activeGroup={activePathGroup}
-              activePath={activePath}
-              visiblePaths={visiblePathDocuments}
-              onSelectGroup={handleSelectCollectionFromToolbar}
-              onSelectPath={handleSelectPathFromToolbar}
-            />
-          </div>
-          <div className="toolbar-actions__overflow">
-            <TopMenuButton
-              id="actions"
-              label="Actions"
-              align="end"
-              openTopMenu={openTopMenu}
-              setOpenTopMenu={setActiveTopMenu}
-              onBeforeOpen={refreshWorkspaceSummaries}
-            >
-              <MenuAction
-                label={undoLabel}
-                shortcut={undoCommand.shortcut}
-                disabled={undoCommand.disabled}
-                onAction={() => {
-                  setShowOpenPanel(false);
-                  executeCommand(undoCommand);
-                  setOpenTopMenu(null);
-                }}
-              />
-              <MenuAction
-                label={redoLabel}
-                shortcut={redoCommand.shortcut}
-                disabled={redoCommand.disabled}
-                onAction={() => {
-                  setShowOpenPanel(false);
-                  executeCommand(redoCommand);
-                  setOpenTopMenu(null);
-                }}
-              />
-              <div className="top-menu__separator" role="separator" />
-              {supportsProjectFolders ? (
-                <MenuAction
-                  label="New Path"
-                  disabled={newPathCommand.disabled}
-                  onAction={() => {
-                    executeCommand(newPathCommand);
-                    setOpenTopMenu(null);
-                  }}
-                />
-              ) : null}
-              <MenuAction
-                label={supportsProjectFolders ? "Open Folder..." : "Open..."}
-                disabled={!projectIo || toolbarBusy}
-                onAction={() => {
-                  if (supportsProjectFolders) {
-                    void handleOpenWorkspace();
-                  } else {
-                    handleOpenProjectPanel();
-                  }
-                }}
-              />
-              <MenuSubmenu label="Import" testId="top-menu-actions-import">
-                <MenuAction
-                  label="Import Project Folder..."
-                  disabled={!projectIo || toolbarBusy}
-                  onAction={queueFolderImport}
-                />
-                <MenuAction
-                  label="Import Path..."
-                  disabled={!durableProject || !projectIo || toolbarBusy}
-                  onAction={() => queueFileImport("path")}
-                />
-                <MenuAction
-                  label="Import Project Archive..."
-                  disabled={!projectIo || toolbarBusy}
-                  onAction={() => queueFileImport("archive")}
-                />
-              </MenuSubmenu>
-              <MenuAction
-                label="Export Path..."
-                disabled={!activePath || !projectIo || toolbarBusy}
-                onAction={() => {
-                  setOpenTopMenu(null);
-                  void handleExportPath();
-                }}
-              />
-              <div className="top-menu__separator" role="separator" />
-              <MenuAction
-                label="Project Navigator..."
-                disabled={navigatorCommand.disabled}
-                onAction={() => executeCommand(navigatorCommand)}
-              />
-              <div className="top-menu__separator" role="separator" />
-              <MenuAction
-                label="Save"
-                disabled={saveCommand.disabled}
-                onAction={() => {
-                  setOpenTopMenu(null);
-                  executeCommand(saveCommand);
-                }}
-              />
-            </TopMenuButton>
-          </div>
-          <div className="toolbar-actions__buttons">
-            <IconButton
-              aria-label="Undo"
-              aria-keyshortcuts="Meta+Z Control+Z"
-              title={`${undoLabel} (${formatShortcut(undoCommand.shortcut)})`}
-              disabled={undoCommand.disabled}
-              onClick={() => executeCommand(undoCommand)}
-            >
-              <Undo2 aria-hidden="true" size={16} />
-            </IconButton>
-            <IconButton
-              aria-label="Redo"
-              aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z Meta+Y Control+Y"
-              title={`${redoLabel} (${formatShortcut(redoCommand.shortcut)})`}
-              disabled={redoCommand.disabled}
-              onClick={() => executeCommand(redoCommand)}
-            >
-              <Redo2 aria-hidden="true" size={16} />
-            </IconButton>
-            <button
-              type="button"
-              className="command-search-button"
-              aria-label="Search commands and paths"
-              onClick={() => setShowCommandPalette(true)}
-            >
-              <Search aria-hidden="true" size={16} />
-              <span>Commands</span>
-              <kbd>⌘K</kbd>
-            </button>
-            <OptimizerLiveRegion />
-            <div className="path-health-control" data-tour="path-health">
-              <IconButton
-                className={
-                  pathDiagnostics.length > 0
-                    ? `has-diagnostics has-diagnostics--${pathHealthSeverity}`
-                    : ""
-                }
-                aria-label={`Path health: ${pathDiagnostics.length} issues`}
-                aria-expanded={showPathHealth}
-                title={
-                  pathDiagnostics.length > 0
-                    ? `Path health — ${pathDiagnostics.length} ${
-                        pathDiagnostics.length === 1 ? "issue" : "issues"
-                      } to review`
-                    : "Path health — editor checks for this path"
-                }
-                disabled={!activePath}
-                onClick={() => {
-                  setShowHelpHub(false);
-                  setShowPathHealth((current) => !current);
-                }}
-              >
-                <Activity aria-hidden="true" size={16} />
-                {pathDiagnostics.length > 0 ? (
-                  <span>{pathDiagnostics.length}</span>
-                ) : null}
-              </IconButton>
-              {showPathHealth ? (
-                <PathHealthPopover
-                  diagnostics={pathDiagnostics}
-                  saveError={error}
-                  onSelect={(diagnostic) => {
-                    if (diagnostic.elementIndex !== undefined) {
-                      selectionStore
-                        .getState()
-                        .selectElement(
-                          diagnostic.elementIndex,
-                          activePath?.path,
-                        );
-                      setInspectorOpen(true);
-                    }
-                    setShowPathHealth(false);
-                  }}
-                />
-              ) : null}
-            </div>
-            <div className="help-hub-control" data-tour="help-hub">
-              <IconButton
-                aria-label="Help and tutorials"
-                aria-expanded={showHelpHub}
-                title="Help and tutorials"
-                onClick={() => {
-                  setShowPathHealth(false);
-                  setShowHelpHub((current) => !current);
-                }}
-              >
-                <CircleHelp aria-hidden="true" size={16} />
-              </IconButton>
-              {showHelpHub ? (
-                <HelpHubPopover
-                  tourAvailable={Boolean(activePath) && toursSupported}
-                  tourUnavailableReason={
-                    toursSupported
-                      ? "Open a path first"
-                      : "Tours need a larger window"
-                  }
-                  onClose={() => setShowHelpHub(false)}
-                  onStartTour={() => {
-                    setShowHelpHub(false);
-                    setShowTourPicker(true);
-                  }}
-                  onShortcuts={() => {
-                    setShowHelpHub(false);
-                    executeCommand(shortcutHelpCommand);
-                  }}
-                  onCommandPalette={() => {
-                    setShowHelpHub(false);
-                    setShowCommandPalette(true);
-                  }}
-                  onOpenSample={() => {
-                    setShowHelpHub(false);
-                    void handleOpenSample();
-                  }}
-                />
-              ) : null}
-            </div>
-            <IconButton
-              aria-label="Settings"
-              title="Project settings"
-              disabled={settingsCommand.disabled}
-              onClick={() => executeCommand(settingsCommand)}
-            >
-              <Settings aria-hidden="true" size={16} />
-            </IconButton>
-            <IconButton
-              // With the inspector closed the Constraints tab is gone, so the
-              // current traces the control that brings it back.
-              className={
-                inspectorOpen
-                  ? ""
-                  : optimizerBeamClass(optimizerPhase, optimizerError)
-              }
-              aria-label="Toggle inspector"
-              aria-expanded={inspectorOpen}
-              aria-keyshortcuts="Meta+B Control+B"
-              title={
-                inspectorOpen
-                  ? `${inspectorCommand.label} (⌘B)`
-                  : optimizerBeamTitle(
-                      optimizerPhase,
-                      optimizerError,
-                      `${inspectorCommand.label} (⌘B)`,
-                    )
-              }
-              disabled={inspectorCommand.disabled}
-              onClick={() => executeCommand(inspectorCommand)}
-            >
-              <PanelRight aria-hidden="true" size={16} />
-            </IconButton>
-          </div>
-          <input
-            ref={fileInputRef}
-            className="file-import-input"
-            aria-label="Import BLine JSON"
-            type="file"
-            accept="application/json,.json,.bline-project,.bline-project.json"
-            onChange={handleImportProject}
-          />
-          <input
-            ref={attachFolderInput}
-            className="file-import-input"
-            aria-label="Import autos folder"
-            type="file"
-            accept="application/json,.json"
-            multiple
-            onChange={handleImportProjectFolder}
-          />
-          {showOpenPanel ? (
-            <div
-              className="project-open-panel"
-              data-testid="open-project-panel"
-            >
-              <strong>Saved Workspaces</strong>
-              <div className="project-open-panel__list">
-                {projectSummaries.map((summary) => (
-                  <button
-                    key={summary.id}
-                    type="button"
-                    onClick={() => void handleOpenWorkspaceById(summary.id)}
-                  >
-                    <span>{summary.displayName}</span>
-                    <small>{formatTimestamp(summary.updatedAt)}</small>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </nav>
-      </header>
+      <AppToolbar
+        toolbarRef={toolbarRef}
+        model={{
+          project: durableProject,
+          activeGroup: activePathGroup,
+          activePath,
+          visiblePaths: visiblePathDocuments,
+          projectSummaries,
+          supportsProjectFolders,
+          projectIoAvailable,
+          toolbarBusy,
+          undoLabel,
+          redoLabel,
+          pathDiagnostics,
+          saveError: error,
+          toursSupported,
+        }}
+        commands={{
+          navigator: navigatorCommand,
+          newPath: newPathCommand,
+          save: saveCommand,
+          undo: undoCommand,
+          redo: redoCommand,
+          settings: settingsCommand,
+          inspector: inspectorCommand,
+          shortcutHelp: shortcutHelpCommand,
+        }}
+        menu={{
+          open: openTopMenu,
+          pathTriggerRef: pathMenuButtonRef,
+          setOpen: setActiveTopMenu,
+          refreshWorkspaces: refreshWorkspaceSummaries,
+        }}
+        panels={{
+          showOpenPanel,
+          showPathHealth,
+          showHelpHub,
+          inspectorOpen,
+          openCommandPalette: () => setShowCommandPalette(true),
+          closeOpenPanel: () => setShowOpenPanel(false),
+          togglePathHealth: () => {
+            setShowHelpHub(false);
+            setShowPathHealth((current) => !current);
+          },
+          closePathHealth: () => setShowPathHealth(false),
+          selectDiagnostic: (diagnostic) => {
+            if (diagnostic.elementIndex !== undefined) {
+              selectionStore
+                .getState()
+                .selectElement(diagnostic.elementIndex, activePath?.path);
+              setInspectorOpen(true);
+            }
+            setShowPathHealth(false);
+          },
+          toggleHelpHub: () => {
+            setShowPathHealth(false);
+            setShowHelpHub((current) => !current);
+          },
+          closeHelpHub: () => setShowHelpHub(false),
+          openTourPicker: () => setShowTourPicker(true),
+        }}
+        imports={{
+          setFileInput: attachFileInput,
+          setFolderInput: attachFolderInput,
+          onImportFile: handleImportProject,
+          onImportFolder: handleImportProjectFolder,
+        }}
+        actions={{
+          openWorkspace: handleOpenWorkspace,
+          createWorkspace: handleCreateWorkspace,
+          createProject: handleNewProject,
+          openProjectPanel: handleOpenProjectPanel,
+          showDeleteProjects: handleShowDeleteProjects,
+          importFolder: queueFolderImport,
+          importFile: queueFileImport,
+          exportProjectFolder: handleExportProjectFolder,
+          exportProjectArchive: handleExportProjectArchive,
+          exportConfig: handleExportConfig,
+          exportPath: handleExportPath,
+          openWorkspaceFromMenu: handleOpenWorkspaceFromMenu,
+          switchWorkspace: handleSwitchWorkspace,
+          showLinkedTargets: handleShowLinkedTargets,
+          savePathAs: handleSavePathAs,
+          renamePath: handleRenamePath,
+          showDeletePaths: handleShowDeletePaths,
+          selectGroup: handleSelectCollectionFromToolbar,
+          selectPath: handleSelectPathFromToolbar,
+          openWorkspaceById: handleOpenWorkspaceById,
+          openSample: handleOpenSample,
+        }}
+      />
 
       <div
         className={[
@@ -3235,227 +2707,6 @@ function isRangedConstraintShortcutTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
     Boolean(target.closest("[data-ranged-constraint-selection]"))
-  );
-}
-
-function HelpHubPopover({
-  tourAvailable,
-  tourUnavailableReason,
-  onClose,
-  onStartTour,
-  onShortcuts,
-  onCommandPalette,
-  onOpenSample,
-}: {
-  tourAvailable: boolean;
-  tourUnavailableReason: string;
-  onClose(): void;
-  onStartTour(): void;
-  onShortcuts(): void;
-  onCommandPalette(): void;
-  onOpenSample(): void;
-}) {
-  useEffect(() => {
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <section
-      className="help-hub-popover"
-      role="dialog"
-      aria-label="Help and tutorials"
-      data-testid="help-hub"
-    >
-      <div className="help-hub-popover__group">
-        <span className="help-hub-popover__label">Learn</span>
-        <button
-          type="button"
-          data-testid="start-guided-tour"
-          disabled={!tourAvailable}
-          title={
-            tourAvailable
-              ? "Walk through the editor step by step"
-              : tourUnavailableReason
-          }
-          onClick={onStartTour}
-        >
-          <span className="help-hub-popover__glyph" aria-hidden="true">
-            🧭
-          </span>
-          <span>Guided tours</span>
-          <small>{tours.length} lessons</small>
-        </button>
-        <button type="button" onClick={onShortcuts}>
-          <span className="help-hub-popover__glyph" aria-hidden="true">
-            ⌨️
-          </span>
-          <span>Keyboard shortcuts</span>
-          <kbd>?</kbd>
-        </button>
-        <button type="button" onClick={onCommandPalette}>
-          <span className="help-hub-popover__glyph" aria-hidden="true">
-            ⌘
-          </span>
-          <span>Command palette</span>
-          <kbd>{formatShortcut({ key: "k", metaOrCtrl: true })}</kbd>
-        </button>
-      </div>
-      <div className="help-hub-popover__separator" role="separator" />
-      <div className="help-hub-popover__group">
-        <span className="help-hub-popover__label">Reference</span>
-        <a
-          href="https://bline-docs.pages.dev/"
-          target="_blank"
-          rel="noreferrer noopener"
-          onClick={onClose}
-        >
-          <span className="help-hub-popover__glyph" aria-hidden="true">
-            📖
-          </span>
-          <span>Documentation</span>
-          <small>↗</small>
-        </a>
-        <button type="button" onClick={onOpenSample}>
-          <span className="help-hub-popover__glyph" aria-hidden="true">
-            🧪
-          </span>
-          <span>Open sample path</span>
-        </button>
-        <a
-          href="https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778"
-          target="_blank"
-          rel="noreferrer noopener"
-          onClick={onClose}
-        >
-          <span className="help-hub-popover__glyph" aria-hidden="true">
-            💬
-          </span>
-          <span>Ask on Chief Delphi</span>
-          <small>↗</small>
-        </a>
-      </div>
-    </section>
-  );
-}
-
-/**
- * The optimizer shows itself visually as a current tracing the Constraints
- * tab; this is the same news for anyone who cannot see it. It draws nothing,
- * so the toolbar geometry never shifts when a solve starts.
- */
-function OptimizerLiveRegion() {
-  const phase = useStoreSelector(autoVelocityStore, (state) => state.phase);
-  const lastError = useStoreSelector(
-    autoVelocityStore,
-    (state) => state.lastError,
-  );
-
-  return (
-    <span
-      className="optimizer-live-region"
-      role="status"
-      aria-live="polite"
-      aria-busy={phase !== "idle"}
-    >
-      {optimizerBeamLabel(phase, lastError)}
-    </span>
-  );
-}
-
-function PathHealthPopover({
-  diagnostics,
-  saveError,
-  onSelect,
-}: {
-  diagnostics: readonly PathDiagnostic[];
-  saveError: string | null;
-  onSelect(diagnostic: PathDiagnostic): void;
-}) {
-  return (
-    <section
-      className="path-health-popover"
-      role="dialog"
-      aria-label="Path health"
-    >
-      <header>
-        <div>
-          <strong>Path health</strong>
-          <span>
-            {diagnostics.length === 0 && !saveError
-              ? "No editor issues found"
-              : "Fix these before heading to the robot"}
-          </span>
-        </div>
-      </header>
-      <div className="path-health-popover__list">
-        {saveError ? (
-          <div className="path-health-popover__issue is-error">
-            <span>Save failed</span>
-            <small>{saveError}</small>
-          </div>
-        ) : null}
-        {diagnostics.map((diagnostic) => (
-          <button
-            key={diagnostic.id}
-            type="button"
-            className={`path-health-popover__issue is-${diagnostic.severity}`}
-            onClick={() => onSelect(diagnostic)}
-          >
-            <span>{diagnostic.summary}</span>
-            {diagnostic.elementIndex !== undefined ? (
-              <small>Show element {diagnostic.elementIndex + 1}</small>
-            ) : (
-              <small>Path guidance</small>
-            )}
-          </button>
-        ))}
-        {diagnostics.length === 0 && !saveError ? (
-          <div className="path-health-popover__clear">
-            BLine’s editor-level checks are clear.
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function WorkspaceMenuList({
-  workspaces,
-  emptyLabel,
-  onOpen,
-}: {
-  workspaces: ProjectWorkspaceSummary[];
-  emptyLabel: string;
-  onOpen(id: string): Promise<void>;
-}) {
-  if (workspaces.length === 0) {
-    return <div className="top-menu__empty">{emptyLabel}</div>;
-  }
-
-  return (
-    <div className="top-menu__list">
-      {workspaces.map((summary) => (
-        <button
-          key={summary.id}
-          type="button"
-          role="menuitem"
-          className="top-menu__item top-menu__project"
-          title={summary.directoryPath}
-          onClick={() => void onOpen(summary.id)}
-        >
-          <span className="top-menu__item-label">{summary.displayName}</span>
-          <small>{formatTimestamp(summary.updatedAt)}</small>
-        </button>
-      ))}
-    </div>
   );
 }
 

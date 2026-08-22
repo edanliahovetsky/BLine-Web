@@ -1,20 +1,23 @@
 import { expect, test } from "@playwright/test";
 import {
-  gotoSampleEditor,
-  requiredBox,
   canvasNodePosition,
-  pointDistance,
   canvasSceneMetrics,
+  expectPathElementTypes,
+  modelToCanvasPoint,
+  pointDistance,
   simulationProgress,
+} from "./support/app-shell-canvas";
+import {
   installWorkspaceWriteSpy,
   resetWorkspaceWriteSpy,
   workspaceWriteCount,
-  runEditMenuAction,
+} from "./support/app-shell-persistence";
+import {
   createNewProject,
   openConstraintsTab,
-  modelToCanvasPoint,
-  expectPathElementTypes,
-} from "./support/app-shell-helpers";
+  runEditMenuAction,
+} from "./support/app-shell-project-library";
+import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test.describe("Pixi canvas rendering", () => {
   test.use({

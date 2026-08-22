@@ -399,11 +399,11 @@ export function createProjectStore(
     });
 
     const service = requireProjectIo(state.io);
-    const workspaceHandle = requireWorkspaceHandle(state.workspaceHandle);
+    const current = requireIoWorkspace(state);
     const ownedSavePromise = replaceDamage
-      ? service.replaceDamagedProject(workspaceHandle, project, expectedVersion)
+      ? service.replaceDamagedProject(current, project, expectedVersion)
       : service.saveWorkspace(
-          workspaceHandle,
+          current,
           project,
           force ? undefined : expectedVersion,
         );
@@ -521,7 +521,7 @@ export function createProjectStore(
             {
               project,
             },
-            get().workspaceHandle ?? undefined,
+            currentIoWorkspace(get()) ?? undefined,
           );
           requireCurrentProjectTransition(get, ownership);
           return adoptWorkspace(
@@ -544,7 +544,7 @@ export function createProjectStore(
           const io = requireProjectIo(ownership.io);
           const workspace = await io.openWorkspace(
             id,
-            get().workspaceHandle ?? undefined,
+            currentIoWorkspace(get()) ?? undefined,
           );
           requireCurrentProjectTransition(get, ownership);
           if (workspace) {
@@ -620,7 +620,7 @@ export function createProjectStore(
           const io = requireProjectIo(ownership.io);
           const workspace = await io.switchWorkspace(
             id,
-            get().workspaceHandle ?? undefined,
+            currentIoWorkspace(get()) ?? undefined,
           );
           requireCurrentProjectTransition(get, ownership);
           if (workspace) {
@@ -1162,7 +1162,7 @@ export function createProjectStore(
         const previousNavigation = currentNavigation(get());
         const imported = await io.importPath(previousProject, file);
         const saved = await io.saveWorkspace(
-          requireWorkspaceHandle(get().workspaceHandle),
+          requireIoWorkspace(get()),
           imported,
           get().version,
         );
@@ -1214,7 +1214,7 @@ export function createProjectStore(
         const imported = await io.importConfig(project, file);
         const workspace = (
           await io.saveWorkspace(
-            requireWorkspaceHandle(state.workspaceHandle),
+            requireIoWorkspace(state),
             imported,
             state.version,
           )

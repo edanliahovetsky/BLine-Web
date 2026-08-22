@@ -798,7 +798,7 @@ class MemoryIo {
   private workspace: ProjectWorkspaceDocument;
   private version = 0;
   private readonly handle: ProjectIoWorkspaceHandle = {
-    memoryWorkspace: "auto-velocity-sync",
+    storageId: "auto-velocity-sync",
   };
 
   constructor(workspace: ProjectWorkspaceDocument) {
@@ -810,10 +810,10 @@ class MemoryIo {
   }
 
   async saveWorkspace(
-    handle: ProjectIoWorkspaceHandle,
+    current: ProjectIoWorkspace,
     workspace: ProjectWorkspaceDocument,
   ): Promise<ProjectIoWriteOutcome> {
-    if (handle !== this.handle) {
+    if (current.handle !== this.handle) {
       throw new Error("Unexpected Project I/O workspace handle");
     }
     this.workspace = structuredClone(workspace);
@@ -823,7 +823,6 @@ class MemoryIo {
       updatedAt: "2026-07-26T00:00:00.000Z",
     };
     return {
-      ...result,
       result,
       workspace: this.currentWorkspace(),
     };

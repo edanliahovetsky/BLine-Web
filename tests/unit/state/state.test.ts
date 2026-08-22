@@ -46,7 +46,6 @@ import type {
   LegacyProjectViewMigration,
   ProjectIoCapabilities,
   ProjectIoWorkspace,
-  ProjectIoWorkspaceHandle,
   ProjectIoWriteOutcome,
   ProjectIoService,
   ProjectImportOptions,
@@ -267,7 +266,7 @@ describe("project store", () => {
     const initialWorkspace = (await io.initialize())!;
     const initialWrite = (
       await io.saveWorkspace(
-        initialWorkspace.handle,
+        initialWorkspace,
         workspace,
         initialWorkspace.version,
       )
@@ -2079,7 +2078,11 @@ function legacyMigration(projectId: string): LegacyProjectViewMigration {
 function autosaveIo(io: RecordingIo) {
   return {
     async saveWorkspace(project: Project, expectedVersion?: string) {
-      return (await io.saveWorkspace({}, project, expectedVersion)).result;
+      const current = io.ioWorkspace();
+      if (!current) {
+        throw new Error("No test workspace is open");
+      }
+      return (await io.saveWorkspace(current, project, expectedVersion)).result;
     },
   };
 }
@@ -2241,7 +2244,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async saveWorkspace(
-    _handle: ProjectIoWorkspaceHandle,
+    _current: ProjectIoWorkspace,
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome> {
@@ -2281,12 +2284,12 @@ class RecordingIo implements ProjectIoService {
   }
 
   async replaceDamagedProject(
-    _handle: ProjectIoWorkspaceHandle,
+    current: ProjectIoWorkspace,
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome> {
     this.damage = null;
-    return this.saveWorkspace(_handle, project, expectedVersion);
+    return this.saveWorkspace(current, project, expectedVersion);
   }
 
   private commitWrite(workspace: Project): WriteResult {
@@ -2446,7 +2449,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   private writeOutcome(result: WriteResult): ProjectIoWriteOutcome {
-    return { ...result, result, workspace: this.ioWorkspace()! };
+    return { result, workspace: this.ioWorkspace()! };
   }
 }
 

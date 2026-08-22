@@ -400,6 +400,28 @@ describe("UserData", () => {
     expect(writeOrder).toEqual([[], ["newer"], ["newer"]]);
   });
 
+  it("retries the latest unsaved snapshot on a second flush", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    await service.flush();
+    adapter.metadataWriteFailuresRemaining = 1;
+
+    service.update((current) => ({
+      ...current,
+      completed_tour_ids: ["retry-me"],
+    }));
+
+    await expect(service.flush()).rejects.toThrow("metadata write failed");
+    await expect(service.flush()).resolves.toBeUndefined();
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+    expect(service.getStatus()).toEqual({
+      availability: "ready",
+      error: null,
+      hasUnsavedChanges: false,
+    });
+  });
+
   it("drains a User Data mutation that arrives during flush", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter);
@@ -1697,6 +1719,7 @@ class AssetMemoryAdapter implements UserDataAdapter {
   readonly events: string[] = [];
   failAssetWrite = false;
   failMetadataWrite = false;
+  metadataWriteFailuresRemaining = 0;
   installMetadataThenThrow = false;
   failAssetDelete = false;
   readbackOverride: Uint8Array | null | undefined;
@@ -1729,6 +1752,10 @@ class AssetMemoryAdapter implements UserDataAdapter {
       this.metadataWritePause = null;
       pause.started.resolve();
       await pause.release.promise;
+    }
+    if (this.metadataWriteFailuresRemaining > 0) {
+      this.metadataWriteFailuresRemaining -= 1;
+      throw new Error("metadata write failed");
     }
     if (this.failMetadataWrite) {
       throw new Error("metadata write failed");

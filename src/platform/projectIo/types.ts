@@ -54,8 +54,10 @@ export interface ProjectImportResult {
   legacyFieldBackgrounds: ImportedLegacyFieldBackground[];
 }
 
-/** Opaque persistence locator owned by the Project store and interpreted by Project I/O. */
-export type ProjectIoWorkspaceHandle = Readonly<Record<string, unknown>>;
+/** Persistence locator owned by the Project store and interpreted by Project I/O. */
+export interface ProjectIoWorkspaceHandle {
+  readonly storageId: string;
+}
 
 export interface ProjectIoWorkspace {
   project: Project;
@@ -67,7 +69,7 @@ export interface ProjectIoWorkspace {
   legacyMigration: LegacyProjectViewMigration | null;
 }
 
-export interface ProjectIoWriteOutcome extends WriteResult {
+export interface ProjectIoWriteOutcome {
   result: WriteResult;
   workspace: ProjectIoWorkspace;
 }
@@ -136,11 +138,11 @@ export interface ProjectIoService {
   ): Promise<ProjectIoWriteOutcome | null>;
   createWorkspace(
     input?: CreateWorkspaceInput,
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace>;
   openWorkspace(
     id?: string,
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace | null>;
   reloadWorkspace(
     handle: ProjectIoWorkspaceHandle,
@@ -151,19 +153,19 @@ export interface ProjectIoService {
     expectedVersion?: string,
   ): Promise<DeleteWorkspaceResult>;
   saveWorkspace(
-    handle: ProjectIoWorkspaceHandle,
+    current: ProjectIoWorkspace,
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome>;
   replaceDamagedProject(
-    handle: ProjectIoWorkspaceHandle,
+    current: ProjectIoWorkspace,
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome>;
   listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
   switchWorkspace(
     id: string,
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace | null>;
   importPath(project: Project, file: File): Promise<Project>;
   exportPath(project: Project, pathId: string): Promise<Blob>;

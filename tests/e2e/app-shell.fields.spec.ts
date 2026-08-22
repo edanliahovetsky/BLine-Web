@@ -1,18 +1,22 @@
 import { expect, test } from "@playwright/test";
+import { canvasNodePosition } from "./support/app-shell-canvas";
 import {
-  gotoSampleEditor,
-  canvasNodePosition,
-  activeFieldLabel,
   activeFieldImageLoaded,
-  tinyPngBuffer,
-  installSaveFilePickerSpy,
-  savedFileCount,
-  savedFile,
-  runEditMenuAction,
-  openPathMenu,
-  seedLegacyFieldProject,
+  activeFieldLabel,
   putLegacyFieldAsset,
-} from "./support/app-shell-helpers";
+  seedLegacyFieldProject,
+  tinyPngBuffer,
+} from "./support/app-shell-fields";
+import {
+  installSaveFilePickerSpy,
+  savedFile,
+  savedFileCount,
+} from "./support/app-shell-persistence";
+import {
+  openPathMenu,
+  runEditMenuAction,
+} from "./support/app-shell-project-library";
+import { gotoSampleEditor } from "./support/app-shell-shared";
 
 test("edits project config with undo support", async ({ page }) => {
   await gotoSampleEditor(page);

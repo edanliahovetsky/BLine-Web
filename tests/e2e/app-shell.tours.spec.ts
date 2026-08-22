@@ -1,12 +1,14 @@
 import { expect, test } from "@playwright/test";
+import { activeFieldLabel } from "./support/app-shell-fields";
 import {
-  gotoSampleEditor,
-  requiredBox,
-  activeFieldLabel,
   openPathLibraryDialog,
   openConstraintsTab,
+} from "./support/app-shell-project-library";
+import {
   dismissMobileSupportWarning,
-} from "./support/app-shell-helpers";
+  gotoSampleEditor,
+  requiredBox,
+} from "./support/app-shell-shared";
 
 test("opens help and tutorials from the toolbar", async ({ page }) => {
   await gotoSampleEditor(page);

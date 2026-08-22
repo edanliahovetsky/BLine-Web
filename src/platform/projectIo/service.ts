@@ -56,11 +56,6 @@ import type {
   LegacyProjectViewMigration,
 } from "./types";
 
-interface StorageWorkspaceHandle extends ProjectIoWorkspaceHandle {
-  readonly storageId: string;
-  readonly summary: ProjectWorkspaceSummary | null;
-}
-
 export class StorageProjectIoService implements ProjectIoService {
   readonly capabilities: ProjectIoCapabilities;
   private readonly storage: StorageAdapter;
@@ -149,7 +144,6 @@ export class StorageProjectIoService implements ProjectIoService {
     );
     return result
       ? {
-          ...result,
           result,
           workspace: this.workspaceAfterWrite(
             workspace.project,
@@ -163,7 +157,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async createWorkspace(
     input: CreateWorkspaceInput = {},
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace> {
     const project = input.project
       ? cloneProject(input.project)
@@ -228,7 +222,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async openWorkspace(
     id?: string,
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace | null> {
     if (isProjectFolderAdapter(this.storage)) {
       const candidate = id
@@ -302,30 +296,29 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async saveWorkspace(
-    handle: ProjectIoWorkspaceHandle,
+    current: ProjectIoWorkspace,
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome> {
-    const storageId = this.storageId(handle);
+    const storageId = this.storageId(current.handle);
     const result = await this.storage.writeProject(
       project,
       expectedVersion,
       storageId,
     );
     return {
-      ...result,
       result,
       workspace: this.workspaceAfterWrite(
         project,
         storageId,
         result,
-        this.handleSummary(handle),
+        current.summary,
       ),
     };
   }
 
   async replaceDamagedProject(
-    handle: ProjectIoWorkspaceHandle,
+    current: ProjectIoWorkspace,
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome> {
@@ -335,19 +328,18 @@ export class StorageProjectIoService implements ProjectIoService {
     const result = await this.storage.replaceDamagedProject(
       project,
       expectedVersion,
-      this.storageId(handle),
+      this.storageId(current.handle),
     );
     const resultingStorageId = isCurrentWorkspaceAdapter(this.storage)
       ? project.project_id
-      : this.storageId(handle);
+      : this.storageId(current.handle);
     return {
-      ...result,
       result,
       workspace: this.workspaceAfterWrite(
         project,
         resultingStorageId,
         result,
-        this.handleSummary(handle),
+        current.summary,
       ),
     };
   }
@@ -360,7 +352,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async switchWorkspace(
     id: string,
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace | null> {
     if (isProjectFolderAdapter(this.storage)) {
       const summary = (await this.listWorkspaces()).find(
@@ -541,7 +533,7 @@ export class StorageProjectIoService implements ProjectIoService {
   private async readAndActivate(
     id: string,
     knownSummary?: ProjectWorkspaceSummary,
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace> {
     if (!isProjectFolderAdapter(this.storage)) {
       return this.readWorkspace(id, knownSummary);
@@ -597,11 +589,7 @@ export class StorageProjectIoService implements ProjectIoService {
       let committedWorkspace: ProjectIoWorkspace;
       try {
         committedWorkspace = (
-          await this.saveWorkspace(
-            workspace.handle,
-            nextProject,
-            expectedVersion,
-          )
+          await this.saveWorkspace(workspace, nextProject, expectedVersion)
         ).workspace;
       } catch (error) {
         committedWorkspace = await this.reconcileDesktopImportFailure({
@@ -629,10 +617,21 @@ export class StorageProjectIoService implements ProjectIoService {
       return { ...result, workspace: committedWorkspace };
     } catch (error) {
       if (isProjectIoConflict(error)) {
-        // A competing import can win after both callers prepared the same
-        // deterministic Field Background. Its Project now relies on those
-        // bytes, so the loser must retain the converged preparation.
-        throw error;
+        let winningProject: Project | null = null;
+        try {
+          winningProject = await this.storage.readProject(
+            portableProject.project_id,
+          );
+        } catch {
+          // Without a readable winner, the prepared User Data cannot safely be
+          // attributed to the Project that acquired this ID.
+        }
+        if (winningProject && projectsMatch(winningProject, portableProject)) {
+          // Equivalent concurrent imports converge on the same deterministic
+          // Field Background, so the winning Project relies on this preparation.
+          throw error;
+        }
+        return await rollbackPreparedImport(error, rollback);
       }
       return await rollbackPreparedImport(error, rollback);
     }
@@ -737,15 +736,18 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   private async restoreStorageOwnership(
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<void> {
     try {
-      const previousStorageId = previous ? this.storageId(previous) : null;
-      if (isProjectFolderAdapter(this.storage) && previousStorageId) {
-        await this.storage.switchWorkspace(
-          previousStorageId,
-          previous ? this.handleSummary(previous)?.version : undefined,
-        );
+      const previousStorageId = previous
+        ? this.storageId(previous.handle)
+        : null;
+      if (
+        isProjectFolderAdapter(this.storage) &&
+        previousStorageId &&
+        previous
+      ) {
+        await this.storage.switchWorkspace(previousStorageId, previous.version);
       } else if (isCurrentWorkspaceAdapter(this.storage)) {
         await this.storage.setCurrentWorkspaceId(previousStorageId);
       }
@@ -804,7 +806,7 @@ export class StorageProjectIoService implements ProjectIoService {
           };
     return {
       project: cloneProject(project),
-      handle: { storageId, summary: normalizedSummary },
+      handle: { storageId },
       version: normalizedSummary?.version,
       lastSavedAt: normalizedSummary?.updatedAt ?? null,
       summary: normalizedSummary,
@@ -827,17 +829,11 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   private storageId(handle: ProjectIoWorkspaceHandle): string {
-    const storageId = (handle as Partial<StorageWorkspaceHandle>).storageId;
+    const { storageId } = handle;
     if (!storageId) {
       throw new Error("Invalid Project I/O workspace handle");
     }
     return storageId;
-  }
-
-  private handleSummary(
-    handle: ProjectIoWorkspaceHandle,
-  ): ProjectWorkspaceSummary | null {
-    return (handle as Partial<StorageWorkspaceHandle>).summary ?? null;
   }
 }
 

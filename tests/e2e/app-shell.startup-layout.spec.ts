@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { openConstraintsTab } from "./support/app-shell-project-library";
 import {
+  dismissMobileSupportWarning,
   gotoSampleEditor,
   requiredBox,
-  openConstraintsTab,
-  dismissMobileSupportWarning,
-} from "./support/app-shell-helpers";
+} from "./support/app-shell-shared";
 
 test("surfaces a blocked User Data v1 to v2 upgrade instead of loading forever", async ({
   page,

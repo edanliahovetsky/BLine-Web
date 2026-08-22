@@ -29,6 +29,7 @@ import {
   SelectControl,
   SwitchInput,
 } from "../controls";
+import "./LinkedTargetsDialog.css";
 
 export interface LinkedTargetPickerRequest {
   pathId: string;

@@ -3,7 +3,6 @@ import {
   isProjectIoConflict,
   type CreateWorkspaceInput,
   type ProjectIoWorkspace,
-  type ProjectIoWorkspaceHandle,
   type ProjectIoWriteOutcome,
 } from "./projectIo";
 
@@ -27,13 +26,13 @@ export interface AutosaveRecoveryJournal {
 interface ProjectRecoveryIo {
   initialize(): Promise<ProjectIoWorkspace | null>;
   saveWorkspace(
-    handle: ProjectIoWorkspaceHandle,
+    current: ProjectIoWorkspace,
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome>;
   createWorkspace(
     input?: CreateWorkspaceInput,
-    previous?: ProjectIoWorkspaceHandle,
+    previous?: ProjectIoWorkspace,
   ): Promise<ProjectIoWorkspace>;
 }
 
@@ -109,16 +108,14 @@ export function createBrowserAutosaveRecoveryJournal(
     Partial<Pick<Storage, "length" | "key">> = localStorage,
   options: BrowserAutosaveRecoveryJournalOptions = {},
 ): AutosaveRecoveryJournal {
-  const ownerId =
-    options.ownerId ??
-    readOrCreateRecoveryOwnerId(
-      options.sessionStorage ?? browserSessionStorage(),
-    );
+  const ownerStorage = options.sessionStorage ?? browserSessionStorage();
+  const canReplaceInheritedOwner = options.ownerId === undefined;
+  let ownerId = options.ownerId ?? readOrCreateRecoveryOwnerId(ownerStorage);
   const lockManager =
     options.lockManager === undefined
       ? browserLockManager()
       : (options.lockManager ?? undefined);
-  const entryKey = recoveryEntryKey(ownerId);
+  let entryKey = recoveryEntryKey(ownerId);
   let ownershipStarted = false;
   let ownershipReleased = false;
   let ownsEntry = false;
@@ -156,12 +153,20 @@ export function createBrowserAutosaveRecoveryJournal(
       rejectReady(ownershipError);
       return;
     }
-    void lockManager
-      .request(
+    const acquireOwnership = async (
+      replaceLiveInheritedOwner: boolean,
+    ): Promise<void> => {
+      await lockManager.request(
         recoveryLockName(ownerId),
         { mode: "exclusive", ifAvailable: true },
         async (lock) => {
           if (!lock) {
+            if (replaceLiveInheritedOwner) {
+              ownerId = createAndStoreRecoveryOwnerId(ownerStorage);
+              entryKey = recoveryEntryKey(ownerId);
+              await acquireOwnership(false);
+              return;
+            }
             ownershipError = new AutosaveRecoveryOwnershipError(
               "This recovery-journal owner is already active in another tab",
             );
@@ -176,19 +181,20 @@ export function createBrowserAutosaveRecoveryJournal(
           await leaseReleased;
           ownsEntry = false;
         },
-      )
-      .catch((error: unknown) => {
-        if (ownsEntry) {
-          ownsEntry = false;
-        }
-        if (!ownershipError) {
-          ownershipError = new AutosaveRecoveryOwnershipError(
-            "The recovery-journal lease failed",
-            error,
-          );
-          rejectReady(ownershipError);
-        }
-      });
+      );
+    };
+    void acquireOwnership(canReplaceInheritedOwner).catch((error: unknown) => {
+      if (ownsEntry) {
+        ownsEntry = false;
+      }
+      if (!ownershipError) {
+        ownershipError = new AutosaveRecoveryOwnershipError(
+          "The recovery-journal lease failed",
+          error,
+        );
+        rejectReady(ownershipError);
+      }
+    });
   };
 
   const assertOwnership = () => {
@@ -392,7 +398,7 @@ async function restoreAutosaveRecoverySnapshot(
     try {
       return (
         await io.saveWorkspace(
-          workspace.handle,
+          workspace,
           snapshot.project,
           snapshot.expectedVersion,
         )
@@ -409,7 +415,10 @@ async function restoreAutosaveRecoverySnapshot(
     project_id: `${snapshot.project.project_id}-recovered-${crypto.randomUUID()}`,
     display_name: `${snapshot.project.display_name} (Recovered)`,
   };
-  return io.createWorkspace({ project: recoveredProject }, workspace?.handle);
+  return io.createWorkspace(
+    { project: recoveredProject },
+    workspace ?? undefined,
+  );
 }
 
 function readRecoveryEntry(
@@ -498,6 +507,12 @@ function readOrCreateRecoveryOwnerId(
   } catch {
     // A fresh ID still permits recovery; it just cannot be reused on reload.
   }
+  return createAndStoreRecoveryOwnerId(storage);
+}
+
+function createAndStoreRecoveryOwnerId(
+  storage: Pick<Storage, "setItem"> | undefined,
+): string {
   const ownerId = globalThis.crypto.randomUUID();
   try {
     storage?.setItem(browserRecoveryOwnerKey, ownerId);

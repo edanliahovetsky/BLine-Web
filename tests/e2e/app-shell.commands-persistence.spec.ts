@@ -1,21 +1,25 @@
 import { expect, test } from "@playwright/test";
 import {
-  expectGlobalShortcutsBlockedByDialog,
-  gotoSampleEditor,
+  bumpStoredWorkspaceVersion,
+  makeDirtyEdit,
+  waitForSavedProject,
+} from "./support/app-shell-persistence";
+import {
+  createNewPathFromTopMenu,
+  createNewProject,
   currentPathName,
+  expectGlobalShortcutsBlockedByDialog,
+  openConstraintsTab,
+  openPathManageMenu,
+  openPathMenu,
   openProjectMenu,
   openProjectPanelFromTopMenu,
   runEditMenuAction,
-  openPathMenu,
-  openPathManageMenu,
-  createNewProject,
-  openConstraintsTab,
-  createNewPathFromTopMenu,
+} from "./support/app-shell-project-library";
+import {
   dismissMobileSupportWarning,
-  waitForSavedProject,
-  bumpStoredWorkspaceVersion,
-  makeDirtyEdit,
-} from "./support/app-shell-helpers";
+  gotoSampleEditor,
+} from "./support/app-shell-shared";
 
 test("selects and deletes a saved path without crashing", async ({ page }) => {
   await gotoSampleEditor(page);

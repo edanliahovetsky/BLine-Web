@@ -3,6 +3,7 @@ import type { ProjectPath, ProjectPathGroup } from "../../core/model/project";
 import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
 import { CloseButton } from "../controls";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
+import "./ProjectDialogs.css";
 
 export function CreateProjectDialog({
   onCancel,

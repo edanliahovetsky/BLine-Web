@@ -2,32 +2,33 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { modelToCanvasPoint } from "./support/app-shell-canvas";
 import {
-  gotoSampleEditor,
-  requiredBox,
-  expectDialogOverPathLibrary,
-  pointBetweenFlyoutAndTrigger,
   disableDirectoryPicker,
   installSaveFilePickerSpy,
-  releaseSaveFilePicker,
-  savedFileCount,
-  savedFile,
   parseStoredZip,
+  releaseSaveFilePicker,
   requiredZipText,
+  savedFile,
+  savedFileCount,
+} from "./support/app-shell-persistence";
+import {
+  addPathToGroupFromLibrary,
+  createNewPathFromTopMenu,
+  createPathGroupFromTopMenu,
+  duplicateSelectedLibraryPath,
+  expectDialogOverPathLibrary,
+  openPathLibraryDialog,
+  openPathManageMenu,
+  openPathMenu,
   openProjectMenu,
   openProjectPanelFromTopMenu,
+  pointBetweenFlyoutAndTrigger,
   runEditMenuAction,
-  openPathMenu,
-  openPathManageMenu,
-  openPathLibraryDialog,
   selectToolbarOption,
-  createPathGroupFromTopMenu,
-  addPathToGroupFromLibrary,
-  duplicateSelectedLibraryPath,
   submitNameDialog,
-  createNewPathFromTopMenu,
-  modelToCanvasPoint,
-} from "./support/app-shell-helpers";
+} from "./support/app-shell-project-library";
+import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test("creates path collections and new paths with default collection membership", async ({
   page,
