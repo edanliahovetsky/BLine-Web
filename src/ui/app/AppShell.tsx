@@ -81,6 +81,7 @@ import {
 } from "../../state/autosave";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
 import {
+  canGenerateAutomaticConstraints,
   generateAutomaticConstraints,
   startAutomaticConstraintSync,
 } from "../../state/automaticConstraints";
@@ -120,10 +121,7 @@ import {
 } from "../controls";
 import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
-import {
-  canGenerateConstraints,
-  createDefaultElement,
-} from "../sidebar/sidebarCommands";
+import { createDefaultElement } from "../sidebar/sidebarCommands";
 import "./AppShell.css";
 import { createUpdateProjectConfigCommand } from "./configCommands";
 import {
@@ -1977,7 +1975,7 @@ export function AppShell() {
       disabled:
         !activePath ||
         optimizerPhase === "running" ||
-        !canGenerateConstraints(activePath.path),
+        !canGenerateAutomaticConstraints(activePath.path),
       run: () => {
         if (activePath && durableProject) {
           void generateAutomaticConstraints(

@@ -5,6 +5,7 @@ import {
   autoVelocityRefreshRequest,
   autoVelocitySettingsForPath,
   refreshAutoVelocityConstraints,
+  setAutoVelocityConstraintMode,
 } from "../../../src/core/constraints/autoVelocityApply";
 import {
   createPathModel,
@@ -94,6 +95,34 @@ describe("auto velocity ordinal constraints", () => {
         auto_velocity: metadata,
       },
     ]);
+  });
+
+  it("pins selected caps without changing generated ownership elsewhere", () => {
+    const generated = generate(examplePath());
+    const manual = setAutoVelocityConstraintMode(
+      generated,
+      config,
+      [2],
+      "manual",
+    );
+    const manualByOrdinal = autoVelocityConstraintsByOrdinal(
+      manual.ranged_constraints,
+      4,
+    );
+
+    expect(manualByOrdinal.get(2)?.source).toBeUndefined();
+    expect(manualByOrdinal.get(3)?.source).toBe("auto_velocity");
+
+    const automatic = setAutoVelocityConstraintMode(
+      manual,
+      config,
+      [2],
+      "auto",
+    );
+    expect(
+      autoVelocityConstraintsByOrdinal(automatic.ranged_constraints, 4).get(2)
+        ?.source,
+    ).toBe("auto_velocity");
   });
 });
 

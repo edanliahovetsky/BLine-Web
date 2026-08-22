@@ -1,5 +1,6 @@
 import {
   applyGeneratedAutoRadii,
+  canGenerateAutoConstraints,
   clearGeneratedAutoConstraints,
   hasGeneratedAutoConstraints,
 } from "../core/constraints/autoConstraintGeneration";
@@ -37,6 +38,16 @@ interface AutomaticConstraintOptions {
 
 export interface AutomaticConstraintSyncOptions extends AutomaticConstraintOptions {
   delayMs?: number;
+}
+
+export function canGenerateAutomaticConstraints(
+  path: PathModel | null,
+): boolean {
+  return path !== null && canGenerateAutoConstraints(path);
+}
+
+export function canClearAutomaticConstraints(path: PathModel | null): boolean {
+  return path !== null && hasGeneratedAutoConstraints(path);
 }
 
 interface SyncCandidate {

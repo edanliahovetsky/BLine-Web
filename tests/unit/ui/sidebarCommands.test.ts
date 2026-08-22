@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import { clearGeneratedAutoConstraints } from "../../../src/core/constraints/autoConstraintGeneration";
 import {
+  canClearAutomaticConstraints,
+  canGenerateAutomaticConstraints,
+} from "../../../src/state/automaticConstraints";
+import {
   fieldCoordinateOffsetMeters,
   fieldLengthMeters,
   fieldWidthMeters,
@@ -33,8 +37,6 @@ import {
   type PathStructureEdit,
 } from "../../../src/core/model/projectPathEdits";
 import {
-  canClearGeneratedConstraints,
-  canGenerateConstraints,
   createConvertedElement,
   createDefaultElement,
   createAddRangedConstraintCommand,
@@ -591,13 +593,15 @@ describe("generated constraint commands", () => {
   };
 
   it("reports a fully pinned path as nothing to generate", () => {
-    expect(canGenerateConstraints(generatableProject().path)).toBe(true);
-    expect(canGenerateConstraints(pinnedProject().path)).toBe(false);
+    expect(canGenerateAutomaticConstraints(generatableProject().path)).toBe(
+      true,
+    );
+    expect(canGenerateAutomaticConstraints(pinnedProject().path)).toBe(false);
   });
 
   it("clears generated values and keeps pinned ones", () => {
     const generated = generatedProject();
-    expect(canClearGeneratedConstraints(generated.path)).toBe(true);
+    expect(canClearAutomaticConstraints(generated.path)).toBe(true);
 
     const cleared = clearGeneratedAutoConstraints(generated.path);
 
@@ -620,7 +624,7 @@ describe("generated constraint commands", () => {
         (constraint) => constraint.source === "auto_velocity",
       ),
     ).toBe(false);
-    expect(canClearGeneratedConstraints(cleared)).toBe(false);
+    expect(canClearAutomaticConstraints(cleared)).toBe(false);
   });
 });
 

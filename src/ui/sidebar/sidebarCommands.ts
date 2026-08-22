@@ -3,10 +3,6 @@ import {
   splitRangedConstraintInstance,
 } from "../../core/constraints/rangedConstraints";
 import {
-  canGenerateAutoConstraints,
-  hasGeneratedAutoConstraints,
-} from "../../core/constraints/autoConstraintGeneration";
-import {
   anchorHandoffRadii,
   defaultHandoffRadiusMeters,
   type AnchorHandoffRadius,
@@ -78,19 +74,6 @@ export function getSwitchableElementTypes(
   }
 
   return ["translation", "waypoint", "rotation", "event_trigger"];
-}
-
-/**
- * True when Generate would change something: an unpinned cap ordinal or an
- * unpinned interior-anchor radius for the optimizer to own.
- */
-export function canGenerateConstraints(path: PathModel | null): boolean {
-  return path !== null && canGenerateAutoConstraints(path);
-}
-
-/** True when there is optimizer output of either kind to drop. */
-export function canClearGeneratedConstraints(path: PathModel | null): boolean {
-  return path !== null && hasGeneratedAutoConstraints(path);
 }
 
 export type HandoffRadiusChipState = AnchorRadiusState;

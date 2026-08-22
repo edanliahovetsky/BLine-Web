@@ -36,6 +36,14 @@ export interface AutoVelocityOrdinalOptions {
   refreshExistingAutoVelocity?: boolean;
 }
 
+export interface AutoVelocityStatus {
+  currentSignature: string | null;
+  expectedMetadata: AutoVelocityConstraintMetadata;
+  autoConstraintCount: number;
+  hasAutoConstraints: boolean;
+  stale: boolean;
+}
+
 const autoVelocityKey = "max_velocity_meters_per_sec";
 
 export function refreshAutoVelocityConstraints(
@@ -167,6 +175,75 @@ export function applyAutoVelocityConstraintsToOrdinals(
   };
 }
 
+export function setAutoVelocityConstraintMode(
+  path: PathModel,
+  config: SimulationConfig,
+  ordinals: readonly number[],
+  mode: "auto" | "manual",
+  settings = autoVelocitySettings(config),
+): PathModel {
+  const total = countAnchorElements(path.path_elements);
+  const selected = new Set(
+    ordinals
+      .map((ordinal) => Math.trunc(ordinal))
+      .filter((ordinal) => ordinal >= 1 && ordinal <= total),
+  );
+  if (selected.size === 0) return path;
+
+  const profile = generateAutoVelocityProfile(
+    path,
+    config,
+    autoVelocityOptions(settings),
+  );
+  const existing = autoVelocityConstraintsByOrdinal(
+    path.ranged_constraints,
+    total,
+  );
+  const metadata = autoVelocityMetadataFor(path, config, settings);
+  const caps = new Map(
+    profile.segmentCaps.map((cap) => [cap.targetOrdinal, cap]),
+  );
+
+  for (const [ordinal, constraint] of existing) {
+    const cap = caps.get(ordinal);
+    if (
+      cap &&
+      constraint.source === "auto_velocity" &&
+      !(mode === "manual" && selected.has(ordinal))
+    ) {
+      existing.set(ordinal, autoVelocityConstraintForCap(cap, metadata));
+    }
+  }
+  for (const ordinal of selected) {
+    const current = existing.get(ordinal);
+    const cap = caps.get(ordinal);
+    if (mode === "manual" && current) {
+      existing.set(ordinal, {
+        key: autoVelocityKey,
+        value: current.value,
+        start_ordinal: ordinal,
+        end_ordinal: ordinal,
+      });
+    } else if (mode === "auto" && cap) {
+      existing.set(ordinal, autoVelocityConstraintForCap(cap, metadata));
+    }
+  }
+
+  return {
+    ...path,
+    ranged_constraints: [
+      ...path.ranged_constraints.filter(
+        (constraint) => constraint.key !== autoVelocityKey,
+      ),
+      ...autoVelocityConstraintsFromOrdinalMap(
+        existing,
+        total,
+        settings.mergeToleranceMps,
+      ),
+    ],
+  };
+}
+
 export interface AutoVelocityRefreshRequest {
   options: AutoVelocityGenerationOptions;
   settings: AutoVelocitySettings;
@@ -226,16 +303,76 @@ export function autoVelocityRefreshRequest(
   };
 }
 
-function autoVelocityMetadataMatchesSettings(
-  metadata: AutoVelocityConstraintMetadata | null | undefined,
-  settings: AutoVelocitySettings,
+export function autoVelocityStatusForPath(
+  path: PathModel,
+  config: SimulationConfig,
+  settings = autoVelocitySettings(config),
+): AutoVelocityStatus {
+  const currentSignature = autoVelocityInputSignature(
+    path,
+    config,
+    autoVelocityOptions(settings),
+  );
+  const expectedMetadata = autoVelocityMetadataFor(path, config, settings);
+  const generated = path.ranged_constraints.filter(
+    (constraint) =>
+      constraint.key === autoVelocityKey &&
+      constraint.source === "auto_velocity",
+  );
+  return {
+    currentSignature,
+    expectedMetadata,
+    autoConstraintCount: generated.length,
+    hasAutoConstraints: generated.length > 0,
+    stale:
+      generated.length === 0 ||
+      generated.some(
+        (constraint) =>
+          !currentSignature ||
+          constraint.auto_velocity?.input_signature !== currentSignature ||
+          !autoVelocityMetadataMatchesSettings(
+            constraint.auto_velocity,
+            settings,
+          ),
+      ),
+  };
+}
+
+export function autoVelocityConstraintIsStale(
+  constraint: RangedConstraint,
+  status: AutoVelocityStatus | null | undefined,
 ): boolean {
   return (
-    metadata?.velocity_safety_factor === settings.velocitySafetyFactor &&
-    metadata.acceleration_safety_factor === settings.accelerationSafetyFactor &&
+    constraint.key === autoVelocityKey &&
+    constraint.source === "auto_velocity" &&
+    (!status?.currentSignature ||
+      constraint.auto_velocity?.input_signature !== status.currentSignature ||
+      !autoVelocityMetadataMatchesSettings(
+        constraint.auto_velocity,
+        status.expectedMetadata,
+      ))
+  );
+}
+
+function autoVelocityMetadataMatchesSettings(
+  metadata: AutoVelocityConstraintMetadata | null | undefined,
+  settings: AutoVelocitySettings | AutoVelocityConstraintMetadata,
+): boolean {
+  return (
+    metadata?.velocity_safety_factor ===
+      ("velocitySafetyFactor" in settings
+        ? settings.velocitySafetyFactor
+        : settings.velocity_safety_factor) &&
+    metadata.acceleration_safety_factor ===
+      ("accelerationSafetyFactor" in settings
+        ? settings.accelerationSafetyFactor
+        : settings.acceleration_safety_factor) &&
     (metadata.merge_tolerance_meters_per_sec ??
       defaultAutoVelocityMergeToleranceMetersPerSec) ===
-      settings.mergeToleranceMps
+      ("mergeToleranceMps" in settings
+        ? settings.mergeToleranceMps
+        : (settings.merge_tolerance_meters_per_sec ??
+          defaultAutoVelocityMergeToleranceMetersPerSec))
   );
 }
 

@@ -23,16 +23,12 @@ import {
   autoRadiiCapSearchPlan,
 } from "../../../core/constraints/autoConstraintGeneration";
 import {
-  autoVelocityConstraintForCap,
-  autoVelocityInputSignature,
-  generateAutoVelocityProfile,
-  type AutoVelocitySegmentCap,
-} from "../../../core/constraints/autoVelocityConstraints";
-import {
-  autoVelocityConstraintsByOrdinal,
-  autoVelocityConstraintsFromOrdinalMap,
+  autoVelocityConstraintIsStale,
   autoVelocitySettingsForPath,
+  autoVelocityStatusForPath,
+  setAutoVelocityConstraintMode,
   type AutoVelocitySettings,
+  type AutoVelocityStatus,
 } from "../../../core/constraints/autoVelocityApply";
 import {
   createSetHandoffRadiusCommand,
@@ -49,13 +45,14 @@ import {
   rangedConstraintKeys,
   terminalToleranceKeys,
   type ConstraintKey,
-  type AutoVelocityConstraintMetadata,
   type RangedConstraint,
   type RangedConstraintKey,
   type PathModel,
 } from "../../../core/model/path";
 import { autoVelocityStore } from "../../../state/autoVelocityStore";
 import {
+  canClearAutomaticConstraints,
+  canGenerateAutomaticConstraints,
   clearAutomaticConstraints,
   generateAutomaticConstraints,
 } from "../../../state/automaticConstraints";
@@ -89,8 +86,6 @@ import {
 } from "../orderedSelection";
 import { SidebarSection } from "../SidebarSection";
 import {
-  canClearGeneratedConstraints,
-  canGenerateConstraints,
   createAddRangedConstraintCommand,
   createInsertRangedConstraintCommand,
   createRemoveRangedConstraintCommand,
@@ -140,14 +135,6 @@ type AddConstraintMenuSection = {
   id: string;
   label: string;
   keys: readonly ConstraintKey[];
-};
-
-type AutoVelocityStatus = {
-  currentSignature: string | null;
-  expectedMetadata: AutoVelocityConstraintMetadata;
-  autoConstraintCount: number;
-  hasAutoConstraints: boolean;
-  stale: boolean;
 };
 
 type AutoVelocityTaskRunner = (task: () => void) => void;
@@ -690,10 +677,13 @@ function AutoConstraintLedgerCard({
     [config, path],
   );
   const autoStatus = useMemo(
-    () => autoVelocityStatusForProject(path, config, autoSettings),
+    () => autoVelocityStatusForPath(path, config, autoSettings),
     [autoSettings, config, path],
   );
-  const canGenerate = useMemo(() => canGenerateConstraints(path), [path]);
+  const canGenerate = useMemo(
+    () => canGenerateAutomaticConstraints(path),
+    [path],
+  );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
   const initialSelectedElementIndex =
     selectionStore.getState().selectedElementIndex;
@@ -847,7 +837,7 @@ function AutoConstraintLedgerCard({
           <SidebarActionButton
             onClick={() => clearGeneratedConstraints(path)}
             disabled={
-              autoVelocityRunning || !canClearGeneratedConstraints(path)
+              autoVelocityRunning || !canClearAutomaticConstraints(path)
             }
             aria-label="Clear generated constraints"
             title="Clear generated handoff radii and velocity constraints"
@@ -1529,12 +1519,12 @@ function PopoutConstraintPanel({
   const autoStatus = useMemo(
     () =>
       isAutoVelocityPanel
-        ? autoVelocityStatusForProject(path, config, autoSettings)
+        ? autoVelocityStatusForPath(path, config, autoSettings)
         : null,
     [autoSettings, config, isAutoVelocityPanel, path],
   );
   const canGenerate = useMemo(
-    () => (isAutoVelocityPanel ? canGenerateConstraints(path) : false),
+    () => (isAutoVelocityPanel ? canGenerateAutomaticConstraints(path) : false),
     [isAutoVelocityPanel, path],
   );
 
@@ -1580,7 +1570,7 @@ function PopoutConstraintPanel({
               <SidebarActionButton
                 onClick={() => clearGeneratedConstraints(path)}
                 disabled={
-                  autoVelocityRunning || !canClearGeneratedConstraints(path)
+                  autoVelocityRunning || !canClearAutomaticConstraints(path)
                 }
                 aria-label="Clear generated constraints"
                 title="Clear generated handoff radii and velocity constraints"
@@ -3093,7 +3083,7 @@ function runAfterBrowserPaint(task: () => void, onComplete: () => void): void {
 }
 
 function clearGeneratedConstraints(path: PathModel): void {
-  if (!canClearGeneratedConstraints(path)) {
+  if (!canClearAutomaticConstraints(path)) {
     return;
   }
 
@@ -3219,78 +3209,23 @@ function applyVelocityModes(
   }
 
   const total = domainLabelsForKey(path, autoVelocityKey).length;
-  const existing = autoVelocityConstraintsByOrdinal(
-    path.ranged_constraints,
-    total,
-  );
   const ordinalsByEntry = entries.map((entry) => ({
     entry,
     ordinals: ordinalsForConstraint(entry.constraint, total),
   }));
-  const selectedOrdinals = new Set(
-    ordinalsByEntry.flatMap(({ ordinals }) => ordinals),
-  );
-  const profile = generateAutoVelocityProfile(
+  const nextPath = setAutoVelocityConstraintMode(
     path,
     config,
-    autoVelocityOptionsFromSettings(settings),
+    ordinalsByEntry.flatMap(({ ordinals }) => ordinals),
+    mode,
+    settings,
   );
-  const metadata = autoVelocityMetadataFromSettings(path, config, settings);
-  const capsByOrdinal = new Map(
-    profile.segmentCaps.map((cap) => [cap.targetOrdinal, cap]),
-  );
-
-  if (mode === "manual") {
-    refreshExistingAutoVelocityCaps(
-      existing,
-      capsByOrdinal,
-      metadata,
-      selectedOrdinals,
-    );
-    for (const { entry, ordinals } of ordinalsByEntry) {
-      for (const ordinal of ordinals) {
-        existing.set(ordinal, {
-          key: autoVelocityKey,
-          value: entry.constraint.value,
-          start_ordinal: ordinal,
-          end_ordinal: ordinal,
-        });
-      }
-    }
-    replaceVelocityConstraints(
-      path,
-      autoVelocityConstraintsFromOrdinalMap(
-        existing,
-        total,
-        settings.mergeToleranceMps,
-      ),
-      "Set manual velocity",
-    );
-    if (onSelect) {
-      selectOrdinalAfterReplace(
-        autoVelocityKey,
-        ordinalsByEntry[0]?.ordinals[0],
-        onSelect,
-      );
-    }
-    return;
-  }
-
-  refreshExistingAutoVelocityCaps(existing, capsByOrdinal, metadata);
-  for (const ordinal of selectedOrdinals) {
-    const cap = capsByOrdinal.get(ordinal);
-    if (cap) {
-      existing.set(ordinal, autoVelocityConstraintForCap(cap, metadata));
-    }
-  }
   replaceVelocityConstraints(
     path,
-    autoVelocityConstraintsFromOrdinalMap(
-      existing,
-      total,
-      settings.mergeToleranceMps,
+    nextPath.ranged_constraints.filter(
+      (constraint) => constraint.key === autoVelocityKey,
     ),
-    "Set auto velocity",
+    mode === "auto" ? "Set auto velocity" : "Set manual velocity",
   );
   if (onSelect) {
     selectOrdinalAfterReplace(
@@ -3345,24 +3280,6 @@ function removeRangedConstraints(
   );
 }
 
-function refreshExistingAutoVelocityCaps(
-  existing: Map<number, RangedConstraint>,
-  capsByOrdinal: ReadonlyMap<number, AutoVelocitySegmentCap>,
-  metadata: AutoVelocityConstraintMetadata,
-  skippedOrdinals = new Set<number>(),
-): void {
-  for (const [ordinal, constraint] of existing) {
-    if (constraint.source !== "auto_velocity" || skippedOrdinals.has(ordinal)) {
-      continue;
-    }
-
-    const cap = capsByOrdinal.get(ordinal);
-    if (cap) {
-      existing.set(ordinal, autoVelocityConstraintForCap(cap, metadata));
-    }
-  }
-}
-
 function replaceVelocityConstraints(
   path: PathModel,
   nextVelocityConstraints: readonly RangedConstraint[],
@@ -3403,54 +3320,6 @@ function selectOrdinalAfterReplace(
   }
 }
 
-function autoVelocityOptionsFromSettings(settings: AutoVelocitySettings) {
-  return {
-    velocitySafetyFactor: settings.velocitySafetyFactor,
-    accelerationSafetyFactor: settings.accelerationSafetyFactor,
-  };
-}
-
-function autoVelocityStatusForProject(
-  path: PathModel,
-  config: ProjectConfig,
-  settings: AutoVelocitySettings,
-): AutoVelocityStatus {
-  const currentSignature = autoVelocityInputSignature(
-    path,
-    config,
-    autoVelocityOptionsFromSettings(settings),
-  );
-  const expectedMetadata = autoVelocityMetadataFromSettings(
-    path,
-    config,
-    settings,
-  );
-  const autoConstraints = path.ranged_constraints.filter(
-    (constraint) =>
-      constraint.key === autoVelocityKey &&
-      constraint.source === "auto_velocity",
-  );
-  const stale =
-    autoConstraints.length === 0 ||
-    autoConstraints.some(
-      (constraint) =>
-        !currentSignature ||
-        constraint.auto_velocity?.input_signature !== currentSignature ||
-        !autoVelocityMetadataMatchesSettings(
-          constraint.auto_velocity,
-          expectedMetadata,
-        ),
-    );
-
-  return {
-    currentSignature,
-    expectedMetadata,
-    autoConstraintCount: autoConstraints.length,
-    hasAutoConstraints: autoConstraints.length > 0,
-    stale,
-  };
-}
-
 function autoVelocityStatusIsCurrent(status: AutoVelocityStatus): boolean {
   return status.hasAutoConstraints && !status.stale;
 }
@@ -3472,74 +3341,6 @@ function autoVelocityStatusTooltip(
   return "No generated velocity constraints are currently applied.";
 }
 
-function autoVelocityMetadataFromSettings(
-  path: PathModel,
-  config: ProjectConfig,
-  settings: AutoVelocitySettings,
-): AutoVelocityConstraintMetadata {
-  return {
-    velocity_safety_factor: settings.velocitySafetyFactor,
-    acceleration_safety_factor: settings.accelerationSafetyFactor,
-    merge_tolerance_meters_per_sec: settings.mergeToleranceMps,
-    input_signature:
-      autoVelocityInputSignature(
-        path,
-        config,
-        autoVelocityOptionsFromSettings(settings),
-      ) ?? undefined,
-  };
-}
-
-function autoVelocityStateForConstraint(
-  constraint: RangedConstraint,
-  status: AutoVelocityStatus | null | undefined,
-): { stale: boolean; warning: boolean } {
-  if (
-    constraint.key !== autoVelocityKey ||
-    constraint.source !== "auto_velocity"
-  ) {
-    return { stale: false, warning: false };
-  }
-
-  return {
-    stale:
-      !status?.currentSignature ||
-      constraint.auto_velocity?.input_signature !== status.currentSignature ||
-      !autoVelocityMetadataMatchesSettings(
-        constraint.auto_velocity,
-        status.expectedMetadata,
-      ),
-    warning: false,
-  };
-}
-
-function autoVelocityMetadataMatchesSettings(
-  metadata: AutoVelocityConstraintMetadata | null | undefined,
-  expected: AutoVelocityConstraintMetadata,
-): boolean {
-  return (
-    !!metadata &&
-    nearlyEqual(
-      metadata.velocity_safety_factor,
-      expected.velocity_safety_factor,
-    ) &&
-    nearlyEqual(
-      metadata.acceleration_safety_factor,
-      expected.acceleration_safety_factor,
-    ) &&
-    nearlyEqual(
-      metadata.merge_tolerance_meters_per_sec ??
-        defaultAutoVelocityMergeToleranceMetersPerSec,
-      expected.merge_tolerance_meters_per_sec ??
-        defaultAutoVelocityMergeToleranceMetersPerSec,
-    )
-  );
-}
-
-function nearlyEqual(left: number, right: number): boolean {
-  return Math.abs(left - right) <= 1e-9;
-}
-
 function rangedConstraintStateForConstraint(
   path: PathModel,
   config: ProjectConfig,
@@ -3551,7 +3352,7 @@ function rangedConstraintStateForConstraint(
   globalWarning: boolean;
   minMaxWarning: boolean;
 } {
-  const autoState = autoVelocityStateForConstraint(constraint, autoStatus);
+  const autoStale = autoVelocityConstraintIsStale(constraint, autoStatus);
   const globalLimit = globalLimitForRangedConstraint(
     path,
     config,
@@ -3563,8 +3364,8 @@ function rangedConstraintStateForConstraint(
   const minMaxWarning = minimumExceedsPairedMaximum(path, config, constraint);
 
   return {
-    stale: autoState.stale,
-    autoWarning: autoState.warning,
+    stale: autoStale,
+    autoWarning: false,
     globalWarning,
     minMaxWarning,
   };
