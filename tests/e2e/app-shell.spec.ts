@@ -2660,6 +2660,7 @@ test("edits project config with undo support", async ({ page }) => {
 test("uploads and restores a custom field image from Settings", async ({
   page,
 }) => {
+  await installSaveFilePickerSpy(page);
   await gotoSampleEditor(page);
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
 
@@ -2712,9 +2713,91 @@ test("uploads and restores a custom field image from Settings", async ({
     /has-diagnostics--warning/,
   );
 
+  // Numeric edits can recover preserved overflow gradually, but cannot move
+  // farther away from the active field's effective coordinate bounds.
+  const properties = page.getByTestId("property-editor");
+  const xField = properties.getByLabel("X (m)");
+  const yField = properties.getByLabel("Y (m)");
+  await xField.fill("5.2");
+  await xField.blur();
+  await expect(xField).toHaveValue("5.2");
+  await xField.fill("5.4");
+  await xField.blur();
+  await expect(xField).toHaveValue("5.2");
+  await runEditMenuAction(page, "Undo");
+  await expect(xField).toHaveValue("5.7");
+  await expect(yField).toHaveValue("2.5");
+
+  // Warnings never block saving or exporting, and export retains the raw
+  // coordinates instead of serializing the bounded canvas preview.
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await page.getByRole("menuitem", { name: "Export Path..." }).click();
+  await expect.poll(() => savedFileCount(page)).toBe(1);
+  const exportedPath = JSON.parse((await savedFile(page, 0)).text) as {
+    path_elements: Array<{
+      translation_target?: { x_meters: number; y_meters: number };
+    }>;
+  };
+  expect(exportedPath.path_elements[0]?.translation_target).toMatchObject({
+    x_meters: 5.7,
+    y_meters: 2.5,
+  });
+
+  // Pointer-down alone keeps the raw coordinates, and a cancelled moved drag
+  // discards its bounded preview without creating a Path edit.
+  const pathStageCanvas = page.getByTestId("path-stage-canvas");
+  let boundedNode = await canvasNodePosition(page, "path-element-node-0");
+  await page.mouse.move(boundedNode.x, boundedNode.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(xField).toHaveValue("5.7");
+  await expect(yField).toHaveValue("2.5");
+
+  await pathStageCanvas.evaluate((canvas) => {
+    canvas.addEventListener(
+      "pointerdown",
+      (event) => {
+        canvas.setAttribute(
+          "data-e2e-pointer-id",
+          String((event as PointerEvent).pointerId),
+        );
+      },
+      { once: true },
+    );
+  });
+  const cancelledPoint = {
+    x: boundedNode.x - 24,
+    y: boundedNode.y + 24,
+  };
+  await page.mouse.move(boundedNode.x, boundedNode.y);
+  await page.mouse.down();
+  await page.mouse.move(cancelledPoint.x, cancelledPoint.y, { steps: 4 });
+  await expect
+    .poll(() => pathStageCanvas.getAttribute("data-e2e-pointer-id"))
+    .not.toBeNull();
+  const pointerId = Number(
+    await pathStageCanvas.getAttribute("data-e2e-pointer-id"),
+  );
+  await pathStageCanvas.dispatchEvent("pointercancel", {
+    bubbles: true,
+    button: 0,
+    buttons: 0,
+    cancelable: true,
+    clientX: cancelledPoint.x,
+    clientY: cancelledPoint.y,
+    pointerId,
+    pointerType: "mouse",
+  });
+  await page.mouse.up();
+  await expect(xField).toHaveValue("5.7");
+  await expect(yField).toHaveValue("2.5");
+
   // The off-field node is shown at the nearest edge. Its first drag commits
   // the snap as one normal undoable Path edit.
-  const boundedNode = await canvasNodePosition(page, "path-element-node-0");
+  boundedNode = await canvasNodePosition(page, "path-element-node-0");
   await page.mouse.move(boundedNode.x, boundedNode.y);
   await page.mouse.down();
   await page.mouse.move(boundedNode.x - 24, boundedNode.y + 24, { steps: 4 });

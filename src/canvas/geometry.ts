@@ -1,9 +1,8 @@
 import {
+  clampPointToFieldCoordinates,
   defaultFieldGeometry,
-  fieldCoordinateLengthMeters,
   fieldCoordinateOffsetXMeters,
   fieldCoordinateOffsetYMeters,
-  fieldCoordinateWidthMeters,
   type FieldGeometry,
 } from "../core/field/fieldConfig";
 import {
@@ -32,6 +31,13 @@ export interface FieldViewport {
 export interface StagePoint {
   x: number;
   y: number;
+}
+
+export function stagePointsDiffer(
+  first: StagePoint,
+  second: StagePoint,
+): boolean {
+  return first.x !== second.x || first.y !== second.y;
 }
 
 export interface PointMeters {
@@ -120,13 +126,7 @@ export function clampModelPoint(
   point: PointMeters,
   field: FieldGeometry = defaultFieldGeometry,
 ): PointMeters {
-  const maxX = fieldCoordinateLengthMeters(field);
-  const maxY = fieldCoordinateWidthMeters(field);
-
-  return {
-    x_meters: clamp(point.x_meters, 0, maxX),
-    y_meters: clamp(point.y_meters, 0, maxY),
-  };
+  return clampPointToFieldCoordinates(point, field);
 }
 
 /**

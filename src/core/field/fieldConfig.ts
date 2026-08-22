@@ -18,6 +18,18 @@ export interface FieldGeometry {
   coordinate_offset_y_meters?: number;
 }
 
+export interface FieldCoordinatePoint {
+  x_meters: number;
+  y_meters: number;
+}
+
+export interface FieldCoordinateBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
 interface PathPlannerFieldCalibration {
   image_width_px: number;
   image_height_px: number;
@@ -269,6 +281,82 @@ export function fieldCoordinateWidthMeters(field: FieldGeometry): number {
   );
 }
 
+export function fieldCoordinateBounds(
+  field: FieldGeometry,
+): FieldCoordinateBounds {
+  return {
+    minX: 0,
+    maxX: fieldCoordinateLengthMeters(field),
+    minY: 0,
+    maxY: fieldCoordinateWidthMeters(field),
+  };
+}
+
+export function isPointWithinFieldCoordinates(
+  point: FieldCoordinatePoint,
+  field: FieldGeometry,
+): boolean {
+  const bounds = fieldCoordinateBounds(field);
+  return (
+    Number.isFinite(point.x_meters) &&
+    Number.isFinite(point.y_meters) &&
+    point.x_meters >= bounds.minX &&
+    point.x_meters <= bounds.maxX &&
+    point.y_meters >= bounds.minY &&
+    point.y_meters <= bounds.maxY
+  );
+}
+
+export function clampPointToFieldCoordinates<T extends FieldCoordinatePoint>(
+  point: T,
+  field: FieldGeometry,
+): T {
+  const bounds = fieldCoordinateBounds(field);
+  return {
+    ...point,
+    x_meters: clamp(point.x_meters, bounds.minX, bounds.maxX),
+    y_meters: clamp(point.y_meters, bounds.minY, bounds.maxY),
+  };
+}
+
+/**
+ * Keep an existing out-of-bounds value editable without allowing it to move
+ * farther out or cross the field into overflow on the opposite edge.
+ */
+export function coordinateEditBounds(
+  currentValue: number,
+  coordinateMaximum: number,
+): { min: number; max: number } {
+  return {
+    min: Math.min(0, currentValue),
+    max: Math.max(coordinateMaximum, currentValue),
+  };
+}
+
+export function movePointWithinFieldCoordinates<T extends FieldCoordinatePoint>(
+  point: T,
+  dxMeters: number,
+  dyMeters: number,
+  field: FieldGeometry,
+): T {
+  const bounds = fieldCoordinateBounds(field);
+  const xEditBounds = coordinateEditBounds(point.x_meters, bounds.maxX);
+  const yEditBounds = coordinateEditBounds(point.y_meters, bounds.maxY);
+  return {
+    ...point,
+    x_meters: clamp(
+      point.x_meters + dxMeters,
+      xEditBounds.min,
+      xEditBounds.max,
+    ),
+    y_meters: clamp(
+      point.y_meters + dyMeters,
+      yEditBounds.min,
+      yEditBounds.max,
+    ),
+  };
+}
+
 export function createPathPlannerFieldGeometry(input: {
   imageWidthPx: number;
   imageHeightPx: number;
@@ -382,4 +470,8 @@ function stringValue(value: unknown, fallback: string): string {
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }

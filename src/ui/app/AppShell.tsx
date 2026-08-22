@@ -43,6 +43,7 @@ import {
   type WorkspaceConflictDiff,
 } from "../../core/io/workspaceConflictDiff";
 import {
+  coordinateEditBounds,
   fieldCoordinateLengthMeters,
   fieldCoordinateWidthMeters,
   defaultFieldId,
@@ -4655,8 +4656,10 @@ function LinkedTargetsDialog({
                     label="X (m)"
                     value={selectedTarget.x_meters}
                     disabled={Boolean(selectedTarget.locked)}
-                    min={0}
-                    max={coordinateLength}
+                    {...coordinateEditBounds(
+                      selectedTarget.x_meters,
+                      coordinateLength,
+                    )}
                     onChange={(x_meters) =>
                       updateTarget(selectedTarget.target_id, { x_meters })
                     }
@@ -4665,8 +4668,10 @@ function LinkedTargetsDialog({
                     label="Y (m)"
                     value={selectedTarget.y_meters}
                     disabled={Boolean(selectedTarget.locked)}
-                    min={0}
-                    max={coordinateWidth}
+                    {...coordinateEditBounds(
+                      selectedTarget.y_meters,
+                      coordinateWidth,
+                    )}
                     onChange={(y_meters) =>
                       updateTarget(selectedTarget.target_id, { y_meters })
                     }
@@ -4760,8 +4765,8 @@ function LinkedTargetNumberField({
         precision={3}
         value={value}
         onChange={(nextValue) => {
-          if (nextValue !== null) {
-            onChange(clamp(nextValue, min, max));
+          if (nextValue !== null && nextValue !== value) {
+            onChange(nextValue);
           }
         }}
       />
@@ -4839,10 +4844,6 @@ function radiansToDegrees(radians: number): number {
 
 function degreesToRadians(degrees: number): number {
   return degrees * (Math.PI / 180);
-}
-
-function clamp(value: number, min?: number, max?: number): number {
-  return Math.min(Math.max(value, min ?? -Infinity), max ?? Infinity);
 }
 
 function PathLibraryHeaderButton({

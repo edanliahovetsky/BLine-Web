@@ -195,6 +195,9 @@ describe("project store", () => {
     expect(rejected.status).toBe("rejected");
     expect(store.getState().history.getState().undoStack).toHaveLength(1);
 
+    store.getState().updateLinkedTarget("shared", { x_meters: 4, y_meters: 5 });
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
+
     store.getState().setActivePath(secondPath.path_id);
     store.getState().undo();
     expect(store.getState().activePathId).toBe(firstPath.path_id);

@@ -1,7 +1,6 @@
 import {
-  fieldCoordinateLengthMeters,
-  fieldCoordinateWidthMeters,
   defaultFieldGeometry,
+  movePointWithinFieldCoordinates,
   type FieldGeometry,
 } from "../core/field/fieldConfig";
 import { isTranslationTarget, isWaypoint } from "../core/model/path";
@@ -95,11 +94,6 @@ export function nudgeSelectedPathElement(
     return false;
   }
 
-  const maxX = fieldCoordinateLengthMeters(field);
-  const maxY = fieldCoordinateWidthMeters(field);
-  const clamp = (value: number, max: number) =>
-    Math.min(Math.max(value, 0), max);
-
   if (!isTranslationTarget(element) && !isWaypoint(element)) {
     // Rotation and event elements have no field position to nudge.
     return false;
@@ -112,10 +106,12 @@ export function nudgeSelectedPathElement(
   const result = projectStore.getState().applyPathElementEdit({
     kind: "position",
     index: selectedElementIndex,
-    position: {
-      x_meters: clamp(position.x_meters + dxMeters, maxX),
-      y_meters: clamp(position.y_meters + dyMeters, maxY),
-    },
+    position: movePointWithinFieldCoordinates(
+      position,
+      dxMeters,
+      dyMeters,
+      field,
+    ),
   });
 
   return result.status === "applied";

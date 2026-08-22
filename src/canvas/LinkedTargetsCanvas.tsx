@@ -8,12 +8,16 @@ import {
   type WheelEvent,
 } from "react";
 import type { LinkedTarget, ProjectConfig } from "../core/io/projectSchema";
-import type { ResolvedFieldDefinition } from "../core/field/fieldConfig";
+import {
+  clampPointToFieldCoordinates,
+  type ResolvedFieldDefinition,
+} from "../core/field/fieldConfig";
 import { elementCircleRadiusMeters, fieldAspectRatio } from "./constants";
 import {
   createFieldViewport,
   modelToStagePoint,
   stageToModelPoint,
+  stagePointsDiffer,
   type CanvasSize,
   type FieldViewport,
   type PointMeters,
@@ -48,6 +52,8 @@ interface ActivePanDrag {
 interface ActiveTargetDrag {
   pointerId: number;
   targetId: string;
+  startPointer: StagePoint;
+  moved: boolean;
   start: PointMeters;
   current: PointMeters;
 }
@@ -390,21 +396,24 @@ export function LinkedTargetsCanvas({
   );
   const displayedTargets = useMemo(
     () =>
-      targets.map((target) =>
-        dragPreview?.targetId === target.target_id
-          ? {
-              ...target,
-              x_meters: dragPreview.current.x_meters,
-              y_meters: dragPreview.current.y_meters,
-            }
-          : rotationPreview?.targetId === target.target_id
-            ? {
-                ...target,
-                rotation_radians: rotationPreview.currentRadians,
-              }
-            : target,
-      ),
-    [dragPreview, rotationPreview, targets],
+      targets.map((target) => {
+        const bounded = clampPointToFieldCoordinates(target, field.geometry);
+        if (dragPreview?.targetId === target.target_id) {
+          return {
+            ...bounded,
+            x_meters: dragPreview.current.x_meters,
+            y_meters: dragPreview.current.y_meters,
+          };
+        }
+        if (rotationPreview?.targetId === target.target_id) {
+          return {
+            ...bounded,
+            rotation_radians: rotationPreview.currentRadians,
+          };
+        }
+        return bounded;
+      }),
+    [dragPreview, field.geometry, rotationPreview, targets],
   );
   const pixiTargets = useMemo<readonly PixiLinkedTargetOverlay[]>(
     () =>
@@ -496,16 +505,21 @@ export function LinkedTargetsCanvas({
     }
   };
 
-  const finishTargetDrag = (commit: boolean) => {
+  const finishTargetDrag = (pointer: StagePoint, pointerId: number) => {
     const drag = activeTargetDragRef.current;
     if (!drag) {
       setActiveTargetDrag(null);
       return;
     }
+    if (drag.pointerId !== pointerId) {
+      return;
+    }
 
     setActiveTargetDrag(null);
-    if (commit && !pointsAlmostEqual(drag.start, drag.current)) {
-      onMoveTarget(drag.targetId, drag.current);
+    const moved = drag.moved || stagePointsDiffer(drag.startPointer, pointer);
+    const current = stageToModelPoint(pointer, viewport);
+    if (moved && !pointsAlmostEqual(drag.start, current)) {
+      onMoveTarget(drag.targetId, current);
     }
   };
 
@@ -575,15 +589,23 @@ export function LinkedTargetsCanvas({
       if (targetHit.locked) {
         return;
       }
+      const canonicalTarget = targets.find(
+        (target) => target.target_id === targetHit.target_id,
+      );
+      if (!canonicalTarget) {
+        return;
+      }
       const start = {
-        x_meters: targetHit.x_meters,
-        y_meters: targetHit.y_meters,
+        x_meters: canonicalTarget.x_meters,
+        y_meters: canonicalTarget.y_meters,
       };
       setActiveTargetDrag({
         pointerId: event.pointerId,
         targetId: targetHit.target_id,
+        startPointer: pointer,
+        moved: false,
         start,
-        current: start,
+        current: clampPointToFieldCoordinates(start, field.geometry),
       });
       return;
     }
@@ -623,9 +645,15 @@ export function LinkedTargetsCanvas({
     const targetDrag = activeTargetDragRef.current;
     if (targetDrag && targetDrag.pointerId === event.pointerId) {
       event.preventDefault();
+      const moved =
+        targetDrag.moved || stagePointsDiffer(targetDrag.startPointer, pointer);
+      if (!moved) {
+        return;
+      }
       setActiveTargetDrag(
         {
           ...targetDrag,
+          moved,
           current: stageToModelPoint(pointer, viewport),
         },
         "frame",
@@ -659,7 +687,7 @@ export function LinkedTargetsCanvas({
     }
     const pointer = stagePointFromEvent(event);
     finishRotationDrag(true);
-    finishTargetDrag(true);
+    finishTargetDrag(pointer, event.pointerId);
     finishPanDrag(true, pointer);
   };
 
@@ -668,7 +696,7 @@ export function LinkedTargetsCanvas({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     finishRotationDrag(false);
-    finishTargetDrag(false);
+    setActiveTargetDrag(null);
     finishPanDrag();
   };
 

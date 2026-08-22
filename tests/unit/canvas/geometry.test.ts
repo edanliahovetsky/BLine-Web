@@ -26,6 +26,7 @@ import {
   getRenderableElementPositions,
   modelToStagePoint,
   stageToModelPoint,
+  stagePointsDiffer,
 } from "../../../src/canvas/geometry";
 import {
   createSetHandoffRadiusCommand,
@@ -39,6 +40,11 @@ import {
 } from "../../../src/canvas/constraintRange";
 
 describe("canvas geometry", () => {
+  it("distinguishes a real pointer move from a zero-distance event", () => {
+    expect(stagePointsDiffer({ x: 12, y: 8 }, { x: 12, y: 8 })).toBe(false);
+    expect(stagePointsDiffer({ x: 12, y: 8 }, { x: 12.01, y: 8 })).toBe(true);
+  });
+
   it("round-trips model coordinates through stage coordinates", () => {
     const viewport = createFieldViewport({ width: 960, height: 540 });
     const modelPoint = { x_meters: 3.25, y_meters: 2.75 };

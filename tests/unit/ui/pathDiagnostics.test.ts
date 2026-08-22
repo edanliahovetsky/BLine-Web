@@ -44,4 +44,38 @@ describe("path diagnostics", () => {
     );
     expect(diagnostics.some((item) => item.id === "off-field-0")).toBe(true);
   });
+
+  it("treats image padding as outside the effective coordinate bounds", () => {
+    const workspace = createSampleProject();
+    const first = workspace.paths[0].path.path_elements[0];
+    if (first?.type !== "waypoint") {
+      throw new Error("Expected the sample Path to begin with a waypoint");
+    }
+    first.translation_target.x_meters = 8.5;
+    first.translation_target.y_meters = 5;
+    const geometry = {
+      length_meters: 10,
+      width_meters: 6,
+      coordinate_offset_meters: 0,
+      coordinate_offset_x_meters: 1,
+      coordinate_offset_y_meters: 0.5,
+    };
+
+    expect(
+      derivePathDiagnostics(
+        workspace.paths[0].path,
+        geometry,
+        workspace.linked_targets,
+      ).some((item) => item.id === "off-field-0"),
+    ).toBe(true);
+
+    first.translation_target.x_meters = 8;
+    expect(
+      derivePathDiagnostics(
+        workspace.paths[0].path,
+        geometry,
+        workspace.linked_targets,
+      ).some((item) => item.id === "off-field-0"),
+    ).toBe(false);
+  });
 });

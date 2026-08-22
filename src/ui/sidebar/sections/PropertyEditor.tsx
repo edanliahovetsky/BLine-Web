@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
+  coordinateEditBounds,
   defaultFieldGeometry,
+  fieldCoordinateLengthMeters,
+  fieldCoordinateWidthMeters,
   type FieldGeometry,
 } from "../../../core/field/fieldConfig";
 import type { LinkedTargetKind } from "../../../core/io/projectSchema";
@@ -357,14 +360,22 @@ function TranslationFields({
   fieldGeometry: FieldGeometry;
   onUpdateElement(element: PathElement): void;
 }) {
+  const xBounds = coordinateEditBounds(
+    element.x_meters,
+    fieldCoordinateLengthMeters(fieldGeometry),
+  );
+  const yBounds = coordinateEditBounds(
+    element.y_meters,
+    fieldCoordinateWidthMeters(fieldGeometry),
+  );
   return (
     <>
       <NumberField
         label="X (m)"
         value={element.x_meters}
         step={0.05}
-        min={0}
-        max={fieldGeometry.length_meters}
+        min={xBounds.min}
+        max={xBounds.max}
         onChange={(value) =>
           onUpdateElement(updateTranslationTarget(element, { x_meters: value }))
         }
@@ -373,8 +384,8 @@ function TranslationFields({
         label="Y (m)"
         value={element.y_meters}
         step={0.05}
-        min={0}
-        max={fieldGeometry.width_meters}
+        min={yBounds.min}
+        max={yBounds.max}
         onChange={(value) =>
           onUpdateElement(updateTranslationTarget(element, { y_meters: value }))
         }
@@ -392,6 +403,14 @@ function WaypointFields({
   fieldGeometry: FieldGeometry;
   onUpdateElement(element: PathElement): void;
 }) {
+  const xBounds = coordinateEditBounds(
+    element.translation_target.x_meters,
+    fieldCoordinateLengthMeters(fieldGeometry),
+  );
+  const yBounds = coordinateEditBounds(
+    element.translation_target.y_meters,
+    fieldCoordinateWidthMeters(fieldGeometry),
+  );
   return (
     <>
       <NumberField
@@ -410,8 +429,8 @@ function WaypointFields({
         label="X (m)"
         value={element.translation_target.x_meters}
         step={0.05}
-        min={0}
-        max={fieldGeometry.length_meters}
+        min={xBounds.min}
+        max={xBounds.max}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {
@@ -424,8 +443,8 @@ function WaypointFields({
         label="Y (m)"
         value={element.translation_target.y_meters}
         step={0.05}
-        min={0}
-        max={fieldGeometry.width_meters}
+        min={yBounds.min}
+        max={yBounds.max}
         onChange={(value) =>
           onUpdateElement(
             updateWaypoint(element, {

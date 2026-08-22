@@ -1,6 +1,9 @@
 import { getElementPosition } from "../../canvas/geometry";
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
-import type { FieldGeometry } from "../../core/field/fieldConfig";
+import {
+  isPointWithinFieldCoordinates,
+  type FieldGeometry,
+} from "../../core/field/fieldConfig";
 import type { LinkedTarget } from "../../core/model/project";
 import {
   isAnchorElement,
@@ -51,13 +54,7 @@ export function derivePathDiagnostics(
     }
 
     const position = getElementPosition(elements, index);
-    if (
-      position &&
-      (position.x_meters < 0 ||
-        position.y_meters < 0 ||
-        position.x_meters > geometry.length_meters ||
-        position.y_meters > geometry.width_meters)
-    ) {
+    if (position && !isPointWithinFieldCoordinates(position, geometry)) {
       diagnostics.push({
         id: `off-field-${index}`,
         severity: "warning",

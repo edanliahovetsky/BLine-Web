@@ -831,11 +831,19 @@ export function createProjectStore(
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
+      const nextProject = updateLinkedTargetInProject(
+        project,
+        targetId,
+        update,
+      );
+      if (JSON.stringify(nextProject) === JSON.stringify(project)) {
+        return;
+      }
       applyProjectTransition(
         set,
         history,
         project,
-        updateLinkedTargetInProject(project, targetId, update),
+        nextProject,
         navigation,
         navigation,
         "Update linked element",

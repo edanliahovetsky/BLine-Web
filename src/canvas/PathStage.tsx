@@ -76,6 +76,7 @@ import {
   modelToStagePoint,
   projectPointToSegmentRatio,
   stageToModelPoint,
+  stagePointsDiffer,
   type CanvasSize,
   type FieldViewport,
   type PointMeters,
@@ -122,7 +123,10 @@ export interface CanvasElementPlacement {
 }
 
 interface ActiveDrag {
+  pointerId: number;
   index: number;
+  startPointer: StagePoint;
+  moved: boolean;
   start: PointMeters;
   current: PointMeters;
   startRatio: number | null;
@@ -130,7 +134,10 @@ interface ActiveDrag {
 }
 
 interface ActiveRotationDrag {
+  pointerId: number;
   index: number;
+  startPointer: StagePoint;
+  moved: boolean;
   startRadians: number;
   currentRadians: number;
 }
@@ -964,7 +971,10 @@ export function PathStage({
         getElementHeadingRadians(activePath.path.path_elements, rotationHit) ??
         0;
       setActiveRotationDrag({
+        pointerId: event.pointerId,
         index: rotationHit,
+        startPointer: pointer,
+        moved: false,
         startRadians,
         currentRadians: startRadians,
       });
@@ -996,9 +1006,14 @@ export function PathStage({
           ? element.t_ratio
           : null;
       setActiveDrag({
+        pointerId: event.pointerId,
         index: nodeHit,
+        startPointer: pointer,
+        moved: false,
         start,
-        current: start,
+        current: isTranslationBearingElement(element)
+          ? clampModelPoint(start, activeField.geometry)
+          : start,
         startRatio,
         currentRatio: startRatio,
       });
@@ -1073,8 +1088,12 @@ export function PathStage({
     }
 
     const drag = activeDragRef.current;
-    if (drag && activePath) {
+    if (drag && activePath && drag.pointerId === event.pointerId) {
       event.preventDefault();
+      const moved = drag.moved || stagePointsDiffer(drag.startPointer, pointer);
+      if (!moved) {
+        return;
+      }
       const projected = projectDragStagePoint(
         activePath.path,
         viewport,
@@ -1084,6 +1103,7 @@ export function PathStage({
       setActiveDrag(
         {
           ...drag,
+          moved,
           current: projected.position,
           currentRatio: projected.ratio,
         },
@@ -1093,8 +1113,18 @@ export function PathStage({
     }
 
     const rotationDrag = activeRotationDragRef.current;
-    if (rotationDrag && activePath) {
+    if (
+      rotationDrag &&
+      activePath &&
+      rotationDrag.pointerId === event.pointerId
+    ) {
       event.preventDefault();
+      const moved =
+        rotationDrag.moved ||
+        stagePointsDiffer(rotationDrag.startPointer, pointer);
+      if (!moved) {
+        return;
+      }
       const nextRadians = rotationFromStagePoint(
         activePath.path,
         rotationDrag.index,
@@ -1107,6 +1137,7 @@ export function PathStage({
       setActiveRotationDrag(
         {
           ...rotationDrag,
+          moved,
           currentRadians: nextRadians,
         },
         "frame",
@@ -1151,8 +1182,8 @@ export function PathStage({
       return;
     }
 
-    finishActiveDrag();
-    finishActiveRotation(pointer);
+    finishActiveDrag(pointer, event.pointerId);
+    finishActiveRotation(pointer, event.pointerId);
     finishPanDrag();
   };
 
@@ -1167,20 +1198,35 @@ export function PathStage({
       return;
     }
 
-    finishActiveDrag();
-    finishActiveRotation(stagePointFromEvent(event));
+    if (activeDragRef.current?.pointerId === event.pointerId) {
+      setActiveDrag(null);
+    }
+    if (activeRotationDragRef.current?.pointerId === event.pointerId) {
+      setActiveRotationDrag(null);
+    }
     finishPanDrag();
   };
 
-  const finishActiveDrag = () => {
+  const finishActiveDrag = (pointer: StagePoint, pointerId: number) => {
     const drag = activeDragRef.current;
-    if (!drag || !activePath) {
+    if (!drag || drag.pointerId !== pointerId || !activePath) {
+      return;
+    }
+
+    const moved = drag.moved || stagePointsDiffer(drag.startPointer, pointer);
+    if (!moved) {
       setActiveDrag(null);
       return;
     }
 
-    let nextPosition = drag.current;
-    let nextRatio = drag.currentRatio;
+    const projected = projectDragStagePoint(
+      activePath.path,
+      viewport,
+      drag.index,
+      pointer,
+    );
+    let nextPosition = projected.position;
+    let nextRatio = projected.ratio;
     const element = activePath.path.path_elements[drag.index];
 
     if (element && (isRotationTarget(element) || isEventTrigger(element))) {
@@ -1236,9 +1282,16 @@ export function PathStage({
     }
   };
 
-  const finishActiveRotation = (pointer: StagePoint) => {
+  const finishActiveRotation = (pointer: StagePoint, pointerId: number) => {
     const rotationDrag = activeRotationDragRef.current;
-    if (!rotationDrag || !activePath) {
+    if (!rotationDrag || rotationDrag.pointerId !== pointerId || !activePath) {
+      return;
+    }
+
+    const moved =
+      rotationDrag.moved ||
+      stagePointsDiffer(rotationDrag.startPointer, pointer);
+    if (!moved) {
       setActiveRotationDrag(null);
       return;
     }
