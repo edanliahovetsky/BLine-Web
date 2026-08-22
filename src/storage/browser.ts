@@ -26,6 +26,7 @@ import {
   type StoredProjectRecord,
   type LegacyStoredWorkspaceRecord,
   type LegacyProjectMigrationPreparation,
+  type PreparedProjectWrite,
   type WriteResult,
 } from "./adapter";
 
@@ -218,36 +219,64 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   async writeNewProject(project: Project): Promise<WriteResult> {
-    return this.withProjectMutationLock(async () => {
-      const previousCurrentId = await this.getCurrentWorkspaceId();
-      const targetKey = this.storageKey(project.project_id);
-      const legacyTargetKey = this.legacyProjectKey(project.project_id);
-      const existing = this.readVersionedRecord(project.project_id);
-      if (
-        this.storage.getItem(targetKey) !== null ||
-        this.storage.getItem(legacyTargetKey) !== null
-      ) {
-        throw new StorageConflictError(
-          `A saved Project already uses ID ${project.project_id}`,
-          undefined,
-          existing?.version,
-        );
-      }
+    return this.withProjectMutationLock(() =>
+      this.writeNewProjectUnlocked(project),
+    );
+  }
 
-      try {
-        return await this.writeProjectFilesRecord(project);
-      } catch (error) {
-        // The target was proven absent, so removing it is a safe rollback if the
-        // current-Project pointer fails after the new record is written.
-        this.storage.removeItem(targetKey);
-        try {
-          await this.setCurrentWorkspaceId(previousCurrentId);
-        } catch {
-          // Preserve the original import failure when storage itself is unwritable.
-        }
-        throw error;
-      }
+  async writeNewProjectWithPreparation<T>(
+    project: Project,
+    prepare: () => Promise<T>,
+  ): Promise<PreparedProjectWrite<T>> {
+    return this.withProjectMutationLock(async () => {
+      this.assertNewProjectTargetAvailable(project.project_id);
+      const preparation = await prepare();
+      return {
+        result: await this.writeNewProjectUnlocked(project, true),
+        preparation,
+      };
     });
+  }
+
+  private async writeNewProjectUnlocked(
+    project: Project,
+    targetAlreadyChecked = false,
+  ): Promise<WriteResult> {
+    const previousCurrentId = await this.getCurrentWorkspaceId();
+    const targetKey = this.storageKey(project.project_id);
+    if (!targetAlreadyChecked) {
+      this.assertNewProjectTargetAvailable(project.project_id);
+    }
+
+    try {
+      return await this.writeProjectFilesRecord(project);
+    } catch (error) {
+      // The target was proven absent, so removing it is a safe rollback if the
+      // current-Project pointer fails after the new record is written.
+      this.storage.removeItem(targetKey);
+      try {
+        await this.setCurrentWorkspaceId(previousCurrentId);
+      } catch {
+        // Preserve the original import failure when storage itself is unwritable.
+      }
+      throw error;
+    }
+  }
+
+  private assertNewProjectTargetAvailable(projectId: string): void {
+    const targetKey = this.storageKey(projectId);
+    const legacyTargetKey = this.legacyProjectKey(projectId);
+    const existing = this.readVersionedRecord(projectId);
+    if (
+      this.storage.getItem(targetKey) !== null ||
+      this.storage.getItem(legacyTargetKey) !== null
+    ) {
+      throw new StorageConflictError(
+        `A saved Project already uses ID ${projectId}`,
+        undefined,
+        existing?.version,
+      );
+    }
   }
 
   getCurrentProjectDamage(storageId?: string): ProjectFileDamage | null {

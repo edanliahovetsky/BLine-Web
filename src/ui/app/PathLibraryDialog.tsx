@@ -22,7 +22,7 @@ import {
 import { CloseButton, IconButton } from "../controls";
 import { DeletePathGroupDialog, NameEntryDialog } from "./ProjectDialogs";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
-import "./PathLibraryDialog.css";
+import "./ProjectLibraryDialogs.css";
 
 type LibraryNameAction =
   | {

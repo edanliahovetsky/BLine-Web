@@ -38,7 +38,6 @@ import {
   type WriteResult,
 } from "../../storage";
 import { ProjectImportOutcomeUncertainError } from "./types";
-import { isProjectIoConflict } from "./errors";
 import type {
   CommittedProjectImportResult,
   CreateWorkspaceInput,
@@ -610,31 +609,36 @@ export class StorageProjectIoService implements ProjectIoService {
       legacyFieldBackgrounds,
     );
     await this.preflightBrowserImport(portableProject);
-    const rollback = await prepareImportedFields(result, options);
-    try {
-      const committedWorkspace =
-        await this.saveImportedBrowserProject(portableProject);
-      return { ...result, workspace: committedWorkspace };
-    } catch (error) {
-      if (isProjectIoConflict(error)) {
-        let winningProject: Project | null = null;
-        try {
-          winningProject = await this.storage.readProject(
+    if (this.storage.writeNewProjectWithPreparation) {
+      let rollback: ProjectImportRollback | undefined;
+      try {
+        const committed = await this.storage.writeNewProjectWithPreparation(
+          portableProject,
+          async () => {
+            rollback = await prepareImportedFields(result, options);
+            return rollback;
+          },
+        );
+        return {
+          ...result,
+          workspace: this.workspaceAfterWrite(
+            portableProject,
             portableProject.project_id,
-          );
-        } catch {
-          // Without a readable winner, the prepared User Data cannot safely be
-          // attributed to the Project that acquired this ID.
-        }
-        if (winningProject && projectsMatch(winningProject, portableProject)) {
-          // Equivalent concurrent imports converge on the same deterministic
-          // Field Background, so the winning Project relies on this preparation.
-          throw error;
-        }
+            committed.result,
+          ),
+        };
+      } catch (error) {
         return await rollbackPreparedImport(error, rollback);
       }
-      return await rollbackPreparedImport(error, rollback);
     }
+    if (result.legacyFieldBackgrounds.length > 0) {
+      throw new Error(
+        "This storage adapter cannot atomically prepare legacy Field Backgrounds for an imported Project",
+      );
+    }
+    const committedWorkspace =
+      await this.saveImportedBrowserProject(portableProject);
+    return { ...result, workspace: committedWorkspace };
   }
 
   private async preflightBrowserImport(project: Project): Promise<void> {
@@ -644,7 +648,10 @@ export class StorageProjectIoService implements ProjectIoService {
     if (collision) {
       throw projectImportCollision(project.project_id, collision.version);
     }
-    if (!this.storage.writeNewProject) {
+    if (
+      !this.storage.writeNewProject &&
+      !this.storage.writeNewProjectWithPreparation
+    ) {
       throw new Error(
         "This storage adapter cannot safely create an imported Project",
       );

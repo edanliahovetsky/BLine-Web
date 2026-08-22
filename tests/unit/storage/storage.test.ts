@@ -158,6 +158,54 @@ describe("BrowserStorage", () => {
     expect(lock.maximumConcurrentOwners).toBe(1);
   });
 
+  it("holds new-Project ownership across preparation and collision checking", async () => {
+    const memory = new MemoryStorage();
+    const lock = new SerialProjectMutationLock();
+    const first = new BrowserStorage({
+      storage: memory,
+      projectMutationLock: lock,
+    });
+    const second = new BrowserStorage({
+      storage: memory,
+      projectMutationLock: lock,
+    });
+    const project = exampleWorkspace("workspace-a", "Imported", ["One"]);
+    let releaseFirst!: () => void;
+    const firstMayWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstPrepared!: () => void;
+    const firstHasPrepared = new Promise<void>((resolve) => {
+      firstPrepared = resolve;
+    });
+    const preparations: string[] = [];
+    const firstWrite = first.writeNewProjectWithPreparation(
+      project,
+      async () => {
+        preparations.push("first");
+        firstPrepared();
+        await firstMayWrite;
+        return "first-preparation";
+      },
+    );
+    await firstHasPrepared;
+    const secondWrite = second.writeNewProjectWithPreparation(
+      project,
+      async () => {
+        preparations.push("second");
+        return "second-preparation";
+      },
+    );
+    releaseFirst();
+
+    await expect(firstWrite).resolves.toMatchObject({
+      preparation: "first-preparation",
+    });
+    await expect(secondWrite).rejects.toBeInstanceOf(StorageConflictError);
+    expect(preparations).toEqual(["first"]);
+    expect(lock.maximumConcurrentOwners).toBe(1);
+  });
+
   it("does not let a queued delete erase a concurrent newer browser save", async () => {
     const memory = new MemoryStorage();
     const lock = new SerialProjectMutationLock();

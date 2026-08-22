@@ -14,6 +14,8 @@ import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspac
 import {
   createProjectIoService,
   ProjectImportOutcomeUncertainError,
+  type ProjectImportResult,
+  type ProjectImportRollback,
   type ProjectIoWorkspace,
 } from "../../../src/platform/projectIo";
 import {
@@ -27,6 +29,13 @@ import {
   TauriStorage,
   type StorageLike,
 } from "../../../src/storage";
+import {
+  initializeUserData,
+  readFieldBackgroundImage,
+  readUserData,
+} from "../../../src/userData";
+import { migrateImportedLegacyFieldBackgrounds } from "../../../src/userData/legacyFieldMigration";
+import type { UserData } from "../../../src/userData/model";
 
 describe("ProjectIoService", () => {
   it("retains browser migration provenance across a restart", async () => {
@@ -1052,17 +1061,9 @@ describe("ProjectIoService", () => {
     });
     const context = await contextService.createWorkspace();
     let preparations = 0;
-    let releasePreparations!: () => void;
-    const bothPrepared = new Promise<void>((resolve) => {
-      releasePreparations = resolve;
-    });
     let rollbacks = 0;
     const migrateLegacyFieldBackgrounds = async () => {
       preparations += 1;
-      if (preparations === 2) {
-        releasePreparations();
-      }
-      await bothPrepared;
       return {
         rollback: async () => {
           rollbacks += 1;
@@ -1088,12 +1089,12 @@ describe("ProjectIoService", () => {
       status: "rejected",
       reason: expect.any(StorageConflictError),
     });
-    expect(preparations).toBe(2);
+    expect(preparations).toBe(1);
     expect(rollbacks).toBe(0);
     await expect(first.listWorkspaces()).resolves.toHaveLength(1);
   });
 
-  it("rolls back prepared Fields when a distinct same-ID browser import wins", async () => {
+  it("serializes same-ID browser preparation before distinct Projects can share deterministic Fields", async () => {
     const storage = new BrowserStorage({ storage: new MemoryStorage() });
     const first = createProjectIoService(browserWebCapabilities, { storage });
     const second = createProjectIoService(browserWebCapabilities, { storage });
@@ -1101,23 +1102,13 @@ describe("ProjectIoService", () => {
       browser: { storage: new MemoryStorage() },
     });
     const context = await contextService.createWorkspace();
+    const userData = await initializeImportUserData();
     let preparations = 0;
-    let releasePreparations!: () => void;
-    const bothPrepared = new Promise<void>((resolve) => {
-      releasePreparations = resolve;
-    });
-    let rollbacks = 0;
-    const migrateLegacyFieldBackgrounds = async () => {
+    const migrateLegacyFieldBackgrounds = async (
+      pending: ProjectImportResult,
+    ) => {
       preparations += 1;
-      if (preparations === 2) {
-        releasePreparations();
-      }
-      await bothPrepared;
-      return {
-        rollback: async () => {
-          rollbacks += 1;
-        },
-      };
+      return migrateImportedFields(pending);
     };
     const firstArchive = legacyFieldArchive();
     const secondArchive = legacyFieldArchive();
@@ -1139,9 +1130,98 @@ describe("ProjectIoService", () => {
       status: "rejected",
       reason: expect.any(StorageConflictError),
     });
-    expect(preparations).toBe(2);
-    expect(rollbacks).toBe(1);
+    const fulfilled = outcomes.find(
+      (outcome) => outcome.status === "fulfilled",
+    );
+    expect(preparations).toBe(1);
+    expect(readUserData().field_backgrounds).toHaveLength(1);
+    const selectedId =
+      readUserData().project_views["imported-project"]
+        ?.selected_field_background_id;
+    expect(selectedId).toBe(readUserData().field_backgrounds[0]?.id);
+    expect(await readFieldBackgroundImage(selectedId!)).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(userData.assets.size).toBe(1);
     await expect(first.listWorkspaces()).resolves.toHaveLength(1);
+    const durableWinner = await first.reloadWorkspace({
+      storageId: "imported-project",
+    });
+    if (!durableWinner) {
+      throw new Error("Expected the winning imported Project");
+    }
+    expect(durableWinner.project.config.gui.robot.length_meters).toBe(
+      fulfilled?.value.project.config.gui.robot.length_meters,
+    );
+  });
+
+  it("serializes legacy Field selection with its same-ID stripped Project winner", async () => {
+    const storage = new BrowserStorage({ storage: new MemoryStorage() });
+    const first = createProjectIoService(browserWebCapabilities, { storage });
+    const second = createProjectIoService(browserWebCapabilities, { storage });
+    const contextService = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    const context = await contextService.createWorkspace();
+    const userData = await initializeImportUserData();
+    let preparations = 0;
+    const migrateLegacyFieldBackgrounds = async (
+      pending: ProjectImportResult,
+    ) => {
+      preparations += 1;
+      return migrateImportedFields(pending);
+    };
+    const firstArchive = legacyFieldArchive();
+    const secondArchive = legacyFieldArchive();
+    const secondField = legacyField("other-field", "other.png");
+    secondArchive.config.gui.field = {
+      selected_field_id: secondField.id,
+      custom_fields: [secondField],
+    };
+    secondArchive.field_assets = [
+      {
+        asset_id: secondField.asset_id,
+        file_name: secondField.file_name,
+        mime_type: secondField.mime_type,
+        data_base64: "BAUG",
+      },
+    ];
+
+    const outcomes = await Promise.allSettled([
+      first.importProjectArchive(context, projectArchiveFile(firstArchive), {
+        migrateLegacyFieldBackgrounds,
+      }),
+      second.importProjectArchive(context, projectArchiveFile(secondArchive), {
+        migrateLegacyFieldBackgrounds,
+      }),
+    ]);
+
+    const fulfilled = outcomes.find(
+      (
+        outcome,
+      ): outcome is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof first.importProjectArchive>>
+      > => outcome.status === "fulfilled",
+    );
+    expect(fulfilled).toBeDefined();
+    expect(
+      outcomes.filter(({ status }) => status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(preparations).toBe(1);
+    const snapshot = readUserData();
+    expect(snapshot.field_backgrounds).toHaveLength(1);
+    const selectedId =
+      snapshot.project_views["imported-project"]?.selected_field_background_id;
+    expect(selectedId).toBe(snapshot.field_backgrounds[0]?.id);
+    expect(snapshot.field_backgrounds[0]?.name).toBe(
+      fulfilled?.value.legacySelectedFieldId,
+    );
+    const expectedBytes =
+      fulfilled?.value.legacySelectedFieldId === "other-field"
+        ? new Uint8Array([4, 5, 6])
+        : new Uint8Array([1, 2, 3]);
+    expect(await readFieldBackgroundImage(selectedId!)).toEqual(expectedBytes);
+    expect(userData.assets.size).toBe(1);
   });
 
   it("rolls back prepared browser Fields when the Project write fails", async () => {
@@ -1150,7 +1230,8 @@ describe("ProjectIoService", () => {
     const targetWorkspace = await target.createWorkspace({
       project: exampleWorkspace("existing", "Existing", ["Kept"]),
     });
-    storage.writeNewProject = async () => {
+    storage.writeNewProjectWithPreparation = async (_project, prepare) => {
+      await prepare();
       throw new Error("browser Project write failed");
     };
     let rollbacks = 0;
@@ -1920,6 +2001,67 @@ function projectArchiveFile(archive: unknown): File {
     type: "application/json",
     text: async () => JSON.stringify(archive),
   } as File;
+}
+
+async function migrateImportedFields(
+  pending: ProjectImportResult,
+): Promise<ProjectImportRollback> {
+  const migration = await migrateImportedLegacyFieldBackgrounds({
+    projectId: pending.project.project_id,
+    selectedFieldId: pending.legacySelectedFieldId,
+    entries: pending.legacyFieldBackgrounds,
+  });
+  if (migration.errors[0]) {
+    await migration.rollback();
+    throw migration.errors[0];
+  }
+  return migration;
+}
+
+async function initializeImportUserData(): Promise<{
+  assets: Map<string, number[]>;
+}> {
+  let persisted: UserData | null = null;
+  let revision = 0;
+  const assets = new Map<string, number[]>();
+  await initializeUserData(tauriCapabilities, {
+    tauriInvoke: async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (command === "storage_read_user_data") {
+        return (
+          persisted === null
+            ? null
+            : { revision, data: structuredClone(persisted) }
+        ) as T;
+      }
+      if (command === "storage_compare_and_swap_user_data") {
+        if (args?.expectedRevision !== revision && persisted) {
+          return {
+            status: "conflict",
+            document: { revision, data: structuredClone(persisted) },
+          } as T;
+        }
+        persisted = structuredClone(args?.data as UserData);
+        revision += 1;
+        return { status: "written", revision } as T;
+      }
+      if (command === "storage_write_user_field_asset") {
+        assets.set(String(args?.entryId), [...(args?.bytes as number[])]);
+        return undefined as T;
+      }
+      if (command === "storage_read_user_field_asset") {
+        return (assets.get(String(args?.entryId)) ?? null) as T;
+      }
+      if (command === "storage_delete_user_field_asset") {
+        assets.delete(String(args?.entryId));
+        return undefined as T;
+      }
+      throw new Error(`Unexpected User Data command: ${command}`);
+    },
+  });
+  return { assets };
 }
 
 function projectFolderFile(webkitRelativePath: string): File {

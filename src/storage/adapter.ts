@@ -33,6 +33,11 @@ export interface WriteResult {
   updatedAt: string;
 }
 
+export interface PreparedProjectWrite<T> {
+  result: WriteResult;
+  preparation: T;
+}
+
 export interface FieldAssetPayload {
   fileName: string;
   mimeType: string;
@@ -76,6 +81,14 @@ export interface StorageAdapter {
   ): Promise<WriteResult>;
   /** Creates a distinct saved Project and rejects any existing target ID. */
   writeNewProject?(project: Project): Promise<WriteResult>;
+  /**
+   * Creates a distinct Project while holding the same cross-context ownership
+   * boundary around the collision check, prerequisite preparation, and write.
+   */
+  writeNewProjectWithPreparation?<T>(
+    project: Project,
+    prepare: () => Promise<T>,
+  ): Promise<PreparedProjectWrite<T>>;
   /** Reads the latest backing version without changing current workspace ownership. */
   getWorkspaceVersion?(id: string): Promise<string | undefined>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;

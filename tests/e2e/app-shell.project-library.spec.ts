@@ -111,6 +111,20 @@ test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
   );
 });
 
+test("uses the linked-elements layout at large viewport sizes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoSampleEditor(page);
+
+  const pathMenu = await openPathMenu(page);
+  await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Linked Elements" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveCSS("width", "1220px");
+});
+
 test("manages paths from the canonical path library", async ({ page }) => {
   await gotoSampleEditor(page);
 
