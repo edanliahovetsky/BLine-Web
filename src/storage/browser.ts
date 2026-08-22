@@ -26,7 +26,7 @@ import {
   type StoredProjectRecord,
   type LegacyStoredWorkspaceRecord,
   type LegacyProjectMigrationPreparation,
-  type PreparedProjectWrite,
+  type ReversiblePreparation,
   type WriteResult,
 } from "./adapter";
 
@@ -224,17 +224,29 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     );
   }
 
-  async writeNewProjectWithPreparation<T>(
+  async writeNewProjectWithPreparation(
     project: Project,
-    prepare: () => Promise<T>,
-  ): Promise<PreparedProjectWrite<T>> {
+    prepare: () => Promise<ReversiblePreparation | undefined>,
+  ): Promise<WriteResult> {
     return this.withProjectMutationLock(async () => {
       this.assertNewProjectTargetAvailable(project.project_id);
       const preparation = await prepare();
-      return {
-        result: await this.writeNewProjectUnlocked(project, true),
-        preparation,
-      };
+      try {
+        return await this.writeNewProjectUnlocked(project, true);
+      } catch (projectError) {
+        if (!preparation) {
+          throw projectError;
+        }
+        try {
+          await preparation.rollback();
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [projectError, rollbackError],
+            "Project import failed and its prepared User Data could not be rolled back",
+          );
+        }
+        throw projectError;
+      }
     });
   }
 

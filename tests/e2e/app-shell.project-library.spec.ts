@@ -123,6 +123,35 @@ test("uses the linked-elements layout at large viewport sizes", async ({
   const dialog = page.getByRole("dialog", { name: "Linked Elements" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveCSS("width", "1220px");
+
+  await page.setViewportSize({ width: 800, height: 720 });
+
+  const body = dialog.locator(".linked-targets-dialog__body");
+  const sections = body.locator(":scope > *");
+  await expect(dialog).toHaveCSS("width", "760px");
+  await expect
+    .poll(async () => {
+      const boxes = await sections.evaluateAll((elements) =>
+        elements.map((element) => {
+          const bounds = element.getBoundingClientRect();
+          return { left: bounds.left, top: bounds.top };
+        }),
+      );
+      return {
+        columnCount: await body.evaluate(
+          (element) =>
+            getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/)
+              .length,
+        ),
+        aligned: boxes.every(
+          (box) => Math.abs(box.left - (boxes[0]?.left ?? box.left)) < 1,
+        ),
+        stacked: boxes.every(
+          (box, index) => index === 0 || box.top > boxes[index - 1].top,
+        ),
+      };
+    })
+    .toEqual({ columnCount: 1, aligned: true, stacked: true });
 });
 
 test("manages paths from the canonical path library", async ({ page }) => {

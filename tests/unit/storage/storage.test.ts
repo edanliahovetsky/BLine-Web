@@ -185,7 +185,7 @@ describe("BrowserStorage", () => {
         preparations.push("first");
         firstPrepared();
         await firstMayWrite;
-        return "first-preparation";
+        return { rollback: async () => {} };
       },
     );
     await firstHasPrepared;
@@ -193,13 +193,13 @@ describe("BrowserStorage", () => {
       project,
       async () => {
         preparations.push("second");
-        return "second-preparation";
+        return { rollback: async () => {} };
       },
     );
     releaseFirst();
 
     await expect(firstWrite).resolves.toMatchObject({
-      preparation: "first-preparation",
+      version: expect.any(String),
     });
     await expect(secondWrite).rejects.toBeInstanceOf(StorageConflictError);
     expect(preparations).toEqual(["first"]);

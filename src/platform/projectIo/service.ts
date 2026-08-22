@@ -610,26 +610,18 @@ export class StorageProjectIoService implements ProjectIoService {
     );
     await this.preflightBrowserImport(portableProject);
     if (this.storage.writeNewProjectWithPreparation) {
-      let rollback: ProjectImportRollback | undefined;
-      try {
-        const committed = await this.storage.writeNewProjectWithPreparation(
+      const committed = await this.storage.writeNewProjectWithPreparation(
+        portableProject,
+        () => prepareImportedFields(result, options),
+      );
+      return {
+        ...result,
+        workspace: this.workspaceAfterWrite(
           portableProject,
-          async () => {
-            rollback = await prepareImportedFields(result, options);
-            return rollback;
-          },
-        );
-        return {
-          ...result,
-          workspace: this.workspaceAfterWrite(
-            portableProject,
-            portableProject.project_id,
-            committed.result,
-          ),
-        };
-      } catch (error) {
-        return await rollbackPreparedImport(error, rollback);
-      }
+          portableProject.project_id,
+          committed,
+        ),
+      };
     }
     if (result.legacyFieldBackgrounds.length > 0) {
       throw new Error(

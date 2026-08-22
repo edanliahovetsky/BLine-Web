@@ -24,6 +24,7 @@ import {
 } from "../../../src/env/capabilities";
 import {
   BrowserStorage,
+  type BrowserProjectMutationLock,
   ProjectPersistenceDamageError,
   StorageConflictError,
   TauriStorage,
@@ -1225,15 +1226,13 @@ describe("ProjectIoService", () => {
   });
 
   it("rolls back prepared browser Fields when the Project write fails", async () => {
-    const storage = new BrowserStorage({ storage: new MemoryStorage() });
+    const memory = new FailOnceWorkspaceWriteStorage();
+    const storage = new BrowserStorage({ storage: memory });
     const target = createProjectIoService(browserWebCapabilities, { storage });
     const targetWorkspace = await target.createWorkspace({
       project: exampleWorkspace("existing", "Existing", ["Kept"]),
     });
-    storage.writeNewProjectWithPreparation = async (_project, prepare) => {
-      await prepare();
-      throw new Error("browser Project write failed");
-    };
+    memory.failNextWorkspaceWrite("imported-project");
     let rollbacks = 0;
 
     await expect(
@@ -1250,12 +1249,14 @@ describe("ProjectIoService", () => {
       ),
     ).rejects.toThrow("browser Project write failed");
     expect(rollbacks).toBe(1);
+    expect(memory.getItem("bline-web:current-workspace")).toBe("existing");
     await expect(
       target.reloadWorkspace(targetWorkspace.handle),
     ).resolves.toMatchObject({
       project: { project_id: "existing" },
     });
 
+    memory.failNextWorkspaceWrite("imported-project");
     const failure = await target
       .importProjectArchive(
         targetWorkspace,
@@ -1270,7 +1271,149 @@ describe("ProjectIoService", () => {
       )
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(AggregateError);
-    expect((failure as AggregateError).errors).toHaveLength(2);
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: "browser Project write failed" }),
+      expect.objectContaining({ message: "User Data rollback failed" }),
+    ]);
+  });
+
+  it("keeps failed browser import rollback inside the Project lock before an identical import prepares", async () => {
+    const memory = new FailOnceWorkspaceWriteStorage();
+    const lock = new ObservableProjectMutationLock();
+    const storage = new BrowserStorage({
+      storage: memory,
+      projectMutationLock: lock,
+    });
+    const target = createProjectIoService(browserWebCapabilities, { storage });
+    const targetWorkspace = await target.createWorkspace({
+      project: exampleWorkspace("existing", "Existing", ["Kept"]),
+    });
+    const userData = await initializeImportUserData();
+    memory.failNextWorkspaceWrite("imported-project");
+
+    let allowFirstRollback!: () => void;
+    const firstRollbackMayComplete = new Promise<void>((resolve) => {
+      allowFirstRollback = resolve;
+    });
+    let firstRollbackStarted!: () => void;
+    const firstRollbackHasStarted = new Promise<void>((resolve) => {
+      firstRollbackStarted = resolve;
+    });
+    let allowSecondPreparation!: () => void;
+    const secondPreparationMayComplete = new Promise<void>((resolve) => {
+      allowSecondPreparation = resolve;
+    });
+    let secondPreparationStarted!: () => void;
+    const secondPreparationHasStarted = new Promise<void>((resolve) => {
+      secondPreparationStarted = resolve;
+    });
+    const events: string[] = [];
+    let preparations = 0;
+    const migrateLegacyFieldBackgrounds = async (
+      pending: ProjectImportResult,
+    ): Promise<ProjectImportRollback> => {
+      preparations += 1;
+      if (preparations === 1) {
+        events.push("first-preparation-started");
+        const migration = await migrateImportedFields(pending);
+        events.push("first-prepared");
+        return {
+          rollback: async () => {
+            events.push("first-rollback-started");
+            firstRollbackStarted();
+            await firstRollbackMayComplete;
+            await migration.rollback();
+            events.push("first-rollback-completed");
+          },
+        };
+      }
+
+      events.push("second-preparation-started");
+      expect(readUserData().field_backgrounds).toHaveLength(0);
+      expect(
+        readUserData().project_views["imported-project"]
+          ?.selected_field_background_id,
+      ).toBeUndefined();
+      const migration = await migrateImportedFields(pending);
+      events.push("second-prepared");
+      expect(readUserData().field_backgrounds).toHaveLength(1);
+      secondPreparationStarted();
+      await secondPreparationMayComplete;
+      return migration;
+    };
+
+    const firstOutcome = target
+      .importProjectArchive(
+        targetWorkspace,
+        projectArchiveFile(legacyFieldArchive()),
+        { migrateLegacyFieldBackgrounds },
+      )
+      .then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason }),
+      );
+    await firstRollbackHasStarted;
+    expect(memory.getItem("bline-web:current-workspace")).toBe("existing");
+
+    const secondImport = target.importProjectArchive(
+      targetWorkspace,
+      projectArchiveFile(legacyFieldArchive()),
+      { migrateLegacyFieldBackgrounds },
+    );
+    await lock.waitForRequestCount(3);
+    expect(preparations).toBe(1);
+    expect(events).toEqual([
+      "first-preparation-started",
+      "first-prepared",
+      "first-rollback-started",
+    ]);
+
+    allowFirstRollback();
+    await secondPreparationHasStarted;
+    expect(await firstOutcome).toMatchObject({
+      status: "rejected",
+      reason: expect.objectContaining({
+        message: "browser Project write failed",
+      }),
+    });
+    expect(events).toEqual([
+      "first-preparation-started",
+      "first-prepared",
+      "first-rollback-started",
+      "first-rollback-completed",
+      "second-preparation-started",
+      "second-prepared",
+    ]);
+    expect(memory.getItem("bline-web:current-workspace")).toBe("existing");
+
+    allowSecondPreparation();
+    const imported = await secondImport;
+    expect(imported.workspace.project.project_id).toBe("imported-project");
+    const snapshot = readUserData();
+    expect(snapshot.field_backgrounds).toHaveLength(1);
+    const field = snapshot.field_backgrounds[0]!;
+    expect(field).toMatchObject({
+      name: "legacy-field",
+      file_name: "legacy.png",
+      mime_type: "image/png",
+      geometry: {
+        length_meters: 12,
+        width_meters: 6,
+        coordinate_offset_meters: 0,
+      },
+    });
+    expect(
+      snapshot.project_views["imported-project"]?.selected_field_background_id,
+    ).toBe(field.id);
+    expect(await readFieldBackgroundImage(field.id)).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(userData.assets.size).toBe(1);
+    expect(memory.getItem("bline-web:current-workspace")).toBe(
+      "imported-project",
+    );
+    expect(lock.maximumConcurrentOwners).toBe(1);
+    expect(lock.concurrentOwners).toBe(0);
   });
 
   it("rejects an import with any missing custom Field asset before adopting it", async () => {
@@ -2100,5 +2243,65 @@ class MemoryStorage implements StorageLike {
 
   removeItem(key: string): void {
     this.values.delete(key);
+  }
+}
+
+class FailOnceWorkspaceWriteStorage extends MemoryStorage {
+  private failedWorkspaceId: string | null = null;
+
+  failNextWorkspaceWrite(id: string): void {
+    this.failedWorkspaceId = id;
+  }
+
+  override setItem(key: string, value: string): void {
+    if (
+      this.failedWorkspaceId &&
+      key ===
+        `bline-web:workspace:${encodeURIComponent(this.failedWorkspaceId)}`
+    ) {
+      this.failedWorkspaceId = null;
+      throw new Error("browser Project write failed");
+    }
+    super.setItem(key, value);
+  }
+}
+
+class ObservableProjectMutationLock implements BrowserProjectMutationLock {
+  private tail: Promise<void> = Promise.resolve();
+  private requestCount = 0;
+  private readonly requestWaiters = new Map<number, () => void>();
+  concurrentOwners = 0;
+  maximumConcurrentOwners = 0;
+
+  request<T>(_name: string, callback: () => Promise<T> | T): Promise<T> {
+    this.requestCount += 1;
+    this.requestWaiters.get(this.requestCount)?.();
+    this.requestWaiters.delete(this.requestCount);
+    const run = this.tail.then(async () => {
+      this.concurrentOwners += 1;
+      this.maximumConcurrentOwners = Math.max(
+        this.maximumConcurrentOwners,
+        this.concurrentOwners,
+      );
+      try {
+        return await callback();
+      } finally {
+        this.concurrentOwners -= 1;
+      }
+    });
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  waitForRequestCount(count: number): Promise<void> {
+    if (this.requestCount >= count) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.requestWaiters.set(count, resolve);
+    });
   }
 }

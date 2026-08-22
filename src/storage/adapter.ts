@@ -33,9 +33,8 @@ export interface WriteResult {
   updatedAt: string;
 }
 
-export interface PreparedProjectWrite<T> {
-  result: WriteResult;
-  preparation: T;
+export interface ReversiblePreparation {
+  rollback(): Promise<void>;
 }
 
 export interface FieldAssetPayload {
@@ -84,11 +83,13 @@ export interface StorageAdapter {
   /**
    * Creates a distinct Project while holding the same cross-context ownership
    * boundary around the collision check, prerequisite preparation, and write.
+   * If the write fails after preparation completes, rollback also finishes
+   * before that ownership boundary is released.
    */
-  writeNewProjectWithPreparation?<T>(
+  writeNewProjectWithPreparation?(
     project: Project,
-    prepare: () => Promise<T>,
-  ): Promise<PreparedProjectWrite<T>>;
+    prepare: () => Promise<ReversiblePreparation | undefined>,
+  ): Promise<WriteResult>;
   /** Reads the latest backing version without changing current workspace ownership. */
   getWorkspaceVersion?(id: string): Promise<string | undefined>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
