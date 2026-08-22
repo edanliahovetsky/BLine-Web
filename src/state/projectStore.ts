@@ -185,7 +185,7 @@ export type ProjectStore = StoreApi<ProjectStoreState>;
 export function createProjectStore(
   history = createHistoryStore<Project>(),
 ): ProjectStore {
-  return createStore<ProjectStoreState>((set, get) => ({
+  const store = createStore<ProjectStoreState>((set, get) => ({
     project: null,
     activePathId: null,
     activePathGroupId: null,
@@ -830,6 +830,24 @@ export function createProjectStore(
       });
     },
   }));
+
+  let rememberedProjectId: string | null = null;
+  let rememberedPathId: string | null = null;
+  store.subscribe((state) => {
+    const projectId = state.project?.project_id ?? null;
+    const pathId = state.activePathId;
+    if (
+      !projectId ||
+      (projectId === rememberedProjectId && pathId === rememberedPathId)
+    ) {
+      return;
+    }
+    rememberedProjectId = projectId;
+    rememberedPathId = pathId;
+    void state.io?.setActivePathId?.(projectId, pathId);
+  });
+
+  return store;
 }
 
 export const projectStore = createProjectStore();

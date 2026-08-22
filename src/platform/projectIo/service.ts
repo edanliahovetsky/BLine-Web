@@ -191,15 +191,35 @@ export class StorageProjectIoService implements ProjectIoService {
     workspace: ProjectWorkspaceDocument,
     expectedVersion?: string,
   ): Promise<WriteResult> {
-    const normalized = ensureWorkspaceHasActivePath(workspace);
+    if (workspace.active_path_id) {
+      await this.storage.setActivePathId?.(
+        workspace.project_id,
+        workspace.active_path_id,
+      );
+    }
     const result = await this.storage.writeWorkspace(
-      normalized,
+      {
+        ...structuredClone(workspace),
+        active_path_id: null,
+        active_path_group_id: null,
+      },
       expectedVersion,
     );
-    this.currentWorkspace = structuredClone(normalized);
+    this.currentWorkspace = ensureWorkspaceHasActivePath(workspace);
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
     return result;
+  }
+
+  async getActivePathId(projectId: string): Promise<string | null> {
+    return (await this.storage.getActivePathId?.(projectId)) ?? null;
+  }
+
+  async setActivePathId(
+    projectId: string,
+    pathId: string | null,
+  ): Promise<void> {
+    await this.storage.setActivePathId?.(projectId, pathId);
   }
 
   async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
@@ -401,9 +421,15 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   private async readAndAdopt(id: string): Promise<ProjectWorkspaceDocument> {
-    const workspace = ensureWorkspaceHasActivePath(
-      await this.storage.readWorkspace(id),
+    const storedWorkspace = await this.storage.readWorkspace(id);
+    const localActivePathId = await this.storage.getActivePathId?.(
+      storedWorkspace.project_id,
     );
+    const workspace = ensureWorkspaceHasActivePath({
+      ...storedWorkspace,
+      active_path_id:
+        localActivePathId ?? storedWorkspace.active_path_id ?? null,
+    });
     this.currentWorkspace = structuredClone(workspace);
     await this.syncVersion(workspace.project_id);
     return workspace;

@@ -24,6 +24,7 @@ export interface BrowserStorageOptions {
   storage?: StorageLike;
   keyPrefix?: string;
   currentWorkspaceKey?: string;
+  editorUserDataKey?: string;
   legacyProjectKeyPrefix?: string;
   now?: () => Date;
   fieldAssetDbName?: string;
@@ -39,6 +40,7 @@ export interface StorageLike {
 
 const defaultKeyPrefix = "bline-web:workspace:";
 const defaultCurrentWorkspaceKey = "bline-web:current-workspace";
+const defaultEditorUserDataKey = "bline-web:editor-user-data:v1";
 const defaultLegacyProjectKeyPrefix = "bline-web:project:";
 const defaultFieldAssetDbName = "bline-web-field-assets";
 const fieldAssetStoreName = "field-assets";
@@ -47,6 +49,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   private readonly storage: StorageLike;
   private readonly keyPrefix: string;
   private readonly currentWorkspaceKey: string;
+  private readonly editorUserDataKey: string;
   private readonly legacyProjectKeyPrefix: string;
   private readonly now: () => Date;
   private readonly fieldAssetDbName: string;
@@ -57,6 +60,8 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     this.keyPrefix = options.keyPrefix ?? defaultKeyPrefix;
     this.currentWorkspaceKey =
       options.currentWorkspaceKey ?? defaultCurrentWorkspaceKey;
+    this.editorUserDataKey =
+      options.editorUserDataKey ?? defaultEditorUserDataKey;
     this.legacyProjectKeyPrefix =
       options.legacyProjectKeyPrefix ?? defaultLegacyProjectKeyPrefix;
     this.now = options.now ?? (() => new Date());
@@ -94,10 +99,24 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     this.migrateLegacyProjects();
     const existing = this.readRecord(workspace.project_id);
     assertExpectedVersion(existing, expectedVersion);
+    if (workspace.active_path_id) {
+      await this.setActivePathId(
+        workspace.project_id,
+        workspace.active_path_id,
+      );
+    }
 
     const updatedAt = this.now().toISOString();
     const version = createBrowserVersion(updatedAt);
-    const record = createStoredWorkspaceRecord(workspace, version, updatedAt);
+    const record = createStoredWorkspaceRecord(
+      {
+        ...workspace,
+        active_path_id: null,
+        active_path_group_id: null,
+      },
+      version,
+      updatedAt,
+    );
 
     this.storage.setItem(
       this.storageKey(workspace.project_id),
@@ -197,6 +216,36 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       this.storage.setItem(this.currentWorkspaceKey, id);
     } else {
       this.storage.removeItem(this.currentWorkspaceKey);
+    }
+  }
+
+  async getActivePathId(projectId: string): Promise<string | null> {
+    return this.readEditorUserData().activePathByProjectId[projectId] ?? null;
+  }
+
+  async setActivePathId(
+    projectId: string,
+    pathId: string | null,
+  ): Promise<void> {
+    const userData = this.readEditorUserData();
+    if (pathId) {
+      userData.activePathByProjectId[projectId] = pathId;
+    } else {
+      delete userData.activePathByProjectId[projectId];
+    }
+    this.storage.setItem(this.editorUserDataKey, JSON.stringify(userData));
+  }
+
+  private readEditorUserData(): EditorUserDataV1 {
+    try {
+      const parsed = JSON.parse(
+        this.storage.getItem(this.editorUserDataKey) ?? "null",
+      ) as unknown;
+      return isEditorUserDataV1(parsed)
+        ? structuredClone(parsed)
+        : { schemaVersion: 1, activePathByProjectId: {} };
+    } catch {
+      return { schemaVersion: 1, activePathByProjectId: {} };
     }
   }
 
@@ -322,6 +371,26 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
     return this.fieldAssetDbPromise;
   }
+}
+
+interface EditorUserDataV1 {
+  schemaVersion: 1;
+  activePathByProjectId: Record<string, string>;
+}
+
+function isEditorUserDataV1(value: unknown): value is EditorUserDataV1 {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    record.schemaVersion === 1 &&
+    Boolean(record.activePathByProjectId) &&
+    typeof record.activePathByProjectId === "object" &&
+    Object.values(
+      record.activePathByProjectId as Record<string, unknown>,
+    ).every((pathId) => typeof pathId === "string")
+  );
 }
 
 interface BrowserFieldAssetRecord {

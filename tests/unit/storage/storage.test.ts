@@ -25,8 +25,9 @@ import {
 
 describe("BrowserStorage", () => {
   it("writes, lists, reads, and deletes workspaces", async () => {
+    const memory = new MemoryStorage();
     const storage = new BrowserStorage({
-      storage: new MemoryStorage(),
+      storage: memory,
       now: fixedClock("2026-04-23T15:30:00.000Z"),
     });
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
@@ -47,6 +48,13 @@ describe("BrowserStorage", () => {
       display_name: "Alpha",
       paths: [{ display_name: "One" }],
     });
+    const storedRecord = JSON.parse(
+      memory.getItem("bline-web:workspace:workspace-a") ?? "null",
+    ) as { document: { active_path_id: string | null } };
+    expect(storedRecord.document.active_path_id).toBeNull();
+    await expect(storage.getActivePathId("workspace-a")).resolves.toBe(
+      workspace.active_path_id,
+    );
 
     await storage.deleteWorkspace("workspace-a", write.version);
 
@@ -160,6 +168,11 @@ describe("TauriStorage", () => {
       [];
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
     const serialized = serializeProjectWorkspaceDocument(workspace);
+    const persisted = serializeProjectWorkspaceDocument({
+      ...workspace,
+      active_path_id: null,
+      active_path_group_id: null,
+    });
     const invoke = (
       command: string,
       args: Record<string, unknown> | undefined,
@@ -207,9 +220,16 @@ describe("TauriStorage", () => {
     await expect(storage.listWorkspaces()).resolves.toHaveLength(1);
 
     expect(calls[0]).toEqual({
+      command: "storage_set_active_path",
+      args: {
+        projectId: "workspace-a",
+        pathId: "path-1",
+      },
+    });
+    expect(calls[1]).toEqual({
       command: "storage_write_workspace",
       args: {
-        workspace: serialized,
+        workspace: persisted,
         expected: "v0",
       },
     });

@@ -224,6 +224,32 @@ pub fn storage_write_workspace(
 }
 
 #[tauri::command]
+pub fn storage_get_active_path(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Option<String>, String> {
+    let state = read_state(&app)?;
+    Ok(state.active_path_by_project_dir.get(&project_id).cloned())
+}
+
+#[tauri::command]
+pub fn storage_set_active_path(
+    app: AppHandle,
+    project_id: String,
+    path_id: Option<String>,
+) -> Result<(), String> {
+    let mut state = read_state(&app)?;
+    if let Some(path_id) = path_id {
+        state
+            .active_path_by_project_dir
+            .insert(project_id, safe_path_file_name(&path_id)?);
+    } else {
+        state.active_path_by_project_dir.remove(&project_id);
+    }
+    write_state(&app, &state)
+}
+
+#[tauri::command]
 pub fn storage_list_projects(app: AppHandle) -> Result<Vec<ProjectSummary>, String> {
     let Some(dir) = current_project_dir(&app)? else {
         return Ok(Vec::new());
@@ -1291,13 +1317,6 @@ fn active_path_file_name_from_workspace(workspace: &Value, paths: &[Value]) -> O
                     None
                 }
             })
-        })
-        .or_else(|| {
-            paths
-                .first()
-                .and_then(|path| path.get("file_name"))
-                .and_then(Value::as_str)
-                .and_then(|value| safe_path_file_name(value).ok())
         })
 }
 

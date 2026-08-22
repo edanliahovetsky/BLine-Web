@@ -79,4 +79,6 @@ export interface ProjectIoService {
   ): Promise<CustomFieldImage>;
   readFieldImageAsset(field: CustomFieldImage): Promise<Blob | null>;
   deleteFieldImageAsset(field: CustomFieldImage): Promise<void>;
+  getActivePathId?(projectId: string): Promise<string | null>;
+  setActivePathId?(projectId: string, pathId: string | null): Promise<void>;
 }

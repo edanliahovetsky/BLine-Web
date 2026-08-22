@@ -12,6 +12,8 @@ pub fn run() {
             storage::storage_switch_workspace,
             storage::storage_read_workspace,
             storage::storage_write_workspace,
+            storage::storage_get_active_path,
+            storage::storage_set_active_path,
             storage::storage_list_projects,
             storage::storage_read_project,
             storage::storage_write_project,
