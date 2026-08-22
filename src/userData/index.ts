@@ -17,6 +17,7 @@ import {
   UserDataService,
   type CreateFieldBackgroundInput,
   type FieldBackgroundMetadataUpdate,
+  type LegacyFieldBackgroundMigration,
 } from "./service";
 
 class MemoryUserDataAdapter implements UserDataAdapter {
@@ -120,6 +121,16 @@ export function migrateLegacyFieldBackgroundFromBytes(
   );
 }
 
+export function migrateLegacyFieldBackgroundFromBytesWithOwnership(
+  input: CreateFieldBackgroundInput,
+  legacyKey: string,
+): Promise<LegacyFieldBackgroundMigration> {
+  return runtimeUserData.migrateLegacyFieldBackgroundFromBytesWithOwnership(
+    input,
+    legacyKey,
+  );
+}
+
 export function findVerifiedLegacyFieldBackground(
   legacyKey: string,
 ): Promise<FieldBackgroundEntry | null> {
@@ -142,6 +153,20 @@ export async function readFieldBackgroundImage(
 
 export function deleteFieldBackground(entryId: string): Promise<void> {
   return runtimeUserData.deleteFieldBackground(entryId);
+}
+
+export function rollbackImportedFieldBackgrounds(
+  entryIds: readonly string[],
+  projectId: string,
+  ownedSelection: string | undefined,
+  priorSelection: string | null,
+): Promise<void> {
+  return runtimeUserData.rollbackImportedFieldBackgrounds(
+    entryIds,
+    projectId,
+    ownedSelection,
+    priorSelection,
+  );
 }
 
 export function readEditorLayoutPreferences(): EditorLayoutPreferences {

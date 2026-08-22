@@ -8,6 +8,7 @@ import {
 import {
   activePathForProject,
   flushUserData,
+  importFieldBackgroundFromBytes,
   initializeUserData,
   migrateProjectViewIdentity,
   readEditorLayoutPreferences,
@@ -648,6 +649,102 @@ describe("UserData", () => {
     expect(service.getSnapshot().field_backgrounds).toHaveLength(2);
   });
 
+  it("rebases a metadata update over concurrent preferences", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-update-race",
+    });
+    await service.initialize();
+    const entry = await service.createFieldBackgroundFromBytes(fieldInput());
+    const blocked = adapter.pauseNextMetadataWrite();
+
+    const updating = service.updateFieldBackgroundMetadata(entry.id, {
+      name: "Updated Field",
+    });
+    await blocked.started;
+    service.update((current) => ({
+      ...current,
+      completed_tour_ids: ["concurrent-tour"],
+    }));
+    blocked.release();
+
+    await updating;
+    await service.flush();
+    expect(service.getSnapshot()).toMatchObject({
+      completed_tour_ids: ["concurrent-tour"],
+      field_backgrounds: [{ id: entry.id, name: "Updated Field" }],
+    });
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+  });
+
+  it("rebases field creation over concurrent navigation preferences", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-create-race",
+    });
+    await service.initialize();
+    await service.flush();
+    const blocked = adapter.pauseNextMetadataWrite();
+
+    const creating = service.createFieldBackgroundFromBytes(fieldInput());
+    await blocked.started;
+    service.update((current) => ({
+      ...current,
+      project_views: {
+        ...current.project_views,
+        concurrent: { active_path_id: "path-concurrent" },
+      },
+    }));
+    blocked.release();
+
+    const entry = await creating;
+    await service.flush();
+    expect(service.getSnapshot()).toMatchObject({
+      project_views: {
+        concurrent: { active_path_id: "path-concurrent" },
+      },
+      field_backgrounds: [{ id: entry.id }],
+    });
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+  });
+
+  it("rebases field deletion over concurrent preferences without restoring its selection", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-delete-race",
+    });
+    await service.initialize();
+    const entry = await service.createFieldBackgroundFromBytes(fieldInput());
+    service.update((current) => ({
+      ...current,
+      project_views: {
+        project: {
+          active_path_id: "path-existing",
+          selected_field_background_id: entry.id,
+        },
+      },
+    }));
+    await service.flush();
+    const blocked = adapter.pauseNextMetadataWrite();
+
+    const deleting = service.deleteFieldBackground(entry.id);
+    await blocked.started;
+    service.update((current) => ({
+      ...current,
+      completed_tour_ids: ["concurrent-tour"],
+    }));
+    blocked.release();
+
+    await deleting;
+    await service.flush();
+    expect(service.getSnapshot()).toMatchObject({
+      completed_tour_ids: ["concurrent-tour"],
+      project_views: { project: { active_path_id: "path-existing" } },
+      field_backgrounds: [],
+    });
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+  });
+
   it.each(["asset-write", "readback", "metadata-write"] as const)(
     "%s failure leaves no Field Background metadata exposed",
     async (failure) => {
@@ -823,6 +920,9 @@ describe("UserData", () => {
   it("migrates imported legacy calibrations directly into verified User Data", async () => {
     let persisted: UserData | null = null;
     const assets = new Map<string, number[]>();
+    let failNextAssetDelete = false;
+    let assetWriteCount = 0;
+    let failAssetWriteAt = -1;
     await initializeUserData(tauriCapabilities, {
       tauriInvoke: async <T>(
         command: string,
@@ -836,6 +936,10 @@ describe("UserData", () => {
           return undefined as T;
         }
         if (command === "storage_write_user_field_asset") {
+          assetWriteCount += 1;
+          if (assetWriteCount === failAssetWriteAt) {
+            throw new Error("asset write failed");
+          }
           assets.set(String(args?.entryId), [...(args?.bytes as number[])]);
           return undefined as T;
         }
@@ -843,6 +947,10 @@ describe("UserData", () => {
           return (assets.get(String(args?.entryId)) ?? null) as T;
         }
         if (command === "storage_delete_user_field_asset") {
+          if (failNextAssetDelete) {
+            failNextAssetDelete = false;
+            throw new Error("asset delete failed");
+          }
           assets.delete(String(args?.entryId));
           return undefined as T;
         }
@@ -889,6 +997,12 @@ describe("UserData", () => {
         ?.selected_field_background_id,
     ).toBe(firstSnapshot.field_backgrounds[1]?.id);
 
+    await secondRun.rollback();
+    expect(readUserData().field_backgrounds).toEqual(
+      firstSnapshot.field_backgrounds,
+    );
+    expect(assets.size).toBe(2);
+
     const replacement = await migrateImportedLegacyFieldBackgrounds({
       projectId: "project-imported",
       selectedFieldId: second.id,
@@ -909,6 +1023,87 @@ describe("UserData", () => {
     expect(replacementSnapshot.field_backgrounds[3]?.id).not.toBe(
       firstSnapshot.field_backgrounds[1]?.id,
     );
+
+    const unrelated = await importFieldBackgroundFromBytes({
+      ...fieldInput(),
+      name: "Concurrent Field",
+    });
+    rememberCompletedTourIds(["concurrent-tour"]);
+    await flushUserData();
+
+    failNextAssetDelete = true;
+    await expect(replacement.rollback()).rejects.toThrow("asset delete failed");
+    const recoveredReplacement = await migrateImportedLegacyFieldBackgrounds({
+      projectId: "project-imported",
+      selectedFieldId: second.id,
+      entries: [
+        { field: first, bytes: bytesFromHex("8696a25575595d14") },
+        { field: second, bytes: bytesFromHex("8696a25575595d14") },
+      ],
+    });
+    expect(recoveredReplacement.errors).toEqual([]);
+    await recoveredReplacement.rollback();
+    await recoveredReplacement.rollback();
+
+    expect(readUserData()).toMatchObject({
+      completed_tour_ids: ["concurrent-tour"],
+      project_views: {
+        "project-imported": {
+          selected_field_background_id: firstSnapshot.field_backgrounds[1]?.id,
+        },
+      },
+    });
+    expect(readUserData().field_backgrounds).toEqual([
+      ...firstSnapshot.field_backgrounds,
+      unrelated,
+    ]);
+    expect(assets.size).toBe(3);
+
+    const retriedReplacement = await migrateImportedLegacyFieldBackgrounds({
+      projectId: "project-imported",
+      selectedFieldId: second.id,
+      entries: [
+        { field: first, bytes: bytesFromHex("8696a25575595d14") },
+        { field: second, bytes: bytesFromHex("8696a25575595d14") },
+      ],
+    });
+    rememberSelectedFieldBackground("project-imported", "blank-grid");
+    await flushUserData();
+    await retriedReplacement.rollback();
+
+    expect(
+      readUserData().project_views["project-imported"]
+        ?.selected_field_background_id,
+    ).toBe("blank-grid");
+    expect(readUserData().field_backgrounds).toEqual([
+      ...firstSnapshot.field_backgrounds,
+      unrelated,
+    ]);
+
+    const partialFirst = legacyField("partial-first", "partial-a", 0.1);
+    const partialSecond = legacyField("partial-second", "partial-b", 0.2);
+    failAssetWriteAt = assetWriteCount + 2;
+    const partial = await migrateImportedLegacyFieldBackgrounds({
+      projectId: "project-imported",
+      selectedFieldId: partialFirst.id,
+      entries: [
+        { field: partialFirst, bytes: new Uint8Array([20]) },
+        { field: partialSecond, bytes: new Uint8Array([21]) },
+      ],
+    });
+
+    expect(partial.errors).toHaveLength(1);
+    expect(readUserData().field_backgrounds).toHaveLength(4);
+    await partial.rollback();
+    expect(readUserData().field_backgrounds).toEqual([
+      ...firstSnapshot.field_backgrounds,
+      unrelated,
+    ]);
+    expect(
+      readUserData().project_views["project-imported"]
+        ?.selected_field_background_id,
+    ).toBe("blank-grid");
+    expect(assets.size).toBe(3);
 
     expect(persisted).toEqual(readUserData());
   });
@@ -1050,6 +1245,10 @@ class AssetMemoryAdapter implements UserDataAdapter {
   readbackOverride: Uint8Array | null | undefined;
   metadataReadCount = 0;
   failMetadataReadAt: number | undefined;
+  private metadataWritePause: {
+    started: Deferred<void>;
+    release: Deferred<void>;
+  } | null = null;
 
   constructor(persisted: unknown | null = null) {
     this.persisted = persisted;
@@ -1066,10 +1265,29 @@ class AssetMemoryAdapter implements UserDataAdapter {
 
   async write(data: UserData): Promise<void> {
     this.events.push("metadata-write");
+    const pause = this.metadataWritePause;
+    if (pause) {
+      this.metadataWritePause = null;
+      pause.started.resolve();
+      await pause.release.promise;
+    }
     if (this.failMetadataWrite) {
       throw new Error("metadata write failed");
     }
     this.persisted = structuredClone(data);
+  }
+
+  pauseNextMetadataWrite(): {
+    started: Promise<void>;
+    release(): void;
+  } {
+    const started = deferred<void>();
+    const release = deferred<void>();
+    this.metadataWritePause = { started, release };
+    return {
+      started: started.promise,
+      release: () => release.resolve(),
+    };
   }
 
   async writeFieldAsset(entryId: string, bytes: Uint8Array): Promise<void> {
@@ -1149,10 +1367,12 @@ function legacyField(
   };
 }
 
-function deferred<T>(): {
+interface Deferred<T> {
   promise: Promise<T>;
   resolve(value: T | PromiseLike<T>): void;
-} {
+}
+
+function deferred<T>(): Deferred<T> {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((complete) => {
     resolve = complete;

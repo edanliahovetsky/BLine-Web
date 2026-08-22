@@ -224,6 +224,200 @@ describe("ProjectIoService", () => {
     });
   });
 
+  it("keeps a durably created desktop Project open when activation persistence fails", async () => {
+    const projectA = exampleWorkspace("stable-a", "Alpha", ["One"]);
+    const projectB = exampleWorkspace("stable-b", "Beta", ["Two"]);
+    let durableCurrent = "/repo/a/autos";
+    let storedB = projectB;
+    const writeLocators: string[] = [];
+    const summary = (id: string, version: string) => ({
+      id,
+      displayName: id === "/repo/a/autos" ? "Alpha" : "Beta",
+      directoryPath: id,
+      version,
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    });
+    const invoke = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (command === "storage_get_current_workspace") {
+        return summary(durableCurrent, "a-v1") as T;
+      }
+      if (command === "storage_list_recent_workspaces") {
+        return [summary(durableCurrent, "a-v1")] as T;
+      }
+      if (command === "storage_read_project_files") {
+        const locator = String(args?.directoryLocator ?? durableCurrent);
+        const project = locator === "/repo/b/autos" ? storedB : projectA;
+        return {
+          directoryLocator: locator,
+          files: serializeProjectFiles(project).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: locator === "/repo/b/autos" ? "b-v1" : "a-v1",
+          updatedAt: "2026-08-22T14:00:00.000Z",
+        } as T;
+      }
+      if (command === "storage_create_workspace_dialog") {
+        return summary("/repo/b/autos", "empty") as T;
+      }
+      if (command === "storage_write_project_files") {
+        const locator = String(args?.directoryLocator);
+        writeLocators.push(locator);
+        if (locator === "/repo/b/autos") {
+          storedB = projectB;
+        }
+        return {
+          directoryLocator: locator,
+          version: "b-v1",
+          updatedAt: "2026-08-22T14:01:00.000Z",
+        } as T;
+      }
+      if (command === "storage_switch_workspace") {
+        if (args?.id === "/repo/b/autos") {
+          throw new Error("could not persist desktop session");
+        }
+        durableCurrent = String(args?.id);
+        return summary(durableCurrent, "a-v1") as T;
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const service = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await service.initialize();
+
+    await expect(
+      service.createWorkspace({ project: projectB }),
+    ).resolves.toMatchObject({ project_id: "stable-b" });
+    expect(service.getCurrentWorkspaceSummary()?.id).toBe("/repo/b/autos");
+    expect(durableCurrent).toBe("/repo/a/autos");
+
+    await service.saveWorkspace(projectB, service.getCurrentVersion());
+    expect(writeLocators).toEqual(["/repo/b/autos", "/repo/b/autos"]);
+  });
+
+  it("does not activate a desktop open or switch candidate that fails to read", async () => {
+    const projectA = exampleWorkspace("stable-a", "Alpha", ["One"]);
+    let durableCurrent = "/repo/a/autos";
+    const switches: string[] = [];
+    const summary = (id: string) => ({
+      id,
+      displayName: id === "/repo/a/autos" ? "Alpha" : "Broken",
+      directoryPath: id,
+      version: "a-v1",
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    });
+    const invoke = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (command === "storage_get_current_workspace") {
+        return summary(durableCurrent) as T;
+      }
+      if (command === "storage_list_recent_workspaces") {
+        return [summary("/repo/a/autos")] as T;
+      }
+      if (command === "storage_open_workspace_dialog") {
+        return summary("/repo/b/autos") as T;
+      }
+      if (command === "storage_read_project_files") {
+        const locator = String(args?.directoryLocator ?? durableCurrent);
+        if (locator === "/repo/b/autos") {
+          throw new Error("candidate Project is invalid");
+        }
+        return {
+          directoryLocator: locator,
+          files: serializeProjectFiles(projectA).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: "a-v1",
+          updatedAt: "2026-08-22T14:00:00.000Z",
+        } as T;
+      }
+      if (command === "storage_switch_workspace") {
+        durableCurrent = String(args?.id);
+        switches.push(durableCurrent);
+        return summary(durableCurrent) as T;
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const service = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await service.initialize();
+
+    await expect(service.openWorkspace()).rejects.toThrow(
+      "candidate Project is invalid",
+    );
+    await expect(service.switchWorkspace("/repo/b/autos")).rejects.toThrow(
+      "candidate Project is invalid",
+    );
+    expect(switches).toEqual(["/repo/a/autos", "/repo/a/autos"]);
+    expect(durableCurrent).toBe("/repo/a/autos");
+    await expect(service.getWorkspace()).resolves.toMatchObject({
+      project_id: "stable-a",
+    });
+
+    const restarted = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await expect(restarted.initialize()).resolves.toMatchObject({
+      project_id: "stable-a",
+    });
+  });
+
+  it("does not cache or activate a failed first desktop open candidate", async () => {
+    const calls: string[] = [];
+    let implicitWriteLocator: unknown = "not-called";
+    const invoke = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push(command);
+      if (command === "storage_get_current_workspace") return null as T;
+      if (command === "storage_open_workspace_dialog") {
+        return {
+          id: "/repo/broken/autos",
+          displayName: "Broken",
+          directoryPath: "/repo/broken/autos",
+          version: "broken-v1",
+          updatedAt: "2026-08-22T14:00:00.000Z",
+        } as T;
+      }
+      if (command === "storage_read_project_files") {
+        throw new Error("candidate Project is invalid");
+      }
+      if (command === "storage_write_project_files") {
+        implicitWriteLocator = args?.directoryLocator;
+        return {
+          directoryLocator: "/repo/recovery/autos",
+          version: "recovery-v1",
+          updatedAt: "2026-08-22T14:01:00.000Z",
+        } as T;
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const storage = new TauriStorage({ invoke });
+    const service = createProjectIoService(tauriCapabilities, { storage });
+
+    await expect(service.initialize()).rejects.toThrow(
+      "candidate Project is invalid",
+    );
+    expect(calls).not.toContain("storage_switch_workspace");
+    expect(service.getCurrentWorkspaceSummary()).toBeNull();
+    await expect(service.getWorkspace()).resolves.toBeNull();
+    await storage.writeProject(
+      exampleWorkspace("recovery", "Recovery", ["One"]),
+    );
+    expect(implicitWriteLocator).toBeNull();
+  });
+
   it("exposes browser and desktop primary actions from capabilities", () => {
     const browserService = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
@@ -651,6 +845,68 @@ describe("ProjectIoService", () => {
     expect(imported.project.config.gui.field.custom_fields).toEqual([]);
   });
 
+  it("preflights browser import collisions before preparing legacy Fields", async () => {
+    const target = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await target.createWorkspace({
+      project: exampleWorkspace("imported-project", "Existing", ["Kept"]),
+    });
+    let preparations = 0;
+
+    await expect(
+      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+        migrateLegacyFieldBackgrounds: async () => {
+          preparations += 1;
+        },
+      }),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+
+    expect(preparations).toBe(0);
+    await expect(target.getWorkspace()).resolves.toMatchObject({
+      project_id: "imported-project",
+      display_name: "Existing",
+    });
+  });
+
+  it("rolls back prepared browser Fields when the Project write fails", async () => {
+    const storage = new BrowserStorage({ storage: new MemoryStorage() });
+    const target = createProjectIoService(browserWebCapabilities, { storage });
+    await target.createWorkspace({
+      project: exampleWorkspace("existing", "Existing", ["Kept"]),
+    });
+    storage.writeNewProject = async () => {
+      throw new Error("browser Project write failed");
+    };
+    let rollbacks = 0;
+
+    await expect(
+      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+        migrateLegacyFieldBackgrounds: async () => ({
+          rollback: async () => {
+            rollbacks += 1;
+          },
+        }),
+      }),
+    ).rejects.toThrow("browser Project write failed");
+    expect(rollbacks).toBe(1);
+    await expect(target.getWorkspace()).resolves.toMatchObject({
+      project_id: "existing",
+    });
+
+    const failure = await target
+      .importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+        migrateLegacyFieldBackgrounds: async () => ({
+          rollback: async () => {
+            throw new Error("User Data rollback failed");
+          },
+        }),
+      })
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toHaveLength(2);
+  });
+
   it("rejects an import with any missing custom Field asset before adopting it", async () => {
     const target = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
@@ -771,6 +1027,110 @@ describe("ProjectIoService", () => {
     });
   });
 
+  it("preflights a desktop version conflict before preparing legacy Fields", async () => {
+    const current = exampleWorkspace("desktop-current", "Current", ["Kept"]);
+    let projectReads = 0;
+    let preparations = 0;
+    let projectWrites = 0;
+    const summary = {
+      id: "/repo/current/autos",
+      displayName: "Current",
+      directoryPath: "/repo/current/autos",
+      version: "current-v1",
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    };
+    const invoke = async <T>(command: string): Promise<T> => {
+      if (command === "storage_get_current_workspace") return summary as T;
+      if (command === "storage_list_recent_workspaces") return [summary] as T;
+      if (command === "storage_read_project_files") {
+        projectReads += 1;
+        return {
+          directoryLocator: summary.id,
+          files: serializeProjectFiles(current).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: projectReads === 1 ? "current-v1" : "external-v2",
+          updatedAt: summary.updatedAt,
+        } as T;
+      }
+      if (command === "storage_write_project_files") {
+        projectWrites += 1;
+        throw new Error("Project content should not be written");
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const target = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await target.initialize();
+
+    await expect(
+      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+        migrateLegacyFieldBackgrounds: async () => {
+          preparations += 1;
+        },
+      }),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(preparations).toBe(0);
+    expect(projectWrites).toBe(0);
+  });
+
+  it("rolls back prepared desktop Fields when the Project write fails", async () => {
+    const current = exampleWorkspace("desktop-current", "Current", ["Kept"]);
+    let rollbacks = 0;
+    let projectWrites = 0;
+    const summary = {
+      id: "/repo/current/autos",
+      displayName: "Current",
+      directoryPath: "/repo/current/autos",
+      version: "current-v1",
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    };
+    const invoke = async <T>(command: string): Promise<T> => {
+      if (command === "storage_get_current_workspace") return summary as T;
+      if (command === "storage_list_recent_workspaces") return [summary] as T;
+      if (command === "storage_read_project_files") {
+        return {
+          directoryLocator: summary.id,
+          files: serializeProjectFiles(current).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: summary.version,
+          updatedAt: summary.updatedAt,
+        } as T;
+      }
+      if (command === "storage_write_project_files") {
+        projectWrites += 1;
+        throw new Error("desktop Project write failed");
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const target = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await target.initialize();
+
+    await expect(
+      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+        migrateLegacyFieldBackgrounds: async () => ({
+          rollback: async () => {
+            rollbacks += 1;
+          },
+        }),
+      }),
+    ).rejects.toThrow("desktop Project write failed");
+    expect(projectWrites).toBe(1);
+    expect(rollbacks).toBe(1);
+    await expect(target.getWorkspace()).resolves.toMatchObject({
+      project_id: "desktop-current",
+      paths: [{ display_name: "Kept" }],
+    });
+  });
+
   it("deletes the current browser project and opens the next available workspace", async () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
@@ -785,8 +1145,37 @@ describe("ProjectIoService", () => {
     const next = await service.deleteWorkspace("workspace-b");
     const summaries = await service.listWorkspaces();
 
-    expect(next?.project_id).toBe("workspace-a");
+    expect(next).toMatchObject({
+      changedCurrent: true,
+      project: { project_id: "workspace-a" },
+    });
     expect(summaries.map((summary) => summary.id)).toEqual(["workspace-a"]);
+  });
+
+  it("reports that deleting another browser Project leaves current ownership unchanged", async () => {
+    const service = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await service.createWorkspace({
+      project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
+    });
+    await service.createWorkspace({
+      project: exampleWorkspace("workspace-b", "Beta", ["Two"]),
+    });
+    const projectA = (await service.listWorkspaces()).find(
+      (summary) => summary.id === "workspace-a",
+    );
+
+    const result = await service.deleteWorkspace(
+      "workspace-a",
+      projectA?.version,
+    );
+
+    expect(result).toMatchObject({
+      changedCurrent: false,
+      project: { project_id: "workspace-b" },
+    });
+    expect(service.getCurrentWorkspaceSummary()?.id).toBe("workspace-b");
   });
 
   it("returns to an empty start state after deleting the final project", async () => {
@@ -799,7 +1188,7 @@ describe("ProjectIoService", () => {
 
     const next = await service.deleteWorkspace("workspace-a");
 
-    expect(next).toBeNull();
+    expect(next).toEqual({ project: null, changedCurrent: true });
     await expect(service.listWorkspaces()).resolves.toEqual([]);
   });
 
@@ -1092,6 +1481,14 @@ function legacyFieldArchive() {
       },
     ],
   };
+}
+
+function projectArchiveFile(archive: unknown): File {
+  return {
+    name: "legacy.bline-project.json",
+    type: "application/json",
+    text: async () => JSON.stringify(archive),
+  } as File;
 }
 
 class MemoryStorage implements StorageLike {

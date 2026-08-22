@@ -153,14 +153,12 @@ pub fn storage_list_recent_workspaces(
 }
 
 #[tauri::command]
-pub fn storage_open_workspace_dialog(
-    app: AppHandle,
-) -> Result<Option<ProjectWorkspaceSummary>, String> {
+pub fn storage_open_workspace_dialog() -> Result<Option<ProjectWorkspaceSummary>, String> {
     let Some(selected) = pick_workspace_dir("Open BLine Project") else {
         return Ok(None);
     };
 
-    set_workspace_dir(&app, selected).map(Some)
+    workspace_summary(&effective_project_dir(&selected)).map(Some)
 }
 
 #[tauri::command]
@@ -1054,6 +1052,20 @@ fn project_source_file_set_updated_at(
 }
 
 fn sync_directory(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        return fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(error_string);
+    }
+
+    #[cfg(not(windows))]
     fs::File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(error_string)
@@ -1068,9 +1080,9 @@ fn set_workspace_dir(
     selected_dir: PathBuf,
 ) -> Result<ProjectWorkspaceSummary, String> {
     let effective_dir = effective_project_dir(&selected_dir);
+    let summary = workspace_summary(&effective_dir)?;
     remember_workspace_dir(app, &effective_dir)?;
-
-    workspace_summary(&effective_dir)
+    Ok(summary)
 }
 
 fn remember_workspace_dir(app: &AppHandle, effective_dir: &Path) -> Result<(), String> {
@@ -1324,13 +1336,15 @@ fn read_recoverable_json(path: &Path) -> Result<Option<Value>, String> {
                 return Err(error_string(primary_error));
             }
             let backup_raw = fs::read(&backup).map_err(error_string)?;
-            serde_json::from_slice(&backup_raw)
-                .map(Some)
-                .map_err(|backup_error| {
+            let recovered = serde_json::from_slice(&backup_raw).map_err(
+                |backup_error| {
                     format!(
                         "User Data primary and backup are invalid: primary={primary_error}; backup={backup_error}"
                     )
-                })
+                },
+            )?;
+            restore_valid_backup_over_corrupt_primary(path, &backup)?;
+            Ok(Some(recovered))
         }
     }
 }
@@ -1382,13 +1396,7 @@ fn write_recoverable_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
         return sync_directory(parent);
     }
 
-    if backup.exists() {
-        fs::remove_file(path).map_err(error_string)?;
-        sync_directory(parent)?;
-    } else {
-        fs::rename(path, &backup).map_err(error_string)?;
-        sync_directory(parent)?;
-    }
+    rotate_recoverable_primary(path, &backup, parent)?;
     match fs::rename(&temporary, path) {
         Ok(()) => {
             sync_directory(parent)?;
@@ -1401,6 +1409,46 @@ fn write_recoverable_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
             Err(error_string(error))
         }
     }
+}
+
+fn rotate_recoverable_primary(path: &Path, backup: &Path, parent: &Path) -> Result<(), String> {
+    if backup.exists() {
+        fs::remove_file(backup).map_err(error_string)?;
+        sync_directory(parent)?;
+    }
+    fs::rename(path, backup).map_err(error_string)?;
+    sync_directory(parent)
+}
+
+fn restore_valid_backup_over_corrupt_primary(path: &Path, backup: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Recoverable file has no parent: {}", path.display()))?;
+    let evidence = available_corrupt_sibling(path);
+    fs::rename(path, &evidence).map_err(error_string)?;
+    sync_directory(parent)?;
+    match fs::rename(backup, path) {
+        Ok(()) => sync_directory(parent),
+        Err(error) => {
+            let _ = fs::rename(&evidence, path);
+            let _ = sync_directory(parent);
+            Err(error_string(error))
+        }
+    }
+}
+
+fn available_corrupt_sibling(path: &Path) -> PathBuf {
+    let first = sibling_path(path, ".corrupt");
+    if !first.exists() {
+        return first;
+    }
+    for index in 1.. {
+        let candidate = sibling_path(path, &format!(".corrupt.{index}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 fn sibling_path(path: &Path, suffix: &str) -> PathBuf {
@@ -1858,7 +1906,7 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_user_data_primary_reads_valid_backup_without_destroying_evidence() {
+    fn corrupt_user_data_primary_restores_valid_backup_and_preserves_evidence() {
         let dir = temp_project_dir("user-data-corrupt-primary");
         let data_path = dir.join("user-data.json");
         let backup_path = sibling_path(&data_path, ".bak");
@@ -1869,8 +1917,33 @@ mod tests {
             read_recoverable_json(&data_path).unwrap(),
             Some(json!({ "value": "recoverable" }))
         );
-        assert_eq!(fs::read(&data_path).unwrap(), b"{ truncated");
-        assert!(backup_path.exists());
+        assert_eq!(
+            fs::read_to_string(&data_path).unwrap(),
+            r#"{"value":"recoverable"}"#
+        );
+        assert_eq!(
+            fs::read(sibling_path(&data_path, ".corrupt")).unwrap(),
+            b"{ truncated"
+        );
+        assert!(!backup_path.exists());
+    }
+
+    #[test]
+    fn stale_backup_is_replaced_with_current_primary_before_the_next_commit() {
+        let dir = temp_project_dir("user-data-stale-backup");
+        let data_path = dir.join("user-data.json");
+        let backup_path = sibling_path(&data_path, ".bak");
+        fs::write(&data_path, b"current").unwrap();
+        fs::write(&backup_path, b"stale").unwrap();
+
+        rotate_recoverable_primary(&data_path, &backup_path, &dir).unwrap();
+
+        assert!(!data_path.exists());
+        assert_eq!(fs::read(&backup_path).unwrap(), b"current");
+        assert_eq!(
+            read_recoverable_bytes(&data_path).unwrap(),
+            Some(b"current".to_vec())
+        );
     }
 
     #[test]

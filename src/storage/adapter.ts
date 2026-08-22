@@ -72,6 +72,8 @@ export interface StorageAdapter {
   ): Promise<WriteResult>;
   /** Creates a distinct saved Project and rejects any existing target ID. */
   writeNewProject?(project: Project): Promise<WriteResult>;
+  /** Reads the latest backing version without changing current workspace ownership. */
+  getWorkspaceVersion?(id: string): Promise<string | undefined>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
   exportWorkspaceArchive?(id?: string): Promise<Blob>;
   readFieldAsset?(

@@ -38,6 +38,7 @@ import {
   normalizeRangedConstraintSelection,
 } from "../../../src/state/selectionStore";
 import type {
+  DeleteWorkspaceResult,
   LegacyProjectViewMigration,
   ProjectIoCapabilities,
   ProjectIoService,
@@ -580,6 +581,36 @@ describe("project store", () => {
     });
     expect(projectDuringMigration).toBe("project-a");
     expect(requireWorkspace(store).project_id).toBe("project-b");
+  });
+
+  it("preserves the current session and undo/redo when deleting another Project", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    renameActivePath(store, "First edit");
+    renameActivePath(store, "Second edit");
+    store.getState().undo();
+    io.deleteChangesCurrent = false;
+    const before = store.getState();
+    const undoCount = before.history.getState().undoStack.length;
+    const redoCount = before.history.getState().redoStack.length;
+
+    await store.getState().deleteWorkspace("project-b", "project-b-v1");
+
+    expect(store.getState()).toMatchObject({
+      projectSessionId: before.projectSessionId,
+      revision: before.revision,
+      project: {
+        project_id: "project-a",
+        paths: [{ display_name: "First edit" }],
+      },
+    });
+    expect(store.getState().history.getState().undoStack).toHaveLength(
+      undoCount,
+    );
+    expect(store.getState().history.getState().redoStack).toHaveLength(
+      redoCount,
+    );
   });
 
   it("aborts Import Path when an edit arrives during its save barrier", async () => {
@@ -1911,6 +1942,7 @@ class RecordingIo implements ProjectIoService {
   legacyPrepareRejected = false;
   legacyMigrationResult: WriteResult | null = null;
   importResult: ProjectImportResult | null = null;
+  deleteChangesCurrent = true;
 
   private workspace: Project | null;
   private version: string | undefined = this.initialVersion;
@@ -2056,13 +2088,16 @@ class RecordingIo implements ProjectIoService {
     return this.getWorkspace();
   }
 
-  async deleteWorkspace(): Promise<Project | null> {
+  async deleteWorkspace(): Promise<DeleteWorkspaceResult> {
     this.transitionCalls.push("deleteWorkspace");
     await this.waitForTransition();
+    if (!this.deleteChangesCurrent) {
+      return { project: await this.getWorkspace(), changedCurrent: false };
+    }
     this.workspace = null;
     this.version = undefined;
     this.updatedAt = null;
-    return null;
+    return { project: null, changedCurrent: true };
   }
 
   async saveWorkspace(

@@ -61,11 +61,16 @@ export class TauriStorage implements ProjectFolderAdapter {
   }
 
   async readProject(id?: string): Promise<Project> {
+    const operationLocator = id ?? this.currentDirectoryLocator;
     const result = await this.invoke<ProjectFileSetPayload>(
       "storage_read_project_files",
-      { directoryLocator: id ?? this.currentDirectoryLocator },
+      { directoryLocator: operationLocator },
     );
-    this.rememberFileSet(result);
+    if (id) {
+      this.rememberFileSetWithoutStealingCurrentLocator(result, id);
+    } else {
+      this.rememberFileSet(result);
+    }
     this.legacyFilesByLocator.set(
       result.directoryLocator,
       (result.legacyFiles ?? []).map((file) => file.relativePath),
@@ -155,6 +160,15 @@ export class TauriStorage implements ProjectFolderAdapter {
       }
     }
     return project;
+  }
+
+  async getWorkspaceVersion(id: string): Promise<string> {
+    const result = await this.invoke<ProjectFileSetPayload>(
+      "storage_read_project_files",
+      { directoryLocator: id },
+    );
+    this.rememberFileSetWithoutStealingCurrentLocator(result, id);
+    return result.version;
   }
 
   async writeProject(
@@ -376,10 +390,9 @@ export class TauriStorage implements ProjectFolderAdapter {
   }
 
   async openWorkspace(): Promise<ProjectWorkspaceSummary | null> {
-    const summary = await this.invoke<ProjectWorkspaceSummary | null>(
+    return this.invoke<ProjectWorkspaceSummary | null>(
       "storage_open_workspace_dialog",
     );
-    return this.rememberSummaryLocator(summary);
   }
 
   async createWorkspace(): Promise<ProjectWorkspaceSummary | null> {

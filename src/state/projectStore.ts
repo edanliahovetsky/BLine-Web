@@ -539,14 +539,18 @@ export function createProjectStore(
         set,
         get,
         async (ownership) => {
-          const workspace = await io.deleteWorkspace(id, expectedVersion);
+          const result = await io.deleteWorkspace(id, expectedVersion);
           requireCurrentProjectTransition(get, ownership);
-          if (workspace) {
+          if (!result.changedCurrent) {
+            set({ status: "idle", error: null });
+            return result.project;
+          }
+          if (result.project) {
             return adoptWorkspace(
               set,
               history,
               io,
-              workspace,
+              result.project,
               false,
               createProjectSessionId(),
             );

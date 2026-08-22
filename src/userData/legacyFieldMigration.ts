@@ -11,13 +11,19 @@ import {
   findVerifiedLegacyFieldBackground,
   listFieldBackgrounds,
   migrateLegacyFieldBackgroundFromBytes,
+  migrateLegacyFieldBackgroundFromBytesWithOwnership,
   rememberSelectedFieldBackground,
+  rollbackImportedFieldBackgrounds,
   selectedFieldBackgroundForProject,
   verifyUserDataPersistence,
 } from ".";
 
 export interface LegacyFieldMigrationResult {
   errors: Error[];
+}
+
+export interface ImportedLegacyFieldMigrationResult extends LegacyFieldMigrationResult {
+  rollback(): Promise<void>;
 }
 
 export interface ImportedLegacyFieldMigrationInput {
@@ -36,23 +42,34 @@ export async function migrateImportedLegacyFieldBackgrounds({
   projectId,
   selectedFieldId,
   entries,
-}: ImportedLegacyFieldMigrationInput): Promise<LegacyFieldMigrationResult> {
+}: ImportedLegacyFieldMigrationInput): Promise<ImportedLegacyFieldMigrationResult> {
+  const preMigrationFieldIds = new Set(
+    listFieldBackgrounds().map((entry) => entry.id),
+  );
+  const priorSelection = selectedFieldBackgroundForProject(projectId);
+  const createdEntryIds = new Set<string>();
   const migratedIds = new Map<string, string>();
   const errors: Error[] = [];
+  let ownedSelection: string | undefined;
 
   for (const { field, bytes } of entries) {
     try {
-      const entry = await migrateLegacyFieldBackgroundFromBytes(
-        {
-          name: field.name,
-          fileName: field.file_name,
-          mimeType: field.mime_type || "image/png",
-          bytes,
-          geometry: field.geometry,
-        },
-        await importedLegacyFieldKey(projectId, field, bytes),
-      );
+      const migration =
+        await migrateLegacyFieldBackgroundFromBytesWithOwnership(
+          {
+            name: field.name,
+            fileName: field.file_name,
+            mimeType: field.mime_type || "image/png",
+            bytes,
+            geometry: field.geometry,
+          },
+          await importedLegacyFieldKey(projectId, field, bytes),
+        );
+      const { entry } = migration;
       migratedIds.set(field.id, entry.id);
+      if (migration.created && !preMigrationFieldIds.has(entry.id)) {
+        createdEntryIds.add(entry.id);
+      }
     } catch (error) {
       errors.push(toError(error));
     }
@@ -69,10 +86,8 @@ export async function migrateImportedLegacyFieldBackgrounds({
         ),
       );
     } else {
-      rememberSelectedFieldBackground(
-        projectId,
-        migratedSelection ?? selectedFieldId,
-      );
+      ownedSelection = migratedSelection ?? selectedFieldId;
+      rememberSelectedFieldBackground(projectId, ownedSelection);
     }
   }
 
@@ -82,7 +97,31 @@ export async function migrateImportedLegacyFieldBackgrounds({
     errors.push(toError(error));
   }
 
-  return { errors };
+  let rollbackComplete = false;
+  let rollbackInProgress: Promise<void> | null = null;
+  return {
+    errors,
+    rollback() {
+      if (rollbackComplete) {
+        return Promise.resolve();
+      }
+      rollbackInProgress ??= rollbackImportedFieldBackgrounds(
+        [...createdEntryIds],
+        projectId,
+        ownedSelection,
+        priorSelection,
+      ).then(
+        () => {
+          rollbackComplete = true;
+        },
+        (error: unknown) => {
+          rollbackInProgress = null;
+          throw error;
+        },
+      );
+      return rollbackInProgress;
+    },
+  };
 }
 
 async function importedLegacyFieldKey(

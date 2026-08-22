@@ -38,9 +38,11 @@ import {
 } from "../../storage";
 import type {
   CreateWorkspaceInput,
+  DeleteWorkspaceResult,
   ImportedLegacyFieldBackground,
-  ProjectImportResult,
   ProjectImportOptions,
+  ProjectImportResult,
+  ProjectImportRollback,
   ProjectIoCapabilities,
   ProjectIoService,
   LegacyProjectViewMigration,
@@ -74,14 +76,10 @@ export class StorageProjectIoService implements ProjectIoService {
     await this.storage.initialize?.();
 
     if (isProjectFolderAdapter(this.storage)) {
-      let summary = await this.storage.getCurrentWorkspace();
-      if (!summary) {
-        summary = await this.storage.openWorkspace();
-      }
-      if (!summary) {
-        return null;
-      }
-      return this.readAndAdopt(summary.id, summary);
+      const summary = await this.storage.getCurrentWorkspace();
+      return summary
+        ? this.readAndAdopt(summary.id, summary)
+        : this.openWorkspace();
     }
 
     if (isCurrentWorkspaceAdapter(this.storage)) {
@@ -248,13 +246,19 @@ export class StorageProjectIoService implements ProjectIoService {
           undefined,
           summary.id,
         );
-        const activated = await this.storage.switchWorkspace(summary.id);
-        if (!activated) {
-          throw new Error(
-            "The new desktop Project folder could not be activated",
-          );
+        let activated: ProjectWorkspaceSummary | null = null;
+        try {
+          activated = await this.storage.switchWorkspace(summary.id);
+        } catch {
+          // The canonical Project is already durable. Keep it open by its explicit
+          // locator so the user can continue saving or reopen the chosen folder.
         }
-        this.adoptWrittenProject(project, summary.id, result, activated);
+        this.adoptWrittenProject(
+          project,
+          summary.id,
+          result,
+          activated ?? summary,
+        );
         return cloneProject(project);
       } catch (error) {
         await this.restoreStorageOwnership(previous);
@@ -288,10 +292,13 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async openWorkspace(id?: string): Promise<Project | null> {
     if (isProjectFolderAdapter(this.storage)) {
-      const summary = id
-        ? await this.storage.switchWorkspace(id)
+      const candidate = id
+        ? (await this.listWorkspaces()).find((summary) => summary.id === id)
         : await this.storage.openWorkspace();
-      return summary ? this.readAndAdopt(summary.id, summary) : null;
+      const candidateId = candidate?.id ?? id;
+      return candidateId
+        ? this.readActivateAndAdopt(candidateId, candidate ?? undefined)
+        : null;
     }
 
     if (!id) {
@@ -310,7 +317,7 @@ export class StorageProjectIoService implements ProjectIoService {
   async deleteWorkspace(
     id?: string,
     knownVersion?: string,
-  ): Promise<Project | null> {
+  ): Promise<DeleteWorkspaceResult> {
     if (!this.storage.deleteWorkspace) {
       throw new Error(
         "Deleting projects is not supported by this storage adapter",
@@ -338,12 +345,15 @@ export class StorageProjectIoService implements ProjectIoService {
     await this.storage.deleteWorkspace(targetId, expectedVersion);
 
     if (!deletingCurrent) {
-      return this.getWorkspace();
+      return { project: await this.getWorkspace(), changedCurrent: false };
     }
 
     const [nextSummary] = await this.listWorkspaces();
     if (nextSummary) {
-      return this.readAndAdopt(nextSummary.id, nextSummary);
+      return {
+        project: await this.readAndAdopt(nextSummary.id, nextSummary),
+        changedCurrent: true,
+      };
     }
 
     this.currentProject = null;
@@ -352,7 +362,7 @@ export class StorageProjectIoService implements ProjectIoService {
     this.lastSavedAt = null;
     this.currentSummary = null;
     this.projectEpoch += 1;
-    return null;
+    return { project: null, changedCurrent: true };
   }
 
   async saveWorkspace(
@@ -415,8 +425,10 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async switchWorkspace(id: string): Promise<Project | null> {
     if (isProjectFolderAdapter(this.storage)) {
-      const summary = await this.storage.switchWorkspace(id);
-      return summary ? this.readAndAdopt(summary.id, summary) : null;
+      const summary = (await this.listWorkspaces()).find(
+        (candidate) => candidate.id === id,
+      );
+      return this.readActivateAndAdopt(id, summary);
     }
 
     return this.readAndAdopt(id);
@@ -497,31 +509,12 @@ export class StorageProjectIoService implements ProjectIoService {
         : null;
     const portableProject = withoutLegacyProjectFields(imported);
 
-    if (this.capabilities.supportsProjectFolders) {
-      const current = this.requireProject();
-      const nextProject = {
-        ...portableProject,
-        project_id: current.project_id,
-        display_name: current.display_name,
-      };
-      const result = importedProjectResult(
-        nextProject,
-        legacySelectedFieldId,
-        legacyFieldBackgrounds,
-      );
-      await migrateImportedFieldsBeforeCommit(result, options);
-      await this.saveWorkspace(nextProject, this.currentVersion);
-      return result;
-    }
-
-    const result = importedProjectResult(
+    return this.commitImportedProject(
       portableProject,
       legacySelectedFieldId,
       legacyFieldBackgrounds,
+      options,
     );
-    await migrateImportedFieldsBeforeCommit(result, options);
-    await this.saveImportedBrowserProject(portableProject);
-    return result;
   }
 
   async exportProjectFolder(project: Project): Promise<ProjectFolderExport> {
@@ -547,31 +540,12 @@ export class StorageProjectIoService implements ProjectIoService {
     );
     const portableProject = withoutLegacyProjectFields(imported);
 
-    if (this.capabilities.supportsProjectFolders) {
-      const current = this.requireProject();
-      const nextProject = {
-        ...portableProject,
-        project_id: current.project_id,
-        display_name: current.display_name,
-      };
-      const result = importedProjectResult(
-        nextProject,
-        legacySelectedFieldId,
-        legacyFieldBackgrounds,
-      );
-      await migrateImportedFieldsBeforeCommit(result, options);
-      await this.saveWorkspace(nextProject, this.currentVersion);
-      return result;
-    }
-
-    const result = importedProjectResult(
+    return this.commitImportedProject(
       portableProject,
       legacySelectedFieldId,
       legacyFieldBackgrounds,
+      options,
     );
-    await migrateImportedFieldsBeforeCommit(result, options);
-    await this.saveImportedBrowserProject(portableProject);
-    return result;
   }
 
   async exportProjectArchive(project: Project): Promise<Blob> {
@@ -627,16 +601,119 @@ export class StorageProjectIoService implements ProjectIoService {
     return project;
   }
 
+  private async readActivateAndAdopt(
+    id: string,
+    knownSummary?: ProjectWorkspaceSummary,
+  ): Promise<Project> {
+    if (!isProjectFolderAdapter(this.storage)) {
+      return this.readAndAdopt(id, knownSummary);
+    }
+    const previous = this.captureOwnership();
+    try {
+      const project = await this.storage.readProject(id);
+      const activated = await this.storage.switchWorkspace(id);
+      if (!activated) {
+        throw new Error("The selected desktop Project could not be activated");
+      }
+      this.projectEpoch += 1;
+      this.currentProject = cloneProject(project);
+      this.currentStorageId = activated.id;
+      this.currentVersion = activated.version;
+      this.lastSavedAt = activated.updatedAt;
+      this.currentSummary = { ...(knownSummary ?? {}), ...activated };
+      return project;
+    } catch (error) {
+      await this.restoreStorageOwnership(previous);
+      this.restoreOwnership(previous);
+      throw error;
+    }
+  }
+
+  private async commitImportedProject(
+    portableProject: Project,
+    legacySelectedFieldId: string | null,
+    legacyFieldBackgrounds: ImportedLegacyFieldBackground[],
+    options: ProjectImportOptions,
+  ): Promise<ProjectImportResult> {
+    if (this.capabilities.supportsProjectFolders) {
+      const current = this.requireProject();
+      const nextProject = {
+        ...portableProject,
+        project_id: current.project_id,
+        display_name: current.display_name,
+      };
+      const result = importedProjectResult(
+        nextProject,
+        legacySelectedFieldId,
+        legacyFieldBackgrounds,
+      );
+      await this.preflightDesktopImport();
+      const rollback = await prepareImportedFields(result, options);
+      try {
+        await this.saveWorkspace(nextProject, this.currentVersion);
+      } catch (error) {
+        await rollbackPreparedImport(error, rollback);
+      }
+      return result;
+    }
+
+    const result = importedProjectResult(
+      portableProject,
+      legacySelectedFieldId,
+      legacyFieldBackgrounds,
+    );
+    await this.preflightBrowserImport(portableProject);
+    const rollback = await prepareImportedFields(result, options);
+    try {
+      await this.saveImportedBrowserProject(portableProject);
+    } catch (error) {
+      await rollbackPreparedImport(error, rollback);
+    }
+    return result;
+  }
+
+  private async preflightBrowserImport(project: Project): Promise<void> {
+    const collision = (await this.storage.listWorkspaces()).find(
+      (summary) => summary.id === project.project_id,
+    );
+    if (collision) {
+      throw projectImportCollision(project.project_id, collision.version);
+    }
+    if (!this.storage.writeNewProject) {
+      throw new Error(
+        "This storage adapter cannot safely create an imported Project",
+      );
+    }
+  }
+
+  private async preflightDesktopImport(): Promise<void> {
+    const storageId = this.currentStorageId;
+    const expectedVersion = this.currentVersion;
+    if (!storageId || !expectedVersion) {
+      throw new Error(
+        "The current desktop Project has no version to guard import",
+      );
+    }
+    const actualVersion = this.storage.getWorkspaceVersion
+      ? await this.storage.getWorkspaceVersion(storageId)
+      : (await this.listWorkspaces()).find(
+          (summary) => summary.id === storageId,
+        )?.version;
+    if (actualVersion !== expectedVersion) {
+      throw new StorageConflictError(
+        "The desktop Project changed before import preparation",
+        expectedVersion,
+        actualVersion,
+      );
+    }
+  }
+
   private async saveImportedBrowserProject(project: Project): Promise<void> {
     const collision = (await this.storage.listWorkspaces()).find(
       (summary) => summary.id === project.project_id,
     );
     if (collision) {
-      throw new StorageConflictError(
-        `A saved Project already uses ID ${project.project_id}`,
-        undefined,
-        collision.version,
-      );
+      throw projectImportCollision(project.project_id, collision.version);
     }
 
     if (!this.storage.writeNewProject) {
@@ -750,19 +827,48 @@ function importedProjectResult(
   return { project, legacySelectedFieldId, legacyFieldBackgrounds };
 }
 
-async function migrateImportedFieldsBeforeCommit(
+async function prepareImportedFields(
   imported: ProjectImportResult,
   options: ProjectImportOptions,
-): Promise<void> {
+): Promise<ProjectImportRollback | undefined> {
   if (imported.legacyFieldBackgrounds.length === 0) {
-    return;
+    return undefined;
   }
   if (!options.migrateLegacyFieldBackgrounds) {
     throw new Error(
       "Legacy Field Background migration is required before importing this Project",
     );
   }
-  await options.migrateLegacyFieldBackgrounds(imported);
+  return (await options.migrateLegacyFieldBackgrounds(imported)) ?? undefined;
+}
+
+async function rollbackPreparedImport(
+  projectError: unknown,
+  rollback: ProjectImportRollback | undefined,
+): Promise<never> {
+  if (!rollback) {
+    throw projectError;
+  }
+  try {
+    await rollback.rollback();
+  } catch (rollbackError) {
+    throw new AggregateError(
+      [projectError, rollbackError],
+      "Project import failed and its prepared User Data could not be rolled back",
+    );
+  }
+  throw projectError;
+}
+
+function projectImportCollision(
+  projectId: string,
+  actualVersion: string,
+): StorageConflictError {
+  return new StorageConflictError(
+    `A saved Project already uses ID ${projectId}`,
+    undefined,
+    actualVersion,
+  );
 }
 
 function summaryAfterWrite(

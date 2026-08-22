@@ -1125,12 +1125,12 @@ describe("TauriStorage", () => {
 
       const recovered = await storage.readProject("/tmp/autos");
       expect(recovered.paths).toHaveLength(1);
-      expect(storage.getCurrentProjectDamage()).toMatchObject({
+      expect(storage.getCurrentProjectDamage("/tmp/autos")).toMatchObject({
         sourcePath: relativePath,
         rawText: contents,
       });
       await expect(
-        storage.writeProject(recovered, "damaged-v1"),
+        storage.writeProject(recovered, "damaged-v1", "/tmp/autos"),
       ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
       await expect(
         storage.prepareLegacyProjectMigration(
@@ -1222,7 +1222,9 @@ describe("TauriStorage", () => {
     expect(resumed.project_id).toBe("stable-project");
     expect(resumed.config.gui.field).toEqual(legacyField);
     expect(storage.getCurrentProjectDamage()).toBeNull();
-    expect(storage.getLegacyProjectMigrationSourceId()).toBe("/tmp/autos");
+    expect(storage.getLegacyProjectMigrationSourceId("/tmp/autos")).toBe(
+      "/tmp/autos",
+    );
     await expect(
       storage.prepareLegacyProjectMigration(
         resumed,
@@ -1286,7 +1288,7 @@ describe("TauriStorage", () => {
     const recovered = await storage.readProject("/tmp/autos");
 
     expect(recovered.path_groups).toEqual(canonical.path_groups);
-    expect(storage.getCurrentProjectDamage()).toMatchObject({
+    expect(storage.getCurrentProjectDamage("/tmp/autos")).toMatchObject({
       sourcePath: "project.json",
     });
     await expect(

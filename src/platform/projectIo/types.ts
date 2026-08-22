@@ -48,9 +48,20 @@ export interface ProjectImportResult {
   legacyFieldBackgrounds: ImportedLegacyFieldBackground[];
 }
 
+export interface ProjectImportRollback {
+  rollback(): Promise<void>;
+}
+
 export interface ProjectImportOptions {
-  /** Runs after complete legacy asset decoding but before Project persistence. */
-  migrateLegacyFieldBackgrounds?(imported: ProjectImportResult): Promise<void>;
+  /** Prepares decoded legacy assets before Project persistence and reports how to undo mutations. */
+  migrateLegacyFieldBackgrounds?(
+    imported: ProjectImportResult,
+  ): Promise<ProjectImportRollback | void>;
+}
+
+export interface DeleteWorkspaceResult {
+  project: Project | null;
+  changedCurrent: boolean;
 }
 
 export interface LegacyProjectViewMigration {
@@ -87,7 +98,7 @@ export interface ProjectIoService {
   deleteWorkspace(
     id?: string,
     expectedVersion?: string,
-  ): Promise<Project | null>;
+  ): Promise<DeleteWorkspaceResult>;
   saveWorkspace(
     project: Project,
     expectedVersion?: string,

@@ -32,6 +32,11 @@ export interface FieldBackgroundMetadataUpdate {
   geometry?: FieldGeometry;
 }
 
+export interface LegacyFieldBackgroundMigration {
+  entry: FieldBackgroundEntry;
+  created: boolean;
+}
+
 export class UserDataReadOnlyError extends Error {
   constructor() {
     super(
@@ -242,6 +247,18 @@ export class UserDataService {
     input: CreateFieldBackgroundInput,
     legacyKey: string,
   ): Promise<FieldBackgroundEntry> {
+    return (
+      await this.migrateLegacyFieldBackgroundFromBytesWithOwnership(
+        input,
+        legacyKey,
+      )
+    ).entry;
+  }
+
+  async migrateLegacyFieldBackgroundFromBytesWithOwnership(
+    input: CreateFieldBackgroundInput,
+    legacyKey: string,
+  ): Promise<LegacyFieldBackgroundMigration> {
     this.assertWritable();
     const entryId = legacyFieldBackgroundId(legacyKey);
     const bytes = new Uint8Array(input.bytes);
@@ -258,14 +275,17 @@ export class UserDataService {
           await this.writeVerifiedAsset(entryId, bytes);
         }
         await this.verifyDurableEntry(existing);
-        return structuredClone(existing);
+        return { entry: structuredClone(existing), created: false };
       }
 
       if (this.issuedEntryIds.has(entryId)) {
         throw new Error("Duplicate legacy Field Background ID");
       }
       this.issuedEntryIds.add(entryId);
-      return this.commitNewField(entryId, input, bytes);
+      return {
+        entry: await this.commitNewField(entryId, input, bytes),
+        created: true,
+      };
     });
   }
 
@@ -309,13 +329,11 @@ export class UserDataService {
           ? {}
           : { geometry: structuredClone(update.geometry) }),
       });
-      const next = this.withFieldEntries(
-        this.snapshot.field_backgrounds.map((entry) =>
-          entry.id === entryId ? updated : entry,
-        ),
-      );
+      const writtenRevision = this.snapshotRevision;
+      const next = updateFieldEntry(this.snapshot, entryId, updated);
       await this.adapter.write(next);
-      this.snapshot = next;
+      this.snapshot = updateFieldEntry(this.snapshot, entryId, updated);
+      this.recordDurableWrite(writtenRevision);
       return structuredClone(updated);
     });
   }
@@ -338,30 +356,48 @@ export class UserDataService {
       ) {
         return;
       }
-      const projectViews = Object.fromEntries(
-        Object.entries(this.snapshot.project_views).flatMap(
-          ([projectId, view]) => {
-            if (view.selected_field_background_id !== entryId) {
-              return [[projectId, view]];
-            }
-            const nextView = { ...view };
-            delete nextView.selected_field_background_id;
-            return Object.keys(nextView).length > 0
-              ? [[projectId, nextView]]
-              : [];
-          },
-        ),
-      );
-      const next = migrateUserData({
-        ...this.snapshot,
-        field_backgrounds: this.snapshot.field_backgrounds.filter(
-          (entry) => entry.id !== entryId,
-        ),
-        project_views: projectViews,
-      });
+      const writtenRevision = this.snapshotRevision;
+      const next = removeFieldEntries(this.snapshot, new Set([entryId]));
       await this.adapter.write(next);
-      this.snapshot = next;
+      this.snapshot = removeFieldEntries(this.snapshot, new Set([entryId]));
+      this.recordDurableWrite(writtenRevision);
       await this.adapter.deleteFieldAsset(entryId);
+    });
+  }
+
+  async rollbackImportedFieldBackgrounds(
+    entryIds: readonly string[],
+    projectId: string,
+    ownedSelection: string | undefined,
+    priorSelection: string | null,
+  ): Promise<void> {
+    this.assertWritable();
+    const ownedEntryIds = new Set(entryIds);
+    return this.enqueue(async () => {
+      const writtenRevision = this.snapshotRevision;
+      const next = rollbackImportedFields(
+        this.snapshot,
+        ownedEntryIds,
+        projectId,
+        ownedSelection,
+        priorSelection,
+      );
+      await this.writeVerifiedSnapshot(next);
+      this.snapshot = rollbackImportedFields(
+        this.snapshot,
+        ownedEntryIds,
+        projectId,
+        ownedSelection,
+        priorSelection,
+      );
+      this.recordDurableWrite(writtenRevision);
+
+      for (const entryId of ownedEntryIds) {
+        this.issuedEntryIds.delete(entryId);
+      }
+      for (const entryId of ownedEntryIds) {
+        await this.adapter.deleteFieldAsset(entryId);
+      }
     });
   }
 
@@ -409,9 +445,11 @@ export class UserDataService {
         ...this.snapshot.field_backgrounds,
         entry,
       ]);
+      const writtenRevision = this.snapshotRevision;
       await this.adapter.write(next);
-      this.snapshot = next;
       metadataCommitted = true;
+      this.snapshot = addFieldEntry(this.snapshot, entry);
+      this.recordDurableWrite(writtenRevision);
       await this.verifyDurableEntry(entry);
       return structuredClone(entry);
     } catch (error) {
@@ -560,6 +598,86 @@ function migrateProjectViewSnapshot(
     delete projectViews[legacyProjectId];
   }
   return migrateUserData({ ...snapshot, project_views: projectViews });
+}
+
+function addFieldEntry(
+  snapshot: UserData,
+  entry: FieldBackgroundEntry,
+): UserData {
+  return migrateUserData({
+    ...snapshot,
+    field_backgrounds: [...snapshot.field_backgrounds, entry],
+  });
+}
+
+function updateFieldEntry(
+  snapshot: UserData,
+  entryId: string,
+  updated: FieldBackgroundEntry,
+): UserData {
+  return migrateUserData({
+    ...snapshot,
+    field_backgrounds: snapshot.field_backgrounds.map((entry) =>
+      entry.id === entryId ? updated : entry,
+    ),
+  });
+}
+
+function removeFieldEntries(
+  snapshot: UserData,
+  entryIds: ReadonlySet<string>,
+): UserData {
+  const projectViews = Object.fromEntries(
+    Object.entries(snapshot.project_views).flatMap(([projectId, view]) => {
+      if (
+        !view.selected_field_background_id ||
+        !entryIds.has(view.selected_field_background_id)
+      ) {
+        return [[projectId, view]];
+      }
+      const nextView = { ...view };
+      delete nextView.selected_field_background_id;
+      return Object.keys(nextView).length > 0 ? [[projectId, nextView]] : [];
+    }),
+  );
+  return migrateUserData({
+    ...snapshot,
+    field_backgrounds: snapshot.field_backgrounds.filter(
+      (entry) => !entryIds.has(entry.id),
+    ),
+    project_views: projectViews,
+  });
+}
+
+function rollbackImportedFields(
+  snapshot: UserData,
+  entryIds: ReadonlySet<string>,
+  projectId: string,
+  ownedSelection: string | undefined,
+  priorSelection: string | null,
+): UserData {
+  const restoreSelection =
+    ownedSelection !== undefined &&
+    snapshot.project_views[projectId]?.selected_field_background_id ===
+      ownedSelection;
+  const withoutEntries = removeFieldEntries(snapshot, entryIds);
+  if (!restoreSelection) {
+    return withoutEntries;
+  }
+
+  const projectViews = { ...withoutEntries.project_views };
+  const projectView = { ...projectViews[projectId] };
+  if (priorSelection) {
+    projectView.selected_field_background_id = priorSelection;
+  } else {
+    delete projectView.selected_field_background_id;
+  }
+  if (Object.keys(projectView).length > 0) {
+    projectViews[projectId] = projectView;
+  } else {
+    delete projectViews[projectId];
+  }
+  return migrateUserData({ ...withoutEntries, project_views: projectViews });
 }
 
 function mergeProjectViews(

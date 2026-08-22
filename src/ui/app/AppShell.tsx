@@ -69,6 +69,7 @@ import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
   createProjectIoService,
   type ProjectImportResult,
+  type ProjectImportRollback,
 } from "../../platform/projectIo";
 import {
   downloadBlob,
@@ -6132,15 +6133,24 @@ function ensureJsonFileName(value: string): string {
 
 async function migrateImportedFieldsForProject(
   pending: ProjectImportResult,
-): Promise<void> {
+): Promise<ProjectImportRollback> {
   const migration = await migrateImportedLegacyFieldBackgrounds({
     projectId: pending.project.project_id,
     selectedFieldId: pending.legacySelectedFieldId,
     entries: pending.legacyFieldBackgrounds,
   });
   if (migration.errors[0]) {
+    try {
+      await migration.rollback();
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [...migration.errors, rollbackError],
+        "Field Background migration failed and could not be rolled back",
+      );
+    }
     throw migration.errors[0];
   }
+  return { rollback: () => migration.rollback() };
 }
 
 function formatTimestamp(value: string): string {

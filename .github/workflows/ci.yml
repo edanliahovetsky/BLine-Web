@@ -89,3 +89,17 @@ jobs:
 
       - name: Tauri build
         run: npm run tauri:build
+
+  windows-rust:
+    name: Windows Rust storage
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Windows storage tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
