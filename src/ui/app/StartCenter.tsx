@@ -5,6 +5,7 @@ import {
   FlaskConical,
 } from "lucide-react";
 import type { ProjectWorkspaceSummary } from "../../storage";
+import { parseProjectTimestamp } from "./projectTimestamp";
 
 export function StartCenter({
   initializing,
@@ -158,8 +159,8 @@ export function StartCenter({
 }
 
 function formatRecentTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
+  const date = parseProjectTimestamp(value);
+  return date === null
     ? "Saved project"
     : new Intl.DateTimeFormat(undefined, {
         dateStyle: "medium",

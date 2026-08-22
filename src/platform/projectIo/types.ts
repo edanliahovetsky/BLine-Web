@@ -66,6 +66,8 @@ export interface ProjectIoService {
   peekWorkspace(): Promise<Project | null>;
   getCurrentVersion(): string | undefined;
   getLastSavedAt(): string | null;
+  /** The backing-store identity and presentation metadata for the open Project. */
+  getCurrentWorkspaceSummary(): ProjectWorkspaceSummary | null;
   getPersistenceDamage(): ProjectFileDamage | null;
   getLegacyProjectViewMigration(): LegacyProjectViewMigration | null;
   prepareLegacyProjectMigration(
@@ -77,7 +79,10 @@ export interface ProjectIoService {
   createWorkspace(input?: CreateWorkspaceInput): Promise<Project>;
   openWorkspace(id?: string): Promise<Project | null>;
   reloadCurrentProject(): Promise<Project | null>;
-  deleteWorkspace(id?: string): Promise<Project | null>;
+  deleteWorkspace(
+    id?: string,
+    expectedVersion?: string,
+  ): Promise<Project | null>;
   saveWorkspace(
     project: Project,
     expectedVersion?: string,

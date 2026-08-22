@@ -8,7 +8,6 @@ import type {
   ProjectIoService,
 } from "../platform/projectIo";
 import {
-  flushUserData,
   findVerifiedLegacyFieldBackground,
   listFieldBackgrounds,
   migrateLegacyFieldBackgroundFromBytes,
@@ -29,8 +28,9 @@ export interface ImportedLegacyFieldMigrationInput {
 
 /**
  * Moves Field Backgrounds already decoded from an imported archive or folder
- * directly into User Data. A legacy field ID, rather than its shared asset ID,
- * is the deterministic key because each field can carry distinct calibration.
+ * directly into User Data. Identity includes the legacy field ID and exact image
+ * content: calibrations remain distinct, retries are idempotent, and a later import
+ * with replacement bytes cannot collide with an earlier global entry.
  */
 export async function migrateImportedLegacyFieldBackgrounds({
   projectId,
@@ -50,7 +50,7 @@ export async function migrateImportedLegacyFieldBackgrounds({
           bytes,
           geometry: field.geometry,
         },
-        `${projectId}\0${field.id}`,
+        importedLegacyFieldKey(projectId, field, bytes),
       );
       migratedIds.set(field.id, entry.id);
     } catch (error) {
@@ -68,7 +68,7 @@ export async function migrateImportedLegacyFieldBackgrounds({
           `Selected legacy Field Background is missing: ${selectedFieldId}`,
         ),
       );
-    } else if (shouldAdoptLegacySelection(projectId, selectedFieldId)) {
+    } else {
       rememberSelectedFieldBackground(
         projectId,
         migratedSelection ?? selectedFieldId,
@@ -76,7 +76,6 @@ export async function migrateImportedLegacyFieldBackgrounds({
     }
   }
 
-  await flushUserData();
   try {
     await verifyUserDataPersistence();
   } catch (error) {
@@ -84,6 +83,29 @@ export async function migrateImportedLegacyFieldBackgrounds({
   }
 
   return { errors };
+}
+
+function importedLegacyFieldKey(
+  projectId: string,
+  field: CustomFieldImage,
+  bytes: Uint8Array,
+): string {
+  let hash = 0x811c9dc5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return JSON.stringify({
+    projectId,
+    field: {
+      id: field.id,
+      name: field.name,
+      fileName: field.file_name,
+      mimeType: field.mime_type,
+      geometry: field.geometry,
+    },
+    image: `${bytes.byteLength}:${(hash >>> 0).toString(36)}`,
+  });
 }
 
 /**
@@ -157,7 +179,6 @@ export async function migrateLegacyProjectFieldBackgrounds(
     }
   }
 
-  await flushUserData();
   try {
     await verifyUserDataPersistence();
   } catch (error) {

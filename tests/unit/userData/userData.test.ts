@@ -264,17 +264,26 @@ describe("UserData", () => {
     expect(writeOrder).toEqual([[], ["older"], ["newer"]]);
   });
 
-  it("retains the in-memory snapshot after a durable write fails", async () => {
-    const service = new UserDataService(new RejectingAdapter());
+  it("reports a durable write failure and clears it after a successful retry", async () => {
+    const adapter = new RejectingAdapter();
+    const service = new UserDataService(adapter);
     await service.initialize();
 
+    adapter.rejectWrites = true;
     service.update((current) => ({
       ...current,
       completed_tour_ids: ["editor-basics"],
     }));
 
-    await expect(service.flush()).resolves.toBeUndefined();
+    await expect(service.flush()).rejects.toThrow("quota exceeded");
     expect(service.getSnapshot().completed_tour_ids).toEqual(["editor-basics"]);
+
+    adapter.rejectWrites = false;
+    service.update((current) => current);
+
+    await expect(service.flush()).resolves.toBeUndefined();
+    await expect(service.flush()).resolves.toBeUndefined();
+    expect(adapter.persisted?.completed_tour_ids).toEqual(["editor-basics"]);
   });
 
   it("exports preference and per-Project navigation helpers", async () => {
@@ -734,6 +743,27 @@ describe("UserData", () => {
         ?.selected_field_background_id,
     ).toBe(firstSnapshot.field_backgrounds[1]?.id);
 
+    const replacement = await migrateImportedLegacyFieldBackgrounds({
+      projectId: "project-imported",
+      selectedFieldId: second.id,
+      entries: [
+        { field: first, bytes: new Uint8Array([10, 11, 12]) },
+        { field: second, bytes: new Uint8Array([10, 11, 12]) },
+      ],
+    });
+    const replacementSnapshot = readUserData();
+
+    expect(replacement.errors).toEqual([]);
+    expect(replacementSnapshot.field_backgrounds).toHaveLength(4);
+    expect(assets.size).toBe(4);
+    expect(
+      replacementSnapshot.project_views["project-imported"]
+        ?.selected_field_background_id,
+    ).toBe(replacementSnapshot.field_backgrounds[3]?.id);
+    expect(replacementSnapshot.field_backgrounds[3]?.id).not.toBe(
+      firstSnapshot.field_backgrounds[1]?.id,
+    );
+
     expect(persisted).toEqual(readUserData());
   });
 
@@ -839,12 +869,18 @@ class MemoryStorage implements UserDataStorage {
 }
 
 class RejectingAdapter implements UserDataAdapter {
+  persisted: UserData | null = null;
+  rejectWrites = false;
+
   async read(): Promise<null> {
     return null;
   }
 
-  async write(): Promise<void> {
-    throw new Error("quota exceeded");
+  async write(data: UserData): Promise<void> {
+    if (this.rejectWrites) {
+      throw new Error("quota exceeded");
+    }
+    this.persisted = structuredClone(data);
   }
 
   async writeFieldAsset(): Promise<void> {}

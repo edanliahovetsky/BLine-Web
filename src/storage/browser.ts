@@ -21,14 +21,12 @@ import {
   StorageConflictError,
   compareWorkspaceSummaries,
   createBLineWorkspaceArchive,
-  importWorkspaceArchive,
   type FieldAssetPayload,
   type CurrentWorkspaceAdapter,
   type ProjectWorkspaceSummary,
   type StoredProjectRecord,
   type LegacyStoredWorkspaceRecord,
   type LegacyProjectMigrationPreparation,
-  type WorkspaceImportResult,
   type WriteResult,
 } from "./adapter";
 
@@ -181,27 +179,27 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   async writeProject(
     project: Project,
     expectedVersion?: string,
+    requestedStorageId?: string,
   ): Promise<WriteResult> {
-    const currentStorageId = await this.getCurrentWorkspaceId();
-    const damage = this.damageById.get(currentStorageId ?? project.project_id);
+    const storageId =
+      requestedStorageId ??
+      (await this.getCurrentWorkspaceId()) ??
+      project.project_id;
+    const damage = this.damageById.get(storageId);
     if (damage) {
       throw new ProjectPersistenceDamageError(damage);
     }
-    const storedDamage = currentStorageId
-      ? this.readRecord(currentStorageId)?.persistenceDamage
-      : this.readRecord(project.project_id)?.persistenceDamage;
+    const storedDamage = this.readRecord(storageId)?.persistenceDamage;
     if (storedDamage) {
       throw new ProjectPersistenceDamageError(storedDamage);
     }
-    const pendingLegacyProject = currentStorageId
-      ? this.pendingLegacyProjects.get(currentStorageId)
-      : undefined;
+    const pendingLegacyProject = this.pendingLegacyProjects.get(storageId);
     if (pendingLegacyProject?.project_id === project.project_id) {
       throw new Error(
         "Legacy Project migration must finish before this Project can be saved",
       );
     }
-    return this.writeProjectFilesRecord(project, expectedVersion);
+    return this.writeProjectFilesRecord(project, expectedVersion, storageId);
   }
 
   async writeNewProject(project: Project): Promise<WriteResult> {
@@ -235,17 +233,20 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     }
   }
 
-  getCurrentProjectDamage(): ProjectFileDamage | null {
-    const id = this.storage.getItem(this.currentWorkspaceKey);
+  getCurrentProjectDamage(storageId?: string): ProjectFileDamage | null {
+    const id = storageId ?? this.storage.getItem(this.currentWorkspaceKey);
     return id ? (this.damageById.get(id) ?? null) : null;
   }
 
   async replaceDamagedProject(
     project: Project,
     expectedVersion?: string,
+    requestedStorageId?: string,
   ): Promise<WriteResult> {
     const storageId =
-      (await this.getCurrentWorkspaceId()) ?? project.project_id;
+      requestedStorageId ??
+      (await this.getCurrentWorkspaceId()) ??
+      project.project_id;
     const canonicalSource = this.readRecord(storageId);
     const legacySource = canonicalSource
       ? null
@@ -385,13 +386,6 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     expectedVersion: string,
     sourceStorageId: string,
   ): Promise<LegacyProjectMigrationPreparation> {
-    const currentStorageId = await this.getCurrentWorkspaceId();
-    if (
-      currentStorageId !== sourceStorageId &&
-      currentStorageId !== project.project_id
-    ) {
-      return { status: "rejected" };
-    }
     const legacy = this.readLegacyMigrationSource(sourceStorageId);
     if (!legacy) {
       const preparedTarget = this.readRecord(project.project_id);
@@ -457,9 +451,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
         openedTarget?.project.project_id === project.project_id
       ) {
         this.removeLegacyMigrationSource(legacy);
-        if (currentStorageId === sourceStorageId) {
-          await this.setCurrentWorkspaceId(project.project_id);
-        }
+        await this.setCurrentWorkspaceId(project.project_id);
         this.pendingLegacyProjects.delete(sourceStorageId);
         this.pendingLegacyProjects.set(
           project.project_id,
@@ -502,9 +494,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     ) {
       this.removeLegacyMigrationSource(legacy);
     }
-    if (currentStorageId === sourceStorageId) {
-      await this.setCurrentWorkspaceId(project.project_id);
-    }
+    await this.setCurrentWorkspaceId(project.project_id);
     this.pendingLegacyProjects.delete(sourceStorageId);
     this.pendingLegacyProjects.set(project.project_id, cloneProject(project));
     return { status: "prepared", version, updatedAt };
@@ -521,15 +511,6 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       workspaceId,
       this.now().toISOString(),
     );
-  }
-
-  async importWorkspaceArchive(archive: Blob): Promise<WorkspaceImportResult> {
-    const result = await importWorkspaceArchive(this, archive);
-    const imported = result.imported[0];
-    if (imported) {
-      await this.setCurrentWorkspaceId(imported.id);
-    }
-    return result;
   }
 
   async readFieldAsset(
@@ -573,8 +554,11 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     }
   }
 
-  getLegacyProjectMigrationSourceId(): string | null {
-    const storageId = this.storage.getItem(this.currentWorkspaceKey);
+  getLegacyProjectMigrationSourceId(
+    requestedStorageId?: string,
+  ): string | null {
+    const storageId =
+      requestedStorageId ?? this.storage.getItem(this.currentWorkspaceKey);
     if (!storageId) {
       return null;
     }

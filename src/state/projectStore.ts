@@ -144,7 +144,10 @@ export interface ProjectStoreState {
   initializeWorkspace(fallback?: Project): Promise<Project | null>;
   createWorkspace(project: Project): Promise<Project>;
   openWorkspace(id?: string): Promise<Project | null>;
-  deleteWorkspace(id?: string): Promise<Project | null>;
+  deleteWorkspace(
+    id?: string,
+    expectedVersion?: string,
+  ): Promise<Project | null>;
   switchWorkspace(id: string): Promise<Project | null>;
   saveWorkspace(): Promise<WriteResult | null>;
   reloadFromDisk(): Promise<Project | null>;
@@ -523,13 +526,13 @@ export function createProjectStore(
         true,
       );
     },
-    async deleteWorkspace(id) {
+    async deleteWorkspace(id, expectedVersion) {
       const io = requireProjectIo(get().io);
       return performProjectTransition(
         set,
         get,
         async (ownership) => {
-          const workspace = await io.deleteWorkspace(id);
+          const workspace = await io.deleteWorkspace(id, expectedVersion);
           requireCurrentProjectTransition(get, ownership);
           if (workspace) {
             return adoptWorkspace(

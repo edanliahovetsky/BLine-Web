@@ -13,11 +13,9 @@ import {
 } from "../core/io/projectFolder";
 import {
   createBLineWorkspaceArchive,
-  importWorkspaceArchive,
   type FieldAssetPayload,
   type ProjectFolderAdapter,
   type ProjectWorkspaceSummary,
-  type WorkspaceImportResult,
   type WriteResult,
   type LegacyProjectMigrationPreparation,
   ProjectPersistenceDamageError,
@@ -162,33 +160,38 @@ export class TauriStorage implements ProjectFolderAdapter {
   async writeProject(
     project: Project,
     expectedVersion?: string,
+    storageId?: string,
   ): Promise<WriteResult> {
-    const damage = this.getCurrentProjectDamage();
+    const locator = storageId ?? this.currentDirectoryLocator;
+    const damage = locator ? (this.damageByLocator.get(locator) ?? null) : null;
     if (damage) {
       throw new ProjectPersistenceDamageError(damage);
     }
-    const locator = this.currentDirectoryLocator;
     if (locator && (this.legacyFilesByLocator.get(locator)?.length ?? 0) > 0) {
       throw new Error(
         "Legacy Project migration must finish before saving Project changes",
       );
     }
-    return this.writeProjectFileSet(project, expectedVersion);
+    return this.writeProjectFileSet(project, expectedVersion, locator);
   }
 
-  getCurrentProjectDamage(): ProjectFileDamage | null {
-    return this.currentDirectoryLocator
-      ? (this.damageByLocator.get(this.currentDirectoryLocator) ?? null)
-      : null;
+  getCurrentProjectDamage(storageId?: string): ProjectFileDamage | null {
+    const locator = storageId ?? this.currentDirectoryLocator;
+    return locator ? (this.damageByLocator.get(locator) ?? null) : null;
   }
 
   async replaceDamagedProject(
     project: Project,
     expectedVersion?: string,
+    storageId = this.currentDirectoryLocator ?? undefined,
   ): Promise<WriteResult> {
-    const result = await this.writeProjectFileSet(project, expectedVersion);
-    if (this.currentDirectoryLocator) {
-      this.damageByLocator.delete(this.currentDirectoryLocator);
+    const result = await this.writeProjectFileSet(
+      project,
+      expectedVersion,
+      storageId ?? null,
+    );
+    if (storageId) {
+      this.damageByLocator.delete(storageId);
     }
     return result;
   }
@@ -196,11 +199,12 @@ export class TauriStorage implements ProjectFolderAdapter {
   private async writeProjectFileSet(
     project: Project,
     expectedVersion?: string,
+    storageId = this.currentDirectoryLocator,
   ): Promise<WriteResult> {
     const result = await this.invoke<ProjectFileSetWritePayload>(
       "storage_write_project_files",
       {
-        directoryLocator: this.currentDirectoryLocator,
+        directoryLocator: storageId,
         files: serializeProjectFiles(project).map((file) => ({
           relativePath: file.relativePath,
           contents: file.text,
@@ -245,8 +249,8 @@ export class TauriStorage implements ProjectFolderAdapter {
     return { version: result.version, updatedAt: result.updatedAt };
   }
 
-  getLegacyProjectMigrationSourceId(): string | null {
-    const locator = this.currentDirectoryLocator;
+  getLegacyProjectMigrationSourceId(storageId?: string): string | null {
+    const locator = storageId ?? this.currentDirectoryLocator;
     return locator && (this.legacyFilesByLocator.get(locator)?.length ?? 0) > 0
       ? locator
       : null;
@@ -319,10 +323,6 @@ export class TauriStorage implements ProjectFolderAdapter {
       project.project_id,
       this.now().toISOString(),
     );
-  }
-
-  async importWorkspaceArchive(archive: Blob): Promise<WorkspaceImportResult> {
-    return importWorkspaceArchive(this, archive);
   }
 
   async readFieldAsset(

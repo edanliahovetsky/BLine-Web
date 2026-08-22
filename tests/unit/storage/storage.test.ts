@@ -98,16 +98,11 @@ describe("BrowserStorage", () => {
     });
   });
 
-  it("exports and imports BLine project archives with shared config and multiple paths", async () => {
+  it("exports BLine project archives with shared config and multiple paths", async () => {
     const source = new BrowserStorage({
       storage: new MemoryStorage(),
       now: fixedClock("2026-04-23T15:35:00.000Z"),
     });
-    const target = new BrowserStorage({
-      storage: new MemoryStorage(),
-      now: fixedClock("2026-04-23T15:36:00.000Z"),
-    });
-
     await source.writeProject(
       exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]),
     );
@@ -117,21 +112,11 @@ describe("BrowserStorage", () => {
       bline_project_schema_version: number;
       paths: Array<{ file_name: string }>;
     };
-    const imported = await target.importWorkspaceArchive(
-      new Blob([JSON.stringify(rawArchive)], { type: "application/json" }),
-    );
-
     expect(rawArchive.bline_project_schema_version).toBe(1);
     expect(rawArchive.paths.map((path) => path.file_name).sort()).toEqual([
       "One.json",
       "Two.json",
     ]);
-    expect(imported.imported).toHaveLength(1);
-    await expect(
-      target.readProject(imported.imported[0].id),
-    ).resolves.toMatchObject({
-      paths: [{ file_name: "One.json" }, { file_name: "Two.json" }],
-    });
   });
 
   it("migrates a one-path record through the guarded Field Background lifecycle", async () => {

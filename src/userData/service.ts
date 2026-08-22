@@ -64,6 +64,7 @@ export class ProjectViewMigrationError extends Error {
 export class UserDataService {
   private snapshot = cloneUserData(defaultUserData);
   private pendingWrite: Promise<void> = Promise.resolve();
+  private latestPreferenceWrite: Promise<void> = Promise.resolve();
   private initialized = false;
   private writable = true;
   private readonly issuedEntryIds = new Set<string>();
@@ -129,7 +130,10 @@ export class UserDataService {
   }
 
   async flush(): Promise<void> {
-    await this.pendingWrite;
+    const pendingWrite = this.pendingWrite;
+    const latestPreferenceWrite = this.latestPreferenceWrite;
+    await pendingWrite;
+    await latestPreferenceWrite;
   }
 
   async verifyDurableSnapshot(): Promise<void> {
@@ -331,9 +335,15 @@ export class UserDataService {
       return;
     }
     const queuedSnapshot = this.getSnapshot();
-    this.pendingWrite = this.pendingWrite.then(
-      () => this.tryWrite(queuedSnapshot),
-      () => this.tryWrite(queuedSnapshot),
+    const write = this.pendingWrite.then(() =>
+      this.writeQueuedSnapshot(queuedSnapshot),
+    );
+    this.latestPreferenceWrite = write;
+    // Preference updates are intentionally fire-and-forget. Keep the serial
+    // queue usable after failure while retaining `write` for explicit flushes.
+    this.pendingWrite = write.then(
+      () => undefined,
+      () => undefined,
     );
   }
 
@@ -401,19 +411,15 @@ export class UserDataService {
     }
   }
 
-  private async tryWrite(snapshot: UserData): Promise<void> {
-    try {
-      await this.adapter.write(
-        migrateUserData({
-          ...snapshot,
-          // A later queued generic preference write must not erase a verified
-          // asset entry committed by an earlier serial operation.
-          field_backgrounds: this.snapshot.field_backgrounds,
-        }),
-      );
-    } catch {
-      // Keep the newer in-memory snapshot usable and allow subsequent writes.
-    }
+  private async writeQueuedSnapshot(snapshot: UserData): Promise<void> {
+    await this.adapter.write(
+      migrateUserData({
+        ...snapshot,
+        // A later queued generic preference write must not erase a verified
+        // asset entry committed by an earlier serial operation.
+        field_backgrounds: this.snapshot.field_backgrounds,
+      }),
+    );
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

@@ -52,6 +52,7 @@ export class StorageProjectIoService implements ProjectIoService {
   private currentStorageId: string | null = null;
   private currentVersion: string | undefined;
   private lastSavedAt: string | null = null;
+  private currentSummary: ProjectWorkspaceSummary | null = null;
   private projectEpoch = 0;
 
   constructor(storage: StorageAdapter, capabilities: ProjectIoCapabilities) {
@@ -70,7 +71,7 @@ export class StorageProjectIoService implements ProjectIoService {
       if (!summary) {
         return null;
       }
-      return this.readAndAdopt(summary.id);
+      return this.readAndAdopt(summary.id, summary);
     }
 
     if (isCurrentWorkspaceAdapter(this.storage)) {
@@ -85,7 +86,7 @@ export class StorageProjectIoService implements ProjectIoService {
     }
 
     const [summary] = await this.storage.listWorkspaces();
-    return summary ? this.readAndAdopt(summary.id) : null;
+    return summary ? this.readAndAdopt(summary.id, summary) : null;
   }
 
   async getWorkspace(): Promise<Project | null> {
@@ -109,16 +110,22 @@ export class StorageProjectIoService implements ProjectIoService {
     return this.lastSavedAt;
   }
 
+  getCurrentWorkspaceSummary(): ProjectWorkspaceSummary | null {
+    return this.currentSummary ? { ...this.currentSummary } : null;
+  }
+
   getPersistenceDamage() {
     return isDamageAwareStorageAdapter(this.storage)
-      ? this.storage.getCurrentProjectDamage()
+      ? this.storage.getCurrentProjectDamage(this.currentStorageId ?? undefined)
       : null;
   }
 
   getLegacyProjectViewMigration() {
     const project = this.currentProject;
     const legacyProjectId = isLegacyProjectMetadataAdapter(this.storage)
-      ? this.storage.getLegacyProjectMigrationSourceId()
+      ? this.storage.getLegacyProjectMigrationSourceId(
+          this.currentStorageId ?? undefined,
+        )
       : this.currentStorageId;
     if (this.getPersistenceDamage() || !project || !legacyProjectId) {
       return null;
@@ -158,7 +165,7 @@ export class StorageProjectIoService implements ProjectIoService {
       this.stillOwnsMigration(migration, projectEpoch, storageId)
     ) {
       const preparedStorageId = isCurrentWorkspaceAdapter(this.storage)
-        ? await this.storage.getCurrentWorkspaceId()
+        ? (this.currentProject?.project_id ?? storageId)
         : storageId;
       if (!this.stillOwnsMigration(migration, projectEpoch, storageId)) {
         return result;
@@ -166,6 +173,14 @@ export class StorageProjectIoService implements ProjectIoService {
       this.currentVersion = result.version;
       this.lastSavedAt = result.updatedAt;
       this.currentStorageId = preparedStorageId;
+      if (preparedStorageId && this.currentProject) {
+        this.currentSummary = summaryAfterWrite(
+          this.currentSummary,
+          preparedStorageId,
+          this.currentProject,
+          result,
+        );
+      }
     }
     return result;
   }
@@ -191,6 +206,14 @@ export class StorageProjectIoService implements ProjectIoService {
     if (result && this.stillOwnsMigration(migration, projectEpoch, storageId)) {
       this.currentVersion = result.version;
       this.lastSavedAt = result.updatedAt;
+      if (this.currentStorageId && this.currentProject) {
+        this.currentSummary = summaryAfterWrite(
+          this.currentSummary,
+          this.currentStorageId,
+          this.currentProject,
+          result,
+        );
+      }
     }
     return result;
   }
@@ -202,6 +225,7 @@ export class StorageProjectIoService implements ProjectIoService {
         throw new Error("No desktop project folder was selected");
       }
       this.currentStorageId = summary.id;
+      this.currentSummary = { ...summary };
 
       const project = input.project
         ? cloneProject(input.project)
@@ -227,12 +251,12 @@ export class StorageProjectIoService implements ProjectIoService {
       const summary = id
         ? await this.storage.switchWorkspace(id)
         : await this.storage.openWorkspace();
-      return summary ? this.readAndAdopt(summary.id) : null;
+      return summary ? this.readAndAdopt(summary.id, summary) : null;
     }
 
     if (!id) {
       const [summary] = await this.storage.listWorkspaces();
-      return summary ? this.readAndAdopt(summary.id) : null;
+      return summary ? this.readAndAdopt(summary.id, summary) : null;
     }
 
     return this.readAndAdopt(id);
@@ -243,7 +267,10 @@ export class StorageProjectIoService implements ProjectIoService {
     return storageId ? this.readAndAdopt(storageId) : null;
   }
 
-  async deleteWorkspace(id?: string): Promise<Project | null> {
+  async deleteWorkspace(
+    id?: string,
+    knownVersion?: string,
+  ): Promise<Project | null> {
     if (!this.storage.deleteWorkspace) {
       throw new Error(
         "Deleting projects is not supported by this storage adapter",
@@ -256,10 +283,19 @@ export class StorageProjectIoService implements ProjectIoService {
       this.currentStorageId === targetId ||
       (this.currentStorageId === null &&
         this.currentProject?.project_id === targetId);
-    await this.storage.deleteWorkspace(
-      targetId,
-      deletingCurrent ? this.currentVersion : undefined,
-    );
+    const expectedVersion =
+      knownVersion ??
+      (deletingCurrent
+        ? this.currentVersion
+        : (await this.listWorkspaces()).find(
+            (summary) => summary.id === targetId,
+          )?.version);
+    if (!expectedVersion) {
+      throw new Error(
+        `Cannot safely delete Project without a version: ${targetId}`,
+      );
+    }
+    await this.storage.deleteWorkspace(targetId, expectedVersion);
 
     if (!deletingCurrent) {
       return this.getWorkspace();
@@ -267,13 +303,14 @@ export class StorageProjectIoService implements ProjectIoService {
 
     const [nextSummary] = await this.listWorkspaces();
     if (nextSummary) {
-      return this.readAndAdopt(nextSummary.id);
+      return this.readAndAdopt(nextSummary.id, nextSummary);
     }
 
     this.currentProject = null;
     this.currentStorageId = null;
     this.currentVersion = undefined;
     this.lastSavedAt = null;
+    this.currentSummary = null;
     this.projectEpoch += 1;
     return null;
   }
@@ -283,10 +320,22 @@ export class StorageProjectIoService implements ProjectIoService {
     expectedVersion?: string,
   ): Promise<WriteResult> {
     this.currentStorageId ??= project.project_id;
-    const result = await this.storage.writeProject(project, expectedVersion);
+    const storageId = this.currentStorageId ?? project.project_id;
+    const result = await this.storage.writeProject(
+      project,
+      expectedVersion,
+      storageId,
+    );
     this.currentProject = cloneProject(project);
+    this.currentStorageId = storageId;
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
+    this.currentSummary = summaryAfterWrite(
+      this.currentSummary,
+      storageId,
+      project,
+      result,
+    );
     return result;
   }
 
@@ -300,10 +349,21 @@ export class StorageProjectIoService implements ProjectIoService {
     const result = await this.storage.replaceDamagedProject(
       project,
       expectedVersion,
+      this.currentStorageId ?? project.project_id,
     );
+    const resultingStorageId = isCurrentWorkspaceAdapter(this.storage)
+      ? project.project_id
+      : (this.currentStorageId ?? project.project_id);
     this.currentProject = cloneProject(project);
+    this.currentStorageId = resultingStorageId;
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
+    this.currentSummary = summaryAfterWrite(
+      this.currentSummary,
+      resultingStorageId,
+      project,
+      result,
+    );
     return result;
   }
 
@@ -316,7 +376,7 @@ export class StorageProjectIoService implements ProjectIoService {
   async switchWorkspace(id: string): Promise<Project | null> {
     if (isProjectFolderAdapter(this.storage)) {
       const summary = await this.storage.switchWorkspace(id);
-      return summary ? this.readAndAdopt(summary.id) : null;
+      return summary ? this.readAndAdopt(summary.id, summary) : null;
     }
 
     return this.readAndAdopt(id);
@@ -494,12 +554,24 @@ export class StorageProjectIoService implements ProjectIoService {
     await this.storage.deleteFieldAsset?.(projectId, field.asset_id);
   }
 
-  private async readAndAdopt(id: string): Promise<Project> {
+  private async readAndAdopt(
+    id: string,
+    knownSummary?: ProjectWorkspaceSummary,
+  ): Promise<Project> {
     const project = await this.storage.readProject(id);
+    const listedSummary = (await this.listWorkspaces()).find(
+      (candidate) => candidate.id === id,
+    );
+    const summary = listedSummary ?? knownSummary;
+    if (isCurrentWorkspaceAdapter(this.storage)) {
+      await this.storage.setCurrentWorkspaceId(id);
+    }
     this.projectEpoch += 1;
     this.currentProject = cloneProject(project);
     this.currentStorageId = id;
-    await this.syncVersion(id);
+    this.currentVersion = summary?.version;
+    this.lastSavedAt = summary?.updatedAt ?? null;
+    this.currentSummary = summary ? { ...summary } : null;
     return project;
   }
 
@@ -525,6 +597,12 @@ export class StorageProjectIoService implements ProjectIoService {
     this.currentStorageId = project.project_id;
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
+    this.currentSummary = summaryAfterWrite(
+      null,
+      project.project_id,
+      project,
+      result,
+    );
     this.projectEpoch += 1;
   }
 
@@ -532,8 +610,9 @@ export class StorageProjectIoService implements ProjectIoService {
     return (
       this.currentProject?.project_id === migration.stableProjectId &&
       isLegacyProjectMetadataAdapter(this.storage) &&
-      this.storage.getLegacyProjectMigrationSourceId() ===
-        migration.legacyProjectId
+      this.storage.getLegacyProjectMigrationSourceId(
+        this.currentStorageId ?? undefined,
+      ) === migration.legacyProjectId
     );
   }
 
@@ -549,13 +628,6 @@ export class StorageProjectIoService implements ProjectIoService {
     );
   }
 
-  private async syncVersion(id: string): Promise<void> {
-    const summaries = await this.listWorkspaces();
-    const summary = summaries.find((candidate) => candidate.id === id);
-    this.currentVersion = summary?.version;
-    this.lastSavedAt = summary?.updatedAt ?? null;
-  }
-
   private requireProject(): Project {
     if (!this.currentProject) {
       throw new Error("No project workspace is open");
@@ -563,6 +635,21 @@ export class StorageProjectIoService implements ProjectIoService {
 
     return cloneProject(this.currentProject);
   }
+}
+
+function summaryAfterWrite(
+  previous: ProjectWorkspaceSummary | null,
+  storageId: string,
+  project: Project,
+  result: WriteResult,
+): ProjectWorkspaceSummary {
+  return {
+    ...previous,
+    id: storageId,
+    displayName: project.display_name,
+    version: result.version,
+    updatedAt: result.updatedAt,
+  };
 }
 
 function withoutLegacyProjectFields(project: Project): Project {
@@ -588,9 +675,14 @@ function importedFieldBackgroundsFromArchive(
       base64ToBytes(asset.data_base64),
     ]),
   );
-  return project.config.gui.field.custom_fields.flatMap((field) => {
+  return project.config.gui.field.custom_fields.map((field) => {
     const bytes = bytesByAssetId.get(field.asset_id);
-    return bytes ? [{ field, bytes }] : [];
+    if (!bytes) {
+      throw new Error(
+        `Imported Project is missing Field Background asset ${field.asset_id} (${field.name})`,
+      );
+    }
+    return { field, bytes };
   });
 }
 
@@ -608,7 +700,9 @@ async function importedFieldBackgroundsFromFolder(
   for (const field of project.config.gui.field.custom_fields) {
     const file = filesByAssetId.get(field.asset_id);
     if (!file) {
-      continue;
+      throw new Error(
+        `Imported Project folder is missing Field Background asset ${field.asset_id} (${field.name})`,
+      );
     }
     imported.push({
       field: {

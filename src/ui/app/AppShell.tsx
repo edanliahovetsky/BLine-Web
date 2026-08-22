@@ -66,10 +66,7 @@ import {
   nextLinkedTargetName,
 } from "../../core/linkedTargets";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
-import {
-  createProjectIoService,
-  type ProjectIoCapabilities,
-} from "../../platform/projectIo";
+import { createProjectIoService } from "../../platform/projectIo";
 import {
   downloadBlob,
   isAbortError,
@@ -180,6 +177,11 @@ import {
 } from "../../userData/legacyFieldMigration";
 import { displayNameFromFileName } from "../../core/io/workspaceSerde";
 import { editorBasicsTour, tours } from "../tours/tours";
+import {
+  ensureCurrentWorkspaceSummary,
+  formatStorageLabel,
+} from "./projectStoragePresentation";
+import { parseProjectTimestamp } from "./projectTimestamp";
 
 interface LinkedTargetPickerRequest {
   pathId: string;
@@ -1261,8 +1263,8 @@ export function AppShell() {
   }, [refreshWorkspaceSummaries]);
 
   const handleDeleteProjects = useCallback(
-    async (ids: string[]) => {
-      if (ids.length === 0) {
+    async (projects: ProjectWorkspaceSummary[]) => {
+      if (projects.length === 0) {
         setShowDeleteProjectDialog(false);
         return;
       }
@@ -1270,15 +1272,15 @@ export function AppShell() {
       autosaveRef.current?.cancel();
 
       try {
-        const currentProjectId =
-          projectStore.getState().project?.project_id ?? null;
-        const orderedIds = [
-          ...ids.filter((id) => id !== currentProjectId),
-          ...ids.filter((id) => id === currentProjectId),
+        const currentStorageId =
+          projectStore.getState().io?.getCurrentWorkspaceSummary()?.id ?? null;
+        const orderedProjects = [
+          ...projects.filter(({ id }) => id !== currentStorageId),
+          ...projects.filter(({ id }) => id === currentStorageId),
         ];
 
-        for (const id of orderedIds) {
-          await projectStore.getState().deleteWorkspace(id);
+        for (const { id, version } of orderedProjects) {
+          await projectStore.getState().deleteWorkspace(id, version);
         }
 
         selectionStore.getState().clearSelection();
@@ -1719,6 +1721,8 @@ export function AppShell() {
     ioCapabilities?.supportsProjectFolders,
   );
   const pathDocuments = durableProject?.paths ?? [];
+  const currentWorkspaceSummary =
+    projectIo?.getCurrentWorkspaceSummary() ?? null;
   const activePathGroup =
     durableProject?.path_groups.find(
       (group) => group.group_id === activePathGroupId,
@@ -1734,6 +1738,7 @@ export function AppShell() {
   const projectSummaries = ensureCurrentWorkspaceSummary(
     workspaceSummaries,
     durableProject,
+    currentWorkspaceSummary,
     currentVersion,
     lastSavedAt,
   );
@@ -1745,7 +1750,10 @@ export function AppShell() {
   const currentPathSummary = activePathGroup
     ? `Current Path: ${activePathGroup.display_name} / ${pathLabel}`
     : `Current Path: ${pathLabel}`;
-  const storageLabel = formatStorageLabel(durableProject, ioCapabilities);
+  const storageLabel = formatStorageLabel(
+    currentWorkspaceSummary,
+    ioCapabilities,
+  );
   const saveStatus = formatSaveStatus({
     autosaveStatus,
     dirty,
@@ -2782,10 +2790,10 @@ export function AppShell() {
       ) : null}
       {showDeleteProjectDialog ? (
         <DeleteProjectsDialog
-          activeWorkspaceId={durableProject?.project_id ?? null}
+          activeWorkspaceId={currentWorkspaceSummary?.id ?? null}
           workspaces={projectSummaries}
           onCancel={() => setShowDeleteProjectDialog(false)}
-          onDelete={(ids) => void handleDeleteProjects(ids)}
+          onDelete={(projects) => void handleDeleteProjects(projects)}
         />
       ) : null}
       {durableProject && showPathGroupsDialog ? (
@@ -5698,7 +5706,7 @@ function DeleteProjectsDialog({
   activeWorkspaceId: string | null;
   workspaces: ProjectWorkspaceSummary[];
   onCancel(): void;
-  onDelete(ids: string[]): void;
+  onDelete(projects: ProjectWorkspaceSummary[]): void;
 }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [confirming, setConfirming] = useState(false);
@@ -5720,7 +5728,7 @@ function DeleteProjectsDialog({
             setConfirming(true);
             return;
           }
-          onDelete([...selectedIds]);
+          onDelete(selectedProjects);
         }}
       >
         <header className="config-dialog__header">
@@ -6135,49 +6143,9 @@ function ensureJsonFileName(value: string): string {
   return `${base}.json`;
 }
 
-function ensureCurrentWorkspaceSummary(
-  summaries: ProjectWorkspaceSummary[],
-  project: Project | null,
-  version: string | undefined,
-  lastSavedAt: string | null,
-): ProjectWorkspaceSummary[] {
-  if (
-    !project ||
-    summaries.some((summary) => summary.id === project.project_id)
-  ) {
-    return summaries;
-  }
-
-  return [
-    {
-      id: project.project_id,
-      displayName: project.display_name,
-      updatedAt: lastSavedAt ?? new Date().toISOString(),
-      version: version ?? "",
-    },
-    ...summaries,
-  ];
-}
-
-function formatStorageLabel(
-  project: Project | null,
-  capabilities: ProjectIoCapabilities | undefined,
-): string {
-  if (!capabilities) {
-    return "Storage: unavailable";
-  }
-
-  if (capabilities.directFileAutosave) {
-    return `Autosave: ${project?.project_id ?? "No folder"}`;
-  }
-
-  return `Autosave: ${capabilities.autosaveTargetLabel}`;
-}
-
 function formatTimestamp(value: string): string {
-  const millis = /^\d+$/.test(value) ? Number(value) : Number.NaN;
-  const timestamp = new Date(Number.isFinite(millis) ? millis : value);
-  if (Number.isNaN(timestamp.getTime())) {
+  const timestamp = parseProjectTimestamp(value);
+  if (timestamp === null) {
     return value;
   }
 

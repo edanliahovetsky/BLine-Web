@@ -61,8 +61,8 @@ function translationOnlyPath(anchorCount: number): PathModel {
   return createPathModel({ path_elements: elements });
 }
 
-describe("constraint generation performance", () => {
-  it("keeps a typical 12-anchor solve interactive while scaling larger paths", () => {
+describe("constraint generation scaling and timing diagnostics", () => {
+  it("keeps deterministic evaluation budgets while reporting solve timing", () => {
     const expectedBudgets = new Map([
       [8, 8_000],
       [12, 6_784],
@@ -93,7 +93,7 @@ describe("constraint generation performance", () => {
     }
   }, 30_000);
 
-  it("generates radii and caps for a 16-anchor path within budget", () => {
+  it("generates radii and caps while reporting wall-clock timing", () => {
     // Rotation is final-validation-only for this translation-policy solver;
     // both shapes must still fit the same interactive core budget.
     for (const [label, path] of [

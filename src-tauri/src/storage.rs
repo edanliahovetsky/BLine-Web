@@ -166,11 +166,14 @@ pub fn storage_open_workspace_dialog(
 pub fn storage_create_workspace_dialog(
     app: AppHandle,
 ) -> Result<Option<ProjectWorkspaceSummary>, String> {
-    let Some(selected) = pick_workspace_dir("Create or Select BLine Project") else {
+    let Some(selected) = pick_workspace_dir("Create BLine Project in Empty Folder") else {
         return Ok(None);
     };
 
-    set_workspace_dir(&app, selected).map(Some)
+    let effective_dir = effective_project_dir(&selected);
+    validate_new_workspace_dir(&effective_dir)?;
+    remember_workspace_dir(&app, &effective_dir)?;
+    workspace_summary(&effective_dir).map(Some)
 }
 
 #[tauri::command]
@@ -1117,6 +1120,22 @@ fn effective_project_dir(selected_dir: &Path) -> PathBuf {
     selected
 }
 
+fn validate_new_workspace_dir(dir: &Path) -> Result<(), String> {
+    if !dir.is_dir() {
+        return Err(format!(
+            "Desktop project directory does not exist: {}",
+            dir.to_string_lossy()
+        ));
+    }
+    if fs::read_dir(dir).map_err(error_string)?.next().is_some() {
+        return Err(
+            "Create Project requires an empty folder; use Open Project Folder for an existing project"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
 /// A directory looks like a BLine project when it holds a `config.json` alongside a
 /// `paths` folder.
 fn is_bline_project_dir(dir: &Path) -> bool {
@@ -1806,6 +1825,22 @@ mod tests {
 
         assert_eq!(effective_project_dir(&dir.join("paths")), absolutize(&dir));
         assert!(!dir.join("project.json").exists());
+    }
+
+    #[test]
+    fn creating_a_project_requires_an_empty_target() {
+        let empty = temp_project_dir("new-project-empty");
+        validate_new_workspace_dir(&empty).unwrap();
+
+        let existing = temp_project_dir("new-project-existing");
+        fs::write(existing.join("project.json"), "existing metadata").unwrap();
+        let error = validate_new_workspace_dir(&existing).unwrap_err();
+
+        assert!(error.contains("requires an empty folder"));
+        assert_eq!(
+            fs::read_to_string(existing.join("project.json")).unwrap(),
+            "existing metadata"
+        );
     }
 
     fn project_file(relative_path: &str, contents: &str) -> ProjectTextFile {

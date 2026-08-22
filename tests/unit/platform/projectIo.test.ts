@@ -247,6 +247,117 @@ describe("ProjectIoService", () => {
     });
   });
 
+  it("durably adopts the browser record it opens and keeps damage checks on that record", async () => {
+    const memory = new MemoryStorage();
+    const service = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: memory },
+    });
+    await service.createWorkspace({
+      project: exampleWorkspace("project-a", "Alpha", ["One"]),
+    });
+    const damagedProject = exampleWorkspace("project-b", "Beta", ["Two"]);
+    const damagedFiles = serializeProjectFiles(damagedProject).map((file) =>
+      file.relativePath === "project.json"
+        ? { ...file, text: "{damaged project metadata" }
+        : file,
+    );
+    memory.setItem(
+      "bline-web:workspace:project-b",
+      JSON.stringify({
+        files: damagedFiles,
+        version: "damaged-b-v1",
+        updatedAt: "2026-08-22T13:00:00.000Z",
+      }),
+    );
+
+    const recovered = await service.openWorkspace("project-b");
+
+    expect(memory.getItem("bline-web:current-workspace")).toBe("project-b");
+    memory.setItem("bline-web:current-workspace", "project-a");
+    expect(service.getPersistenceDamage()).toMatchObject({
+      sourcePath: "project.json",
+      rawText: "{damaged project metadata",
+    });
+    await expect(
+      service.saveWorkspace(recovered!, "damaged-b-v1"),
+    ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
+    await service.openWorkspace("project-b");
+
+    const restarted = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: memory },
+    });
+    await expect(restarted.initialize()).resolves.toMatchObject({
+      project_id: "project-b",
+    });
+    expect(restarted.getPersistenceDamage()).toMatchObject({
+      rawText: "{damaged project metadata",
+    });
+  });
+
+  it("rejects deletion when a non-current browser Project changed after it was listed", async () => {
+    const memory = new MemoryStorage();
+    const storage = new BrowserStorage({ storage: memory });
+    const service = createProjectIoService(browserWebCapabilities, { storage });
+    await service.createWorkspace({
+      project: exampleWorkspace("project-a", "Alpha", ["One"]),
+    });
+    await service.createWorkspace({
+      project: exampleWorkspace("project-b", "Beta", ["Two"]),
+    });
+    const listed = (await service.listWorkspaces()).find(
+      ({ id }) => id === "project-a",
+    )!;
+    const external = new BrowserStorage({ storage: memory });
+    await external.writeProject(
+      exampleWorkspace("project-a", "Externally changed", ["New"]),
+      listed.version,
+      "project-a",
+    );
+
+    await expect(
+      service.deleteWorkspace("project-a", listed.version),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    await expect(storage.readProject("project-a")).resolves.toMatchObject({
+      display_name: "Externally changed",
+    });
+  });
+
+  it("tracks the canonical browser locator after replacing a damaged legacy record", async () => {
+    const memory = new MemoryStorage();
+    const recoveredProject = exampleWorkspace("stable-project", "Recovered", [
+      "One",
+    ]);
+    memory.setItem(
+      "bline-web:workspace:legacy-locator",
+      JSON.stringify({
+        document: serializeProjectWorkspaceDocument(recoveredProject),
+        version: "damaged-v1",
+        updatedAt: "2026-08-22T13:00:00.000Z",
+        futureEnvelope: true,
+      }),
+    );
+    memory.setItem("bline-web:current-workspace", "legacy-locator");
+    const service = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: memory },
+    });
+    const recovered = await service.initialize();
+
+    const replacement = await service.replaceDamagedProject(
+      recovered!,
+      "damaged-v1",
+    );
+
+    expect(service.getCurrentWorkspaceSummary()?.id).toBe("stable-project");
+    expect(memory.getItem("bline-web:current-workspace")).toBe(
+      "stable-project",
+    );
+    await expect(
+      service.saveWorkspace(recovered!, replacement.version),
+    ).resolves.toMatchObject({ version: expect.any(String) });
+    expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
+    expect(memory.getItem("bline-web:workspace:stable-project")).not.toBeNull();
+  });
+
   it("excludes local Field Background metadata and bytes from exports", async () => {
     const sourceStorage = new BrowserStorage({ storage: new MemoryStorage() });
     const sourceService = createProjectIoService(browserWebCapabilities, {
@@ -391,6 +502,52 @@ describe("ProjectIoService", () => {
     expect(imported.project.config.gui.field.custom_fields).toEqual([]);
   });
 
+  it("rejects an import with any missing custom Field asset before adopting it", async () => {
+    const target = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await target.createWorkspace({
+      project: exampleWorkspace("existing", "Existing", ["Kept"]),
+    });
+    const archive = {
+      bline_project_schema_version: 1,
+      exported_at: "2026-08-22T13:00:00.000Z",
+      config: createProjectConfig({
+        gui: {
+          field: {
+            selected_field_id: "available-field",
+            custom_fields: [
+              legacyField("available-field", "available.png"),
+              legacyField("unselected-missing-field", "missing.png"),
+            ],
+          },
+        },
+      }),
+      paths: [],
+      field_assets: [
+        {
+          asset_id: "available.png",
+          file_name: "available.png",
+          mime_type: "image/png",
+          data_base64: "AQID",
+        },
+      ],
+    };
+
+    await expect(
+      target.importProjectArchive({
+        name: "missing-field.bline-project.json",
+        type: "application/json",
+        text: async () => JSON.stringify(archive),
+      } as File),
+    ).rejects.toThrow("missing.png");
+    await expect(target.getWorkspace()).resolves.toMatchObject({
+      project_id: "existing",
+      display_name: "Existing",
+    });
+    await expect(target.listWorkspaces()).resolves.toHaveLength(1);
+  });
+
   it("deletes the current browser project and opens the next available workspace", async () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
@@ -485,6 +642,11 @@ describe("ProjectIoService", () => {
     const project = await service.initialize();
     expect(project?.project_id).not.toBe("/repo/autos");
     expect(service.getCurrentVersion()).toBe("runtime-v1");
+    expect(service.getCurrentWorkspaceSummary()).toMatchObject({
+      id: "/repo/autos",
+      directoryPath: "/repo/autos",
+      version: "runtime-v1",
+    });
     const migration = service.getLegacyProjectViewMigration();
     expect(migration).toMatchObject({
       legacyProjectId: "/repo/autos",
@@ -665,6 +827,23 @@ function exampleWorkspace(
     paths,
     active_path_id: paths[0]?.path_id ?? null,
   });
+}
+
+function legacyField(id: string, assetId: string) {
+  return {
+    id,
+    name: id,
+    asset_id: assetId,
+    file_name: assetId,
+    mime_type: "image/png",
+    size_bytes: 3,
+    created_at: "2026-08-22T13:00:00.000Z",
+    geometry: {
+      length_meters: 12,
+      width_meters: 6,
+      coordinate_offset_meters: 0,
+    },
+  };
 }
 
 class MemoryStorage implements StorageLike {

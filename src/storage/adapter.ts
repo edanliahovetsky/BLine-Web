@@ -35,10 +35,6 @@ export interface FieldAssetPayload {
   bytes: Uint8Array;
 }
 
-export interface WorkspaceImportResult {
-  imported: ProjectWorkspaceSummary[];
-}
-
 /** Read-only shape for browser records written before canonical Project files. */
 export interface LegacyStoredWorkspaceRecord {
   document: SerializedProjectWorkspaceDocument;
@@ -71,12 +67,13 @@ export interface StorageAdapter {
   writeProject(
     project: Project,
     expectedVersion?: string,
+    /** Opaque backing-record locator; it is not necessarily project.project_id. */
+    storageId?: string,
   ): Promise<WriteResult>;
   /** Creates a distinct saved Project and rejects any existing target ID. */
   writeNewProject?(project: Project): Promise<WriteResult>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
   exportWorkspaceArchive?(id?: string): Promise<Blob>;
-  importWorkspaceArchive?(archive: Blob): Promise<WorkspaceImportResult>;
   readFieldAsset?(
     workspaceId: string,
     assetId: string,
@@ -98,10 +95,11 @@ export interface ProjectFolderAdapter extends StorageAdapter {
 }
 
 export interface DamageAwareStorageAdapter extends StorageAdapter {
-  getCurrentProjectDamage(): ProjectFileDamage | null;
+  getCurrentProjectDamage(storageId?: string): ProjectFileDamage | null;
   replaceDamagedProject(
     project: Project,
     expectedVersion?: string,
+    storageId?: string,
   ): Promise<WriteResult>;
 }
 
@@ -110,7 +108,7 @@ export type LegacyProjectMigrationPreparation =
   | { status: "rejected" };
 
 export interface LegacyProjectMetadataAdapter extends StorageAdapter {
-  getLegacyProjectMigrationSourceId(): string | null;
+  getLegacyProjectMigrationSourceId(storageId?: string): string | null;
   prepareLegacyProjectMigration(
     project: Project,
     expectedVersion: string,
@@ -164,19 +162,6 @@ export async function createBLineWorkspaceArchive(
     await adapter.readProject(id),
     exportedAt,
   );
-}
-
-export async function importWorkspaceArchive(
-  adapter: Pick<StorageAdapter, "writeProject" | "listWorkspaces">,
-  archive: Blob,
-): Promise<WorkspaceImportResult> {
-  const project = await decodeWorkspaceArchive(archive);
-  await adapter.writeProject(project);
-  const summaries = await adapter.listWorkspaces();
-
-  return {
-    imported: summaries.filter((summary) => summary.id === project.project_id),
-  };
 }
 
 export async function decodeWorkspaceArchive(archive: Blob): Promise<Project> {

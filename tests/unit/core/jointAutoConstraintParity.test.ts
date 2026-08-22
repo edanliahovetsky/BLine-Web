@@ -179,7 +179,7 @@ function expectValidAndStable(
   ).toBe(true);
 }
 
-describe("production joint optimizer parity", () => {
+describe("production joint optimizer acceptance and diagnostics", () => {
   it("validates representative robot-code and targeted paths", () => {
     const robotPaths = loadCorpus("auto_joint_robot_2026_corpus.json").paths;
     const selected = [
@@ -226,7 +226,7 @@ describe("production joint optimizer parity", () => {
   });
 
   it.runIf(process.env.BLINE_ENFORCE_JOINT_PRODUCTION_PERF === "1")(
-    "meets the warm production latency envelope for 12 anchors",
+    "optionally checks the warm production latency envelope for 12 anchors",
     () => {
       const geometry = loadCorpus(
         "auto_joint_robot_2026_corpus.json",

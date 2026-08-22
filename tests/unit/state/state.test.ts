@@ -1934,6 +1934,17 @@ class RecordingIo implements ProjectIoService {
     return this.updatedAt;
   }
 
+  getCurrentWorkspaceSummary(): ProjectWorkspaceSummary | null {
+    return this.workspace
+      ? {
+          id: this.workspace.project_id,
+          displayName: this.workspace.display_name,
+          version: this.version ?? "",
+          updatedAt: this.updatedAt ?? "",
+        }
+      : null;
+  }
+
   getPersistenceDamage() {
     return this.damage;
   }

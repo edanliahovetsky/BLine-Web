@@ -59,7 +59,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Unit tests
+      - name: Unit tests and optimizer corpus acceptance
+        env:
+          BLINE_RUN_JOINT_PARITY_CORPUS: "1"
         run: npm run test
 
       - name: Parity harness
