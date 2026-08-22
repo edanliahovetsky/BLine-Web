@@ -1,6 +1,7 @@
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
 import type { CustomFieldImage } from "../../core/field/fieldConfig";
 import type { Project } from "../../core/model/project";
+import type { ProjectFileDamage } from "../../core/io/projectFiles";
 import type { ProjectWorkspaceSummary, WriteResult } from "../../storage";
 
 export type { ProjectFolderExport } from "../../core/io/projectFolder";
@@ -32,6 +33,12 @@ export interface CreateWorkspaceInput {
   project?: Project;
 }
 
+export interface LegacyProjectViewMigration {
+  legacyProjectId: string;
+  stableProjectId: string;
+  pathIdByLegacyReference: Readonly<Record<string, string>>;
+}
+
 export interface ProjectIoService {
   readonly capabilities: ProjectIoCapabilities;
   initialize(): Promise<Project | null>;
@@ -44,10 +51,18 @@ export interface ProjectIoService {
   peekWorkspace(): Promise<Project | null>;
   getCurrentVersion(): string | undefined;
   getLastSavedAt(): string | null;
+  getPersistenceDamage(): ProjectFileDamage | null;
+  getLegacyProjectViewMigration(): LegacyProjectViewMigration | null;
+  completeLegacyProjectMigration(): Promise<WriteResult | null>;
   createWorkspace(input?: CreateWorkspaceInput): Promise<Project>;
   openWorkspace(id?: string): Promise<Project | null>;
+  reloadCurrentProject(): Promise<Project | null>;
   deleteWorkspace(id?: string): Promise<Project | null>;
   saveWorkspace(
+    project: Project,
+    expectedVersion?: string,
+  ): Promise<WriteResult>;
+  replaceDamagedProject(
     project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult>;

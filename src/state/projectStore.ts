@@ -37,6 +37,7 @@ import type {
   ProjectIoService,
 } from "../platform/projectIo";
 import type { WriteResult } from "../storage/adapter";
+import type { ProjectFileDamage } from "../core/io/projectFiles";
 import {
   activePathForProject as locallyRememberedActivePath,
   rememberActivePath,
@@ -52,7 +53,8 @@ export type ProjectStatus =
   | "loading"
   | "saving"
   | "error"
-  | "conflict";
+  | "conflict"
+  | "damaged";
 
 interface WorkspaceHistoryMetadata {
   createdPathId?: string;
@@ -94,6 +96,7 @@ export interface ProjectStoreState {
   status: ProjectStatus;
   error: string | null;
   lastSavedAt: string | null;
+  persistenceDamage: ProjectFileDamage | null;
   projectSessionId: string | null;
   revision: number;
   activeSave: SaveOwnership | null;
@@ -108,6 +111,7 @@ export interface ProjectStoreState {
   saveWorkspace(): Promise<WriteResult | null>;
   reloadFromDisk(): Promise<Project | null>;
   overwriteConflict(): Promise<WriteResult | null>;
+  replaceDamagedProject(): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
   setActivePathGroup(groupId: string | null): void;
   createPath(input: {
@@ -225,6 +229,7 @@ export function createProjectStore(
           status: savedCurrentRevision ? "idle" : "saving",
           error: null,
           lastSavedAt: result.updatedAt,
+          persistenceDamage: service.getPersistenceDamage?.() ?? null,
           activeSave: null,
           saveQueued: savedCurrentRevision ? false : true,
         });
@@ -261,6 +266,7 @@ export function createProjectStore(
     status: "idle",
     error: null,
     lastSavedAt: null,
+    persistenceDamage: null,
     ...inactiveSaveState(),
     history,
     setProjectIoService(io) {
@@ -388,6 +394,7 @@ export function createProjectStore(
             status: "idle",
             error: null,
             lastSavedAt: null,
+            persistenceDamage: null,
             ...inactiveSaveState(),
           });
         }
@@ -452,7 +459,7 @@ export function createProjectStore(
       set({ status: "loading", error: null });
 
       try {
-        const reloaded = await io.switchWorkspace(project.project_id);
+        const reloaded = await io.reloadCurrentProject();
         if (reloaded) {
           return adoptWorkspace(
             set,
@@ -480,6 +487,32 @@ export function createProjectStore(
         return null;
       }
       return executeOwnedSave(set, get, project, undefined, true);
+    },
+    async replaceDamagedProject() {
+      if (savePromise) {
+        await savePromise.catch(() => undefined);
+      }
+      const { project, version } = get();
+      if (!project) {
+        return null;
+      }
+      set({ status: "saving", error: null });
+      try {
+        const io = requireProjectIo(get().io);
+        const result = await io.replaceDamagedProject(project, version);
+        set({
+          version: result.version,
+          dirty: false,
+          status: "idle",
+          error: null,
+          lastSavedAt: result.updatedAt,
+          persistenceDamage: null,
+        });
+        return result;
+      } catch (error) {
+        get().markSaveError(error);
+        throw error;
+      }
     },
     setActivePath(pathId) {
       const project = requireProject(get().project);
@@ -963,7 +996,11 @@ export function createProjectStore(
     },
     markSaveError(error) {
       set({
-        status: isStorageConflict(error) ? "conflict" : "error",
+        status: isProjectPersistenceDamage(error)
+          ? "damaged"
+          : isStorageConflict(error)
+            ? "conflict"
+            : "error",
         error: errorMessage(error),
       });
     },
@@ -978,6 +1015,7 @@ export function createProjectStore(
         status: "idle",
         error: null,
         lastSavedAt: null,
+        persistenceDamage: null,
         ...inactiveSaveState(),
       });
     },
@@ -1025,7 +1063,11 @@ function setProject(
     dirty,
     revision: dirty ? state.revision + 1 : state.revision,
     saveQueued: dirty && state.activeSave ? true : state.saveQueued,
-    status: state.activeSave ? "saving" : "idle",
+    status: state.activeSave
+      ? "saving"
+      : state.persistenceDamage
+        ? "damaged"
+        : "idle",
     error: null,
     ...metadata,
   }));
@@ -1155,21 +1197,34 @@ function adoptWorkspace(
   projectSessionId: string,
 ): Project {
   history.getState().clear();
+  const legacyMigration = io.getLegacyProjectViewMigration?.() ?? null;
+  const rememberedStablePath = locallyRememberedActivePath(
+    project.project_id,
+    null,
+  );
+  const rememberedLegacyReference = legacyMigration
+    ? locallyRememberedActivePath(legacyMigration.legacyProjectId, null)
+    : null;
   const navigation = normalizeEditorNavigation(project, {
-    activePathId: locallyRememberedActivePath(
-      project.project_id,
-      project.paths[0]?.path_id ?? null,
-    ),
+    activePathId:
+      rememberedStablePath ??
+      (rememberedLegacyReference && legacyMigration
+        ? legacyMigration.pathIdByLegacyReference[rememberedLegacyReference]
+        : null) ??
+      project.paths[0]?.path_id ??
+      null,
   });
+  const persistenceDamage = io.getPersistenceDamage?.() ?? null;
   set({
     project: cloneProject(project),
     activePathId: navigation.activePathId,
     activePathGroupId: navigation.activePathGroupId,
     dirty,
-    status: "idle",
-    error: null,
+    status: persistenceDamage ? "damaged" : "idle",
+    error: persistenceDamage?.message ?? null,
     version: io.getCurrentVersion(),
     lastSavedAt: io.getLastSavedAt(),
+    persistenceDamage,
     ...inactiveSaveState(projectSessionId),
   });
   return cloneProject(project);
@@ -1329,6 +1384,14 @@ function requireProject(project: Project | null): Project {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isProjectPersistenceDamage(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "ProjectPersistenceDamageError"
+  );
 }
 
 /**

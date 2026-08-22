@@ -18,6 +18,7 @@ import {
   projectDocumentToWorkspaceDocument,
   serializeProjectWorkspaceDocument,
 } from "../core/io/workspaceSerde";
+import type { ProjectFileDamage } from "../core/io/projectFiles";
 
 export interface ProjectWorkspaceSummary {
   id: string;
@@ -106,6 +107,20 @@ export interface ProjectFolderAdapter extends StorageAdapter {
   switchWorkspace(id: string): Promise<ProjectWorkspaceSummary | null>;
 }
 
+export interface DamageAwareStorageAdapter extends StorageAdapter {
+  getCurrentProjectDamage(): ProjectFileDamage | null;
+  replaceDamagedWorkspace(
+    workspace: ProjectWorkspaceDocument,
+    expectedVersion?: string,
+  ): Promise<WriteResult>;
+}
+
+export interface LegacyProjectMetadataAdapter extends StorageAdapter {
+  deleteLegacyProjectFiles(
+    expectedVersion: string,
+  ): Promise<WriteResult | null>;
+}
+
 export class StorageConflictError extends Error {
   readonly expectedVersion: string | undefined;
   readonly actualVersion: string | undefined;
@@ -126,6 +141,15 @@ export class ProjectNotFoundError extends Error {
   constructor(id: string) {
     super(`Project not found: ${id}`);
     this.name = "ProjectNotFoundError";
+  }
+}
+
+export class ProjectPersistenceDamageError extends Error {
+  constructor(readonly damage: ProjectFileDamage) {
+    super(
+      `Project metadata is damaged and must be explicitly replaced or repaired: ${damage.message}`,
+    );
+    this.name = "ProjectPersistenceDamageError";
   }
 }
 
@@ -239,6 +263,25 @@ export function isProjectFolderAdapter(
     typeof candidate.openWorkspace === "function" &&
     typeof candidate.createWorkspace === "function" &&
     typeof candidate.switchWorkspace === "function"
+  );
+}
+
+export function isDamageAwareStorageAdapter(
+  adapter: StorageAdapter,
+): adapter is DamageAwareStorageAdapter {
+  const candidate = adapter as Partial<DamageAwareStorageAdapter>;
+  return (
+    typeof candidate.getCurrentProjectDamage === "function" &&
+    typeof candidate.replaceDamagedWorkspace === "function"
+  );
+}
+
+export function isLegacyProjectMetadataAdapter(
+  adapter: StorageAdapter,
+): adapter is LegacyProjectMetadataAdapter {
+  return (
+    typeof (adapter as Partial<LegacyProjectMetadataAdapter>)
+      .deleteLegacyProjectFiles === "function"
   );
 }
 

@@ -28,6 +28,17 @@ export interface DeserializeProjectFilesOptions {
   fallbackPathId?: (fileName: string, index: number) => string;
 }
 
+export interface ProjectFileDamage {
+  sourcePath: string;
+  message: string;
+  rawText: string;
+}
+
+export interface OpenProjectFilesResult {
+  project: Project;
+  damage: ProjectFileDamage | null;
+}
+
 type AutoGenerationDefaults = Pick<
   ProjectConfig["kinematic_constraints"],
   | "default_auto_velocity_velocity_safety_factor"
@@ -103,6 +114,34 @@ export function deserializeProjectFiles(
         runtimeConfig,
         parseProjectFileMetadata(metadataText),
       );
+}
+
+export function openProjectFiles(
+  files: readonly ProjectTextFile[],
+  options: DeserializeProjectFilesOptions = {},
+): OpenProjectFilesResult {
+  const metadata = files.find(
+    (file) => normalizeRelativePath(file.relativePath) === "project.json",
+  );
+  if (!metadata) {
+    return { project: deserializeProjectFiles(files, options), damage: null };
+  }
+
+  try {
+    return { project: deserializeProjectFiles(files, options), damage: null };
+  } catch (error) {
+    const runtimeFiles = files.filter(
+      (file) => normalizeRelativePath(file.relativePath) !== "project.json",
+    );
+    return {
+      project: deserializeProjectFiles(runtimeFiles, options),
+      damage: {
+        sourcePath: "project.json",
+        message: error instanceof Error ? error.message : String(error),
+        rawText: metadata.text,
+      },
+    };
+  }
 }
 
 function serializeProjectFileMetadata(

@@ -9,6 +9,7 @@ import {
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
+import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
 import { createProjectIoService } from "../../../src/platform/projectIo";
 import {
   browserWebCapabilities,
@@ -16,6 +17,7 @@ import {
 } from "../../../src/env/capabilities";
 import {
   BrowserStorage,
+  TauriStorage,
   type FieldAssetPayload,
   type FieldAssetWriteInput,
   type ProjectWorkspaceSummary,
@@ -228,6 +230,95 @@ describe("ProjectIoService", () => {
 
     expect(next).toBeNull();
     await expect(service.listWorkspaces()).resolves.toEqual([]);
+  });
+
+  it("keeps the desktop directory locator separate through canonical migration", async () => {
+    const source = exampleWorkspace("discarded", "Runtime Autos", ["One"]);
+    const runtimeFiles = serializeProjectFiles(source)
+      .filter((file) => file.relativePath !== "project.json")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        contents: file.text,
+      }));
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> =
+      [];
+    const summary = {
+      id: "/repo/autos",
+      displayName: "autos",
+      directoryPath: "/repo/autos",
+      version: "summary-version",
+      updatedAt: "2026-08-21T12:00:00.000Z",
+    };
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "storage_get_current_workspace") {
+          return summary as T;
+        }
+        if (command === "storage_read_project_files") {
+          return {
+            directoryLocator: "/repo/autos",
+            files: runtimeFiles,
+            legacyFiles: [
+              {
+                relativePath: "pathgroups.json",
+                contents: '{"schema_version":1,"groups":[]}',
+              },
+            ],
+            version: "runtime-v1",
+            updatedAt: "2026-08-21T12:01:00.000Z",
+          } as T;
+        }
+        if (command === "storage_list_recent_workspaces") {
+          return [summary] as T;
+        }
+        if (command === "storage_write_project_files") {
+          return {
+            directoryLocator: "/repo/autos",
+            version: "canonical-v2",
+            updatedAt: "2026-08-21T12:02:00.000Z",
+          } as T;
+        }
+        if (command === "storage_delete_legacy_project_files") {
+          return {
+            directoryLocator: "/repo/autos",
+            version: "clean-v3",
+            updatedAt: "2026-08-21T12:03:00.000Z",
+          } as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+    const service = createProjectIoService(tauriCapabilities, { storage });
+
+    const project = await service.initialize();
+    expect(project?.project_id).not.toBe("/repo/autos");
+    expect(service.getCurrentVersion()).toBe("runtime-v1");
+    expect(service.getLegacyProjectViewMigration()).toMatchObject({
+      legacyProjectId: "/repo/autos",
+      stableProjectId: project?.project_id,
+      pathIdByLegacyReference: { "One.json": "One.json" },
+    });
+
+    await expect(service.completeLegacyProjectMigration()).resolves.toBeNull();
+    const saved = await service.saveWorkspace(project!, "runtime-v1");
+
+    expect(saved).toMatchObject({ version: "clean-v3" });
+    expect(service.getCurrentVersion()).toBe("clean-v3");
+    const write = calls.find(
+      (call) => call.command === "storage_write_project_files",
+    );
+    const cleanup = calls.find(
+      (call) => call.command === "storage_delete_legacy_project_files",
+    );
+    expect(write?.args).toMatchObject({
+      directoryLocator: "/repo/autos",
+      expected: "runtime-v1",
+    });
+    expect(cleanup?.args).toEqual({
+      directoryLocator: "/repo/autos",
+      expected: "canonical-v2",
+    });
   });
 });
 

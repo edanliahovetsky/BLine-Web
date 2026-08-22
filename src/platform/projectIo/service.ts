@@ -26,6 +26,8 @@ import { deserializePath, serializePath } from "../../core/io/projectSerde";
 import { ensureJsonFileName } from "../../core/io/workspaceSerde";
 import {
   decodeWorkspaceArchive,
+  isDamageAwareStorageAdapter,
+  isLegacyProjectMetadataAdapter,
   isCurrentWorkspaceAdapter,
   isProjectFolderAdapter,
   type ProjectWorkspaceSummary,
@@ -45,6 +47,7 @@ export class StorageProjectIoService implements ProjectIoService {
   private currentStorageId: string | null = null;
   private currentVersion: string | undefined;
   private lastSavedAt: string | null = null;
+  private legacyMigrationReady = false;
 
   constructor(storage: StorageAdapter, capabilities: ProjectIoCapabilities) {
     this.storage = storage;
@@ -102,6 +105,39 @@ export class StorageProjectIoService implements ProjectIoService {
     return this.lastSavedAt;
   }
 
+  getPersistenceDamage() {
+    return isDamageAwareStorageAdapter(this.storage)
+      ? this.storage.getCurrentProjectDamage()
+      : null;
+  }
+
+  getLegacyProjectViewMigration() {
+    const project = this.currentProject;
+    const legacyProjectId = this.currentStorageId;
+    if (
+      !project ||
+      !legacyProjectId ||
+      legacyProjectId === project.project_id
+    ) {
+      return null;
+    }
+    return {
+      legacyProjectId,
+      stableProjectId: project.project_id,
+      pathIdByLegacyReference: Object.fromEntries(
+        project.paths.flatMap((path) => [
+          [path.path_id, path.path_id],
+          [path.file_name, path.path_id],
+        ]),
+      ),
+    };
+  }
+
+  async completeLegacyProjectMigration(): Promise<WriteResult | null> {
+    this.legacyMigrationReady = true;
+    return this.cleanupLegacyProjectMetadata();
+  }
+
   async createWorkspace(input: CreateWorkspaceInput = {}): Promise<Project> {
     if (isProjectFolderAdapter(this.storage)) {
       const summary = await this.storage.createWorkspace();
@@ -145,6 +181,11 @@ export class StorageProjectIoService implements ProjectIoService {
     }
 
     return this.readAndAdopt(id);
+  }
+
+  async reloadCurrentProject(): Promise<Project | null> {
+    const storageId = this.currentStorageId ?? this.currentProject?.project_id;
+    return storageId ? this.readAndAdopt(storageId) : null;
   }
 
   async deleteWorkspace(id?: string): Promise<Project | null> {
@@ -193,7 +234,24 @@ export class StorageProjectIoService implements ProjectIoService {
     this.currentProject = cloneProject(project);
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
-    return result;
+    return (await this.cleanupLegacyProjectMetadata()) ?? result;
+  }
+
+  async replaceDamagedProject(
+    project: Project,
+    expectedVersion?: string,
+  ): Promise<WriteResult> {
+    if (!isDamageAwareStorageAdapter(this.storage)) {
+      throw new Error("The current storage adapter has no damaged metadata");
+    }
+    const result = await this.storage.replaceDamagedWorkspace(
+      legacyWorkspaceForPersistence(project),
+      expectedVersion,
+    );
+    this.currentProject = cloneProject(project);
+    this.currentVersion = result.version;
+    this.lastSavedAt = result.updatedAt;
+    return (await this.cleanupLegacyProjectMetadata()) ?? result;
   }
 
   async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
@@ -357,12 +415,34 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   private async readAndAdopt(id: string): Promise<Project> {
+    if (this.currentStorageId !== id) {
+      this.legacyMigrationReady = false;
+    }
     const storedWorkspace = await this.storage.readWorkspace(id);
     const project = openProjectFromLegacyWorkspace(storedWorkspace).project;
     this.currentProject = cloneProject(project);
     this.currentStorageId = id;
     await this.syncVersion(id);
     return project;
+  }
+
+  private async cleanupLegacyProjectMetadata(): Promise<WriteResult | null> {
+    if (
+      !this.legacyMigrationReady ||
+      !this.currentVersion ||
+      this.getPersistenceDamage() ||
+      !isLegacyProjectMetadataAdapter(this.storage)
+    ) {
+      return null;
+    }
+    const result = await this.storage.deleteLegacyProjectFiles(
+      this.currentVersion,
+    );
+    if (result) {
+      this.currentVersion = result.version;
+      this.lastSavedAt = result.updatedAt;
+    }
+    return result;
   }
 
   private async syncVersion(id: string): Promise<void> {

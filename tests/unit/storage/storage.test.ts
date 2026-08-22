@@ -9,9 +9,10 @@ import {
   createProjectWorkspaceDocument,
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
-import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
+import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
 import {
   BrowserStorage,
+  ProjectPersistenceDamageError,
   StorageConflictError,
   createStorageAdapter,
   createStoredProjectRecord,
@@ -200,31 +201,77 @@ describe("BrowserStorage", () => {
       updatedAt: "2026-04-23T15:38:00.000Z",
     });
   });
+
+  it("preserves damaged browser metadata until an explicit replacement", async () => {
+    const memory = new MemoryStorage();
+    const project = exampleWorkspace("workspace-a", "Alpha", ["One"]);
+    const files = serializeProjectFiles(project).map((file) =>
+      file.relativePath === "project.json"
+        ? { ...file, text: "{<<<<<<< HEAD\n" }
+        : file,
+    );
+    memory.setItem(
+      "bline-web:workspace:workspace-a",
+      JSON.stringify({
+        files,
+        version: "damaged-v1",
+        updatedAt: "2026-04-23T15:39:00.000Z",
+      }),
+    );
+    memory.setItem("bline-web:current-workspace", "workspace-a");
+    const storage = new BrowserStorage({ storage: memory });
+
+    const recovered = await storage.readWorkspace("workspace-a");
+    expect(recovered.paths).toHaveLength(1);
+    expect(storage.getCurrentProjectDamage()).toMatchObject({
+      sourcePath: "project.json",
+      rawText: "{<<<<<<< HEAD\n",
+    });
+    await expect(
+      storage.writeWorkspace(recovered, "damaged-v1"),
+    ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
+    expect(memory.getItem("bline-web:workspace:workspace-a")).toContain(
+      "{<<<<<<< HEAD",
+    );
+
+    await storage.replaceDamagedWorkspace(recovered, "damaged-v1");
+    expect(storage.getCurrentProjectDamage()).toBeNull();
+    expect(memory.getItem("bline-web:workspace:workspace-a")).not.toContain(
+      "{<<<<<<< HEAD",
+    );
+  });
 });
 
 describe("TauriStorage", () => {
-  it("serializes workspace documents through invoke commands", async () => {
+  it("passes canonical Project text files through the desktop shell", async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> =
       [];
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
-    const serialized = serializeProjectWorkspaceDocument(workspace);
-    const persisted = serializeProjectWorkspaceDocument({
-      ...workspace,
-      active_path_id: null,
-      active_path_group_id: null,
-    });
+    const files = serializeProjectFiles(workspace);
     const invoke = (
       command: string,
       args: Record<string, unknown> | undefined,
     ) => {
       calls.push({ command, args });
 
-      if (command === "storage_write_workspace") {
-        return { version: "v1", updatedAt: "2026-04-23T15:34:00.000Z" };
+      if (command === "storage_write_project_files") {
+        return {
+          directoryLocator: "/tmp/autos",
+          version: "v1",
+          updatedAt: "2026-04-23T15:34:00.000Z",
+        };
       }
 
-      if (command === "storage_read_workspace") {
-        return serialized;
+      if (command === "storage_read_project_files") {
+        return {
+          directoryLocator: "/tmp/autos",
+          files: files.map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          version: "v1",
+          updatedAt: "2026-04-23T15:34:00.000Z",
+        };
       }
 
       if (command === "storage_list_recent_workspaces") {
@@ -260,12 +307,62 @@ describe("TauriStorage", () => {
     await expect(storage.listWorkspaces()).resolves.toHaveLength(1);
 
     expect(calls[0]).toEqual({
-      command: "storage_write_workspace",
+      command: "storage_write_project_files",
       args: {
-        workspace: persisted,
+        directoryLocator: null,
+        files: files.map((file) => ({
+          relativePath: file.relativePath,
+          contents: file.text,
+        })),
         expected: "v0",
       },
     });
+    expect(calls[1]).toEqual({
+      command: "storage_read_project_files",
+      args: { directoryLocator: "workspace-a" },
+    });
+  });
+
+  it("opens runtime files but blocks writes around malformed legacy metadata", async () => {
+    const project = exampleWorkspace("discarded", "Autos", ["One"]);
+    const runtimeFiles = serializeProjectFiles(project)
+      .filter((file) => file.relativePath !== "project.json")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        contents: file.text,
+      }));
+    const calls: string[] = [];
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string) => {
+        calls.push(command);
+        if (command === "storage_read_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            files: runtimeFiles,
+            legacyFiles: [
+              {
+                relativePath: ".bline-web/state.json",
+                contents: "{<<<<<<< HEAD\n",
+              },
+            ],
+            version: "damaged-v1",
+            updatedAt: "2026-04-23T15:40:00.000Z",
+          } as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+
+    const recovered = await storage.readWorkspace("/tmp/autos");
+    expect(recovered.paths).toHaveLength(1);
+    expect(storage.getCurrentProjectDamage()).toMatchObject({
+      sourcePath: ".bline-web/state.json",
+      rawText: "{<<<<<<< HEAD\n",
+    });
+    await expect(
+      storage.writeWorkspace(recovered, "damaged-v1"),
+    ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
+    expect(calls).toEqual(["storage_read_project_files"]);
   });
 });
 

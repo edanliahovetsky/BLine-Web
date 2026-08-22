@@ -5,11 +5,13 @@ import {
   projectDocumentToWorkspaceDocument,
 } from "../core/io/workspaceSerde";
 import {
-  deserializeProjectFiles,
+  openProjectFiles,
   serializeProjectFiles,
+  type ProjectFileDamage,
   type ProjectTextFile,
 } from "../core/io/projectFiles";
 import {
+  ProjectPersistenceDamageError,
   ProjectNotFoundError,
   StorageConflictError,
   compareWorkspaceSummaries,
@@ -56,6 +58,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   private readonly now: () => Date;
   private readonly fieldAssetDbName: string;
   private fieldAssetDbPromise: Promise<IDBDatabase> | null = null;
+  private readonly damageById = new Map<string, ProjectFileDamage>();
 
   constructor(options: BrowserStorageOptions = {}) {
     this.storage = options.storage ?? window.localStorage;
@@ -87,15 +90,56 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     const workspaceId =
       id ??
       (await this.getCurrentWorkspaceId()) ??
-      this.listRecords()[0]?.filesProjectId;
+      this.listRecords()[0]?.storageId;
     if (!workspaceId) {
       throw new ProjectNotFoundError("workspace");
     }
 
-    return workspaceFromProjectFilesRecord(this.requireRecord(workspaceId));
+    const record = this.requireRecord(workspaceId);
+    const opened = openProjectFiles(record.files, {
+      fallbackProjectId: workspaceId,
+    });
+    if (opened.damage) {
+      this.damageById.set(workspaceId, opened.damage);
+    } else {
+      this.damageById.delete(workspaceId);
+    }
+    return {
+      ...opened.project,
+      active_path_id: null,
+      active_path_group_id: null,
+    };
   }
 
   async writeWorkspace(
+    workspace: ProjectWorkspaceDocument,
+    expectedVersion?: string,
+  ): Promise<WriteResult> {
+    const damage = this.damageById.get(workspace.project_id);
+    if (damage) {
+      throw new ProjectPersistenceDamageError(damage);
+    }
+    return this.writeProjectFilesRecord(workspace, expectedVersion);
+  }
+
+  getCurrentProjectDamage(): ProjectFileDamage | null {
+    const id = this.storage.getItem(this.currentWorkspaceKey);
+    return id ? (this.damageById.get(id) ?? null) : null;
+  }
+
+  async replaceDamagedWorkspace(
+    workspace: ProjectWorkspaceDocument,
+    expectedVersion?: string,
+  ): Promise<WriteResult> {
+    const result = await this.writeProjectFilesRecord(
+      workspace,
+      expectedVersion,
+    );
+    this.damageById.delete(workspace.project_id);
+    return result;
+  }
+
+  private async writeProjectFilesRecord(
     workspace: ProjectWorkspaceDocument,
     expectedVersion?: string,
   ): Promise<WriteResult> {
@@ -128,9 +172,10 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     this.storage.removeItem(this.storageKey(id));
 
     if ((await this.getCurrentWorkspaceId()) === id) {
-      const nextId = this.listRecords()[0]?.filesProjectId ?? null;
+      const nextId = this.listRecords()[0]?.storageId ?? null;
       await this.setCurrentWorkspaceId(nextId);
     }
+    this.damageById.delete(id);
   }
 
   async exportWorkspaceArchive(id?: string): Promise<Blob> {
@@ -221,7 +266,8 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
         continue;
       }
 
-      const record = this.parseRecord(this.storage.getItem(key));
+      const storageId = decodeURIComponent(key.slice(this.keyPrefix.length));
+      const record = this.parseRecord(this.storage.getItem(key), storageId);
       if (record) {
         records.push(record);
       }
@@ -239,10 +285,13 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   private readRecord(id: string): ParsedProjectFilesRecord | null {
-    return this.parseRecord(this.storage.getItem(this.storageKey(id)));
+    return this.parseRecord(this.storage.getItem(this.storageKey(id)), id);
   }
 
-  private parseRecord(value: string | null): ParsedProjectFilesRecord | null {
+  private parseRecord(
+    value: string | null,
+    storageId: string,
+  ): ParsedProjectFilesRecord | null {
     if (value === null) {
       return null;
     }
@@ -254,7 +303,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       }
       return {
         ...parsed,
-        filesProjectId: deserializeProjectFiles(parsed.files).project_id,
+        storageId,
       };
     } catch {
       return null;
@@ -387,7 +436,7 @@ interface StoredProjectFilesRecord {
 }
 
 interface ParsedProjectFilesRecord extends StoredProjectFilesRecord {
-  filesProjectId: string;
+  storageId: string;
 }
 
 function assertExpectedVersion(
@@ -410,23 +459,14 @@ function assertExpectedVersion(
 function projectFilesSummaryFromRecord(
   record: ParsedProjectFilesRecord,
 ): ProjectWorkspaceSummary {
-  const project = deserializeProjectFiles(record.files);
+  const project = openProjectFiles(record.files, {
+    fallbackProjectId: record.storageId,
+  }).project;
   return {
-    id: project.project_id,
+    id: record.storageId,
     displayName: project.display_name,
     updatedAt: record.updatedAt,
     version: record.version,
-  };
-}
-
-function workspaceFromProjectFilesRecord(
-  record: StoredProjectFilesRecord,
-): ProjectWorkspaceDocument {
-  const project = deserializeProjectFiles(record.files);
-  return {
-    ...project,
-    active_path_id: null,
-    active_path_group_id: null,
   };
 }
 

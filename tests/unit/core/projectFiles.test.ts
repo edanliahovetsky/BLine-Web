@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deserializeProjectFiles,
+  openProjectFiles,
   serializeProjectFiles,
   type ProjectTextFile,
 } from "../../../src/core/io/projectFiles";
@@ -314,6 +315,47 @@ describe("Project file-set codec", () => {
     expect(requiredFile(first, "project.json").text).toMatch(
       /^\{\n  "schema_version": 1,\n  "project_id": "project-deterministic",/,
     );
+  });
+
+  it("opens runtime content without rewriting malformed Project metadata", () => {
+    const files = serializeProjectFiles(
+      createProject({
+        project_id: "project-damaged",
+        display_name: "Damaged",
+        paths: [
+          {
+            path_id: "path-1",
+            display_name: "Auto",
+            file_name: "auto.json",
+            path: createPathModel(),
+          },
+        ],
+      }),
+    ).map((file) =>
+      file.relativePath === "project.json"
+        ? { ...file, text: "{<<<<<<< HEAD\n" }
+        : file,
+    );
+
+    const opened = openProjectFiles(files, {
+      fallbackProjectId: "recovered-project",
+      fallbackDisplayName: "Recovered",
+      fallbackPathId: () => "recovered-path",
+    });
+
+    expect(opened.project).toMatchObject({
+      project_id: "recovered-project",
+      display_name: "Recovered",
+      paths: [{ path_id: "recovered-path", file_name: "auto.json" }],
+    });
+    expect(opened.damage).toEqual({
+      sourcePath: "project.json",
+      message: expect.any(String),
+      rawText: "{<<<<<<< HEAD\n",
+    });
+    expect(
+      files.find((file) => file.relativePath === "project.json")?.text,
+    ).toBe("{<<<<<<< HEAD\n");
   });
 });
 

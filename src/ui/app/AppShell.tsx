@@ -160,6 +160,7 @@ import {
   importFieldBackgroundFromBytes,
   initializeUserData,
   listFieldBackgrounds,
+  migrateProjectViewIdentity,
   readFieldBackgroundImage,
   rememberSelectedFieldBackground,
   selectedFieldBackgroundForProject,
@@ -220,6 +221,10 @@ export function AppShell() {
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
   const status = useStoreSelector(projectStore, (state) => state.status);
   const error = useStoreSelector(projectStore, (state) => state.error);
+  const persistenceDamage = useStoreSelector(
+    projectStore,
+    (state) => state.persistenceDamage,
+  );
   const currentVersion = useStoreSelector(
     projectStore,
     (state) => state.version,
@@ -471,17 +476,33 @@ export function AppShell() {
     }
     attemptedFieldMigrationKeysRef.current.add(legacyFieldMigrationKey);
 
-    void migrateLegacyProjectFieldBackgrounds(durableProject, projectIo).then(
-      () => {
-        setFieldBackgrounds(listFieldBackgrounds());
-        setFieldSelectionOverride({
-          projectId,
-          fieldId:
-            selectedFieldBackgroundForProject(projectId, defaultFieldId) ??
-            defaultFieldId,
-        });
-      },
-    );
+    void (async () => {
+      const viewMigration = projectIo.getLegacyProjectViewMigration();
+      if (viewMigration) {
+        await migrateProjectViewIdentity(
+          viewMigration.legacyProjectId,
+          viewMigration.stableProjectId,
+          viewMigration.pathIdByLegacyReference,
+        );
+      }
+      const { errors } = await migrateLegacyProjectFieldBackgrounds(
+        durableProject,
+        projectIo,
+      );
+      if (errors.length === 0) {
+        await projectIo.completeLegacyProjectMigration();
+      }
+      setFieldBackgrounds(listFieldBackgrounds());
+      setFieldSelectionOverride({
+        projectId,
+        fieldId:
+          selectedFieldBackgroundForProject(projectId, defaultFieldId) ??
+          defaultFieldId,
+      });
+    })().catch((migrationError: unknown) => {
+      attemptedFieldMigrationKeysRef.current.delete(legacyFieldMigrationKey);
+      projectStore.getState().markSaveError(migrationError);
+    });
   }, [durableProject, legacyFieldMigrationKey, projectIo]);
 
   const selectedFieldId = durableProject
@@ -548,7 +569,8 @@ export function AppShell() {
       onStatusChange: setAutosaveStatus,
       shouldDefer: () =>
         canvasInteractionActiveRef.current ||
-        projectStore.getState().status === "conflict",
+        projectStore.getState().status === "conflict" ||
+        projectStore.getState().status === "damaged",
     });
 
     return () => {
@@ -931,6 +953,18 @@ export function AppShell() {
     }
   }, []);
 
+  const handleReplaceDamagedProject = useCallback(async () => {
+    setResolvingConflict(true);
+    try {
+      await projectStore.getState().replaceDamagedProject();
+      autosaveRef.current?.cancel();
+    } catch {
+      // The store keeps the damaged/error state so the choice stays actionable.
+    } finally {
+      setResolvingConflict(false);
+    }
+  }, []);
+
   const handleCreateNewPath = useCallback(async () => {
     setShowOpenPanel(false);
     setOpenTopMenu(null);
@@ -1033,7 +1067,7 @@ export function AppShell() {
           showNewProjectDialog,
           showOpenPanel,
           showPathGroupsDialog,
-          showSaveConflict: status === "conflict",
+          showSaveConflict: status === "conflict" || status === "damaged",
           showShortcutHelp,
           showTourPicker,
         })
@@ -2714,6 +2748,14 @@ export function AppShell() {
           onOverwrite={() => void handleOverwriteConflict()}
         />
       ) : null}
+      {status === "damaged" && persistenceDamage ? (
+        <DamagedProjectDialog
+          busy={resolvingConflict}
+          sourcePath={persistenceDamage.sourcePath}
+          onReload={() => void handleReloadFromDisk()}
+          onReplace={() => void handleReplaceDamagedProject()}
+        />
+      ) : null}
       {showCommandPalette ? (
         <CommandPalette
           commands={commands}
@@ -2919,6 +2961,65 @@ function MobileSupportWarningDialog({ onDismiss }: { onDismiss(): void }) {
             onClick={onDismiss}
           >
             Continue
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function DamagedProjectDialog({
+  busy,
+  sourcePath,
+  onReload,
+  onReplace,
+}: {
+  busy: boolean;
+  sourcePath: string;
+  onReload(): void;
+  onReplace(): void;
+}) {
+  return (
+    <div
+      className="config-dialog-backdrop mobile-warning-backdrop"
+      role="presentation"
+    >
+      <section
+        className="mobile-warning-dialog save-conflict-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="damaged-project-title"
+        aria-describedby="damaged-project-description"
+        data-testid="damaged-project-dialog"
+      >
+        <header className="mobile-warning-dialog__header">
+          <span className="mobile-warning-dialog__icon" aria-hidden="true">
+            !
+          </span>
+          <h2 id="damaged-project-title">Project metadata needs attention</h2>
+        </header>
+        <p id="damaged-project-description">
+          BLine opened the runtime Paths, but <strong>{sourcePath}</strong> is
+          malformed or conflicted. The original file is untouched. Editing and
+          exports remain available, but saving is blocked until you repair the
+          file and reload or explicitly replace it with the Project now open.
+        </p>
+        <footer className="mobile-warning-dialog__footer save-conflict-dialog__footer">
+          <button
+            type="button"
+            className="mobile-warning-dialog__action save-conflict-dialog__action--secondary"
+            onClick={onReload}
+            disabled={busy}
+          >
+            Reload after repair
+          </button>
+          <button
+            type="button"
+            className="mobile-warning-dialog__action"
+            onClick={onReplace}
+            disabled={busy}
+          >
+            Replace metadata
           </button>
         </footer>
       </section>
@@ -5826,6 +5927,10 @@ function formatSaveStatus({
     return "Project changed on disk";
   }
 
+  if (status === "damaged") {
+    return "Project metadata needs attention";
+  }
+
   if (status === "error" && error) {
     return `Save failed: ${error}`;
   }
@@ -5876,6 +5981,7 @@ function getSaveStatusTone({
 
   if (
     status === "conflict" ||
+    status === "damaged" ||
     (status === "error" && error) ||
     autosaveStatus === "error"
   ) {

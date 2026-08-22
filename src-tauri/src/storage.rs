@@ -33,6 +33,38 @@ pub struct WriteResult {
     pub updated_at: String,
 }
 
+/// One canonical, project-owned text file. `contents` is deliberately not parsed in
+/// Rust: TypeScript owns the BLine schemas and can therefore surface and recover
+/// malformed JSON without the desktop shell rewriting it first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTextFile {
+    pub relative_path: String,
+    pub contents: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTextFileSet {
+    /// Opaque desktop storage locator. This is intentionally not a Project ID.
+    pub directory_locator: String,
+    pub files: Vec<ProjectTextFile>,
+    /// Read-only migration inputs from the previous editor layout. These are never
+    /// accepted as canonical write targets or rewritten while opening a Project.
+    pub legacy_files: Vec<ProjectTextFile>,
+    pub version: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTextFileWriteResult {
+    /// Opaque desktop storage locator. This is intentionally not a Project ID.
+    pub directory_locator: String,
+    pub version: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldAssetPayload {
@@ -94,6 +126,10 @@ const DEFAULT_CONFIG_JSON: &str = r#"{
 }"#;
 
 const AUTOS_EDITOR_STATE_SCHEMA_VERSION: u64 = 1;
+const PROJECT_SAVE_TRANSACTION_DIR: &str = ".bline-save-transaction";
+const PROJECT_SAVE_TRANSACTION_MARKER: &str = "state";
+const PROJECT_SAVE_TRANSACTION_PREPARED: &str = "prepared";
+const PROJECT_SAVE_TRANSACTION_COMMITTED: &str = "committed";
 
 #[tauri::command]
 pub fn storage_get_current_workspace(
@@ -221,6 +257,47 @@ pub fn storage_write_workspace(
     write_state(&app, &state)?;
 
     Ok(write_result.result)
+}
+
+/// Read the complete team-owned Project file set without interpreting its JSON.
+///
+/// Merely opening a directory is read-only. In particular, a legacy/runtime-only
+/// folder does not gain `project.json`, `paths/`, or any desktop sidecar until the
+/// caller explicitly saves a canonical file set.
+#[tauri::command]
+pub fn storage_read_project_files(
+    app: AppHandle,
+    directory_locator: Option<String>,
+) -> Result<ProjectTextFileSet, String> {
+    let dir = resolve_project_directory(&app, directory_locator.as_deref())?;
+    read_project_text_file_set(&dir)
+}
+
+/// Atomically replace the complete team-owned Project file set supplied by
+/// TypeScript. The bounded transaction contains exactly an old and new snapshot plus
+/// a two-state marker; it is removed after success and is not a general journal.
+#[tauri::command]
+pub fn storage_write_project_files(
+    app: AppHandle,
+    directory_locator: Option<String>,
+    files: Vec<ProjectTextFile>,
+    expected: Option<String>,
+) -> Result<ProjectTextFileWriteResult, String> {
+    let dir = resolve_project_directory(&app, directory_locator.as_deref())?;
+    write_project_text_file_set(&dir, &files, expected.as_deref())
+}
+
+/// Remove only the obsolete editor metadata that TypeScript has already migrated
+/// into a successfully written canonical Project. Field assets and every other file
+/// are outside this command's ownership boundary.
+#[tauri::command]
+pub fn storage_delete_legacy_project_files(
+    app: AppHandle,
+    directory_locator: String,
+    expected: String,
+) -> Result<ProjectTextFileWriteResult, String> {
+    let dir = resolve_project_directory(&app, Some(&directory_locator))?;
+    delete_legacy_project_files(&dir, &expected)
 }
 
 #[tauri::command]
@@ -489,6 +566,475 @@ fn delete_field_asset_from_project_dir(project_dir: &Path, asset_id: &str) -> Re
     remove_field_asset_metadata(project_dir, &asset_id)
 }
 
+fn resolve_project_directory(
+    app: &AppHandle,
+    directory_locator: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(locator) = directory_locator {
+        if locator.trim().is_empty() {
+            return Err("Desktop project directory locator is empty".to_owned());
+        }
+        let dir = effective_project_dir(Path::new(locator));
+        remember_workspace_dir(app, &dir)?;
+        return Ok(dir);
+    }
+
+    require_current_project_dir(app)
+}
+
+fn read_project_text_file_set(project_dir: &Path) -> Result<ProjectTextFileSet, String> {
+    if !project_dir.is_dir() {
+        return Err(format!(
+            "Desktop project directory does not exist: {}",
+            project_dir.to_string_lossy()
+        ));
+    }
+
+    recover_project_file_transaction(project_dir)?;
+    let files = read_managed_project_files(project_dir)?;
+    let legacy_files = read_legacy_project_files(project_dir)?;
+    Ok(ProjectTextFileSet {
+        directory_locator: project_dir.to_string_lossy().to_string(),
+        version: project_source_file_set_version(&files, &legacy_files),
+        updated_at: project_source_file_set_updated_at(project_dir, &files, &legacy_files),
+        files,
+        legacy_files,
+    })
+}
+
+fn write_project_text_file_set(
+    project_dir: &Path,
+    files: &[ProjectTextFile],
+    expected: Option<&str>,
+) -> Result<ProjectTextFileWriteResult, String> {
+    if !project_dir.is_dir() {
+        return Err(format!(
+            "Desktop project directory does not exist: {}",
+            project_dir.to_string_lossy()
+        ));
+    }
+
+    let canonical_files = validate_complete_project_file_set(files)?;
+    recover_project_file_transaction(project_dir)?;
+
+    let current_files = read_managed_project_files(project_dir)?;
+    let current_legacy_files = read_legacy_project_files(project_dir)?;
+    let actual_version = project_source_file_set_version(&current_files, &current_legacy_files);
+    if let Some(expected) = expected {
+        if expected != actual_version {
+            return Err("storage-conflict: project file-set version mismatch".to_owned());
+        }
+    }
+
+    let transaction_dir = project_dir.join(PROJECT_SAVE_TRANSACTION_DIR);
+    let old_dir = transaction_dir.join("old");
+    let new_dir = transaction_dir.join("new");
+    fs::create_dir(&transaction_dir).map_err(error_string)?;
+
+    let transaction_result = (|| {
+        write_project_snapshot(&old_dir, &current_files)?;
+        write_project_snapshot(&new_dir, &canonical_files)?;
+
+        // Staging may take long enough for an external editor to save. Recheck just
+        // before the prepared marker makes the replacement live so that such a save
+        // is not silently overwritten by our older snapshot.
+        let staged_against_version = project_source_file_set_version(
+            &read_managed_project_files(project_dir)?,
+            &read_legacy_project_files(project_dir)?,
+        );
+        if staged_against_version != actual_version {
+            return Err("storage-conflict: project file set changed while saving".to_owned());
+        }
+        write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_PREPARED)?;
+
+        install_project_snapshot(project_dir, &new_dir)?;
+        write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_COMMITTED)?;
+        fs::remove_dir_all(&transaction_dir).map_err(error_string)?;
+        sync_directory(project_dir)?;
+        Ok(())
+    })();
+
+    if let Err(error) = transaction_result {
+        // Leave a prepared/committed transaction in place when installation began;
+        // the next read or write deterministically restores one complete side.
+        if !transaction_dir
+            .join(PROJECT_SAVE_TRANSACTION_MARKER)
+            .exists()
+        {
+            let _ = fs::remove_dir_all(&transaction_dir);
+        }
+        return Err(error);
+    }
+
+    let saved_files = read_managed_project_files(project_dir)?;
+    let saved_legacy_files = read_legacy_project_files(project_dir)?;
+    if saved_files != canonical_files {
+        return Err("Project file-set verification failed after save".to_owned());
+    }
+    Ok(ProjectTextFileWriteResult {
+        directory_locator: project_dir.to_string_lossy().to_string(),
+        version: project_source_file_set_version(&saved_files, &saved_legacy_files),
+        updated_at: project_source_file_set_updated_at(
+            project_dir,
+            &saved_files,
+            &saved_legacy_files,
+        ),
+    })
+}
+
+fn delete_legacy_project_files(
+    project_dir: &Path,
+    expected: &str,
+) -> Result<ProjectTextFileWriteResult, String> {
+    if !project_dir.is_dir() {
+        return Err(format!(
+            "Desktop project directory does not exist: {}",
+            project_dir.to_string_lossy()
+        ));
+    }
+    if expected.trim().is_empty() {
+        return Err("Legacy metadata cleanup requires an expected version".to_owned());
+    }
+
+    recover_project_file_transaction(project_dir)?;
+    let canonical_files = read_managed_project_files(project_dir)?;
+    validate_complete_project_file_set(&canonical_files).map_err(|_| {
+        "Legacy metadata cleanup requires a complete canonical Project save".to_owned()
+    })?;
+    let legacy_files = read_legacy_project_files(project_dir)?;
+    if project_source_file_set_version(&canonical_files, &legacy_files) != expected {
+        return Err("storage-conflict: project file set changed before legacy cleanup".to_owned());
+    }
+
+    for relative_path in [
+        ".bline-web/state.json",
+        ".bline-web/path-metadata.json",
+        "pathgroups.json",
+    ] {
+        let path = project_dir.join(relative_path);
+        if path.exists() {
+            fs::remove_file(path).map_err(error_string)?;
+        }
+    }
+
+    let legacy_dir = project_dir.join(".bline-web");
+    if legacy_dir.is_dir() {
+        if fs::read_dir(&legacy_dir)
+            .map_err(error_string)?
+            .next()
+            .is_none()
+        {
+            fs::remove_dir(&legacy_dir).map_err(error_string)?;
+        } else {
+            sync_directory(&legacy_dir)?;
+        }
+    }
+    sync_directory(project_dir)?;
+
+    let remaining_legacy_files = read_legacy_project_files(project_dir)?;
+    if !remaining_legacy_files.is_empty() {
+        return Err("Legacy project metadata cleanup verification failed".to_owned());
+    }
+    Ok(ProjectTextFileWriteResult {
+        directory_locator: project_dir.to_string_lossy().to_string(),
+        version: project_source_file_set_version(&canonical_files, &remaining_legacy_files),
+        updated_at: project_source_file_set_updated_at(
+            project_dir,
+            &canonical_files,
+            &remaining_legacy_files,
+        ),
+    })
+}
+
+fn validate_complete_project_file_set(
+    files: &[ProjectTextFile],
+) -> Result<Vec<ProjectTextFile>, String> {
+    let mut validated = Vec::with_capacity(files.len());
+    let mut seen = std::collections::HashSet::new();
+    let mut has_config = false;
+    let mut has_project = false;
+
+    for file in files {
+        validate_managed_project_relative_path(&file.relative_path)?;
+        if !seen.insert(file.relative_path.clone()) {
+            return Err(format!(
+                "Duplicate project file in canonical set: {}",
+                file.relative_path
+            ));
+        }
+        has_config |= file.relative_path == "config.json";
+        has_project |= file.relative_path == "project.json";
+        validated.push(file.clone());
+    }
+
+    if !has_config || !has_project {
+        return Err(
+            "A complete project file set must include config.json and project.json".to_owned(),
+        );
+    }
+
+    validated.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(validated)
+}
+
+fn validate_managed_project_relative_path(relative_path: &str) -> Result<(), String> {
+    if matches!(relative_path, "config.json" | "project.json") {
+        return Ok(());
+    }
+
+    let Some(file_name) = relative_path.strip_prefix("paths/") else {
+        return Err(format!(
+            "Unsupported canonical project file path: {relative_path}"
+        ));
+    };
+    if file_name.is_empty()
+        || file_name == "."
+        || file_name == ".."
+        || file_name.contains('/')
+        || file_name.contains('\\')
+        || !file_name.ends_with(".json")
+    {
+        return Err(format!(
+            "Unsafe canonical project file path: {relative_path}"
+        ));
+    }
+    Ok(())
+}
+
+fn read_managed_project_files(project_dir: &Path) -> Result<Vec<ProjectTextFile>, String> {
+    let mut relative_paths = Vec::new();
+    for relative_path in ["config.json", "project.json"] {
+        if project_dir.join(relative_path).is_file() {
+            relative_paths.push(relative_path.to_owned());
+        }
+    }
+
+    let paths_dir = project_dir.join("paths");
+    if paths_dir.is_dir() {
+        for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
+            let entry = entry.map_err(error_string)?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let relative_path = format!("paths/{file_name}");
+                validate_managed_project_relative_path(&relative_path)?;
+                relative_paths.push(relative_path);
+            }
+        }
+    }
+    relative_paths.sort();
+
+    relative_paths
+        .into_iter()
+        .map(|relative_path| {
+            let bytes = fs::read(project_dir.join(&relative_path)).map_err(error_string)?;
+            let contents = String::from_utf8(bytes).map_err(|_| {
+                format!("Project file is not valid UTF-8 and was left untouched: {relative_path}")
+            })?;
+            Ok(ProjectTextFile {
+                relative_path,
+                contents,
+            })
+        })
+        .collect()
+}
+
+fn read_legacy_project_files(project_dir: &Path) -> Result<Vec<ProjectTextFile>, String> {
+    let mut files = Vec::new();
+    for relative_path in [
+        ".bline-web/path-metadata.json",
+        ".bline-web/state.json",
+        "pathgroups.json",
+    ] {
+        let path = project_dir.join(relative_path);
+        if !path.is_file() {
+            continue;
+        }
+        let bytes = fs::read(&path).map_err(error_string)?;
+        let contents = String::from_utf8(bytes).map_err(|_| {
+            format!(
+                "Legacy project file is not valid UTF-8 and was left untouched: {relative_path}"
+            )
+        })?;
+        files.push(ProjectTextFile {
+            relative_path: relative_path.to_owned(),
+            contents,
+        });
+    }
+    Ok(files)
+}
+
+fn write_project_snapshot(snapshot_dir: &Path, files: &[ProjectTextFile]) -> Result<(), String> {
+    fs::create_dir(snapshot_dir).map_err(error_string)?;
+    for file in files {
+        let destination = snapshot_dir.join(&file.relative_path);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(error_string)?;
+        }
+        let handle = fs::File::create(&destination).map_err(error_string)?;
+        use std::io::Write;
+        let mut handle = handle;
+        handle
+            .write_all(file.contents.as_bytes())
+            .map_err(error_string)?;
+        handle.sync_all().map_err(error_string)?;
+    }
+    let paths_dir = snapshot_dir.join("paths");
+    if paths_dir.is_dir() {
+        sync_directory(&paths_dir)?;
+    }
+    sync_directory(snapshot_dir)
+}
+
+fn write_transaction_marker(transaction_dir: &Path, state: &str) -> Result<(), String> {
+    let marker = transaction_dir.join(PROJECT_SAVE_TRANSACTION_MARKER);
+    let mut file = fs::File::create(marker).map_err(error_string)?;
+    use std::io::Write;
+    file.write_all(state.as_bytes()).map_err(error_string)?;
+    file.sync_all().map_err(error_string)?;
+    sync_directory(transaction_dir)
+}
+
+fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
+    let transaction_dir = project_dir.join(PROJECT_SAVE_TRANSACTION_DIR);
+    if !transaction_dir.exists() {
+        return Ok(());
+    }
+
+    let marker = transaction_dir.join(PROJECT_SAVE_TRANSACTION_MARKER);
+    if !marker.is_file() {
+        // No marker means installation never began, so the live directory is still
+        // the complete old set and the incomplete staging area is disposable.
+        fs::remove_dir_all(&transaction_dir).map_err(error_string)?;
+        return Ok(());
+    }
+
+    let state = fs::read_to_string(&marker).map_err(error_string)?;
+    let snapshot = if state == PROJECT_SAVE_TRANSACTION_COMMITTED {
+        transaction_dir.join("new")
+    } else {
+        // A prepared or torn marker conservatively resolves to the old set.
+        transaction_dir.join("old")
+    };
+    install_project_snapshot(project_dir, &snapshot)?;
+    fs::remove_dir_all(&transaction_dir).map_err(error_string)?;
+    sync_directory(project_dir)
+}
+
+fn install_project_snapshot(project_dir: &Path, snapshot_dir: &Path) -> Result<(), String> {
+    if !snapshot_dir.is_dir() {
+        return Err("Project save transaction is missing its recovery snapshot".to_owned());
+    }
+
+    remove_live_managed_project_files(project_dir)?;
+    let snapshot_files = read_managed_project_files(snapshot_dir)?;
+
+    // Install the runtime files first. project.json is the commit point visible to
+    // readers and is therefore always installed last.
+    for file in snapshot_files
+        .iter()
+        .filter(|file| file.relative_path != "project.json")
+    {
+        install_snapshot_file(project_dir, file)?;
+    }
+    if let Some(project_file) = snapshot_files
+        .iter()
+        .find(|file| file.relative_path == "project.json")
+    {
+        install_snapshot_file(project_dir, project_file)?;
+    }
+    let paths_dir = project_dir.join("paths");
+    if paths_dir.is_dir() {
+        sync_directory(&paths_dir)?;
+    }
+    sync_directory(project_dir)
+}
+
+fn install_snapshot_file(project_dir: &Path, file: &ProjectTextFile) -> Result<(), String> {
+    let destination = project_dir.join(&file.relative_path);
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(error_string)?;
+    }
+    let mut handle = fs::File::create(destination).map_err(error_string)?;
+    use std::io::Write;
+    handle
+        .write_all(file.contents.as_bytes())
+        .map_err(error_string)?;
+    handle.sync_all().map_err(error_string)
+}
+
+fn remove_live_managed_project_files(project_dir: &Path) -> Result<(), String> {
+    for path in [
+        project_dir.join("config.json"),
+        project_dir.join("project.json"),
+    ] {
+        if path.exists() {
+            fs::remove_file(path).map_err(error_string)?;
+        }
+    }
+
+    let paths_dir = project_dir.join("paths");
+    if paths_dir.is_dir() {
+        for entry in fs::read_dir(&paths_dir).map_err(error_string)? {
+            let entry = entry.map_err(error_string)?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                fs::remove_file(path).map_err(error_string)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn project_source_file_set_version(
+    files: &[ProjectTextFile],
+    legacy_files: &[ProjectTextFile],
+) -> String {
+    // Stable FNV-1a over relative paths and exact UTF-8 bytes. The directory locator
+    // is intentionally excluded: moving a Project does not change its content token.
+    let mut hash = 0xcbf29ce484222325_u64;
+    for file in files.iter().chain(legacy_files) {
+        for byte in file
+            .relative_path
+            .as_bytes()
+            .iter()
+            .chain([0_u8].iter())
+            .chain(file.contents.as_bytes())
+            .chain([0xff_u8].iter())
+        {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+fn project_source_file_set_updated_at(
+    project_dir: &Path,
+    files: &[ProjectTextFile],
+    legacy_files: &[ProjectTextFile],
+) -> String {
+    files
+        .iter()
+        .chain(legacy_files)
+        .filter_map(|file| {
+            fs::metadata(project_dir.join(&file.relative_path))
+                .and_then(|metadata| metadata.modified())
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis())
+        })
+        .max()
+        .unwrap_or(0)
+        .to_string()
+}
+
+fn sync_directory(path: &Path) -> Result<(), String> {
+    fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(error_string)
+}
+
 fn pick_workspace_dir(title: &str) -> Option<PathBuf> {
     rfd::FileDialog::new().set_title(title).pick_folder()
 }
@@ -498,7 +1044,18 @@ fn set_workspace_dir(
     selected_dir: PathBuf,
 ) -> Result<ProjectWorkspaceSummary, String> {
     let effective_dir = effective_project_dir(&selected_dir);
-    ensure_project_structure(&effective_dir)?;
+    remember_workspace_dir(app, &effective_dir)?;
+
+    workspace_summary(&effective_dir)
+}
+
+fn remember_workspace_dir(app: &AppHandle, effective_dir: &Path) -> Result<(), String> {
+    if !effective_dir.is_dir() {
+        return Err(format!(
+            "Desktop project directory does not exist: {}",
+            effective_dir.to_string_lossy()
+        ));
+    }
 
     let mut state = read_state(app)?;
     let dir_string = effective_dir.to_string_lossy().to_string();
@@ -508,9 +1065,7 @@ fn set_workspace_dir(
         .retain(|entry| entry != &dir_string);
     state.recent_project_dirs.insert(0, dir_string);
     state.recent_project_dirs.truncate(10);
-    write_state(app, &state)?;
-
-    workspace_summary(&effective_dir)
+    write_state(app, &state)
 }
 
 fn effective_project_dir(selected_dir: &Path) -> PathBuf {
@@ -2880,6 +3435,345 @@ mod tests {
             read_recoverable_bytes(&path).expect("recover asset"),
             Some(b"new image".to_vec())
         );
+    }
+
+    #[test]
+    fn reading_runtime_only_project_is_byte_preserving_and_read_only() {
+        let dir = temp_autos_dir("raw-project-read");
+        let malformed_config = "{\n  \"broken\": true,\n<<<<<<< ours\n";
+        let unusual_path = "{ \"path_elements\" : [ ] }\n";
+        let malformed_state = "{ \"schema_version\": 1, trailing }\n";
+        let malformed_metadata = "<<<<<<< HEAD\n{}\n=======\n[]\n>>>>>>> branch\n";
+        let malformed_groups = "{ groups: not-json }\n";
+        fs::write(dir.join("config.json"), malformed_config).expect("config fixture");
+        fs::create_dir(dir.join("paths")).expect("paths fixture");
+        fs::write(dir.join("paths/auto.json"), unusual_path).expect("path fixture");
+        fs::create_dir(dir.join(".bline-web")).expect("legacy sidecar fixture");
+        fs::write(dir.join(".bline-web/state.json"), malformed_state).expect("legacy state");
+        fs::write(
+            dir.join(".bline-web/path-metadata.json"),
+            malformed_metadata,
+        )
+        .expect("legacy metadata");
+        fs::write(dir.join("pathgroups.json"), malformed_groups).expect("legacy groups");
+
+        let before = fs::read_dir(&dir)
+            .expect("directory before")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect::<Vec<_>>();
+        let read = read_project_text_file_set(&dir).expect("raw project read");
+        let after = fs::read_dir(&dir)
+            .expect("directory after")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect::<Vec<_>>();
+
+        assert_eq!(before, after, "opening must not create project metadata");
+        assert!(!dir.join("project.json").exists());
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+        assert_eq!(
+            read.files,
+            vec![
+                ProjectTextFile {
+                    relative_path: "config.json".to_owned(),
+                    contents: malformed_config.to_owned(),
+                },
+                ProjectTextFile {
+                    relative_path: "paths/auto.json".to_owned(),
+                    contents: unusual_path.to_owned(),
+                },
+            ]
+        );
+        assert_eq!(
+            read.legacy_files,
+            vec![
+                ProjectTextFile {
+                    relative_path: ".bline-web/path-metadata.json".to_owned(),
+                    contents: malformed_metadata.to_owned(),
+                },
+                ProjectTextFile {
+                    relative_path: ".bline-web/state.json".to_owned(),
+                    contents: malformed_state.to_owned(),
+                },
+                ProjectTextFile {
+                    relative_path: "pathgroups.json".to_owned(),
+                    contents: malformed_groups.to_owned(),
+                },
+            ]
+        );
+        assert_eq!(read.directory_locator, dir.to_string_lossy());
+    }
+
+    #[test]
+    fn invalid_utf8_project_file_is_reported_without_rewriting_source() {
+        let dir = temp_autos_dir("raw-project-invalid-utf8");
+        let bytes = [0xff_u8, 0xfe, 0xfd];
+        fs::write(dir.join("config.json"), bytes).expect("invalid UTF-8 fixture");
+
+        let error = read_project_text_file_set(&dir).expect_err("invalid UTF-8 must report");
+        assert!(error.contains("left untouched"));
+        assert_eq!(
+            fs::read(dir.join("config.json")).expect("preserved source"),
+            bytes
+        );
+        assert!(!dir.join("project.json").exists());
+    }
+
+    #[test]
+    fn canonical_project_save_checks_version_and_deletes_obsolete_paths() {
+        let dir = temp_autos_dir("canonical-project-save");
+        fs::create_dir(dir.join("paths")).expect("paths fixture");
+        fs::create_dir(dir.join(".bline-web")).expect("legacy fixture");
+        let legacy_state = "{ malformed legacy state }\n";
+        fs::write(dir.join(".bline-web/state.json"), legacy_state).expect("legacy state");
+        fs::write(dir.join("config.json"), "old config").expect("old config");
+        fs::write(dir.join("paths/obsolete.json"), "old path").expect("old path");
+
+        let before = read_project_text_file_set(&dir).expect("initial read");
+        let canonical = vec![
+            project_text_file("config.json", "new config"),
+            project_text_file("paths/kept.json", "new path"),
+            project_text_file("project.json", "new metadata"),
+        ];
+        let result = write_project_text_file_set(&dir, &canonical, Some(&before.version))
+            .expect("canonical save");
+
+        assert_eq!(
+            fs::read_to_string(dir.join("config.json")).unwrap(),
+            "new config"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("paths/kept.json")).unwrap(),
+            "new path"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("project.json")).unwrap(),
+            "new metadata"
+        );
+        assert!(!dir.join("paths/obsolete.json").exists());
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+        assert_eq!(
+            fs::read_to_string(dir.join(".bline-web/state.json")).unwrap(),
+            legacy_state,
+            "canonical writes do not treat legacy migration inputs as targets"
+        );
+        assert_eq!(
+            result.version,
+            project_source_file_set_version(
+                &canonical,
+                &[project_text_file(".bline-web/state.json", legacy_state)]
+            )
+        );
+
+        let stale_error = write_project_text_file_set(&dir, &canonical, Some(&before.version))
+            .expect_err("stale expected version");
+        assert_eq!(
+            stale_error,
+            "storage-conflict: project file-set version mismatch"
+        );
+    }
+
+    #[test]
+    fn legacy_cleanup_is_version_guarded_and_never_deletes_field_assets() {
+        let dir = temp_autos_dir("legacy-project-cleanup-assets");
+        let canonical = vec![
+            project_text_file("config.json", "config"),
+            project_text_file("project.json", "metadata"),
+        ];
+        install_test_project_files(&dir, &canonical);
+        fs::create_dir_all(dir.join(".bline-web/assets/fields")).expect("asset directory");
+        fs::write(dir.join(".bline-web/assets/fields/field.png"), [1_u8, 2, 3])
+            .expect("field asset");
+        fs::write(dir.join(".bline-web/state.json"), "legacy state").expect("legacy state");
+        fs::write(dir.join(".bline-web/path-metadata.json"), "legacy metadata")
+            .expect("legacy metadata");
+        fs::write(dir.join("pathgroups.json"), "legacy groups").expect("legacy groups");
+
+        let stale_version = read_project_text_file_set(&dir).unwrap().version;
+        fs::write(dir.join("pathgroups.json"), "changed legacy groups")
+            .expect("external legacy edit");
+        let conflict = delete_legacy_project_files(&dir, &stale_version)
+            .expect_err("stale cleanup must conflict");
+        assert_eq!(
+            conflict,
+            "storage-conflict: project file set changed before legacy cleanup"
+        );
+        assert!(dir.join(".bline-web/state.json").exists());
+
+        let expected = read_project_text_file_set(&dir).unwrap().version;
+        let result = delete_legacy_project_files(&dir, &expected).expect("legacy cleanup");
+
+        assert!(!dir.join(".bline-web/state.json").exists());
+        assert!(!dir.join(".bline-web/path-metadata.json").exists());
+        assert!(!dir.join("pathgroups.json").exists());
+        assert_eq!(
+            fs::read(dir.join(".bline-web/assets/fields/field.png")).unwrap(),
+            [1_u8, 2, 3]
+        );
+        assert!(dir.join(".bline-web").is_dir());
+        assert_eq!(
+            result.version,
+            read_project_text_file_set(&dir).unwrap().version
+        );
+    }
+
+    #[test]
+    fn legacy_cleanup_removes_only_an_empty_sidecar_directory() {
+        let dir = temp_autos_dir("legacy-project-cleanup-empty-sidecar");
+        install_test_project_files(
+            &dir,
+            &[
+                project_text_file("config.json", "config"),
+                project_text_file("project.json", "metadata"),
+            ],
+        );
+        fs::create_dir(dir.join(".bline-web")).expect("legacy directory");
+        fs::write(dir.join(".bline-web/state.json"), "legacy state").expect("legacy state");
+        let expected = read_project_text_file_set(&dir).unwrap().version;
+
+        delete_legacy_project_files(&dir, &expected).expect("legacy cleanup");
+
+        assert!(!dir.join(".bline-web").exists());
+    }
+
+    #[test]
+    fn prepared_project_transaction_restores_complete_old_set() {
+        let dir = temp_autos_dir("prepared-project-recovery");
+        let old = vec![
+            project_text_file("config.json", "old config"),
+            project_text_file("paths/old.json", "old path"),
+            project_text_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_text_file("config.json", "new config"),
+            project_text_file("paths/new.json", "new path"),
+            project_text_file("project.json", "new metadata"),
+        ];
+        install_test_project_files(&dir, &old);
+        stage_test_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_PREPARED);
+
+        // Simulate a crash after deleting obsolete paths and installing only part of
+        // the new set. project.json still being old is not relied upon for recovery.
+        remove_live_managed_project_files(&dir).expect("remove live files");
+        install_snapshot_file(&dir, &new[0]).expect("partial new install");
+        recover_project_file_transaction(&dir).expect("prepared recovery");
+
+        assert_eq!(read_managed_project_files(&dir).unwrap(), old);
+        assert!(!dir.join("paths/new.json").exists());
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn committed_project_transaction_completes_new_set_after_restart() {
+        let dir = temp_autos_dir("committed-project-recovery");
+        let old = vec![
+            project_text_file("config.json", "old config"),
+            project_text_file("paths/old.json", "old path"),
+            project_text_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_text_file("config.json", "new config"),
+            project_text_file("paths/new.json", "new path"),
+            project_text_file("project.json", "new metadata"),
+        ];
+        install_test_project_files(&dir, &old);
+        stage_test_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_COMMITTED);
+
+        recover_project_file_transaction(&dir).expect("committed recovery");
+
+        assert_eq!(read_managed_project_files(&dir).unwrap(), new);
+        assert!(!dir.join("paths/old.json").exists());
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn unprepared_project_transaction_is_discarded_without_touching_live_files() {
+        let dir = temp_autos_dir("unprepared-project-recovery");
+        let old = vec![
+            project_text_file("config.json", "old config"),
+            project_text_file("paths/old.json", "old path"),
+        ];
+        install_test_project_files(&dir, &old);
+        let transaction_dir = dir.join(PROJECT_SAVE_TRANSACTION_DIR);
+        fs::create_dir(&transaction_dir).expect("transaction fixture");
+        write_project_snapshot(
+            &transaction_dir.join("old"),
+            &[project_text_file("config.json", "incomplete snapshot")],
+        )
+        .expect("partial old snapshot");
+
+        recover_project_file_transaction(&dir).expect("unprepared recovery");
+
+        assert_eq!(read_managed_project_files(&dir).unwrap(), old);
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn project_version_tracks_content_not_directory_locator() {
+        let first = temp_autos_dir("project-version-first");
+        let second = temp_autos_dir("project-version-second");
+        let files = vec![
+            project_text_file("config.json", "config"),
+            project_text_file("paths/auto.json", "path"),
+            project_text_file("project.json", "metadata"),
+        ];
+        install_test_project_files(&first, &files);
+        install_test_project_files(&second, &files);
+
+        assert_eq!(
+            read_project_text_file_set(&first).unwrap().version,
+            read_project_text_file_set(&second).unwrap().version
+        );
+
+        fs::create_dir(first.join(".bline-web")).expect("legacy directory");
+        fs::write(first.join(".bline-web/state.json"), "legacy state").expect("legacy state");
+        assert_ne!(
+            read_project_text_file_set(&first).unwrap().version,
+            read_project_text_file_set(&second).unwrap().version,
+            "legacy migration inputs participate in conflict detection"
+        );
+    }
+
+    #[test]
+    fn canonical_project_set_rejects_non_project_and_duplicate_paths() {
+        let unsafe_files = vec![
+            project_text_file("config.json", "config"),
+            project_text_file("project.json", "metadata"),
+            project_text_file("paths/../outside.json", "bad"),
+        ];
+        assert!(validate_complete_project_file_set(&unsafe_files).is_err());
+
+        let duplicate_files = vec![
+            project_text_file("config.json", "first"),
+            project_text_file("config.json", "second"),
+            project_text_file("project.json", "metadata"),
+        ];
+        assert!(validate_complete_project_file_set(&duplicate_files).is_err());
+    }
+
+    fn project_text_file(relative_path: &str, contents: &str) -> ProjectTextFile {
+        ProjectTextFile {
+            relative_path: relative_path.to_owned(),
+            contents: contents.to_owned(),
+        }
+    }
+
+    fn install_test_project_files(dir: &Path, files: &[ProjectTextFile]) {
+        for file in files {
+            install_snapshot_file(dir, file).expect("install fixture file");
+        }
+    }
+
+    fn stage_test_transaction(
+        dir: &Path,
+        old: &[ProjectTextFile],
+        new: &[ProjectTextFile],
+        state: &str,
+    ) {
+        let transaction_dir = dir.join(PROJECT_SAVE_TRANSACTION_DIR);
+        fs::create_dir(&transaction_dir).expect("transaction fixture");
+        write_project_snapshot(&transaction_dir.join("old"), old).expect("old snapshot");
+        write_project_snapshot(&transaction_dir.join("new"), new).expect("new snapshot");
+        write_transaction_marker(&transaction_dir, state).expect("transaction marker");
     }
 
     fn temp_autos_dir(label: &str) -> PathBuf {

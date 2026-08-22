@@ -15,6 +15,7 @@ import {
   createTranslationTarget,
 } from "../../../src/core/model/path";
 import type { Project } from "../../../src/core/model/project";
+import type { ProjectFileDamage } from "../../../src/core/io/projectFiles";
 import { addPathToProject } from "../../../src/core/model/projectOperations";
 import {
   createAutosaveCoordinator,
@@ -30,7 +31,10 @@ import {
   isStorageConflict,
   type ProjectStore,
 } from "../../../src/state/projectStore";
-import { StorageConflictError } from "../../../src/storage";
+import {
+  ProjectPersistenceDamageError,
+  StorageConflictError,
+} from "../../../src/storage";
 import {
   createSelectionStore,
   normalizeElementSelection,
@@ -820,6 +824,43 @@ describe("save conflict recovery", () => {
   });
 });
 
+describe("damaged Project metadata recovery", () => {
+  it("keeps runtime content editable but requires explicit metadata replacement", async () => {
+    const io = new RecordingIo(exampleWorkspace("project-a", "Alpha", 1));
+    io.damage = {
+      sourcePath: "project.json",
+      message: "Invalid project.json document",
+      rawText: "{<<<<<<< HEAD\n",
+    };
+    const store = createProjectStore();
+    store.getState().setProjectIoService(io);
+
+    await store.getState().initializeWorkspace();
+    expect(store.getState()).toMatchObject({
+      status: "damaged",
+      dirty: false,
+      persistenceDamage: { sourcePath: "project.json" },
+    });
+
+    renameActivePath(store, "Recovered Auto");
+    expect(store.getState().status).toBe("damaged");
+    await expect(store.getState().saveWorkspace()).rejects.toBeInstanceOf(
+      ProjectPersistenceDamageError,
+    );
+
+    const result = await store.getState().replaceDamagedProject();
+    expect(result).not.toBeNull();
+    expect(store.getState()).toMatchObject({
+      status: "idle",
+      dirty: false,
+      persistenceDamage: null,
+    });
+    expect(activePathForProjectStore(store.getState())?.display_name).toBe(
+      "Recovered Auto",
+    );
+  });
+});
+
 describe("workspace conflict diff", () => {
   it("reports no changes when disk matches the in-memory workspace", () => {
     const mine = exampleTwoPathWorkspace();
@@ -987,6 +1028,7 @@ class RecordingIo implements ProjectIoService {
   }> = [];
   readonly exportedProjectNames: string[] = [];
   failExports = false;
+  damage: ProjectFileDamage | null = null;
 
   private workspace: Project | null;
   private version: string | undefined = this.initialVersion;
@@ -1050,6 +1092,18 @@ class RecordingIo implements ProjectIoService {
     return this.updatedAt;
   }
 
+  getPersistenceDamage() {
+    return this.damage;
+  }
+
+  getLegacyProjectViewMigration() {
+    return null;
+  }
+
+  async completeLegacyProjectMigration(): Promise<null> {
+    return null;
+  }
+
   async createWorkspace(input: { project?: Project } = {}) {
     if (!input.project) {
       throw new Error("Test createWorkspace requires a workspace");
@@ -1059,6 +1113,10 @@ class RecordingIo implements ProjectIoService {
   }
 
   async openWorkspace(): Promise<Project | null> {
+    return this.getWorkspace();
+  }
+
+  async reloadCurrentProject(): Promise<Project | null> {
     return this.getWorkspace();
   }
 
@@ -1073,6 +1131,9 @@ class RecordingIo implements ProjectIoService {
     workspace: Project,
     expectedVersion?: string,
   ): Promise<WriteResult> {
+    if (this.damage) {
+      throw new ProjectPersistenceDamageError(this.damage);
+    }
     if (
       this.armConflict &&
       expectedVersion !== undefined &&
@@ -1099,6 +1160,14 @@ class RecordingIo implements ProjectIoService {
     }
 
     return this.commitWrite(workspace);
+  }
+
+  async replaceDamagedProject(
+    project: Project,
+    expectedVersion?: string,
+  ): Promise<WriteResult> {
+    this.damage = null;
+    return this.saveWorkspace(project, expectedVersion);
   }
 
   private commitWrite(workspace: Project): WriteResult {
