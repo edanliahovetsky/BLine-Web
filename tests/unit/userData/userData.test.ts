@@ -338,6 +338,32 @@ describe("UserData", () => {
     expect(writeOrder).toEqual([[], ["newer"], ["newer"]]);
   });
 
+  it("drains a User Data mutation that arrives during flush", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    await service.flush();
+    const blocked = adapter.pauseNextMetadataWrite();
+
+    service.update((current) => ({
+      ...current,
+      completed_tour_ids: ["first"],
+    }));
+    await blocked.started;
+    const flushing = service.flush();
+    service.update((current) => ({
+      ...current,
+      completed_tour_ids: ["first", "during-flush"],
+    }));
+    blocked.release();
+
+    await flushing;
+    expect((adapter.persisted as UserData).completed_tour_ids).toEqual([
+      "first",
+      "during-flush",
+    ]);
+  });
+
   it("merges stale cross-instance Field metadata and layout writes", async () => {
     const adapter = new AssetMemoryAdapter();
     const fields = new UserDataService(adapter, {
@@ -365,6 +391,86 @@ describe("UserData", () => {
       field_backgrounds: [{ id: entry.id, name: "Shared Practice Field" }],
     });
     expect(fields.getSnapshot().editor_layout.inspector_width).toBe(456);
+  });
+
+  it("merges concurrent Field metadata and geometry edits property-by-property", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const creator = new UserDataService(adapter, {
+      idFactory: () => "field-property-merge",
+    });
+    await creator.initialize();
+    const entry = await creator.createFieldBackgroundFromBytes(fieldInput());
+    const renaming = new UserDataService(adapter);
+    const resizingLength = new UserDataService(adapter);
+    const resizingWidth = new UserDataService(adapter);
+    await Promise.all([
+      renaming.initialize(),
+      resizingLength.initialize(),
+      resizingWidth.initialize(),
+    ]);
+
+    await renaming.updateFieldBackgroundMetadata(entry.id, {
+      name: "Renamed Field",
+    });
+    await resizingLength.updateFieldBackgroundMetadata(entry.id, {
+      geometry: {
+        ...entry.geometry,
+        length_meters: 14.25,
+      },
+    });
+    await resizingWidth.updateFieldBackgroundMetadata(entry.id, {
+      geometry: {
+        ...entry.geometry,
+        width_meters: 7.5,
+      },
+    });
+
+    expect((adapter.persisted as UserData).field_backgrounds).toEqual([
+      {
+        ...entry,
+        name: "Renamed Field",
+        geometry: {
+          ...entry.geometry,
+          length_meters: 14.25,
+          width_meters: 7.5,
+        },
+      },
+    ]);
+  });
+
+  it("keeps unrelated concurrent Project view properties when a selection is removed", async () => {
+    const adapter = new AssetMemoryAdapter({
+      ...defaultUserData,
+      project_views: {
+        project: { selected_field_background_id: "field-selected" },
+      },
+    });
+    const removingSelection = new UserDataService(adapter);
+    const navigating = new UserDataService(adapter);
+    await Promise.all([
+      removingSelection.initialize(),
+      navigating.initialize(),
+    ]);
+
+    removingSelection.update((current) => ({
+      ...current,
+      project_views: {},
+    }));
+    await removingSelection.flush();
+    navigating.update((current) => ({
+      ...current,
+      project_views: {
+        project: {
+          ...current.project_views.project,
+          active_path_id: "path-concurrent",
+        },
+      },
+    }));
+    await navigating.flush();
+
+    expect((adapter.persisted as UserData).project_views).toEqual({
+      project: { active_path_id: "path-concurrent" },
+    });
   });
 
   it("unions monotonic tour completion across stale instances", async () => {
@@ -1249,7 +1355,13 @@ describe("UserData", () => {
     );
     expect(
       firstSnapshot.field_backgrounds.map((field) => field.geometry),
-    ).toEqual([first.geometry, second.geometry]);
+    ).toEqual(
+      [first.geometry, second.geometry].map((geometry) => ({
+        ...geometry,
+        coordinate_offset_x_meters: geometry.coordinate_offset_meters,
+        coordinate_offset_y_meters: geometry.coordinate_offset_meters,
+      })),
+    );
     expect(assets.size).toBe(2);
     expect(
       firstSnapshot.project_views["project-imported"]

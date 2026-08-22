@@ -7,6 +7,7 @@ export const BROWSER_USER_FIELD_ASSET_DB_NAME = "bline-web-user-field-assets";
 const userFieldAssetStoreName = "user-field-assets";
 const userDataStoreName = "user-data";
 const userDataRecordKey = "global";
+const defaultOpenBlockedTimeoutMs = 2_000;
 
 export interface UserDataStorage {
   getItem(key: string): string | null;
@@ -37,12 +38,14 @@ export interface BrowserUserDataAdapterOptions {
   storage?: UserDataStorage;
   key?: string;
   assetDbName?: string;
+  openBlockedTimeoutMs?: number;
 }
 
 export class BrowserUserDataAdapter implements UserDataAdapter {
   readonly storage: UserDataStorage;
   private readonly keyName: string;
   private readonly assetDbName: string;
+  private readonly openBlockedTimeoutMs: number;
   private readonly useStorageFallback: boolean;
   private dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -50,6 +53,8 @@ export class BrowserUserDataAdapter implements UserDataAdapter {
     this.storage = options.storage ?? window.localStorage;
     this.keyName = options.key ?? BROWSER_USER_DATA_KEY;
     this.assetDbName = options.assetDbName ?? BROWSER_USER_FIELD_ASSET_DB_NAME;
+    this.openBlockedTimeoutMs =
+      options.openBlockedTimeoutMs ?? defaultOpenBlockedTimeoutMs;
     // Explicit storage injection is retained for non-browser hosts and unit
     // tests. Normal browser persistence uses an IndexedDB transaction so the
     // revision check and replacement are indivisible across tabs.
@@ -191,10 +196,39 @@ export class BrowserUserDataAdapter implements UserDataAdapter {
     if (!("indexedDB" in globalThis)) {
       throw new Error("User Field Background storage is unavailable");
     }
-    this.dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
+    if (this.dbPromise) {
+      return this.dbPromise;
+    }
+
+    let blocked = false;
+    let settled = false;
+    const promise = new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(this.assetDbName, 2);
+      const timeout = setTimeout(() => {
+        settled = true;
+        this.dbPromise = null;
+        reject(
+          new Error(
+            blocked
+              ? "User Data storage upgrade is blocked by another BLine tab"
+              : "User Data storage did not open in time",
+          ),
+        );
+      }, this.openBlockedTimeoutMs);
+      const rejectOpen = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.dbPromise = null;
+        reject(error);
+      };
       request.addEventListener("error", () => {
-        reject(request.error ?? new Error("Failed to open User Field storage"));
+        rejectOpen(
+          request.error ?? new Error("Failed to open User Field storage"),
+        );
+      });
+      request.addEventListener("blocked", () => {
+        blocked = true;
       });
       request.addEventListener("upgradeneeded", () => {
         const db = request.result;
@@ -207,9 +241,25 @@ export class BrowserUserDataAdapter implements UserDataAdapter {
           db.createObjectStore(userDataStoreName, { keyPath: "key" });
         }
       });
-      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("success", () => {
+        const db = request.result;
+        if (settled) {
+          db.close();
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        db.addEventListener("versionchange", () => {
+          db.close();
+          if (this.dbPromise === promise) {
+            this.dbPromise = null;
+          }
+        });
+        resolve(db);
+      });
     });
-    return this.dbPromise;
+    this.dbPromise = promise;
+    return promise;
   }
 }
 

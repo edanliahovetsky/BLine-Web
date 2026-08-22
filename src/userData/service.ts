@@ -173,19 +173,27 @@ export class UserDataService {
     if (!this.writable) {
       throw new UserDataReadOnlyError();
     }
-    const pendingWrite = this.pendingWrite;
-    const targetRevision = this.snapshotRevision;
-    await pendingWrite;
-    if (this.durableRevision >= targetRevision) {
-      return;
+    while (true) {
+      const pendingWrite = this.pendingWrite;
+      const targetRevision = this.snapshotRevision;
+      await pendingWrite;
+      if (
+        pendingWrite !== this.pendingWrite ||
+        targetRevision !== this.snapshotRevision
+      ) {
+        continue;
+      }
+      if (this.durableRevision >= targetRevision) {
+        return;
+      }
+      const failure = [...this.writeFailures.entries()]
+        .filter(
+          ([revision]) =>
+            revision > this.durableRevision && revision <= targetRevision,
+        )
+        .sort(([left], [right]) => right - left)[0]?.[1];
+      throw failure ?? new UserDataVerificationError();
     }
-    const failure = [...this.writeFailures.entries()]
-      .filter(
-        ([revision]) =>
-          revision > this.durableRevision && revision <= targetRevision,
-      )
-      .sort(([left], [right]) => right - left)[0]?.[1];
-    throw failure ?? new UserDataVerificationError();
   }
 
   async verifyDurableSnapshot(): Promise<void> {
@@ -921,10 +929,60 @@ function mergeFieldBackgrounds(
     }
     merged.set(
       id,
-      sameUserData(baseEntry, localEntry) ? remoteEntry : localEntry,
+      mergeFieldBackgroundEntry(baseEntry, localEntry, remoteEntry),
     );
   }
   return [...merged.values()].map((entry) => structuredClone(entry));
+}
+
+function mergeFieldBackgroundEntry(
+  base: FieldBackgroundEntry,
+  local: FieldBackgroundEntry,
+  remote: FieldBackgroundEntry,
+): FieldBackgroundEntry {
+  return {
+    id: base.id,
+    name: mergeValue(base.name, local.name, remote.name),
+    file_name: mergeValue(base.file_name, local.file_name, remote.file_name),
+    mime_type: mergeValue(base.mime_type, local.mime_type, remote.mime_type),
+    size_bytes: mergeValue(
+      base.size_bytes,
+      local.size_bytes,
+      remote.size_bytes,
+    ),
+    created_at: mergeValue(
+      base.created_at,
+      local.created_at,
+      remote.created_at,
+    ),
+    geometry: {
+      length_meters: mergeValue(
+        base.geometry.length_meters,
+        local.geometry.length_meters,
+        remote.geometry.length_meters,
+      ),
+      width_meters: mergeValue(
+        base.geometry.width_meters,
+        local.geometry.width_meters,
+        remote.geometry.width_meters,
+      ),
+      coordinate_offset_meters: mergeValue(
+        base.geometry.coordinate_offset_meters,
+        local.geometry.coordinate_offset_meters,
+        remote.geometry.coordinate_offset_meters,
+      ),
+      coordinate_offset_x_meters: mergeValue(
+        base.geometry.coordinate_offset_x_meters,
+        local.geometry.coordinate_offset_x_meters,
+        remote.geometry.coordinate_offset_x_meters,
+      ),
+      coordinate_offset_y_meters: mergeValue(
+        base.geometry.coordinate_offset_y_meters,
+        local.geometry.coordinate_offset_y_meters,
+        remote.geometry.coordinate_offset_y_meters,
+      ),
+    },
+  };
 }
 
 function mergeOptionalRecord<T extends object>(
@@ -932,40 +990,35 @@ function mergeOptionalRecord<T extends object>(
   local: T | undefined,
   remote: T | undefined,
 ): T | undefined {
-  if (base && (!local || !remote)) {
-    return undefined;
-  }
-  if (!local) return remote;
-  if (!remote) return local;
   const result: Record<string, unknown> = {};
   const keys = new Set([
     ...Object.keys(base ?? {}),
-    ...Object.keys(local),
-    ...Object.keys(remote),
+    ...Object.keys(local ?? {}),
+    ...Object.keys(remote ?? {}),
   ]);
   for (const key of keys) {
     const baseRecord = base as Record<string, unknown> | undefined;
-    const localRecord = local as Record<string, unknown>;
-    const remoteRecord = remote as Record<string, unknown>;
+    const localRecord = local as Record<string, unknown> | undefined;
+    const remoteRecord = remote as Record<string, unknown> | undefined;
     const baseHas = baseRecord ? Object.hasOwn(baseRecord, key) : false;
-    const localHas = Object.hasOwn(localRecord, key);
-    const remoteHas = Object.hasOwn(remoteRecord, key);
+    const localHas = localRecord ? Object.hasOwn(localRecord, key) : false;
+    const remoteHas = remoteRecord ? Object.hasOwn(remoteRecord, key) : false;
     if (baseHas && (!localHas || !remoteHas)) continue;
     if (!localHas) {
-      if (remoteHas) result[key] = remoteRecord[key];
+      if (remoteHas) result[key] = remoteRecord?.[key];
       continue;
     }
     if (!remoteHas) {
-      result[key] = localRecord[key];
+      result[key] = localRecord?.[key];
       continue;
     }
     result[key] = mergeValue(
       baseRecord?.[key],
-      localRecord[key],
-      remoteRecord[key],
+      localRecord?.[key],
+      remoteRecord?.[key],
     );
   }
-  return result as T;
+  return Object.keys(result).length > 0 ? (result as T) : undefined;
 }
 
 function mergeRecord<T extends object>(

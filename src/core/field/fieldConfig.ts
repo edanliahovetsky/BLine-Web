@@ -267,6 +267,37 @@ export function fieldCoordinateOffsetYMeters(field: FieldGeometry): number {
   return field.coordinate_offset_y_meters ?? field.coordinate_offset_meters;
 }
 
+export const minimumFieldCoordinateSpanMeters = 0.01;
+
+export function fieldCoordinateOffsetMaximumMeters(
+  imageDimensionMeters: number,
+): number {
+  return Math.max(
+    0,
+    (imageDimensionMeters - minimumFieldCoordinateSpanMeters) / 2,
+  );
+}
+
+/** Keep every calibrated coordinate axis positive after image padding. */
+export function normalizeFieldCoordinateGeometry(
+  field: FieldGeometry,
+): FieldGeometry {
+  const maximumX = fieldCoordinateOffsetMaximumMeters(field.length_meters);
+  const maximumY = fieldCoordinateOffsetMaximumMeters(field.width_meters);
+  const offsetX = clamp(fieldCoordinateOffsetXMeters(field), 0, maximumX);
+  const offsetY = clamp(fieldCoordinateOffsetYMeters(field), 0, maximumY);
+  return {
+    ...field,
+    coordinate_offset_meters: clamp(
+      field.coordinate_offset_meters,
+      0,
+      Math.min(maximumX, maximumY),
+    ),
+    coordinate_offset_x_meters: offsetX,
+    coordinate_offset_y_meters: offsetY,
+  };
+}
+
 export function fieldCoordinateLengthMeters(field: FieldGeometry): number {
   return Math.max(
     0,
@@ -414,13 +445,13 @@ function normalizeGeometry(
     source.coordinate_offset_meters === undefined ? fallbackY : uniformOffset,
   );
 
-  return {
+  return normalizeFieldCoordinateGeometry({
     length_meters: positiveNumber(source.length_meters, fallback.length_meters),
     width_meters: positiveNumber(source.width_meters, fallback.width_meters),
     coordinate_offset_meters: uniformOffset,
     coordinate_offset_x_meters: offsetX,
     coordinate_offset_y_meters: offsetY,
-  };
+  });
 }
 
 function cloneGeometry(geometry: FieldGeometry): FieldGeometry {

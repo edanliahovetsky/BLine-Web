@@ -499,7 +499,10 @@ fn write_project_text_file_set(
         install_project_snapshot(project_dir, &new_dir)?;
         // Once the complete new set is installed, a failed marker update is not an
         // old-outcome signal: recovery recognizes a prepared transaction whose
-        // live files already equal the new snapshot. Retirement remains cleanup.
+        // live files already equal the new snapshot. Likewise, a failed retirement
+        // is cleanup-only. Leave its committed evidence in place; recovery will
+        // retire it only while the live files still exactly match this snapshot and
+        // will never reinstall it over later edits.
         if write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_COMMITTED).is_ok() {
             let _ = retire_project_file_transaction(project_dir, &transaction_dir);
         }
@@ -946,8 +949,22 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
     let state = fs::read_to_string(&marker).map_err(error_string)?;
     let old_snapshot = transaction_dir.join("old");
     let new_snapshot = transaction_dir.join("new");
-    let snapshot = match state.as_str() {
-        PROJECT_SAVE_TRANSACTION_COMMITTED => new_snapshot,
+    match state.as_str() {
+        PROJECT_SAVE_TRANSACTION_COMMITTED => {
+            let live_files = read_managed_project_files(project_dir)?;
+            let new_files = read_validated_project_snapshot(&new_snapshot)?;
+            if live_files == new_files {
+                // Installation completed before the committed marker was written.
+                // The live set is already authoritative, so recovery only retires
+                // the transaction. In particular, it must not reinstall the staged
+                // snapshot after an editor has had a chance to change live files.
+                return retire_project_file_transaction(project_dir, &transaction_dir);
+            }
+            return Err(
+                "storage-conflict: committed project transaction has divergent live files"
+                    .to_owned(),
+            );
+        }
         PROJECT_SAVE_TRANSACTION_PREPARED => {
             let live_files = read_managed_project_files(project_dir)?;
             let old_files = read_validated_project_snapshot(&old_snapshot)?;
@@ -972,16 +989,14 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
             // never replace an unrecognized live set on ambiguous evidence.
             let live_files = read_managed_project_files(project_dir)?;
             if live_files == read_validated_project_snapshot(&new_snapshot)? {
-                new_snapshot
+                return retire_project_file_transaction(project_dir, &transaction_dir);
             } else if live_files == read_validated_project_snapshot(&old_snapshot)? {
-                old_snapshot
+                return retire_project_file_transaction(project_dir, &transaction_dir);
             } else {
                 return Err("Project save transaction marker is invalid".to_owned());
             }
         }
-    };
-    install_project_snapshot(project_dir, &snapshot)?;
-    retire_project_file_transaction(project_dir, &transaction_dir)
+    }
 }
 
 fn install_project_snapshot(project_dir: &Path, snapshot_dir: &Path) -> Result<(), String> {
@@ -2020,8 +2035,30 @@ mod tests {
     }
 
     #[test]
-    fn committed_transaction_completes_new_set() {
-        let dir = temp_project_dir("committed-recovery");
+    fn committed_transaction_with_complete_new_live_set_only_retires() {
+        let dir = temp_project_dir("committed-after-install-crash");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("paths/old.json", "old path"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("paths/new.json", "new path"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &new);
+        stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_COMMITTED);
+
+        recover_project_file_transaction(&dir).unwrap();
+
+        assert_eq!(read_managed_project_files(&dir).unwrap(), new);
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn committed_transaction_preserves_old_live_set_and_evidence() {
+        let dir = temp_project_dir("committed-old-live");
         let old = vec![
             project_file("config.json", "old config"),
             project_file("paths/old.json", "old path"),
@@ -2035,10 +2072,75 @@ mod tests {
         install_files(&dir, &old);
         stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_COMMITTED);
 
-        recover_project_file_transaction(&dir).unwrap();
+        let error = recover_project_file_transaction(&dir).unwrap_err();
 
-        assert_eq!(read_managed_project_files(&dir).unwrap(), new);
-        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+        assert_eq!(
+            error,
+            "storage-conflict: committed project transaction has divergent live files"
+        );
+        assert_eq!(read_managed_project_files(&dir).unwrap(), old);
+        assert!(dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn committed_transaction_preserves_partial_live_set_and_evidence() {
+        let dir = temp_project_dir("committed-partial-live");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("paths/old.json", "old path"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("paths/new.json", "new path"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &new);
+        stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_COMMITTED);
+        fs::remove_file(dir.join("paths/new.json")).unwrap();
+        let partial = read_managed_project_files(&dir).unwrap();
+
+        let error = recover_project_file_transaction(&dir).unwrap_err();
+
+        assert!(error.contains("committed project transaction has divergent live files"));
+        assert_eq!(read_managed_project_files(&dir).unwrap(), partial);
+        assert!(dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn committed_cleanup_failure_never_overwrites_later_external_edits() {
+        let dir = temp_project_dir("committed-cleanup-external-edit");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("paths/old.json", "old path"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("paths/new.json", "new path"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &new);
+        // A committed transaction directory left behind models a crash or failed
+        // retirement after the save itself became durable.
+        stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_COMMITTED);
+        fs::write(dir.join("config.json"), "teammate config").unwrap();
+        fs::write(dir.join("paths/new.json"), "teammate path").unwrap();
+        let externally_edited = read_managed_project_files(&dir).unwrap();
+
+        let error = recover_project_file_transaction(&dir).unwrap_err();
+
+        assert!(error.contains("committed project transaction has divergent live files"));
+        assert_eq!(read_managed_project_files(&dir).unwrap(), externally_edited);
+        assert!(dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+        assert_eq!(
+            fs::read_to_string(
+                dir.join(PROJECT_SAVE_TRANSACTION_DIR)
+                    .join(PROJECT_SAVE_TRANSACTION_MARKER)
+            )
+            .unwrap(),
+            PROJECT_SAVE_TRANSACTION_COMMITTED
+        );
     }
 
     #[test]

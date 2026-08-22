@@ -1,6 +1,7 @@
-import type {
-  FieldBackgroundEntry,
-  FieldGeometry,
+import {
+  normalizeFieldCoordinateGeometry,
+  type FieldBackgroundEntry,
+  type FieldGeometry,
 } from "../core/field/fieldConfig";
 
 export type { FieldBackgroundEntry } from "../core/field/fieldConfig";
@@ -271,7 +272,7 @@ function fieldGeometry(value: unknown): FieldGeometry | null {
   ) {
     return null;
   }
-  return {
+  return normalizeFieldCoordinateGeometry({
     length_meters: lengthMeters,
     width_meters: widthMeters,
     coordinate_offset_meters: coordinateOffsetMeters,
@@ -281,7 +282,7 @@ function fieldGeometry(value: unknown): FieldGeometry | null {
     ...(coordinateOffsetY === undefined
       ? {}
       : { coordinate_offset_y_meters: coordinateOffsetY }),
-  };
+  });
 }
 
 function projectViews(

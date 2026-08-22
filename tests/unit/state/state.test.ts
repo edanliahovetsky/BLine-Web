@@ -15,12 +15,13 @@ import type { Project } from "../../../src/core/model/project";
 import type { ProjectFileDamage } from "../../../src/core/io/projectFiles";
 import { addPathToProject } from "../../../src/core/model/projectOperations";
 import {
-  createBrowserAutosaveRecoveryJournal,
   createAutosaveCoordinator,
   createProjectAutosaveCoordinator,
-  installDurableAutosaveCloseHandler,
-  restoreAutosaveRecoveryJournal,
 } from "../../../src/state/autosave";
+import {
+  createBrowserAutosaveRecoveryJournal,
+  restoreAutosaveRecoveryJournal,
+} from "../../../src/platform/projectLifecycle";
 import {
   createHistoryStore,
   type HistoryCommand,
@@ -1517,7 +1518,7 @@ describe("autosave coordinator", () => {
     const coordinator = createAutosaveCoordinator({
       io: new RecordingIo(workspace),
       scheduler: new ManualScheduler(),
-      recoveryJournal: journal,
+      onCheckpoint: (snapshot) => journal.write(snapshot),
       getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
     });
 
@@ -1529,86 +1530,6 @@ describe("autosave coordinator", () => {
       expectedVersion: "v0",
       dirty: true,
     });
-  });
-
-  it("flushes a close-time edit and clears recovery", async () => {
-    const workspace = exampleWorkspace("project-a", "Alpha", 1);
-    const project = openProjectFromLegacyWorkspace(workspace).project;
-    const io = new RecordingIo(workspace);
-    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage());
-    const coordinator = createAutosaveCoordinator({
-      io,
-      recoveryJournal: journal,
-      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
-    });
-    const close = new RecordingCloseTarget();
-
-    coordinator.checkpoint();
-    await installDurableAutosaveCloseHandler(close, coordinator);
-    await close.requestClose();
-
-    expect(close.prevented).toBe(true);
-    expect(close.destroyed).toBe(true);
-    expect(io.writes).toHaveLength(1);
-    expect(journal.read()).toBeNull();
-  });
-
-  it("keeps the window open while autosave is deliberately deferred", async () => {
-    const workspace = exampleWorkspace("project-a", "Alpha", 1);
-    const project = openProjectFromLegacyWorkspace(workspace).project;
-    const coordinator = createAutosaveCoordinator({
-      io: new RecordingIo(workspace),
-      shouldDefer: () => true,
-      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
-    });
-    const close = new RecordingCloseTarget();
-
-    await installDurableAutosaveCloseHandler(close, coordinator);
-    await close.requestClose();
-
-    expect(close.prevented).toBe(true);
-    expect(close.destroyed).toBe(false);
-    expect(coordinator.status).toBe("pending");
-  });
-
-  it("retains the recovery checkpoint when a forced flush fails", async () => {
-    const workspace = exampleWorkspace("project-a", "Alpha", 1);
-    const project = openProjectFromLegacyWorkspace(workspace).project;
-    const io = new RecordingIo(workspace);
-    io.simulateExternalEdit();
-    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage());
-    const coordinator = createAutosaveCoordinator({
-      io,
-      recoveryJournal: journal,
-      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
-    });
-    const close = new RecordingCloseTarget();
-
-    await installDurableAutosaveCloseHandler(close, coordinator);
-    await close.requestClose();
-
-    expect(close.prevented).toBe(true);
-    expect(close.destroyed).toBe(false);
-    expect(journal.read()?.project?.project_id).toBe("project-a");
-  });
-
-  it("keeps the window open when the close-time flush exceeds its bound", async () => {
-    const workspace = exampleWorkspace("project-a", "Alpha", 1);
-    const project = openProjectFromLegacyWorkspace(workspace).project;
-    const io = new RecordingIo(workspace);
-    io.deferWrites();
-    const coordinator = createAutosaveCoordinator({
-      io,
-      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
-    });
-    const close = new RecordingCloseTarget();
-
-    await installDurableAutosaveCloseHandler(close, coordinator, 0);
-    await close.requestClose();
-
-    expect(close.prevented).toBe(true);
-    expect(close.destroyed).toBe(false);
-    io.completeNextWrite();
   });
 
   it("restores a browser recovery checkpoint before the workspace is reopened", async () => {
@@ -2524,34 +2445,5 @@ class MapStorage {
 
   removeItem(key: string): void {
     this.values.delete(key);
-  }
-}
-
-class RecordingCloseTarget {
-  prevented = false;
-  destroyed = false;
-  private handler:
-    | ((event: { preventDefault(): void }) => void | Promise<void>)
-    | null = null;
-
-  async onCloseRequested(
-    handler: (event: { preventDefault(): void }) => void | Promise<void>,
-  ): Promise<() => void> {
-    this.handler = handler;
-    return () => {
-      this.handler = null;
-    };
-  }
-
-  async destroy(): Promise<void> {
-    this.destroyed = true;
-  }
-
-  async requestClose(): Promise<void> {
-    await this.handler?.({
-      preventDefault: () => {
-        this.prevented = true;
-      },
-    });
   }
 }

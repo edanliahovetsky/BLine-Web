@@ -15,6 +15,8 @@ import {
   defaultFieldId,
   fieldCoordinateOffsetXMeters,
   fieldCoordinateOffsetYMeters,
+  fieldCoordinateOffsetMaximumMeters,
+  normalizeFieldCoordinateGeometry,
   resolveUserFieldDefinition,
   type FieldBackgroundEntry,
   type FieldGeometry,
@@ -466,7 +468,9 @@ function FieldSettingsSection({
             label="Field Padding X (m)"
             value={fieldCoordinateOffsetXMeters(selectedField.geometry)}
             min={0}
-            max={5}
+            max={fieldCoordinateOffsetMaximumMeters(
+              selectedField.geometry.length_meters,
+            )}
             step={0.01}
             disabled={!selectedCustomField}
             onChange={(value) =>
@@ -482,7 +486,9 @@ function FieldSettingsSection({
             label="Field Padding Y (m)"
             value={fieldCoordinateOffsetYMeters(selectedField.geometry)}
             min={0}
-            max={5}
+            max={fieldCoordinateOffsetMaximumMeters(
+              selectedField.geometry.width_meters,
+            )}
             step={0.01}
             disabled={!selectedCustomField}
             onChange={(value) =>
@@ -1032,10 +1038,10 @@ function updateSelectedCustomField(
               ...field,
               ...("name" in update ? { name: update.name ?? field.name } : {}),
               geometry: update.geometry
-                ? {
+                ? normalizeFieldCoordinateGeometry({
                     ...field.geometry,
                     ...update.geometry,
-                  }
+                  })
                 : field.geometry,
             }
           : field,

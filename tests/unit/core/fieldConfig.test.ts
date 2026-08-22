@@ -3,8 +3,10 @@ import {
   clampPointToFieldCoordinates,
   coordinateEditBounds,
   fieldCoordinateBounds,
+  fieldCoordinateOffsetMaximumMeters,
   isPointWithinFieldCoordinates,
   movePointWithinFieldCoordinates,
+  normalizeFieldCoordinateGeometry,
   type FieldGeometry,
 } from "../../../src/core/field/fieldConfig";
 
@@ -77,5 +79,28 @@ describe("field coordinate bounds", () => {
         asymmetricField,
       ),
     ).toEqual({ x_meters: 8, y_meters: 0 });
+  });
+
+  it("keeps image padding below half of each Field dimension", () => {
+    const normalized = normalizeFieldCoordinateGeometry({
+      length_meters: 0.5,
+      width_meters: 1,
+      coordinate_offset_meters: 5,
+      coordinate_offset_x_meters: 5,
+      coordinate_offset_y_meters: -1,
+    });
+
+    expect(normalized.coordinate_offset_x_meters).toBe(
+      fieldCoordinateOffsetMaximumMeters(0.5),
+    );
+    expect(normalized.coordinate_offset_y_meters).toBe(0);
+    expect(normalized.coordinate_offset_meters).toBe(
+      fieldCoordinateOffsetMaximumMeters(0.5),
+    );
+    const bounds = fieldCoordinateBounds(normalized);
+    expect(bounds.minX).toBe(0);
+    expect(bounds.maxX).toBeCloseTo(0.01);
+    expect(bounds.minY).toBe(0);
+    expect(bounds.maxY).toBe(1);
   });
 });

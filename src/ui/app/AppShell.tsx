@@ -73,17 +73,21 @@ import {
   type ProjectWorkspaceSummary,
 } from "../../platform/projectIo";
 import {
+  createBrowserAutosaveRecoveryJournal,
+  createProjectRecoveryLifecycle,
+  installBrowserProjectUnloadHandler,
+  installDurableProjectCloseHandler,
+  restoreAutosaveRecoveryJournal,
+  type AutosaveRecoveryJournal,
+} from "../../platform/projectLifecycle";
+import {
   downloadBlob,
   isAbortError,
   saveBlobAs,
 } from "../../platform/fileExport";
 import {
-  createBrowserAutosaveRecoveryJournal,
   createProjectAutosaveCoordinator,
-  installDurableAutosaveCloseHandler,
-  restoreAutosaveRecoveryJournal,
   type AutosaveCoordinator,
-  type AutosaveRecoveryJournal,
   type AutosaveStatus,
 } from "../../state/autosave";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
@@ -375,7 +379,9 @@ export function AppShell() {
         ? createBrowserAutosaveRecoveryJournal()
         : null,
   );
-  const autosaveRecoveryFailedRef = useRef(false);
+  const [projectRecoveryLifecycle] = useState(() =>
+    createProjectRecoveryLifecycle(autosaveRecoveryJournal),
+  );
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
   const importHandlingRef = useRef(false);
@@ -483,13 +489,26 @@ export function AppShell() {
         autoVelocityStore.getState().setLastError(view.optimizerError);
         setShowGhostPaths(view.showGhostPaths);
       },
+      protectCapturedSession: (state) => {
+        const protectedSession = projectRecoveryLifecycle.protectSnapshot({
+          project: state.project,
+          expectedVersion: state.version,
+          dirty: state.dirty,
+        });
+        if (protectedSession) {
+          autosaveRef.current?.cancel();
+        }
+        return protectedSession;
+      },
+      releaseCapturedSession: () =>
+        projectRecoveryLifecycle.releaseSnapshotProtection(),
     });
     tourSessionRef.current = controller;
     return () => {
       controller.dispose();
       tourSessionRef.current = null;
     };
-  }, []);
+  }, [projectRecoveryLifecycle]);
 
   const setActiveTopMenu = useCallback((menu: TopMenuId | null) => {
     if (menu) {
@@ -611,10 +630,13 @@ export function AppShell() {
               service,
               autosaveRecoveryJournal,
             );
+            projectRecoveryLifecycle.completeInitialization();
           } catch (error) {
-            autosaveRecoveryFailedRef.current = true;
+            projectRecoveryLifecycle.markInitializationFailed();
             recoveryError = error;
           }
+        } else {
+          projectRecoveryLifecycle.completeInitialization();
         }
         await projectStore.getState().initializeWorkspace();
         if (recoveryError) {
@@ -643,6 +665,7 @@ export function AppShell() {
   }, [
     autosaveRecoveryJournal,
     environmentCapabilities,
+    projectRecoveryLifecycle,
     refreshWorkspaceSummaries,
   ]);
 
@@ -821,58 +844,91 @@ export function AppShell() {
       delayMs: 300,
       onStatusChange: setAutosaveStatus,
       onSaved: () => {
-        autosaveRecoveryFailedRef.current = false;
+        if (!projectStore.getState().dirty) {
+          projectRecoveryLifecycle.clearIfReady();
+        }
       },
-      recoveryJournal: autosaveRecoveryJournal ?? undefined,
+      onCheckpoint: (snapshot) => {
+        if (!projectRecoveryLifecycle.checkpoint(snapshot)) {
+          throw new Error("Project recovery checkpoint could not be written");
+        }
+      },
       shouldDefer: () =>
         legacyProjectMigrationOwnsSession(projectStore.getState()) ||
         projectStore.getState().status === "conflict" ||
         projectStore.getState().status === "damaged",
     });
     const coordinator = autosaveRef.current;
-    const checkpoint = () => coordinator.checkpoint();
-    const checkpointBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (projectStore.getState().dirty && !coordinator.checkpoint()) {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    let disposed = false;
-    let removeCloseListener: (() => void) | undefined;
-
-    if (environmentCapabilities.shell === "browser-web") {
-      window.addEventListener("beforeunload", checkpointBeforeUnload);
-      window.addEventListener("pagehide", checkpoint);
-    } else {
-      void import("@tauri-apps/api/window")
-        .then(({ getCurrentWindow }) =>
-          installDurableAutosaveCloseHandler(getCurrentWindow(), coordinator),
-        )
-        .then((unlisten) => {
-          if (disposed) {
-            unlisten();
-          } else {
-            removeCloseListener = unlisten;
-          }
-        })
-        .catch(() => {});
-    }
 
     return () => {
-      disposed = true;
-      removeCloseListener?.();
-      window.removeEventListener("beforeunload", checkpointBeforeUnload);
-      window.removeEventListener("pagehide", checkpoint);
       coordinator.checkpoint();
       coordinator.cancel();
       autosaveRef.current = null;
     };
-  }, [autosaveRecoveryJournal, environmentCapabilities, projectIo]);
+  }, [projectIo, projectRecoveryLifecycle]);
+
+  useEffect(() => {
+    const prepareClose = () => tourSessionRef.current?.restore();
+    const checkpoint = () => {
+      const state = projectStore.getState();
+      if (!state.dirty) {
+        return true;
+      }
+      return projectRecoveryLifecycle.checkpoint({
+        project: state.project,
+        expectedVersion: state.version,
+        dirty: state.dirty,
+      });
+    };
+
+    if (environmentCapabilities.shell === "browser-web") {
+      return installBrowserProjectUnloadHandler(window, {
+        prepareClose,
+        checkpoint,
+      });
+    }
+
+    let disposed = false;
+    let removeCloseListener: (() => void) | undefined;
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) =>
+        installDurableProjectCloseHandler(getCurrentWindow(), {
+          prepareClose,
+          getProjectState: () => {
+            const state = projectStore.getState();
+            return {
+              dirty: state.dirty,
+              activeSave: state.activeSave,
+              blocked:
+                state.projectTransitionInProgress ||
+                legacyProjectMigrationOwnsSession(state) ||
+                state.status === "conflict" ||
+                state.status === "damaged",
+            };
+          },
+          flushProject: () => projectStore.getState().saveWorkspace(),
+          flushUserData,
+        }),
+      )
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          removeCloseListener = unlisten;
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      removeCloseListener?.();
+    };
+  }, [environmentCapabilities, projectRecoveryLifecycle]);
 
   useEffect(() => {
     if (!durableProject || !dirty) {
-      if (!dirty && !autosaveRecoveryFailedRef.current) {
-        autosaveRef.current?.clearCheckpoint();
+      if (!dirty) {
+        projectRecoveryLifecycle.clearIfReady();
       }
       return;
     }
@@ -883,7 +939,12 @@ export function AppShell() {
     }
 
     autosaveRef.current?.schedule();
-  }, [canvasInteractionActive, dirty, durableProject]);
+  }, [
+    canvasInteractionActive,
+    dirty,
+    durableProject,
+    projectRecoveryLifecycle,
+  ]);
 
   useEffect(() => {
     if (lastSavedAt && projectIo) {

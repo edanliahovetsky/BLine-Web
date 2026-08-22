@@ -49,6 +49,7 @@ import type {
   LegacyProjectMigrationPreparation,
   WriteResult,
 } from "../platform/projectIo";
+import { isProjectIoConflict } from "../platform/projectIo";
 import type { ProjectFileDamage } from "../core/io/projectFiles";
 import {
   activePathForProject as locallyRememberedActivePath,
@@ -1881,13 +1882,5 @@ function isProjectPersistenceDamage(error: unknown): boolean {
  * the platform boundary, so state does not depend on native string protocols.
  */
 export function isStorageConflict(error: unknown): boolean {
-  if (
-    error &&
-    typeof error === "object" &&
-    "name" in error &&
-    (error as { name?: unknown }).name === "StorageConflictError"
-  ) {
-    return true;
-  }
-  return false;
+  return isProjectIoConflict(error);
 }

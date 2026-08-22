@@ -31,10 +31,13 @@ export interface TourSessionControllerOptions<View> {
   selections?: SelectionStore;
   tours?: StoreApi<TourState>;
   resolveTour?(tourId: string | null): TourDefinition | null;
+  protectCapturedSession?(session: ProjectStoreState): boolean;
+  releaseCapturedSession?(): void;
 }
 
 export interface TourSessionController {
   start(tourId: string): boolean;
+  restore(): void;
   dispose(): void;
 }
 
@@ -57,7 +60,7 @@ export function createTourSessionController<View>(
   let unsubscribeProject: (() => void) | null = null;
   let unsubscribeTour: (() => void) | null = null;
 
-  const restore = () => {
+  const restoreSession = () => {
     const captured = active;
     if (!captured) {
       return;
@@ -87,6 +90,7 @@ export function createTourSessionController<View>(
         )?.path ?? null,
       );
     options.restoreView(captured.view);
+    options.releaseCapturedSession?.();
   };
 
   return {
@@ -110,6 +114,9 @@ export function createTourSessionController<View>(
 
       const historyState = state.history.getState();
       const selectionState = selections.getState();
+      if (options.protectCapturedSession?.(state) === false) {
+        return false;
+      }
       const practiceSessionId = createSessionId("practice");
       const practiceProjectId =
         state.project?.project_id ?? `${practiceSessionId}-project`;
@@ -174,16 +181,23 @@ export function createTourSessionController<View>(
       });
       unsubscribeTour = tours.subscribe((nextState, previousState) => {
         if (previousState.activeTourId && !nextState.activeTourId) {
-          restore();
+          restoreSession();
         }
       });
       tours.getState().start(tourId);
       return true;
     },
+    restore() {
+      if (active && tours.getState().activeTourId) {
+        tours.getState().exit();
+      } else {
+        restoreSession();
+      }
+    },
     dispose() {
       if (active) {
         tours.getState().exit();
-        restore();
+        restoreSession();
       }
       unsubscribeProject?.();
       unsubscribeTour?.();

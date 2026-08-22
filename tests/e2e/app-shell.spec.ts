@@ -3,6 +3,91 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+test("surfaces a blocked User Data v1 to v2 upgrade instead of loading forever", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const databaseName = "bline-web-user-field-assets-held-v1-test";
+    const heldV1 = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 1);
+      request.addEventListener("upgradeneeded", () => {
+        request.result.createObjectStore("user-field-assets", {
+          keyPath: "entryId",
+        });
+      });
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    heldV1.addEventListener("versionchange", () => {
+      // Model a stale v1 owner that does not close cooperatively.
+    });
+
+    const adapterModulePath = "/src/userData/adapters.ts";
+    const { BrowserUserDataAdapter } = await import(
+      /* @vite-ignore */ adapterModulePath
+    );
+    const adapter = new BrowserUserDataAdapter({
+      assetDbName: databaseName,
+      openBlockedTimeoutMs: 50,
+    });
+    let blockedMessage = "";
+    try {
+      await adapter.read();
+    } catch (error) {
+      blockedMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    heldV1.close();
+    await adapter.read();
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(databaseName);
+      request.addEventListener("success", () => resolve());
+      request.addEventListener("error", () => reject(request.error));
+      request.addEventListener("blocked", () => {
+        reject(
+          new Error("User Data connection did not close on versionchange"),
+        );
+      });
+    });
+    return { blockedMessage };
+  });
+
+  expect(result.blockedMessage).toMatch(
+    /User Data storage upgrade is blocked by another BLine tab/,
+  );
+});
+
+test("closes its User Data connection when a newer database version is requested", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByTestId("save-status")).not.toContainText("Loading");
+
+  await expect(
+    page.evaluate(
+      () =>
+        new Promise<number>((resolve, reject) => {
+          const request = indexedDB.open("bline-web-user-field-assets", 3);
+          const timeout = window.setTimeout(
+            () => reject(new Error("User Data versionchange remained blocked")),
+            2_000,
+          );
+          request.addEventListener("success", () => {
+            window.clearTimeout(timeout);
+            const version = request.result.version;
+            request.result.close();
+            resolve(version);
+          });
+          request.addEventListener("error", () => {
+            window.clearTimeout(timeout);
+            reject(request.error);
+          });
+        }),
+    ),
+  ).resolves.toBe(3);
+});
+
 test("starts new users in a focused start center", async ({ page }) => {
   await page.goto("/");
 

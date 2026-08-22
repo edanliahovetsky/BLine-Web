@@ -47,3 +47,4 @@ export function createProjectIoService(
 }
 
 export * from "./types";
+export * from "./errors";
