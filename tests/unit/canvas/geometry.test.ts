@@ -33,10 +33,10 @@ import {
   createSetElementRatioCommand,
   createSetHandoffRadiusCommand,
   createSetHandoffRadiiCommand,
-  updateProjectElementHandoffRadius,
-  updateProjectElementRatio,
-  updateProjectElementRotation,
-  updateProjectElementPosition,
+  updatePathElementHandoffRadius,
+  updatePathElementRatio,
+  updatePathElementRotation,
+  updatePathElementPosition,
 } from "../../../src/canvas/modelSync";
 import {
   coveredDomainIndexesForConstraint,
@@ -317,18 +317,18 @@ describe("canvas model sync", () => {
       { x_meters: 6, y_meters: 7 },
     );
 
-    const moved = move.apply(project);
-    expect(getElementPosition(moved.path.path_elements, 1)).toEqual({
+    const moved = move.apply(project.path);
+    expect(getElementPosition(moved.path_elements, 1)).toEqual({
       x_meters: 6,
       y_meters: 7,
     });
 
     const reverted = move.revert(moved);
-    expect(getElementPosition(reverted.path.path_elements, 1)).toEqual({
+    expect(getElementPosition(reverted.path_elements, 1)).toEqual({
       x_meters: 3,
       y_meters: 4,
     });
-    expect(project.path.path_elements).not.toBe(moved.path.path_elements);
+    expect(project.path.path_elements).not.toBe(moved.path_elements);
   });
 
   it("rejects direct position updates for non-translation elements", () => {
@@ -341,7 +341,10 @@ describe("canvas model sync", () => {
     });
 
     expect(() =>
-      updateProjectElementPosition(project, 0, { x_meters: 2, y_meters: 3 }),
+      updatePathElementPosition(project.path, 0, {
+        x_meters: 2,
+        y_meters: 3,
+      }),
     ).toThrow("does not have an editable translation position");
   });
 
@@ -359,21 +362,21 @@ describe("canvas model sync", () => {
       }),
     });
 
-    const moved = updateProjectElementRatio(project, 1, 0.75);
-    expect(moved.path.path_elements[1]).toMatchObject({
+    const moved = updatePathElementRatio(project.path, 1, 0.75);
+    expect(moved.path_elements[1]).toMatchObject({
       type: "event_trigger",
       t_ratio: 0.75,
     });
 
     const command = createSetElementRatioCommand(2, 0.5, 0.1);
-    const updated = command.apply(project);
+    const updated = command.apply(project.path);
     const reverted = command.revert(updated);
 
-    expect(updated.path.path_elements[2]).toMatchObject({
+    expect(updated.path_elements[2]).toMatchObject({
       type: "rotation",
       t_ratio: 0.1,
     });
-    expect(reverted.path.path_elements[2]).toMatchObject({
+    expect(reverted.path_elements[2]).toMatchObject({
       type: "rotation",
       t_ratio: 0.5,
     });
@@ -393,13 +396,13 @@ describe("canvas model sync", () => {
       }),
     });
 
-    const updatedWaypoint = updateProjectElementRotation(
-      project,
+    const updatedWaypoint = updatePathElementRotation(
+      project.path,
       0,
       Math.PI / 2,
     );
     expect(
-      getElementHeadingRadians(updatedWaypoint.path.path_elements, 0),
+      getElementHeadingRadians(updatedWaypoint.path_elements, 0),
     ).toBeCloseTo(Math.PI / 2, 6);
 
     const command = createSetElementRotationCommand(
@@ -407,15 +410,16 @@ describe("canvas model sync", () => {
       Math.PI / 4,
       -Math.PI / 2,
     );
-    const updatedRotation = command.apply(project);
+    const updatedRotation = command.apply(project.path);
     const reverted = command.revert(updatedRotation);
 
     expect(
-      getElementHeadingRadians(updatedRotation.path.path_elements, 1),
+      getElementHeadingRadians(updatedRotation.path_elements, 1),
     ).toBeCloseTo(-Math.PI / 2, 6);
-    expect(
-      getElementHeadingRadians(reverted.path.path_elements, 1),
-    ).toBeCloseTo(Math.PI / 4, 6);
+    expect(getElementHeadingRadians(reverted.path_elements, 1)).toBeCloseTo(
+      Math.PI / 4,
+      6,
+    );
   });
 
   it("applies and reverts handoff radius plus source together", () => {
@@ -430,8 +434,8 @@ describe("canvas model sync", () => {
       { radiusMeters: 0.75, source: "manual" },
     );
 
-    const applied = command.apply(project);
-    const appliedElement = applied.path.path_elements[2];
+    const applied = command.apply(project.path);
+    const appliedElement = applied.path_elements[2];
     expect(
       appliedElement.type === "translation"
         ? appliedElement.intermediate_handoff_radius_meters
@@ -440,7 +444,7 @@ describe("canvas model sync", () => {
     expect(getHandoffRadiusSource(appliedElement)).toBe("manual");
 
     const reverted = command.revert(applied);
-    const revertedElement = reverted.path.path_elements[2];
+    const revertedElement = reverted.path_elements[2];
     expect(
       revertedElement.type === "translation"
         ? revertedElement.intermediate_handoff_radius_meters
@@ -455,11 +459,11 @@ describe("canvas model sync", () => {
       display_name: "Handoff Radius",
       path: handoffRadiusPath(),
     });
-    const updated = updateProjectElementHandoffRadius(project, 3, {
+    const updated = updatePathElementHandoffRadius(project.path, 3, {
       radiusMeters: 0.3,
       source: "auto",
     });
-    const element = updated.path.path_elements[3];
+    const element = updated.path_elements[3];
     expect(
       element.type === "waypoint"
         ? element.translation_target.intermediate_handoff_radius_meters
@@ -487,15 +491,13 @@ describe("canvas model sync", () => {
       },
     ]);
 
-    const applied = command.apply(project);
-    expect(getHandoffRadiusSource(applied.path.path_elements[2])).toBe(
-      "manual",
-    );
-    expect(getHandoffRadiusSource(applied.path.path_elements[3])).toBeNull();
+    const applied = command.apply(project.path);
+    expect(getHandoffRadiusSource(applied.path_elements[2])).toBe("manual");
+    expect(getHandoffRadiusSource(applied.path_elements[3])).toBeNull();
 
     const reverted = command.revert(applied);
-    expect(getHandoffRadiusSource(reverted.path.path_elements[2])).toBeNull();
-    expect(getHandoffRadiusSource(reverted.path.path_elements[3])).toBeNull();
+    expect(getHandoffRadiusSource(reverted.path_elements[2])).toBeNull();
+    expect(getHandoffRadiusSource(reverted.path_elements[3])).toBeNull();
   });
 
   it("rejects handoff radius writes on elements without one", () => {
@@ -505,7 +507,7 @@ describe("canvas model sync", () => {
       path: handoffRadiusPath(),
     });
     expect(() =>
-      updateProjectElementHandoffRadius(project, 1, {
+      updatePathElementHandoffRadius(project.path, 1, {
         radiusMeters: 0.2,
         source: null,
       }),

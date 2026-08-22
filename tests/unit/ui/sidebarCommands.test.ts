@@ -58,25 +58,22 @@ describe("sidebar commands", () => {
     const element = createDefaultElement(project, "event_trigger", 0);
     const insert = createInsertPathElementCommand(1, element);
 
-    const inserted = insert.apply(project);
+    const inserted = insert.apply(project.path);
 
-    expect(inserted.path.path_elements).toHaveLength(3);
-    expect(isEventTrigger(inserted.path.path_elements[1])).toBe(true);
+    expect(inserted.path_elements).toHaveLength(3);
+    expect(isEventTrigger(inserted.path_elements[1])).toBe(true);
     expect(project.path.path_elements).toHaveLength(2);
 
     const reverted = insert.revert(inserted);
-    expect(reverted.path.path_elements).toHaveLength(2);
+    expect(reverted.path_elements).toHaveLength(2);
 
-    const remove = createRemovePathElementCommand(
-      0,
-      reverted.path.path_elements[0],
-    );
+    const remove = createRemovePathElementCommand(0, reverted.path_elements[0]);
     const removed = remove.apply(reverted);
-    expect(removed.path.path_elements).toHaveLength(1);
+    expect(removed.path_elements).toHaveLength(1);
 
     const restored = remove.revert(removed);
-    expect(restored.path.path_elements).toHaveLength(2);
-    expect(isTranslationTarget(restored.path.path_elements[0])).toBe(true);
+    expect(restored.path_elements).toHaveLength(2);
+    expect(isTranslationTarget(restored.path_elements[0])).toBe(true);
   });
 
   it("duplicates an element as an independent, unlinked copy", () => {
@@ -88,11 +85,11 @@ describe("sidebar commands", () => {
     project.path.path_elements[0] = linked;
 
     const command = createDuplicatePathElementCommand(0, linked);
-    const applied = command.apply(project);
+    const applied = command.apply(project.path);
 
-    expect(applied.path.path_elements).toHaveLength(3);
-    const original = applied.path.path_elements[0];
-    const copy = applied.path.path_elements[1];
+    expect(applied.path_elements).toHaveLength(3);
+    const original = applied.path_elements[0];
+    const copy = applied.path_elements[1];
     expect(isTranslationTarget(original)).toBe(true);
     expect(isTranslationTarget(copy)).toBe(true);
     if (isTranslationTarget(original) && isTranslationTarget(copy)) {
@@ -106,21 +103,21 @@ describe("sidebar commands", () => {
     expect(getPathElementLinkedTargetId(copy)).toBeNull();
 
     const reverted = command.revert(applied);
-    expect(reverted.path.path_elements).toHaveLength(2);
+    expect(reverted.path_elements).toHaveLength(2);
   });
 
   it("inserts generated curve elements as a single reversible command", () => {
     const project = exampleProject();
-    const command = createInsertPathElementsCommand(1, [
+    const command = createInsertPathElementsCommand(project, 1, [
       createTranslationTarget({ x_meters: 2, y_meters: 1 }),
       createTranslationTarget({ x_meters: 3, y_meters: 2 }),
     ]);
 
-    const inserted = command.apply(project);
+    const inserted = command.apply(project.path);
 
-    expect(inserted.path.path_elements).toHaveLength(4);
+    expect(inserted.path_elements).toHaveLength(4);
     expect(
-      inserted.path.path_elements
+      inserted.path_elements
         .filter(isTranslationTarget)
         .map((element) => [element.x_meters, element.y_meters]),
     ).toEqual([
@@ -131,12 +128,13 @@ describe("sidebar commands", () => {
     ]);
 
     const reverted = command.revert(inserted);
-    expect(reverted.path.path_elements).toEqual(project.path.path_elements);
+    expect(reverted.path_elements).toEqual(project.path.path_elements);
   });
 
   it("auto-constrains generated curve elements and their exit segment", () => {
     const project = exampleProject();
     const command = createInsertPathElementsCommand(
+      project,
       1,
       [
         createTranslationTarget({ x_meters: 2, y_meters: 1 }),
@@ -145,8 +143,8 @@ describe("sidebar commands", () => {
       { applyAutoVelocityToInsertedRange: true },
     );
 
-    const inserted = command.apply(project);
-    const autoVelocityConstraints = inserted.path.ranged_constraints.filter(
+    const inserted = command.apply(project.path);
+    const autoVelocityConstraints = inserted.ranged_constraints.filter(
       (constraint) =>
         constraint.key === "max_velocity_meters_per_sec" &&
         constraint.source === "auto_velocity",
@@ -176,6 +174,7 @@ describe("sidebar commands", () => {
       }),
     });
     const command = createInsertPathElementsCommand(
+      project,
       1,
       [
         createTranslationTarget({ x_meters: 2, y_meters: 1 }),
@@ -184,13 +183,13 @@ describe("sidebar commands", () => {
       { applyAutoVelocityToInsertedRange: true },
     );
 
-    const inserted = command.apply(project);
-    const autoVelocityConstraints = inserted.path.ranged_constraints.filter(
+    const inserted = command.apply(project.path);
+    const autoVelocityConstraints = inserted.ranged_constraints.filter(
       (constraint) =>
         constraint.key === "max_velocity_meters_per_sec" &&
         constraint.source === "auto_velocity",
     );
-    const manualVelocityConstraints = inserted.path.ranged_constraints.filter(
+    const manualVelocityConstraints = inserted.ranged_constraints.filter(
       (constraint) =>
         constraint.key === "max_velocity_meters_per_sec" &&
         constraint.source !== "auto_velocity",
@@ -239,11 +238,11 @@ describe("sidebar commands", () => {
     });
 
     const command = createUpdatePathElementCommand(0, previous, next);
-    const updated = command.apply(project);
+    const updated = command.apply(project.path);
     const restored = command.revert(updated);
 
-    const updatedElement = updated.path.path_elements[0];
-    const restoredElement = restored.path.path_elements[0];
+    const updatedElement = updated.path_elements[0];
+    const restoredElement = restored.path_elements[0];
     expect(isWaypoint(updatedElement)).toBe(true);
     expect(isWaypoint(restoredElement)).toBe(true);
     if (isWaypoint(updatedElement) && isWaypoint(restoredElement)) {
@@ -409,10 +408,10 @@ describe("sidebar commands", () => {
     });
 
     const inserted = createInsertPathElementCommand(0, insertedElement).apply(
-      project,
+      project.path,
     );
 
-    expect(inserted.path.ranged_constraints).toEqual([
+    expect(inserted.ranged_constraints).toEqual([
       {
         key: "max_velocity_meters_per_sec",
         value: 2,
@@ -423,10 +422,10 @@ describe("sidebar commands", () => {
 
     const removed = createRemovePathElementCommand(
       0,
-      inserted.path.path_elements[0],
+      inserted.path_elements[0],
     ).apply(inserted);
 
-    expect(removed.path.ranged_constraints).toEqual([
+    expect(removed.ranged_constraints).toEqual([
       {
         key: "max_velocity_meters_per_sec",
         value: 2,
@@ -459,14 +458,14 @@ describe("sidebar commands", () => {
 
     expect(canMovePathElement(project, 2, 1)).toBe(true);
     const command = createMovePathElementCommand(2, 1);
-    const moved = command.apply(project);
+    const moved = command.apply(project.path);
 
-    expect(moved.path.path_elements.map((element) => element.type)).toEqual([
+    expect(moved.path_elements.map((element) => element.type)).toEqual([
       "translation",
       "translation",
       "translation",
     ]);
-    expect(moved.path.ranged_constraints).toEqual([
+    expect(moved.ranged_constraints).toEqual([
       {
         key: "max_velocity_meters_per_sec",
         value: 2,
@@ -476,7 +475,7 @@ describe("sidebar commands", () => {
     ]);
 
     const reverted = command.revert(moved);
-    expect(reverted.path.ranged_constraints).toEqual(
+    expect(reverted.ranged_constraints).toEqual(
       project.path.ranged_constraints,
     );
   });
@@ -511,13 +510,13 @@ describe("sidebar commands", () => {
     expect(isEventTrigger(converted)).toBe(true);
 
     const command = createChangePathElementTypeCommand(1, previous, converted);
-    const updated = command.apply(project);
+    const updated = command.apply(project.path);
     const restored = command.revert(updated);
 
-    expect(isEventTrigger(updated.path.path_elements[1])).toBe(true);
-    expect(updated.path.ranged_constraints).toEqual([]);
-    expect(isRotationTarget(restored.path.path_elements[1])).toBe(true);
-    expect(restored.path.ranged_constraints).toEqual(
+    expect(isEventTrigger(updated.path_elements[1])).toBe(true);
+    expect(updated.ranged_constraints).toEqual([]);
+    expect(isRotationTarget(restored.path_elements[1])).toBe(true);
+    expect(restored.ranged_constraints).toEqual(
       project.path.ranged_constraints,
     );
   });
@@ -529,13 +528,10 @@ describe("sidebar commands", () => {
       null,
       0.03,
     );
-    const withScalar = scalar.apply(project);
-    expect(withScalar.path.constraints.end_translation_tolerance_meters).toBe(
-      0.03,
-    );
+    const withScalar = scalar.apply(project.path);
+    expect(withScalar.constraints.end_translation_tolerance_meters).toBe(0.03);
     expect(
-      scalar.revert(withScalar).path.constraints
-        .end_translation_tolerance_meters,
+      scalar.revert(withScalar).constraints.end_translation_tolerance_meters,
     ).toBeNull();
 
     const add = createAddRangedConstraintCommand(
@@ -543,8 +539,8 @@ describe("sidebar commands", () => {
       2,
       2,
     );
-    const withRange = add.apply(project);
-    expect(withRange.path.ranged_constraints).toEqual([
+    const withRange = add.apply(project.path);
+    expect(withRange.ranged_constraints).toEqual([
       {
         key: "max_velocity_meters_per_sec",
         value: 2,
@@ -552,7 +548,7 @@ describe("sidebar commands", () => {
         end_ordinal: 1,
       },
     ]);
-    expect(add.revert(withRange).path.ranged_constraints).toEqual([]);
+    expect(add.revert(withRange).ranged_constraints).toEqual([]);
 
     const previous = {
       key: "max_velocity_meters_per_sec" as const,
@@ -575,19 +571,17 @@ describe("sidebar commands", () => {
       ...previous,
       value: 3,
     });
-    expect(update.apply(rangedProject).path.ranged_constraints[0].value).toBe(
+    expect(update.apply(rangedProject.path).ranged_constraints[0].value).toBe(
       3,
     );
 
     const split = createSplitRangedConstraintCommand(0);
-    const splitProject = split.apply(rangedProject);
-    expect(splitProject.path.ranged_constraints).toHaveLength(2);
-    expect(split.revert(splitProject).path.ranged_constraints).toEqual([
-      previous,
-    ]);
+    const splitProject = split.apply(rangedProject.path);
+    expect(splitProject.ranged_constraints).toHaveLength(2);
+    expect(split.revert(splitProject).ranged_constraints).toEqual([previous]);
 
     const remove = createRemoveRangedConstraintCommand(0, previous);
-    expect(remove.apply(rangedProject).path.ranged_constraints).toEqual([]);
+    expect(remove.apply(rangedProject.path).ranged_constraints).toEqual([]);
   });
 });
 
@@ -708,9 +702,9 @@ describe("generated constraint commands", () => {
     expect(canClearGeneratedConstraints(generated)).toBe(true);
 
     const command = createClearGeneratedConstraintsCommand();
-    const cleared = command.apply(generated);
+    const cleared = command.apply(generated.path);
 
-    const reverted = cleared.path.path_elements[1];
+    const reverted = cleared.path_elements[1];
     expect(
       reverted.type === "translation"
         ? reverted.intermediate_handoff_radius_meters
@@ -718,20 +712,22 @@ describe("generated constraint commands", () => {
     ).toBeNull();
     expect(getHandoffRadiusSource(reverted)).toBeNull();
 
-    const pinned = cleared.path.path_elements[2];
+    const pinned = cleared.path_elements[2];
     expect(
       pinned.type === "waypoint"
         ? pinned.translation_target.intermediate_handoff_radius_meters
         : null,
     ).toBeCloseTo(0.2, 9);
     expect(
-      cleared.path.ranged_constraints.some(
+      cleared.ranged_constraints.some(
         (constraint) => constraint.source === "auto_velocity",
       ),
     ).toBe(false);
-    expect(canClearGeneratedConstraints(cleared)).toBe(false);
+    expect(canClearGeneratedConstraints({ ...generated, path: cleared })).toBe(
+      false,
+    );
 
-    expect(command.revert(cleared).path).toEqual(generated.path);
+    expect(command.revert(cleared)).toEqual(generated.path);
   });
 });
 

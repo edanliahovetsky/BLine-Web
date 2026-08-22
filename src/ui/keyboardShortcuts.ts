@@ -69,14 +69,14 @@ export function removeSelectedPathElement(): boolean {
 
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createRemovePathElementCommand(selectedElementIndex, element),
     );
   selectionStore
     .getState()
     .selectElement(
       nextSelectionAfterRemoval(project, selectedElementIndex),
-      activePathDocumentForProjectStore(projectStore.getState()),
+      activePathDocumentForProjectStore(projectStore.getState())?.path,
     );
 
   return true;
@@ -124,7 +124,7 @@ export function nudgeSelectedPathElement(
 
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createUpdatePathElementCommand(
         selectedElementIndex,
         element,
@@ -150,14 +150,14 @@ export function duplicateSelectedPathElement(): boolean {
 
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createDuplicatePathElementCommand(selectedElementIndex, element),
     );
   selectionStore
     .getState()
     .selectElement(
       selectedElementIndex + 1,
-      activePathDocumentForProjectStore(projectStore.getState()),
+      activePathDocumentForProjectStore(projectStore.getState())?.path,
     );
 
   return true;
@@ -178,14 +178,14 @@ export function moveSelectedPathElement(direction: -1 | 1): boolean {
 
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createMovePathElementCommand(selectedElementIndex, nextIndex),
     );
   selectionStore
     .getState()
     .selectElement(
       nextIndex,
-      activePathDocumentForProjectStore(projectStore.getState()),
+      activePathDocumentForProjectStore(projectStore.getState())?.path,
     );
 
   return true;
@@ -212,7 +212,7 @@ export function selectAdjacentPathElement(direction: -1 | 1): boolean {
     return false;
   }
 
-  selectionStore.getState().selectElement(nextIndex, project);
+  selectionStore.getState().selectElement(nextIndex, project.path);
   return true;
 }
 
@@ -233,7 +233,7 @@ export function removeSelectedRangedConstraint(): boolean {
 
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createRemoveRangedConstraintCommand(
         selectedRangedConstraint.index,
         constraint,

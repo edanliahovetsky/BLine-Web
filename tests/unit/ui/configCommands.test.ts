@@ -18,13 +18,13 @@ describe("config commands", () => {
       project.config,
       nextConfig,
     );
-    const updated = command.apply(project);
+    const updated = command.apply(project.config);
     const reverted = command.revert(updated);
 
-    expect(updated.config.gui.robot.length_meters).toBe(0.8255);
+    expect(updated.gui.robot.length_meters).toBe(0.8255);
     expect(
-      updated.config.kinematic_constraints.default_max_velocity_meters_per_sec,
+      updated.kinematic_constraints.default_max_velocity_meters_per_sec,
     ).toBe(5.5);
-    expect(reverted.config).toEqual(project.config);
+    expect(reverted).toEqual(project.config);
   });
 });

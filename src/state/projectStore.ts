@@ -14,7 +14,11 @@ import {
   openProjectFromLegacyWorkspace,
   type EditorNavigation,
 } from "../core/io/legacyWorkspace";
-import { cloneProject, type Project } from "../core/model/project";
+import {
+  cloneProject,
+  type Project,
+  type ProjectConfig,
+} from "../core/model/project";
 import type { PathModel } from "../core/model/path";
 import {
   addLinkedTargetToWorkspace,
@@ -37,7 +41,6 @@ import {
   ensureWorkspaceHasActivePath,
   renamePathInWorkspace,
   removePathsFromGroupInWorkspace,
-  replaceActiveProjectInWorkspace,
   renamePathGroupInWorkspace,
   setActivePathGroupInWorkspace,
 } from "../core/io/workspaceSerde";
@@ -61,11 +64,13 @@ export type ProjectStatus =
 
 interface WorkspaceHistoryMetadata {
   createdPathId?: string;
+  focusPathId?: string;
 }
 
 interface ProjectSnapshotHistoryCommand extends HistoryCommand<Project> {
   kind: "project-snapshot";
   createdPathId?: string;
+  focusPathId?: string;
   previousSnapshot: Project;
   nextSnapshot: Project;
   previousNavigation: EditorNavigation;
@@ -75,6 +80,10 @@ interface ProjectSnapshotHistoryCommand extends HistoryCommand<Project> {
 interface ProjectPathHistoryCommand extends HistoryCommand<Project> {
   kind: "path-command";
   pathId: string;
+}
+
+interface ProjectConfigHistoryCommand extends HistoryCommand<Project> {
+  kind: "config-command";
 }
 
 export interface ProjectStoreState {
@@ -153,13 +162,17 @@ export interface ProjectStoreState {
   }): Promise<CustomFieldImage>;
   readFieldImageAsset(field: CustomFieldImage): Promise<Blob | null>;
   deleteFieldImageAsset(field: CustomFieldImage): Promise<void>;
-  applyCommand(command: HistoryCommand<ProjectDocument>): void;
+  applyPathCommand(command: HistoryCommand<PathModel>, pathId?: string): void;
+  applyConfigCommand(command: HistoryCommand<ProjectConfig>): void;
   /**
    * Applies a change that the editor derived from the document rather than one
    * the user made, so it never lands on the undo stack. Undo must step back
    * through the edit that triggered the derivation, not the derivation itself.
    */
-  applyDerivedCommand(command: HistoryCommand<ProjectDocument>): void;
+  applyDerivedPathCommand(
+    command: HistoryCommand<PathModel>,
+    pathId?: string,
+  ): void;
   undo(): void;
   redo(): void;
   markSaved(result: WriteResult): void;
@@ -413,6 +426,9 @@ export function createProjectStore(
         workspace,
         renamePathInWorkspace(workspace, pathId, name),
         "Rename path",
+        true,
+        {},
+        { focusPathId: pathId },
       );
     },
     duplicatePath(pathId, name, options) {
@@ -585,6 +601,9 @@ export function createProjectStore(
           targetId,
         ),
         "Link path element",
+        true,
+        {},
+        { focusPathId: pathId },
       );
     },
     unlinkPathElement(pathId, elementIndex) {
@@ -595,6 +614,9 @@ export function createProjectStore(
         workspace,
         unlinkPathElementInWorkspace(workspace, pathId, elementIndex),
         "Unlink path element",
+        true,
+        {},
+        { focusPathId: pathId },
       );
     },
     deletePaths(pathIds) {
@@ -712,22 +734,30 @@ export function createProjectStore(
       const io = requireProjectIo(get().io);
       await io.deleteFieldImageAsset(field);
     },
-    applyCommand(command) {
+    applyPathCommand(command, requestedPathId) {
       const project = requireProject(get().project);
-      const pathId = requireActivePathId(get());
+      const pathId = requestedPathId ?? requireActivePathId(get());
       const nextProject = history
         .getState()
         .execute(cloneProject(project), projectPathCommand(command, pathId));
 
       setProject(set, nextProject, currentNavigation(get()), true);
     },
-    applyDerivedCommand(command) {
+    applyConfigCommand(command) {
+      const project = requireProject(get().project);
+      const nextProject = history
+        .getState()
+        .execute(cloneProject(project), projectConfigCommand(command));
+
+      setProject(set, nextProject, currentNavigation(get()), true);
+    },
+    applyDerivedPathCommand(command, requestedPathId) {
       const project = get().project;
       if (!project) {
         return;
       }
 
-      const pathId = get().activePathId;
+      const pathId = requestedPathId ?? get().activePathId;
       if (!pathId) {
         return;
       }
@@ -884,6 +914,7 @@ function projectSnapshotCommand(
     kind: "project-snapshot",
     description,
     createdPathId: metadata.createdPathId,
+    focusPathId: metadata.focusPathId,
     previousSnapshot,
     nextSnapshot,
     previousNavigation: structuredClone(previousNavigation),
@@ -973,7 +1004,7 @@ function adoptWorkspace(
 }
 
 function projectPathCommand(
-  command: HistoryCommand<ProjectDocument>,
+  command: HistoryCommand<PathModel>,
   pathId: string,
 ): ProjectPathHistoryCommand {
   return {
@@ -981,37 +1012,43 @@ function projectPathCommand(
     pathId,
     description: command.description,
     apply: (project) => {
-      const focusedWorkspace = legacyWorkspaceFromOpenProject(project, {
-        activePathId: pathId,
-        activePathGroupId: null,
-      });
-      const activeDocument = activeProjectFromWorkspace(focusedWorkspace);
-      if (!activeDocument) {
-        return openProjectFromLegacyWorkspace(focusedWorkspace).project;
-      }
-      return openProjectFromLegacyWorkspace(
-        replaceActiveProjectInWorkspace(
-          focusedWorkspace,
-          command.apply(activeDocument),
-        ),
-      ).project;
+      return updateProjectPath(project, pathId, command.apply);
     },
     revert: (project) => {
-      const focusedWorkspace = legacyWorkspaceFromOpenProject(project, {
-        activePathId: pathId,
-        activePathGroupId: null,
-      });
-      const activeDocument = activeProjectFromWorkspace(focusedWorkspace);
-      if (!activeDocument) {
-        return openProjectFromLegacyWorkspace(focusedWorkspace).project;
-      }
-      return openProjectFromLegacyWorkspace(
-        replaceActiveProjectInWorkspace(
-          focusedWorkspace,
-          command.revert(activeDocument),
-        ),
-      ).project;
+      return updateProjectPath(project, pathId, command.revert);
     },
+  };
+}
+
+function updateProjectPath(
+  project: Project,
+  pathId: string,
+  update: (path: PathModel) => PathModel,
+): Project {
+  return {
+    ...project,
+    paths: project.paths.map((path) =>
+      path.path_id === pathId
+        ? { ...path, path: update(structuredClone(path.path)) }
+        : path,
+    ),
+  };
+}
+
+function projectConfigCommand(
+  command: HistoryCommand<ProjectConfig>,
+): ProjectConfigHistoryCommand {
+  return {
+    kind: "config-command",
+    description: command.description,
+    apply: (project) => ({
+      ...project,
+      config: command.apply(structuredClone(project.config)),
+    }),
+    revert: (project) => ({
+      ...project,
+      config: command.revert(structuredClone(project.config)),
+    }),
   };
 }
 
@@ -1021,6 +1058,12 @@ function navigationForHistory(
   state: ProjectStoreState,
 ): EditorNavigation {
   if (isProjectSnapshotCommand(command)) {
+    if (command.focusPathId) {
+      return {
+        activePathId: command.focusPathId,
+        activePathGroupId: state.activePathGroupId,
+      };
+    }
     return direction === "undo"
       ? command.previousNavigation
       : command.nextNavigation;

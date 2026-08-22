@@ -797,7 +797,7 @@ function AutoConstraintLedgerCard({
       activePathDocumentForProjectStore(projectStore.getState()) ?? project;
     selectionStore
       .getState()
-      .selectElement(nextSelection.focusIndex, latestProject);
+      .selectElement(nextSelection.focusIndex, latestProject.path);
   };
 
   return (
@@ -2743,7 +2743,7 @@ function ScalarConstraintRow({
           onChange={(nextValue) => {
             projectStore
               .getState()
-              .applyCommand(
+              .applyPathCommand(
                 createSetScalarConstraintCommand(
                   constraintKey,
                   currentValue,
@@ -2759,7 +2759,7 @@ function ScalarConstraintRow({
         onClick={() => {
           projectStore
             .getState()
-            .applyCommand(
+            .applyPathCommand(
               createSetScalarConstraintCommand(
                 constraintKey,
                 currentValue,
@@ -2840,7 +2840,7 @@ function addConstraint(
 
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createSetScalarConstraintCommand(
         key,
         project.path.constraints[key],
@@ -2871,7 +2871,7 @@ function addRangedConstraint(
   const previousConstraints = project.path.ranged_constraints;
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createAddRangedConstraintCommand(
         key,
         defaultFor(project, key, rangedMeta[key].defaultValue),
@@ -2910,7 +2910,7 @@ function selectRangedConstraint(
       startOrdinal: constraint.start_ordinal,
       endOrdinal: constraint.end_ordinal,
     },
-    project,
+    project.path,
   );
 }
 
@@ -2943,7 +2943,7 @@ function insertRangedConstraint(
   const end = clampOrdinal(endOrdinal, total);
   const previousLength = project.path.ranged_constraints.length;
 
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createInsertRangedConstraintCommand({
       key,
       value,
@@ -2974,7 +2974,7 @@ function updateRangedConstraint(
 
   projectStore
     .getState()
-    .applyCommand(
+    .applyPathCommand(
       createUpdateRangedConstraintCommand(
         index,
         previous,
@@ -3006,7 +3006,7 @@ function updateRangedConstraints(
   if (commandUpdates.length > 0) {
     projectStore
       .getState()
-      .applyCommand(createUpdateRangedConstraintsCommand(commandUpdates));
+      .applyPathCommand(createUpdateRangedConstraintsCommand(commandUpdates));
   }
 }
 
@@ -3015,7 +3015,7 @@ function deleteRangedConstraint(project: ProjectDocument, index: number): void {
   if (constraint) {
     projectStore
       .getState()
-      .applyCommand(createRemoveRangedConstraintCommand(index, constraint));
+      .applyPathCommand(createRemoveRangedConstraintCommand(index, constraint));
     selectionStore.getState().clearRangedConstraintSelection();
   }
 }
@@ -3023,7 +3023,7 @@ function deleteRangedConstraint(project: ProjectDocument, index: number): void {
 function splitRangedConstraint(index: number): void {
   projectStore
     .getState()
-    .applyCommand(createSplitRangedConstraintCommand(index));
+    .applyPathCommand(createSplitRangedConstraintCommand(index));
 }
 
 function runAfterBrowserPaint(task: () => void, onComplete: () => void): void {
@@ -3052,7 +3052,7 @@ function clearGeneratedConstraints(project: ProjectDocument): void {
 
   projectStore
     .getState()
-    .applyCommand(createClearGeneratedConstraintsCommand());
+    .applyPathCommand(createClearGeneratedConstraintsCommand());
   selectionStore.getState().clearRangedConstraintSelection();
 }
 
@@ -3066,7 +3066,7 @@ function setHandoffRadiusMode(
   chip: HandoffRadiusChip,
   mode: "auto" | "manual",
 ): void {
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createSetHandoffRadiusCommand(chip.elementIndex, storedHandoffState(chip), {
       radiusMeters: chip.effectiveValueMeters,
       source: mode,
@@ -3075,7 +3075,7 @@ function setHandoffRadiusMode(
 }
 
 function pinHandoffRadius(chip: HandoffRadiusChip, radiusMeters: number): void {
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createSetHandoffRadiusCommand(chip.elementIndex, storedHandoffState(chip), {
       radiusMeters,
       source: "manual",
@@ -3087,7 +3087,7 @@ function setHandoffRadiusModes(
   chips: readonly HandoffRadiusChip[],
   mode: "auto" | "manual",
 ): void {
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createSetHandoffRadiiCommand(
       chips.map((chip) => ({
         index: chip.elementIndex,
@@ -3106,7 +3106,7 @@ function pinHandoffRadii(
   chips: readonly HandoffRadiusChip[],
   radiusMeters: number,
 ): void {
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createSetHandoffRadiiCommand(
       chips.map((chip) => ({
         index: chip.elementIndex,
@@ -3119,7 +3119,7 @@ function pinHandoffRadii(
 }
 
 function clearHandoffRadii(chips: readonly HandoffRadiusChip[]): void {
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createSetHandoffRadiiCommand(
       chips.map((chip) => ({
         index: chip.elementIndex,
@@ -3258,7 +3258,7 @@ function updateRangedConstraintValues(
   entries: readonly RangedEntry[],
   value: number,
 ): void {
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createUpdateRangedConstraintsCommand(
       entries.map((entry) => ({
         index: entry.index,
@@ -3286,7 +3286,7 @@ function removeRangedConstraints(
   selectedEntries: readonly RangedEntry[],
 ): void {
   const selectedIndexes = new Set(selectedEntries.map((entry) => entry.index));
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createReplaceRangedConstraintsForKeyCommand(
       key,
       allEntries.map((entry) => entry.constraint),
@@ -3321,7 +3321,7 @@ function replaceVelocityConstraints(
   nextVelocityConstraints: readonly RangedConstraint[],
   description: string,
 ): void {
-  projectStore.getState().applyCommand(
+  projectStore.getState().applyPathCommand(
     createReplaceRangedConstraintsForKeyCommand(
       autoVelocityKey,
       project.path.ranged_constraints.filter(

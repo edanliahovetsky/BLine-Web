@@ -371,16 +371,21 @@ export function AppShell() {
         return;
       }
 
-      projectStore.getState().applyCommand(
-        createInsertPathElementsCommand(insertionIndex, targets, {
-          applyAutoVelocityToInsertedRange: true,
-        }),
+      projectStore.getState().applyPathCommand(
+        createInsertPathElementsCommand(
+          activeProject,
+          insertionIndex,
+          targets,
+          {
+            applyAutoVelocityToInsertedRange: true,
+          },
+        ),
       );
       selectionStore
         .getState()
         .selectElement(
           insertionIndex,
-          activePathDocumentForProjectStore(projectStore.getState()),
+          activePathDocumentForProjectStore(projectStore.getState())?.path,
         );
       setCurveToolSession(null);
       setActiveTool("select");
@@ -662,7 +667,7 @@ export function AppShell() {
         activeProject.config.gui.field.selected_field_id;
       const nextConfig = structuredClone(activeProject.config);
       nextConfig.gui.field.selected_field_id = "blank-grid";
-      latestState.applyCommand(
+      latestState.applyConfigCommand(
         createUpdateProjectConfigCommand(activeProject.config, nextConfig),
       );
     } else {
@@ -692,7 +697,7 @@ export function AppShell() {
       ) {
         const nextConfig = structuredClone(activeProject.config);
         nextConfig.gui.field.selected_field_id = returnFieldId;
-        state.applyCommand(
+        state.applyConfigCommand(
           createUpdateProjectConfigCommand(activeProject.config, nextConfig),
         );
       }
@@ -783,14 +788,14 @@ export function AppShell() {
 
       projectStore
         .getState()
-        .applyCommand(
+        .applyPathCommand(
           createInsertPathElementCommand(placement.insertionIndex, element),
         );
       selectionStore
         .getState()
         .selectElement(
           placement.insertionIndex,
-          activePathDocumentForProjectStore(projectStore.getState()),
+          activePathDocumentForProjectStore(projectStore.getState())?.path,
         );
     },
     [],
@@ -1594,7 +1599,7 @@ export function AppShell() {
       if (options.configChanged) {
         projectStore
           .getState()
-          .applyCommand(
+          .applyConfigCommand(
             createUpdateProjectConfigCommand(activeProject.config, nextConfig),
           );
       }
@@ -2207,7 +2212,7 @@ export function AppShell() {
                     if (diagnostic.elementIndex !== undefined) {
                       selectionStore
                         .getState()
-                        .selectElement(diagnostic.elementIndex, project);
+                        .selectElement(diagnostic.elementIndex, project?.path);
                       setInspectorOpen(true);
                     }
                     setShowPathHealth(false);
@@ -2621,7 +2626,8 @@ export function AppShell() {
               .getState()
               .selectElement(
                 preparation.selectElement,
-                activePathDocumentForProjectStore(projectStore.getState()),
+                activePathDocumentForProjectStore(projectStore.getState())
+                  ?.path,
               );
           }
         }}
@@ -4126,7 +4132,7 @@ function LinkedTargetsDialog({
       .getState()
       .selectElement(
         linkRequest.elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
     onCancel();
   };

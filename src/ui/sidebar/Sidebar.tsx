@@ -91,7 +91,7 @@ export function Sidebar({
     : undefined;
 
   const handleSelectElement = (index: number) => {
-    selectionStore.getState().selectElement(index, project);
+    selectionStore.getState().selectElement(index, project?.path);
   };
 
   const handleAddElement = (type: AddableElementType) => {
@@ -107,12 +107,14 @@ export function Sidebar({
     const element = createDefaultElement(project, type, selectedElementIndex);
     projectStore
       .getState()
-      .applyCommand(createInsertPathElementCommand(insertionIndex, element));
+      .applyPathCommand(
+        createInsertPathElementCommand(insertionIndex, element),
+      );
     selectionStore
       .getState()
       .selectElement(
         insertionIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -138,12 +140,12 @@ export function Sidebar({
 
     projectStore
       .getState()
-      .applyCommand(createRemovePathElementCommand(index, element));
+      .applyPathCommand(createRemovePathElementCommand(index, element));
     selectionStore
       .getState()
       .selectElement(
         nextSelectionAfterRemoval(index, selectedElementIndex),
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -159,12 +161,12 @@ export function Sidebar({
 
     projectStore
       .getState()
-      .applyCommand(createDuplicatePathElementCommand(index, element));
+      .applyPathCommand(createDuplicatePathElementCommand(index, element));
     selectionStore
       .getState()
       .selectElement(
         index + 1,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -180,12 +182,12 @@ export function Sidebar({
     );
     projectStore
       .getState()
-      .applyCommand(createMovePathElementCommand(fromIndex, toIndex));
+      .applyPathCommand(createMovePathElementCommand(fromIndex, toIndex));
     selectionStore
       .getState()
       .selectElement(
         nextSelection,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -205,7 +207,7 @@ export function Sidebar({
 
     projectStore
       .getState()
-      .applyCommand(
+      .applyPathCommand(
         createChangePathElementTypeCommand(
           selectedElementIndex,
           selectedElement,
@@ -216,7 +218,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -227,7 +229,7 @@ export function Sidebar({
 
     projectStore
       .getState()
-      .applyCommand(
+      .applyPathCommand(
         createUpdatePathElementCommand(
           selectedElementIndex,
           selectedElement,
@@ -238,7 +240,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -254,7 +256,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -295,7 +297,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
   };
 

@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import { refreshAutoVelocityConstraints } from "../../../src/core/constraints/autoVelocityApply";
-import { resetAutoVelocityRunner } from "../../../src/platform/autoVelocityRunner";
+import {
+  requestAutoRadiiAndCaps,
+  resetAutoVelocityRunner,
+} from "../../../src/platform/autoVelocityRunner";
 import {
   createProjectDocument,
   type ProjectDocument,
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
-import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
+import {
+  addPathToWorkspace,
+  projectDocumentToWorkspaceDocument,
+} from "../../../src/core/io/workspaceSerde";
 import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import {
   createPathModel,
@@ -15,6 +21,7 @@ import {
   getHandoffRadiusSource,
   isTranslationTarget,
   type PathElement,
+  type PathModel,
 } from "../../../src/core/model/path";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import { startAutoVelocitySync } from "../../../src/state/autoVelocitySync";
@@ -58,7 +65,7 @@ describe("auto velocity sync", () => {
 
     store
       .getState()
-      .applyCommand(
+      .applyPathCommand(
         createSetHandoffRadiusCommand(
           1,
           { radiusMeters: 0.35, source: null },
@@ -124,20 +131,17 @@ describe("auto velocity sync", () => {
     });
     expect(secondAnchorRadius(store)).not.toBeNull();
 
-    store.getState().applyCommand({
+    store.getState().applyPathCommand({
       description: "Straighten anchor",
-      apply: (project) => ({
-        ...project,
-        path: {
-          ...project.path,
-          path_elements: project.path.path_elements.map((element, index) =>
-            index === 1 && isTranslationTarget(element)
-              ? { ...element, x_meters: 0.8, y_meters: 0.4 }
-              : element,
-          ),
-        },
+      apply: (path) => ({
+        ...path,
+        path_elements: path.path_elements.map((element, index) =>
+          index === 1 && isTranslationTarget(element)
+            ? { ...element, x_meters: 0.8, y_meters: 0.4 }
+            : element,
+        ),
       }),
-      revert: (project) => project,
+      revert: (path) => path,
     });
     await waitForIdle(status);
 
@@ -211,6 +215,58 @@ describe("auto velocity sync", () => {
     );
     stop();
   });
+
+  it("applies an in-flight solve to its originating Path after navigation", async () => {
+    const firstWorkspace = exampleWorkspace(true);
+    const workspace = addPathToWorkspace(firstWorkspace, {
+      display_name: "Second",
+      file_name: "second.json",
+      path: structuredClone(firstWorkspace.paths[0].path),
+      makeActive: false,
+    });
+    const store = await initializedStore(workspace);
+    const status = createAutoVelocityStore();
+    const [firstPath, secondPath] = store.getState().project!.paths;
+    const secondBefore = structuredClone(secondPath.path.ranged_constraints);
+    let releaseRequest!: () => void;
+    const requestGate = new Promise<void>((resolve) => {
+      releaseRequest = resolve;
+    });
+    const request = vi.fn(
+      async (...args: Parameters<typeof requestAutoRadiiAndCaps>) => {
+        const result = await requestAutoRadiiAndCaps(...args);
+        await requestGate;
+        return result;
+      },
+    );
+    const stop = startAutoVelocitySync({
+      projects: store,
+      status,
+      delayMs: syncDelayMs,
+      request,
+    });
+
+    moveSecondAnchor(store, 3.2);
+    await vi.waitFor(() => expect(status.getState().phase).toBe("running"));
+    store.getState().setActivePath(secondPath.path_id);
+    releaseRequest();
+    await waitForIdle(status);
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(
+      store
+        .getState()
+        .project!.paths.find((path) => path.path_id === secondPath.path_id)!
+        .path.ranged_constraints,
+    ).toEqual(secondBefore);
+    expect(
+      store
+        .getState()
+        .project!.paths.find((path) => path.path_id === firstPath.path_id)!.path
+        .ranged_constraints,
+    ).not.toEqual(firstWorkspace.paths[0].path.ranged_constraints);
+    stop();
+  });
 });
 
 let staleValuesBeforeMove: number[] = [];
@@ -248,27 +304,21 @@ async function waitForIdle(
 }
 
 function moveSecondAnchor(store: ProjectStore, xMeters: number): void {
-  store.getState().applyCommand({
+  store.getState().applyPathCommand({
     description: "Move anchor",
-    apply: (project) => withSecondAnchorX(project, xMeters),
-    revert: (project) => withSecondAnchorX(project, 2.4),
+    apply: (path) => withSecondAnchorX(path, xMeters),
+    revert: (path) => withSecondAnchorX(path, 2.4),
   });
 }
 
-function withSecondAnchorX(
-  project: ProjectDocument,
-  xMeters: number,
-): ProjectDocument {
+function withSecondAnchorX(path: PathModel, xMeters: number): PathModel {
   return {
-    ...project,
-    path: {
-      ...project.path,
-      path_elements: project.path.path_elements.map((element, index) =>
-        index === 1 && isTranslationTarget(element)
-          ? { ...element, x_meters: xMeters }
-          : element,
-      ),
-    },
+    ...path,
+    path_elements: path.path_elements.map((element, index) =>
+      index === 1 && isTranslationTarget(element)
+        ? { ...element, x_meters: xMeters }
+        : element,
+    ),
   };
 }
 

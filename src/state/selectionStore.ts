@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { ProjectDocument } from "../core/io/projectSchema";
 import {
   isRangedConstraintKey,
+  type PathModel,
   type RangedConstraintKey,
 } from "../core/model/path";
 
@@ -15,14 +15,14 @@ export interface SelectedRangedConstraint {
 export interface SelectionState {
   selectedElementIndex: number | null;
   selectedRangedConstraint: SelectedRangedConstraint | null;
-  selectElement(index: number | null, project?: ProjectDocument | null): void;
+  selectElement(index: number | null, path?: PathModel | null): void;
   selectRangedConstraint(
     selection: SelectedRangedConstraint | null,
-    project?: ProjectDocument | null,
+    path?: PathModel | null,
   ): void;
   clearSelection(): void;
   clearRangedConstraintSelection(): void;
-  reconcileProject(project: ProjectDocument | null): void;
+  reconcilePath(path: PathModel | null): void;
 }
 
 export type SelectionStore = StoreApi<SelectionState>;
@@ -31,22 +31,22 @@ export function createSelectionStore(): SelectionStore {
   return createStore<SelectionState>((set, get) => ({
     selectedElementIndex: null,
     selectedRangedConstraint: null,
-    selectElement(index, project) {
+    selectElement(index, path) {
       set({
         selectedElementIndex:
-          project === undefined
+          path === undefined
             ? normalizeRawSelection(index)
-            : normalizeElementSelection(project, index),
+            : normalizeElementSelection(path, index),
         selectedRangedConstraint: null,
       });
     },
-    selectRangedConstraint(selection, project) {
+    selectRangedConstraint(selection, path) {
       set({
         selectedElementIndex: null,
         selectedRangedConstraint:
-          project === undefined
+          path === undefined
             ? normalizeRawRangedConstraintSelection(selection)
-            : normalizeRangedConstraintSelection(project, selection),
+            : normalizeRangedConstraintSelection(path, selection),
       });
     },
     clearSelection() {
@@ -55,14 +55,14 @@ export function createSelectionStore(): SelectionStore {
     clearRangedConstraintSelection() {
       set({ selectedRangedConstraint: null });
     },
-    reconcileProject(project) {
+    reconcilePath(path) {
       set({
         selectedElementIndex: normalizeElementSelection(
-          project,
+          path,
           get().selectedElementIndex,
         ),
         selectedRangedConstraint: normalizeRangedConstraintSelection(
-          project,
+          path,
           get().selectedRangedConstraint,
         ),
       });
@@ -73,11 +73,11 @@ export function createSelectionStore(): SelectionStore {
 export const selectionStore = createSelectionStore();
 
 export function normalizeElementSelection(
-  project: ProjectDocument | null,
+  path: PathModel | null,
   index: number | null,
 ): number | null {
   const rawSelection = normalizeRawSelection(index);
-  const length = project?.path.path_elements.length ?? 0;
+  const length = path?.path_elements.length ?? 0;
 
   if (rawSelection === null || length === 0) {
     return null;
@@ -95,15 +95,15 @@ function normalizeRawSelection(index: number | null): number | null {
 }
 
 export function normalizeRangedConstraintSelection(
-  project: ProjectDocument | null,
+  path: PathModel | null,
   selection: SelectedRangedConstraint | null,
 ): SelectedRangedConstraint | null {
   const rawSelection = normalizeRawRangedConstraintSelection(selection);
-  if (!project || rawSelection === null) {
+  if (!path || rawSelection === null) {
     return null;
   }
 
-  const constraint = project.path.ranged_constraints[rawSelection.index];
+  const constraint = path.ranged_constraints[rawSelection.index];
   if (!constraint || constraint.key !== rawSelection.key) {
     return null;
   }

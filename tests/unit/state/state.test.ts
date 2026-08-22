@@ -80,14 +80,14 @@ describe("history store", () => {
 });
 
 describe("project store", () => {
-  it("applies active-path commands and keeps undo/redo state", async () => {
+  it("applies Path metadata edits and keeps undo/redo state", async () => {
     const store = createProjectStore();
     const workspace = exampleWorkspace("project-a", "Alpha", 1);
     const io = new RecordingIo(workspace);
 
     store.getState().setProjectIoService(io);
     await store.getState().initializeWorkspace();
-    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    renameActivePath(store, "Beta");
 
     expect(
       activePathDocumentForProjectStore(store.getState())?.display_name,
@@ -126,7 +126,7 @@ describe("project store", () => {
       lastSavedAt: initialWrite.updatedAt,
     });
 
-    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    renameActivePath(store, "Beta");
     const secondWrite = await store.getState().saveWorkspace();
 
     expect(secondWrite).toMatchObject({ version: "v2" });
@@ -377,9 +377,10 @@ describe("project store", () => {
     const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
     const [firstPath, secondPath] = requireWorkspace(store).paths;
 
-    store.getState().setActivePath(secondPath.path_id);
-    store.getState().applyCommand(renameCommand("Beta Edited", "Beta"));
     store.getState().setActivePath(firstPath.path_id);
+    store.getState().renamePath(secondPath.path_id, "Beta Edited");
+
+    expect(requireWorkspace(store).active_path_id).toBe(firstPath.path_id);
 
     store.getState().undo();
     expect(requireWorkspace(store).active_path_id).toBe(secondPath.path_id);
@@ -454,16 +455,16 @@ describe("selection store", () => {
     const oneElement = exampleProject("project-a", "Alpha", 1);
     const empty = exampleProject("project-a", "Alpha", 0);
 
-    store.getState().selectElement(2, threeElements);
+    store.getState().selectElement(2, threeElements.path);
     expect(store.getState().selectedElementIndex).toBe(2);
 
-    store.getState().reconcileProject(oneElement);
+    store.getState().reconcilePath(oneElement.path);
     expect(store.getState().selectedElementIndex).toBe(0);
 
-    store.getState().reconcileProject(empty);
+    store.getState().reconcilePath(empty.path);
     expect(store.getState().selectedElementIndex).toBeNull();
 
-    expect(normalizeElementSelection(threeElements, -1)).toBeNull();
+    expect(normalizeElementSelection(threeElements.path, -1)).toBeNull();
   });
 
   it("tracks ranged constraint selection separately from element selection", () => {
@@ -494,7 +495,7 @@ describe("selection store", () => {
         startOrdinal: 0,
         endOrdinal: 2,
       },
-      project,
+      project.path,
     );
 
     expect(store.getState().selectedElementIndex).toBeNull();
@@ -505,12 +506,12 @@ describe("selection store", () => {
       endOrdinal: 2,
     });
 
-    store.getState().selectElement(1, project);
+    store.getState().selectElement(1, project.path);
     expect(store.getState().selectedElementIndex).toBe(1);
     expect(store.getState().selectedRangedConstraint).toBeNull();
 
     expect(
-      normalizeRangedConstraintSelection(project, {
+      normalizeRangedConstraintSelection(project.path, {
         key: "max_acceleration_meters_per_sec2",
         index: 0,
         startOrdinal: 1,
@@ -535,7 +536,7 @@ describe("autosave coordinator", () => {
     const store = createProjectStore();
     store.getState().setProjectIoService(io);
     await store.getState().initializeWorkspace();
-    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    renameActivePath(store, "Beta");
     const coordinator = createProjectAutosaveCoordinator(store, io);
 
     const result = await coordinator.flush();
@@ -618,7 +619,7 @@ describe("save conflict recovery", () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
     );
-    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    renameActivePath(store, "Beta");
     expect(store.getState().dirty).toBe(true);
 
     // An external tool changes the project on disk; the store still holds the old
@@ -640,7 +641,7 @@ describe("save conflict recovery", () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
     );
-    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    renameActivePath(store, "Beta");
     io.simulateExternalEdit();
 
     const coordinator = createProjectAutosaveCoordinator(store, io, {
@@ -663,7 +664,7 @@ describe("save conflict recovery", () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
     );
-    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    renameActivePath(store, "Beta");
     io.simulateExternalEdit();
     await expect(store.getState().saveWorkspace()).rejects.toThrow(
       /storage-conflict/,
@@ -687,7 +688,7 @@ describe("save conflict recovery", () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
     );
-    store.getState().applyCommand(renameCommand("Beta", "Alpha"));
+    renameActivePath(store, "Beta");
 
     // Disk now holds a different, externally-edited workspace.
     const diskWorkspace = exampleWorkspace("project-a", "External Edit", 1);
@@ -841,21 +842,12 @@ function requireWorkspace(store: ProjectStore): ProjectWorkspaceDocument {
   return workspace;
 }
 
-function renameCommand(
-  nextName: string,
-  previousName: string,
-): HistoryCommand<ProjectDocument> {
-  return {
-    description: `Rename project to ${nextName}`,
-    apply: (project) => ({
-      ...project,
-      display_name: nextName,
-    }),
-    revert: (project) => ({
-      ...project,
-      display_name: previousName,
-    }),
-  };
+function renameActivePath(store: ProjectStore, nextName: string): void {
+  const pathId = store.getState().activePathId;
+  if (!pathId) {
+    throw new Error("Expected an active Path");
+  }
+  store.getState().renamePath(pathId, nextName);
 }
 
 class RecordingIo implements ProjectIoService {

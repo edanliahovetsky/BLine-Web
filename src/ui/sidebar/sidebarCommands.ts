@@ -44,6 +44,7 @@ import {
   type ConstraintKey,
   type EventTrigger,
   type PathElement,
+  type PathModel,
   type RangedConstraint,
   type RangedConstraintKey,
   type RotationTarget,
@@ -93,44 +94,35 @@ export function getSwitchableElementTypes(
 export function createInsertPathElementCommand(
   index: number,
   element: PathElement,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let previousConstraints: RangedConstraint[] | null = null;
 
   return {
     description: `Insert ${element.type} element`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
-      const previousElements = nextProject.path.path_elements.slice();
-      previousConstraints ??= structuredClone(
-        nextProject.path.ranged_constraints,
-      );
-      const insertionIndex = clampIndex(
-        index,
-        nextProject.path.path_elements.length,
-      );
-      nextProject.path.path_elements.splice(
+    apply: (path) => {
+      const nextPath = structuredClone(path);
+      const previousElements = nextPath.path_elements.slice();
+      previousConstraints ??= structuredClone(nextPath.ranged_constraints);
+      const insertionIndex = clampIndex(index, nextPath.path_elements.length);
+      nextPath.path_elements.splice(
         insertionIndex,
         0,
         structuredClone(element),
       );
-      remapRangedConstraints(nextProject.path, previousElements);
-      return nextProject;
+      remapRangedConstraints(nextPath, previousElements);
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
-      const previousElements = nextProject.path.path_elements.slice();
-      const removalIndex = clampIndex(
-        index,
-        nextProject.path.path_elements.length - 1,
-      );
-      nextProject.path.path_elements.splice(removalIndex, 1);
+    revert: (path) => {
+      const nextPath = structuredClone(path);
+      const previousElements = nextPath.path_elements.slice();
+      const removalIndex = clampIndex(index, nextPath.path_elements.length - 1);
+      nextPath.path_elements.splice(removalIndex, 1);
       if (previousConstraints) {
-        nextProject.path.ranged_constraints =
-          structuredClone(previousConstraints);
+        nextPath.ranged_constraints = structuredClone(previousConstraints);
       } else {
-        remapRangedConstraints(nextProject.path, previousElements);
+        remapRangedConstraints(nextPath, previousElements);
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -138,7 +130,7 @@ export function createInsertPathElementCommand(
 export function createDuplicatePathElementCommand(
   index: number,
   element: PathElement,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   // A duplicate is an independent copy: drop any linked-target association so
   // the two elements do not silently move together.
   const clone = setPathElementLinkedTargetId(structuredClone(element), null);
@@ -170,9 +162,9 @@ export function canClearGeneratedConstraints(
  * The inverse: generated caps go away and generated radii revert to unset.
  * Pinned values of either kind survive.
  */
-export function createClearGeneratedConstraintsCommand(): HistoryCommand<ProjectDocument> {
-  return pathCommand("Clear generated constraints", (project) =>
-    clearGeneratedAutoConstraints(project.path),
+export function createClearGeneratedConstraintsCommand(): HistoryCommand<PathModel> {
+  return pathCommand("Clear generated constraints", (path) =>
+    clearGeneratedAutoConstraints(path),
   );
 }
 
@@ -190,92 +182,76 @@ export function handoffRadiusChipsForPath(
 
 function pathCommand(
   description: string,
-  nextPath: (project: ProjectDocument) => ProjectDocument["path"],
-): HistoryCommand<ProjectDocument> {
-  let previousPath: ProjectDocument["path"] | null = null;
+  updatePath: (path: PathModel) => PathModel,
+): HistoryCommand<PathModel> {
+  let previousPath: PathModel | null = null;
 
   return {
     description,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
-      previousPath ??= structuredClone(nextProject.path);
-      nextProject.path = nextPath(nextProject);
-      return nextProject;
+    apply: (path) => {
+      previousPath ??= structuredClone(path);
+      return updatePath(structuredClone(path));
     },
-    revert: (project) => {
+    revert: (path) => {
       if (!previousPath) {
-        return project;
+        return path;
       }
-      const nextProject = structuredClone(project);
-      nextProject.path = structuredClone(previousPath);
-      return nextProject;
+      return structuredClone(previousPath);
     },
   };
 }
 
 export function createInsertPathElementsCommand(
+  project: ProjectDocument,
   index: number,
   elements: readonly PathElement[],
   options: {
     applyAutoVelocityToInsertedRange?: boolean;
     refreshAutoVelocity?: boolean;
   } = {},
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let previousConstraints: RangedConstraint[] | null = null;
   const insertedElements = elements.map((element) => structuredClone(element));
+  const config = structuredClone(project.config);
 
   return {
     description: `Insert ${insertedElements.length} path elements`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
-      const previousElements = nextProject.path.path_elements.slice();
-      previousConstraints ??= structuredClone(
-        nextProject.path.ranged_constraints,
-      );
-      const insertionIndex = clampIndex(
-        index,
-        nextProject.path.path_elements.length,
-      );
-      nextProject.path.path_elements.splice(
+    apply: (path) => {
+      let nextPath = structuredClone(path);
+      const previousElements = nextPath.path_elements.slice();
+      previousConstraints ??= structuredClone(nextPath.ranged_constraints);
+      const insertionIndex = clampIndex(index, nextPath.path_elements.length);
+      nextPath.path_elements.splice(
         insertionIndex,
         0,
         ...insertedElements.map((element) => structuredClone(element)),
       );
-      remapRangedConstraints(nextProject.path, previousElements);
+      remapRangedConstraints(nextPath, previousElements);
       if (options.applyAutoVelocityToInsertedRange) {
-        nextProject.path = applyAutoVelocityConstraintsToOrdinals(
-          nextProject.path,
-          nextProject.config,
+        nextPath = applyAutoVelocityConstraintsToOrdinals(
+          nextPath,
+          config,
           autoVelocityOrdinalsForInsertedRange(
-            nextProject.path.path_elements,
+            nextPath.path_elements,
             insertionIndex,
             insertedElements.length,
           ),
         );
       } else if (options.refreshAutoVelocity) {
-        nextProject.path = refreshAutoVelocityConstraints(
-          nextProject.path,
-          nextProject.config,
-          { whenPresentOnly: true },
-        );
+        nextPath = refreshAutoVelocityConstraints(nextPath, config, {
+          whenPresentOnly: true,
+        });
       }
-      return nextProject;
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
-      const removalIndex = clampIndex(
-        index,
-        nextProject.path.path_elements.length,
-      );
-      nextProject.path.path_elements.splice(
-        removalIndex,
-        insertedElements.length,
-      );
+    revert: (path) => {
+      const nextPath = structuredClone(path);
+      const removalIndex = clampIndex(index, nextPath.path_elements.length);
+      nextPath.path_elements.splice(removalIndex, insertedElements.length);
       if (previousConstraints) {
-        nextProject.path.ranged_constraints =
-          structuredClone(previousConstraints);
+        nextPath.ranged_constraints = structuredClone(previousConstraints);
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -315,42 +291,36 @@ function autoVelocityOrdinalsForInsertedRange(
 export function createRemovePathElementCommand(
   index: number,
   element: PathElement,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let previousConstraints: RangedConstraint[] | null = null;
 
   return {
     description: `Remove ${element.type} element`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
-      if (index >= 0 && index < nextProject.path.path_elements.length) {
-        const previousElements = nextProject.path.path_elements.slice();
-        previousConstraints ??= structuredClone(
-          nextProject.path.ranged_constraints,
-        );
-        nextProject.path.path_elements.splice(index, 1);
-        remapRangedConstraints(nextProject.path, previousElements);
+    apply: (path) => {
+      const nextPath = structuredClone(path);
+      if (index >= 0 && index < nextPath.path_elements.length) {
+        const previousElements = nextPath.path_elements.slice();
+        previousConstraints ??= structuredClone(nextPath.ranged_constraints);
+        nextPath.path_elements.splice(index, 1);
+        remapRangedConstraints(nextPath, previousElements);
       }
-      return nextProject;
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
-      const previousElements = nextProject.path.path_elements.slice();
-      const insertionIndex = clampIndex(
-        index,
-        nextProject.path.path_elements.length,
-      );
-      nextProject.path.path_elements.splice(
+    revert: (path) => {
+      const nextPath = structuredClone(path);
+      const previousElements = nextPath.path_elements.slice();
+      const insertionIndex = clampIndex(index, nextPath.path_elements.length);
+      nextPath.path_elements.splice(
         insertionIndex,
         0,
         structuredClone(element),
       );
       if (previousConstraints) {
-        nextProject.path.ranged_constraints =
-          structuredClone(previousConstraints);
+        nextPath.ranged_constraints = structuredClone(previousConstraints);
       } else {
-        remapRangedConstraints(nextProject.path, previousElements);
+        remapRangedConstraints(nextPath, previousElements);
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -359,11 +329,11 @@ export function createUpdatePathElementCommand(
   index: number,
   previousElement: PathElement,
   nextElement: PathElement,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Update element ${index + 1}`,
-    apply: (project) => replaceElement(project, index, nextElement),
-    revert: (project) => replaceElement(project, index, previousElement),
+    apply: (path) => replaceElement(path, index, nextElement),
+    revert: (path) => replaceElement(path, index, previousElement),
   };
 }
 
@@ -371,26 +341,21 @@ export function createChangePathElementTypeCommand(
   index: number,
   previousElement: PathElement,
   nextElement: PathElement,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let previousConstraints: RangedConstraint[] | null = null;
 
   return {
     description: `Change element ${index + 1} type`,
-    apply: (project) => {
-      previousConstraints ??= structuredClone(project.path.ranged_constraints);
-      return replaceElementAndRemap(project, index, nextElement);
+    apply: (path) => {
+      previousConstraints ??= structuredClone(path.ranged_constraints);
+      return replaceElementAndRemap(path, index, nextElement);
     },
-    revert: (project) => {
-      const nextProject = replaceElementAndRemap(
-        project,
-        index,
-        previousElement,
-      );
+    revert: (path) => {
+      const nextPath = replaceElementAndRemap(path, index, previousElement);
       if (previousConstraints) {
-        nextProject.path.ranged_constraints =
-          structuredClone(previousConstraints);
+        nextPath.ranged_constraints = structuredClone(previousConstraints);
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -398,22 +363,21 @@ export function createChangePathElementTypeCommand(
 export function createMovePathElementCommand(
   fromIndex: number,
   toIndex: number,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let previousConstraints: RangedConstraint[] | null = null;
 
   return {
     description: `Reorder element ${fromIndex + 1}`,
-    apply: (project) => {
-      previousConstraints ??= structuredClone(project.path.ranged_constraints);
-      return moveElement(project, fromIndex, toIndex);
+    apply: (path) => {
+      previousConstraints ??= structuredClone(path.ranged_constraints);
+      return moveElement(path, fromIndex, toIndex);
     },
-    revert: (project) => {
-      const nextProject = moveElement(project, toIndex, fromIndex);
+    revert: (path) => {
+      const nextPath = moveElement(path, toIndex, fromIndex);
       if (previousConstraints) {
-        nextProject.path.ranged_constraints =
-          structuredClone(previousConstraints);
+        nextPath.ranged_constraints = structuredClone(previousConstraints);
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -422,11 +386,11 @@ export function createSetScalarConstraintCommand(
   key: ConstraintKey,
   previousValue: number | null,
   nextValue: number | null,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Set ${key}`,
-    apply: (project) => updateScalarConstraint(project, key, nextValue),
-    revert: (project) => updateScalarConstraint(project, key, previousValue),
+    apply: (path) => updateScalarConstraint(path, key, nextValue),
+    revert: (path) => updateScalarConstraint(path, key, previousValue),
   };
 }
 
@@ -434,29 +398,29 @@ export function createAddRangedConstraintCommand(
   key: RangedConstraintKey,
   value: number,
   total: number,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let addedSnapshot: RangedConstraint | null = null;
 
   return {
     description: `Add ranged ${key}`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
+    apply: (path) => {
+      const nextPath = structuredClone(path);
       const added = appendRangedConstraintInstance(
-        nextProject.path.ranged_constraints,
+        nextPath.ranged_constraints,
         key,
         value,
         total,
       );
       addedSnapshot = added ? structuredClone(added) : null;
       if (added) {
-        nextProject.path.constraints[key] = null;
+        nextPath.constraints[key] = null;
       }
-      return nextProject;
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
+    revert: (path) => {
+      const nextPath = structuredClone(path);
       if (addedSnapshot) {
-        const index = nextProject.path.ranged_constraints.findIndex(
+        const index = nextPath.ranged_constraints.findIndex(
           (constraint) =>
             constraint.key === addedSnapshot?.key &&
             constraint.value === addedSnapshot.value &&
@@ -464,10 +428,10 @@ export function createAddRangedConstraintCommand(
             constraint.end_ordinal === addedSnapshot.end_ordinal,
         );
         if (index >= 0) {
-          nextProject.path.ranged_constraints.splice(index, 1);
+          nextPath.ranged_constraints.splice(index, 1);
         }
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -476,11 +440,11 @@ export function createUpdateRangedConstraintCommand(
   index: number,
   previous: RangedConstraint,
   next: RangedConstraint,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Update ranged constraint ${index + 1}`,
-    apply: (project) => replaceRangedConstraint(project, index, next),
-    revert: (project) => replaceRangedConstraint(project, index, previous),
+    apply: (path) => replaceRangedConstraint(path, index, next),
+    revert: (path) => replaceRangedConstraint(path, index, previous),
   };
 }
 
@@ -490,38 +454,38 @@ export function createUpdateRangedConstraintsCommand(
     previous: RangedConstraint;
     next: RangedConstraint;
   }>,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Update ${updates.length} ranged constraints`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
+    apply: (path) => {
+      const nextPath = structuredClone(path);
       for (const update of updates) {
         if (
           update.index >= 0 &&
-          update.index < nextProject.path.ranged_constraints.length
+          update.index < nextPath.ranged_constraints.length
         ) {
-          nextProject.path.ranged_constraints[update.index] = structuredClone(
+          nextPath.ranged_constraints[update.index] = structuredClone(
             update.next,
           );
-          nextProject.path.constraints[update.next.key] = null;
+          nextPath.constraints[update.next.key] = null;
         }
       }
-      return nextProject;
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
+    revert: (path) => {
+      const nextPath = structuredClone(path);
       for (const update of updates) {
         if (
           update.index >= 0 &&
-          update.index < nextProject.path.ranged_constraints.length
+          update.index < nextPath.ranged_constraints.length
         ) {
-          nextProject.path.ranged_constraints[update.index] = structuredClone(
+          nextPath.ranged_constraints[update.index] = structuredClone(
             update.previous,
           );
-          nextProject.path.constraints[update.previous.key] = null;
+          nextPath.constraints[update.previous.key] = null;
         }
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -531,40 +495,40 @@ export function createReplaceRangedConstraintsForKeyCommand(
   previous: readonly RangedConstraint[],
   next: readonly RangedConstraint[],
   description = `Set ranged ${key}`,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description,
-    apply: (project) => replaceRangedConstraintsForKey(project, key, next),
-    revert: (project) => replaceRangedConstraintsForKey(project, key, previous),
+    apply: (path) => replaceRangedConstraintsForKey(path, key, next),
+    revert: (path) => replaceRangedConstraintsForKey(path, key, previous),
   };
 }
 
 export function createInsertRangedConstraintCommand(
   constraint: RangedConstraint,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let insertedIndex: number | null = null;
 
   return {
     description: `Insert ranged ${constraint.key}`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
-      nextProject.path.ranged_constraints.push(structuredClone(constraint));
-      insertedIndex = nextProject.path.ranged_constraints.length - 1;
-      nextProject.path.constraints[constraint.key] = null;
-      return nextProject;
+    apply: (path) => {
+      const nextPath = structuredClone(path);
+      nextPath.ranged_constraints.push(structuredClone(constraint));
+      insertedIndex = nextPath.ranged_constraints.length - 1;
+      nextPath.constraints[constraint.key] = null;
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
+    revert: (path) => {
+      const nextPath = structuredClone(path);
       const index =
         insertedIndex !== null
           ? insertedIndex
-          : nextProject.path.ranged_constraints.findIndex((candidate) =>
+          : nextPath.ranged_constraints.findIndex((candidate) =>
               sameRangedConstraint(candidate, constraint),
             );
-      if (index >= 0 && index < nextProject.path.ranged_constraints.length) {
-        nextProject.path.ranged_constraints.splice(index, 1);
+      if (index >= 0 && index < nextPath.ranged_constraints.length) {
+        nextPath.ranged_constraints.splice(index, 1);
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -572,54 +536,44 @@ export function createInsertRangedConstraintCommand(
 export function createRemoveRangedConstraintCommand(
   index: number,
   constraint: RangedConstraint,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Remove ranged constraint ${index + 1}`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
-      nextProject.path.ranged_constraints.splice(index, 1);
-      return nextProject;
+    apply: (path) => {
+      const nextPath = structuredClone(path);
+      nextPath.ranged_constraints.splice(index, 1);
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
-      nextProject.path.ranged_constraints.splice(
-        index,
-        0,
-        structuredClone(constraint),
-      );
-      return nextProject;
+    revert: (path) => {
+      const nextPath = structuredClone(path);
+      nextPath.ranged_constraints.splice(index, 0, structuredClone(constraint));
+      return nextPath;
     },
   };
 }
 
 export function createSplitRangedConstraintCommand(
   index: number,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   let previousConstraints: RangedConstraint[] | null = null;
 
   return {
     description: `Split ranged constraint ${index + 1}`,
-    apply: (project) => {
-      const nextProject = structuredClone(project);
-      previousConstraints = structuredClone(
-        nextProject.path.ranged_constraints,
-      );
-      const constraint = nextProject.path.ranged_constraints[index];
+    apply: (path) => {
+      const nextPath = structuredClone(path);
+      previousConstraints = structuredClone(nextPath.ranged_constraints);
+      const constraint = nextPath.ranged_constraints[index];
       if (constraint) {
-        splitRangedConstraintInstance(
-          nextProject.path.ranged_constraints,
-          constraint,
-        );
+        splitRangedConstraintInstance(nextPath.ranged_constraints, constraint);
       }
-      return nextProject;
+      return nextPath;
     },
-    revert: (project) => {
-      const nextProject = structuredClone(project);
+    revert: (path) => {
+      const nextPath = structuredClone(path);
       if (previousConstraints) {
-        nextProject.path.ranged_constraints =
-          structuredClone(previousConstraints);
+        nextPath.ranged_constraints = structuredClone(previousConstraints);
       }
-      return nextProject;
+      return nextPath;
     },
   };
 }
@@ -858,38 +812,38 @@ export function elementTypeValue(element: PathElement): AddableElementType {
 }
 
 function replaceElement(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
   element: PathElement,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  if (index >= 0 && index < nextProject.path.path_elements.length) {
-    nextProject.path.path_elements[index] = structuredClone(element);
+): PathModel {
+  const nextPath = structuredClone(path);
+  if (index >= 0 && index < nextPath.path_elements.length) {
+    nextPath.path_elements[index] = structuredClone(element);
   }
-  return nextProject;
+  return nextPath;
 }
 
 function replaceElementAndRemap(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
   element: PathElement,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  if (index >= 0 && index < nextProject.path.path_elements.length) {
-    const previousElements = nextProject.path.path_elements.slice();
-    nextProject.path.path_elements[index] = structuredClone(element);
-    remapRangedConstraints(nextProject.path, previousElements);
+): PathModel {
+  const nextPath = structuredClone(path);
+  if (index >= 0 && index < nextPath.path_elements.length) {
+    const previousElements = nextPath.path_elements.slice();
+    nextPath.path_elements[index] = structuredClone(element);
+    remapRangedConstraints(nextPath, previousElements);
   }
-  return nextProject;
+  return nextPath;
 }
 
 function moveElement(
-  project: ProjectDocument,
+  path: PathModel,
   fromIndex: number,
   toIndex: number,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  const elements = nextProject.path.path_elements;
+): PathModel {
+  const nextPath = structuredClone(path);
+  const elements = nextPath.path_elements;
   if (
     fromIndex < 0 ||
     fromIndex >= elements.length ||
@@ -897,7 +851,7 @@ function moveElement(
     toIndex >= elements.length ||
     fromIndex === toIndex
   ) {
-    return nextProject;
+    return nextPath;
   }
 
   const previousElements = elements.slice();
@@ -905,12 +859,12 @@ function moveElement(
   elements.splice(toIndex, 0, element);
 
   if (!isValidElementOrder(elements)) {
-    nextProject.path.path_elements = previousElements;
-    return nextProject;
+    nextPath.path_elements = previousElements;
+    return nextPath;
   }
 
-  remapRangedConstraints(nextProject.path, previousElements);
-  return nextProject;
+  remapRangedConstraints(nextPath, previousElements);
+  return nextPath;
 }
 
 function isValidElementOrder(elements: readonly PathElement[]): boolean {
@@ -954,49 +908,48 @@ function getExistingRatio(element: PathElement): number | null {
 }
 
 function updateScalarConstraint(
-  project: ProjectDocument,
+  path: PathModel,
   key: ConstraintKey,
   value: number | null,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  nextProject.path.constraints[key] = value;
+): PathModel {
+  const nextPath = structuredClone(path);
+  nextPath.constraints[key] = value;
   if (value !== null) {
-    nextProject.path.ranged_constraints =
-      nextProject.path.ranged_constraints.filter(
-        (constraint) => constraint.key !== key,
-      );
+    nextPath.ranged_constraints = nextPath.ranged_constraints.filter(
+      (constraint) => constraint.key !== key,
+    );
   }
-  return nextProject;
+  return nextPath;
 }
 
 function replaceRangedConstraint(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
   constraint: RangedConstraint,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  if (index >= 0 && index < nextProject.path.ranged_constraints.length) {
-    nextProject.path.ranged_constraints[index] = structuredClone(constraint);
-    nextProject.path.constraints[constraint.key] = null;
+): PathModel {
+  const nextPath = structuredClone(path);
+  if (index >= 0 && index < nextPath.ranged_constraints.length) {
+    nextPath.ranged_constraints[index] = structuredClone(constraint);
+    nextPath.constraints[constraint.key] = null;
   }
-  return nextProject;
+  return nextPath;
 }
 
 function replaceRangedConstraintsForKey(
-  project: ProjectDocument,
+  path: PathModel,
   key: RangedConstraintKey,
   constraints: readonly RangedConstraint[],
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  nextProject.path.ranged_constraints = [
-    ...nextProject.path.ranged_constraints.filter(
+): PathModel {
+  const nextPath = structuredClone(path);
+  nextPath.ranged_constraints = [
+    ...nextPath.ranged_constraints.filter(
       (constraint) => constraint.key !== key,
     ),
     ...constraints.map((constraint) => structuredClone(constraint)),
   ];
-  nextProject.path.constraints[key] =
-    constraints.length > 0 ? null : nextProject.path.constraints[key];
-  return nextProject;
+  nextPath.constraints[key] =
+    constraints.length > 0 ? null : nextPath.constraints[key];
+  return nextPath;
 }
 
 function sameRangedConstraint(

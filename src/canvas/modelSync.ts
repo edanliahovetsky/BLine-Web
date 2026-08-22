@@ -1,4 +1,3 @@
-import type { ProjectDocument } from "../core/io/projectSchema";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -6,6 +5,7 @@ import {
   isWaypoint,
   type HandoffRadiusSource,
   type PathElement,
+  type PathModel,
 } from "../core/model/path";
 import type { HistoryCommand } from "../state/historyStore";
 import type { PointMeters } from "./geometry";
@@ -18,13 +18,11 @@ export function createMoveElementCommand(
   index: number,
   previousPosition: PointMeters,
   nextPosition: PointMeters,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Move element ${index + 1}`,
-    apply: (project) =>
-      updateProjectElementPosition(project, index, nextPosition),
-    revert: (project) =>
-      updateProjectElementPosition(project, index, previousPosition),
+    apply: (path) => updatePathElementPosition(path, index, nextPosition),
+    revert: (path) => updatePathElementPosition(path, index, previousPosition),
   };
 }
 
@@ -32,12 +30,11 @@ export function createSetElementRatioCommand(
   index: number,
   previousRatio: number,
   nextRatio: number,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Move projected element ${index + 1}`,
-    apply: (project) => updateProjectElementRatio(project, index, nextRatio),
-    revert: (project) =>
-      updateProjectElementRatio(project, index, previousRatio),
+    apply: (path) => updatePathElementRatio(path, index, nextRatio),
+    revert: (path) => updatePathElementRatio(path, index, previousRatio),
   };
 }
 
@@ -45,13 +42,13 @@ export function createSetElementRotationCommand(
   index: number,
   previousRotationRadians: number,
   nextRotationRadians: number,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Rotate element ${index + 1}`,
-    apply: (project) =>
-      updateProjectElementRotation(project, index, nextRotationRadians),
-    revert: (project) =>
-      updateProjectElementRotation(project, index, previousRotationRadians),
+    apply: (path) =>
+      updatePathElementRotation(path, index, nextRotationRadians),
+    revert: (path) =>
+      updatePathElementRotation(path, index, previousRotationRadians),
   };
 }
 
@@ -70,49 +67,48 @@ export function createSetHandoffRadiusCommand(
   index: number,
   previous: HandoffRadiusState,
   next: HandoffRadiusState,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description: `Set handoff radius ${index + 1}`,
-    apply: (project) => updateProjectElementHandoffRadius(project, index, next),
-    revert: (project) =>
-      updateProjectElementHandoffRadius(project, index, previous),
+    apply: (path) => updatePathElementHandoffRadius(path, index, next),
+    revert: (path) => updatePathElementHandoffRadius(path, index, previous),
   };
 }
 
 export function createSetHandoffRadiiCommand(
   updates: readonly HandoffRadiusUpdate[],
   description = `Set ${updates.length} handoff radii`,
-): HistoryCommand<ProjectDocument> {
+): HistoryCommand<PathModel> {
   return {
     description,
-    apply: (project) =>
-      updateProjectElementHandoffRadii(
-        project,
+    apply: (path) =>
+      updatePathElementHandoffRadii(
+        path,
         updates.map(({ index, next }) => ({ index, state: next })),
       ),
-    revert: (project) =>
-      updateProjectElementHandoffRadii(
-        project,
+    revert: (path) =>
+      updatePathElementHandoffRadii(
+        path,
         updates.map(({ index, previous }) => ({ index, state: previous })),
       ),
   };
 }
 
-export function updateProjectElementHandoffRadius(
-  project: ProjectDocument,
+export function updatePathElementHandoffRadius(
+  path: PathModel,
   index: number,
   state: HandoffRadiusState,
-): ProjectDocument {
-  return updateProjectElementHandoffRadii(project, [{ index, state }]);
+): PathModel {
+  return updatePathElementHandoffRadii(path, [{ index, state }]);
 }
 
-function updateProjectElementHandoffRadii(
-  project: ProjectDocument,
+function updatePathElementHandoffRadii(
+  path: PathModel,
   updates: readonly { index: number; state: HandoffRadiusState }[],
-): ProjectDocument {
-  const nextProject = structuredClone(project);
+): PathModel {
+  const nextPath = structuredClone(path);
   for (const { index, state } of updates) {
-    const element = nextProject.path.path_elements[index];
+    const element = nextPath.path_elements[index];
     const target = isTranslationTarget(element)
       ? element
       : isWaypoint(element)
@@ -130,27 +126,27 @@ function updateProjectElementHandoffRadii(
       delete target.handoff_radius_source;
     }
   }
-  return nextProject;
+  return nextPath;
 }
 
-export function updateProjectElementPosition(
-  project: ProjectDocument,
+export function updatePathElementPosition(
+  path: PathModel,
   index: number,
   position: PointMeters,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  const element = nextProject.path.path_elements[index];
+): PathModel {
+  const nextPath = structuredClone(path);
+  const element = nextPath.path_elements[index];
 
   if (isTranslationTarget(element)) {
     element.x_meters = position.x_meters;
     element.y_meters = position.y_meters;
-    return nextProject;
+    return nextPath;
   }
 
   if (isWaypoint(element)) {
     element.translation_target.x_meters = position.x_meters;
     element.translation_target.y_meters = position.y_meters;
-    return nextProject;
+    return nextPath;
   }
 
   throw new Error(
@@ -158,40 +154,40 @@ export function updateProjectElementPosition(
   );
 }
 
-export function updateProjectElementRotation(
-  project: ProjectDocument,
+export function updatePathElementRotation(
+  path: PathModel,
   index: number,
   rotationRadians: number,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  const element = nextProject.path.path_elements[index];
+): PathModel {
+  const nextPath = structuredClone(path);
+  const element = nextPath.path_elements[index];
   const nextRotation = normalizeRadians(rotationRadians);
 
   if (isRotationTarget(element)) {
     element.rotation_radians = nextRotation;
-    return nextProject;
+    return nextPath;
   }
 
   if (isWaypoint(element)) {
     element.rotation_target.rotation_radians = nextRotation;
-    return nextProject;
+    return nextPath;
   }
 
   throw new Error(`Element ${index} does not have an editable rotation`);
 }
 
-export function updateProjectElementRatio(
-  project: ProjectDocument,
+export function updatePathElementRatio(
+  path: PathModel,
   index: number,
   tRatio: number,
-): ProjectDocument {
-  const nextProject = structuredClone(project);
-  const element = nextProject.path.path_elements[index];
+): PathModel {
+  const nextPath = structuredClone(path);
+  const element = nextPath.path_elements[index];
   const nextRatio = Math.max(0, Math.min(1, tRatio));
 
   if (isRotationTarget(element) || isEventTrigger(element)) {
     element.t_ratio = nextRatio;
-    return nextProject;
+    return nextPath;
   }
 
   throw new Error(`Element ${index} does not have an editable path ratio`);

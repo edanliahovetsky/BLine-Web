@@ -11,13 +11,10 @@ import {
   requestAutoRadiiAndCaps,
   supersededAutoVelocityProfile,
 } from "../platform/autoVelocityRunner";
-import type { ProjectDocument } from "../core/io/projectSchema";
+import type { ProjectConfig } from "../core/model/project";
+import type { PathModel } from "../core/model/path";
 import { autoVelocityStore, type AutoVelocityStore } from "./autoVelocityStore";
-import {
-  activePathDocumentForProjectStore,
-  projectStore,
-  type ProjectStore,
-} from "./projectStore";
+import { projectStore, type ProjectStore } from "./projectStore";
 
 /**
  * How long the path must sit still before the optimizer starts. Long enough
@@ -30,6 +27,7 @@ export interface AutoVelocitySyncOptions {
   projects?: ProjectStore;
   status?: AutoVelocityStore;
   delayMs?: number;
+  request?: typeof requestAutoRadiiAndCaps;
 }
 
 /**
@@ -50,6 +48,7 @@ export function startAutoVelocitySync(
   const projects = options.projects ?? projectStore;
   const status = options.status ?? autoVelocityStore;
   const delayMs = options.delayMs ?? autoVelocitySyncDelayMs;
+  const requestProfile = options.request ?? requestAutoRadiiAndCaps;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlightSignature: string | null = null;
@@ -69,17 +68,26 @@ export function startAutoVelocitySync(
     }
   };
 
-  const run = (signature: string | null) => {
-    const project = activePathDocumentForProjectStore(projects.getState());
-    if (!project) {
+  const run = (pathId: string, signature: string | null) => {
+    const state = projects.getState();
+    const project = state.project;
+    const path = project?.paths.find(
+      (candidate) => candidate.path_id === pathId,
+    );
+    if (!project || !path) {
       settle();
       return;
     }
 
-    const request = autoVelocityRefreshRequest(project.path, project.config);
+    const request = autoVelocityRefreshRequest(path.path, project.config);
     if (
       !request ||
-      !refreshRequestIsStale(project, request, lastAppliedUnstampedToken) ||
+      !refreshRequestIsStale(
+        project.project_id,
+        pathId,
+        request,
+        lastAppliedUnstampedToken,
+      ) ||
       request.signature !== signature
     ) {
       settle();
@@ -89,7 +97,7 @@ export function startAutoVelocitySync(
     inFlightSignature = signature;
     status.getState().setPhase("running", "sync");
 
-    requestAutoRadiiAndCaps(project.path, project.config, request.settings)
+    requestProfile(path.path, project.config, request.settings)
       .then((run) => {
         if (disposed || run === supersededAutoVelocityProfile) {
           return;
@@ -97,15 +105,33 @@ export function startAutoVelocitySync(
 
         // The project may have moved on while the solver ran; the next
         // evaluate() will schedule a fresh pass for whatever it is now.
-        const current = activePathDocumentForProjectStore(projects.getState());
-        if (!current || sameAutoVelocityInputs(current, signature)) {
+        const currentProject = projects.getState().project;
+        const currentPath = currentProject?.paths.find(
+          (candidate) => candidate.path_id === pathId,
+        );
+        if (
+          currentProject &&
+          currentPath &&
+          sameAutoVelocityInputs(
+            currentPath.path,
+            currentProject.config,
+            signature,
+          )
+        ) {
           if (!request.hasGeneratedVelocityCaps) {
             lastAppliedUnstampedToken = unstampedRefreshToken(
-              project,
+              project.project_id,
+              pathId,
               request.signature,
             );
           }
-          applyRefresh(projects, run.radii, request.settings);
+          applyRefresh(
+            projects,
+            pathId,
+            currentProject.config,
+            run.radii,
+            request.settings,
+          );
         }
         status.getState().setLastError(null);
         status.getState().setLastRun({
@@ -142,17 +168,28 @@ export function startAutoVelocitySync(
       return;
     }
 
-    const project = activePathDocumentForProjectStore(projects.getState());
-    const request = project
-      ? autoVelocityRefreshRequest(project.path, project.config)
-      : null;
+    const state = projects.getState();
+    const project = state.project;
+    const path = project?.paths.find(
+      (candidate) => candidate.path_id === state.activePathId,
+    );
+    const request =
+      project && path
+        ? autoVelocityRefreshRequest(path.path, project.config)
+        : null;
     const stale =
-      project && request
-        ? refreshRequestIsStale(project, request, lastAppliedUnstampedToken)
+      project && path && request
+        ? refreshRequestIsStale(
+            project.project_id,
+            path.path_id,
+            request,
+            lastAppliedUnstampedToken,
+          )
         : false;
 
     if (
       !status.getState().autoSyncEnabled ||
+      !path ||
       !request ||
       !stale ||
       // An unsignable path can never be stamped as current, so syncing it would
@@ -170,9 +207,10 @@ export function startAutoVelocitySync(
     cancelTimer();
     status.getState().setPhase("pending", "sync");
     const signature = request.signature;
+    const pathId = path.path_id;
     timer = setTimeout(() => {
       timer = null;
-      run(signature);
+      run(pathId, signature);
     }, delayMs);
   };
 
@@ -203,7 +241,8 @@ export function startAutoVelocitySync(
 }
 
 function refreshRequestIsStale(
-  project: ProjectDocument,
+  projectId: string,
+  pathId: string,
   request: NonNullable<ReturnType<typeof autoVelocityRefreshRequest>>,
   lastAppliedUnstampedToken: string | null,
 ): boolean {
@@ -212,26 +251,25 @@ function refreshRequestIsStale(
   }
   return (
     request.hasGeneratedVelocityCaps ||
-    unstampedRefreshToken(project, request.signature) !==
+    unstampedRefreshToken(projectId, pathId, request.signature) !==
       lastAppliedUnstampedToken
   );
 }
 
 function unstampedRefreshToken(
-  project: ProjectDocument,
+  projectId: string,
+  pathId: string,
   signature: string | null,
 ): string {
-  return `${project.project_id}:${signature ?? "unsignable"}`;
+  return `${projectId}:${pathId}:${signature ?? "unsignable"}`;
 }
 
 function sameAutoVelocityInputs(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   signature: string | null,
 ): boolean {
-  return (
-    autoVelocityRefreshRequest(project.path, project.config)?.signature ===
-    signature
-  );
+  return autoVelocityRefreshRequest(path, config)?.signature === signature;
 }
 
 /**
@@ -240,24 +278,26 @@ function sameAutoVelocityInputs(
  */
 function applyRefresh(
   projects: ProjectStore,
+  pathId: string,
+  config: ProjectConfig,
   radii: readonly AutoHandoffRadiusAssignment[],
   settings: AutoVelocitySettings,
 ): void {
-  let previous: ProjectDocument["path"] | null = null;
+  let previous: PathModel | null = null;
 
-  projects.getState().applyDerivedCommand({
-    description: "Sync generated constraints",
-    apply: (project) => {
-      previous = project.path;
-      return {
-        ...project,
-        path: refreshAutoVelocityConstraints(
-          applyGeneratedAutoRadii(project.path, radii),
-          project.config,
+  projects.getState().applyDerivedPathCommand(
+    {
+      description: "Sync generated constraints",
+      apply: (path) => {
+        previous = path;
+        return refreshAutoVelocityConstraints(
+          applyGeneratedAutoRadii(path, radii),
+          config,
           { whenPresentOnly: true, settings },
-        ),
-      };
+        );
+      },
+      revert: (path) => previous ?? path,
     },
-    revert: (project) => (previous ? { ...project, path: previous } : project),
-  });
+    pathId,
+  );
 }

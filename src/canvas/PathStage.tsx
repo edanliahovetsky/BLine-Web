@@ -309,7 +309,7 @@ export function PathStage({
   }, [renderField]);
 
   useEffect(() => {
-    selectionStore.getState().reconcileProject(project);
+    selectionStore.getState().reconcilePath(project?.path ?? null);
   }, [project]);
 
   const flushPanOffset = useCallback(() => {
@@ -974,7 +974,7 @@ export function PathStage({
       selectedElementIndex,
     );
     if (nodeHit !== null) {
-      selectionStore.getState().selectElement(nodeHit, project);
+      selectionStore.getState().selectElement(nodeHit, project.path);
       const element = project.path.path_elements[nodeHit];
       const start = getElementPosition(project.path.path_elements, nodeHit);
       if (!element || !start || !isDragEnabled(element)) {
@@ -1194,7 +1194,7 @@ export function PathStage({
       if (Math.abs(drag.startRatio - nextRatio) >= 0.001) {
         projectStore
           .getState()
-          .applyCommand(
+          .applyPathCommand(
             createSetElementRatioCommand(
               drag.index,
               drag.startRatio,
@@ -1205,7 +1205,7 @@ export function PathStage({
           .getState()
           .selectElement(
             drag.index,
-            activePathDocumentForProjectStore(projectStore.getState()),
+            activePathDocumentForProjectStore(projectStore.getState())?.path,
           );
       }
       return;
@@ -1227,21 +1227,21 @@ export function PathStage({
             .getState()
             .selectElement(
               drag.index,
-              activePathDocumentForProjectStore(projectStore.getState()),
+              activePathDocumentForProjectStore(projectStore.getState())?.path,
             );
         }
         return;
       }
       projectStore
         .getState()
-        .applyCommand(
+        .applyPathCommand(
           createMoveElementCommand(drag.index, drag.start, nextPosition),
         );
       selectionStore
         .getState()
         .selectElement(
           drag.index,
-          activePathDocumentForProjectStore(projectStore.getState()),
+          activePathDocumentForProjectStore(projectStore.getState())?.path,
         );
     }
   };
@@ -1277,14 +1277,14 @@ export function PathStage({
             .getState()
             .selectElement(
               rotationDrag.index,
-              activePathDocumentForProjectStore(projectStore.getState()),
+              activePathDocumentForProjectStore(projectStore.getState())?.path,
             );
         }
         return;
       }
       projectStore
         .getState()
-        .applyCommand(
+        .applyPathCommand(
           createSetElementRotationCommand(
             rotationDrag.index,
             rotationDrag.startRadians,
@@ -1295,12 +1295,12 @@ export function PathStage({
         .getState()
         .selectElement(
           rotationDrag.index,
-          activePathDocumentForProjectStore(projectStore.getState()),
+          activePathDocumentForProjectStore(projectStore.getState())?.path,
         );
       return;
     }
 
-    selectionStore.getState().selectElement(rotationDrag.index, project);
+    selectionStore.getState().selectElement(rotationDrag.index, project.path);
   };
 
   const finishPanDrag = () => {
@@ -1411,7 +1411,7 @@ export function PathStage({
       .getState()
       .selectElement(
         elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
     setContextMenu(null);
   };
@@ -1432,7 +1432,7 @@ export function PathStage({
       .getState()
       .selectElement(
         contextMenu.elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
     setContextMenu(null);
   };
@@ -1449,7 +1449,7 @@ export function PathStage({
       .getState()
       .selectElement(
         contextMenu.elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState()),
+        activePathDocumentForProjectStore(projectStore.getState())?.path,
       );
     setContextMenu(null);
   };

@@ -67,21 +67,18 @@ export async function generateAutoConstraintsInWorker(
     );
 
     let previousPath: ProjectDocument["path"] | null = null;
-    projects.getState().applyCommand({
+    const config = current.config;
+    projects.getState().applyPathCommand({
       description: "Generate constraints",
-      apply: (project) => {
-        previousPath = project.path;
-        return {
-          ...project,
-          path: refreshAutoVelocityConstraints(
-            applyGeneratedAutoRadii(project.path, run.radii),
-            project.config,
-            { whenPresentOnly: false, settings },
-          ),
-        };
+      apply: (path) => {
+        previousPath = path;
+        return refreshAutoVelocityConstraints(
+          applyGeneratedAutoRadii(path, run.radii),
+          config,
+          { whenPresentOnly: false, settings },
+        );
       },
-      revert: (project) =>
-        previousPath ? { ...project, path: previousPath } : project,
+      revert: (path) => previousPath ?? path,
     });
     status.getState().setLastRun({
       elapsedMs: run.elapsedMs,
