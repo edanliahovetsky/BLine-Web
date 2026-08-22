@@ -780,6 +780,140 @@ describe("project path serde", () => {
     ]);
   });
 
+  it("attests the historical Field Background asset sidecar before destructive migration", async () => {
+    const legacyField = {
+      selected_field_id: "legacy-field",
+      custom_fields: [
+        {
+          id: "legacy-field",
+          name: "Legacy Field",
+          asset_id: "legacy-asset",
+          file_name: "legacy.png",
+          mime_type: "image/png",
+          size_bytes: 3,
+          created_at: "2026-04-23T15:40:00.000Z",
+          geometry: {
+            length_meters: 16.54,
+            width_meters: 8.21,
+            coordinate_offset_meters: 0,
+            coordinate_offset_x_meters: 0,
+            coordinate_offset_y_meters: 0,
+          },
+        },
+      ],
+    };
+    const state = {
+      schema_version: 1,
+      editor_config: {
+        gui: { field: legacyField },
+        kinematic_constraints: {},
+      },
+      active_path_file_name: "auto.json",
+      active_path_group_id: null,
+      path_groups: [],
+      linked_targets: [],
+      paths: {},
+      field_assets: {
+        "legacy-asset": {
+          file_name: "legacy.png",
+          mime_type: "image/png",
+        },
+      },
+    };
+    const fieldAssets = {
+      assets: {
+        "legacy-asset": {
+          file_name: "legacy.png",
+          mime_type: "image/png",
+        },
+      },
+    };
+    const files = [
+      textImportFile("autos/paths/auto.json", {
+        path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
+      }),
+      textImportFile("autos/.bline-web/state.json", state),
+      textImportFile("autos/.bline-web/field-assets.json", fieldAssets),
+    ];
+
+    const restored = await deserializeBLineProjectFolder(files, {
+      requireLosslessMigration: true,
+    });
+    expect(restored.config.gui.field).toEqual(legacyField);
+
+    await expect(
+      deserializeBLineProjectFolder(
+        [
+          files[0]!,
+          files[1]!,
+          textImportFile("autos/.bline-web/field-assets.json", {
+            assets: {
+              "legacy-asset": { file_name: null, mime_type: null },
+            },
+          }),
+        ],
+        { requireLosslessMigration: true },
+      ),
+    ).resolves.toMatchObject({ config: { gui: { field: legacyField } } });
+
+    const unsupported = {
+      assets: {
+        "legacy-asset": {
+          ...fieldAssets.assets["legacy-asset"],
+          future_metadata: true,
+        },
+      },
+    };
+    await expect(
+      deserializeBLineProjectFolder(
+        [
+          files[0]!,
+          files[1]!,
+          textImportFile("autos/.bline-web/field-assets.json", unsupported),
+        ],
+        { requireLosslessMigration: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectFolderLosslessMigrationError",
+      sourcePath: ".bline-web/field-assets.json",
+      rawText: JSON.stringify(unsupported),
+    } satisfies Partial<ProjectFolderLosslessMigrationError>);
+
+    await expect(
+      deserializeBLineProjectFolder(
+        [
+          files[0]!,
+          files[1]!,
+          textImportFile("autos/.bline-web/field-assets.json", {}),
+        ],
+        { requireLosslessMigration: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectFolderLosslessMigrationError",
+      sourcePath: ".bline-web/field-assets.json",
+      rawText: "{}",
+    } satisfies Partial<ProjectFolderLosslessMigrationError>);
+
+    await expect(
+      deserializeBLineProjectFolder(
+        [
+          files[0]!,
+          files[1]!,
+          {
+            name: "field-assets.json",
+            webkitRelativePath: "autos/.bline-web/field-assets.json",
+            text: async () => "",
+          },
+        ],
+        { requireLosslessMigration: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectFolderLosslessMigrationError",
+      sourcePath: ".bline-web/field-assets.json",
+      rawText: "",
+    } satisfies Partial<ProjectFolderLosslessMigrationError>);
+  });
+
   it("accepts valid lower-priority desktop sidecars independently", async () => {
     const restored = await deserializeBLineProjectFolder(
       [

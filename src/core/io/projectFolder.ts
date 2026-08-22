@@ -93,6 +93,15 @@ export interface AutosEditorFieldAssetState {
   mime_type: string;
 }
 
+interface LegacyFieldAssetMetadata {
+  file_name: string | null;
+  mime_type: string | null;
+}
+
+interface LegacyFieldAssetMetadataFile {
+  assets: Record<string, LegacyFieldAssetMetadata>;
+}
+
 export interface AutosEditorStateFile {
   schema_version: typeof autosEditorStateSchemaVersion;
   editor_config: AutosEditorConfigState;
@@ -167,50 +176,72 @@ export async function deserializeBLineProjectFolder(
     (record) =>
       record.autosPath.toLowerCase() === ".bline-web/path-metadata.json",
   );
+  const legacyFieldAssetsRecord = records.find(
+    (record) =>
+      record.autosPath.toLowerCase() === ".bline-web/field-assets.json",
+  );
   const rawEditorStateText = stateRecord
     ? await stateRecord.file.text()
     : undefined;
-  const rawEditorState = rawEditorStateText
-    ? parseFolderJson(
-        rawEditorStateText,
-        autosEditorStatePath,
-        options.requireLosslessMigration,
-      )
-    : undefined;
+  const rawEditorState =
+    rawEditorStateText !== undefined
+      ? parseFolderJson(
+          rawEditorStateText,
+          autosEditorStatePath,
+          options.requireLosslessMigration,
+        )
+      : undefined;
   const rawLegacyPathMetadataText = legacyPathMetadataRecord
     ? await legacyPathMetadataRecord.file.text()
     : undefined;
-  const rawLegacyPathMetadata = rawLegacyPathMetadataText
-    ? parseFolderJson(
-        rawLegacyPathMetadataText,
-        ".bline-web/path-metadata.json",
-        options.requireLosslessMigration,
-      )
+  const rawLegacyPathMetadata =
+    rawLegacyPathMetadataText !== undefined
+      ? parseFolderJson(
+          rawLegacyPathMetadataText,
+          ".bline-web/path-metadata.json",
+          options.requireLosslessMigration,
+        )
+      : undefined;
+  const rawLegacyFieldAssetsText = legacyFieldAssetsRecord
+    ? await legacyFieldAssetsRecord.file.text()
     : undefined;
+  const rawLegacyFieldAssets =
+    rawLegacyFieldAssetsText !== undefined
+      ? parseFolderJson(
+          rawLegacyFieldAssetsText,
+          ".bline-web/field-assets.json",
+          options.requireLosslessMigration,
+        )
+      : undefined;
   const rawPathGroupsText = pathGroupsRecord
     ? await pathGroupsRecord.file.text()
     : undefined;
-  const rawPathGroups = rawPathGroupsText
-    ? parseFolderJson(
-        rawPathGroupsText,
-        "pathgroups.json",
-        options.requireLosslessMigration,
-      )
-    : undefined;
+  const rawPathGroups =
+    rawPathGroupsText !== undefined
+      ? parseFolderJson(
+          rawPathGroupsText,
+          "pathgroups.json",
+          options.requireLosslessMigration,
+        )
+      : undefined;
   const editorState = stateRecord ? readAutosEditorState(rawEditorState) : null;
   const legacyPathMetadata = legacyPathMetadataRecord
     ? readLegacyPathMetadata(rawLegacyPathMetadata)
     : {};
+  const legacyFieldAssets = legacyFieldAssetsRecord
+    ? readLegacyFieldAssets(rawLegacyFieldAssets)
+    : { assets: {} };
   const rawConfigText = configRecord
     ? await configRecord.file.text()
     : undefined;
-  const rawConfig = rawConfigText
-    ? parseFolderJson(
-        rawConfigText,
-        "config.json",
-        options.requireLosslessMigration,
-      )
-    : undefined;
+  const rawConfig =
+    rawConfigText !== undefined
+      ? parseFolderJson(
+          rawConfigText,
+          "config.json",
+          options.requireLosslessMigration,
+        )
+      : undefined;
   const config = deserializeProjectConfig(
     mergeRuntimeAndEditorConfig(rawConfig, editorState),
   );
@@ -285,6 +316,7 @@ export async function deserializeBLineProjectFolder(
   const workspace = deserializeProjectWorkspaceDocument(workspaceInput);
   if (options.requireLosslessMigration) {
     attestLosslessFolderMigration({
+      workspace,
       displayName: workspace.display_name,
       rawConfig,
       rawConfigText,
@@ -297,12 +329,16 @@ export async function deserializeBLineProjectFolder(
       rawPathGroupsText,
       rawLegacyPathMetadata,
       rawLegacyPathMetadataText,
+      legacyFieldAssets,
+      rawLegacyFieldAssets,
+      rawLegacyFieldAssetsText,
     });
   }
   return workspace;
 }
 
 interface LosslessFolderMigrationInputs {
+  workspace: ProjectWorkspaceDocument;
   displayName: string;
   rawConfig: unknown;
   rawConfigText?: string;
@@ -320,6 +356,9 @@ interface LosslessFolderMigrationInputs {
   rawPathGroupsText?: string;
   rawLegacyPathMetadata: unknown;
   rawLegacyPathMetadataText?: string;
+  legacyFieldAssets: LegacyFieldAssetMetadataFile;
+  rawLegacyFieldAssets: unknown;
+  rawLegacyFieldAssetsText?: string;
 }
 
 interface LegacyFolderPathInput {
@@ -331,6 +370,7 @@ interface LegacyFolderPathInput {
 }
 
 function attestLosslessFolderMigration({
+  workspace,
   displayName,
   rawConfig,
   rawConfigText,
@@ -343,6 +383,9 @@ function attestLosslessFolderMigration({
   rawPathGroupsText,
   rawLegacyPathMetadata,
   rawLegacyPathMetadataText,
+  legacyFieldAssets,
+  rawLegacyFieldAssets,
+  rawLegacyFieldAssetsText,
 }: LosslessFolderMigrationInputs): void {
   const runtimePaths = parsedPaths.map(({ input }) => ({
     ...input,
@@ -438,6 +481,21 @@ function attestLosslessFolderMigration({
     rawLegacyPathMetadata,
     serializeLegacyPathMetadata(legacyMetadataWorkspace),
     "desktop Path metadata",
+  );
+
+  assertMigrationProjection(
+    ".bline-web/field-assets.json",
+    rawLegacyFieldAssetsText,
+    rawLegacyFieldAssets,
+    serializeLegacyFieldAssets(legacyFieldAssets),
+    "desktop Field Background asset metadata",
+  );
+  attestLegacyFieldAssets(
+    workspace,
+    legacyFieldAssets,
+    editorState?.field_assets ?? {},
+    rawLegacyFieldAssets,
+    rawLegacyFieldAssetsText,
   );
 }
 
@@ -598,6 +656,82 @@ function serializeLegacyPathMetadata(workspace: ProjectWorkspaceDocument) {
   };
 }
 
+function serializeLegacyFieldAssets(
+  metadata: LegacyFieldAssetMetadataFile,
+): LegacyFieldAssetMetadataFile {
+  return {
+    assets: Object.fromEntries(
+      Object.entries(metadata.assets).map(([assetId, asset]) => [
+        assetId,
+        {
+          file_name: asset.file_name,
+          mime_type: asset.mime_type,
+        },
+      ]),
+    ),
+  };
+}
+
+function attestLegacyFieldAssets(
+  workspace: ProjectWorkspaceDocument,
+  legacy: LegacyFieldAssetMetadataFile,
+  editorStateAssets: Record<string, AutosEditorFieldAssetState>,
+  rawInput: unknown,
+  rawText: string | undefined,
+): void {
+  if (rawText === undefined) return;
+  if (!isObject(rawInput) || !isObject(rawInput.assets)) {
+    throw new ProjectFolderLosslessMigrationError(
+      ".bline-web/field-assets.json",
+      rawText,
+      "desktop Field Background asset metadata must contain an assets object",
+    );
+  }
+
+  const customFields = new Map(
+    workspace.config.gui.field.custom_fields.map((field) => [
+      field.asset_id,
+      field,
+    ]),
+  );
+  for (const [assetId, metadata] of Object.entries(legacy.assets)) {
+    const field = customFields.get(assetId);
+    if (!field) {
+      throw new ProjectFolderLosslessMigrationError(
+        ".bline-web/field-assets.json",
+        rawText,
+        `desktop Field Background asset metadata contains orphan asset ${JSON.stringify(assetId)}`,
+      );
+    }
+
+    if (
+      (metadata.file_name !== null && metadata.file_name !== field.file_name) ||
+      (metadata.mime_type !== null && metadata.mime_type !== field.mime_type)
+    ) {
+      throw new ProjectFolderLosslessMigrationError(
+        ".bline-web/field-assets.json",
+        rawText,
+        `desktop Field Background asset metadata conflicts with custom field ${JSON.stringify(assetId)}`,
+      );
+    }
+
+    const editorAsset = editorStateAssets[assetId];
+    if (
+      editorAsset &&
+      ((metadata.file_name !== null &&
+        metadata.file_name !== editorAsset.file_name) ||
+        (metadata.mime_type !== null &&
+          metadata.mime_type !== editorAsset.mime_type))
+    ) {
+      throw new ProjectFolderLosslessMigrationError(
+        ".bline-web/field-assets.json",
+        rawText,
+        `desktop Field Background asset metadata conflicts with ${autosEditorStatePath} for ${JSON.stringify(assetId)}`,
+      );
+    }
+  }
+}
+
 function readAutosEditorState(input: unknown): AutosEditorStateFile | null {
   if (!isObject(input)) {
     return null;
@@ -693,6 +827,32 @@ function readLegacyPathMetadata(
   );
 }
 
+function readLegacyFieldAssets(input: unknown): LegacyFieldAssetMetadataFile {
+  if (!isObject(input) || !isObject(input.assets)) {
+    return { assets: {} };
+  }
+
+  return {
+    assets: Object.fromEntries(
+      Object.entries(input.assets).flatMap(([assetId, metadata]) => {
+        if (!isObject(metadata)) return [];
+        const fileName = optionalString(metadata.file_name);
+        const mimeType = optionalString(metadata.mime_type);
+        if (fileName === undefined || mimeType === undefined) return [];
+        return [
+          [
+            assetId,
+            {
+              file_name: fileName,
+              mime_type: mimeType,
+            },
+          ],
+        ];
+      }),
+    ),
+  };
+}
+
 function mergeRuntimeAndEditorConfig(
   runtimeInput: unknown,
   editorState: AutosEditorStateFile | null,
@@ -731,6 +891,14 @@ function statePathByFileName(
 
 function stringOrNull(input: unknown): string | null {
   return typeof input === "string" && input.trim() ? input : null;
+}
+
+function optionalString(input: unknown): string | null | undefined {
+  return input === null || input === undefined
+    ? null
+    : typeof input === "string"
+      ? input
+      : undefined;
 }
 
 function createImportRecords(

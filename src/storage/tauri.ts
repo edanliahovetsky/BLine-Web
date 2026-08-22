@@ -94,13 +94,25 @@ export class TauriStorage implements ProjectFolderAdapter {
       if (legacy.damage) {
         damage = legacy.damage;
       } else {
+        const legacyField = structuredClone(legacy.project.config.gui.field);
+        if (!canonicalMatchesLegacyFolder(project, legacy.project)) {
+          const metadata = result.files.find(
+            (file) => file.relativePath === "project.json",
+          );
+          damage = {
+            sourcePath: "project.json",
+            message:
+              "The canonical Project snapshot does not match the legacy folder content, so legacy metadata was left untouched",
+            rawText: metadata?.contents ?? "",
+          };
+        }
         project = {
           ...project,
           config: {
             ...project.config,
             gui: {
               ...project.config.gui,
-              field: structuredClone(legacy.project.config.gui.field),
+              field: legacyField,
             },
           },
         };
@@ -169,6 +181,7 @@ export class TauriStorage implements ProjectFolderAdapter {
   ): Promise<WriteResult | null> {
     void stableProjectId;
     if (
+      this.damageByLocator.has(sourceStorageId) ||
       !this.canonicalLocators.has(sourceStorageId) ||
       (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0
     ) {
@@ -199,6 +212,7 @@ export class TauriStorage implements ProjectFolderAdapter {
     sourceStorageId: string,
   ): Promise<WriteResult | null> {
     if (
+      this.damageByLocator.has(sourceStorageId) ||
       this.canonicalLocators.has(sourceStorageId) ||
       (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0
     ) {
@@ -420,4 +434,60 @@ function firstMalformedLegacyFile(files: ProjectFileSetPayload["legacyFiles"]) {
       return true;
     }
   });
+}
+
+function canonicalMatchesLegacyFolder(
+  canonical: Project,
+  legacy: Project,
+): boolean {
+  const canonicalPathIdByFileName = new Map(
+    canonical.paths.map((path) => [path.file_name.toLowerCase(), path.path_id]),
+  );
+  const normalizedPathIdByLegacyId = new Map(
+    legacy.paths.flatMap((path) => {
+      const canonicalPathId = canonicalPathIdByFileName.get(
+        path.file_name.toLowerCase(),
+      );
+      return canonicalPathId ? [[path.path_id, canonicalPathId]] : [];
+    }),
+  );
+  const normalizedLegacy: Project = {
+    ...legacy,
+    project_id: canonical.project_id,
+    display_name: canonical.display_name,
+    config: {
+      ...legacy.config,
+      gui: {
+        ...legacy.config.gui,
+        // Field Backgrounds are migrated into user data separately and are not
+        // durable canonical Project content.
+        field: structuredClone(canonical.config.gui.field),
+      },
+    },
+    paths: legacy.paths.map((path) => ({
+      ...path,
+      path_id: normalizedPathIdByLegacyId.get(path.path_id) ?? path.path_id,
+    })),
+    path_groups: legacy.path_groups.map((group) => ({
+      ...group,
+      path_ids: group.path_ids.map(
+        (pathId) => normalizedPathIdByLegacyId.get(pathId) ?? pathId,
+      ),
+    })),
+  };
+  return serializedFileSetsEqual(
+    serializeProjectFiles(canonical),
+    serializeProjectFiles(normalizedLegacy),
+  );
+}
+
+function serializedFileSetsEqual(
+  left: readonly ProjectTextFile[],
+  right: readonly ProjectTextFile[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const rightByPath = new Map(
+    right.map((file) => [file.relativePath, file.text]),
+  );
+  return left.every((file) => rightByPath.get(file.relativePath) === file.text);
 }

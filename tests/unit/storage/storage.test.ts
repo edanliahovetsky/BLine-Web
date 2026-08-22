@@ -137,24 +137,42 @@ describe("BrowserStorage", () => {
     });
   });
 
-  it("migrates legacy one-path browser records into workspaces", async () => {
+  it("migrates a one-path record through the guarded Field Background lifecycle", async () => {
     const memory = new MemoryStorage();
+    const legacyField = {
+      selected_field_id: "custom:legacy-practice",
+      custom_fields: [
+        {
+          id: "custom:legacy-practice",
+          name: "Legacy Practice Field",
+          asset_id: "legacy-practice.png",
+          file_name: "legacy-practice.png",
+          mime_type: "image/png",
+          size_bytes: 3,
+          created_at: "2026-04-23T15:37:00.000Z",
+          geometry: {
+            length_meters: 8,
+            width_meters: 4,
+            coordinate_offset_meters: 0,
+          },
+        },
+      ],
+    };
     const legacyProject = createProjectDocument({
       project_id: "legacy-project",
       display_name: "Legacy Path",
       path_file_name: "legacy.json",
       path: createPathModel(),
+      config: { gui: { field: legacyField } },
     });
-    memory.setItem(
-      "bline-web:project:legacy-project",
-      JSON.stringify(
-        createStoredProjectRecord(
-          legacyProject,
-          "legacy-version",
-          "2026-04-23T15:37:00.000Z",
-        ),
+    const legacyJson = JSON.stringify(
+      createStoredProjectRecord(
+        legacyProject,
+        "legacy-version",
+        "2026-04-23T15:37:00.000Z",
       ),
     );
+    memory.setItem("bline-web:project:legacy-project", legacyJson);
     memory.setItem("bline-web:current-workspace", "legacy-project");
     const storage = new BrowserStorage({ storage: memory });
 
@@ -170,8 +188,58 @@ describe("BrowserStorage", () => {
       file_name: "legacy.json",
     });
     expect(storage.getCurrentProjectDamage()).toBeNull();
-    expect(storage.getLegacyProjectMigrationSourceId()).toBeNull();
+    expect(workspace.config.gui.field).toMatchObject(legacyField);
+    expect(storage.getLegacyProjectMigrationSourceId()).toBe("legacy-project");
+    expect(memory.getItem("bline-web:project:legacy-project")).toBe(legacyJson);
+    expect(memory.getItem("bline-web:workspace:legacy-project")).toBeNull();
+
+    const prepared = await storage.prepareLegacyProjectMigration(
+      workspace,
+      "legacy-version",
+      "legacy-project",
+    );
+
+    expect(prepared).not.toBeNull();
     expect(memory.getItem("bline-web:project:legacy-project")).toBeNull();
+    const preparedJson =
+      memory.getItem("bline-web:workspace:legacy-project") ?? "null";
+    const preparedRecord = JSON.parse(preparedJson) as Record<string, unknown>;
+    expect(preparedRecord).toMatchObject({ legacySourceRecord: legacyJson });
+
+    const damagedPreparedJson = JSON.stringify({
+      ...preparedRecord,
+      futureEnvelope: true,
+    });
+    memory.setItem("bline-web:workspace:legacy-project", damagedPreparedJson);
+    const damagedPrepared = new BrowserStorage({ storage: memory });
+    await damagedPrepared.readProject("legacy-project");
+    await expect(
+      damagedPrepared.deleteLegacyProjectFiles(
+        prepared!.version,
+        "legacy-project",
+        "legacy-project",
+      ),
+    ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
+    expect(memory.getItem("bline-web:workspace:legacy-project")).toBe(
+      damagedPreparedJson,
+    );
+
+    memory.setItem("bline-web:workspace:legacy-project", preparedJson);
+    const resumedStorage = new BrowserStorage({ storage: memory });
+    const resumed = await resumedStorage.readProject("legacy-project");
+    expect(resumed.config.gui.field).toEqual(workspace.config.gui.field);
+    await expect(
+      resumedStorage.writeProject(resumed, prepared!.version),
+    ).rejects.toThrow("migration must finish");
+
+    await expect(
+      resumedStorage.deleteLegacyProjectFiles(
+        prepared!.version,
+        "legacy-project",
+        "legacy-project",
+      ),
+    ).resolves.not.toBeNull();
+    expect(resumedStorage.getLegacyProjectMigrationSourceId()).toBeNull();
   });
 
   it("preserves unsupported one-path browser records", async () => {
@@ -327,86 +395,6 @@ describe("BrowserStorage", () => {
     expect(memory.getItem("bline-web:workspace:shared-project-id")).toBe(
       canonicalJson,
     );
-  });
-
-  it("only retires an old browser record when the prepared target still matches it", async () => {
-    const memory = new MemoryStorage();
-    const legacyProject = createProjectDocument({
-      project_id: "legacy-project",
-      display_name: "Legacy Path",
-      path_file_name: "legacy.json",
-      path: createPathModel(),
-    });
-    const legacyJson = JSON.stringify(
-      createStoredProjectRecord(
-        legacyProject,
-        "legacy-version",
-        "2026-04-23T15:37:00.000Z",
-      ),
-    );
-    const legacyKey = "bline-web:project:legacy-project";
-    const canonicalKey = "bline-web:workspace:legacy-project";
-    memory.setItem(legacyKey, legacyJson);
-    const firstAttempt = new BrowserStorage({ storage: memory });
-    await firstAttempt.initialize();
-    const preparedJson = memory.getItem(canonicalKey);
-    if (!preparedJson) {
-      throw new Error("Expected the canonical migration target to be written");
-    }
-
-    // Simulate a close after the canonical write but before source cleanup.
-    memory.setItem(legacyKey, legacyJson);
-    const resumed = new BrowserStorage({ storage: memory });
-    await resumed.initialize();
-
-    expect(memory.getItem(legacyKey)).toBeNull();
-    expect(memory.getItem(canonicalKey)).toBe(preparedJson);
-
-    const preparedRecord = JSON.parse(preparedJson) as {
-      files: Array<{ relativePath: string; text: string }>;
-    };
-    const changedTargetJson = JSON.stringify({
-      ...preparedRecord,
-      files: preparedRecord.files.map((file) =>
-        file.relativePath === "project.json"
-          ? { ...file, text: `${file.text}\n` }
-          : file,
-      ),
-    });
-    memory.setItem(legacyKey, legacyJson);
-    memory.setItem(canonicalKey, changedTargetJson);
-    const changedTarget = new BrowserStorage({ storage: memory });
-    await changedTarget.initialize();
-
-    expect(memory.getItem(legacyKey)).toBe(legacyJson);
-    expect(memory.getItem(canonicalKey)).toBe(changedTargetJson);
-
-    const changedLegacyJson = JSON.stringify(
-      createStoredProjectRecord(
-        { ...legacyProject, display_name: "Changed after prepare" },
-        "newer-legacy-version",
-        "2026-04-24T15:37:00.000Z",
-      ),
-    );
-    memory.setItem(legacyKey, changedLegacyJson);
-    memory.setItem(canonicalKey, preparedJson);
-    const changedSource = new BrowserStorage({ storage: memory });
-    await changedSource.initialize();
-
-    expect(memory.getItem(legacyKey)).toBe(changedLegacyJson);
-    expect(memory.getItem(canonicalKey)).toBe(preparedJson);
-
-    const changedEnvelopeJson = JSON.stringify({
-      ...(JSON.parse(legacyJson) as Record<string, unknown>),
-      recovery_note: "source changed after prepare",
-    });
-    memory.setItem(legacyKey, changedEnvelopeJson);
-    memory.setItem(canonicalKey, preparedJson);
-    const changedEnvelope = new BrowserStorage({ storage: memory });
-    await changedEnvelope.initialize();
-
-    expect(memory.getItem(legacyKey)).toBe(changedEnvelopeJson);
-    expect(memory.getItem(canonicalKey)).toBe(preparedJson);
   });
 
   it("preserves legacy workspace metadata until migration is confirmed", async () => {
@@ -671,6 +659,119 @@ describe("BrowserStorage", () => {
     );
   });
 
+  it("blocks unknown browser record and file data until explicit replacement", async () => {
+    const cases = [
+      {
+        name: "outer field",
+        mutate: (record: Record<string, unknown>) => ({
+          ...record,
+          futureEnvelope: true,
+        }),
+      },
+      {
+        name: "file metadata",
+        mutate: (record: Record<string, unknown>) => ({
+          ...record,
+          files: (record.files as Array<Record<string, unknown>>).map(
+            (file, index) =>
+              index === 0 ? { ...file, futureFileMetadata: true } : file,
+          ),
+        }),
+      },
+      {
+        name: "unmanaged file",
+        mutate: (record: Record<string, unknown>) => ({
+          ...record,
+          files: [
+            ...(record.files as Array<Record<string, unknown>>),
+            { relativePath: "notes.txt", text: "do not discard" },
+          ],
+        }),
+      },
+      {
+        name: "incomplete migration provenance",
+        mutate: (record: Record<string, unknown>) => ({
+          ...record,
+          legacySourceRecord: JSON.stringify({
+            document: {},
+            version: "legacy-v1",
+            updatedAt: "2026-04-23T15:38:00.000Z",
+          }),
+        }),
+      },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const id = `workspace-${index}`;
+      const memory = new MemoryStorage();
+      const rawText = JSON.stringify(
+        testCase.mutate({
+          files: serializeProjectFiles(exampleWorkspace(id, id, ["One"])),
+          version: "damaged-v1",
+          updatedAt: "2026-04-23T15:39:00.000Z",
+        }),
+      );
+      memory.setItem(`bline-web:workspace:${id}`, rawText);
+      memory.setItem("bline-web:current-workspace", id);
+      const storage = new BrowserStorage({ storage: memory });
+
+      const recovered = await storage.readProject(id);
+
+      expect(storage.getCurrentProjectDamage(), testCase.name).toMatchObject({
+        sourcePath: "browser Project record",
+        rawText,
+      });
+      await expect(
+        storage.writeProject(recovered, "damaged-v1"),
+      ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
+      expect(memory.getItem(`bline-web:workspace:${id}`)).toBe(rawText);
+
+      await storage.replaceDamagedProject(recovered, "damaged-v1");
+      expect(storage.getCurrentProjectDamage()).toBeNull();
+      expect(memory.getItem(`bline-web:workspace:${id}`)).not.toBe(rawText);
+    }
+  });
+
+  it("replaces a damaged combined source by locator without overwriting its target", async () => {
+    const memory = new MemoryStorage();
+    const project = exampleWorkspace("stable-project", "Alpha", ["One"]);
+    const damagedSource = JSON.stringify({
+      document: serializeProjectWorkspaceDocument(project),
+      version: "damaged-v1",
+      updatedAt: "2026-04-23T15:39:00.000Z",
+      futureEnvelope: true,
+    });
+    const unrelatedTarget = JSON.stringify({
+      files: serializeProjectFiles(
+        exampleWorkspace("stable-project", "Unrelated", ["Other"]),
+      ),
+      version: "unrelated-v1",
+      updatedAt: "2026-04-23T15:40:00.000Z",
+    });
+    memory.setItem("bline-web:workspace:legacy-locator", damagedSource);
+    memory.setItem("bline-web:workspace:stable-project", unrelatedTarget);
+    memory.setItem("bline-web:current-workspace", "legacy-locator");
+    const storage = new BrowserStorage({ storage: memory });
+    const recovered = await storage.readProject("legacy-locator");
+
+    await expect(
+      storage.replaceDamagedProject(recovered, "damaged-v1"),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(memory.getItem("bline-web:workspace:legacy-locator")).toBe(
+      damagedSource,
+    );
+    expect(memory.getItem("bline-web:workspace:stable-project")).toBe(
+      unrelatedTarget,
+    );
+
+    memory.removeItem("bline-web:workspace:stable-project");
+    await storage.replaceDamagedProject(recovered, "damaged-v1");
+
+    expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
+    expect(memory.getItem("bline-web:workspace:stable-project")).not.toBeNull();
+    expect(await storage.getCurrentWorkspaceId()).toBe("stable-project");
+  });
+
   it("opens recoverable legacy browser content but blocks destructive migration when its metadata is unsupported", async () => {
     const memory = new MemoryStorage();
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
@@ -894,8 +995,10 @@ describe("TauriStorage", () => {
         },
       ],
     };
+    const calls: string[] = [];
     const storage = new TauriStorage({
       invoke: async <T>(command: string) => {
+        calls.push(command);
         if (command === "storage_read_project_files") {
           return {
             directoryLocator: "/tmp/autos",
@@ -921,6 +1024,13 @@ describe("TauriStorage", () => {
             updatedAt: "2026-04-23T15:41:00.000Z",
           } as T;
         }
+        if (command === "storage_delete_legacy_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            version: "clean-v3",
+            updatedAt: "2026-04-23T15:42:00.000Z",
+          } as T;
+        }
         throw new Error(`Unexpected command ${command}`);
       },
     });
@@ -930,6 +1040,71 @@ describe("TauriStorage", () => {
     expect(resumed.project_id).toBe("stable-project");
     expect(resumed.config.gui.field).toEqual(legacyField);
     expect(storage.getCurrentProjectDamage()).toBeNull();
+    expect(storage.getLegacyProjectMigrationSourceId()).toBe("/tmp/autos");
+    await expect(
+      storage.deleteLegacyProjectFiles(
+        "canonical-with-legacy-v2",
+        "/tmp/autos",
+        "stable-project",
+      ),
+    ).resolves.toMatchObject({ version: "clean-v3" });
+    expect(calls).toEqual([
+      "storage_read_project_files",
+      "storage_delete_legacy_project_files",
+    ]);
+  });
+
+  it("blocks legacy cleanup when an existing canonical snapshot disagrees with the effective legacy folder", async () => {
+    const project = exampleWorkspace("stable-project", "Autos", ["One"]);
+    const canonical = {
+      ...project,
+      path_groups: [
+        {
+          group_id: "canonical-only",
+          display_name: "Canonical Only",
+          path_ids: [project.paths[0]!.path_id],
+        },
+      ],
+    };
+    const calls: string[] = [];
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string) => {
+        calls.push(command);
+        if (command === "storage_read_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            files: serializeProjectFiles(canonical).map((file) => ({
+              relativePath: file.relativePath,
+              contents: file.text,
+            })),
+            legacyFiles: [
+              {
+                relativePath: "pathgroups.json",
+                contents: '{"schema_version":1,"groups":[]}',
+              },
+            ],
+            version: "canonical-with-legacy-v2",
+            updatedAt: "2026-04-23T15:41:00.000Z",
+          } as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+
+    const recovered = await storage.readProject("/tmp/autos");
+
+    expect(recovered.path_groups).toEqual(canonical.path_groups);
+    expect(storage.getCurrentProjectDamage()).toMatchObject({
+      sourcePath: "project.json",
+    });
+    await expect(
+      storage.deleteLegacyProjectFiles(
+        "canonical-with-legacy-v2",
+        "/tmp/autos",
+        "stable-project",
+      ),
+    ).resolves.toBeNull();
+    expect(calls).toEqual(["storage_read_project_files"]);
   });
 
   it("keeps delayed legacy prepare and cleanup bound to their source folder", async () => {
