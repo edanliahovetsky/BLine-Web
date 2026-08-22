@@ -52,11 +52,25 @@ export interface ProjectImportRollback {
   rollback(): Promise<void>;
 }
 
+export class ProjectImportOutcomeUncertainError extends Error {
+  readonly projectError: unknown;
+  readonly reconciliationError: unknown;
+
+  constructor(projectError: unknown, reconciliationError?: unknown) {
+    super(
+      "Project import may have been committed, so its prepared User Data was retained",
+    );
+    this.name = "ProjectImportOutcomeUncertainError";
+    this.projectError = projectError;
+    this.reconciliationError = reconciliationError;
+  }
+}
+
 export interface ProjectImportOptions {
   /** Prepares decoded legacy assets before Project persistence and reports how to undo mutations. */
   migrateLegacyFieldBackgrounds?(
     imported: ProjectImportResult,
-  ): Promise<ProjectImportRollback | void>;
+  ): Promise<ProjectImportRollback>;
 }
 
 export interface DeleteWorkspaceResult {

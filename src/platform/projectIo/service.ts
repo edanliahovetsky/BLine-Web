@@ -10,6 +10,7 @@ import {
   serializeBLineRuntimeConfig,
 } from "../../core/io/blineProject";
 import { stringifyBLineJson } from "../../core/io/blineJson";
+import { serializeProjectFiles } from "../../core/io/projectFiles";
 import {
   deserializeBLineProjectFolder,
   serializeBLineProjectFolder,
@@ -31,11 +32,13 @@ import {
   isCurrentWorkspaceAdapter,
   isProjectFolderAdapter,
   StorageConflictError,
+  type ProjectReadSnapshot,
   type ProjectWorkspaceSummary,
   type LegacyProjectMigrationPreparation,
   type StorageAdapter,
   type WriteResult,
 } from "../../storage";
+import { ProjectImportOutcomeUncertainError } from "./types";
 import type {
   CreateWorkspaceInput,
   DeleteWorkspaceResult,
@@ -248,7 +251,10 @@ export class StorageProjectIoService implements ProjectIoService {
         );
         let activated: ProjectWorkspaceSummary | null = null;
         try {
-          activated = await this.storage.switchWorkspace(summary.id);
+          activated = await this.storage.switchWorkspace(
+            summary.id,
+            result.version,
+          );
         } catch {
           // The canonical Project is already durable. Keep it open by its explicit
           // locator so the user can continue saving or reopen the chosen folder.
@@ -584,6 +590,11 @@ export class StorageProjectIoService implements ProjectIoService {
     id: string,
     knownSummary?: ProjectWorkspaceSummary,
   ): Promise<Project> {
+    if (isProjectFolderAdapter(this.storage)) {
+      const snapshot = await this.storage.readProjectSnapshot(id);
+      this.adoptProjectSnapshot(snapshot, knownSummary);
+      return snapshot.project;
+    }
     const project = await this.storage.readProject(id);
     const listedSummary = (await this.listWorkspaces()).find(
       (candidate) => candidate.id === id,
@@ -610,18 +621,26 @@ export class StorageProjectIoService implements ProjectIoService {
     }
     const previous = this.captureOwnership();
     try {
-      const project = await this.storage.readProject(id);
-      const activated = await this.storage.switchWorkspace(id);
+      const snapshot = await this.storage.readProjectSnapshot(id);
+      const activated = await this.storage.switchWorkspace(
+        id,
+        snapshot.summary.version,
+      );
       if (!activated) {
         throw new Error("The selected desktop Project could not be activated");
       }
-      this.projectEpoch += 1;
-      this.currentProject = cloneProject(project);
-      this.currentStorageId = activated.id;
-      this.currentVersion = activated.version;
-      this.lastSavedAt = activated.updatedAt;
-      this.currentSummary = { ...(knownSummary ?? {}), ...activated };
-      return project;
+      if (
+        activated.id !== snapshot.summary.id ||
+        activated.version !== snapshot.summary.version
+      ) {
+        throw new StorageConflictError(
+          "The desktop Project changed while it was being activated",
+          snapshot.summary.version,
+          activated.version,
+        );
+      }
+      this.adoptProjectSnapshot(snapshot, knownSummary);
+      return snapshot.project;
     } catch (error) {
       await this.restoreStorageOwnership(previous);
       this.restoreOwnership(previous);
@@ -647,12 +666,19 @@ export class StorageProjectIoService implements ProjectIoService {
         legacySelectedFieldId,
         legacyFieldBackgrounds,
       );
-      await this.preflightDesktopImport();
+      const expectedVersion = await this.preflightDesktopImport();
       const rollback = await prepareImportedFields(result, options);
+      const previousProject = current;
       try {
-        await this.saveWorkspace(nextProject, this.currentVersion);
+        await this.saveWorkspace(nextProject, expectedVersion);
       } catch (error) {
-        await rollbackPreparedImport(error, rollback);
+        await this.reconcileDesktopImportFailure({
+          projectError: error,
+          previousProject,
+          intendedProject: nextProject,
+          expectedVersion,
+          rollback,
+        });
       }
       return result;
     }
@@ -686,7 +712,7 @@ export class StorageProjectIoService implements ProjectIoService {
     }
   }
 
-  private async preflightDesktopImport(): Promise<void> {
+  private async preflightDesktopImport(): Promise<string> {
     const storageId = this.currentStorageId;
     const expectedVersion = this.currentVersion;
     if (!storageId || !expectedVersion) {
@@ -706,6 +732,45 @@ export class StorageProjectIoService implements ProjectIoService {
         actualVersion,
       );
     }
+    return expectedVersion;
+  }
+
+  private async reconcileDesktopImportFailure({
+    projectError,
+    previousProject,
+    intendedProject,
+    expectedVersion,
+    rollback,
+  }: {
+    projectError: unknown;
+    previousProject: Project;
+    intendedProject: Project;
+    expectedVersion: string;
+    rollback: ProjectImportRollback | undefined;
+  }): Promise<void> {
+    if (!isProjectFolderAdapter(this.storage) || !this.currentStorageId) {
+      throw new ProjectImportOutcomeUncertainError(projectError);
+    }
+    let snapshot: ProjectReadSnapshot;
+    try {
+      snapshot = await this.storage.readProjectSnapshot(this.currentStorageId);
+    } catch (reconciliationError) {
+      throw new ProjectImportOutcomeUncertainError(
+        projectError,
+        reconciliationError,
+      );
+    }
+    if (projectsMatch(snapshot.project, intendedProject)) {
+      this.adoptProjectSnapshot(snapshot);
+      return;
+    }
+    if (
+      snapshot.summary.version === expectedVersion &&
+      projectsMatch(snapshot.project, previousProject)
+    ) {
+      await rollbackPreparedImport(projectError, rollback);
+    }
+    throw new ProjectImportOutcomeUncertainError(projectError);
   }
 
   private async saveImportedBrowserProject(project: Project): Promise<void> {
@@ -760,7 +825,10 @@ export class StorageProjectIoService implements ProjectIoService {
   ): Promise<void> {
     try {
       if (isProjectFolderAdapter(this.storage) && previous.storageId) {
-        await this.storage.switchWorkspace(previous.storageId);
+        await this.storage.switchWorkspace(
+          previous.storageId,
+          previous.version,
+        );
       } else if (isCurrentWorkspaceAdapter(this.storage)) {
         await this.storage.setCurrentWorkspaceId(previous.storageId);
       }
@@ -785,6 +853,18 @@ export class StorageProjectIoService implements ProjectIoService {
       project,
       result,
     );
+    this.projectEpoch += 1;
+  }
+
+  private adoptProjectSnapshot(
+    snapshot: ProjectReadSnapshot,
+    knownSummary?: ProjectWorkspaceSummary,
+  ): void {
+    this.currentProject = cloneProject(snapshot.project);
+    this.currentStorageId = snapshot.summary.id;
+    this.currentVersion = snapshot.summary.version;
+    this.lastSavedAt = snapshot.summary.updatedAt;
+    this.currentSummary = { ...(knownSummary ?? {}), ...snapshot.summary };
     this.projectEpoch += 1;
   }
 
@@ -839,7 +919,13 @@ async function prepareImportedFields(
       "Legacy Field Background migration is required before importing this Project",
     );
   }
-  return (await options.migrateLegacyFieldBackgrounds(imported)) ?? undefined;
+  const rollback = await options.migrateLegacyFieldBackgrounds(imported);
+  if (!rollback || typeof rollback.rollback !== "function") {
+    throw new Error(
+      "Legacy Field Background preparation must return a rollback handle",
+    );
+  }
+  return rollback;
 }
 
 async function rollbackPreparedImport(
@@ -868,6 +954,13 @@ function projectImportCollision(
     `A saved Project already uses ID ${projectId}`,
     undefined,
     actualVersion,
+  );
+}
+
+function projectsMatch(left: Project, right: Project): boolean {
+  return (
+    JSON.stringify(serializeProjectFiles(left)) ===
+    JSON.stringify(serializeProjectFiles(right))
   );
 }
 

@@ -577,6 +577,7 @@ describe("project store", () => {
     await store.getState().importProjectArchive(file, {
       migrateLegacyFieldBackgrounds: async () => {
         projectDuringMigration = store.getState().project?.project_id;
+        return { rollback: async () => {} };
       },
     });
     expect(projectDuringMigration).toBe("project-a");

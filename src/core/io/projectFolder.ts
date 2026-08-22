@@ -137,6 +137,11 @@ export async function deserializeBLineProjectFolder(
     throw new Error("The selected folder does not contain any JSON files");
   }
 
+  const pathRecords = records
+    .filter((record) => /^paths\/[^/]+\.json$/i.test(record.autosPath))
+    .sort((a, b) => a.autosPath.localeCompare(b.autosPath));
+  assertDistinctNormalizedPathFiles(pathRecords);
+
   const configRecord = records.find(
     (record) => record.autosPath.toLowerCase() === "config.json",
   );
@@ -245,10 +250,6 @@ export async function deserializeBLineProjectFolder(
   const config = deserializeProjectConfig(
     mergeRuntimeAndEditorConfig(rawConfig, editorState),
   );
-  const pathRecords = records
-    .filter((record) => /^paths\/[^/]+\.json$/i.test(record.autosPath))
-    .sort((a, b) => a.autosPath.localeCompare(b.autosPath));
-
   if (pathRecords.length === 0) {
     throw new Error("The selected folder must contain paths/*.json files");
   }
@@ -955,6 +956,25 @@ function createImportRecords(
       autosPath: normalizeAutosPath(strippedPath, selectedPathsFolder),
     };
   });
+}
+
+function assertDistinctNormalizedPathFiles(
+  records: readonly ImportRecord[],
+): void {
+  const sourceByFileName = new Map<string, string>();
+  for (const record of records) {
+    const fileName = ensureJsonFileName(
+      record.autosPath.slice("paths/".length),
+    );
+    const key = fileName.toLowerCase();
+    const previous = sourceByFileName.get(key);
+    if (previous) {
+      throw new Error(
+        `Project folder contains duplicate or case-colliding normalized Path file names/IDs: ${previous} and ${fileName}`,
+      );
+    }
+    sourceByFileName.set(key, fileName);
+  }
 }
 
 function normalizeImportPath(file: ProjectFolderImportFile): string {

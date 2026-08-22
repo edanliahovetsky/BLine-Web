@@ -3,6 +3,7 @@ import {
   createPathModel,
   createTranslationTarget,
 } from "../../../src/core/model/path";
+import type { Project } from "../../../src/core/model/project";
 import {
   createProjectPathDocument,
   createProjectWorkspaceDocument,
@@ -10,7 +11,10 @@ import {
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
 import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
 import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
-import { createProjectIoService } from "../../../src/platform/projectIo";
+import {
+  createProjectIoService,
+  ProjectImportOutcomeUncertainError,
+} from "../../../src/platform/projectIo";
 import {
   browserWebCapabilities,
   tauriCapabilities,
@@ -418,6 +422,80 @@ describe("ProjectIoService", () => {
     expect(implicitWriteLocator).toBeNull();
   });
 
+  it("rejects desktop activation when the Project changes after its snapshot read", async () => {
+    const projectA = exampleWorkspace("stable-a", "Alpha", ["One"]);
+    const projectB = exampleWorkspace("stable-b", "Beta", ["Two"]);
+    let durableCurrent = "/repo/a/autos";
+    const switches: string[] = [];
+    const expectedVersions: unknown[] = [];
+    const summary = (id: string, version: string) => ({
+      id,
+      displayName: id === "/repo/a/autos" ? "Alpha" : "Beta",
+      directoryPath: id,
+      version,
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    });
+    const invoke = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (command === "storage_get_current_workspace") {
+        return summary(durableCurrent, "a-v1") as T;
+      }
+      if (command === "storage_list_recent_workspaces") {
+        return [summary("/repo/a/autos", "a-v1")] as T;
+      }
+      if (command === "storage_read_project_files") {
+        const locator = String(args?.directoryLocator ?? durableCurrent);
+        const project = locator === "/repo/b/autos" ? projectB : projectA;
+        return {
+          directoryLocator: locator,
+          files: serializeProjectFiles(project).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: locator === "/repo/b/autos" ? "b-v1" : "a-v1",
+          updatedAt: "2026-08-22T14:00:00.000Z",
+        } as T;
+      }
+      if (command === "storage_switch_workspace") {
+        const id = String(args?.id);
+        expectedVersions.push(args?.expectedVersion);
+        const actualVersion = id === "/repo/b/autos" ? "b-v2" : "a-v1";
+        if (args?.expectedVersion !== actualVersion) {
+          throw new StorageConflictError(
+            "Project changed before activation",
+            String(args?.expectedVersion),
+            actualVersion,
+          );
+        }
+        durableCurrent = id;
+        switches.push(id);
+        return summary(id, actualVersion) as T;
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const service = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await service.initialize();
+
+    await expect(
+      service.switchWorkspace("/repo/b/autos"),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(expectedVersions).toEqual(["b-v1", "a-v1"]);
+    expect(switches).toEqual(["/repo/a/autos"]);
+    expect(durableCurrent).toBe("/repo/a/autos");
+    expect(service.getCurrentWorkspaceSummary()).toMatchObject({
+      id: "/repo/a/autos",
+      version: "a-v1",
+    });
+    await expect(service.getWorkspace()).resolves.toMatchObject({
+      project_id: "stable-a",
+    });
+  });
+
   it("exposes browser and desktop primary actions from capabilities", () => {
     const browserService = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
@@ -475,6 +553,34 @@ describe("ProjectIoService", () => {
       "One.json",
       "Two.json",
     ]);
+  });
+
+  it("rejects case-colliding folder Paths before browser or desktop persistence", async () => {
+    const files = [
+      projectFolderFile("autos/paths/Foo.json"),
+      projectFolderFile("autos/paths/foo.json"),
+    ];
+    const browserStorage = new MemoryStorage();
+    const browser = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: browserStorage },
+    });
+    const desktopCommands: string[] = [];
+    const desktop = createProjectIoService(tauriCapabilities, {
+      tauri: {
+        invoke: async () => {
+          desktopCommands.push("unexpected persistence command");
+          throw new Error("Folder parsing must finish before desktop I/O");
+        },
+      },
+    });
+
+    for (const service of [browser, desktop]) {
+      await expect(service.importProjectFolder(files)).rejects.toThrow(
+        /duplicate or case-colliding normalized Path file names\/IDs: (Foo\.json and foo\.json|foo\.json and Foo\.json)/,
+      );
+    }
+    expect(browserStorage.length).toBe(0);
+    expect(desktopCommands).toEqual([]);
   });
 
   it("rejects browser folder and archive imports that collide with a saved Project ID", async () => {
@@ -825,12 +931,18 @@ describe("ProjectIoService", () => {
     await expect(target.importProjectArchive(file)).rejects.toThrow(
       "migration is required",
     );
+    await expect(
+      target.importProjectArchive(file, {
+        migrateLegacyFieldBackgrounds: async () => undefined as never,
+      }),
+    ).rejects.toThrow("must return a rollback handle");
     await expect(target.listWorkspaces()).resolves.toEqual([]);
     let migratedBeforeCommit = false;
     const imported = await target.importProjectArchive(file, {
       migrateLegacyFieldBackgrounds: async () => {
         migratedBeforeCommit = true;
         expect(await target.listWorkspaces()).toEqual([]);
+        return noOpImportRollback();
       },
     });
 
@@ -858,6 +970,7 @@ describe("ProjectIoService", () => {
       target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
         migrateLegacyFieldBackgrounds: async () => {
           preparations += 1;
+          return noOpImportRollback();
         },
       }),
     ).rejects.toBeInstanceOf(StorageConflictError);
@@ -1070,6 +1183,7 @@ describe("ProjectIoService", () => {
       target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
         migrateLegacyFieldBackgrounds: async () => {
           preparations += 1;
+          return noOpImportRollback();
         },
       }),
     ).rejects.toBeInstanceOf(StorageConflictError);
@@ -1129,6 +1243,117 @@ describe("ProjectIoService", () => {
       project_id: "desktop-current",
       paths: [{ display_name: "Kept" }],
     });
+  });
+
+  it("retains prepared Fields when a desktop write commits before reporting an error", async () => {
+    const current = exampleWorkspace("desktop-current", "Current", ["Kept"]);
+    let committed: Project | null = null;
+    let intended: Project | null = null;
+    let rollbacks = 0;
+    const summary = {
+      id: "/repo/current/autos",
+      displayName: "Current",
+      directoryPath: "/repo/current/autos",
+      version: "current-v1",
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    };
+    const invoke = async <T>(command: string): Promise<T> => {
+      if (command === "storage_get_current_workspace") return summary as T;
+      if (command === "storage_list_recent_workspaces") return [summary] as T;
+      if (command === "storage_read_project_files") {
+        const project = committed ?? current;
+        return {
+          directoryLocator: summary.id,
+          files: serializeProjectFiles(project).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: committed ? "committed-v2" : summary.version,
+          updatedAt: committed ? "2026-08-22T14:01:00.000Z" : summary.updatedAt,
+        } as T;
+      }
+      if (command === "storage_write_project_files") {
+        committed = intended;
+        throw new Error("desktop response was lost after commit");
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const target = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await target.initialize();
+
+    await expect(
+      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+        migrateLegacyFieldBackgrounds: async (pending) => {
+          intended = structuredClone(pending.project);
+          return {
+            rollback: async () => {
+              rollbacks += 1;
+            },
+          };
+        },
+      }),
+    ).resolves.toMatchObject({ project: { project_id: "desktop-current" } });
+    expect(rollbacks).toBe(0);
+    expect(target.getCurrentVersion()).toBe("committed-v2");
+    await expect(target.getWorkspace()).resolves.toMatchObject({
+      project_id: "desktop-current",
+      paths: [],
+    });
+  });
+
+  it("retains prepared Fields when a desktop write outcome cannot be reconciled", async () => {
+    const current = exampleWorkspace("desktop-current", "Current", ["Kept"]);
+    let projectReads = 0;
+    let rollbacks = 0;
+    const summary = {
+      id: "/repo/current/autos",
+      displayName: "Current",
+      directoryPath: "/repo/current/autos",
+      version: "current-v1",
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    };
+    const invoke = async <T>(command: string): Promise<T> => {
+      if (command === "storage_get_current_workspace") return summary as T;
+      if (command === "storage_list_recent_workspaces") return [summary] as T;
+      if (command === "storage_read_project_files") {
+        projectReads += 1;
+        if (projectReads > 2) {
+          throw new Error("disk outcome is unreadable");
+        }
+        return {
+          directoryLocator: summary.id,
+          files: serializeProjectFiles(current).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: summary.version,
+          updatedAt: summary.updatedAt,
+        } as T;
+      }
+      if (command === "storage_write_project_files") {
+        throw new Error("desktop write outcome is unknown");
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const target = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await target.initialize();
+
+    await expect(
+      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+        migrateLegacyFieldBackgrounds: async () => ({
+          rollback: async () => {
+            rollbacks += 1;
+          },
+        }),
+      }),
+    ).rejects.toBeInstanceOf(ProjectImportOutcomeUncertainError);
+    expect(rollbacks).toBe(0);
   });
 
   it("deletes the current browser project and opens the next available workspace", async () => {
@@ -1489,6 +1714,21 @@ function projectArchiveFile(archive: unknown): File {
     type: "application/json",
     text: async () => JSON.stringify(archive),
   } as File;
+}
+
+function projectFolderFile(webkitRelativePath: string): File {
+  return {
+    name: webkitRelativePath.split("/").at(-1) ?? "path.json",
+    webkitRelativePath,
+    text: async () =>
+      JSON.stringify({
+        path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
+      }),
+  } as File;
+}
+
+function noOpImportRollback() {
+  return { rollback: async () => {} };
 }
 
 class MemoryStorage implements StorageLike {

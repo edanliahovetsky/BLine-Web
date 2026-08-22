@@ -24,6 +24,11 @@ export interface ProjectWorkspaceSummary {
   directoryPath?: string;
 }
 
+export interface ProjectReadSnapshot {
+  project: Project;
+  summary: ProjectWorkspaceSummary;
+}
+
 export interface WriteResult {
   version: string;
   updatedAt: string;
@@ -89,11 +94,15 @@ export interface CurrentWorkspaceAdapter extends StorageAdapter {
 }
 
 export interface ProjectFolderAdapter extends StorageAdapter {
+  readProjectSnapshot(id: string): Promise<ProjectReadSnapshot>;
   getCurrentWorkspace(): Promise<ProjectWorkspaceSummary | null>;
   listRecentWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
   openWorkspace(): Promise<ProjectWorkspaceSummary | null>;
   createWorkspace(): Promise<ProjectWorkspaceSummary | null>;
-  switchWorkspace(id: string): Promise<ProjectWorkspaceSummary | null>;
+  switchWorkspace(
+    id: string,
+    expectedVersion?: string,
+  ): Promise<ProjectWorkspaceSummary | null>;
 }
 
 export interface DamageAwareStorageAdapter extends StorageAdapter {
@@ -215,6 +224,7 @@ export function isProjectFolderAdapter(
   const candidate = adapter as Partial<ProjectFolderAdapter>;
   return (
     typeof candidate.getCurrentWorkspace === "function" &&
+    typeof candidate.readProjectSnapshot === "function" &&
     typeof candidate.listRecentWorkspaces === "function" &&
     typeof candidate.openWorkspace === "function" &&
     typeof candidate.createWorkspace === "function" &&

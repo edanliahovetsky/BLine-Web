@@ -770,6 +770,101 @@ describe("UserData", () => {
     },
   );
 
+  it("adopts Field Background metadata when its write commits before throwing", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    await service.flush();
+    adapter.installMetadataThenThrow = true;
+
+    const entry = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "ambiguous-create",
+    );
+
+    expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+    expect(adapter.assets.get(entry.id)).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(adapter.events.at(-1)).toBe("metadata-read");
+  });
+
+  it("preserves ambiguous Field Background bytes and permits deterministic recovery", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    await service.flush();
+    adapter.failMetadataWrite = true;
+    adapter.failMetadataReadAt = adapter.metadataReadCount + 1;
+
+    await expect(
+      service.migrateLegacyFieldBackgroundFromBytes(
+        fieldInput(),
+        "ambiguous-unreadable",
+      ),
+    ).rejects.toThrow("metadata write failed");
+    expect(adapter.assets.size).toBe(1);
+
+    adapter.failMetadataWrite = false;
+    adapter.failMetadataReadAt = undefined;
+    const recovered = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "ambiguous-unreadable",
+    );
+
+    expect(service.getSnapshot().field_backgrounds).toEqual([recovered]);
+    expect(adapter.assets.get(recovered.id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+  });
+
+  it("retains an ambiguous ordinary create ID reservation", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-ambiguous-ordinary",
+    });
+    await service.initialize();
+    await service.flush();
+    adapter.failMetadataWrite = true;
+    adapter.failMetadataReadAt = adapter.metadataReadCount + 1;
+
+    await expect(
+      service.createFieldBackgroundFromBytes(fieldInput()),
+    ).rejects.toThrow("metadata write failed");
+    adapter.failMetadataWrite = false;
+    adapter.failMetadataReadAt = undefined;
+
+    await expect(
+      service.createFieldBackgroundFromBytes({
+        ...fieldInput(),
+        bytes: new Uint8Array([9, 9, 9, 9]),
+      }),
+    ).rejects.toThrow("Could not allocate a unique Field Background ID");
+    expect(adapter.assets.get("field-ambiguous-ordinary")).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+  });
+
+  it("reconciles ambiguous metadata update and deletion writes", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-ambiguous",
+    });
+    await service.initialize();
+    const entry = await service.createFieldBackgroundFromBytes(fieldInput());
+
+    adapter.installMetadataThenThrow = true;
+    await expect(
+      service.updateFieldBackgroundMetadata(entry.id, { name: "Committed" }),
+    ).resolves.toMatchObject({ name: "Committed" });
+
+    adapter.installMetadataThenThrow = true;
+    await expect(
+      service.deleteFieldBackground(entry.id),
+    ).resolves.toBeUndefined();
+    expect(service.getSnapshot().field_backgrounds).toEqual([]);
+    expect(adapter.assets.has(entry.id)).toBe(false);
+  });
+
   it("can retry a failed deterministic legacy import without duplicating it", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter);
@@ -850,11 +945,12 @@ describe("UserData", () => {
 
   it("durably removes metadata and selections before deleting bytes", async () => {
     const adapter = new AssetMemoryAdapter();
-    const service = new UserDataService(adapter, {
-      idFactory: () => "field-delete",
-    });
+    const service = new UserDataService(adapter);
     await service.initialize();
-    const entry = await service.createFieldBackgroundFromBytes(fieldInput());
+    const entry = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "field-delete",
+    );
     service.update((current) => ({
       ...current,
       project_views: {
@@ -873,12 +969,43 @@ describe("UserData", () => {
       "asset delete failed",
     );
 
-    expect(adapter.events).toEqual(["metadata-write", "asset-delete"]);
+    expect(adapter.events).toEqual([
+      "metadata-write",
+      "metadata-read",
+      "asset-delete",
+    ]);
     expect(service.getSnapshot().field_backgrounds).toEqual([]);
     expect(service.getSnapshot().project_views).toEqual({
       "project-a": { active_path_id: "path-a" },
     });
     expect(adapter.assets.has(entry.id)).toBe(true);
+
+    adapter.failAssetDelete = false;
+    const reimported = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "field-delete",
+    );
+    expect(reimported.id).toBe(entry.id);
+    expect(adapter.assets.get(entry.id)).toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
+  it("releases a deleted deterministic Field Background ID for reimport", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    const entry = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "delete-reimport",
+    );
+
+    await service.deleteFieldBackground(entry.id);
+    const reimported = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "delete-reimport",
+    );
+
+    expect(reimported.id).toBe(entry.id);
+    expect(service.getSnapshot().field_backgrounds).toEqual([reimported]);
   });
 
   it("does not delete bytes when durable metadata removal fails", async () => {
@@ -895,7 +1022,7 @@ describe("UserData", () => {
       "metadata write failed",
     );
 
-    expect(adapter.events).toEqual(["metadata-write"]);
+    expect(adapter.events).toEqual(["metadata-write", "metadata-read"]);
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
     expect(adapter.assets.has(entry.id)).toBe(true);
   });
@@ -1241,6 +1368,7 @@ class AssetMemoryAdapter implements UserDataAdapter {
   readonly events: string[] = [];
   failAssetWrite = false;
   failMetadataWrite = false;
+  installMetadataThenThrow = false;
   failAssetDelete = false;
   readbackOverride: Uint8Array | null | undefined;
   metadataReadCount = 0;
@@ -1275,6 +1403,10 @@ class AssetMemoryAdapter implements UserDataAdapter {
       throw new Error("metadata write failed");
     }
     this.persisted = structuredClone(data);
+    if (this.installMetadataThenThrow) {
+      this.installMetadataThenThrow = false;
+      throw new Error("metadata write outcome unknown");
+    }
   }
 
   pauseNextMetadataWrite(): {

@@ -90,6 +90,7 @@ const PROJECT_SAVE_TRANSACTION_MARKER: &str = "state";
 const PROJECT_SAVE_SNAPSHOT_VERSION: &str = "version";
 const PROJECT_SAVE_TRANSACTION_PREPARED: &str = "prepared";
 const PROJECT_SAVE_TRANSACTION_COMMITTED: &str = "committed";
+const PROJECT_SAVE_TRANSACTION_ABORTED: &str = "aborted";
 const LEGACY_CLEANUP_TRANSACTION_DIR: &str = ".bline-legacy-cleanup-transaction";
 const LEGACY_CLEANUP_RETIRE_DIR: &str = ".bline-legacy-cleanup-retired";
 const LEGACY_CLEANUP_EXPECTED_VERSION: &str = "expected-version";
@@ -195,12 +196,22 @@ pub fn storage_write_text_file_dialog(
 pub fn storage_switch_workspace(
     app: AppHandle,
     id: String,
+    expected_version: Option<String>,
 ) -> Result<Option<ProjectWorkspaceSummary>, String> {
     if id.trim().is_empty() {
         return Ok(None);
     }
 
-    set_workspace_dir(&app, PathBuf::from(id)).map(Some)
+    let selected_dir = effective_project_dir(Path::new(&id));
+    let summary = workspace_summary(&selected_dir)?;
+    if expected_version
+        .as_ref()
+        .is_some_and(|expected| expected != &summary.version)
+    {
+        return Err("storage-conflict: project changed before activation".to_owned());
+    }
+    remember_workspace_dir(&app, &selected_dir)?;
+    Ok(Some(summary))
 }
 
 /// Read the complete team-owned Project file set without interpreting its JSON.
@@ -448,11 +459,7 @@ fn write_project_text_file_set(
         // Staging may take long enough for an external editor to save. Recheck just
         // before the prepared marker makes the replacement live so that such a save
         // is not silently overwritten by our older snapshot.
-        let staged_against_version = project_source_file_set_version(
-            &read_managed_project_files(project_dir)?,
-            &read_legacy_project_files(project_dir)?,
-        );
-        if staged_against_version != actual_version {
+        if !live_project_file_set_matches(project_dir, &current_files, &current_legacy_files)? {
             return Err("storage-conflict: project file set changed while saving".to_owned());
         }
         write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_PREPARED)?;
@@ -462,22 +469,46 @@ fn write_project_text_file_set(
         // installation removes any live Project files.
         sync_directory(project_dir)?;
 
+        // Recheck exact bytes after the prepared marker is durable and immediately
+        // before installation. If an external writer won this boundary, mark the
+        // transaction aborted so recovery leaves those live edits untouched.
+        guard_live_project_before_install(
+            project_dir,
+            &transaction_dir,
+            &current_files,
+            &current_legacy_files,
+        )?;
+
         install_project_snapshot(project_dir, &new_dir)?;
-        write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_COMMITTED)?;
-        retire_project_file_transaction(project_dir, &transaction_dir)?;
+        // Once the complete new set is installed, a failed marker update is not an
+        // old-outcome signal: recovery recognizes a prepared transaction whose
+        // live files already equal the new snapshot. Retirement remains cleanup.
+        if write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_COMMITTED).is_ok() {
+            let _ = retire_project_file_transaction(project_dir, &transaction_dir);
+        }
         Ok(())
     })();
 
     if let Err(error) = transaction_result {
-        // Leave a prepared/committed transaction in place when installation began;
-        // the next read or write deterministically restores one complete side.
-        if !transaction_dir
+        let marker_exists = transaction_dir
             .join(PROJECT_SAVE_TRANSACTION_MARKER)
-            .exists()
-        {
+            .exists();
+        if !marker_exists {
             let _ = fs::remove_dir_all(&transaction_dir);
+            return Err(error);
         }
-        return Err(error);
+
+        // Resolve any error after preparation before reporting its outcome to
+        // TypeScript. If recovery selects the fully installed new set, the save
+        // committed and paired User Data must not be rolled back.
+        if let Err(recovery_error) = recover_project_file_transaction(project_dir) {
+            return Err(format!(
+                "{error}; project transaction outcome could not be recovered: {recovery_error}"
+            ));
+        }
+        if read_managed_project_files(project_dir)? != canonical_files {
+            return Err(error);
+        }
     }
 
     let saved_files = read_managed_project_files(project_dir)?;
@@ -896,11 +927,35 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
     }
 
     let state = fs::read_to_string(&marker).map_err(error_string)?;
-    let snapshot = if state == PROJECT_SAVE_TRANSACTION_COMMITTED {
-        transaction_dir.join("new")
-    } else {
-        // A prepared or torn marker conservatively resolves to the old set.
-        transaction_dir.join("old")
+    let old_snapshot = transaction_dir.join("old");
+    let new_snapshot = transaction_dir.join("new");
+    let snapshot = match state.as_str() {
+        PROJECT_SAVE_TRANSACTION_COMMITTED => new_snapshot,
+        PROJECT_SAVE_TRANSACTION_PREPARED => {
+            let new_files = read_validated_project_snapshot(&new_snapshot)?;
+            if read_managed_project_files(project_dir)? == new_files {
+                // Installation completed but the committed marker update did not.
+                new_snapshot
+            } else {
+                old_snapshot
+            }
+        }
+        PROJECT_SAVE_TRANSACTION_ABORTED => {
+            return retire_project_file_transaction(project_dir, &transaction_dir);
+        }
+        _ => {
+            // A marker can tear only while being written before installation or
+            // after a complete install. Resolve recognizable complete live sets;
+            // never replace an unrecognized live set on ambiguous evidence.
+            let live_files = read_managed_project_files(project_dir)?;
+            if live_files == read_validated_project_snapshot(&new_snapshot)? {
+                new_snapshot
+            } else if live_files == read_validated_project_snapshot(&old_snapshot)? {
+                old_snapshot
+            } else {
+                return Err("Project save transaction marker is invalid".to_owned());
+            }
+        }
     };
     install_project_snapshot(project_dir, &snapshot)?;
     retire_project_file_transaction(project_dir, &transaction_dir)
@@ -1051,6 +1106,28 @@ fn project_source_file_set_updated_at(
         .to_string()
 }
 
+fn live_project_file_set_matches(
+    project_dir: &Path,
+    expected_files: &[ProjectTextFile],
+    expected_legacy_files: &[ProjectTextFile],
+) -> Result<bool, String> {
+    Ok(read_managed_project_files(project_dir)? == expected_files
+        && read_legacy_project_files(project_dir)? == expected_legacy_files)
+}
+
+fn guard_live_project_before_install(
+    project_dir: &Path,
+    transaction_dir: &Path,
+    expected_files: &[ProjectTextFile],
+    expected_legacy_files: &[ProjectTextFile],
+) -> Result<(), String> {
+    if live_project_file_set_matches(project_dir, expected_files, expected_legacy_files)? {
+        return Ok(());
+    }
+    write_transaction_marker(transaction_dir, PROJECT_SAVE_TRANSACTION_ABORTED)?;
+    Err("storage-conflict: project file set changed while committing".to_owned())
+}
+
 fn sync_directory(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -1073,16 +1150,6 @@ fn sync_directory(path: &Path) -> Result<(), String> {
 
 fn pick_workspace_dir(title: &str) -> Option<PathBuf> {
     rfd::FileDialog::new().set_title(title).pick_folder()
-}
-
-fn set_workspace_dir(
-    app: &AppHandle,
-    selected_dir: PathBuf,
-) -> Result<ProjectWorkspaceSummary, String> {
-    let effective_dir = effective_project_dir(&selected_dir);
-    let summary = workspace_summary(&effective_dir)?;
-    remember_workspace_dir(app, &effective_dir)?;
-    Ok(summary)
 }
 
 fn remember_workspace_dir(app: &AppHandle, effective_dir: &Path) -> Result<(), String> {
@@ -1400,8 +1467,12 @@ fn write_recoverable_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
     match fs::rename(&temporary, path) {
         Ok(()) => {
             sync_directory(parent)?;
-            fs::remove_file(backup).map_err(error_string)?;
-            sync_directory(parent)
+            // The new primary is durable at this point. Backup retirement is
+            // cleanup only; a stale backup is safely rotated by the next write.
+            if fs::remove_file(backup).is_ok() {
+                let _ = sync_directory(parent);
+            }
+            Ok(())
         }
         Err(error) => {
             let _ = fs::rename(&backup, path);
@@ -1705,6 +1776,30 @@ mod tests {
     }
 
     #[test]
+    fn prepared_transaction_with_complete_new_live_set_finishes_commit() {
+        let dir = temp_project_dir("prepared-after-install");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("paths/old.json", "old path"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("paths/new.json", "new path"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &old);
+        stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_PREPARED);
+        install_project_snapshot(&dir, &dir.join(PROJECT_SAVE_TRANSACTION_DIR).join("new"))
+            .unwrap();
+
+        recover_project_file_transaction(&dir).unwrap();
+
+        assert_eq!(read_managed_project_files(&dir).unwrap(), new);
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
     fn committed_transaction_completes_new_set() {
         let dir = temp_project_dir("committed-recovery");
         let old = vec![
@@ -1723,6 +1818,41 @@ mod tests {
         recover_project_file_transaction(&dir).unwrap();
 
         assert_eq!(read_managed_project_files(&dir).unwrap(), new);
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn aborted_transaction_preserves_external_live_edits() {
+        let dir = temp_project_dir("aborted-external-edit");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("paths/old.json", "old path"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("paths/new.json", "new path"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &old);
+        stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_PREPARED);
+        fs::write(dir.join("config.json"), "external config").unwrap();
+        let error = guard_live_project_before_install(
+            &dir,
+            &dir.join(PROJECT_SAVE_TRANSACTION_DIR),
+            &old,
+            &[],
+        )
+        .unwrap_err();
+        assert!(error.contains("changed while committing"));
+
+        recover_project_file_transaction(&dir).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join("config.json")).unwrap(),
+            "external config"
+        );
+        assert!(dir.join("paths/old.json").exists());
         assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
     }
 
@@ -1794,8 +1924,13 @@ mod tests {
             project_file("paths/live.json", "live path"),
             project_file("project.json", "live metadata"),
         ];
+        let replacement = vec![
+            project_file("config.json", "replacement config"),
+            project_file("paths/replacement.json", "replacement path"),
+            project_file("project.json", "replacement metadata"),
+        ];
         install_files(&dir, &live);
-        stage_transaction(&dir, &live, &live, PROJECT_SAVE_TRANSACTION_PREPARED);
+        stage_transaction(&dir, &live, &replacement, PROJECT_SAVE_TRANSACTION_PREPARED);
         fs::write(
             dir.join(PROJECT_SAVE_TRANSACTION_DIR)
                 .join("old")

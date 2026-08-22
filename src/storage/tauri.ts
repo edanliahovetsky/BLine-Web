@@ -15,6 +15,7 @@ import {
   createBLineWorkspaceArchive,
   type FieldAssetPayload,
   type ProjectFolderAdapter,
+  type ProjectReadSnapshot,
   type ProjectWorkspaceSummary,
   type WriteResult,
   type LegacyProjectMigrationPreparation,
@@ -61,6 +62,10 @@ export class TauriStorage implements ProjectFolderAdapter {
   }
 
   async readProject(id?: string): Promise<Project> {
+    return (await this.readProjectSnapshot(id)).project;
+  }
+
+  async readProjectSnapshot(id?: string): Promise<ProjectReadSnapshot> {
     const operationLocator = id ?? this.currentDirectoryLocator;
     const result = await this.invoke<ProjectFileSetPayload>(
       "storage_read_project_files",
@@ -159,7 +164,16 @@ export class TauriStorage implements ProjectFolderAdapter {
         }
       }
     }
-    return project;
+    return {
+      project,
+      summary: {
+        id: result.directoryLocator,
+        displayName: project.display_name,
+        directoryPath: result.directoryLocator,
+        version: result.version,
+        updatedAt: result.updatedAt,
+      },
+    };
   }
 
   async getWorkspaceVersion(id: string): Promise<string> {
@@ -402,11 +416,15 @@ export class TauriStorage implements ProjectFolderAdapter {
     return summary;
   }
 
-  async switchWorkspace(id: string): Promise<ProjectWorkspaceSummary | null> {
+  async switchWorkspace(
+    id: string,
+    expectedVersion?: string,
+  ): Promise<ProjectWorkspaceSummary | null> {
     const summary = await this.invoke<ProjectWorkspaceSummary | null>(
       "storage_switch_workspace",
       {
         id,
+        expectedVersion: expectedVersion ?? null,
       },
     );
     return this.rememberSummaryLocator(summary);

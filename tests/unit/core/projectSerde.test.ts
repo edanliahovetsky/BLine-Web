@@ -783,6 +783,27 @@ describe("project path serde", () => {
     } satisfies Partial<ProjectFolderLosslessMigrationError>);
   });
 
+  it.each([false, true])(
+    "rejects case-colliding normalized Path names before %s folder migration",
+    async (requireLosslessMigration) => {
+      const path = {
+        path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
+      };
+
+      await expect(
+        deserializeBLineProjectFolder(
+          [
+            textImportFile("autos/paths/Foo.json", path),
+            textImportFile("autos/paths/foo.json", path),
+          ],
+          { requireLosslessMigration },
+        ),
+      ).rejects.toThrow(
+        /duplicate or case-colliding normalized Path file names\/IDs: (Foo\.json and foo\.json|foo\.json and Foo\.json)/,
+      );
+    },
+  );
+
   it("uses pathgroups.json when editor state omits path_groups", async () => {
     const restored = await deserializeBLineProjectFolder(
       [

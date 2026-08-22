@@ -240,7 +240,9 @@ export class UserDataService {
     this.assertWritable();
     const entryId = this.allocateEntryId();
     const bytes = new Uint8Array(input.bytes);
-    return this.enqueue(() => this.commitNewField(entryId, input, bytes));
+    return this.enqueue(() =>
+      this.commitNewField(entryId, input, bytes, false),
+    );
   }
 
   async migrateLegacyFieldBackgroundFromBytes(
@@ -283,7 +285,7 @@ export class UserDataService {
       }
       this.issuedEntryIds.add(entryId);
       return {
-        entry: await this.commitNewField(entryId, input, bytes),
+        entry: await this.commitNewField(entryId, input, bytes, true),
         created: true,
       };
     });
@@ -331,7 +333,22 @@ export class UserDataService {
       });
       const writtenRevision = this.snapshotRevision;
       const next = updateFieldEntry(this.snapshot, entryId, updated);
-      await this.adapter.write(next);
+      try {
+        await this.adapter.write(next);
+      } catch (error) {
+        let persisted: UserData;
+        try {
+          persisted = migrateUserData(await this.adapter.read());
+        } catch {
+          throw error;
+        }
+        const durableEntry = persisted.field_backgrounds.find(
+          (entry) => entry.id === entryId,
+        );
+        if (!durableEntry || !sameUserData(durableEntry, updated)) {
+          throw error;
+        }
+      }
       this.snapshot = updateFieldEntry(this.snapshot, entryId, updated);
       this.recordDurableWrite(writtenRevision);
       return structuredClone(updated);
@@ -354,13 +371,31 @@ export class UserDataService {
       if (
         !this.snapshot.field_backgrounds.some((entry) => entry.id === entryId)
       ) {
+        this.issuedEntryIds.delete(entryId);
+        await this.adapter.deleteFieldAsset(entryId);
         return;
       }
       const writtenRevision = this.snapshotRevision;
-      const next = removeFieldEntries(this.snapshot, new Set([entryId]));
-      await this.adapter.write(next);
-      this.snapshot = removeFieldEntries(this.snapshot, new Set([entryId]));
+      const entryIds = new Set([entryId]);
+      const next = removeFieldEntries(this.snapshot, entryIds);
+      let writeError: unknown;
+      try {
+        await this.adapter.write(next);
+      } catch (error) {
+        writeError = error;
+      }
+      let persisted: UserData;
+      try {
+        persisted = migrateUserData(await this.adapter.read());
+      } catch (error) {
+        throw writeError ?? error;
+      }
+      if (!fieldEntriesAreRemoved(persisted, entryIds)) {
+        throw writeError ?? new UserDataVerificationError();
+      }
+      this.snapshot = removeFieldEntries(this.snapshot, entryIds);
       this.recordDurableWrite(writtenRevision);
+      this.issuedEntryIds.delete(entryId);
       await this.adapter.deleteFieldAsset(entryId);
     });
   }
@@ -428,6 +463,7 @@ export class UserDataService {
     entryId: string,
     input: CreateFieldBackgroundInput,
     bytes: Uint8Array,
+    releaseReservationForDeterministicRetry: boolean,
   ): Promise<FieldBackgroundEntry> {
     const entry = this.normalizedEntry({
       id: entryId,
@@ -438,27 +474,54 @@ export class UserDataService {
       created_at: this.now().toISOString(),
       geometry: structuredClone(input.geometry),
     });
-    let metadataCommitted = false;
     try {
       await this.writeVerifiedAsset(entryId, bytes);
-      const next = this.withFieldEntries([
-        ...this.snapshot.field_backgrounds,
-        entry,
-      ]);
-      const writtenRevision = this.snapshotRevision;
-      await this.adapter.write(next);
-      metadataCommitted = true;
-      this.snapshot = addFieldEntry(this.snapshot, entry);
-      this.recordDurableWrite(writtenRevision);
-      await this.verifyDurableEntry(entry);
-      return structuredClone(entry);
     } catch (error) {
-      if (!metadataCommitted) {
-        await this.deleteAssetBestEffort(entryId);
-        this.issuedEntryIds.delete(entryId);
-      }
+      await this.deleteAssetBestEffort(entryId);
+      this.issuedEntryIds.delete(entryId);
       throw error;
     }
+
+    const next = this.withFieldEntries([
+      ...this.snapshot.field_backgrounds,
+      entry,
+    ]);
+    const writtenRevision = this.snapshotRevision;
+    try {
+      await this.adapter.write(next);
+    } catch (error) {
+      let persisted: UserData;
+      try {
+        persisted = migrateUserData(await this.adapter.read());
+      } catch {
+        // The asset may already be referenced durably. Deterministic imports
+        // can safely reclaim the same identity and bytes; ordinary creates
+        // retain their reservation so a random collision cannot replace it.
+        if (releaseReservationForDeterministicRetry) {
+          this.issuedEntryIds.delete(entryId);
+        }
+        throw error;
+      }
+      const durableEntry = persisted.field_backgrounds.find(
+        (candidate) => candidate.id === entryId,
+      );
+      if (!durableEntry) {
+        await this.deleteAssetBestEffort(entryId);
+        this.issuedEntryIds.delete(entryId);
+        throw error;
+      }
+      if (!sameUserData(durableEntry, entry)) {
+        throw error;
+      }
+      this.snapshot = addFieldEntry(this.snapshot, entry);
+      this.recordDurableWrite(writtenRevision);
+      return structuredClone(entry);
+    }
+
+    this.snapshot = addFieldEntry(this.snapshot, entry);
+    this.recordDurableWrite(writtenRevision);
+    await this.verifyDurableEntry(entry);
+    return structuredClone(entry);
   }
 
   private async writeVerifiedAsset(
@@ -647,6 +710,20 @@ function removeFieldEntries(
     ),
     project_views: projectViews,
   });
+}
+
+function fieldEntriesAreRemoved(
+  snapshot: UserData,
+  entryIds: ReadonlySet<string>,
+): boolean {
+  return (
+    snapshot.field_backgrounds.every((entry) => !entryIds.has(entry.id)) &&
+    Object.values(snapshot.project_views).every(
+      (view) =>
+        !view.selected_field_background_id ||
+        !entryIds.has(view.selected_field_background_id),
+    )
+  );
 }
 
 function rollbackImportedFields(
