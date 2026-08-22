@@ -364,6 +364,24 @@ describe("project store", () => {
     expect(requireWorkspace(store).paths).toHaveLength(2);
   });
 
+  it("undoes and redoes an edit on its original Path after navigation", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const [firstPath, secondPath] = requireWorkspace(store).paths;
+
+    store.getState().setActivePath(secondPath.path_id);
+    store.getState().applyCommand(renameCommand("Beta Edited", "Beta"));
+    store.getState().setActivePath(firstPath.path_id);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).active_path_id).toBe(secondPath.path_id);
+    expect(requireWorkspace(store).paths[1].display_name).toBe("Beta");
+
+    store.getState().setActivePath(firstPath.path_id);
+    store.getState().redo();
+    expect(requireWorkspace(store).active_path_id).toBe(secondPath.path_id);
+    expect(requireWorkspace(store).paths[1].display_name).toBe("Beta Edited");
+  });
+
   it("continues undoing membership edits after restoring a deleted collection and member paths", async () => {
     const { store } = await initializedProjectStore(
       exampleThreePathWorkspace(),

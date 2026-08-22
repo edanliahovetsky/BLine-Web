@@ -62,6 +62,11 @@ interface WorkspaceSnapshotHistoryCommand extends HistoryCommand<ProjectWorkspac
   nextSnapshot: ProjectWorkspaceDocument;
 }
 
+interface WorkspacePathHistoryCommand extends HistoryCommand<ProjectWorkspaceDocument> {
+  kind: "path-command";
+  pathId: string;
+}
+
 export interface ProjectStoreState {
   workspace: ProjectWorkspaceDocument | null;
   project: ProjectDocument | null;
@@ -694,9 +699,13 @@ export function createProjectStore(
     },
     applyCommand(command) {
       const workspace = requireWorkspace(get().workspace);
+      const pathId = requireActivePathId(workspace);
       const nextWorkspace = history
         .getState()
-        .execute(cloneWorkspace(workspace), workspaceCommand(command));
+        .execute(
+          cloneWorkspace(workspace),
+          workspaceCommand(command, pathId),
+        );
 
       setWorkspace(set, nextWorkspace, true);
     },
@@ -706,7 +715,11 @@ export function createProjectStore(
         return;
       }
 
-      const nextWorkspace = workspaceCommand(command).apply(
+      const pathId = workspace.active_path_id;
+      if (!pathId) {
+        return;
+      }
+      const nextWorkspace = workspaceCommand(command, pathId).apply(
         cloneWorkspace(workspace),
       );
 
@@ -910,27 +923,43 @@ function adoptWorkspace(
 
 function workspaceCommand(
   command: HistoryCommand<ProjectDocument>,
-): HistoryCommand<ProjectWorkspaceDocument> {
+  pathId: string,
+): WorkspacePathHistoryCommand {
   return {
+    kind: "path-command",
+    pathId,
     description: command.description,
     apply: (workspace) => {
-      const project = activeProjectFromWorkspace(workspace);
-      if (!project) {
-        return workspace;
-      }
-      return replaceActiveProjectInWorkspace(workspace, command.apply(project));
-    },
-    revert: (workspace) => {
-      const project = activeProjectFromWorkspace(workspace);
+      const focusedWorkspace = { ...workspace, active_path_id: pathId };
+      const project = activeProjectFromWorkspace(focusedWorkspace);
       if (!project) {
         return workspace;
       }
       return replaceActiveProjectInWorkspace(
-        workspace,
+        focusedWorkspace,
+        command.apply(project),
+      );
+    },
+    revert: (workspace) => {
+      const focusedWorkspace = { ...workspace, active_path_id: pathId };
+      const project = activeProjectFromWorkspace(focusedWorkspace);
+      if (!project) {
+        return workspace;
+      }
+      return replaceActiveProjectInWorkspace(
+        focusedWorkspace,
         command.revert(project),
       );
     },
   };
+}
+
+function requireActivePathId(workspace: ProjectWorkspaceDocument): string {
+  const pathId = workspace.active_path_id;
+  if (!pathId) {
+    throw new Error("No active path");
+  }
+  return pathId;
 }
 
 function requireProjectIo(io: ProjectIoService | null): ProjectIoService {
