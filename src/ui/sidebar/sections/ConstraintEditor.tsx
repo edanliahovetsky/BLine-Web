@@ -262,10 +262,12 @@ export function ConstraintEditor({
   path,
   config,
   open,
+  onDialogOpenChange,
 }: {
   path: PathModel | null;
   config: ProjectConfig | null;
   open: boolean;
+  onDialogOpenChange?(open: boolean): void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDetailsElement | null>(null);
@@ -283,6 +285,11 @@ export function ConstraintEditor({
   // The background sync and the Generate button drive the same optimizer, so
   // the card locks for either.
   const autoVelocityRunning = manualRunActive || syncPhase === "running";
+
+  useEffect(() => {
+    onDialogOpenChange?.(popoutKey !== null);
+    return () => onDialogOpenChange?.(false);
+  }, [onDialogOpenChange, popoutKey]);
   const autoSettings =
     path && config
       ? autoVelocitySettingsForPath(path, config)

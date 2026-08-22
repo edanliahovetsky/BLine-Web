@@ -138,8 +138,10 @@ import {
   clampInspectorWidth,
   formatShortcut,
   readEditorUiPreferences,
+  writeEditorUiPreferences,
   type EditorCommand,
   type EditorTool,
+  type EditorUiPreferencesV1,
   type ShortcutBinding,
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
@@ -150,6 +152,10 @@ import {
 } from "../optimizerBeam";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
+import {
+  createTourSessionController,
+  type TourSessionController,
+} from "../tours/tourSession";
 import {
   deleteFieldBackground,
   flushUserData,
@@ -167,12 +173,7 @@ import {
   migrateLegacyProjectFieldBackgrounds,
 } from "../../userData/legacyFieldMigration";
 import { displayNameFromFileName } from "../../core/io/workspaceSerde";
-import {
-  editorBasicsTour,
-  findTour,
-  tourPracticePathName,
-  tours,
-} from "../tours/tours";
+import { editorBasicsTour, tours } from "../tours/tours";
 
 interface LinkedTargetPickerRequest {
   pathId: string;
@@ -184,6 +185,20 @@ interface PathNameAction {
   kind: "duplicate" | "rename";
   pathId: string;
   initialName: string;
+}
+
+interface TourEditorViewSnapshot {
+  activeTool: EditorTool;
+  autosaveStatus: AutosaveStatus;
+  editorPreferences: EditorUiPreferencesV1;
+  fieldSelectionOverride: {
+    projectId: string;
+    fieldId: string;
+  } | null;
+  inspectorOpen: boolean;
+  inspectorWidth: number;
+  optimizerError: string | null;
+  showGhostPaths: boolean;
 }
 
 type LibraryNameAction =
@@ -235,6 +250,18 @@ export function AppShell() {
   const lastSavedAt = useStoreSelector(
     projectStore,
     (state) => state.lastSavedAt,
+  );
+  const optimizerPhase = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.phase,
+  );
+  const optimizerError = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.lastError,
+  );
+  const autoSyncEnabled = useStoreSelector(
+    autoVelocityStore,
+    (state) => state.autoSyncEnabled,
   );
   const selectedElementIndex = useStoreSelector(
     selectionStore,
@@ -293,12 +320,6 @@ export function AppShell() {
       !window.matchMedia(mobileSupportMediaQuery).matches,
   );
   const [showTourPicker, setShowTourPicker] = useState(false);
-  const tourReturnPathRef = useRef<string | null>(null);
-  const tourReturnFieldRef = useRef<string | null>(null);
-  const activeTourId = useStoreSelector(
-    tourStore,
-    (state) => state.activeTourId,
-  );
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
   );
@@ -306,6 +327,9 @@ export function AppShell() {
     () => readEditorUiPreferences().inspectorWidth,
   );
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
+  const [showGhostPaths, setShowGhostPaths] = useState(
+    () => readEditorUiPreferences().showGhostPaths,
+  );
   const [linkedTargetPickerRequest, setLinkedTargetPickerRequest] =
     useState<LinkedTargetPickerRequest | null>(null);
   const [showMobileSupportWarning, setShowMobileSupportWarning] =
@@ -319,6 +343,7 @@ export function AppShell() {
   const [canvasInteractionActive, setCanvasInteractionActive] = useState(false);
   const [curveToolSession, setCurveToolSession] =
     useState<CurveToolSession | null>(null);
+  const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false);
   const autosaveRef = useRef<AutosaveCoordinator | null>(null);
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
@@ -329,6 +354,109 @@ export function AppShell() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
   const pathMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const tourViewRef = useRef<{
+    blocked: boolean;
+    snapshot: TourEditorViewSnapshot;
+  } | null>(null);
+  const tourSessionRef = useRef<TourSessionController | null>(null);
+
+  useEffect(() => {
+    tourViewRef.current = {
+      blocked:
+        initializing ||
+        canvasInteractionActive ||
+        curveToolSession !== null ||
+        inspectorDialogOpen ||
+        pendingToolbarAction !== null ||
+        optimizerPhase !== "idle" ||
+        openTopMenu !== null ||
+        showCommandPalette ||
+        showConfigDialog ||
+        showDeletePathDialog ||
+        showDeleteProjectDialog ||
+        showLinkedTargetsDialog ||
+        showMobileSupportWarning ||
+        pathNameAction !== null ||
+        showNewPathDialog ||
+        showNewProjectDialog ||
+        showOpenPanel ||
+        showPathGroupsDialog ||
+        showShortcutHelp,
+      snapshot: {
+        activeTool,
+        autosaveStatus,
+        editorPreferences: readEditorUiPreferences(),
+        fieldSelectionOverride,
+        inspectorOpen,
+        inspectorWidth,
+        optimizerError,
+        showGhostPaths,
+      },
+    };
+  }, [
+    activeTool,
+    autosaveStatus,
+    canvasInteractionActive,
+    curveToolSession,
+    fieldSelectionOverride,
+    inspectorOpen,
+    inspectorDialogOpen,
+    inspectorWidth,
+    initializing,
+    openTopMenu,
+    optimizerError,
+    optimizerPhase,
+    pathNameAction,
+    pendingToolbarAction,
+    showCommandPalette,
+    showConfigDialog,
+    showDeletePathDialog,
+    showDeleteProjectDialog,
+    showLinkedTargetsDialog,
+    showMobileSupportWarning,
+    showNewPathDialog,
+    showNewProjectDialog,
+    showOpenPanel,
+    showPathGroupsDialog,
+    showShortcutHelp,
+    showGhostPaths,
+  ]);
+
+  useEffect(() => {
+    const controller = createTourSessionController({
+      captureView: () => {
+        const current = tourViewRef.current;
+        if (!current) {
+          throw new Error("Tour editor view is unavailable");
+        }
+        return {
+          ...current.snapshot,
+          editorPreferences: readEditorUiPreferences(),
+        };
+      },
+      canStart: () => tourViewRef.current?.blocked === false,
+      showPracticeView: (projectId) => {
+        setFieldSelectionOverride({ projectId, fieldId: "blank-grid" });
+        setInspectorOpen(true);
+        setActiveTool("select");
+      },
+      restoreView: (view) => {
+        writeEditorUiPreferences(view.editorPreferences);
+        setFieldSelectionOverride(view.fieldSelectionOverride);
+        setInspectorOpen(view.inspectorOpen);
+        setInspectorWidth(view.inspectorWidth);
+        setActiveTool(view.activeTool);
+        setAutosaveStatus(view.autosaveStatus);
+        autoVelocityStore.getState().setLastError(view.optimizerError);
+        setShowGhostPaths(view.showGhostPaths);
+      },
+    });
+    tourSessionRef.current = controller;
+    return () => {
+      controller.dispose();
+      tourSessionRef.current = null;
+    };
+  }, []);
 
   const setActiveTopMenu = useCallback((menu: TopMenuId | null) => {
     if (menu) {
@@ -433,6 +561,7 @@ export function AppShell() {
           return;
         }
         setInspectorWidth(userData.editor_layout.inspector_width);
+        setShowGhostPaths(userData.editor_layout.show_ghost_paths);
         autoVelocityStore
           .getState()
           .setAutoSyncEnabled(userData.automatic_generation.keep_in_sync);
@@ -574,19 +703,6 @@ export function AppShell() {
   const activeField = useMemo(
     () => resolveUserFieldDefinition(selectedFieldId, fieldBackgrounds),
     [fieldBackgrounds, selectedFieldId],
-  );
-
-  const optimizerPhase = useStoreSelector(
-    autoVelocityStore,
-    (state) => state.phase,
-  );
-  const optimizerError = useStoreSelector(
-    autoVelocityStore,
-    (state) => state.lastError,
-  );
-  const autoSyncEnabled = useStoreSelector(
-    autoVelocityStore,
-    (state) => state.autoSyncEnabled,
   );
 
   useEffect(() => startAutomaticConstraintSync(), []);
@@ -766,84 +882,10 @@ export function AppShell() {
     }
   }, [refreshWorkspaceSummaries]);
 
-  // Tours run on a throwaway path so every step is safe to actually perform.
   const startGuidedTour = useCallback(
-    (tourId: string) => {
-      const tourDefinition = findTour(tourId);
-      const state = projectStore.getState();
-      const currentProject = state.project;
-      if (!tourDefinition || !currentProject) {
-        return;
-      }
-
-      const existingPractice = currentProject.paths.find(
-        (path) => path.display_name === tourPracticePathName,
-      );
-      const currentPathId = state.activePathId;
-      tourReturnPathRef.current =
-        currentPathId && currentPathId !== existingPractice?.path_id
-          ? currentPathId
-          : null;
-
-      // Recreate the practice path from this lesson's seed so every lesson
-      // opens in the state its steps assume.
-      if (existingPractice) {
-        state.deletePaths([existingPractice.path_id]);
-      }
-      state.createPath({
-        displayName: tourPracticePathName,
-        path: tourDefinition.practicePath(),
-      });
-
-      // Lessons teach on the neutral blank grid; the user's field comes back
-      // as soon as the tour ends.
-      if (selectedFieldId !== "blank-grid") {
-        tourReturnFieldRef.current = selectedFieldId;
-        setFieldSelectionOverride({
-          projectId: currentProject.project_id,
-          fieldId: "blank-grid",
-        });
-      } else {
-        tourReturnFieldRef.current = null;
-      }
-
-      selectionStore.getState().clearSelection();
-      setInspectorOpen(true);
-      tourStore.getState().start(tourId);
-    },
-    [selectedFieldId],
+    (tourId: string) => tourSessionRef.current?.start(tourId) ?? false,
+    [],
   );
-
-  // Put the user back on the path and field they were editing once the tour
-  // ends.
-  useEffect(() => {
-    if (activeTourId) {
-      return;
-    }
-
-    const returnFieldId = tourReturnFieldRef.current;
-    if (returnFieldId) {
-      tourReturnFieldRef.current = null;
-      const currentProject = projectStore.getState().project;
-      if (currentProject) {
-        setFieldSelectionOverride({
-          projectId: currentProject.project_id,
-          fieldId: returnFieldId,
-        });
-      }
-    }
-
-    const returnPathId = tourReturnPathRef.current;
-    if (!returnPathId) {
-      return;
-    }
-
-    tourReturnPathRef.current = null;
-    const currentProject = projectStore.getState().project;
-    if (currentProject?.paths.some((path) => path.path_id === returnPathId)) {
-      projectStore.getState().setActivePath(returnPathId);
-    }
-  }, [activeTourId]);
 
   const handleToolChange = useCallback(
     (tool: EditorTool) => {
@@ -2594,13 +2636,7 @@ export function AppShell() {
             }}
             onOpenSample={() => void handleOpenSample()}
             tourSupported={toursSupported}
-            onStartTour={() => {
-              // There is no workspace yet on the start center, so open the
-              // sample first and then hand over to the tour.
-              void handleOpenSample().then(() =>
-                startGuidedTour(editorBasicsTour.id),
-              );
-            }}
+            onStartTour={() => startGuidedTour(editorBasicsTour.id)}
           />
         ) : (
           <>
@@ -2608,6 +2644,14 @@ export function AppShell() {
               <PathStage
                 field={activeField}
                 activeTool={activeTool}
+                showGhostPaths={showGhostPaths}
+                onShowGhostPathsChange={(show) => {
+                  setShowGhostPaths(show);
+                  writeEditorUiPreferences({
+                    ...readEditorUiPreferences(),
+                    showGhostPaths: show,
+                  });
+                }}
                 curveTool={curveToolSession}
                 onToolChange={handleToolChange}
                 onPlaceElement={handlePlaceCanvasElement}
@@ -2638,6 +2682,7 @@ export function AppShell() {
               />
             ) : null}
             <Sidebar
+              key={projectSessionId ?? "no-project-session"}
               project={durableProject}
               activePath={activePath}
               selectedElementIndex={selectedElementIndex}
@@ -2651,6 +2696,7 @@ export function AppShell() {
               }
               onStartCurve={handleStartCurveTool}
               onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
+              onDialogOpenChange={setInspectorDialogOpen}
             />
           </>
         )}
@@ -2848,8 +2894,9 @@ export function AppShell() {
         <TourPickerDialog
           onClose={() => setShowTourPicker(false)}
           onStart={(tourId) => {
-            setShowTourPicker(false);
-            startGuidedTour(tourId);
+            if (startGuidedTour(tourId)) {
+              setShowTourPicker(false);
+            }
           }}
         />
       ) : null}

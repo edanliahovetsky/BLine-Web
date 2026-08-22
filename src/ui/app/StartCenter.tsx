@@ -132,13 +132,18 @@ export function StartCenter({
               Open a safe sample with waypoints, events, and a velocity range.
             </p>
             <div className="start-center__sample-actions">
-              <button type="button" onClick={onOpenSample}>
+              <button
+                type="button"
+                disabled={initializing}
+                onClick={onOpenSample}
+              >
                 Open sample
               </button>
               {tourSupported ? (
                 <button
                   type="button"
                   data-testid="start-center-guided-tour"
+                  disabled={initializing}
                   onClick={onStartTour}
                 >
                   <span aria-hidden="true">🧭</span> Take the guided tour

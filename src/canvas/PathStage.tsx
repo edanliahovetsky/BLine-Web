@@ -53,11 +53,7 @@ import {
   SkipForwardIcon,
 } from "../ui/icons";
 import { IconButton } from "../ui/controls";
-import {
-  readEditorUiPreferences,
-  writeEditorUiPreferences,
-  type EditorTool,
-} from "../ui/app/editorCommands";
+import type { EditorTool } from "../ui/app/editorCommands";
 import {
   isInteractiveShortcutTarget,
   removeSelectedPathElement,
@@ -104,8 +100,10 @@ const fallbackStageSize: CanvasSize = {
 interface PathStageProps {
   field?: ResolvedFieldDefinition;
   activeTool?: EditorTool;
+  showGhostPaths?: boolean;
   curveTool?: CurveToolSession | null;
   onToolChange?(tool: EditorTool): void;
+  onShowGhostPathsChange?(show: boolean): void;
   onPlaceElement?(placement: CanvasElementPlacement): void;
   onInteractionStateChange?: (active: boolean) => void;
   onCurveToolCommit?(
@@ -164,8 +162,10 @@ interface ActiveCanvasContextMenu {
 export function PathStage({
   field = resolveUserFieldDefinition(null, []),
   activeTool = "select",
+  showGhostPaths = true,
   curveTool = null,
   onToolChange,
+  onShowGhostPathsChange,
   onPlaceElement,
   onInteractionStateChange,
   onCurveToolCommit,
@@ -186,9 +186,6 @@ export function PathStage({
   const rotationFrameRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
-  const [showGhostPaths, setShowGhostPaths] = useState(
-    () => readEditorUiPreferences().showGhostPaths,
-  );
   const [panOffset, setPanOffsetState] = useState<StagePoint>({ x: 0, y: 0 });
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [customFieldImage, setCustomFieldImage] = useState<{
@@ -1537,16 +1534,7 @@ export function PathStage({
           scale={viewScale}
           showGhostPaths={showGhostPaths}
           onFit={resetView}
-          onToggleGhostPaths={() =>
-            setShowGhostPaths((current) => {
-              const next = !current;
-              writeEditorUiPreferences({
-                ...readEditorUiPreferences(),
-                showGhostPaths: next,
-              });
-              return next;
-            })
-          }
+          onToggleGhostPaths={() => onShowGhostPathsChange?.(!showGhostPaths)}
           onZoomIn={() => zoomFromCenter(1.25)}
           onZoomOut={() => zoomFromCenter(1 / 1.25)}
         />

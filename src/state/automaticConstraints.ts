@@ -340,6 +340,9 @@ export function startAutomaticConstraintSync(
       session = state.projectSessionId;
       lastAppliedUnstampedTokens.clear();
       status.getState().reset();
+      invalidate();
+      considered = captureProjectMutationOwnership(state);
+      return;
     }
     evaluate();
   });

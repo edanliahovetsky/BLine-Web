@@ -1233,6 +1233,7 @@ export function createProjectStore(
     const projectId = state.project?.project_id ?? null;
     const pathId = state.activePathId;
     if (
+      !state.io ||
       !projectId ||
       (projectId === rememberedProjectId && pathId === rememberedPathId)
     ) {

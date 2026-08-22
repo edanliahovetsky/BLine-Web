@@ -49,6 +49,7 @@ interface SidebarProps {
   onInspectorResize?(width: number): void;
   onStartCurve?(insertionIndex: number): void;
   onOpenLinkedTargetPicker?(): void;
+  onDialogOpenChange?(open: boolean): void;
 }
 
 export function Sidebar({
@@ -63,6 +64,7 @@ export function Sidebar({
   onInspectorResize,
   onStartCurve,
   onOpenLinkedTargetPicker,
+  onDialogOpenChange,
 }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<"elements" | "constraints">(
     () => readEditorUiPreferences().inspectorTab,
@@ -475,6 +477,7 @@ export function Sidebar({
             path={activePath?.path ?? null}
             config={project?.config ?? null}
             open
+            onDialogOpenChange={onDialogOpenChange}
           />
         </div>
       )}

@@ -3202,7 +3202,6 @@ test("switches paths from the toolbar path selector", async ({ page }) => {
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Phase 1 Canvas Draft",
   );
-
   await selectToolbarOption(page, "Toolbar path", "Second Path");
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Second Path",
@@ -3922,11 +3921,17 @@ test("opens help and tutorials from the toolbar", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("runs the guided tour on a throwaway practice path", async ({ page }) => {
+test("runs the guided tour in an isolated practice session", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Phase 1 Canvas Draft",
   );
+  const ghostPathsToggle = page.getByRole("button", {
+    name: /collection paths/,
+  });
+  const ghostPathsBefore = await ghostPathsToggle.getAttribute("aria-pressed");
 
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
@@ -3951,18 +3956,135 @@ test("runs the guided tour on a throwaway practice path", async ({ page }) => {
     "Phase 1 Canvas Draft",
   );
 
-  // Starting again reuses the same practice path rather than piling up copies.
+  // Starting again creates another in-memory session without touching the
+  // durable Project.
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId("tour-picker-editor-basics").click();
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Tour practice",
   );
+  const card = page.getByTestId("tour-card");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Waypoint tool" }).click();
+  const pathStage = page.getByTestId("path-stage");
+  const canvas = await requiredBox(pathStage);
+  await pathStage.click({
+    position: { x: canvas.width / 2, y: canvas.height / 2 },
+  });
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 7");
+  await ghostPathsToggle.click();
+  await expect(ghostPathsToggle).not.toHaveAttribute(
+    "aria-pressed",
+    ghostPathsBefore ?? "",
+  );
+  await page.waitForTimeout(450);
   await page.keyboard.press("Escape");
+  await expect(ghostPathsToggle).toHaveAttribute(
+    "aria-pressed",
+    ghostPathsBefore ?? "",
+  );
+
+  // Even after a real practice edit sits beyond the autosave delay, a reload
+  // sees only the original durable Project.
+  await page.reload();
+  await dismissMobileSupportWarning(page);
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
 
   const dialog = await openPathLibraryDialog(page);
   await expect(dialog.getByText("Tour practice", { exact: true })).toHaveCount(
-    1,
+    0,
+  );
+});
+
+test("restores editor navigation, history, selection, inspector, and tool after a Tour", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+
+  await page.getByTestId("path-element-row-0").click();
+  await page.keyboard.press(`${modifier}+D`);
+  await page.keyboard.press(`${modifier}+Z`);
+  const fieldBefore = await activeFieldLabel(page);
+  const selectedBefore = await page
+    .getByTestId("selected-element-status")
+    .textContent();
+  await page.getByRole("button", { name: "Waypoint tool" }).click();
+  // Change the child-owned tab last, so Tour capture must read the current
+  // preference synchronously rather than relying on an AppShell render.
+  await openConstraintsTab(page);
+  await expect(
+    page.getByRole("button", { name: "Redo", exact: true }),
+  ).toBeEnabled();
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-editor-basics").click();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Tour practice",
+  );
+  await expect(
+    page.getByRole("button", { name: "Select tool" }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
+  await expect.poll(() => activeFieldLabel(page)).toBe(fieldBefore);
+  await expect(page.getByTestId("selected-element-status")).toHaveText(
+    selectedBefore ?? "",
+  );
+  await expect(
+    page.getByRole("button", { name: "Redo", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Waypoint tool" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "Toggle inspector" }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("tab", { name: "Constraints" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
+test("does not start a Tour across an active inspector dialog", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+  await page
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    .click();
+  await page
+    .getByRole("button", { name: "Expand Max Velocity editor" })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Max Velocity expanded editor",
+  });
+  await expect(dialog).toBeVisible();
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  // The popout deliberately overlays most underlying surfaces. Force the
+  // otherwise-hidden entry controls to exercise the start guard itself.
+  await page
+    .getByTestId("start-guided-tour")
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByTestId("tour-picker")).toBeAttached();
+  await page
+    .getByTestId("tour-picker-editor-basics")
+    .evaluate((button: HTMLButtonElement) => button.click());
+
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+  await expect(page.getByTestId("tour-picker")).toBeAttached();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
   );
 });
 
@@ -3977,6 +4099,14 @@ test("starts the guided tour from the start center", async ({ page }) => {
 
   await expect(page.getByTestId("tour-card")).toBeVisible();
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 7");
+
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("heading", { name: "Simple, rapid, robust." }),
+  ).toBeVisible();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "No path",
+  );
 });
 
 test("teaches concepts across multiple lessons", async ({ page }) => {
@@ -4095,6 +4225,9 @@ test("hides guided tours below the mobile support threshold", async ({
   await page.setViewportSize({ width: 700, height: 800 });
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
   await dismissMobileSupportWarning(page);
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
 
   // And the help hub stops offering it until the window grows again.
   await page.getByRole("button", { name: "Help and tutorials" }).click();

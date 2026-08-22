@@ -61,6 +61,27 @@ describe("auto velocity sync", () => {
     stop();
   });
 
+  it("adopts a replacement Project session without replaying its top edit", async () => {
+    const store = await initializedStore(exampleWorkspace(true));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+
+    moveSecondAnchor(store, 3.2);
+    expect(status.getState().phase).toBe("pending");
+    store.setState({ projectSessionId: "replacement-session" });
+
+    await new Promise((resolve) => setTimeout(resolve, syncDelayMs * 3));
+    expect(status.getState().phase).toBe("idle");
+    expect(request).not.toHaveBeenCalled();
+    stop();
+  });
+
   it("regenerates caps after a handoff radius is pinned", async () => {
     const { store, stop, status } = await startedSync();
 
