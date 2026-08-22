@@ -48,6 +48,11 @@ export interface ProjectImportResult {
   legacyFieldBackgrounds: ImportedLegacyFieldBackground[];
 }
 
+export interface ProjectImportOptions {
+  /** Runs after complete legacy asset decoding but before Project persistence. */
+  migrateLegacyFieldBackgrounds?(imported: ProjectImportResult): Promise<void>;
+}
+
 export interface LegacyProjectViewMigration {
   legacyProjectId: string;
   stableProjectId: string;
@@ -97,9 +102,15 @@ export interface ProjectIoService {
   exportPath(project: Project, pathId: string): Promise<Blob>;
   importConfig(file: File): Promise<Project>;
   exportConfig(project: Project): Promise<Blob>;
-  importProjectFolder(files: readonly File[]): Promise<ProjectImportResult>;
+  importProjectFolder(
+    files: readonly File[],
+    options?: ProjectImportOptions,
+  ): Promise<ProjectImportResult>;
   exportProjectFolder(project: Project): Promise<ProjectFolderExport>;
-  importProjectArchive(file: File): Promise<ProjectImportResult>;
+  importProjectArchive(
+    file: File,
+    options?: ProjectImportOptions,
+  ): Promise<ProjectImportResult>;
   exportProjectArchive(project: Project): Promise<Blob>;
   readLegacyFieldImageAsset(
     projectId: string,

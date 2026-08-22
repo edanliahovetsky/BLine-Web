@@ -212,7 +212,11 @@ export class TauriStorage implements ProjectFolderAdapter {
         expected: expectedVersion ?? null,
       },
     );
-    this.rememberFileSet(result);
+    if (storageId && storageId !== this.currentDirectoryLocator) {
+      this.rememberFileSetWithoutStealingCurrentLocator(result, storageId);
+    } else {
+      this.rememberFileSet(result);
+    }
     this.canonicalLocators.add(result.directoryLocator);
     this.legacyAttestationByLocator.delete(result.directoryLocator);
     this.cleanupProofByLocator.delete(result.directoryLocator);
@@ -382,7 +386,7 @@ export class TauriStorage implements ProjectFolderAdapter {
     const summary = await this.invoke<ProjectWorkspaceSummary | null>(
       "storage_create_workspace_dialog",
     );
-    return this.rememberSummaryLocator(summary);
+    return summary;
   }
 
   async switchWorkspace(id: string): Promise<ProjectWorkspaceSummary | null> {

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
@@ -163,16 +164,13 @@ pub fn storage_open_workspace_dialog(
 }
 
 #[tauri::command]
-pub fn storage_create_workspace_dialog(
-    app: AppHandle,
-) -> Result<Option<ProjectWorkspaceSummary>, String> {
+pub fn storage_create_workspace_dialog() -> Result<Option<ProjectWorkspaceSummary>, String> {
     let Some(selected) = pick_workspace_dir("Create BLine Project in Empty Folder") else {
         return Ok(None);
     };
 
     let effective_dir = effective_project_dir(&selected);
     validate_new_workspace_dir(&effective_dir)?;
-    remember_workspace_dir(&app, &effective_dir)?;
     workspace_summary(&effective_dir).map(Some)
 }
 
@@ -378,9 +376,10 @@ fn resolve_project_directory(
     directory_locator: Option<&str>,
 ) -> Result<PathBuf, String> {
     if let Some(locator) = directory_locator {
-        let dir = resolve_explicit_project_directory(locator)?;
-        remember_workspace_dir(app, &dir)?;
-        return Ok(dir);
+        // Explicit locators target an operation, not desktop session ownership.
+        // Opening/switching a Project remembers it through set_workspace_dir only
+        // after the caller has completed any required initial write.
+        return resolve_explicit_project_directory(locator);
     }
 
     require_current_project_dir(app)
@@ -1314,9 +1313,26 @@ fn user_field_asset_path(app: &AppHandle, entry_id: &str) -> Result<PathBuf, Str
 }
 
 fn read_recoverable_json(path: &Path) -> Result<Option<Value>, String> {
-    read_recoverable_bytes(path)?
-        .map(|raw| serde_json::from_slice(&raw).map_err(error_string))
-        .transpose()
+    let Some(raw) = read_recoverable_bytes(path)? else {
+        return Ok(None);
+    };
+    match serde_json::from_slice(&raw) {
+        Ok(value) => Ok(Some(value)),
+        Err(primary_error) => {
+            let backup = sibling_path(path, ".bak");
+            if !backup.exists() {
+                return Err(error_string(primary_error));
+            }
+            let backup_raw = fs::read(&backup).map_err(error_string)?;
+            serde_json::from_slice(&backup_raw)
+                .map(Some)
+                .map_err(|backup_error| {
+                    format!(
+                        "User Data primary and backup are invalid: primary={primary_error}; backup={backup_error}"
+                    )
+                })
+        }
+    }
 }
 
 fn write_recoverable_json(path: &Path, value: &Value) -> Result<(), String> {
@@ -1328,6 +1344,9 @@ fn read_recoverable_bytes(path: &Path) -> Result<Option<Vec<u8>>, String> {
     let backup = sibling_path(path, ".bak");
     if !path.exists() && backup.exists() {
         fs::rename(&backup, path).map_err(error_string)?;
+        if let Some(parent) = path.parent() {
+            sync_directory(parent)?;
+        }
     }
     if !path.exists() {
         return Ok(None);
@@ -1336,28 +1355,49 @@ fn read_recoverable_bytes(path: &Path) -> Result<Option<Vec<u8>>, String> {
 }
 
 fn write_recoverable_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(error_string)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Recoverable file has no parent: {}", path.display()))?;
+    let parent_existed = parent.exists();
+    fs::create_dir_all(parent).map_err(error_string)?;
+    if !parent_existed {
+        if let Some(grandparent) = parent.parent() {
+            sync_directory(grandparent)?;
+        }
     }
     let temporary = sibling_path(path, ".tmp");
     let backup = sibling_path(path, ".bak");
-    fs::write(&temporary, bytes).map_err(error_string)?;
+    let mut temporary_file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temporary)
+        .map_err(error_string)?;
+    temporary_file.write_all(bytes).map_err(error_string)?;
+    temporary_file.sync_all().map_err(error_string)?;
+    drop(temporary_file);
 
     if !path.exists() {
-        return fs::rename(&temporary, path).map_err(error_string);
+        fs::rename(&temporary, path).map_err(error_string)?;
+        return sync_directory(parent);
     }
 
     if backup.exists() {
-        fs::remove_file(&backup).map_err(error_string)?;
+        fs::remove_file(path).map_err(error_string)?;
+        sync_directory(parent)?;
+    } else {
+        fs::rename(path, &backup).map_err(error_string)?;
+        sync_directory(parent)?;
     }
-    fs::rename(path, &backup).map_err(error_string)?;
     match fs::rename(&temporary, path) {
         Ok(()) => {
+            sync_directory(parent)?;
             fs::remove_file(backup).map_err(error_string)?;
-            Ok(())
+            sync_directory(parent)
         }
         Err(error) => {
             let _ = fs::rename(&backup, path);
+            let _ = sync_directory(parent);
             Err(error_string(error))
         }
     }
@@ -1815,6 +1855,22 @@ mod tests {
             read_recoverable_bytes(&asset_path).unwrap(),
             Some(b"new".to_vec())
         );
+    }
+
+    #[test]
+    fn corrupt_user_data_primary_reads_valid_backup_without_destroying_evidence() {
+        let dir = temp_project_dir("user-data-corrupt-primary");
+        let data_path = dir.join("user-data.json");
+        let backup_path = sibling_path(&data_path, ".bak");
+        fs::write(&data_path, b"{ truncated").unwrap();
+        fs::write(&backup_path, br#"{"value":"recoverable"}"#).unwrap();
+
+        assert_eq!(
+            read_recoverable_json(&data_path).unwrap(),
+            Some(json!({ "value": "recoverable" }))
+        );
+        assert_eq!(fs::read(&data_path).unwrap(), b"{ truncated");
+        assert!(backup_path.exists());
     }
 
     #[test]

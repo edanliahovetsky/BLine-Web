@@ -53,6 +53,13 @@ export class UnsupportedUserDataVersionError extends Error {
   }
 }
 
+export class InvalidUserDataRecordError extends Error {
+  constructor() {
+    super("User Data has an invalid current-schema record");
+    this.name = "InvalidUserDataRecordError";
+  }
+}
+
 export function migrateUserData(
   persisted: unknown,
   legacyStorage?: LegacyUserDataStorage,
@@ -64,6 +71,12 @@ export function migrateUserData(
     persistedVersion > USER_DATA_SCHEMA_VERSION
   ) {
     throw new UnsupportedUserDataVersionError(persistedVersion);
+  }
+  if (
+    persistedVersion === USER_DATA_SCHEMA_VERSION &&
+    !isCurrentUserDataRecord(root)
+  ) {
+    throw new InvalidUserDataRecordError();
   }
 
   const legacyEditor = objectValue(
@@ -125,6 +138,61 @@ export function cloneUserData(data: UserData): UserData {
 
 export function isUserDataRecord(value: unknown): boolean {
   return objectValue(value) !== null;
+}
+
+function isCurrentUserDataRecord(
+  root: Record<string, unknown> | null,
+): boolean {
+  if (!root) {
+    return false;
+  }
+  const layout = objectValue(root.editor_layout);
+  const automaticGeneration = objectValue(root.automatic_generation);
+  const completedTourIds = root.completed_tour_ids;
+  const views = objectValue(root.project_views);
+  const fields = root.field_backgrounds;
+  if (
+    !layout ||
+    !inspectorTab(layout.inspector_tab) ||
+    inspectorWidth(layout.inspector_width) !== layout.inspector_width ||
+    typeof layout.show_ghost_paths !== "boolean" ||
+    !automaticGeneration ||
+    typeof automaticGeneration.keep_in_sync !== "boolean" ||
+    !Array.isArray(completedTourIds) ||
+    completedTourIds.some((id) => !nonEmptyString(id)) ||
+    new Set(completedTourIds).size !== completedTourIds.length ||
+    !views ||
+    !validCurrentProjectViews(views) ||
+    !Array.isArray(fields)
+  ) {
+    return false;
+  }
+
+  const fieldIds = new Set<string>();
+  for (const field of fields) {
+    const normalized = normalizeFieldBackgroundEntry(field);
+    if (!normalized || fieldIds.has(normalized.id)) {
+      return false;
+    }
+    fieldIds.add(normalized.id);
+  }
+  return true;
+}
+
+function validCurrentProjectViews(views: Record<string, unknown>): boolean {
+  return Object.entries(views).every(([projectId, value]) => {
+    const view = objectValue(value);
+    if (!nonEmptyString(projectId) || !view) {
+      return false;
+    }
+    const activePathId = view.active_path_id;
+    const selectedFieldId = view.selected_field_background_id;
+    return (
+      (activePathId === undefined || nonEmptyString(activePathId)) &&
+      (selectedFieldId === undefined || nonEmptyString(selectedFieldId)) &&
+      (activePathId !== undefined || selectedFieldId !== undefined)
+    );
+  });
 }
 
 export function isSafeFieldBackgroundId(value: string): boolean {

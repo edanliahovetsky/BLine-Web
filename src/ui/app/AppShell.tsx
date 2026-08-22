@@ -66,7 +66,10 @@ import {
   nextLinkedTargetName,
 } from "../../core/linkedTargets";
 import { detectEnvironmentCapabilities } from "../../env/capabilities";
-import { createProjectIoService } from "../../platform/projectIo";
+import {
+  createProjectIoService,
+  type ProjectImportResult,
+} from "../../platform/projectIo";
 import {
   downloadBlob,
   isAbortError,
@@ -1559,17 +1562,9 @@ export function AppShell() {
           return;
         }
 
-        const imported = await projectStore
-          .getState()
-          .importProjectArchive(file);
-        const fieldMigration = await migrateImportedLegacyFieldBackgrounds({
-          projectId: imported.project.project_id,
-          selectedFieldId: imported.legacySelectedFieldId,
-          entries: imported.legacyFieldBackgrounds,
+        await projectStore.getState().importProjectArchive(file, {
+          migrateLegacyFieldBackgrounds: migrateImportedFieldsForProject,
         });
-        if (fieldMigration.errors[0]) {
-          throw fieldMigration.errors[0];
-        }
         setFieldBackgrounds(listFieldBackgrounds());
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
@@ -1596,17 +1591,9 @@ export function AppShell() {
       }
 
       try {
-        const imported = await projectStore
-          .getState()
-          .importProjectFolder(files);
-        const fieldMigration = await migrateImportedLegacyFieldBackgrounds({
-          projectId: imported.project.project_id,
-          selectedFieldId: imported.legacySelectedFieldId,
-          entries: imported.legacyFieldBackgrounds,
+        await projectStore.getState().importProjectFolder(files, {
+          migrateLegacyFieldBackgrounds: migrateImportedFieldsForProject,
         });
-        if (fieldMigration.errors[0]) {
-          throw fieldMigration.errors[0];
-        }
         setFieldBackgrounds(listFieldBackgrounds());
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
@@ -6141,6 +6128,19 @@ function ensureJsonFileName(value: string): string {
   const base =
     safeDownloadName(value.replace(/\.json$/i, "")) || "untitled-path";
   return `${base}.json`;
+}
+
+async function migrateImportedFieldsForProject(
+  pending: ProjectImportResult,
+): Promise<void> {
+  const migration = await migrateImportedLegacyFieldBackgrounds({
+    projectId: pending.project.project_id,
+    selectedFieldId: pending.legacySelectedFieldId,
+    entries: pending.legacyFieldBackgrounds,
+  });
+  if (migration.errors[0]) {
+    throw migration.errors[0];
+  }
 }
 
 function formatTimestamp(value: string): string {

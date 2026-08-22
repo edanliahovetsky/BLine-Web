@@ -1,5 +1,6 @@
 import type { UserDataAdapter, UserDataStorage } from "./adapters";
 import {
+  InvalidUserDataRecordError,
   UnsupportedUserDataVersionError,
   cloneUserData,
   defaultUserData,
@@ -33,7 +34,9 @@ export interface FieldBackgroundMetadataUpdate {
 
 export class UserDataReadOnlyError extends Error {
   constructor() {
-    super("User Data is read-only because its durable source was not readable");
+    super(
+      "User Data is read-only because its durable source was not safe to load",
+    );
     this.name = "UserDataReadOnlyError";
   }
 }
@@ -64,7 +67,9 @@ export class ProjectViewMigrationError extends Error {
 export class UserDataService {
   private snapshot = cloneUserData(defaultUserData);
   private pendingWrite: Promise<void> = Promise.resolve();
-  private latestPreferenceWrite: Promise<void> = Promise.resolve();
+  private snapshotRevision = 0;
+  private durableRevision = -1;
+  private readonly writeFailures = new Map<number, unknown>();
   private initialized = false;
   private writable = true;
   private readonly issuedEntryIds = new Set<string>();
@@ -96,7 +101,10 @@ export class UserDataService {
     try {
       this.snapshot = migrateUserData(persisted, this.options.legacyStorage);
     } catch (error) {
-      if (!(error instanceof UnsupportedUserDataVersionError)) {
+      if (
+        !(error instanceof UnsupportedUserDataVersionError) &&
+        !(error instanceof InvalidUserDataRecordError)
+      ) {
         throw error;
       }
       this.snapshot = cloneUserData(defaultUserData);
@@ -106,11 +114,16 @@ export class UserDataService {
     }
 
     this.initialized = true;
+    const requiresNormalizationWrite = !sameUserData(persisted, this.snapshot);
+    if (!requiresNormalizationWrite) {
+      this.durableRevision = this.snapshotRevision;
+    }
     for (const entry of this.snapshot.field_backgrounds) {
       this.issuedEntryIds.add(entry.id);
     }
-    this.queueWrite();
-    await this.flush();
+    if (requiresNormalizationWrite) {
+      this.queueWrite();
+    }
     return this.getSnapshot();
   }
 
@@ -125,15 +138,28 @@ export class UserDataService {
       // Asset metadata only enters through the verified async operations.
       field_backgrounds: current.field_backgrounds,
     });
+    this.snapshotRevision += 1;
     this.queueWrite();
     return this.getSnapshot();
   }
 
   async flush(): Promise<void> {
+    if (!this.writable) {
+      throw new UserDataReadOnlyError();
+    }
     const pendingWrite = this.pendingWrite;
-    const latestPreferenceWrite = this.latestPreferenceWrite;
+    const targetRevision = this.snapshotRevision;
     await pendingWrite;
-    await latestPreferenceWrite;
+    if (this.durableRevision >= targetRevision) {
+      return;
+    }
+    const failure = [...this.writeFailures.entries()]
+      .filter(
+        ([revision]) =>
+          revision > this.durableRevision && revision <= targetRevision,
+      )
+      .sort(([left], [right]) => right - left)[0]?.[1];
+    throw failure ?? new UserDataVerificationError();
   }
 
   async verifyDurableSnapshot(): Promise<void> {
@@ -163,34 +189,43 @@ export class UserDataService {
         return;
       }
 
-      const stableView = this.snapshot.project_views[stableProjectId] ?? {};
-      const mergedView = mergeProjectViews(
-        legacyView,
-        stableView,
+      const staged = migrateProjectViewSnapshot(
+        this.snapshot,
+        legacyProjectId,
+        stableProjectId,
         pathIdByLegacyReference,
+        false,
       );
-      const staged = migrateUserData({
-        ...this.snapshot,
-        project_views: {
-          ...this.snapshot.project_views,
-          [stableProjectId]: mergedView,
-        },
-      });
 
       // First make the stable key durable without removing the legacy key.
       // A crash or failed verification can therefore retry without losing the
       // only copy of the user's last-open Path or Field Background selection.
       await this.writeVerifiedSnapshot(staged);
-      this.snapshot = staged;
+      this.snapshot = migrateProjectViewSnapshot(
+        this.snapshot,
+        legacyProjectId,
+        stableProjectId,
+        pathIdByLegacyReference,
+        false,
+      );
 
-      const projectViews = { ...staged.project_views };
-      delete projectViews[legacyProjectId];
-      const cleaned = migrateUserData({
-        ...staged,
-        project_views: projectViews,
-      });
+      const cleanedRevision = this.snapshotRevision;
+      const cleaned = migrateProjectViewSnapshot(
+        this.snapshot,
+        legacyProjectId,
+        stableProjectId,
+        pathIdByLegacyReference,
+        true,
+      );
       await this.writeVerifiedSnapshot(cleaned);
-      this.snapshot = cleaned;
+      this.snapshot = migrateProjectViewSnapshot(
+        this.snapshot,
+        legacyProjectId,
+        stableProjectId,
+        pathIdByLegacyReference,
+        true,
+      );
+      this.recordDurableWrite(cleanedRevision);
     });
   }
 
@@ -334,13 +369,19 @@ export class UserDataService {
     if (!this.writable) {
       return;
     }
-    const queuedSnapshot = this.getSnapshot();
-    const write = this.pendingWrite.then(() =>
-      this.writeQueuedSnapshot(queuedSnapshot),
-    );
-    this.latestPreferenceWrite = write;
+    const write = this.pendingWrite.then(async () => {
+      const snapshot = this.getSnapshot();
+      const revision = this.snapshotRevision;
+      try {
+        await this.writeQueuedSnapshot(snapshot);
+        this.recordDurableWrite(revision);
+      } catch (error) {
+        this.recordWriteFailure(revision, error);
+        throw error;
+      }
+    });
     // Preference updates are intentionally fire-and-forget. Keep the serial
-    // queue usable after failure while retaining `write` for explicit flushes.
+    // queue usable after recording a failure for an explicit flush.
     this.pendingWrite = write.then(
       () => undefined,
       () => undefined,
@@ -412,14 +453,22 @@ export class UserDataService {
   }
 
   private async writeQueuedSnapshot(snapshot: UserData): Promise<void> {
-    await this.adapter.write(
-      migrateUserData({
-        ...snapshot,
-        // A later queued generic preference write must not erase a verified
-        // asset entry committed by an earlier serial operation.
-        field_backgrounds: this.snapshot.field_backgrounds,
-      }),
-    );
+    await this.adapter.write(migrateUserData(snapshot));
+  }
+
+  private recordDurableWrite(revision: number): void {
+    this.durableRevision = Math.max(this.durableRevision, revision);
+    for (const failedRevision of this.writeFailures.keys()) {
+      if (failedRevision <= this.durableRevision) {
+        this.writeFailures.delete(failedRevision);
+      }
+    }
+  }
+
+  private recordWriteFailure(revision: number, error: unknown): void {
+    if (revision > this.durableRevision) {
+      this.writeFailures.set(revision, error);
+    }
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -487,6 +536,32 @@ export class UserDataService {
   }
 }
 
+function migrateProjectViewSnapshot(
+  snapshot: UserData,
+  legacyProjectId: string,
+  stableProjectId: string,
+  pathIdByLegacyReference: Readonly<Record<string, string>>,
+  removeLegacy: boolean,
+): UserData {
+  const legacyView = snapshot.project_views[legacyProjectId];
+  if (!legacyView) {
+    return snapshot;
+  }
+  const stableView = snapshot.project_views[stableProjectId] ?? {};
+  const projectViews = {
+    ...snapshot.project_views,
+    [stableProjectId]: mergeProjectViews(
+      legacyView,
+      stableView,
+      pathIdByLegacyReference,
+    ),
+  };
+  if (removeLegacy) {
+    delete projectViews[legacyProjectId];
+  }
+  return migrateUserData({ ...snapshot, project_views: projectViews });
+}
+
 function mergeProjectViews(
   legacyView: ProjectViewPreferences,
   stableView: ProjectViewPreferences,
@@ -511,6 +586,9 @@ function mergeProjectViews(
 }
 
 function legacyFieldBackgroundId(legacyKey: string): string {
+  if (/^imported-v2:[0-9a-f]{64}$/.test(legacyKey)) {
+    return `imported-field-${legacyKey.slice("imported-v2:".length)}`;
+  }
   let hash = 0x811c9dc5;
   for (const byte of new TextEncoder().encode(legacyKey)) {
     hash ^= byte;

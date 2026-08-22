@@ -40,10 +40,20 @@ import type {
   CreateWorkspaceInput,
   ImportedLegacyFieldBackground,
   ProjectImportResult,
+  ProjectImportOptions,
   ProjectIoCapabilities,
   ProjectIoService,
   LegacyProjectViewMigration,
 } from "./types";
+
+interface ProjectOwnershipSnapshot {
+  project: Project | null;
+  storageId: string | null;
+  version: string | undefined;
+  lastSavedAt: string | null;
+  summary: ProjectWorkspaceSummary | null;
+  projectEpoch: number;
+}
 
 export class StorageProjectIoService implements ProjectIoService {
   readonly capabilities: ProjectIoCapabilities;
@@ -219,31 +229,61 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async createWorkspace(input: CreateWorkspaceInput = {}): Promise<Project> {
+    const previous = this.captureOwnership();
+    const project = input.project
+      ? cloneProject(input.project)
+      : createProject({
+          project_id: cryptoId("project"),
+          display_name: "Untitled Project",
+        });
+
     if (isProjectFolderAdapter(this.storage)) {
       const summary = await this.storage.createWorkspace();
       if (!summary) {
         throw new Error("No desktop project folder was selected");
       }
-      this.currentStorageId = summary.id;
-      this.currentSummary = { ...summary };
-
-      const project = input.project
-        ? cloneProject(input.project)
-        : await this.storage.readProject(summary.id);
-
-      await this.saveWorkspace(project);
-      return cloneProject(project);
+      try {
+        const result = await this.storage.writeProject(
+          project,
+          undefined,
+          summary.id,
+        );
+        const activated = await this.storage.switchWorkspace(summary.id);
+        if (!activated) {
+          throw new Error(
+            "The new desktop Project folder could not be activated",
+          );
+        }
+        this.adoptWrittenProject(project, summary.id, result, activated);
+        return cloneProject(project);
+      } catch (error) {
+        await this.restoreStorageOwnership(previous);
+        this.restoreOwnership(previous);
+        throw error;
+      }
     }
 
-    const project =
-      input.project ??
-      createProject({
-        project_id: cryptoId("project"),
-        display_name: "Untitled Project",
-      });
-    this.currentStorageId = project.project_id;
-    await this.saveWorkspace(project);
-    return cloneProject(project);
+    try {
+      const result = this.storage.writeNewProject
+        ? await this.storage.writeNewProject(project)
+        : await this.storage.writeProject(
+            project,
+            undefined,
+            project.project_id,
+          );
+      if (
+        isCurrentWorkspaceAdapter(this.storage) &&
+        !this.storage.writeNewProject
+      ) {
+        await this.storage.setCurrentWorkspaceId(project.project_id);
+      }
+      this.adoptWrittenProject(project, project.project_id, result);
+      return cloneProject(project);
+    } catch (error) {
+      await this.restoreStorageOwnership(previous);
+      this.restoreOwnership(previous);
+      throw error;
+    }
   }
 
   async openWorkspace(id?: string): Promise<Project | null> {
@@ -442,6 +482,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async importProjectFolder(
     files: readonly File[],
+    options: ProjectImportOptions = {},
   ): Promise<ProjectImportResult> {
     const imported = openProjectFromLegacyWorkspace(
       await deserializeBLineProjectFolder(files),
@@ -463,27 +504,34 @@ export class StorageProjectIoService implements ProjectIoService {
         project_id: current.project_id,
         display_name: current.display_name,
       };
-      await this.saveWorkspace(nextProject, this.currentVersion);
-      return {
-        project: nextProject,
+      const result = importedProjectResult(
+        nextProject,
         legacySelectedFieldId,
         legacyFieldBackgrounds,
-      };
+      );
+      await migrateImportedFieldsBeforeCommit(result, options);
+      await this.saveWorkspace(nextProject, this.currentVersion);
+      return result;
     }
 
-    await this.saveImportedBrowserProject(portableProject);
-    return {
-      project: portableProject,
+    const result = importedProjectResult(
+      portableProject,
       legacySelectedFieldId,
       legacyFieldBackgrounds,
-    };
+    );
+    await migrateImportedFieldsBeforeCommit(result, options);
+    await this.saveImportedBrowserProject(portableProject);
+    return result;
   }
 
   async exportProjectFolder(project: Project): Promise<ProjectFolderExport> {
     return serializeBLineProjectFolder(project);
   }
 
-  async importProjectArchive(file: File): Promise<ProjectImportResult> {
+  async importProjectArchive(
+    file: File,
+    options: ProjectImportOptions = {},
+  ): Promise<ProjectImportResult> {
     const raw = await file.text();
     const parsed = JSON.parse(raw) as unknown;
     const imported = await decodeWorkspaceArchive(
@@ -506,20 +554,24 @@ export class StorageProjectIoService implements ProjectIoService {
         project_id: current.project_id,
         display_name: current.display_name,
       };
-      await this.saveWorkspace(nextProject, this.currentVersion);
-      return {
-        project: nextProject,
+      const result = importedProjectResult(
+        nextProject,
         legacySelectedFieldId,
         legacyFieldBackgrounds,
-      };
+      );
+      await migrateImportedFieldsBeforeCommit(result, options);
+      await this.saveWorkspace(nextProject, this.currentVersion);
+      return result;
     }
 
-    await this.saveImportedBrowserProject(portableProject);
-    return {
-      project: portableProject,
+    const result = importedProjectResult(
+      portableProject,
       legacySelectedFieldId,
       legacyFieldBackgrounds,
-    };
+    );
+    await migrateImportedFieldsBeforeCommit(result, options);
+    await this.saveImportedBrowserProject(portableProject);
+    return result;
   }
 
   async exportProjectArchive(project: Project): Promise<Blob> {
@@ -606,6 +658,59 @@ export class StorageProjectIoService implements ProjectIoService {
     this.projectEpoch += 1;
   }
 
+  private captureOwnership(): ProjectOwnershipSnapshot {
+    return {
+      project: this.currentProject ? cloneProject(this.currentProject) : null,
+      storageId: this.currentStorageId,
+      version: this.currentVersion,
+      lastSavedAt: this.lastSavedAt,
+      summary: this.currentSummary ? { ...this.currentSummary } : null,
+      projectEpoch: this.projectEpoch,
+    };
+  }
+
+  private restoreOwnership(previous: ProjectOwnershipSnapshot) {
+    this.currentProject = previous.project;
+    this.currentStorageId = previous.storageId;
+    this.currentVersion = previous.version;
+    this.lastSavedAt = previous.lastSavedAt;
+    this.currentSummary = previous.summary;
+    this.projectEpoch = previous.projectEpoch;
+  }
+
+  private async restoreStorageOwnership(
+    previous: ProjectOwnershipSnapshot,
+  ): Promise<void> {
+    try {
+      if (isProjectFolderAdapter(this.storage) && previous.storageId) {
+        await this.storage.switchWorkspace(previous.storageId);
+      } else if (isCurrentWorkspaceAdapter(this.storage)) {
+        await this.storage.setCurrentWorkspaceId(previous.storageId);
+      }
+    } catch {
+      // Preserve the creation failure; service ownership is restored separately.
+    }
+  }
+
+  private adoptWrittenProject(
+    project: Project,
+    storageId: string,
+    result: WriteResult,
+    summary: ProjectWorkspaceSummary | null = null,
+  ): void {
+    this.currentProject = cloneProject(project);
+    this.currentStorageId = storageId;
+    this.currentVersion = result.version;
+    this.lastSavedAt = result.updatedAt;
+    this.currentSummary = summaryAfterWrite(
+      summary,
+      storageId,
+      project,
+      result,
+    );
+    this.projectEpoch += 1;
+  }
+
   private ownsLegacyMigration(migration: LegacyProjectViewMigration): boolean {
     return (
       this.currentProject?.project_id === migration.stableProjectId &&
@@ -635,6 +740,29 @@ export class StorageProjectIoService implements ProjectIoService {
 
     return cloneProject(this.currentProject);
   }
+}
+
+function importedProjectResult(
+  project: Project,
+  legacySelectedFieldId: string | null,
+  legacyFieldBackgrounds: ImportedLegacyFieldBackground[],
+): ProjectImportResult {
+  return { project, legacySelectedFieldId, legacyFieldBackgrounds };
+}
+
+async function migrateImportedFieldsBeforeCommit(
+  imported: ProjectImportResult,
+  options: ProjectImportOptions,
+): Promise<void> {
+  if (imported.legacyFieldBackgrounds.length === 0) {
+    return;
+  }
+  if (!options.migrateLegacyFieldBackgrounds) {
+    throw new Error(
+      "Legacy Field Background migration is required before importing this Project",
+    );
+  }
+  await options.migrateLegacyFieldBackgrounds(imported);
 }
 
 function summaryAfterWrite(

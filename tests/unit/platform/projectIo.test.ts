@@ -87,6 +87,143 @@ describe("ProjectIoService", () => {
     ]);
   });
 
+  it("restores browser ownership when initial Project creation fails", async () => {
+    const memory = new MemoryStorage();
+    const storage = new BrowserStorage({ storage: memory });
+    const service = createProjectIoService(browserWebCapabilities, { storage });
+    const original = exampleWorkspace("project-a", "Alpha", ["One"]);
+    await service.createWorkspace({ project: original });
+    const originalWriteNew = storage.writeNewProject.bind(storage);
+    storage.writeNewProject = async () => {
+      throw new Error("initial write failed");
+    };
+
+    await expect(
+      service.createWorkspace({
+        project: exampleWorkspace("project-b", "Beta", ["Two"]),
+      }),
+    ).rejects.toThrow("initial write failed");
+    expect(service.getCurrentWorkspaceSummary()?.id).toBe("project-a");
+    expect(memory.getItem("bline-web:current-workspace")).toBe("project-a");
+
+    storage.writeNewProject = originalWriteNew;
+    const current = await currentProject(service);
+    await service.saveWorkspace(
+      { ...current, display_name: "Alpha saved after failure" },
+      service.getCurrentVersion(),
+    );
+    const restarted = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: memory },
+    });
+    await expect(restarted.initialize()).resolves.toMatchObject({
+      project_id: "project-a",
+      display_name: "Alpha saved after failure",
+    });
+    await expect(restarted.listWorkspaces()).resolves.toHaveLength(1);
+  });
+
+  it("does not activate a desktop create target until its initial save succeeds", async () => {
+    const projectA = exampleWorkspace("stable-a", "Alpha", ["One"]);
+    const projectB = exampleWorkspace("stable-b", "Beta", ["Two"]);
+    let currentLocator = "/repo/a/autos";
+    let storedProject = projectA;
+    let version = "a-v1";
+    let rejectCandidateWrite = true;
+    const switches: string[] = [];
+    const summary = (id: string) => ({
+      id,
+      displayName: id === "/repo/a/autos" ? "Alpha" : "Beta",
+      directoryPath: id,
+      version,
+      updatedAt: "2026-08-22T14:00:00.000Z",
+    });
+    const invoke = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (command === "storage_get_current_workspace") {
+        return summary(currentLocator) as T;
+      }
+      if (command === "storage_list_recent_workspaces") {
+        return [summary(currentLocator)] as T;
+      }
+      if (command === "storage_read_project_files") {
+        return {
+          directoryLocator: String(args?.directoryLocator ?? currentLocator),
+          files: serializeProjectFiles(storedProject).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version,
+          updatedAt: "2026-08-22T14:00:00.000Z",
+        } as T;
+      }
+      if (command === "storage_create_workspace_dialog") {
+        return summary("/repo/b/autos") as T;
+      }
+      if (command === "storage_write_project_files") {
+        const locator = String(args?.directoryLocator);
+        if (locator === "/repo/b/autos" && rejectCandidateWrite) {
+          throw new Error("desktop initial write failed");
+        }
+        storedProject = locator === "/repo/b/autos" ? projectB : projectA;
+        version = locator === "/repo/b/autos" ? "b-v1" : "a-v2";
+        return {
+          directoryLocator: locator,
+          version,
+          updatedAt: "2026-08-22T14:01:00.000Z",
+        } as T;
+      }
+      if (command === "storage_switch_workspace") {
+        currentLocator = String(args?.id);
+        switches.push(currentLocator);
+        return summary(currentLocator) as T;
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const service = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await service.initialize();
+
+    await expect(
+      service.createWorkspace({
+        project: projectB,
+      }),
+    ).rejects.toThrow("desktop initial write failed");
+    expect(currentLocator).toBe("/repo/a/autos");
+    expect(switches).toEqual(["/repo/a/autos"]);
+    expect(service.getCurrentWorkspaceSummary()?.id).toBe("/repo/a/autos");
+
+    await service.saveWorkspace(projectA, service.getCurrentVersion());
+    const restarted = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await expect(restarted.initialize()).resolves.toMatchObject({
+      project_id: "stable-a",
+      display_name: "Alpha",
+    });
+    expect(currentLocator).toBe("/repo/a/autos");
+
+    rejectCandidateWrite = false;
+    await expect(
+      service.createWorkspace({ project: projectB }),
+    ).resolves.toMatchObject({
+      project_id: "stable-b",
+      display_name: "Beta",
+    });
+    expect(currentLocator).toBe("/repo/b/autos");
+    expect(switches.at(-1)).toBe("/repo/b/autos");
+    const restartedAfterSuccess = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await expect(restartedAfterSuccess.initialize()).resolves.toMatchObject({
+      project_id: "stable-b",
+      display_name: "Beta",
+    });
+  });
+
   it("exposes browser and desktop primary actions from capabilities", () => {
     const browserService = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
@@ -486,12 +623,24 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    const imported = await target.importProjectArchive({
+    const file = {
       name: "legacy.bline-project.json",
       type: "application/json",
       text: async () => JSON.stringify(archive),
-    } as File);
+    } as File;
+    await expect(target.importProjectArchive(file)).rejects.toThrow(
+      "migration is required",
+    );
+    await expect(target.listWorkspaces()).resolves.toEqual([]);
+    let migratedBeforeCommit = false;
+    const imported = await target.importProjectArchive(file, {
+      migrateLegacyFieldBackgrounds: async () => {
+        migratedBeforeCommit = true;
+        expect(await target.listWorkspaces()).toEqual([]);
+      },
+    });
 
+    expect(migratedBeforeCommit).toBe(true);
     expect(imported.legacySelectedFieldId).toBe(field.id);
     expect(imported.legacyFieldBackgrounds).toEqual([
       {
@@ -546,6 +695,80 @@ describe("ProjectIoService", () => {
       display_name: "Existing",
     });
     await expect(target.listWorkspaces()).resolves.toHaveLength(1);
+  });
+
+  it("does not commit a desktop-facing import when Field migration fails", async () => {
+    const current = exampleWorkspace("desktop-current", "Current", ["Kept"]);
+    let projectWrites = 0;
+    const invoke = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      const summary = {
+        id: "/repo/current/autos",
+        displayName: "Current",
+        directoryPath: "/repo/current/autos",
+        version: "current-v1",
+        updatedAt: "2026-08-22T14:00:00.000Z",
+      };
+      if (command === "storage_get_current_workspace") {
+        return summary as T;
+      }
+      if (command === "storage_list_recent_workspaces") {
+        return [summary] as T;
+      }
+      if (command === "storage_read_project_files") {
+        return {
+          directoryLocator: String(args?.directoryLocator ?? summary.id),
+          files: serializeProjectFiles(current).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+          legacyFiles: [],
+          version: summary.version,
+          updatedAt: summary.updatedAt,
+        } as T;
+      }
+      if (command === "storage_write_project_files") {
+        projectWrites += 1;
+        throw new Error("Project content should not be written");
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const target = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await target.initialize();
+    const archive = legacyFieldArchive();
+
+    await expect(
+      target.importProjectArchive(
+        {
+          name: "legacy.bline-project.json",
+          type: "application/json",
+          text: async () => JSON.stringify(archive),
+        } as File,
+        {
+          migrateLegacyFieldBackgrounds: async () => {
+            throw new Error("User Data write failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("User Data write failed");
+
+    expect(projectWrites).toBe(0);
+    await expect(target.getWorkspace()).resolves.toMatchObject({
+      project_id: "desktop-current",
+      display_name: "Current",
+      paths: [{ display_name: "Kept" }],
+    });
+    const restarted = createProjectIoService(tauriCapabilities, {
+      tauri: { invoke },
+    });
+    await expect(restarted.initialize()).resolves.toMatchObject({
+      project_id: "desktop-current",
+      paths: [{ display_name: "Kept" }],
+    });
   });
 
   it("deletes the current browser project and opens the next available workspace", async () => {
@@ -843,6 +1066,31 @@ function legacyField(id: string, assetId: string) {
       width_meters: 6,
       coordinate_offset_meters: 0,
     },
+  };
+}
+
+function legacyFieldArchive() {
+  const field = legacyField("legacy-field", "legacy.png");
+  return {
+    bline_project_schema_version: 1,
+    exported_at: "2026-08-22T13:00:00.000Z",
+    config: createProjectConfig({
+      gui: {
+        field: {
+          selected_field_id: field.id,
+          custom_fields: [field],
+        },
+      },
+    }),
+    paths: [],
+    field_assets: [
+      {
+        asset_id: field.asset_id,
+        file_name: field.file_name,
+        mime_type: field.mime_type,
+        data_base64: "AQID",
+      },
+    ],
   };
 }
 

@@ -44,6 +44,7 @@ import type {
   LegacyProjectViewMigration,
   ProjectFolderExport,
   ProjectImportResult,
+  ProjectImportOptions,
   ProjectIoService,
 } from "../platform/projectIo";
 import type {
@@ -206,9 +207,15 @@ export interface ProjectStoreState {
   exportPath(pathId?: string): Promise<Blob | null>;
   importConfig(file: File): Promise<Project>;
   exportConfig(): Promise<Blob | null>;
-  importProjectFolder(files: readonly File[]): Promise<ProjectImportResult>;
+  importProjectFolder(
+    files: readonly File[],
+    options?: ProjectImportOptions,
+  ): Promise<ProjectImportResult>;
   exportProjectFolder(): Promise<ProjectFolderExport | null>;
-  importProjectArchive(file: File): Promise<ProjectImportResult>;
+  importProjectArchive(
+    file: File,
+    options?: ProjectImportOptions,
+  ): Promise<ProjectImportResult>;
   exportProjectArchive(): Promise<Blob | null>;
   applyPathCommand(command: HistoryCommand<PathModel>, pathId?: string): void;
   applyPathElementEdit(
@@ -1143,10 +1150,10 @@ export function createProjectStore(
       }
       return io.exportConfig(project);
     },
-    async importProjectFolder(files) {
+    async importProjectFolder(files, options) {
       const io = requireProjectIo(get().io);
       return performProjectTransition(set, get, async (ownership) => {
-        const imported = await io.importProjectFolder(files);
+        const imported = await io.importProjectFolder(files, options);
         requireCurrentProjectTransition(get, ownership);
         const project = adoptWorkspace(
           set,
@@ -1167,10 +1174,10 @@ export function createProjectStore(
       }
       return io.exportProjectFolder(project);
     },
-    async importProjectArchive(file) {
+    async importProjectArchive(file, options) {
       const io = requireProjectIo(get().io);
       return performProjectTransition(set, get, async (ownership) => {
-        const imported = await io.importProjectArchive(file);
+        const imported = await io.importProjectArchive(file, options);
         requireCurrentProjectTransition(get, ownership);
         const project = adoptWorkspace(
           set,

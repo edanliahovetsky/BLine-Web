@@ -150,7 +150,7 @@ describe("UserData", () => {
       ...current,
       completed_tour_ids: ["memory-only-change"],
     }));
-    await service.flush();
+    await expect(service.flush()).rejects.toBeInstanceOf(UserDataReadOnlyError);
 
     expect(service.getSnapshot().completed_tour_ids).toEqual([
       "memory-only-change",
@@ -172,12 +172,48 @@ describe("UserData", () => {
       ...current,
       completed_tour_ids: ["memory-only-change"],
     }));
-    await service.flush();
+    await expect(service.flush()).rejects.toBeInstanceOf(UserDataReadOnlyError);
 
     expect(service.getSnapshot().completed_tour_ids).toEqual([
       "memory-only-change",
     ]);
     expect(storage.getItem(BROWSER_USER_DATA_KEY)).toBe(malformed);
+  });
+
+  it("preserves a current-schema record with damaged Field Background geometry", async () => {
+    const damaged = JSON.stringify({
+      ...defaultUserData,
+      field_backgrounds: [
+        {
+          id: "field-damaged",
+          name: "Damaged",
+          file_name: "damaged.png",
+          mime_type: "image/png",
+          size_bytes: 3,
+          created_at: "2026-08-21T12:00:00.000Z",
+          geometry: {
+            length_meters: 16.54,
+            width_meters: "unknown",
+            coordinate_offset_meters: 0,
+          },
+        },
+      ],
+    });
+    const storage = new MemoryStorage({
+      [BROWSER_USER_DATA_KEY]: damaged,
+    });
+    const service = new UserDataService(
+      new BrowserUserDataAdapter({ storage }),
+    );
+
+    await expect(service.initialize()).resolves.toEqual(defaultUserData);
+    service.update((current) => ({
+      ...current,
+      completed_tour_ids: ["memory-only-change"],
+    }));
+
+    await expect(service.flush()).rejects.toBeInstanceOf(UserDataReadOnlyError);
+    expect(storage.getItem(BROWSER_USER_DATA_KEY)).toBe(damaged);
   });
 
   it("uses the dedicated Tauri read and write commands", async () => {
@@ -224,7 +260,30 @@ describe("UserData", () => {
     ]);
   });
 
-  it("serializes writes so an older snapshot cannot finish last", async () => {
+  it("does not rewrite already-current User Data during initialization", async () => {
+    const writes: UserData[] = [];
+    const service = new UserDataService({
+      async read() {
+        return structuredClone(defaultUserData);
+      },
+      async write(data) {
+        writes.push(structuredClone(data));
+      },
+      async writeFieldAsset() {},
+      async readFieldAsset() {
+        return null;
+      },
+      async deleteFieldAsset() {},
+    });
+
+    await service.initialize();
+    await service.flush();
+
+    expect(writes).toEqual([]);
+  });
+
+  it("serializes queued writes against the latest owned snapshot", async () => {
+    const firstUpdateStarted = deferred<void>();
     const firstUpdate = deferred<void>();
     const writeOrder: string[][] = [];
     let writeCount = 0;
@@ -236,6 +295,7 @@ describe("UserData", () => {
         writeCount += 1;
         writeOrder.push([...data.completed_tour_ids]);
         if (writeCount === 2) {
+          firstUpdateStarted.resolve();
           await firstUpdate.promise;
         }
       },
@@ -247,6 +307,7 @@ describe("UserData", () => {
     };
     const service = new UserDataService(adapter);
     await service.initialize();
+    await service.flush();
 
     service.update((current) => ({
       ...current,
@@ -256,20 +317,27 @@ describe("UserData", () => {
       ...current,
       completed_tour_ids: ["newer"],
     }));
-    await Promise.resolve();
+    await firstUpdateStarted.promise;
 
-    expect(writeOrder).toEqual([[], ["older"]]);
+    expect(writeOrder).toEqual([[], ["newer"]]);
     firstUpdate.resolve();
     await service.flush();
-    expect(writeOrder).toEqual([[], ["older"], ["newer"]]);
+    expect(writeOrder).toEqual([[], ["newer"], ["newer"]]);
   });
 
-  it("reports a durable write failure and clears it after a successful retry", async () => {
-    const adapter = new RejectingAdapter();
-    const service = new UserDataService(adapter);
-    await service.initialize();
-
+  it("keeps initialization usable and recovers after its normalization write fails", async () => {
+    const adapter = new RejectingAdapter({
+      schema_version: 0,
+      completed_tour_ids: ["editor-basics"],
+    });
     adapter.rejectWrites = true;
+    const service = new UserDataService(adapter);
+
+    await expect(service.initialize()).resolves.toMatchObject({
+      completed_tour_ids: ["editor-basics"],
+    });
+    await expect(service.flush()).rejects.toThrow("quota exceeded");
+
     service.update((current) => ({
       ...current,
       completed_tour_ids: ["editor-basics"],
@@ -361,6 +429,84 @@ describe("UserData", () => {
     expect((adapter.persisted as UserData).project_views).toEqual(
       service.getSnapshot().project_views,
     );
+  });
+
+  it("merges a concurrent preference update into Project view identity migration", async () => {
+    const firstMigrationWrite = deferred<void>();
+    const releaseMigrationWrite = deferred<void>();
+    let persisted: UserData = {
+      ...defaultUserData,
+      project_views: { legacy: { active_path_id: "old.json" } },
+    };
+    let metadataWriteCount = 0;
+    const adapter: UserDataAdapter = {
+      async read() {
+        return structuredClone(persisted);
+      },
+      async write(data) {
+        metadataWriteCount += 1;
+        if (metadataWriteCount === 2) {
+          firstMigrationWrite.resolve();
+          await releaseMigrationWrite.promise;
+        }
+        persisted = structuredClone(data);
+      },
+      async writeFieldAsset() {},
+      async readFieldAsset() {
+        return null;
+      },
+      async deleteFieldAsset() {},
+    };
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    await service.flush();
+
+    const migration = service.migrateProjectViewIdentity("legacy", "stable", {
+      "old.json": "path-stable",
+    });
+    await firstMigrationWrite.promise;
+    service.update((current) => ({
+      ...current,
+      project_views: {
+        ...current.project_views,
+        unrelated: { active_path_id: "path-unrelated" },
+      },
+    }));
+    releaseMigrationWrite.resolve();
+
+    await migration;
+    await service.flush();
+
+    expect(service.getSnapshot().project_views).toEqual({
+      stable: { active_path_id: "path-stable" },
+      unrelated: { active_path_id: "path-unrelated" },
+    });
+    expect(persisted).toEqual(service.getSnapshot());
+  });
+
+  it("clears an obsolete preference failure after a verified full migration write", async () => {
+    const adapter = new AssetMemoryAdapter({
+      ...defaultUserData,
+      project_views: { legacy: { active_path_id: "old.json" } },
+    });
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    await service.flush();
+
+    adapter.failMetadataWrite = true;
+    service.update((current) => ({
+      ...current,
+      completed_tour_ids: ["editor-basics"],
+    }));
+    await expect(service.flush()).rejects.toThrow("metadata write failed");
+
+    adapter.failMetadataWrite = false;
+    await service.migrateProjectViewIdentity("legacy", "stable", {
+      "old.json": "path-stable",
+    });
+
+    await expect(service.flush()).resolves.toBeUndefined();
+    expect(adapter.persisted).toEqual(service.getSnapshot());
   });
 
   it("keeps an existing stable Project view when retrying identity migration", async () => {
@@ -703,7 +849,7 @@ describe("UserData", () => {
         throw new Error(`Unexpected User Data command: ${command}`);
       },
     });
-    const bytes = new Uint8Array([7, 8, 9]);
+    const bytes = bytesFromHex("1c28f8fefd4cb39e");
     const first = legacyField("wide-calibration", "shared-asset", 0.25);
     const second = legacyField("tight-calibration", "shared-asset", 0.75);
 
@@ -747,8 +893,8 @@ describe("UserData", () => {
       projectId: "project-imported",
       selectedFieldId: second.id,
       entries: [
-        { field: first, bytes: new Uint8Array([10, 11, 12]) },
-        { field: second, bytes: new Uint8Array([10, 11, 12]) },
+        { field: first, bytes: bytesFromHex("8696a25575595d14") },
+        { field: second, bytes: bytesFromHex("8696a25575595d14") },
       ],
     });
     const replacementSnapshot = readUserData();
@@ -872,8 +1018,10 @@ class RejectingAdapter implements UserDataAdapter {
   persisted: UserData | null = null;
   rejectWrites = false;
 
-  async read(): Promise<null> {
-    return null;
+  constructor(private readonly initial: unknown | null = null) {}
+
+  async read(): Promise<unknown | null> {
+    return structuredClone(this.persisted ?? this.initial);
   }
 
   async write(data: UserData): Promise<void> {
@@ -972,6 +1120,12 @@ function fieldInput(): CreateFieldBackgroundInput {
       coordinate_offset_y_meters: 0.5,
     },
   };
+}
+
+function bytesFromHex(hex: string): Uint8Array {
+  return Uint8Array.from(
+    hex.match(/.{2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? [],
+  );
 }
 
 function legacyField(

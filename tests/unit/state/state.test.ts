@@ -41,6 +41,8 @@ import type {
   LegacyProjectViewMigration,
   ProjectIoCapabilities,
   ProjectIoService,
+  ProjectImportOptions,
+  ProjectImportResult,
 } from "../../../src/platform/projectIo";
 import type {
   LegacyProjectMigrationPreparation,
@@ -527,6 +529,57 @@ describe("project store", () => {
         false,
       );
     }
+  });
+
+  it("keeps the current Project until required imported Field migration succeeds", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const importedProject = exampleWorkspace("project-b", "Beta", 1);
+    io.importResult = {
+      project: importedProject,
+      legacySelectedFieldId: "legacy-field",
+      legacyFieldBackgrounds: [
+        {
+          field: {
+            id: "legacy-field",
+            name: "Legacy Field",
+            asset_id: "legacy.png",
+            file_name: "legacy.png",
+            mime_type: "image/png",
+            size_bytes: 3,
+            created_at: "2026-08-22T14:00:00.000Z",
+            geometry: {
+              length_meters: 12,
+              width_meters: 6,
+              coordinate_offset_meters: 0,
+            },
+          },
+          bytes: new Uint8Array([1, 2, 3]),
+        },
+      ],
+    };
+    const file = new File(["{}"], "legacy-project.json", {
+      type: "application/json",
+    });
+
+    await expect(
+      store.getState().importProjectArchive(file, {
+        migrateLegacyFieldBackgrounds: async () => {
+          throw new Error("User Data migration failed");
+        },
+      }),
+    ).rejects.toThrow("User Data migration failed");
+    expect(requireWorkspace(store).project_id).toBe("project-a");
+
+    let projectDuringMigration: string | undefined;
+    await store.getState().importProjectArchive(file, {
+      migrateLegacyFieldBackgrounds: async () => {
+        projectDuringMigration = store.getState().project?.project_id;
+      },
+    });
+    expect(projectDuringMigration).toBe("project-a");
+    expect(requireWorkspace(store).project_id).toBe("project-b");
   });
 
   it("aborts Import Path when an edit arrives during its save barrier", async () => {
@@ -1857,6 +1910,7 @@ class RecordingIo implements ProjectIoService {
   legacyPrepareResult: WriteResult | null = null;
   legacyPrepareRejected = false;
   legacyMigrationResult: WriteResult | null = null;
+  importResult: ProjectImportResult | null = null;
 
   private workspace: Project | null;
   private version: string | undefined = this.initialVersion;
@@ -2119,10 +2173,13 @@ class RecordingIo implements ProjectIoService {
     return new Blob([]);
   }
 
-  async importProjectFolder() {
+  async importProjectFolder(
+    _files?: readonly File[],
+    options?: ProjectImportOptions,
+  ) {
     this.transitionCalls.push("importProjectFolder");
     await this.waitForTransition();
-    return emptyImportResult(this.requireWorkspace());
+    return this.commitImport(options);
   }
 
   async exportProjectFolder(project: Project) {
@@ -2136,10 +2193,10 @@ class RecordingIo implements ProjectIoService {
     };
   }
 
-  async importProjectArchive() {
+  async importProjectArchive(_file?: File, options?: ProjectImportOptions) {
     this.transitionCalls.push("importProjectArchive");
     await this.waitForTransition();
-    return emptyImportResult(this.requireWorkspace());
+    return this.commitImport(options);
   }
 
   async exportProjectArchive(): Promise<Blob> {
@@ -2151,6 +2208,21 @@ class RecordingIo implements ProjectIoService {
   }
 
   async deleteLegacyFieldImageAsset(): Promise<void> {}
+
+  private async commitImport(
+    options?: ProjectImportOptions,
+  ): Promise<ProjectImportResult> {
+    const result =
+      this.importResult ?? emptyImportResult(this.requireWorkspace());
+    if (result.legacyFieldBackgrounds.length > 0) {
+      if (!options?.migrateLegacyFieldBackgrounds) {
+        throw new Error("Legacy Field Background migration is required");
+      }
+      await options.migrateLegacyFieldBackgrounds(result);
+    }
+    this.workspace = structuredClone(result.project);
+    return structuredClone(result);
+  }
 
   private async waitForTransition(): Promise<void> {
     if (!this.transitionsDeferred) {

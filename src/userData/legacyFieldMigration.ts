@@ -50,7 +50,7 @@ export async function migrateImportedLegacyFieldBackgrounds({
           bytes,
           geometry: field.geometry,
         },
-        importedLegacyFieldKey(projectId, field, bytes),
+        await importedLegacyFieldKey(projectId, field, bytes),
       );
       migratedIds.set(field.id, entry.id);
     } catch (error) {
@@ -85,27 +85,35 @@ export async function migrateImportedLegacyFieldBackgrounds({
   return { errors };
 }
 
-function importedLegacyFieldKey(
+async function importedLegacyFieldKey(
   projectId: string,
   field: CustomFieldImage,
   bytes: Uint8Array,
-): string {
-  let hash = 0x811c9dc5;
-  for (const byte of bytes) {
-    hash ^= byte;
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return JSON.stringify({
-    projectId,
-    field: {
-      id: field.id,
-      name: field.name,
-      fileName: field.file_name,
-      mimeType: field.mime_type,
-      geometry: field.geometry,
-    },
-    image: `${bytes.byteLength}:${(hash >>> 0).toString(36)}`,
-  });
+): Promise<string> {
+  const metadata = new TextEncoder().encode(
+    JSON.stringify({
+      projectId,
+      field: {
+        id: field.id,
+        name: field.name,
+        fileName: field.file_name,
+        mimeType: field.mime_type,
+        geometry: field.geometry,
+      },
+    }),
+  );
+  const digestInput = new Uint8Array(
+    4 + metadata.byteLength + bytes.byteLength,
+  );
+  new DataView(digestInput.buffer).setUint32(0, metadata.byteLength);
+  digestInput.set(metadata, 4);
+  digestInput.set(bytes, 4 + metadata.byteLength);
+  const digest = new Uint8Array(
+    await globalThis.crypto.subtle.digest("SHA-256", digestInput),
+  );
+  return `imported-v2:${[...digest]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
 /**
