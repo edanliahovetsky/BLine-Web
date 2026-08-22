@@ -8,12 +8,26 @@ import type {
 } from "../model/path";
 import {
   createProjectConfig,
-  type CanonicalProjectConfig,
 } from "../config/projectConfig";
+import {
+  projectSchemaVersion,
+  type LinkedTarget,
+  type LinkedTargetKind,
+  type Project,
+  type ProjectConfig,
+  type ProjectPath,
+  type ProjectPathGroup,
+  type ProjectSchemaVersion,
+} from "../model/project";
 
-export const projectSchemaVersion = 1;
-
-export type ProjectSchemaVersion = typeof projectSchemaVersion;
+export { projectSchemaVersion };
+export type {
+  LinkedTarget,
+  LinkedTargetKind,
+  Project,
+  ProjectConfig,
+  ProjectSchemaVersion,
+};
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -21,8 +35,6 @@ export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export interface JsonObject {
   [key: string]: JsonValue;
 }
-
-export type ProjectConfig = CanonicalProjectConfig;
 
 export interface ProjectDocument {
   schema_version: ProjectSchemaVersion;
@@ -33,41 +45,13 @@ export interface ProjectDocument {
   config: ProjectConfig;
 }
 
-export interface ProjectPathDocument {
-  path_id: string;
-  display_name: string;
-  file_name: string;
-  path: PathModel;
-}
+export type ProjectPathDocument = ProjectPath;
+export type ProjectPathGroupDocument = ProjectPathGroup;
 
-export interface ProjectPathGroupDocument {
-  group_id: string;
-  display_name: string;
-  path_ids: string[];
-}
-
-export type LinkedTargetKind = "translation" | "waypoint";
-
-export interface LinkedTarget {
-  target_id: string;
-  display_name: string;
-  kind: LinkedTargetKind;
-  x_meters: number;
-  y_meters: number;
-  rotation_radians?: number | null;
-  locked?: boolean;
-}
-
-export interface ProjectWorkspaceDocument {
-  schema_version: ProjectSchemaVersion;
-  project_id: string;
-  display_name: string;
-  config: ProjectConfig;
-  paths: ProjectPathDocument[];
+/** Legacy persistence shape retained only at the Slices 1–3 I/O seam. */
+export interface ProjectWorkspaceDocument extends Project {
   active_path_id: string | null;
-  path_groups: ProjectPathGroupDocument[];
   active_path_group_id: string | null;
-  linked_targets: LinkedTarget[];
 }
 
 export interface SerializedRangedConstraint {
