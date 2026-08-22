@@ -37,7 +37,6 @@ import {
 } from "../../../src/core/io/blineProject";
 import { stringifyBLineJson } from "../../../src/core/io/blineJson";
 import {
-  autosEditorStatePath,
   deserializeBLineProjectFolder,
   serializeBLineProjectFolder,
 } from "../../../src/core/io/projectFolder";
@@ -805,7 +804,7 @@ describe("project document serde", () => {
     });
   });
 
-  it("round-trips an expanded autos folder with clean runtime files and sidecar editor state", async () => {
+  it("round-trips an expanded autos folder with clean runtime files and visible Project metadata", async () => {
     const workspace = deserializeProjectWorkspaceDocument({
       schema_version: 1,
       project_id: "workspace-1",
@@ -854,8 +853,8 @@ describe("project document serde", () => {
     const configFile = folder.files.find(
       (file) => file.relativePath === "config.json",
     );
-    const stateFile = folder.files.find(
-      (file) => file.relativePath === autosEditorStatePath,
+    const projectFile = folder.files.find(
+      (file) => file.relativePath === "project.json",
     );
     const restored = await deserializeBLineProjectFolder(
       folder.files.map((file) => ({
@@ -867,12 +866,12 @@ describe("project document serde", () => {
 
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
-      autosEditorStatePath,
+      "project.json",
       "paths/top_sweep.json",
       "paths/bottom_sweep.json",
     ]);
     expect(configFile).toBeDefined();
-    expect(stateFile).toBeDefined();
+    expect(projectFile).toBeDefined();
     await expect(configFile!.blob.text().then(JSON.parse)).resolves.toEqual({
       kinematic_constraints: {
         default_max_velocity_meters_per_sec: 4.5,
@@ -884,53 +883,58 @@ describe("project document serde", () => {
         default_intermediate_handoff_radius_meters: 0.35,
       },
     });
-    const state = JSON.parse(await stateFile!.blob.text());
-    expect(state).toMatchObject({
+    const metadata = JSON.parse(await projectFile!.blob.text());
+    expect(metadata).toMatchObject({
       schema_version: 1,
-      active_path_file_name: "top_sweep.json",
-      active_path_group_id: "score",
+      project_id: "workspace-1",
+      display_name: "Robot Autos",
       path_groups: [
         {
           group_id: "score",
           display_name: "Score Autos",
-          path_file_names: ["top_sweep.json", "bottom_sweep.json"],
+          path_ids: ["top", "bottom"],
         },
       ],
     });
-    expect(state).not.toHaveProperty("field_assets");
-    expect(state).not.toHaveProperty("editor_config.gui.field");
-    expect(state.editor_config.gui.robot.length_meters).toBe(0.75);
-    expect(state.editor_config.kinematic_constraints).toEqual({
+    expect(metadata).not.toHaveProperty("field_assets");
+    expect(metadata).not.toHaveProperty("editor_config.gui.field");
+    expect(metadata).not.toHaveProperty("active_path_id");
+    expect(metadata.editor_config.gui.robot.length_meters).toBe(0.75);
+    expect(metadata.editor_config.kinematic_constraints).toEqual({
       default_auto_velocity_velocity_safety_factor: 0.65,
       default_auto_velocity_acceleration_safety_factor: 1,
       default_auto_velocity_merge_tolerance_meters_per_sec: 0.3,
     });
-    expect(state.paths).toEqual({
-      "top_sweep.json": {
+    expect(metadata.paths).toEqual([
+      {
+        path_id: "top",
         display_name: "Top Sweep",
+        file_name: "top_sweep.json",
       },
-      "bottom_sweep.json": {
+      {
+        path_id: "bottom",
         display_name: "Bottom Sweep",
+        file_name: "bottom_sweep.json",
       },
-    });
-    expect(restored.display_name).toBe("autos");
+    ]);
+    expect(restored.display_name).toBe("Robot Autos");
     expect(restored.paths.map((path) => path.file_name)).toEqual([
-      "bottom_sweep.json",
       "top_sweep.json",
+      "bottom_sweep.json",
     ]);
     expect(restored.paths.map((path) => path.display_name)).toEqual([
-      "Bottom Sweep",
       "Top Sweep",
+      "Bottom Sweep",
     ]);
-    expect(restored.active_path_id).toBe("top_sweep.json");
+    expect(restored.active_path_id).toBe("top");
     expect(restored.path_groups).toEqual([
       {
         group_id: "score",
         display_name: "Score Autos",
-        path_ids: ["top_sweep.json", "bottom_sweep.json"],
+        path_ids: ["top", "bottom"],
       },
     ]);
-    expect(restored.active_path_group_id).toBe("score");
+    expect(restored.active_path_group_id).toBeNull();
     expect(restored.config.gui.robot.length_meters).toBe(0.75);
     expect(
       restored.config.kinematic_constraints
@@ -942,7 +946,7 @@ describe("project document serde", () => {
     });
   });
 
-  it("imports legacy autos folder state and re-exports it in the clean sidecar shape", async () => {
+  it("imports legacy autos folder state and re-exports visible Project metadata", async () => {
     const restored = await deserializeBLineProjectFolder([
       textImportFile("autos/config.json", {
         gui: {
@@ -1036,7 +1040,7 @@ describe("project document serde", () => {
     const exported = serializeBLineProjectFolder(restored);
     const names = exported.files.map((file) => file.relativePath);
     expect(names).toContain("config.json");
-    expect(names).toContain(autosEditorStatePath);
+    expect(names).toContain("project.json");
     expect(names).toContain("paths/auto.json");
     expect(names).not.toContain("pathgroups.json");
     expect(names).not.toContain(".bline-web/path-metadata.json");
@@ -1044,11 +1048,11 @@ describe("project document serde", () => {
     const configFile = exported.files.find(
       (file) => file.relativePath === "config.json",
     );
-    const stateFile = exported.files.find(
-      (file) => file.relativePath === autosEditorStatePath,
+    const projectFile = exported.files.find(
+      (file) => file.relativePath === "project.json",
     );
     const exportedConfig = JSON.parse(await configFile!.blob.text());
-    const exportedState = JSON.parse(await stateFile!.blob.text());
+    const exportedProject = JSON.parse(await projectFile!.blob.text());
     expect(JSON.stringify(exportedConfig)).not.toContain("gui");
     expect(exportedConfig.kinematic_constraints).toEqual({
       default_max_velocity_meters_per_sec: 5.1,
@@ -1059,20 +1063,17 @@ describe("project document serde", () => {
       default_end_rotation_tolerance_deg: 3,
       default_intermediate_handoff_radius_meters: 0.28,
     });
-    expect(exportedState.path_groups).toEqual([
+    expect(exportedProject.path_groups).toEqual([
       {
         group_id: "legacy",
         display_name: "Legacy Group",
-        path_file_names: ["auto.json"],
+        path_ids: ["auto.json"],
       },
     ]);
-    expect(exportedState.paths["auto.json"].editor_metadata).toMatchObject({
-      ranged_constraints: [
-        {
-          source: "auto_velocity",
-        },
-      ],
-    });
+    expect(exportedProject).not.toHaveProperty("active_path_id");
+    expect(names).not.toEqual(
+      expect.arrayContaining([expect.stringContaining(".bline-web")]),
+    );
   });
 
   it("imports an FRC project root folder and preserves config plus ranged constraints", async () => {

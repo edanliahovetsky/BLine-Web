@@ -6,19 +6,19 @@ import type {
 } from "./projectSchema";
 import {
   deserializeProjectConfig,
-  projectConfigWithoutField,
-  serializeBLineRuntimeConfig,
   type ProjectConfigWithoutField,
 } from "./blineProject";
-import { stringifyBLineJson } from "./blineJson";
-import { serializePath } from "./projectSerde";
+import {
+  deserializeProjectFiles,
+  serializeProjectFiles,
+  type ProjectTextFile,
+} from "./projectFiles";
+import type { Project } from "../model/project";
 import {
   createWorkspaceId,
   displayNameFromFileName,
   ensureJsonFileName,
   deserializeProjectWorkspaceDocument,
-  serializePathGroupsFile,
-  serializeProjectWorkspaceDocument,
   type SerializedPathGroupFileEntry,
 } from "./workspaceSerde";
 
@@ -84,63 +84,14 @@ export interface AutosEditorStateFile {
 }
 
 export function serializeBLineProjectFolder(
-  workspace: ProjectWorkspaceDocument,
+  project: Project,
 ): ProjectFolderExport {
   return {
     folderName: "autos",
-    files: [
-      jsonFile("config.json", serializeBLineRuntimeConfig(workspace.config)),
-      jsonFile(autosEditorStatePath, serializeAutosEditorState(workspace)),
-      ...workspace.paths.map((path) =>
-        jsonFile(
-          `paths/${ensureJsonFileName(path.file_name)}`,
-          serializePath(path.path),
-        ),
-      ),
-    ],
-  };
-}
-
-export function serializeAutosEditorState(
-  workspace: ProjectWorkspaceDocument,
-): AutosEditorStateFile {
-  const serialized = serializeProjectWorkspaceDocument(workspace);
-  const activePath =
-    workspace.paths.find((path) => path.path_id === workspace.active_path_id) ??
-    workspace.paths[0] ??
-    null;
-  const paths: Record<string, AutosEditorPathState> = {};
-  for (const path of serialized.paths) {
-    const fileName = ensureJsonFileName(path.file_name);
-    paths[fileName] = {
-      display_name: path.display_name,
-      editor_metadata: path.editor_metadata,
-    };
-  }
-
-  return {
-    schema_version: autosEditorStateSchemaVersion,
-    editor_config: {
-      gui: projectConfigWithoutField(workspace.config).gui,
-      kinematic_constraints: {
-        default_auto_velocity_velocity_safety_factor:
-          workspace.config.kinematic_constraints
-            .default_auto_velocity_velocity_safety_factor,
-        default_auto_velocity_acceleration_safety_factor:
-          workspace.config.kinematic_constraints
-            .default_auto_velocity_acceleration_safety_factor,
-        default_auto_velocity_merge_tolerance_meters_per_sec:
-          workspace.config.kinematic_constraints
-            .default_auto_velocity_merge_tolerance_meters_per_sec,
-      },
-    },
-    active_path_file_name: activePath
-      ? ensureJsonFileName(activePath.file_name)
-      : null,
-    active_path_group_id: workspace.active_path_group_id,
-    path_groups: serializePathGroupsFile(workspace).groups,
-    linked_targets: structuredClone(workspace.linked_targets),
-    paths,
+    files: serializeProjectFiles(project).map(({ relativePath, text }) => ({
+      relativePath,
+      blob: new Blob([text], { type: "application/json" }),
+    })),
   };
 }
 
@@ -164,6 +115,32 @@ export async function deserializeBLineProjectFolder(
   const stateRecord = records.find(
     (record) => record.autosPath.toLowerCase() === autosEditorStatePath,
   );
+  const projectRecord = records.find(
+    (record) => record.autosPath.toLowerCase() === "project.json",
+  );
+  if (projectRecord) {
+    const projectFiles = await Promise.all(
+      records.flatMap((record) =>
+        /^(config|project)\.json$/i.test(record.autosPath) ||
+        /^paths\/[^/]+\.json$/i.test(record.autosPath)
+          ? [
+              record.file.text().then(
+                (text): ProjectTextFile => ({
+                  relativePath: record.autosPath,
+                  text,
+                }),
+              ),
+            ]
+          : [],
+      ),
+    );
+    const project = deserializeProjectFiles(projectFiles);
+    return {
+      ...project,
+      active_path_id: project.paths[0]?.path_id ?? null,
+      active_path_group_id: null,
+    };
+  }
   const legacyPathMetadataRecord = records.find(
     (record) =>
       record.autosPath.toLowerCase() === ".bline-web/path-metadata.json",
@@ -373,18 +350,6 @@ function statePathByFileName(
 
 function stringOrNull(input: unknown): string | null {
   return typeof input === "string" && input.trim() ? input : null;
-}
-
-function jsonFile(
-  relativePath: string,
-  value: unknown,
-): ProjectFolderExportFile {
-  return {
-    relativePath,
-    blob: new Blob([stringifyBLineJson(value)], {
-      type: "application/json",
-    }),
-  };
 }
 
 function createImportRecords(

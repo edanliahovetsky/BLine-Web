@@ -213,8 +213,8 @@ describe("linked targets", () => {
     });
 
     const folder = serializeBLineProjectFolder(workspace);
-    const stateFile = folder.files.find((file) =>
-      file.relativePath.endsWith("state.json"),
+    const stateFile = folder.files.find(
+      (file) => file.relativePath === "project.json",
     );
     const pathFile = folder.files.find(
       (file) => file.relativePath === "paths/auto.json",

@@ -298,7 +298,7 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async exportProjectFolder(project: Project): Promise<ProjectFolderExport> {
-    return serializeBLineProjectFolder(legacyWorkspaceForPersistence(project));
+    return serializeBLineProjectFolder(project);
   }
 
   async importProjectArchive(file: File): Promise<ProjectWorkspaceDocument> {

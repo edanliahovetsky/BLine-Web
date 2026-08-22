@@ -10,7 +10,6 @@ import {
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
 import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
-import { autosEditorStatePath } from "../../../src/core/io/projectFolder";
 import { createProjectIoService } from "../../../src/platform/projectIo";
 import {
   browserWebCapabilities,
@@ -92,7 +91,7 @@ describe("ProjectIoService", () => {
     );
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
-      autosEditorStatePath,
+      "project.json",
       "paths/One.json",
       "paths/Two.json",
     ]);
@@ -115,7 +114,7 @@ describe("ProjectIoService", () => {
       "One.json",
       "Two.json",
     ]);
-    expect(imported.active_path_id).toBe("One.json");
+    expect(imported.active_path_id).toBe("path-1");
   });
 
   it("excludes local Field Background metadata and bytes from exports", async () => {
@@ -186,25 +185,25 @@ describe("ProjectIoService", () => {
     const configFile = folder.files.find(
       (file) => file.relativePath === "config.json",
     );
-    const stateFile = folder.files.find(
-      (file) => file.relativePath === autosEditorStatePath,
+    const projectFile = folder.files.find(
+      (file) => file.relativePath === "project.json",
     );
     if (!configFile) {
       throw new Error("Expected config.json in folder export");
     }
-    if (!stateFile) {
-      throw new Error("Expected sidecar state in folder export");
+    if (!projectFile) {
+      throw new Error("Expected project.json in folder export");
     }
     const folderConfig = JSON.parse(await configFile.blob.text()) as {
       gui?: unknown;
     };
-    const folderState = JSON.parse(await stateFile.blob.text()) as Record<
+    const folderProject = JSON.parse(await projectFile.blob.text()) as Record<
       string,
       unknown
     >;
     expect(folderConfig.gui).toBeUndefined();
-    expect(folderState).not.toHaveProperty("editor_config.gui.field");
-    expect(folderState).not.toHaveProperty("field_assets");
+    expect(folderProject).not.toHaveProperty("editor_config.gui.field");
+    expect(folderProject).not.toHaveProperty("field_assets");
   });
 
   it("deletes the current browser project and opens the next available workspace", async () => {
