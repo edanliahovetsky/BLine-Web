@@ -230,6 +230,27 @@ export class UserDataService {
     });
   }
 
+  async findVerifiedLegacyFieldBackground(
+    legacyKey: string,
+  ): Promise<FieldBackgroundEntry | null> {
+    this.assertWritable();
+    const entryId = legacyFieldBackgroundId(legacyKey);
+    return this.enqueue(async () => {
+      const existing = this.snapshot.field_backgrounds.find(
+        (entry) => entry.id === entryId,
+      );
+      if (!existing) {
+        return null;
+      }
+      const bytes = await this.adapter.readFieldAsset(entryId);
+      if (!bytes || bytes.byteLength !== existing.size_bytes) {
+        throw new FieldBackgroundAssetVerificationError(entryId);
+      }
+      await this.verifyDurableEntry(existing);
+      return structuredClone(existing);
+    });
+  }
+
   async updateFieldBackgroundMetadata(
     entryId: string,
     update: FieldBackgroundMetadataUpdate,

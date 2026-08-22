@@ -6,6 +6,7 @@ import type { Project } from "../core/model/project";
 import type { ProjectIoService } from "../platform/projectIo";
 import {
   flushUserData,
+  findVerifiedLegacyFieldBackground,
   migrateLegacyFieldBackgroundFromBytes,
   rememberSelectedFieldBackground,
   selectedFieldBackgroundForProject,
@@ -112,9 +113,18 @@ export async function migrateLegacyProjectFieldBackgrounds(
         source,
       );
       if (!blob) {
-        throw new Error(
-          `Legacy Field Background image is missing: ${source.name}`,
-        );
+        for (const field of fields) {
+          const entry = await findVerifiedLegacyFieldBackground(
+            `${project.project_id}\0${field.id}`,
+          );
+          if (!entry) {
+            throw new Error(
+              `Legacy Field Background image is missing: ${source.name}`,
+            );
+          }
+          migratedIds.set(field.id, entry.id);
+        }
+        continue;
       }
       const bytes = new Uint8Array(await blob.arrayBuffer());
       for (const field of fields) {

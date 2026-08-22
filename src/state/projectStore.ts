@@ -113,6 +113,8 @@ export interface ProjectStoreState {
   reloadFromDisk(): Promise<Project | null>;
   overwriteConflict(): Promise<WriteResult | null>;
   replaceDamagedProject(): Promise<WriteResult | null>;
+  prepareLegacyProjectMigration(): Promise<WriteResult | null>;
+  completeLegacyProjectMigration(): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
   setActivePathGroup(groupId: string | null): void;
   createPath(input: {
@@ -195,6 +197,7 @@ export function createProjectStore(
     project: Project,
     expectedVersion: string | undefined,
     force: boolean,
+    replaceDamage = false,
   ): Promise<WriteResult> => {
     const state = get();
     const projectSessionId = state.projectSessionId;
@@ -214,10 +217,9 @@ export function createProjectStore(
     });
 
     const service = requireProjectIo(state.io);
-    savePromise = service.saveWorkspace(
-      project,
-      force ? undefined : expectedVersion,
-    );
+    savePromise = replaceDamage
+      ? service.replaceDamagedProject(project, expectedVersion)
+      : service.saveWorkspace(project, force ? undefined : expectedVersion);
 
     try {
       const result = await savePromise;
@@ -497,23 +499,68 @@ export function createProjectStore(
       if (!project) {
         return null;
       }
-      set({ status: "saving", error: null });
-      try {
-        const io = requireProjectIo(get().io);
-        const result = await io.replaceDamagedProject(project, version);
-        set({
-          version: result.version,
-          dirty: false,
-          status: "idle",
-          error: null,
-          lastSavedAt: result.updatedAt,
-          persistenceDamage: null,
-        });
-        return result;
-      } catch (error) {
-        get().markSaveError(error);
-        throw error;
+      return executeOwnedSave(set, get, project, version, false, true);
+    },
+    async completeLegacyProjectMigration() {
+      if (savePromise) {
+        await savePromise;
       }
+      const before = get();
+      const projectSessionId = before.projectSessionId;
+      if (!before.project || !projectSessionId) {
+        return null;
+      }
+      const io = requireProjectIo(before.io);
+      const result = await io.completeLegacyProjectMigration();
+      if (!result) {
+        return null;
+      }
+      const current = get();
+      if (current.projectSessionId !== projectSessionId) {
+        return result;
+      }
+      set({
+        version: result.version,
+        lastSavedAt: result.updatedAt,
+      });
+      if (current.dirty) {
+        void get()
+          .saveWorkspace()
+          .catch(() => {});
+      }
+      return result;
+    },
+    async prepareLegacyProjectMigration() {
+      if (savePromise) {
+        // Browser legacy records deliberately reject ordinary saves until the
+        // canonical metadata envelope exists. Let the prepare write establish
+        // that boundary, then queue the still-dirty revision below.
+        await savePromise.catch(() => undefined);
+      }
+      const before = get();
+      const projectSessionId = before.projectSessionId;
+      if (!before.project || !projectSessionId) {
+        return null;
+      }
+      const io = requireProjectIo(before.io);
+      const result = await io.prepareLegacyProjectMigration();
+      if (!result) {
+        return null;
+      }
+      const current = get();
+      if (current.projectSessionId !== projectSessionId) {
+        return result;
+      }
+      set({
+        version: result.version,
+        lastSavedAt: result.updatedAt,
+      });
+      if (current.dirty) {
+        void get()
+          .saveWorkspace()
+          .catch(() => {});
+      }
+      return result;
     },
     setActivePath(pathId) {
       const project = requireProject(get().project);

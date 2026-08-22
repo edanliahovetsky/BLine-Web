@@ -10,7 +10,6 @@ import {
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
-import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   BrowserStorage,
   ProjectPersistenceDamageError,
@@ -174,21 +173,22 @@ describe("BrowserStorage", () => {
   it("preserves legacy workspace metadata until migration is confirmed", async () => {
     const memory = new MemoryStorage();
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
+    const legacyJson = JSON.stringify({
+      document: workspace,
+      version: "legacy-version",
+      updatedAt: "2026-04-23T15:38:00.000Z",
+    });
     memory.setItem(
-      "bline-web:workspace:workspace-a",
-      JSON.stringify({
-        document: serializeProjectWorkspaceDocument(workspace),
-        version: "legacy-version",
-        updatedAt: "2026-04-23T15:38:00.000Z",
-      }),
+      "bline-web:workspace:legacy-locator",
+      legacyJson,
     );
     const storage = new BrowserStorage({ storage: memory });
 
     await storage.initialize();
-    await storage.setCurrentWorkspaceId("workspace-a");
-    const restored = await storage.readProject("workspace-a");
+    await storage.setCurrentWorkspaceId("legacy-locator");
+    const restored = await storage.readProject("legacy-locator");
     const preserved = JSON.parse(
-      memory.getItem("bline-web:workspace:workspace-a") ?? "null",
+      memory.getItem("bline-web:workspace:legacy-locator") ?? "null",
     ) as Record<string, unknown>;
 
     expect(restored).toMatchObject({
@@ -197,13 +197,44 @@ describe("BrowserStorage", () => {
     });
     expect(preserved).toHaveProperty("document.config.gui.field");
 
-    const result = await storage.deleteLegacyProjectFiles("legacy-version");
+    const prepared = await storage.prepareLegacyProjectMigration(
+      restored,
+      "legacy-version",
+    );
+    expect(prepared).not.toBeNull();
+    expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
+
+    // Simulate a browser closing after the stable record was written but before
+    // the legacy locator was removed. Preparing again must adopt the verified
+    // target instead of overwriting or changing its version.
+    memory.setItem("bline-web:workspace:legacy-locator", legacyJson);
+    memory.setItem("bline-web:current-workspace", "legacy-locator");
+    const interrupted = new BrowserStorage({ storage: memory });
+    const interruptedProject = await interrupted.readProject("legacy-locator");
+    await expect(
+      interrupted.prepareLegacyProjectMigration(
+        interruptedProject,
+        "legacy-version",
+      ),
+    ).resolves.toEqual(prepared);
+    expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
+
+    const restarted = new BrowserStorage({ storage: memory });
+    const resumed = await restarted.readProject("workspace-a");
+    expect(resumed.config.gui.field).toEqual(restored.config.gui.field);
+    await expect(
+      restarted.writeProject(resumed, prepared!.version),
+    ).rejects.toThrow("migration must finish");
+
+    const result = await restarted.deleteLegacyProjectFiles(
+      prepared!.version,
+    );
     const migrated = JSON.parse(
       memory.getItem("bline-web:workspace:workspace-a") ?? "null",
     ) as Record<string, unknown>;
     expect(result).not.toBeNull();
     expect(migrated).toHaveProperty("files");
-    expect(migrated).not.toHaveProperty("document");
+    expect(migrated).not.toHaveProperty("legacyDocument");
   });
 
   it("preserves damaged browser metadata until an explicit replacement", async () => {
@@ -400,6 +431,71 @@ describe("TauriStorage", () => {
       storage.writeProject(recovered, "damaged-v1"),
     ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
     expect(calls).toEqual(["storage_read_project_files"]);
+  });
+
+  it("resumes legacy Field Background migration after a canonical desktop save", async () => {
+    const project = exampleWorkspace("stable-project", "Autos", ["One"]);
+    const canonicalFiles = serializeProjectFiles(project).map((file) => ({
+      relativePath: file.relativePath,
+      contents: file.text,
+    }));
+    const legacyField = {
+      selected_field_id: "legacy-field",
+      custom_fields: [
+        {
+          id: "legacy-field",
+          name: "Legacy Field",
+          asset_id: "legacy-asset",
+          file_name: "legacy.png",
+          mime_type: "image/png",
+          size_bytes: 3,
+          created_at: "2026-04-23T15:40:00.000Z",
+          geometry: {
+            length_meters: 16.54,
+            width_meters: 8.21,
+            coordinate_offset_meters: 0,
+            coordinate_offset_x_meters: 0,
+            coordinate_offset_y_meters: 0,
+          },
+        },
+      ],
+    };
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string) => {
+        if (command === "storage_read_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            files: canonicalFiles,
+            legacyFiles: [
+              {
+                relativePath: ".bline-web/state.json",
+                contents: JSON.stringify({
+                  schema_version: 1,
+                  editor_config: {
+                    gui: { ...project.config.gui, field: legacyField },
+                    kinematic_constraints: {},
+                  },
+                  active_path_file_name: "One.json",
+                  active_path_group_id: null,
+                  path_groups: [],
+                  linked_targets: [],
+                  paths: {},
+                }),
+              },
+            ],
+            version: "canonical-with-legacy-v2",
+            updatedAt: "2026-04-23T15:41:00.000Z",
+          } as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+
+    const resumed = await storage.readProject("/tmp/autos");
+
+    expect(resumed.project_id).toBe("stable-project");
+    expect(resumed.config.gui.field).toEqual(legacyField);
+    expect(storage.getCurrentProjectDamage()).toBeNull();
   });
 });
 

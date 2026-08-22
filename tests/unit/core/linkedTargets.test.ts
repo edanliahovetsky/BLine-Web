@@ -5,8 +5,11 @@ import {
 } from "../../../src/core/io/projectSchema";
 import {
   deserializeProjectWorkspaceDocument,
-  serializeProjectWorkspaceDocument,
 } from "../../../src/core/io/workspaceSerde";
+import {
+  deserializeProjectFiles,
+  serializeProjectFiles,
+} from "../../../src/core/io/projectFiles";
 import { serializeBLineProjectFolder } from "../../../src/core/io/projectFolder";
 import { serializePath } from "../../../src/core/io/projectSerde";
 import {
@@ -81,18 +84,24 @@ describe("linked targets", () => {
       ],
     });
 
-    const serialized = serializeProjectWorkspaceDocument(workspace);
-    expect(serialized.linked_targets).toMatchObject([
+    const files = serializeProjectFiles(workspace);
+    const metadata = JSON.parse(
+      files.find((file) => file.relativePath === "project.json")?.text ?? "null",
+    ) as {
+      linked_targets: unknown[];
+      paths: Array<{ editor_metadata?: { linked_targets?: unknown[] } }>;
+    };
+    expect(metadata.linked_targets).toMatchObject([
       { kind: "translation" },
       { kind: "waypoint" },
     ]);
-    expect(serialized.linked_targets?.[1]).toMatchObject({ locked: true });
-    expect(serialized.paths[0]?.editor_metadata?.linked_targets).toEqual([
+    expect(metadata.linked_targets[1]).toMatchObject({ locked: true });
+    expect(metadata.paths[0]?.editor_metadata?.linked_targets).toEqual([
       { element_index: 0, target_id: "note-a" },
       { element_index: 1, target_id: "start-pose" },
     ]);
 
-    const restored = deserializeProjectWorkspaceDocument(serialized);
+    const restored = deserializeProjectFiles(files);
     expect(restored.linked_targets[1]).toMatchObject({ locked: true });
     const translation = restored.paths[0]?.path.path_elements[0];
     const waypoint = restored.paths[0]?.path.path_elements[1];
@@ -148,9 +157,33 @@ describe("linked targets", () => {
         }),
       ],
     });
-    const serialized = JSON.parse(
-      JSON.stringify(serializeProjectWorkspaceDocument(workspace)),
-    ) as { linked_targets: Array<{ display_name: string; kind: string }> };
+    const serialized = {
+      schema_version: 1,
+      project_id: workspace.project_id,
+      display_name: workspace.display_name,
+      config: workspace.config,
+      paths: [
+        {
+          path_id: "auto",
+          display_name: "Auto",
+          file_name: "auto.json",
+          path: serializePath(workspace.paths[0]!.path),
+          editor_metadata: {
+            linked_targets: [
+              { element_index: 0, target_id: "note-a" },
+              { element_index: 1, target_id: "start-pose" },
+            ],
+          },
+        },
+      ],
+      active_path_id: "auto",
+      path_groups: [],
+      active_path_group_id: null,
+      linked_targets: structuredClone(workspace.linked_targets),
+    } as unknown as {
+      linked_targets: Array<{ display_name: string; kind: string }>;
+      [key: string]: unknown;
+    };
     serialized.linked_targets[0]!.kind = "point";
     serialized.linked_targets[0]!.display_name = "Linked Point 1";
     serialized.linked_targets[1]!.kind = "pose";

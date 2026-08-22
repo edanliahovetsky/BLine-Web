@@ -4,10 +4,7 @@ import {
   type ProjectDocument,
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
-import {
-  addPathToWorkspace,
-  projectDocumentToWorkspaceDocument,
-} from "../../../src/core/io/workspaceSerde";
+import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import { diffWorkspaceConflict } from "../../../src/core/io/workspaceConflictDiff";
 import {
@@ -195,6 +192,35 @@ describe("project store", () => {
       activeSave: null,
       saveQueued: false,
     });
+  });
+
+  it("adopts a migration version before saving edits made during migration", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    io.legacyMigrationResult = {
+      version: "migration-v1",
+      updatedAt: "2026-04-23T15:45:00.000Z",
+    };
+    io.deferWrites();
+    renameActivePath(store, "Edited During Migration");
+
+    await store.getState().completeLegacyProjectMigration();
+    await Promise.resolve();
+
+    expect(store.getState()).toMatchObject({
+      version: "migration-v1",
+      dirty: true,
+      status: "saving",
+    });
+    expect(io.writes.at(-1)).toMatchObject({
+      pathName: "Edited During Migration",
+      expectedVersion: "migration-v1",
+    });
+
+    io.completeNextWrite();
+    await waitForSaveQueue();
+    expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
   });
 
   it("ignores a save completion after its Project session is closed", async () => {
@@ -859,6 +885,47 @@ describe("damaged Project metadata recovery", () => {
       "Recovered Auto",
     );
   });
+
+  it("keeps edits made during metadata replacement dirty until a newer save completes", async () => {
+    const io = new RecordingIo(exampleWorkspace("project-a", "Alpha", 1));
+    io.damage = {
+      sourcePath: "project.json",
+      message: "Invalid project.json document",
+      rawText: "{<<<<<<< HEAD\n",
+    };
+    const store = createProjectStore();
+    store.getState().setProjectIoService(io);
+    await store.getState().initializeWorkspace();
+    io.deferWrites();
+
+    renameActivePath(store, "Recovered Auto");
+    const replacement = store.getState().replaceDamagedProject();
+    await Promise.resolve();
+    renameActivePath(store, "Newest Auto");
+
+    io.completeNextWrite();
+    await replacement;
+    await Promise.resolve();
+
+    expect(store.getState()).toMatchObject({
+      dirty: true,
+      version: "v1",
+      status: "saving",
+      persistenceDamage: null,
+    });
+    expect(io.writes.at(-1)).toMatchObject({
+      pathName: "Newest Auto",
+      expectedVersion: "v1",
+    });
+
+    io.completeNextWrite();
+    await waitForSaveQueue();
+    expect(store.getState()).toMatchObject({
+      dirty: false,
+      version: "v2",
+      status: "idle",
+    });
+  });
 });
 
 describe("workspace conflict diff", () => {
@@ -877,7 +944,7 @@ describe("workspace conflict diff", () => {
   it("classifies added, removed and changed paths and config drift", () => {
     // Disk = Alpha + Beta. Mine = Alpha (edited) + Gamma (new), Beta dropped.
     const disk = exampleTwoPathWorkspace();
-    const mine = addPathToWorkspace(
+    const mine = addPathForTest(
       {
         ...exampleWorkspace("project-a", "Alpha", 1),
         // Edit Alpha's contents so it counts as "changed".
@@ -959,7 +1026,7 @@ function exampleWorkspace(
 }
 
 function exampleTwoPathWorkspace(): ProjectWorkspaceDocument {
-  return addPathToWorkspace(exampleWorkspace("project-a", "Alpha", 1), {
+  return addPathForTest(exampleWorkspace("project-a", "Alpha", 1), {
     display_name: "Beta",
     file_name: "beta.json",
     makeActive: false,
@@ -967,11 +1034,25 @@ function exampleTwoPathWorkspace(): ProjectWorkspaceDocument {
 }
 
 function exampleThreePathWorkspace(): ProjectWorkspaceDocument {
-  return addPathToWorkspace(exampleTwoPathWorkspace(), {
+  return addPathForTest(exampleTwoPathWorkspace(), {
     display_name: "Gamma",
     file_name: "gamma.json",
     makeActive: false,
   });
+}
+
+function addPathForTest(
+  project: ProjectWorkspaceDocument,
+  input: Parameters<typeof addPathToProject>[1] & { makeActive?: boolean },
+): ProjectWorkspaceDocument {
+  const added = addPathToProject(project, input).project;
+  return {
+    ...added,
+    active_path_id: input.makeActive
+      ? added.paths.at(-1)?.path_id ?? project.active_path_id
+      : project.active_path_id,
+    active_path_group_id: project.active_path_group_id,
+  };
 }
 
 async function initializedProjectStore(
@@ -1029,6 +1110,7 @@ class RecordingIo implements ProjectIoService {
   readonly exportedProjectNames: string[] = [];
   failExports = false;
   damage: ProjectFileDamage | null = null;
+  legacyMigrationResult: WriteResult | null = null;
 
   private workspace: Project | null;
   private version: string | undefined = this.initialVersion;
@@ -1100,8 +1182,18 @@ class RecordingIo implements ProjectIoService {
     return null;
   }
 
-  async completeLegacyProjectMigration(): Promise<null> {
+  async prepareLegacyProjectMigration(): Promise<WriteResult | null> {
     return null;
+  }
+
+  async completeLegacyProjectMigration(): Promise<WriteResult | null> {
+    const result = this.legacyMigrationResult;
+    if (result) {
+      this.version = result.version;
+      this.updatedAt = result.updatedAt;
+      this.legacyMigrationResult = null;
+    }
+    return result;
   }
 
   async createWorkspace(input: { project?: Project } = {}) {

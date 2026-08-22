@@ -64,6 +64,7 @@ export interface ProjectIoService {
   getLastSavedAt(): string | null;
   getPersistenceDamage(): ProjectFileDamage | null;
   getLegacyProjectViewMigration(): LegacyProjectViewMigration | null;
+  prepareLegacyProjectMigration(): Promise<WriteResult | null>;
   completeLegacyProjectMigration(): Promise<WriteResult | null>;
   createWorkspace(input?: CreateWorkspaceInput): Promise<Project>;
   openWorkspace(id?: string): Promise<Project | null>;

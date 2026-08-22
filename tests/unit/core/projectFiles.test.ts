@@ -357,7 +357,172 @@ describe("Project file-set codec", () => {
       files.find((file) => file.relativePath === "project.json")?.text,
     ).toBe("{<<<<<<< HEAD\n");
   });
+
+  it("treats an unlisted runtime path as damaged metadata", () => {
+    const files = canonicalFiles();
+    const rawProject = requiredFile(files, "project.json").text;
+    const extraPath = {
+      relativePath: "paths/extra.json",
+      text: requiredFile(files, "paths/auto.json").text,
+    };
+
+    const opened = openProjectFiles([...files, extraPath], {
+      fallbackProjectId: "recovered-project",
+      fallbackDisplayName: "Recovered",
+      fallbackPathId: (fileName) => `recovered-${fileName}`,
+    });
+
+    expect(opened.damage).toMatchObject({
+      sourcePath: "project.json",
+      message: expect.stringContaining("not listed"),
+      rawText: rawProject,
+    });
+    expect(opened.project.paths.map((path) => path.file_name)).toEqual([
+      "auto.json",
+      "extra.json",
+    ]);
+  });
+
+  it("rejects missing and case-colliding runtime path files", () => {
+    const files = canonicalFiles();
+    const withoutPath = files.filter(
+      (file) => file.relativePath !== "paths/auto.json",
+    );
+    expect(openProjectFiles(withoutPath).damage?.message).toContain(
+      "missing paths/auto.json",
+    );
+
+    const duplicate = {
+      relativePath: "paths/AUTO.json",
+      text: requiredFile(files, "paths/auto.json").text,
+    };
+    expect(openProjectFiles([...files, duplicate]).damage?.message).toContain(
+      "case-colliding runtime path file",
+    );
+  });
+
+  it("strictly validates the canonical project.json whitelist", () => {
+    const cases: Array<(metadata: Record<string, unknown>) => void> = [
+      (metadata) => {
+        metadata.active_path_id = "path-1";
+      },
+      (metadata) => {
+        const editorConfig = metadata.editor_config as Record<string, unknown>;
+        editorConfig.selected_field_id = "frc2025-reefscape";
+      },
+      (metadata) => {
+        const paths = metadata.paths as Array<Record<string, unknown>>;
+        paths[0]!.file_name = "../auto.json";
+      },
+      (metadata) => {
+        const targets = metadata.linked_targets as Array<
+          Record<string, unknown>
+        >;
+        targets[0]!.x_meters = "1";
+      },
+    ];
+
+    for (const mutate of cases) {
+      const files = canonicalFiles({ withLinkedTarget: true });
+      const metadata = JSON.parse(
+        requiredFile(files, "project.json").text,
+      ) as Record<string, unknown>;
+      mutate(metadata);
+      const rawText = `${JSON.stringify(metadata, null, 2)}\n`;
+      const damagedFiles = replaceProjectMetadata(files, rawText);
+
+      expect(openProjectFiles(damagedFiles).damage).toMatchObject({
+        sourcePath: "project.json",
+        rawText,
+      });
+    }
+  });
+
+  it("rejects duplicate identities and dangling references", () => {
+    const cases: Array<(metadata: Record<string, unknown>) => void> = [
+      (metadata) => {
+        const paths = metadata.paths as Array<Record<string, unknown>>;
+        paths.push({
+          path_id: "PATH-1",
+          display_name: "Duplicate",
+          file_name: "duplicate.json",
+        });
+      },
+      (metadata) => {
+        const groups = metadata.path_groups as Array<Record<string, unknown>>;
+        groups.push({
+          group_id: "group-1",
+          display_name: "Bad Group",
+          path_ids: ["missing-path"],
+        });
+      },
+      (metadata) => {
+        const paths = metadata.paths as Array<Record<string, unknown>>;
+        paths[0]!.linked_targets = [
+          { element_index: 0, target_id: "missing-target" },
+        ];
+      },
+    ];
+
+    for (const mutate of cases) {
+      const files = canonicalFiles();
+      const metadata = JSON.parse(
+        requiredFile(files, "project.json").text,
+      ) as Record<string, unknown>;
+      mutate(metadata);
+      const opened = openProjectFiles(
+        replaceProjectMetadata(files, `${JSON.stringify(metadata, null, 2)}\n`),
+      );
+      expect(opened.damage?.sourcePath).toBe("project.json");
+    }
+  });
 });
+
+function canonicalFiles(
+  options: { withLinkedTarget?: boolean } = {},
+): ProjectTextFile[] {
+  const element = createTranslationTarget({ x_meters: 1, y_meters: 2 });
+  return serializeProjectFiles(
+    createProject({
+      project_id: "project-1",
+      display_name: "Project",
+      paths: [
+        {
+          path_id: "path-1",
+          display_name: "Auto",
+          file_name: "auto.json",
+          path: createPathModel({
+            path_elements: [
+              options.withLinkedTarget
+                ? setPathElementLinkedTargetId(element, "target-1")
+                : element,
+            ],
+          }),
+        },
+      ],
+      linked_targets: options.withLinkedTarget
+        ? [
+            {
+              target_id: "target-1",
+              display_name: "Target",
+              kind: "translation",
+              x_meters: 1,
+              y_meters: 2,
+            },
+          ]
+        : [],
+    }),
+  );
+}
+
+function replaceProjectMetadata(
+  files: readonly ProjectTextFile[],
+  text: string,
+): ProjectTextFile[] {
+  return files.map((file) =>
+    file.relativePath === "project.json" ? { ...file, text } : file,
+  );
+}
 
 function requiredFile(
   files: readonly ProjectTextFile[],

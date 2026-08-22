@@ -478,6 +478,7 @@ export function AppShell() {
 
     void (async () => {
       const viewMigration = projectIo.getLegacyProjectViewMigration();
+      await projectStore.getState().prepareLegacyProjectMigration();
       if (viewMigration) {
         await migrateProjectViewIdentity(
           viewMigration.legacyProjectId,
@@ -490,7 +491,7 @@ export function AppShell() {
         projectIo,
       );
       if (errors.length === 0) {
-        await projectIo.completeLegacyProjectMigration();
+        await projectStore.getState().completeLegacyProjectMigration();
       }
       setFieldBackgrounds(listFieldBackgrounds());
       setFieldSelectionOverride({

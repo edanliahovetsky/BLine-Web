@@ -3,8 +3,6 @@ import {
   projectConfigDefaultLookup,
 } from "../config/projectConfig";
 import {
-  createPathModel,
-  getHandoffRadiusSource,
   isRangedConstraintKey,
   setHandoffRadiusSource,
   type AutoVelocityConstraintMetadata,
@@ -14,13 +12,11 @@ import {
   type RangedConstraintSource,
 } from "../model/path";
 import {
-  getPathElementLinkedTargetId,
   normalizeLinkedTargets,
   setPathElementLinkedTargetId,
   syncLinkedTargetElementsInProject,
 } from "../linkedTargets";
 import {
-  createProjectDocument,
   createProjectPathGroupDocument,
   createProjectPathDocument,
   createProjectWorkspaceDocument,
@@ -32,58 +28,20 @@ import {
   type ProjectWorkspaceDocument,
   type SerializedHandoffRadiusSource,
   type SerializedLinkedPathElementTarget,
-  type SerializedLinkedTarget,
-  type SerializedPathEditorMetadata,
-  type SerializedProjectWorkspaceDocument,
   type SerializedRangedConstraintMetadata,
 } from "./projectSchema";
-import {
-  deserializePath,
-  deserializeProjectDocument,
-  serializePath,
-} from "./projectSerde";
+import { deserializePath, deserializeProjectDocument } from "./projectSerde";
 
 export interface DeserializeWorkspaceOptions {
   fallbackProjectId?: string;
   fallbackDisplayName?: string;
 }
 
-export interface SerializedPathGroupsFile {
-  schema_version: 1;
-  groups: SerializedPathGroupFileEntry[];
-}
-
+/** Read-only legacy folder/archive group shape. */
 export interface SerializedPathGroupFileEntry {
   group_id: string;
   display_name: string;
   path_file_names: string[];
-}
-
-export function serializeProjectWorkspaceDocument(
-  workspace: ProjectWorkspaceDocument,
-): SerializedProjectWorkspaceDocument {
-  const linkedTargets = workspace.linked_targets.map(serializeLinkedTarget);
-  return {
-    schema_version: workspace.schema_version,
-    project_id: workspace.project_id,
-    display_name: workspace.display_name,
-    config: workspace.config,
-    paths: workspace.paths.map((path) => ({
-      path_id: path.path_id,
-      display_name: path.display_name,
-      file_name: ensureJsonFileName(path.file_name),
-      path: serializePath(path.path),
-      editor_metadata: serializePathEditorMetadata(path.path),
-    })),
-    active_path_id: workspace.active_path_id,
-    path_groups: workspace.path_groups.map((group) => ({
-      group_id: group.group_id,
-      display_name: group.display_name,
-      path_ids: [...group.path_ids],
-    })),
-    active_path_group_id: workspace.active_path_group_id,
-    ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
-  };
 }
 
 export function deserializeProjectWorkspaceDocument(
@@ -134,7 +92,7 @@ export function deserializeProjectWorkspaceDocument(
   );
 }
 
-export function deserializeProjectPathDocument(
+function deserializeProjectPathDocument(
   input: unknown,
   index = 0,
   defaultLookup?: Parameters<typeof deserializePath>[1],
@@ -189,68 +147,7 @@ export function projectDocumentToWorkspaceDocument(
   });
 }
 
-export function activePathFromWorkspace(
-  workspace: ProjectWorkspaceDocument,
-): ProjectPathDocument | null {
-  return (
-    workspace.paths.find((path) => path.path_id === workspace.active_path_id) ??
-    workspace.paths[0] ??
-    null
-  );
-}
-
-export function activeProjectFromWorkspace(
-  workspace: ProjectWorkspaceDocument | null,
-): ProjectDocument | null {
-  if (!workspace) {
-    return null;
-  }
-
-  const activePath = activePathFromWorkspace(workspace);
-  if (!activePath) {
-    return null;
-  }
-
-  return createProjectDocument({
-    project_id: activePath.path_id,
-    display_name: activePath.display_name,
-    path_file_name: activePath.file_name,
-    path: structuredClone(activePath.path),
-    config: structuredClone(workspace.config),
-  });
-}
-
-export function replaceActiveProjectInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  project: ProjectDocument,
-): ProjectWorkspaceDocument {
-  const activePath = activePathFromWorkspace(workspace);
-  if (!activePath) {
-    return normalizeProjectWorkspaceDocument(workspace);
-  }
-
-  const nextPaths = workspace.paths.map((path) =>
-    path.path_id === activePath.path_id
-      ? {
-          ...path,
-          display_name: project.display_name,
-          file_name: ensureJsonFileName(
-            project.path_file_name ?? path.file_name,
-          ),
-          path: structuredClone(project.path),
-        }
-      : path,
-  );
-
-  return normalizeProjectWorkspaceDocument({
-    ...workspace,
-    config: structuredClone(project.config),
-    paths: nextPaths,
-    linked_targets: structuredClone(workspace.linked_targets),
-  });
-}
-
-export function normalizeProjectWorkspaceDocument(
+function normalizeProjectWorkspaceDocument(
   workspace: ProjectWorkspaceDocument,
 ): ProjectWorkspaceDocument {
   const seen = new Set<string>();
@@ -305,290 +202,6 @@ export function normalizeProjectWorkspaceDocument(
       linked_targets: normalizeLinkedTargets(workspace.linked_targets),
     }),
   );
-}
-
-export function ensureWorkspaceHasActivePath(
-  workspace: ProjectWorkspaceDocument,
-  input: Partial<Pick<ProjectPathDocument, "display_name" | "file_name">> = {},
-): ProjectWorkspaceDocument {
-  const normalized = normalizeProjectWorkspaceDocument(workspace);
-  if (activePathFromWorkspace(normalized)) {
-    return normalized;
-  }
-
-  const fileName = ensureJsonFileName(
-    input.file_name ?? input.display_name ?? "new_path",
-  );
-  const path = createProjectPathDocument({
-    path_id: createPathId(),
-    display_name: input.display_name ?? displayNameFromFileName(fileName),
-    file_name: fileName,
-    path: createPathModel(),
-  });
-
-  return createProjectWorkspaceDocument({
-    ...normalized,
-    paths: [path],
-    active_path_id: path.path_id,
-    path_groups: [],
-    active_path_group_id: null,
-  });
-}
-
-export function addPathToWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  input: {
-    display_name: string;
-    file_name?: string;
-    path?: ProjectPathDocument["path"];
-    path_id?: string;
-    makeActive?: boolean;
-    addToGroupId?: string | null;
-  },
-): ProjectWorkspaceDocument {
-  const fileName = uniquePathFileName(
-    workspace.paths,
-    ensureJsonFileName(input.file_name ?? input.display_name),
-  );
-  const path = createProjectPathDocument({
-    path_id: input.path_id ?? createPathId(),
-    display_name: input.display_name,
-    file_name: fileName,
-    path: structuredClone(input.path ?? createPathModel()),
-  });
-
-  const pathGroups =
-    input.addToGroupId === undefined || input.addToGroupId === null
-      ? workspace.path_groups
-      : workspace.path_groups.map((group) =>
-          group.group_id === input.addToGroupId
-            ? {
-                ...group,
-                path_ids: uniqueStrings([...group.path_ids, path.path_id]),
-              }
-            : group,
-        );
-
-  return normalizeProjectWorkspaceDocument({
-    ...workspace,
-    paths: [...workspace.paths, path],
-    active_path_id:
-      input.makeActive === false ? workspace.active_path_id : path.path_id,
-    path_groups: pathGroups,
-  });
-}
-
-export function renamePathInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  pathId: string,
-  name: string,
-): ProjectWorkspaceDocument {
-  const nextFileName = uniquePathFileName(
-    workspace.paths.filter((path) => path.path_id !== pathId),
-    ensureJsonFileName(name),
-  );
-
-  return normalizeProjectWorkspaceDocument({
-    ...workspace,
-    paths: workspace.paths.map((path) =>
-      path.path_id === pathId
-        ? {
-            ...path,
-            display_name: name,
-            file_name: nextFileName,
-          }
-        : path,
-    ),
-  });
-}
-
-export function duplicatePathInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  pathId: string,
-  name: string,
-): ProjectWorkspaceDocument {
-  const source = workspace.paths.find((path) => path.path_id === pathId);
-  if (!source) {
-    return workspace;
-  }
-
-  return addPathToWorkspace(workspace, {
-    display_name: name,
-    file_name: ensureJsonFileName(name),
-    path: source.path,
-    makeActive: true,
-  });
-}
-
-export function deletePathsFromWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  pathIds: readonly string[],
-): ProjectWorkspaceDocument {
-  const deleted = new Set(pathIds);
-  const paths = workspace.paths.filter((path) => !deleted.has(path.path_id));
-  const active_path_id = deleted.has(workspace.active_path_id ?? "")
-    ? (paths[0]?.path_id ?? null)
-    : workspace.active_path_id;
-
-  return ensureWorkspaceHasActivePath({
-    ...workspace,
-    paths,
-    active_path_id,
-    path_groups: workspace.path_groups.map((group) => ({
-      ...group,
-      path_ids: group.path_ids.filter((pathId) => !deleted.has(pathId)),
-    })),
-  });
-}
-
-export function setActivePathGroupInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  groupId: string | null,
-): ProjectWorkspaceDocument {
-  const activeGroup = groupId
-    ? (workspace.path_groups.find((group) => group.group_id === groupId) ??
-      null)
-    : null;
-  const active_path_id =
-    activeGroup &&
-    !activeGroup.path_ids.includes(workspace.active_path_id ?? "")
-      ? (activeGroup.path_ids.find((pathId) =>
-          workspace.paths.some((path) => path.path_id === pathId),
-        ) ?? workspace.active_path_id)
-      : workspace.active_path_id;
-
-  return normalizeProjectWorkspaceDocument({
-    ...workspace,
-    active_path_id,
-    active_path_group_id: activeGroup ? activeGroup.group_id : null,
-  });
-}
-
-export function createPathGroupInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  input: {
-    display_name: string;
-    path_ids?: readonly string[];
-    group_id?: string;
-    makeActive?: boolean;
-  },
-): ProjectWorkspaceDocument {
-  const group = createProjectPathGroupDocument({
-    group_id: input.group_id ?? createPathGroupId(),
-    display_name: input.display_name,
-    path_ids: [...(input.path_ids ?? [])],
-  });
-
-  return normalizeProjectWorkspaceDocument({
-    ...workspace,
-    path_groups: [...workspace.path_groups, group],
-    active_path_group_id:
-      input.makeActive === false
-        ? workspace.active_path_group_id
-        : group.group_id,
-  });
-}
-
-export function renamePathGroupInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  groupId: string,
-  name: string,
-): ProjectWorkspaceDocument {
-  return normalizeProjectWorkspaceDocument({
-    ...workspace,
-    path_groups: workspace.path_groups.map((group) =>
-      group.group_id === groupId ? { ...group, display_name: name } : group,
-    ),
-  });
-}
-
-export function deletePathGroupFromWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  groupId: string,
-  options: { deleteMemberPaths?: boolean } = {},
-): ProjectWorkspaceDocument {
-  const group = workspace.path_groups.find(
-    (candidate) => candidate.group_id === groupId,
-  );
-  if (!group) {
-    return normalizeProjectWorkspaceDocument(workspace);
-  }
-
-  const withoutGroup = {
-    ...workspace,
-    path_groups: workspace.path_groups.filter(
-      (candidate) => candidate.group_id !== groupId,
-    ),
-    active_path_group_id:
-      workspace.active_path_group_id === groupId
-        ? null
-        : workspace.active_path_group_id,
-  };
-
-  return options.deleteMemberPaths
-    ? deletePathsFromWorkspace(withoutGroup, group.path_ids)
-    : normalizeProjectWorkspaceDocument(withoutGroup);
-}
-
-export function addPathsToGroupInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  groupId: string,
-  pathIds: readonly string[],
-): ProjectWorkspaceDocument {
-  return normalizeProjectWorkspaceDocument({
-    ...workspace,
-    path_groups: workspace.path_groups.map((group) =>
-      group.group_id === groupId
-        ? { ...group, path_ids: uniqueStrings([...group.path_ids, ...pathIds]) }
-        : group,
-    ),
-  });
-}
-
-export function removePathsFromGroupInWorkspace(
-  workspace: ProjectWorkspaceDocument,
-  groupId: string,
-  pathIds: readonly string[],
-): ProjectWorkspaceDocument {
-  const removed = new Set(pathIds);
-  const nextWorkspace = normalizeProjectWorkspaceDocument({
-    ...workspace,
-    path_groups: workspace.path_groups.map((group) =>
-      group.group_id === groupId
-        ? {
-            ...group,
-            path_ids: group.path_ids.filter((pathId) => !removed.has(pathId)),
-          }
-        : group,
-    ),
-  });
-
-  return nextWorkspace.active_path_group_id === groupId
-    ? setActivePathGroupInWorkspace(nextWorkspace, groupId)
-    : nextWorkspace;
-}
-
-export function serializePathGroupsFile(
-  workspace: ProjectWorkspaceDocument,
-): SerializedPathGroupsFile {
-  const fileNameByPathId = new Map(
-    workspace.paths.map((path) => [
-      path.path_id,
-      ensureJsonFileName(path.file_name),
-    ]),
-  );
-
-  return {
-    schema_version: 1,
-    groups: workspace.path_groups.map((group) => ({
-      group_id: group.group_id,
-      display_name: group.display_name,
-      path_file_names: group.path_ids.flatMap((pathId) => {
-        const fileName = fileNameByPathId.get(pathId);
-        return fileName ? [fileName] : [];
-      }),
-    })),
-  };
 }
 
 function readWorkspacePathGroups(
@@ -775,94 +388,6 @@ export function createPathGroupId(): string {
   return `group-${randomId()}`;
 }
 
-function deserializeProjectPathDocumentFromArchive(
-  input: unknown,
-  index: number,
-  defaultLookup?: Parameters<typeof deserializePath>[1],
-): ProjectPathDocument {
-  return deserializeProjectPathDocument(input, index, defaultLookup);
-}
-
-function serializePathEditorMetadata(
-  path: PathModel,
-): SerializedPathEditorMetadata | undefined {
-  const linkedTargets = path.path_elements.flatMap((element, index) => {
-    const targetId = getPathElementLinkedTargetId(element);
-    return targetId
-      ? [
-          {
-            element_index: index,
-            target_id: targetId,
-          },
-        ]
-      : [];
-  });
-  const handoffRadiusSources = path.path_elements.flatMap((element, index) => {
-    const source = getHandoffRadiusSource(element);
-    return source ? [{ element_index: index, source }] : [];
-  });
-  const rangedConstraints = path.ranged_constraints.flatMap((constraint) => {
-    const source = normalizeRangedConstraintSource(constraint.source);
-    if (source === null || source === "manual") {
-      return [];
-    }
-
-    const metadata: SerializedRangedConstraintMetadata = {
-      key: constraint.key,
-      value: Number(constraint.value),
-      start_ordinal: Math.trunc(constraint.start_ordinal),
-      end_ordinal: Math.trunc(constraint.end_ordinal),
-      source,
-    };
-    const autoVelocity = normalizeAutoVelocityMetadata(
-      constraint.auto_velocity,
-    );
-    if (autoVelocity) {
-      metadata.auto_velocity = autoVelocity;
-    }
-    return [metadata];
-  });
-
-  if (
-    rangedConstraints.length === 0 &&
-    linkedTargets.length === 0 &&
-    handoffRadiusSources.length === 0
-  ) {
-    return undefined;
-  }
-
-  return {
-    ...(rangedConstraints.length > 0
-      ? { ranged_constraints: rangedConstraints }
-      : {}),
-    ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
-    ...(handoffRadiusSources.length > 0
-      ? { handoff_radius_sources: handoffRadiusSources }
-      : {}),
-  };
-}
-
-function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
-  return target.kind === "waypoint"
-    ? {
-        target_id: target.target_id,
-        display_name: target.display_name,
-        kind: "waypoint",
-        x_meters: Number(target.x_meters),
-        y_meters: Number(target.y_meters),
-        rotation_radians: Number(target.rotation_radians ?? 0),
-        ...(target.locked ? { locked: true } : {}),
-      }
-    : {
-        target_id: target.target_id,
-        display_name: target.display_name,
-        kind: "translation",
-        x_meters: Number(target.x_meters),
-        y_meters: Number(target.y_meters),
-        ...(target.locked ? { locked: true } : {}),
-      };
-}
-
 function readLinkedTargets(input: unknown): LinkedTarget[] {
   if (!Array.isArray(input)) {
     return [];
@@ -904,7 +429,10 @@ function readLinkedTargets(input: unknown): LinkedTarget[] {
   );
 }
 
-function applyPathEditorMetadata(path: PathModel, input: unknown): PathModel {
+export function applyPathEditorMetadata(
+  path: PathModel,
+  input: unknown,
+): PathModel {
   const rangedMetadata = readRangedConstraintMetadata(input);
   const linkedTargets = readLinkedPathElementTargets(input);
   const handoffRadiusSources = readHandoffRadiusSources(input);
@@ -1148,26 +676,6 @@ function readConfig(input: unknown): ProjectConfig {
   }).config;
 }
 
-function uniquePathFileName(
-  paths: readonly ProjectPathDocument[],
-  requestedFileName: string,
-): string {
-  const existing = new Set(paths.map((path) => path.file_name.toLowerCase()));
-  if (!existing.has(requestedFileName.toLowerCase())) {
-    return requestedFileName;
-  }
-
-  const stem = requestedFileName.replace(/\.json$/i, "");
-  for (let index = 2; index < 10_000; index += 1) {
-    const candidate = `${stem}-${index}.json`;
-    if (!existing.has(candidate.toLowerCase())) {
-      return candidate;
-    }
-  }
-
-  return `${stem}-${randomId()}.json`;
-}
-
 function pathIdFromFileName(fileName: string, index: number): string {
   return `${safeFileStem(fileName.replace(/\.json$/i, "")) || "path"}-${index + 1}`;
 }
@@ -1199,5 +707,3 @@ function randomId(): string {
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
 }
-
-export { deserializeProjectPathDocumentFromArchive };

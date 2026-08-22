@@ -10,10 +10,7 @@ import {
   type ProjectDocument,
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
-import {
-  addPathToWorkspace,
-  projectDocumentToWorkspaceDocument,
-} from "../../../src/core/io/workspaceSerde";
+import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import {
   createPathModel,
@@ -23,6 +20,7 @@ import {
   type PathElement,
   type PathModel,
 } from "../../../src/core/model/path";
+import { addPathToProject } from "../../../src/core/model/projectOperations";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import { startAutoVelocitySync } from "../../../src/state/autoVelocitySync";
 import {
@@ -218,12 +216,15 @@ describe("auto velocity sync", () => {
 
   it("applies an in-flight solve to its originating Path after navigation", async () => {
     const firstWorkspace = exampleWorkspace(true);
-    const workspace = addPathToWorkspace(firstWorkspace, {
-      display_name: "Second",
-      file_name: "second.json",
-      path: structuredClone(firstWorkspace.paths[0].path),
-      makeActive: false,
-    });
+    const workspace: ProjectWorkspaceDocument = {
+      ...addPathToProject(firstWorkspace, {
+        display_name: "Second",
+        file_name: "second.json",
+        path: structuredClone(firstWorkspace.paths[0].path),
+      }).project,
+      active_path_id: firstWorkspace.active_path_id,
+      active_path_group_id: firstWorkspace.active_path_group_id,
+    };
     const store = await initializedStore(workspace);
     const status = createAutoVelocityStore();
     const [firstPath, secondPath] = store.getState().project!.paths;

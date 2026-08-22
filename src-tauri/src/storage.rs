@@ -84,7 +84,9 @@ struct DesktopStorageState {
 }
 
 const PROJECT_SAVE_TRANSACTION_DIR: &str = ".bline-save-transaction";
+const PROJECT_SAVE_CLEANUP_DIR: &str = ".bline-save-cleanup";
 const PROJECT_SAVE_TRANSACTION_MARKER: &str = "state";
+const PROJECT_SAVE_SNAPSHOT_VERSION: &str = "version";
 const PROJECT_SAVE_TRANSACTION_PREPARED: &str = "prepared";
 const PROJECT_SAVE_TRANSACTION_COMMITTED: &str = "committed";
 
@@ -416,8 +418,7 @@ fn write_project_text_file_set(
 
         install_project_snapshot(project_dir, &new_dir)?;
         write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_COMMITTED)?;
-        fs::remove_dir_all(&transaction_dir).map_err(error_string)?;
-        sync_directory(project_dir)?;
+        retire_project_file_transaction(project_dir, &transaction_dir)?;
         Ok(())
     })();
 
@@ -635,7 +636,9 @@ fn read_legacy_project_files(project_dir: &Path) -> Result<Vec<ProjectTextFile>,
 
 fn write_project_snapshot(snapshot_dir: &Path, files: &[ProjectTextFile]) -> Result<(), String> {
     fs::create_dir(snapshot_dir).map_err(error_string)?;
-    for file in files {
+    let mut ordered_files = files.to_vec();
+    ordered_files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    for file in &ordered_files {
         let destination = snapshot_dir.join(&file.relative_path);
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent).map_err(error_string)?;
@@ -652,6 +655,13 @@ fn write_project_snapshot(snapshot_dir: &Path, files: &[ProjectTextFile]) -> Res
     if paths_dir.is_dir() {
         sync_directory(&paths_dir)?;
     }
+    let mut version =
+        fs::File::create(snapshot_dir.join(PROJECT_SAVE_SNAPSHOT_VERSION)).map_err(error_string)?;
+    use std::io::Write;
+    version
+        .write_all(project_source_file_set_version(&ordered_files, &[]).as_bytes())
+        .map_err(error_string)?;
+    version.sync_all().map_err(error_string)?;
     sync_directory(snapshot_dir)
 }
 
@@ -665,6 +675,7 @@ fn write_transaction_marker(transaction_dir: &Path, state: &str) -> Result<(), S
 }
 
 fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
+    remove_project_file_transaction_cleanup(project_dir)?;
     let transaction_dir = project_dir.join(PROJECT_SAVE_TRANSACTION_DIR);
     if !transaction_dir.exists() {
         return Ok(());
@@ -674,8 +685,7 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
     if !marker.is_file() {
         // No marker means installation never began, so the live directory is still
         // the complete old set and the incomplete staging area is disposable.
-        fs::remove_dir_all(&transaction_dir).map_err(error_string)?;
-        return Ok(());
+        return retire_project_file_transaction(project_dir, &transaction_dir);
     }
 
     let state = fs::read_to_string(&marker).map_err(error_string)?;
@@ -686,17 +696,15 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
         transaction_dir.join("old")
     };
     install_project_snapshot(project_dir, &snapshot)?;
-    fs::remove_dir_all(&transaction_dir).map_err(error_string)?;
-    sync_directory(project_dir)
+    retire_project_file_transaction(project_dir, &transaction_dir)
 }
 
 fn install_project_snapshot(project_dir: &Path, snapshot_dir: &Path) -> Result<(), String> {
-    if !snapshot_dir.is_dir() {
-        return Err("Project save transaction is missing its recovery snapshot".to_owned());
-    }
-
+    // Read and verify the entire snapshot before touching live files. A torn or
+    // partially cleaned snapshot can therefore never cause a complete live Project
+    // to be deleted during recovery.
+    let snapshot_files = read_validated_project_snapshot(snapshot_dir)?;
     remove_live_managed_project_files(project_dir)?;
-    let snapshot_files = read_managed_project_files(snapshot_dir)?;
 
     // Install the runtime files first. project.json is the commit point visible to
     // readers and is therefore always installed last.
@@ -717,6 +725,44 @@ fn install_project_snapshot(project_dir: &Path, snapshot_dir: &Path) -> Result<(
         sync_directory(&paths_dir)?;
     }
     sync_directory(project_dir)
+}
+
+fn read_validated_project_snapshot(snapshot_dir: &Path) -> Result<Vec<ProjectTextFile>, String> {
+    if !snapshot_dir.is_dir() {
+        return Err("Project save transaction is missing its recovery snapshot".to_owned());
+    }
+    let expected = fs::read_to_string(snapshot_dir.join(PROJECT_SAVE_SNAPSHOT_VERSION))
+        .map_err(|_| "Project save transaction snapshot is incomplete".to_owned())?;
+    let files = read_managed_project_files(snapshot_dir)?;
+    if project_source_file_set_version(&files, &[]) != expected {
+        return Err("Project save transaction snapshot failed validation".to_owned());
+    }
+    Ok(files)
+}
+
+fn retire_project_file_transaction(
+    project_dir: &Path,
+    transaction_dir: &Path,
+) -> Result<(), String> {
+    let cleanup_dir = project_dir.join(PROJECT_SAVE_CLEANUP_DIR);
+    if cleanup_dir.exists() {
+        fs::remove_dir_all(&cleanup_dir).map_err(error_string)?;
+    }
+    fs::rename(transaction_dir, &cleanup_dir).map_err(error_string)?;
+    // Once the atomic rename is durable, cleanup residue is ignored by recovery and
+    // can never be mistaken for an authoritative old/new snapshot.
+    sync_directory(project_dir)?;
+    let _ = fs::remove_dir_all(&cleanup_dir);
+    Ok(())
+}
+
+fn remove_project_file_transaction_cleanup(project_dir: &Path) -> Result<(), String> {
+    let cleanup_dir = project_dir.join(PROJECT_SAVE_CLEANUP_DIR);
+    if cleanup_dir.exists() {
+        fs::remove_dir_all(cleanup_dir).map_err(error_string)?;
+        sync_directory(project_dir)?;
+    }
+    Ok(())
 }
 
 fn install_snapshot_file(project_dir: &Path, file: &ProjectTextFile) -> Result<(), String> {
@@ -1265,6 +1311,90 @@ mod tests {
 
         assert_eq!(read_managed_project_files(&dir).unwrap(), new);
         assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn partial_cleanup_residue_is_ignored_without_touching_live_project() {
+        let dir = temp_project_dir("cleanup-residue");
+        let live = vec![
+            project_file("config.json", "live config"),
+            project_file("paths/live.json", "live path"),
+            project_file("project.json", "live metadata"),
+        ];
+        install_files(&dir, &live);
+        let cleanup_dir = dir.join(PROJECT_SAVE_CLEANUP_DIR);
+        fs::create_dir_all(cleanup_dir.join("new/paths")).unwrap();
+        fs::write(
+            cleanup_dir.join(PROJECT_SAVE_TRANSACTION_MARKER),
+            PROJECT_SAVE_TRANSACTION_COMMITTED,
+        )
+        .unwrap();
+        // This deliberately resembles a committed snapshot interrupted halfway
+        // through deletion. Its contents are never considered for recovery.
+        fs::write(cleanup_dir.join("new/config.json"), "partial").unwrap();
+        fs::write(cleanup_dir.join("new/paths/partial.json"), "partial").unwrap();
+
+        recover_project_file_transaction(&dir).unwrap();
+
+        assert_eq!(read_managed_project_files(&dir).unwrap(), live);
+        assert!(!cleanup_dir.exists());
+    }
+
+    #[test]
+    fn incomplete_committed_snapshot_cannot_delete_complete_live_project() {
+        let dir = temp_project_dir("incomplete-snapshot");
+        let live = vec![
+            project_file("config.json", "live config"),
+            project_file("paths/live.json", "live path"),
+            project_file("project.json", "live metadata"),
+        ];
+        let replacement = vec![
+            project_file("config.json", "replacement config"),
+            project_file("paths/replacement.json", "replacement path"),
+            project_file("project.json", "replacement metadata"),
+        ];
+        install_files(&dir, &live);
+        stage_transaction(
+            &dir,
+            &live,
+            &replacement,
+            PROJECT_SAVE_TRANSACTION_COMMITTED,
+        );
+        fs::remove_file(
+            dir.join(PROJECT_SAVE_TRANSACTION_DIR)
+                .join("new/project.json"),
+        )
+        .unwrap();
+
+        let error = recover_project_file_transaction(&dir).unwrap_err();
+
+        assert!(error.contains("failed validation"));
+        assert_eq!(read_managed_project_files(&dir).unwrap(), live);
+        assert!(dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn invalid_snapshot_stamp_cannot_delete_complete_live_project() {
+        let dir = temp_project_dir("invalid-snapshot-stamp");
+        let live = vec![
+            project_file("config.json", "live config"),
+            project_file("paths/live.json", "live path"),
+            project_file("project.json", "live metadata"),
+        ];
+        install_files(&dir, &live);
+        stage_transaction(&dir, &live, &live, PROJECT_SAVE_TRANSACTION_PREPARED);
+        fs::write(
+            dir.join(PROJECT_SAVE_TRANSACTION_DIR)
+                .join("old")
+                .join(PROJECT_SAVE_SNAPSHOT_VERSION),
+            "invalid",
+        )
+        .unwrap();
+
+        let error = recover_project_file_transaction(&dir).unwrap_err();
+
+        assert!(error.contains("failed validation"));
+        assert_eq!(read_managed_project_files(&dir).unwrap(), live);
     }
 
     #[test]

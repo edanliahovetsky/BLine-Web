@@ -126,6 +126,12 @@ export function migrateLegacyFieldBackgroundFromBytes(
   );
 }
 
+export function findVerifiedLegacyFieldBackground(
+  legacyKey: string,
+): Promise<FieldBackgroundEntry | null> {
+  return runtimeUserData.findVerifiedLegacyFieldBackground(legacyKey);
+}
+
 export function updateFieldBackgroundMetadata(
   entryId: string,
   update: FieldBackgroundMetadataUpdate,

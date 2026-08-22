@@ -2,17 +2,17 @@ import { createProjectConfig } from "../config/projectConfig";
 import type {
   LinkedTarget,
   ProjectConfig,
-  ProjectDocument,
-  ProjectWorkspaceDocument,
   SerializedPathEditorMetadata,
   SerializedPathDocument,
 } from "./projectSchema";
+import { getPathElementLinkedTargetId } from "../linkedTargets";
+import { getHandoffRadiusSource, type PathModel } from "../model/path";
+import type { Project } from "../model/project";
+import { openProjectFromLegacyWorkspace } from "./legacyWorkspace";
+import { serializePath } from "./projectSerde";
 import {
   deserializeProjectWorkspaceDocument,
   ensureJsonFileName,
-  projectDocumentToWorkspaceDocument,
-  serializePathGroupsFile,
-  serializeProjectWorkspaceDocument,
 } from "./workspaceSerde";
 
 export const blineProjectArchiveSchemaVersion = 1;
@@ -24,12 +24,18 @@ export interface SerializedProjectArchivePath {
   editor_metadata?: SerializedPathEditorMetadata;
 }
 
+export interface SerializedProjectArchivePathGroup {
+  group_id: string;
+  display_name: string;
+  path_file_names: string[];
+}
+
 export interface SerializedProjectArchive {
   bline_project_schema_version: typeof blineProjectArchiveSchemaVersion;
   exported_at: string;
   config: ProjectConfigWithoutField;
   paths: SerializedProjectArchivePath[];
-  path_groups?: ReturnType<typeof serializePathGroupsFile>["groups"];
+  path_groups?: SerializedProjectArchivePathGroup[];
   linked_targets?: LinkedTarget[];
   field_assets?: SerializedProjectArchiveFieldAsset[];
 }
@@ -44,8 +50,6 @@ export interface SerializedProjectArchiveFieldAsset {
   mime_type: string;
   data_base64: string;
 }
-
-type ArchiveSource = ProjectWorkspaceDocument | readonly ProjectDocument[];
 
 export type BLineRuntimeKinematicConstraints = Pick<
   ProjectConfig["kinematic_constraints"],
@@ -97,35 +101,53 @@ export function deserializeProjectConfig(input: unknown): ProjectConfig {
 }
 
 export function createBLineProjectArchive(
-  source: ArchiveSource,
+  project: Project,
   exportedAt: string,
 ): SerializedProjectArchive {
-  const workspace = workspaceFromArchiveSource(source);
-  const serializedWorkspace = serializeProjectWorkspaceDocument(workspace);
-
   const archive: SerializedProjectArchive = {
     bline_project_schema_version: blineProjectArchiveSchemaVersion,
     exported_at: exportedAt,
-    config: projectConfigWithoutField(workspace.config),
-    paths: serializedWorkspace.paths.map((path, index) => ({
-      file_name: ensureJsonFileName(path.file_name || `path-${index + 1}.json`),
+    config: projectConfigWithoutField(project.config),
+    paths: project.paths.map((path, index) => ({
+      file_name: ensureJsonFileName(
+        path.file_name || `path-${index + 1}.json`,
+      ),
       display_name: path.display_name,
-      path: path.path,
-      editor_metadata: path.editor_metadata,
+      path: serializePath(path.path),
+      editor_metadata: serializePathEditorMetadata(path.path),
     })),
-    path_groups: serializePathGroupsFile(workspace).groups,
-    linked_targets: serializedWorkspace.linked_targets,
+    path_groups: project.path_groups.map((group) => ({
+      group_id: group.group_id,
+      display_name: group.display_name,
+      path_file_names: group.path_ids.flatMap((pathId) => {
+        const path = project.paths.find(
+          (candidate) => candidate.path_id === pathId,
+        );
+        return path ? [ensureJsonFileName(path.file_name)] : [];
+      }),
+    })),
+    linked_targets: project.linked_targets.map((target) => ({
+      target_id: target.target_id,
+      display_name: target.display_name,
+      kind: target.kind,
+      x_meters: Number(target.x_meters),
+      y_meters: Number(target.y_meters),
+      ...(target.kind === "waypoint"
+        ? { rotation_radians: Number(target.rotation_radians ?? 0) }
+        : {}),
+      ...(target.locked ? { locked: true } : {}),
+    })),
   };
 
   return archive;
 }
 
 export function serializeBLineProjectArchive(
-  source: ArchiveSource,
+  project: Project,
   exportedAt: string,
 ): Blob {
   return new Blob(
-    [JSON.stringify(createBLineProjectArchive(source, exportedAt), null, 2)],
+    [JSON.stringify(createBLineProjectArchive(project, exportedAt), null, 2)],
     {
       type: "application/json",
     },
@@ -157,30 +179,32 @@ export function deserializeBLineProjectArchive(
     fallbackProjectId?: string;
     fallbackDisplayName?: string;
   } = {},
-): ProjectWorkspaceDocument {
+): Project {
   if (!isBLineProjectArchive(input)) {
     throw new Error("Unsupported BLine project archive schema");
   }
 
-  return deserializeProjectWorkspaceDocument(
-    {
-      schema_version: 1,
-      project_id: options.fallbackProjectId ?? "imported-project",
-      display_name: options.fallbackDisplayName ?? "Imported Project",
-      config: input.config,
-      paths: input.paths.map((entry, index) => ({
-        path_id: entry.file_name || `path-${index + 1}`,
-        display_name: entry.display_name,
-        file_name: entry.file_name || `path-${index + 1}.json`,
-        path: entry.path,
-        editor_metadata: entry.editor_metadata,
-      })),
-      active_path_id: input.paths[0]?.file_name ?? null,
-      path_groups: input.path_groups,
-      linked_targets: input.linked_targets,
-    },
-    options,
-  );
+  return openProjectFromLegacyWorkspace(
+    deserializeProjectWorkspaceDocument(
+      {
+        schema_version: 1,
+        project_id: options.fallbackProjectId ?? "imported-project",
+        display_name: options.fallbackDisplayName ?? "Imported Project",
+        config: input.config,
+        paths: input.paths.map((entry, index) => ({
+          path_id: entry.file_name || `path-${index + 1}`,
+          display_name: entry.display_name,
+          file_name: entry.file_name || `path-${index + 1}.json`,
+          path: entry.path,
+          editor_metadata: entry.editor_metadata,
+        })),
+        active_path_id: input.paths[0]?.file_name ?? null,
+        path_groups: input.path_groups,
+        linked_targets: input.linked_targets,
+      },
+      options,
+    ),
+  ).project;
 }
 
 export function isBLineProjectArchive(
@@ -195,12 +219,6 @@ export function isBLineProjectArchive(
     candidate.bline_project_schema_version ===
       blineProjectArchiveSchemaVersion && Array.isArray(candidate.paths)
   );
-}
-
-function isProjectDocumentArray(
-  val: unknown,
-): val is readonly ProjectDocument[] {
-  return Array.isArray(val);
 }
 
 function isSerializedProjectArchiveFieldAsset(
@@ -219,34 +237,49 @@ function isSerializedProjectArchiveFieldAsset(
   );
 }
 
-function workspaceFromArchiveSource(
-  source: ArchiveSource,
-): ProjectWorkspaceDocument {
-  if (isProjectDocumentArray(source)) {
-    const first = source[0];
-    return first
-      ? {
-          ...projectDocumentToWorkspaceDocument(first),
-          paths: source.map((project) => ({
-            path_id: project.project_id,
-            display_name: project.display_name,
-            file_name: ensureJsonFileName(
-              project.path_file_name ??
-                project.display_name ??
-                project.project_id,
-            ),
-            path: project.path,
-          })),
-          active_path_id: first.project_id,
-        }
-      : deserializeProjectWorkspaceDocument({
-          schema_version: 1,
-          project_id: "empty-project",
-          display_name: "Empty Project",
-          config: undefined,
-          paths: [],
-        });
-  } else {
-    return source;
+export function serializePathEditorMetadata(
+  path: PathModel,
+): SerializedPathEditorMetadata | undefined {
+  const linkedTargets = path.path_elements.flatMap((element, index) => {
+    const targetId = getPathElementLinkedTargetId(element);
+    return targetId ? [{ element_index: index, target_id: targetId }] : [];
+  });
+  const handoffRadiusSources = path.path_elements.flatMap((element, index) => {
+    const source = getHandoffRadiusSource(element);
+    return source ? [{ element_index: index, source }] : [];
+  });
+  const rangedConstraints = path.ranged_constraints.flatMap((constraint) =>
+    constraint.source === "auto_velocity"
+      ? [
+          {
+            key: constraint.key,
+            value: Number(constraint.value),
+            start_ordinal: Math.trunc(constraint.start_ordinal),
+            end_ordinal: Math.trunc(constraint.end_ordinal),
+            source: constraint.source,
+            ...(constraint.auto_velocity
+              ? { auto_velocity: structuredClone(constraint.auto_velocity) }
+              : {}),
+          },
+        ]
+      : [],
+  );
+
+  if (
+    rangedConstraints.length === 0 &&
+    linkedTargets.length === 0 &&
+    handoffRadiusSources.length === 0
+  ) {
+    return undefined;
   }
+
+  return {
+    ...(rangedConstraints.length > 0
+      ? { ranged_constraints: rangedConstraints }
+      : {}),
+    ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
+    ...(handoffRadiusSources.length > 0
+      ? { handoff_radius_sources: handoffRadiusSources }
+      : {}),
+  };
 }

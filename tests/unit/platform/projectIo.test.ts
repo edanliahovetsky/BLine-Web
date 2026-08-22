@@ -349,10 +349,15 @@ describe("ProjectIoService", () => {
       pathIdByLegacyReference: { "One.json": "One.json" },
     });
 
-    await expect(service.completeLegacyProjectMigration()).resolves.toBeNull();
-    const saved = await service.saveWorkspace(project!, "runtime-v1");
+    const prepared = await service.prepareLegacyProjectMigration();
+    expect(prepared).toMatchObject({ version: "canonical-v2" });
+    expect(service.getLegacyProjectViewMigration()).toMatchObject({
+      legacyProjectId: "/repo/autos",
+      stableProjectId: project?.project_id,
+    });
+    const completed = await service.completeLegacyProjectMigration();
 
-    expect(saved).toMatchObject({ version: "clean-v3" });
+    expect(completed).toMatchObject({ version: "clean-v3" });
     expect(service.getCurrentVersion()).toBe("clean-v3");
     const write = calls.find(
       (call) => call.command === "storage_write_project_files",

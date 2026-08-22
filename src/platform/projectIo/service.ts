@@ -15,10 +15,7 @@ import {
   serializeBLineProjectFolder,
 } from "../../core/io/projectFolder";
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
-import {
-  legacyWorkspaceForArchive,
-  openProjectFromLegacyWorkspace,
-} from "../../core/io/legacyWorkspace";
+import { openProjectFromLegacyWorkspace } from "../../core/io/legacyWorkspace";
 import {
   cloneProject,
   createProject,
@@ -119,6 +116,7 @@ export class StorageProjectIoService implements ProjectIoService {
     const project = this.currentProject;
     const legacyProjectId = this.currentStorageId;
     if (
+      this.getPersistenceDamage() ||
       !project ||
       !legacyProjectId ||
       legacyProjectId === project.project_id
@@ -135,6 +133,28 @@ export class StorageProjectIoService implements ProjectIoService {
         ]),
       ),
     };
+  }
+
+  async prepareLegacyProjectMigration(): Promise<WriteResult | null> {
+    if (
+      this.getPersistenceDamage() ||
+      !this.currentVersion ||
+      !isLegacyProjectMetadataAdapter(this.storage)
+    ) {
+      return null;
+    }
+    const result = await this.storage.prepareLegacyProjectMigration(
+      this.requireProject(),
+      this.currentVersion,
+    );
+    if (result) {
+      this.currentVersion = result.version;
+      this.lastSavedAt = result.updatedAt;
+      if (isCurrentWorkspaceAdapter(this.storage)) {
+        this.currentStorageId = await this.storage.getCurrentWorkspaceId();
+      }
+    }
+    return result;
   }
 
   async completeLegacyProjectMigration(): Promise<WriteResult | null> {
@@ -372,11 +392,9 @@ export class StorageProjectIoService implements ProjectIoService {
   async importProjectArchive(file: File): Promise<ProjectImportResult> {
     const raw = await file.text();
     const parsed = JSON.parse(raw) as unknown;
-    const imported = openProjectFromLegacyWorkspace(
-      await decodeWorkspaceArchive(
-        new Blob([raw], { type: file.type || "application/json" }),
-      ),
-    ).project;
+    const imported = await decodeWorkspaceArchive(
+      new Blob([raw], { type: file.type || "application/json" }),
+    );
     const legacySelectedFieldId =
       imported.config.gui.field.custom_fields.length > 0
         ? imported.config.gui.field.selected_field_id
@@ -413,7 +431,7 @@ export class StorageProjectIoService implements ProjectIoService {
   async exportProjectArchive(project: Project): Promise<Blob> {
     return jsonBlob(
       createBLineProjectArchive(
-        legacyWorkspaceForArchive(project),
+        project,
         new Date().toISOString(),
       ),
     );

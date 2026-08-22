@@ -34,14 +34,3 @@ export function legacyWorkspaceFromOpenProject(
     active_path_group_id: normalized.activePathGroupId,
   };
 }
-
-/** Compatibility shell for legacy archives. Navigation is never repository data. */
-export function legacyWorkspaceForArchive(
-  project: Project,
-): ProjectWorkspaceDocument {
-  return {
-    ...cloneProject(project),
-    active_path_id: null,
-    active_path_group_id: null,
-  };
-}

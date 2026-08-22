@@ -11,6 +11,7 @@ import {
   type RangedConstraint,
 } from "../../../src/core/model/path";
 import { createProjectDocument } from "../../../src/core/io/projectSchema";
+import { createProject } from "../../../src/core/model/project";
 import {
   deserializePath,
   deserializeProjectDocument,
@@ -18,16 +19,13 @@ import {
   serializeProjectDocument,
 } from "../../../src/core/io/projectSerde";
 import {
-  activeProjectFromWorkspace,
-  addPathsToGroupInWorkspace,
-  createPathGroupInWorkspace,
-  deletePathGroupFromWorkspace,
-  deletePathsFromWorkspace,
   deserializeProjectWorkspaceDocument,
   projectDocumentToWorkspaceDocument,
-  removePathsFromGroupInWorkspace,
-  serializeProjectWorkspaceDocument,
 } from "../../../src/core/io/workspaceSerde";
+import {
+  deserializeProjectFiles,
+  serializeProjectFiles,
+} from "../../../src/core/io/projectFiles";
 import {
   createBLineProjectArchive,
   deserializeBLineProjectArchive,
@@ -772,7 +770,19 @@ describe("project document serde", () => {
     });
 
     const archive = createBLineProjectArchive(
-      [project],
+      createProject({
+        project_id: project.project_id,
+        display_name: project.display_name,
+        config: project.config,
+        paths: [
+          {
+            path_id: project.project_id,
+            display_name: project.display_name,
+            file_name: project.path_file_name ?? "top_sweep.json",
+            path: project.path,
+          },
+        ],
+      }),
       "2026-04-26T12:00:00.000Z",
     );
     const restored = deserializeBLineProjectArchive(archive);
@@ -1223,10 +1233,9 @@ describe("project document serde", () => {
       }),
     });
 
-    const workspace = projectDocumentToWorkspaceDocument(project);
-    const serialized = serializeProjectWorkspaceDocument(workspace);
-    const restored = deserializeProjectWorkspaceDocument(serialized);
-    const activeProject = activeProjectFromWorkspace(restored);
+    const restored = deserializeProjectWorkspaceDocument(
+      serializeProjectDocument(project),
+    );
 
     expect(restored).toMatchObject({
       schema_version: 1,
@@ -1235,10 +1244,10 @@ describe("project document serde", () => {
       active_path_id: "project-1",
     });
     expect(restored.paths).toHaveLength(1);
-    expect(activeProject).toMatchObject({
-      project_id: "project-1",
+    expect(restored.paths[0]).toMatchObject({
+      path_id: "project-1",
       display_name: "Top Sweep",
-      path_file_name: "top_sweep.json",
+      file_name: "top_sweep.json",
     });
   });
 
@@ -1284,64 +1293,6 @@ describe("project document serde", () => {
     ]);
     expect(workspace.active_path_group_id).toBe("score");
 
-    const withBottom = addPathsToGroupInWorkspace(workspace, "score", [
-      "bottom",
-    ]);
-    expect(withBottom.path_groups[0]?.path_ids).toEqual(["top", "bottom"]);
-
-    const withoutTop = removePathsFromGroupInWorkspace(withBottom, "score", [
-      "top",
-    ]);
-    expect(withoutTop.path_groups[0]?.path_ids).toEqual(["bottom"]);
-    expect(withoutTop.active_path_id).toBe("bottom");
-
-    const withDeletedPath = deletePathsFromWorkspace(withBottom, ["bottom"]);
-    expect(withDeletedPath.path_groups[0]?.path_ids).toEqual(["top"]);
-    expect(withDeletedPath.paths.map((path) => path.path_id)).toEqual(["top"]);
-
-    const keepPaths = deletePathGroupFromWorkspace(withBottom, "score");
-    expect(keepPaths.path_groups.map((group) => group.group_id)).toEqual([
-      "avoid",
-    ]);
-    expect(keepPaths.paths.map((path) => path.path_id)).toEqual([
-      "top",
-      "bottom",
-    ]);
-
-    const deleteMembers = deletePathGroupFromWorkspace(withBottom, "score", {
-      deleteMemberPaths: true,
-    });
-    expect(deleteMembers.path_groups).toHaveLength(0);
-    expect(deleteMembers.paths).toHaveLength(1);
-  });
-
-  it("creates a path group with the requested initial membership", () => {
-    const workspace = deserializeProjectWorkspaceDocument({
-      schema_version: 1,
-      project_id: "workspace-1",
-      display_name: "Robot Autos",
-      config: undefined,
-      paths: [
-        {
-          path_id: "top",
-          display_name: "Top",
-          file_name: "top.json",
-          path: { path_elements: [] },
-        },
-      ],
-      active_path_id: "top",
-    });
-
-    const grouped = createPathGroupInWorkspace(workspace, {
-      display_name: "Score",
-      group_id: "score",
-      path_ids: ["top"],
-    });
-
-    expect(grouped.active_path_group_id).toBe("score");
-    expect(grouped.path_groups).toEqual([
-      { group_id: "score", display_name: "Score", path_ids: ["top"] },
-    ]);
   });
 
   it("stores only automatic handoff ownership beside its runtime target", () => {
@@ -1389,9 +1340,12 @@ describe("project document serde", () => {
       handoff_radius_source: "auto",
     });
 
-    const serialized = serializeProjectWorkspaceDocument(
+    const files = serializeProjectFiles(
       projectDocumentToWorkspaceDocument(project),
     );
+    const serialized = JSON.parse(
+      files.find((file) => file.relativePath === "project.json")?.text ?? "null",
+    ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
     expect(
       serialized.paths[0]?.editor_metadata?.handoff_radius_sources,
     ).toEqual([
@@ -1399,7 +1353,7 @@ describe("project document serde", () => {
       { element_index: 2, source: "manual" },
     ]);
 
-    const restored = deserializeProjectWorkspaceDocument(serialized);
+    const restored = deserializeProjectFiles(files);
     const elements = restored.paths[0]?.path.path_elements ?? [];
     expect(elements[1]).toMatchObject({ handoff_radius_source: "auto" });
     expect(elements[2]).toMatchObject({
@@ -1452,9 +1406,12 @@ describe("project document serde", () => {
       auto_velocity: null,
     });
 
-    const serialized = serializeProjectWorkspaceDocument(
+    const files = serializeProjectFiles(
       projectDocumentToWorkspaceDocument(project),
     );
+    const serialized = JSON.parse(
+      files.find((file) => file.relativePath === "project.json")?.text ?? "null",
+    ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
     expect(serialized.paths[0]?.editor_metadata).toEqual({
       ranged_constraints: [
         {
@@ -1472,7 +1429,7 @@ describe("project document serde", () => {
       ],
     });
 
-    const restored = deserializeProjectWorkspaceDocument(serialized);
+    const restored = deserializeProjectFiles(files);
     expect(restored.paths[0]?.path.ranged_constraints[0]).toMatchObject({
       source: "auto_velocity",
       auto_velocity: {

@@ -555,6 +555,25 @@ describe("UserData", () => {
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
   });
 
+  it("recognizes a durable deterministic migration after its legacy source is gone", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    const entry = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "source-a",
+    );
+
+    await expect(
+      service.findVerifiedLegacyFieldBackground("source-a"),
+    ).resolves.toEqual(entry);
+
+    adapter.assets.delete(entry.id);
+    await expect(
+      service.findVerifiedLegacyFieldBackground("source-a"),
+    ).rejects.toBeInstanceOf(FieldBackgroundAssetVerificationError);
+  });
+
   it("preserves metadata when referenced image bytes are missing", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter, {

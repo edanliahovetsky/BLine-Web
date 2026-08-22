@@ -1,14 +1,10 @@
 import type {
   ProjectDocument,
-  ProjectWorkspaceDocument,
   SerializedProjectDocument,
   SerializedProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
 import type { Project } from "../core/model/project";
-import {
-  legacyWorkspaceForArchive,
-  openProjectFromLegacyWorkspace,
-} from "../core/io/legacyWorkspace";
+import { openProjectFromLegacyWorkspace } from "../core/io/legacyWorkspace";
 import {
   deserializeBLineProjectArchive,
   isBLineProjectArchive,
@@ -112,6 +108,10 @@ export interface DamageAwareStorageAdapter extends StorageAdapter {
 }
 
 export interface LegacyProjectMetadataAdapter extends StorageAdapter {
+  prepareLegacyProjectMigration(
+    project: Project,
+    expectedVersion: string,
+  ): Promise<WriteResult | null>;
   deleteLegacyProjectFiles(
     expectedVersion: string,
   ): Promise<WriteResult | null>;
@@ -154,19 +154,14 @@ export async function createBLineWorkspaceArchive(
   id: string,
   exportedAt: string,
 ): Promise<Blob> {
-  return serializeBLineProjectArchive(
-    legacyWorkspaceForArchive(await adapter.readProject(id)),
-    exportedAt,
-  );
+  return serializeBLineProjectArchive(await adapter.readProject(id), exportedAt);
 }
 
 export async function importWorkspaceArchive(
   adapter: Pick<StorageAdapter, "writeProject" | "listWorkspaces">,
   archive: Blob,
 ): Promise<WorkspaceImportResult> {
-  const project = openProjectFromLegacyWorkspace(
-    await decodeWorkspaceArchive(archive),
-  ).project;
+  const project = await decodeWorkspaceArchive(archive);
   await adapter.writeProject(project);
   const summaries = await adapter.listWorkspaces();
 
@@ -177,7 +172,7 @@ export async function importWorkspaceArchive(
 
 export async function decodeWorkspaceArchive(
   archive: Blob,
-): Promise<ProjectWorkspaceDocument> {
+): Promise<Project> {
   const parsed = JSON.parse(await archive.text()) as unknown;
 
   if (isBLineProjectArchive(parsed)) {
@@ -189,14 +184,14 @@ export async function decodeWorkspaceArchive(
     if (!workspace) {
       throw new Error("Workspace bundle is empty");
     }
-    return deserializeProjectWorkspaceDocument(workspace);
+    return projectFromLegacyWorkspace(workspace);
   }
 
   if (isProjectBundle(parsed)) {
     return legacyProjectBundleToWorkspace(parsed);
   }
 
-  return deserializeProjectWorkspaceDocument(parsed);
+  return projectFromLegacyWorkspace(parsed);
 }
 
 export function compareWorkspaceSummaries(
@@ -248,6 +243,8 @@ export function isLegacyProjectMetadataAdapter(
 ): adapter is LegacyProjectMetadataAdapter {
   return (
     typeof (adapter as Partial<LegacyProjectMetadataAdapter>)
+      .prepareLegacyProjectMigration === "function" &&
+    typeof (adapter as Partial<LegacyProjectMetadataAdapter>)
       .deleteLegacyProjectFiles === "function"
   );
 }
@@ -266,7 +263,7 @@ export function createStoredProjectRecord(
 
 function legacyProjectBundleToWorkspace(
   bundle: ProjectBundle,
-): ProjectWorkspaceDocument {
+): Project {
   const projects = bundle.projects.map((project) =>
     deserializeProjectDocument(project),
   );
@@ -276,7 +273,7 @@ function legacyProjectBundleToWorkspace(
     throw new Error("Project bundle is empty");
   }
 
-  return {
+  return projectFromLegacyWorkspace({
     ...projectDocumentToWorkspaceDocument(first, {
       fallbackProjectId: first.project_id,
       fallbackDisplayName: first.display_name,
@@ -288,7 +285,13 @@ function legacyProjectBundleToWorkspace(
       path: project.path,
     })),
     active_path_id: first.project_id,
-  };
+  });
+}
+
+function projectFromLegacyWorkspace(input: unknown): Project {
+  return openProjectFromLegacyWorkspace(
+    deserializeProjectWorkspaceDocument(input),
+  ).project;
 }
 
 function isWorkspaceBundle(input: unknown): input is WorkspaceBundle {
