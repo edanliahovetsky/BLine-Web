@@ -2837,9 +2837,30 @@ test("migrates a legacy Project field image before deleting its old bytes", asyn
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
 
   const migrated = await page.evaluate(async ({ assetId, projectId }) => {
-    const userData = JSON.parse(
-      window.localStorage.getItem("bline-web:user-data") ?? "{}",
+    const userDataDatabase = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open("bline-web-user-field-assets", 2);
+        request.addEventListener("success", () => resolve(request.result));
+        request.addEventListener("error", () => reject(request.error));
+      },
     );
+    const userData = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const transaction = userDataDatabase.transaction(
+          "user-data",
+          "readonly",
+        );
+        const request = transaction.objectStore("user-data").get("global");
+        request.addEventListener("success", () => {
+          const record = request.result as
+            | { data?: Record<string, unknown> }
+            | undefined;
+          resolve(record?.data ?? {});
+        });
+        request.addEventListener("error", () => reject(request.error));
+      },
+    );
+    userDataDatabase.close();
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("bline-web-field-assets", 1);
       request.addEventListener("success", () => resolve(request.result));
@@ -2855,9 +2876,17 @@ test("migrates a legacy Project field image before deleting its old bytes", asyn
     });
     database.close();
     return {
-      entryCount: userData.field_backgrounds?.length ?? 0,
-      selectedId:
-        userData.project_views?.[projectId]?.selected_field_background_id,
+      entryCount:
+        (
+          userData.field_backgrounds as
+            | Array<Record<string, unknown>>
+            | undefined
+        )?.length ?? 0,
+      selectedId: (
+        userData.project_views as
+          | Record<string, { selected_field_background_id?: string }>
+          | undefined
+      )?.[projectId]?.selected_field_background_id,
       oldAssetPresent: oldAsset !== undefined,
     };
   }, seeded);
