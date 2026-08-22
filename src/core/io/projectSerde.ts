@@ -7,6 +7,7 @@ import {
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
+  getHandoffRadiusSource,
   isRangedConstraintKey,
   isRotationConstraintKey,
   isTranslationConstraintKey,
@@ -51,6 +52,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
 
   for (const element of path.path_elements) {
     if (element.type === "translation") {
+      const handoffSource = getHandoffRadiusSource(element);
       const entry = {
         type: "translation" as const,
         x_meters: Number(element.x_meters),
@@ -65,6 +67,9 @@ export function serializePath(path: PathModel): SerializedPathDocument {
               intermediate_handoff_radius_meters: Number(
                 element.intermediate_handoff_radius_meters,
               ),
+              ...(handoffSource === "auto"
+                ? { handoff_radius_source: handoffSource }
+                : {}),
             },
       );
       continue;
@@ -89,6 +94,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
       continue;
     }
 
+    const handoffSource = getHandoffRadiusSource(element);
     const translationData = {
       x_meters: Number(element.translation_target.x_meters),
       y_meters: Number(element.translation_target.y_meters),
@@ -104,6 +110,9 @@ export function serializePath(path: PathModel): SerializedPathDocument {
               intermediate_handoff_radius_meters: Number(
                 element.translation_target.intermediate_handoff_radius_meters,
               ),
+              ...(handoffSource === "auto"
+                ? { handoff_radius_source: handoffSource }
+                : {}),
             },
       rotation_target: {
         rotation_radians: Number(element.rotation_target.rotation_radians),
@@ -143,6 +152,9 @@ export function deserializePath(
               item.intermediate_handoff_radius_meters,
               defaultLookup,
             ),
+            ...(handoffSource(item.handoff_radius_source)
+              ? { handoff_radius_source: "auto" as const }
+              : {}),
           }),
         );
         continue;
@@ -211,6 +223,9 @@ export function deserializePath(
                 translationData.intermediate_handoff_radius_meters,
                 defaultLookup,
               ),
+              ...(handoffSource(translationData.handoff_radius_source)
+                ? { handoff_radius_source: "auto" as const }
+                : {}),
             }),
             rotation_target: rotation,
           }),
@@ -323,6 +338,9 @@ function serializeConstraints(path: PathModel): SerializedConstraints {
         value: Number(constraint.value),
         start_ordinal: Math.max(Math.trunc(constraint.start_ordinal) - 1, 0),
         end_ordinal: Math.max(Math.trunc(constraint.end_ordinal) - 1, 0),
+        ...(constraint.source === "auto_velocity"
+          ? { source: constraint.source }
+          : {}),
       }));
 
     if (values.length > 0) {
@@ -427,6 +445,9 @@ function loadRangedConstraints(path: PathModel, rangedBlock: unknown): void {
       value,
       start_ordinal: start,
       end_ordinal: end,
+      ...(entry.source === "auto_velocity"
+        ? { source: "auto_velocity" as const, auto_velocity: null }
+        : {}),
     });
   }
 
@@ -639,6 +660,10 @@ function handoffDefault(
   }
 
   return defaultLookup?.("intermediate_handoff_radius_meters") ?? null;
+}
+
+function handoffSource(value: unknown): "auto" | undefined {
+  return value === "auto" ? "auto" : undefined;
 }
 
 function legacyPositionFrom(

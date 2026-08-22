@@ -1343,7 +1343,7 @@ describe("project document serde", () => {
     ]);
   });
 
-  it("keeps handoff radius ownership in workspace metadata but out of BLine path JSON", () => {
+  it("stores only automatic handoff ownership beside its runtime target", () => {
     const project = createProjectDocument({
       project_id: "project-1",
       display_name: "Bent Path",
@@ -1376,10 +1376,17 @@ describe("project document serde", () => {
       x_meters: 1,
       y_meters: 0,
       intermediate_handoff_radius_meters: 0.4,
+      handoff_radius_source: "auto",
     });
-    expect(stringifyBLineJson(serializedPath)).not.toContain(
-      "handoff_radius_source",
+    expect(serializedPath.path_elements[2]).not.toHaveProperty(
+      "translation_target.handoff_radius_source",
     );
+    expect(stringifyBLineJson(serializedPath)).toContain(
+      '"handoff_radius_source": "auto"',
+    );
+    expect(deserializePath(serializedPath).path_elements[1]).toMatchObject({
+      handoff_radius_source: "auto",
+    });
 
     const serialized = serializeProjectWorkspaceDocument(
       projectDocumentToWorkspaceDocument(project),
@@ -1401,7 +1408,7 @@ describe("project document serde", () => {
     expect("handoff_radius_source" in elements[3]).toBe(false);
   });
 
-  it("keeps auto velocity ownership in workspace metadata but out of BLine path JSON", () => {
+  it("stores only generated-constraint ownership beside its runtime value", () => {
     const autoConstraint: RangedConstraint = {
       key: "max_velocity_meters_per_sec",
       value: 1.25,
@@ -1433,8 +1440,15 @@ describe("project document serde", () => {
           value: 1.25,
           start_ordinal: 1,
           end_ordinal: 1,
+          source: "auto_velocity",
         },
       ],
+    });
+    expect(
+      deserializePath(serializePath(project.path)).ranged_constraints[0],
+    ).toMatchObject({
+      source: "auto_velocity",
+      auto_velocity: null,
     });
 
     const serialized = serializeProjectWorkspaceDocument(

@@ -6,9 +6,7 @@ import type {
   RangedConstraintKey,
   RangedConstraintSource,
 } from "../model/path";
-import {
-  createProjectConfig,
-} from "../config/projectConfig";
+import { createProjectConfig } from "../config/projectConfig";
 import {
   projectSchemaVersion,
   type LinkedTarget,
@@ -58,6 +56,7 @@ export interface SerializedRangedConstraint {
   value: number;
   start_ordinal: number;
   end_ordinal: number;
+  source?: "auto_velocity";
 }
 
 export interface SerializedRangedConstraintMetadata {
@@ -95,6 +94,7 @@ export interface SerializedTranslationTarget {
   x_meters: number;
   y_meters: number;
   intermediate_handoff_radius_meters?: number;
+  handoff_radius_source?: "auto";
 }
 
 export interface SerializedRotationTarget {
@@ -114,6 +114,7 @@ export interface SerializedWaypointTranslationTarget {
   x_meters: number;
   y_meters: number;
   intermediate_handoff_radius_meters?: number;
+  handoff_radius_source?: "auto";
 }
 
 export interface SerializedWaypointRotationTarget {
