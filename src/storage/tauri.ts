@@ -184,7 +184,10 @@ export class TauriStorage implements ProjectFolderAdapter {
   }
 
   getLegacyProjectMigrationSourceId(): string | null {
-    return this.currentDirectoryLocator;
+    const locator = this.currentDirectoryLocator;
+    return locator && (this.legacyFilesByLocator.get(locator)?.length ?? 0) > 0
+      ? locator
+      : null;
   }
 
   async prepareLegacyProjectMigration(
@@ -192,7 +195,10 @@ export class TauriStorage implements ProjectFolderAdapter {
     expectedVersion: string,
     sourceStorageId: string,
   ): Promise<WriteResult | null> {
-    if (this.canonicalLocators.has(sourceStorageId)) {
+    if (
+      this.canonicalLocators.has(sourceStorageId) ||
+      (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0
+    ) {
       return null;
     }
     const result = await this.invoke<ProjectFileSetWritePayload>(
@@ -379,7 +385,9 @@ async function openLegacyOrRuntimeProject(
     const runtime = openProjectFiles(toProjectTextFiles(result.files), {
       fallbackDisplayName: displayName,
     });
-    const malformed = firstMalformedLegacyFile(result.legacyFiles ?? []);
+    const malformed =
+      firstMalformedLegacyFile(result.legacyFiles ?? []) ??
+      result.legacyFiles?.[0];
     return {
       project: runtime.project,
       damage: {

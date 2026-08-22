@@ -22,6 +22,7 @@ import {
   deserializeProjectWorkspaceDocument,
   projectDocumentToWorkspaceDocument,
 } from "../../../src/core/io/workspaceSerde";
+import { assertLegacyProjectWorkspaceDocument } from "../../../src/core/io/legacyMigrationValidation";
 import {
   deserializeProjectFiles,
   serializeProjectFiles,
@@ -573,6 +574,181 @@ describe("project path serde", () => {
         legacy_converted: true,
       },
     });
+  });
+  it("rejects unsafe combined-workspace metadata before destructive migration", () => {
+    const valid = {
+      schema_version: 1,
+      project_id: "project-1",
+      display_name: "Robot Autos",
+      paths: [
+        {
+          path_id: "top",
+          display_name: "Top",
+          file_name: "top.json",
+          path: { path_elements: [] },
+        },
+      ],
+      active_path_id: "top",
+      path_groups: [],
+      linked_targets: [],
+      active_path_group_id: null,
+    };
+
+    expect(() => assertLegacyProjectWorkspaceDocument(valid)).not.toThrow();
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({ ...valid, schema_version: 2 }),
+    ).toThrow(/Unsupported legacy Project workspace schema version/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        paths: [{ ...valid.paths[0], path_id: "" }],
+      }),
+    ).toThrow(/identity/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        paths: [valid.paths[0], { ...valid.paths[0] }],
+      }),
+    ).toThrow(/Duplicate legacy Project Path identity/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        paths: [
+          {
+            ...valid.paths[0],
+            path: { path_elements: [{ type: "translation", x_meters: 1 }] },
+          },
+        ],
+      }),
+    ).toThrow(/malformed path entry/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        active_path_id: "missing",
+      }),
+    ).toThrow(/active Path reference/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        paths: [
+          {
+            ...valid.paths[0],
+            editor_metadata: { linked_targets: [{ target_id: "lost" }] },
+          },
+        ],
+      }),
+    ).toThrow(/editor metadata\.linked_targets is malformed/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        paths: [
+          {
+            ...valid.paths[0],
+            editor_metadata: { bend_targets: [] },
+          },
+        ],
+      }),
+    ).toThrow(/unsupported field bend_targets/);
+
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        linked_targets: [
+          {
+            target_id: "point-1",
+            display_name: "Linked Point 1",
+            kind: "point",
+            x_meters: 1,
+            y_meters: 2,
+          },
+        ],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        linked_targets: [
+          {
+            target_id: "pose-1",
+            display_name: "Linked Pose 1",
+            kind: "pose",
+            x_meters: 1,
+            y_meters: 2,
+            rotation_radians: "corrupt",
+          },
+        ],
+      }),
+    ).toThrow(/linked target pose-1 is malformed/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        config: { future_setting: true },
+      }),
+    ).toThrow(/unsupported or malformed data/);
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument({
+        ...valid,
+        config: {
+          gui: { robot: { length_meters: "corrupt" } },
+        },
+      }),
+    ).toThrow(/unsupported or malformed data/);
+  });
+
+  it("rejects future and malformed desktop legacy sidecars", async () => {
+    const runtimePath = textImportFile("autos/paths/auto.json", {
+      path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
+    });
+    const baseState = {
+      schema_version: 1,
+      editor_config: { gui: {}, kinematic_constraints: {} },
+      active_path_file_name: "auto.json",
+      active_path_group_id: null,
+      path_groups: [],
+      linked_targets: [],
+      paths: {},
+    };
+
+    await expect(
+      deserializeBLineProjectFolder([
+        runtimePath,
+        textImportFile("autos/.bline-web/state.json", {
+          ...baseState,
+          schema_version: 2,
+        }),
+      ]),
+    ).rejects.toThrow(/Unsupported legacy editor state schema version/);
+
+    await expect(
+      deserializeBLineProjectFolder([
+        runtimePath,
+        textImportFile("autos/.bline-web/state.json", {
+          ...baseState,
+          paths: {
+            "auto.json": {
+              display_name: "Auto",
+              editor_metadata: { ranged_constraints: "not-an-array" },
+            },
+          },
+        }),
+      ]),
+    ).rejects.toThrow(/ranged_constraints is malformed/);
+
+    await expect(
+      deserializeBLineProjectFolder([
+        runtimePath,
+        textImportFile("autos/pathgroups.json", {
+          schema_version: 1,
+          groups: [
+            {
+              group_id: "group-1",
+              display_name: "Group",
+              path_file_names: ["missing.json"],
+            },
+          ],
+        }),
+      ]),
+    ).rejects.toThrow(/references missing Path/);
   });
 });
 

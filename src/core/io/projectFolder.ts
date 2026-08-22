@@ -21,6 +21,10 @@ import {
   deserializeProjectWorkspaceDocument,
   type SerializedPathGroupFileEntry,
 } from "./workspaceSerde";
+import {
+  assertLegacyAutosSidecars,
+  assertLegacyProjectWorkspaceDocument,
+} from "./legacyMigrationValidation";
 
 export interface ProjectFolderExportFile {
   relativePath: string;
@@ -145,13 +149,18 @@ export async function deserializeBLineProjectFolder(
     (record) =>
       record.autosPath.toLowerCase() === ".bline-web/path-metadata.json",
   );
-  const editorState = stateRecord
-    ? readAutosEditorState(JSON.parse(await stateRecord.file.text()))
-    : null;
+  const rawEditorState = stateRecord
+    ? (JSON.parse(await stateRecord.file.text()) as unknown)
+    : undefined;
+  const rawLegacyPathMetadata = legacyPathMetadataRecord
+    ? (JSON.parse(await legacyPathMetadataRecord.file.text()) as unknown)
+    : undefined;
+  const rawPathGroups = pathGroupsRecord
+    ? (JSON.parse(await pathGroupsRecord.file.text()) as unknown)
+    : undefined;
+  const editorState = stateRecord ? readAutosEditorState(rawEditorState) : null;
   const legacyPathMetadata = legacyPathMetadataRecord
-    ? readLegacyPathMetadata(
-        JSON.parse(await legacyPathMetadataRecord.file.text()),
-      )
+    ? readLegacyPathMetadata(rawLegacyPathMetadata)
     : {};
   const rawConfig = configRecord
     ? (JSON.parse(await configRecord.file.text()) as unknown)
@@ -188,6 +197,12 @@ export async function deserializeBLineProjectFolder(
       };
     }),
   );
+  assertLegacyAutosSidecars({
+    editorState: rawEditorState,
+    pathGroups: rawPathGroups,
+    pathMetadata: rawLegacyPathMetadata,
+    pathFileNames: paths.map((path) => path.file_name),
+  });
   const activePathFileName = stringOrNull(editorState?.active_path_file_name);
   const activePathId =
     paths.find(
@@ -202,10 +217,9 @@ export async function deserializeBLineProjectFolder(
     editorState && "path_groups" in editorState
       ? editorState.path_groups
       : pathGroupsRecord
-        ? JSON.parse(await pathGroupsRecord.file.text())
+        ? rawPathGroups
         : undefined;
-
-  return deserializeProjectWorkspaceDocument({
+  const workspaceInput = {
     project_id: createWorkspaceId(),
     display_name: inferDisplayName(records),
     config,
@@ -214,7 +228,9 @@ export async function deserializeBLineProjectFolder(
     path_groups: pathGroups,
     linked_targets: editorState?.linked_targets ?? [],
     active_path_group_id: stringOrNull(editorState?.active_path_group_id),
-  });
+  };
+  assertLegacyProjectWorkspaceDocument(workspaceInput);
+  return deserializeProjectWorkspaceDocument(workspaceInput);
 }
 
 function readAutosEditorState(input: unknown): AutosEditorStateFile | null {

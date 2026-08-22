@@ -413,6 +413,52 @@ describe("ProjectIoService", () => {
       expected: "canonical-v2",
     });
   });
+
+  it("opens a runtime-only desktop folder without preparing metadata", async () => {
+    const source = exampleWorkspace("discarded", "Runtime Autos", ["One"]);
+    const runtimeFiles = serializeProjectFiles(source)
+      .filter((file) => file.relativePath !== "project.json")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        contents: file.text,
+      }));
+    const commands: string[] = [];
+    const summary = {
+      id: "/repo/runtime-only/autos",
+      displayName: "autos",
+      directoryPath: "/repo/runtime-only/autos",
+      version: "runtime-v1",
+      updatedAt: "2026-08-21T12:00:00.000Z",
+    };
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string) => {
+        commands.push(command);
+        if (command === "storage_get_current_workspace") {
+          return summary as T;
+        }
+        if (command === "storage_read_project_files") {
+          return {
+            directoryLocator: summary.id,
+            files: runtimeFiles,
+            legacyFiles: [],
+            version: summary.version,
+            updatedAt: summary.updatedAt,
+          } as T;
+        }
+        if (command === "storage_list_recent_workspaces") {
+          return [summary] as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+    const service = createProjectIoService(tauriCapabilities, { storage });
+
+    const project = await service.initialize();
+
+    expect(project?.paths).toHaveLength(1);
+    expect(service.getLegacyProjectViewMigration()).toBeNull();
+    expect(commands).not.toContain("storage_prepare_legacy_project_files");
+  });
 });
 
 async function currentProject(
