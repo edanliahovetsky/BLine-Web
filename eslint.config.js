@@ -74,4 +74,21 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["src/state/**/*.{ts,tsx}", "src/ui/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/storage", "**/storage/*"],
+              message:
+                "State and UI consume persistence through platform/projectIo, not storage adapters.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

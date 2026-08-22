@@ -23,8 +23,8 @@ import {
   type Project,
 } from "../../core/model/project";
 import { addPathToProject } from "../../core/model/projectOperations";
+import { normalizePathFileName } from "../../core/model/projectIdentity";
 import { deserializePath, serializePath } from "../../core/io/projectSerde";
-import { ensureJsonFileName } from "../../core/io/workspaceSerde";
 import {
   decodeWorkspaceArchive,
   isDamageAwareStorageAdapter,
@@ -451,7 +451,7 @@ export class StorageProjectIoService implements ProjectIoService {
       parsedObject?.path ?? parsed,
       projectConfigDefaultLookup(lookupConfig),
     );
-    const fileName = ensureJsonFileName(
+    const fileName = normalizePathFileName(
       typeof parsedObject?.path_file_name === "string"
         ? parsedObject.path_file_name
         : file.name || "imported-path.json",

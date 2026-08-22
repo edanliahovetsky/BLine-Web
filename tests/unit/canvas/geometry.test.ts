@@ -12,6 +12,7 @@ import {
 import {
   anchorNodeExclusionRadiusPx,
   createFieldViewport,
+  fieldImageStageRect,
   clampModelPoint,
   getElementHeadingRadians,
   getElementPosition,
@@ -65,6 +66,25 @@ describe("canvas geometry", () => {
     expect(stagePoint.y).toBeCloseTo(viewport.y + 2.5 * viewport.scale, 6);
     expect(roundTrip.x_meters).toBeCloseTo(modelPoint.x_meters, 6);
     expect(roundTrip.y_meters).toBeCloseTo(modelPoint.y_meters, 6);
+  });
+
+  it("uses the calibrated geometry rectangle for Field images and coordinates", () => {
+    const viewport = createFieldViewport({ width: 1000, height: 600 }, 24, {
+      length_meters: 10,
+      width_meters: 5,
+      coordinate_offset_meters: 0,
+    });
+
+    expect(fieldImageStageRect(viewport)).toEqual({
+      x: viewport.x,
+      y: viewport.y,
+      width: viewport.width,
+      height: viewport.height,
+    });
+    expect(modelToStagePoint({ x_meters: 0, y_meters: 5 }, viewport)).toEqual({
+      x: viewport.x,
+      y: viewport.y,
+    });
   });
 
   it("uses per-axis coordinate offsets when present", () => {

@@ -46,11 +46,9 @@ import type {
   ProjectImportResult,
   ProjectImportOptions,
   ProjectIoService,
-} from "../platform/projectIo";
-import type {
   LegacyProjectMigrationPreparation,
   WriteResult,
-} from "../storage/adapter";
+} from "../platform/projectIo";
 import type { ProjectFileDamage } from "../core/io/projectFiles";
 import {
   activePathForProject as locallyRememberedActivePath,
@@ -166,7 +164,6 @@ export interface ProjectStoreState {
   setActivePathGroup(groupId: string | null): void;
   createPath(input: {
     displayName: string;
-    fileName?: string;
     path?: PathModel;
     addToGroupId?: string | null;
   }): void;
@@ -785,7 +782,6 @@ export function createProjectStore(
       const navigation = currentNavigation(state);
       const added = addPathToProject(project, {
         display_name: input.displayName,
-        file_name: input.fileName,
         path: input.path,
         addToGroupId: input.addToGroupId,
       });
@@ -1881,10 +1877,8 @@ function isProjectPersistenceDamage(error: unknown): boolean {
  * It is recoverable via reload or overwrite, so it is surfaced distinctly from a
  * hard save error.
  *
- * The two storage backends signal conflicts differently: the desktop (Tauri)
- * backend rejects with a `"storage-conflict: …"` string, while the browser
- * adapter throws a `StorageConflictError` (name `"StorageConflictError"`, with a
- * plain-English message). Recognize both.
+ * Storage adapters normalize backend-specific failures to a named conflict at
+ * the platform boundary, so state does not depend on native string protocols.
  */
 export function isStorageConflict(error: unknown): boolean {
   if (
@@ -1895,5 +1889,5 @@ export function isStorageConflict(error: unknown): boolean {
   ) {
     return true;
   }
-  return errorMessage(error).includes("storage-conflict");
+  return false;
 }

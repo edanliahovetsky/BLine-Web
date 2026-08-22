@@ -7,7 +7,6 @@ import { openProjectFromLegacyWorkspace } from "../core/io/legacyWorkspace";
 import {
   deserializeBLineProjectArchive,
   isBLineProjectArchive,
-  serializeBLineProjectArchive,
 } from "../core/io/blineProject";
 import { deserializeProjectDocument } from "../core/io/projectSerde";
 import {
@@ -80,7 +79,6 @@ export interface StorageAdapter {
   /** Reads the latest backing version without changing current workspace ownership. */
   getWorkspaceVersion?(id: string): Promise<string | undefined>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
-  exportWorkspaceArchive?(id?: string): Promise<Blob>;
   readFieldAsset?(
     workspaceId: string,
     assetId: string,
@@ -162,17 +160,6 @@ export class ProjectPersistenceDamageError extends Error {
     );
     this.name = "ProjectPersistenceDamageError";
   }
-}
-
-export async function createBLineWorkspaceArchive(
-  adapter: Pick<StorageAdapter, "readProject">,
-  id: string,
-  exportedAt: string,
-): Promise<Blob> {
-  return serializeBLineProjectArchive(
-    await adapter.readProject(id),
-    exportedAt,
-  );
 }
 
 export async function decodeWorkspaceArchive(archive: Blob): Promise<Project> {

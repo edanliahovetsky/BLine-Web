@@ -12,6 +12,12 @@ import {
   type RangedConstraintSource,
 } from "../model/path";
 import {
+  createPathGroupId,
+  createWorkspaceId,
+  normalizePathFileName,
+  pathDisplayNameFromFileName,
+} from "../model/projectIdentity";
+import {
   normalizeLinkedTargets,
   setPathElementLinkedTargetId,
   syncLinkedTargetElementsInProject,
@@ -67,7 +73,7 @@ export function serializeProjectWorkspaceDocument(
     paths: workspace.paths.map((path) => ({
       path_id: path.path_id,
       display_name: path.display_name,
-      file_name: ensureJsonFileName(path.file_name),
+      file_name: normalizePathFileName(path.file_name),
       path: serializePath(path.path),
       editor_metadata: serializePathEditorMetadata(path.path),
     })),
@@ -136,7 +142,7 @@ function deserializeProjectPathDocument(
   defaultLookup?: Parameters<typeof deserializePath>[1],
 ): ProjectPathDocument {
   const object = isObject(input) ? input : {};
-  const fileName = ensureJsonFileName(
+  const fileName = normalizePathFileName(
     stringOr(
       object.file_name ?? object.path_file_name,
       `path-${index + 1}.json`,
@@ -144,7 +150,7 @@ function deserializeProjectPathDocument(
   );
   const displayName = stringOr(
     object.display_name,
-    displayNameFromFileName(fileName),
+    pathDisplayNameFromFileName(fileName),
   );
   const pathId = stringOr(object.path_id, pathIdFromFileName(fileName, index));
 
@@ -163,7 +169,7 @@ export function projectDocumentToWorkspaceDocument(
   project: ProjectDocument,
   options: DeserializeWorkspaceOptions = {},
 ): ProjectWorkspaceDocument {
-  const fileName = ensureJsonFileName(
+  const fileName = normalizePathFileName(
     project.path_file_name ?? project.display_name ?? project.project_id,
   );
   const path = createProjectPathDocument({
@@ -191,7 +197,7 @@ function normalizeProjectWorkspaceDocument(
   const seen = new Set<string>();
   const pathIdRemap = new Map<string, string>();
   const paths = workspace.paths.map((path, index) => {
-    const fallbackFileName = ensureJsonFileName(
+    const fallbackFileName = normalizePathFileName(
       path.file_name || path.display_name || `path-${index + 1}`,
     );
     const originalPathId = path.path_id;
@@ -207,7 +213,7 @@ function normalizeProjectWorkspaceDocument(
     return createProjectPathDocument({
       path_id: pathId,
       display_name:
-        path.display_name || displayNameFromFileName(fallbackFileName),
+        path.display_name || pathDisplayNameFromFileName(fallbackFileName),
       file_name: fallbackFileName,
       path: structuredClone(path.path),
     });
@@ -304,7 +310,7 @@ function deserializeProjectPathGroups(
   const pathById = new Map(paths.map((path) => [path.path_id, path]));
   const pathByFileName = new Map(
     paths.map((path) => [
-      ensureJsonFileName(path.file_name).toLowerCase(),
+      normalizePathFileName(path.file_name).toLowerCase(),
       path,
     ]),
   );
@@ -326,7 +332,7 @@ function deserializeProjectPathGroups(
             ? pathById.get(pathRef)
             : null;
         const fileMatch = pathByFileName.get(
-          ensureJsonFileName(pathRef).toLowerCase(),
+          normalizePathFileName(pathRef).toLowerCase(),
         );
         const fallbackIdMatch = pathById.get(pathRef);
         const path = idMatch ?? fileMatch ?? fallbackIdMatch;
@@ -402,28 +408,6 @@ function normalizePathGroups(
       }),
     ];
   });
-}
-
-export function ensureJsonFileName(value: string): string {
-  const cleaned =
-    safeFileStem(value.replace(/\.json$/i, "")) || "untitled-path";
-  return `${cleaned}.json`;
-}
-
-export function displayNameFromFileName(fileName: string): string {
-  return fileName.replace(/\.json$/i, "").replace(/[-_]+/g, " ");
-}
-
-export function createWorkspaceId(): string {
-  return `workspace-${randomId()}`;
-}
-
-export function createPathId(): string {
-  return `path-${randomId()}`;
-}
-
-export function createPathGroupId(): string {
-  return `group-${randomId()}`;
 }
 
 function readLinkedTargets(input: unknown): LinkedTarget[] {
@@ -736,7 +720,8 @@ function readConfig(input: unknown): ProjectConfig {
 }
 
 function pathIdFromFileName(fileName: string, index: number): string {
-  return `${safeFileStem(fileName.replace(/\.json$/i, "")) || "path"}-${index + 1}`;
+  const stem = normalizePathFileName(fileName).replace(/\.json$/i, "");
+  return `${stem || "path"}-${index + 1}`;
 }
 
 function stringOr(value: unknown, fallback: string): string {
@@ -745,24 +730,4 @@ function stringOr(value: unknown, fallback: string): string {
 
 function isObject(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
-}
-
-function safeFileStem(value: string): string {
-  return (
-    value
-      .trim()
-      .replace(/\\/g, "/")
-      .split("/")
-      .filter(Boolean)
-      .at(-1)
-      ?.replace(/[^a-zA-Z0-9_.-]+/g, "_")
-      .replace(/^_+|_+$/g, "") ?? ""
-  );
-}
-
-function randomId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  );
 }

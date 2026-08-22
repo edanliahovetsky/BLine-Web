@@ -464,11 +464,7 @@ describe("ProjectIoService", () => {
         expectedVersions.push(args?.expectedVersion);
         const actualVersion = id === "/repo/b/autos" ? "b-v2" : "a-v1";
         if (args?.expectedVersion !== actualVersion) {
-          throw new StorageConflictError(
-            "Project changed before activation",
-            String(args?.expectedVersion),
-            actualVersion,
-          );
+          throw "storage-conflict: project changed before activation";
         }
         durableCurrent = id;
         switches.push(id);

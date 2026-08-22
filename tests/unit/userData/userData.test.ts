@@ -225,7 +225,13 @@ describe("UserData", () => {
         calls.push({ command, args });
         return (
           command === "storage_read_user_data"
-            ? { ...defaultUserData, completed_tour_ids: ["editor-basics"] }
+            ? {
+                revision: 7,
+                data: {
+                  ...defaultUserData,
+                  completed_tour_ids: ["editor-basics"],
+                },
+              }
             : command === "storage_read_user_field_asset"
               ? [1, 2, 3]
               : undefined
@@ -234,9 +240,10 @@ describe("UserData", () => {
     );
 
     await expect(adapter.read()).resolves.toMatchObject({
-      completed_tour_ids: ["editor-basics"],
+      revision: 7,
+      data: { completed_tour_ids: ["editor-basics"] },
     });
-    await adapter.write(defaultUserData);
+    await adapter.compareAndSwap(7, defaultUserData);
     await adapter.writeFieldAsset("field-a", new Uint8Array([1, 2, 3]));
     await expect(adapter.readFieldAsset("field-a")).resolves.toEqual(
       new Uint8Array([1, 2, 3]),
@@ -245,7 +252,10 @@ describe("UserData", () => {
 
     expect(calls).toEqual([
       { command: "storage_read_user_data", args: undefined },
-      { command: "storage_write_user_data", args: { data: defaultUserData } },
+      {
+        command: "storage_compare_and_swap_user_data",
+        args: { expectedRevision: 7, data: defaultUserData },
+      },
       {
         command: "storage_write_user_field_asset",
         args: { entryId: "field-a", bytes: [1, 2, 3] },
@@ -265,10 +275,11 @@ describe("UserData", () => {
     const writes: UserData[] = [];
     const service = new UserDataService({
       async read() {
-        return structuredClone(defaultUserData);
+        return { revision: 1, data: structuredClone(defaultUserData) };
       },
-      async write(data) {
+      async compareAndSwap(expectedRevision, data) {
         writes.push(structuredClone(data));
+        return { status: "written", revision: expectedRevision + 1 };
       },
       async writeFieldAsset() {},
       async readFieldAsset() {
@@ -292,13 +303,14 @@ describe("UserData", () => {
       async read() {
         return null;
       },
-      async write(data) {
+      async compareAndSwap(expectedRevision, data) {
         writeCount += 1;
         writeOrder.push([...data.completed_tour_ids]);
         if (writeCount === 2) {
           firstUpdateStarted.resolve();
           await firstUpdate.promise;
         }
+        return { status: "written", revision: expectedRevision + 1 };
       },
       async writeFieldAsset() {},
       async readFieldAsset() {
@@ -324,6 +336,91 @@ describe("UserData", () => {
     firstUpdate.resolve();
     await service.flush();
     expect(writeOrder).toEqual([[], ["newer"], ["newer"]]);
+  });
+
+  it("merges stale cross-instance Field metadata and layout writes", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const fields = new UserDataService(adapter, {
+      idFactory: () => "field-shared",
+    });
+    const preferences = new UserDataService(adapter);
+    await Promise.all([fields.initialize(), preferences.initialize()]);
+    await Promise.all([fields.flush(), preferences.flush()]);
+
+    const entry = await fields.createFieldBackgroundFromBytes(fieldInput());
+    preferences.update((current) => ({
+      ...current,
+      editor_layout: {
+        ...current.editor_layout,
+        inspector_width: 456,
+      },
+    }));
+    await preferences.flush();
+    await fields.updateFieldBackgroundMetadata(entry.id, {
+      name: "Shared Practice Field",
+    });
+
+    expect(adapter.persisted).toMatchObject({
+      editor_layout: { inspector_width: 456 },
+      field_backgrounds: [{ id: entry.id, name: "Shared Practice Field" }],
+    });
+    expect(fields.getSnapshot().editor_layout.inspector_width).toBe(456);
+  });
+
+  it("unions monotonic tour completion across stale instances", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const first = new UserDataService(adapter);
+    const second = new UserDataService(adapter);
+    await Promise.all([first.initialize(), second.initialize()]);
+    await Promise.all([first.flush(), second.flush()]);
+
+    first.update((current) => ({
+      ...current,
+      completed_tour_ids: ["editor-basics"],
+    }));
+    second.update((current) => ({
+      ...current,
+      completed_tour_ids: ["field-setup"],
+    }));
+    await Promise.all([first.flush(), second.flush()]);
+
+    expect((adapter.persisted as UserData).completed_tour_ids.sort()).toEqual([
+      "editor-basics",
+      "field-setup",
+    ]);
+  });
+
+  it("does not resurrect deleted Field metadata from a stale preference write", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const deleting = new UserDataService(adapter, {
+      idFactory: () => "field-delete-shared",
+    });
+    const stale = new UserDataService(adapter);
+    await Promise.all([deleting.initialize(), stale.initialize()]);
+    await Promise.all([deleting.flush(), stale.flush()]);
+
+    const entry = await deleting.createFieldBackgroundFromBytes(fieldInput());
+    stale.update((current) => ({
+      ...current,
+      project_views: {
+        project: { selected_field_background_id: entry.id },
+      },
+    }));
+    await stale.flush();
+    await deleting.deleteFieldBackground(entry.id);
+
+    stale.update((current) => ({
+      ...current,
+      completed_tour_ids: ["stale-owner-tour"],
+    }));
+    await stale.flush();
+
+    expect(adapter.persisted).toMatchObject({
+      completed_tour_ids: ["stale-owner-tour"],
+      field_backgrounds: [],
+    });
+    expect((adapter.persisted as UserData).project_views).toEqual({});
+    expect(stale.getSnapshot().field_backgrounds).toEqual([]);
   });
 
   it("keeps initialization usable and recovers after its normalization write fails", async () => {
@@ -415,12 +512,7 @@ describe("UserData", () => {
       { "three-piece.json": "path-stable" },
     );
 
-    expect(adapter.events).toEqual([
-      "metadata-write",
-      "metadata-read",
-      "metadata-write",
-      "metadata-read",
-    ]);
+    expect(adapter.events).toEqual(["metadata-write", "metadata-write"]);
     expect(service.getSnapshot().project_views).toEqual({
       "project-stable": {
         active_path_id: "path-stable",
@@ -442,15 +534,19 @@ describe("UserData", () => {
     let metadataWriteCount = 0;
     const adapter: UserDataAdapter = {
       async read() {
-        return structuredClone(persisted);
+        return {
+          revision: metadataWriteCount,
+          data: structuredClone(persisted),
+        };
       },
-      async write(data) {
+      async compareAndSwap(expectedRevision, data) {
         metadataWriteCount += 1;
         if (metadataWriteCount === 2) {
           firstMigrationWrite.resolve();
           await releaseMigrationWrite.promise;
         }
         persisted = structuredClone(data);
+        return { status: "written", revision: expectedRevision + 1 };
       },
       async writeFieldAsset() {},
       async readFieldAsset() {
@@ -537,7 +633,7 @@ describe("UserData", () => {
     });
   });
 
-  it("never deletes a legacy Project view before the stable copy verifies", async () => {
+  it("never deletes a legacy Project view before the stable copy is durable", async () => {
     const adapter = new AssetMemoryAdapter({
       ...defaultUserData,
       project_views: {
@@ -546,23 +642,22 @@ describe("UserData", () => {
     });
     const service = new UserDataService(adapter);
     await service.initialize();
-    adapter.failMetadataReadAt = 2;
+    adapter.failMetadataWrite = true;
 
     await expect(
       service.migrateProjectViewIdentity("legacy", "stable", {
         "old.json": "path-stable",
       }),
-    ).rejects.toThrow("metadata read failed");
+    ).rejects.toThrow("metadata write failed");
 
     expect((adapter.persisted as UserData).project_views).toEqual({
       legacy: { active_path_id: "old.json" },
-      stable: { active_path_id: "path-stable" },
     });
     expect(service.getSnapshot().project_views).toEqual({
       legacy: { active_path_id: "old.json" },
     });
 
-    adapter.failMetadataReadAt = undefined;
+    adapter.failMetadataWrite = false;
     await service.migrateProjectViewIdentity("legacy", "stable", {
       "old.json": "path-stable",
     });
@@ -889,6 +984,35 @@ describe("UserData", () => {
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
   });
 
+  it("converges stale deterministic imports on the CAS winner", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const winner = new UserDataService(adapter, {
+      clock: () => new Date("2026-08-22T12:00:00.000Z"),
+    });
+    const stale = new UserDataService(adapter, {
+      clock: () => new Date("2026-08-22T12:00:01.000Z"),
+    });
+    await Promise.all([winner.initialize(), stale.initialize()]);
+    await Promise.all([winner.flush(), stale.flush()]);
+
+    const first =
+      await winner.migrateLegacyFieldBackgroundFromBytesWithOwnership(
+        fieldInput(),
+        "shared-source",
+      );
+    const second =
+      await stale.migrateLegacyFieldBackgroundFromBytesWithOwnership(
+        fieldInput(),
+        "shared-source",
+      );
+
+    expect(first.created).toBe(true);
+    expect(second).toEqual({ entry: first.entry, created: false });
+    expect((adapter.persisted as UserData).field_backgrounds).toEqual([
+      first.entry,
+    ]);
+  });
+
   it("repairs missing migrated bytes without creating another entry", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter);
@@ -969,11 +1093,7 @@ describe("UserData", () => {
       "asset delete failed",
     );
 
-    expect(adapter.events).toEqual([
-      "metadata-write",
-      "metadata-read",
-      "asset-delete",
-    ]);
+    expect(adapter.events).toEqual(["metadata-write", "asset-delete"]);
     expect(service.getSnapshot().field_backgrounds).toEqual([]);
     expect(service.getSnapshot().project_views).toEqual({
       "project-a": { active_path_id: "path-a" },
@@ -1046,6 +1166,7 @@ describe("UserData", () => {
 
   it("migrates imported legacy calibrations directly into verified User Data", async () => {
     let persisted: UserData | null = null;
+    let revision = 0;
     const assets = new Map<string, number[]>();
     let failNextAssetDelete = false;
     let assetWriteCount = 0;
@@ -1056,11 +1177,22 @@ describe("UserData", () => {
         args?: Record<string, unknown>,
       ): Promise<T> => {
         if (command === "storage_read_user_data") {
-          return structuredClone(persisted) as T;
+          return (
+            persisted === null
+              ? null
+              : { revision, data: structuredClone(persisted) }
+          ) as T;
         }
-        if (command === "storage_write_user_data") {
+        if (command === "storage_compare_and_swap_user_data") {
+          if (args?.expectedRevision !== revision && persisted) {
+            return {
+              status: "conflict",
+              document: { revision, data: structuredClone(persisted) },
+            } as T;
+          }
           persisted = structuredClone(args?.data as UserData);
-          return undefined as T;
+          revision += 1;
+          return { status: "written", revision } as T;
         }
         if (command === "storage_write_user_field_asset") {
           assetWriteCount += 1;
@@ -1237,6 +1369,7 @@ describe("UserData", () => {
 
   it("remaps a copied Project-scoped field selection without replacing valid selections", async () => {
     let persisted: UserData | null = null;
+    let revision = 0;
     const assets = new Map<string, number[]>();
     await initializeUserData(tauriCapabilities, {
       tauriInvoke: async <T>(
@@ -1244,11 +1377,22 @@ describe("UserData", () => {
         args?: Record<string, unknown>,
       ): Promise<T> => {
         if (command === "storage_read_user_data") {
-          return structuredClone(persisted) as T;
+          return (
+            persisted === null
+              ? null
+              : { revision, data: structuredClone(persisted) }
+          ) as T;
         }
-        if (command === "storage_write_user_data") {
+        if (command === "storage_compare_and_swap_user_data") {
+          if (args?.expectedRevision !== revision && persisted) {
+            return {
+              status: "conflict",
+              document: { revision, data: structuredClone(persisted) },
+            } as T;
+          }
           persisted = structuredClone(args?.data as UserData);
-          return undefined as T;
+          revision += 1;
+          return { status: "written", revision } as T;
         }
         if (command === "storage_write_user_field_asset") {
           assets.set(String(args?.entryId), [...(args?.bytes as number[])]);
@@ -1338,19 +1482,34 @@ class MemoryStorage implements UserDataStorage {
 
 class RejectingAdapter implements UserDataAdapter {
   persisted: UserData | null = null;
+  revision = 0;
   rejectWrites = false;
 
   constructor(private readonly initial: unknown | null = null) {}
 
-  async read(): Promise<unknown | null> {
-    return structuredClone(this.persisted ?? this.initial);
+  async read() {
+    const data = this.persisted ?? this.initial;
+    return data === null
+      ? null
+      : { revision: this.revision, data: structuredClone(data) };
   }
 
-  async write(data: UserData): Promise<void> {
+  async compareAndSwap(expectedRevision: number, data: UserData) {
     if (this.rejectWrites) {
       throw new Error("quota exceeded");
     }
+    if (expectedRevision !== this.revision) {
+      return {
+        status: "conflict" as const,
+        document: {
+          revision: this.revision,
+          data: structuredClone(this.persisted ?? this.initial),
+        },
+      };
+    }
     this.persisted = structuredClone(data);
+    this.revision += 1;
+    return { status: "written" as const, revision: this.revision };
   }
 
   async writeFieldAsset(): Promise<void> {}
@@ -1364,6 +1523,7 @@ class RejectingAdapter implements UserDataAdapter {
 
 class AssetMemoryAdapter implements UserDataAdapter {
   persisted: unknown | null;
+  revision = 0;
   readonly assets = new Map<string, Uint8Array>();
   readonly events: string[] = [];
   failAssetWrite = false;
@@ -1382,16 +1542,18 @@ class AssetMemoryAdapter implements UserDataAdapter {
     this.persisted = persisted;
   }
 
-  async read(): Promise<unknown | null> {
+  async read() {
     this.events.push("metadata-read");
     this.metadataReadCount += 1;
     if (this.metadataReadCount === this.failMetadataReadAt) {
       throw new Error("metadata read failed");
     }
-    return structuredClone(this.persisted);
+    return this.persisted === null
+      ? null
+      : { revision: this.revision, data: structuredClone(this.persisted) };
   }
 
-  async write(data: UserData): Promise<void> {
+  async compareAndSwap(expectedRevision: number, data: UserData) {
     this.events.push("metadata-write");
     const pause = this.metadataWritePause;
     if (pause) {
@@ -1402,11 +1564,25 @@ class AssetMemoryAdapter implements UserDataAdapter {
     if (this.failMetadataWrite) {
       throw new Error("metadata write failed");
     }
+    if (expectedRevision !== this.revision) {
+      if (this.persisted === null) {
+        throw new Error("missing conflict document");
+      }
+      return {
+        status: "conflict" as const,
+        document: {
+          revision: this.revision,
+          data: structuredClone(this.persisted),
+        },
+      };
+    }
     this.persisted = structuredClone(data);
+    this.revision += 1;
     if (this.installMetadataThenThrow) {
       this.installMetadataThenThrow = false;
       throw new Error("metadata write outcome unknown");
     }
+    return { status: "written" as const, revision: this.revision };
   }
 
   pauseNextMetadataWrite(): {

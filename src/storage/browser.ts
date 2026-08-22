@@ -20,7 +20,6 @@ import {
   ProjectNotFoundError,
   StorageConflictError,
   compareWorkspaceSummaries,
-  createBLineWorkspaceArchive,
   type FieldAssetPayload,
   type CurrentWorkspaceAdapter,
   type ProjectWorkspaceSummary,
@@ -498,19 +497,6 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     this.pendingLegacyProjects.delete(sourceStorageId);
     this.pendingLegacyProjects.set(project.project_id, cloneProject(project));
     return { status: "prepared", version, updatedAt };
-  }
-
-  async exportWorkspaceArchive(id?: string): Promise<Blob> {
-    const workspaceId = id ?? (await this.getCurrentWorkspaceId());
-    if (!workspaceId) {
-      throw new ProjectNotFoundError("workspace");
-    }
-
-    return createBLineWorkspaceArchive(
-      this,
-      workspaceId,
-      this.now().toISOString(),
-    );
   }
 
   async readFieldAsset(

@@ -33,6 +33,18 @@ export interface StagePoint {
   y: number;
 }
 
+export type StageRect = Pick<FieldViewport, "x" | "y" | "width" | "height">;
+
+/** The calibrated Field image and model coordinates share this exact rectangle. */
+export function fieldImageStageRect(viewport: FieldViewport): StageRect {
+  return {
+    x: viewport.x,
+    y: viewport.y,
+    width: viewport.width,
+    height: viewport.height,
+  };
+}
+
 export function stagePointsDiffer(
   first: StagePoint,
   second: StagePoint,

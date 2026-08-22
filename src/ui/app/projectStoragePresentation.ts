@@ -1,6 +1,8 @@
 import type { Project } from "../../core/model/project";
-import type { ProjectIoCapabilities } from "../../platform/projectIo";
-import type { ProjectWorkspaceSummary } from "../../storage";
+import type {
+  ProjectIoCapabilities,
+  ProjectWorkspaceSummary,
+} from "../../platform/projectIo";
 
 export function ensureCurrentWorkspaceSummary(
   summaries: ProjectWorkspaceSummary[],

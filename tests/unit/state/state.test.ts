@@ -15,8 +15,11 @@ import type { Project } from "../../../src/core/model/project";
 import type { ProjectFileDamage } from "../../../src/core/io/projectFiles";
 import { addPathToProject } from "../../../src/core/model/projectOperations";
 import {
+  createBrowserAutosaveRecoveryJournal,
   createAutosaveCoordinator,
   createProjectAutosaveCoordinator,
+  installDurableAutosaveCloseHandler,
+  restoreAutosaveRecoveryJournal,
 } from "../../../src/state/autosave";
 import {
   createHistoryStore,
@@ -1505,6 +1508,176 @@ describe("autosave coordinator", () => {
     expect(io.writes).toHaveLength(1);
     expect(coordinator.status).toBe("idle");
   });
+
+  it("synchronously checkpoints a recent edit and preserves it when cancelled", () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const project = openProjectFromLegacyWorkspace(workspace).project;
+    const storage = new MapStorage();
+    const journal = createBrowserAutosaveRecoveryJournal(storage);
+    const coordinator = createAutosaveCoordinator({
+      io: new RecordingIo(workspace),
+      scheduler: new ManualScheduler(),
+      recoveryJournal: journal,
+      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
+    });
+
+    coordinator.schedule();
+    coordinator.cancel();
+
+    expect(journal.read()).toMatchObject({
+      project: { project_id: "project-a" },
+      expectedVersion: "v0",
+      dirty: true,
+    });
+  });
+
+  it("flushes a close-time edit and clears recovery", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const project = openProjectFromLegacyWorkspace(workspace).project;
+    const io = new RecordingIo(workspace);
+    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage());
+    const coordinator = createAutosaveCoordinator({
+      io,
+      recoveryJournal: journal,
+      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
+    });
+    const close = new RecordingCloseTarget();
+
+    coordinator.checkpoint();
+    await installDurableAutosaveCloseHandler(close, coordinator);
+    await close.requestClose();
+
+    expect(close.prevented).toBe(true);
+    expect(close.destroyed).toBe(true);
+    expect(io.writes).toHaveLength(1);
+    expect(journal.read()).toBeNull();
+  });
+
+  it("keeps the window open while autosave is deliberately deferred", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const project = openProjectFromLegacyWorkspace(workspace).project;
+    const coordinator = createAutosaveCoordinator({
+      io: new RecordingIo(workspace),
+      shouldDefer: () => true,
+      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
+    });
+    const close = new RecordingCloseTarget();
+
+    await installDurableAutosaveCloseHandler(close, coordinator);
+    await close.requestClose();
+
+    expect(close.prevented).toBe(true);
+    expect(close.destroyed).toBe(false);
+    expect(coordinator.status).toBe("pending");
+  });
+
+  it("retains the recovery checkpoint when a forced flush fails", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const project = openProjectFromLegacyWorkspace(workspace).project;
+    const io = new RecordingIo(workspace);
+    io.simulateExternalEdit();
+    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage());
+    const coordinator = createAutosaveCoordinator({
+      io,
+      recoveryJournal: journal,
+      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
+    });
+    const close = new RecordingCloseTarget();
+
+    await installDurableAutosaveCloseHandler(close, coordinator);
+    await close.requestClose();
+
+    expect(close.prevented).toBe(true);
+    expect(close.destroyed).toBe(false);
+    expect(journal.read()?.project?.project_id).toBe("project-a");
+  });
+
+  it("keeps the window open when the close-time flush exceeds its bound", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const project = openProjectFromLegacyWorkspace(workspace).project;
+    const io = new RecordingIo(workspace);
+    io.deferWrites();
+    const coordinator = createAutosaveCoordinator({
+      io,
+      getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
+    });
+    const close = new RecordingCloseTarget();
+
+    await installDurableAutosaveCloseHandler(close, coordinator, 0);
+    await close.requestClose();
+
+    expect(close.prevented).toBe(true);
+    expect(close.destroyed).toBe(false);
+    io.completeNextWrite();
+  });
+
+  it("restores a browser recovery checkpoint before the workspace is reopened", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const recovered = openProjectFromLegacyWorkspace(workspace).project;
+    recovered.display_name = "Recovered Alpha";
+    const io = new RecordingIo(workspace);
+    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage());
+    journal.write({ project: recovered, expectedVersion: "v0", dirty: true });
+
+    await expect(restoreAutosaveRecoveryJournal(io, journal)).resolves.toBe(
+      true,
+    );
+
+    expect((await io.getWorkspace())?.display_name).toBe("Recovered Alpha");
+    expect(journal.read()).toBeNull();
+  });
+
+  it("preserves a conflicted browser recovery as a separate workspace", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const recovered = openProjectFromLegacyWorkspace(workspace).project;
+    recovered.display_name = "Recovered Alpha";
+    const io = new RecordingIo(workspace);
+    io.simulateExternalEdit();
+    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage());
+    journal.write({ project: recovered, expectedVersion: "v0", dirty: true });
+
+    await expect(restoreAutosaveRecoveryJournal(io, journal)).resolves.toBe(
+      true,
+    );
+
+    expect((await io.getWorkspace())?.display_name).toBe(
+      "Recovered Alpha (Recovered)",
+    );
+    expect((await io.getWorkspace())?.project_id).toContain(
+      "project-a-recovered-",
+    );
+    expect(journal.read()).toBeNull();
+  });
+
+  it("keeps a failed browser recovery checkpoint for a later retry", async () => {
+    const workspace = exampleWorkspace("project-a", "Alpha", 1);
+    const recovered = openProjectFromLegacyWorkspace(workspace).project;
+    recovered.display_name = "Recovered Alpha";
+    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage());
+    journal.write({ project: recovered, expectedVersion: "v0", dirty: true });
+
+    await expect(
+      restoreAutosaveRecoveryJournal(
+        {
+          async initialize() {
+            return recovered;
+          },
+          async getWorkspace() {
+            return recovered;
+          },
+          async saveWorkspace() {
+            throw new Error("IndexedDB unavailable");
+          },
+          async createWorkspace() {
+            throw new Error("Unexpected recovery copy");
+          },
+        },
+        journal,
+      ),
+    ).rejects.toThrow(/IndexedDB unavailable/);
+
+    expect(journal.read()?.project?.display_name).toBe("Recovered Alpha");
+  });
 });
 
 describe("save conflict recovery", () => {
@@ -1519,8 +1692,8 @@ describe("save conflict recovery", () => {
     // version token, so the next save conflicts.
     io.simulateExternalEdit();
 
-    await expect(store.getState().saveWorkspace()).rejects.toThrow(
-      /storage-conflict/,
+    await expect(store.getState().saveWorkspace()).rejects.toBeInstanceOf(
+      StorageConflictError,
     );
 
     const state = store.getState();
@@ -1542,7 +1715,9 @@ describe("save conflict recovery", () => {
     });
 
     // First flush hits the conflict and routes the store into the conflict state.
-    await expect(coordinator.flush()).rejects.toThrow(/storage-conflict/);
+    await expect(coordinator.flush()).rejects.toBeInstanceOf(
+      StorageConflictError,
+    );
     expect(store.getState().status).toBe("conflict");
     const writesAfterConflict = io.writes.length;
 
@@ -1559,8 +1734,8 @@ describe("save conflict recovery", () => {
     );
     renameActivePath(store, "Beta");
     io.simulateExternalEdit();
-    await expect(store.getState().saveWorkspace()).rejects.toThrow(
-      /storage-conflict/,
+    await expect(store.getState().saveWorkspace()).rejects.toBeInstanceOf(
+      StorageConflictError,
     );
 
     const result = await store.getState().overwriteConflict();
@@ -1586,8 +1761,8 @@ describe("save conflict recovery", () => {
     // Disk now holds a different, externally-edited workspace.
     const diskWorkspace = exampleWorkspace("project-a", "External Edit", 1);
     io.simulateExternalEdit(diskWorkspace);
-    await expect(store.getState().saveWorkspace()).rejects.toThrow(
-      /storage-conflict/,
+    await expect(store.getState().saveWorkspace()).rejects.toBeInstanceOf(
+      StorageConflictError,
     );
     expect(store.getState().status).toBe("conflict");
 
@@ -1782,17 +1957,6 @@ describe("workspace conflict diff", () => {
 });
 
 describe("isStorageConflict", () => {
-  it("recognizes the desktop (Tauri) storage-conflict string", () => {
-    expect(
-      isStorageConflict("storage-conflict: workspace version mismatch"),
-    ).toBe(true);
-    expect(
-      isStorageConflict(
-        new Error("storage-conflict: project version mismatch"),
-      ),
-    ).toBe(true);
-  });
-
   it("recognizes the browser StorageConflictError despite its different message", () => {
     const error = new StorageConflictError(
       "Workspace version does not match expected version",
@@ -1802,6 +1966,12 @@ describe("isStorageConflict", () => {
     // Guard the exact regression: the message alone would not match.
     expect(error.message).not.toContain("storage-conflict");
     expect(isStorageConflict(error)).toBe(true);
+  });
+
+  it("does not couple state to a raw native conflict string", () => {
+    expect(
+      isStorageConflict("storage-conflict: workspace version mismatch"),
+    ).toBe(false);
   });
 
   it("does not flag unrelated errors as conflicts", () => {
@@ -2113,7 +2283,11 @@ class RecordingIo implements ProjectIoService {
       expectedVersion !== undefined &&
       expectedVersion !== this.version
     ) {
-      throw new Error("storage-conflict: workspace version mismatch");
+      throw new StorageConflictError(
+        "Workspace version mismatch",
+        expectedVersion,
+        this.version,
+      );
     }
     // A version-agnostic (forced) write or a matching version resolves the conflict.
     this.armConflict = false;
@@ -2334,5 +2508,50 @@ class ManualScheduler {
   async runPending(): Promise<void> {
     this.callback?.();
     await Promise.resolve();
+  }
+}
+
+class MapStorage {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+}
+
+class RecordingCloseTarget {
+  prevented = false;
+  destroyed = false;
+  private handler:
+    | ((event: { preventDefault(): void }) => void | Promise<void>)
+    | null = null;
+
+  async onCloseRequested(
+    handler: (event: { preventDefault(): void }) => void | Promise<void>,
+  ): Promise<() => void> {
+    this.handler = handler;
+    return () => {
+      this.handler = null;
+    };
+  }
+
+  async destroy(): Promise<void> {
+    this.destroyed = true;
+  }
+
+  async requestClose(): Promise<void> {
+    await this.handler?.({
+      preventDefault: () => {
+        this.prevented = true;
+      },
+    });
   }
 }

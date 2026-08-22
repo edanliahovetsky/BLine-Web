@@ -15,7 +15,7 @@ pub fn run() {
             storage::storage_prepare_legacy_project_files,
             storage::storage_delete_legacy_project_files,
             storage::storage_read_user_data,
-            storage::storage_write_user_data,
+            storage::storage_compare_and_swap_user_data,
             storage::storage_write_user_field_asset,
             storage::storage_read_user_field_asset,
             storage::storage_delete_user_field_asset,

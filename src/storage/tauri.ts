@@ -12,7 +12,6 @@ import {
   ProjectFolderLosslessMigrationError,
 } from "../core/io/projectFolder";
 import {
-  createBLineWorkspaceArchive,
   type FieldAssetPayload,
   type ProjectFolderAdapter,
   type ProjectReadSnapshot,
@@ -20,6 +19,7 @@ import {
   type WriteResult,
   type LegacyProjectMigrationPreparation,
   ProjectPersistenceDamageError,
+  StorageConflictError,
 } from "./adapter";
 
 export type TauriInvoke = <T>(
@@ -53,7 +53,28 @@ export class TauriStorage implements ProjectFolderAdapter {
   >();
 
   constructor(options: TauriStorageOptions = {}) {
-    this.invoke = options.invoke ?? invoke;
+    const nativeInvoke = options.invoke ?? invoke;
+    this.invoke = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ) => {
+      try {
+        return await nativeInvoke<T>(command, args);
+      } catch (error) {
+        if (error instanceof StorageConflictError) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("storage-conflict")) {
+          const expectedVersion =
+            typeof args?.expectedVersion === "string"
+              ? args.expectedVersion
+              : undefined;
+          throw new StorageConflictError(message, expectedVersion);
+        }
+        throw error;
+      }
+    };
     this.now = options.now ?? (() => new Date());
   }
 
@@ -346,15 +367,6 @@ export class TauriStorage implements ProjectFolderAdapter {
       version: result.version,
       updatedAt: result.updatedAt,
     };
-  }
-
-  async exportWorkspaceArchive(id?: string): Promise<Blob> {
-    const project = id ? await this.readProject(id) : await this.readProject();
-    return createBLineWorkspaceArchive(
-      { readProject: async () => project },
-      project.project_id,
-      this.now().toISOString(),
-    );
   }
 
   async readFieldAsset(

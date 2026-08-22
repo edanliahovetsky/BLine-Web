@@ -17,8 +17,10 @@ import {
 import type { Project } from "../model/project";
 import {
   createWorkspaceId,
-  displayNameFromFileName,
-  ensureJsonFileName,
+  normalizePathFileName,
+  pathDisplayNameFromFileName,
+} from "../model/projectIdentity";
+import {
   deserializeProjectWorkspaceDocument,
   serializeProjectWorkspaceDocument,
   type SerializedPathGroupFileEntry,
@@ -262,7 +264,7 @@ export async function deserializeBLineProjectFolder(
         record.autosPath,
         options.requireLosslessMigration,
       );
-      const fileName = ensureJsonFileName(
+      const fileName = normalizePathFileName(
         record.autosPath.split("/").at(-1) ?? record.file.name,
       );
       const pathObject =
@@ -277,7 +279,7 @@ export async function deserializeBLineProjectFolder(
         input: {
           path_id: fileName,
           display_name:
-            statePath?.display_name ?? displayNameFromFileName(fileName),
+            statePath?.display_name ?? pathDisplayNameFromFileName(fileName),
           file_name: fileName,
           path: pathObject,
           editor_metadata: statePath?.editor_metadata ?? legacyMetadata,
@@ -292,7 +294,7 @@ export async function deserializeBLineProjectFolder(
       (path) =>
         activePathFileName &&
         path.file_name.toLowerCase() ===
-          ensureJsonFileName(activePathFileName).toLowerCase(),
+          normalizePathFileName(activePathFileName).toLowerCase(),
     )?.path_id ??
     paths[0]?.path_id ??
     null;
@@ -409,7 +411,7 @@ function attestLosslessFolderMigration({
 
   const runtimePaths = parsedPaths.map(({ input }) => ({
     ...input,
-    display_name: displayNameFromFileName(input.file_name),
+    display_name: pathDisplayNameFromFileName(input.file_name),
     editor_metadata: undefined,
   }));
   const runtimeWorkspace = deserializeProjectionWorkspace({
@@ -447,7 +449,7 @@ function attestLosslessFolderMigration({
     return {
       ...input,
       display_name:
-        statePath?.display_name ?? displayNameFromFileName(input.file_name),
+        statePath?.display_name ?? pathDisplayNameFromFileName(input.file_name),
       editor_metadata: statePath?.editor_metadata,
     };
   });
@@ -491,7 +493,7 @@ function attestLosslessFolderMigration({
     config: rawConfig,
     paths: parsedPaths.map(({ input }) => ({
       ...input,
-      display_name: displayNameFromFileName(input.file_name),
+      display_name: pathDisplayNameFromFileName(input.file_name),
       editor_metadata: legacyPathMetadata[input.file_name],
     })),
   });
@@ -565,7 +567,7 @@ function pathIdForFileName(
     ? (paths.find(
         (path) =>
           path.file_name.toLowerCase() ===
-          ensureJsonFileName(normalized).toLowerCase(),
+          normalizePathFileName(normalized).toLowerCase(),
       )?.path_id ?? null)
     : null;
 }
@@ -634,14 +636,14 @@ function serializeAutosEditorState(
       },
     },
     active_path_file_name: activePath
-      ? ensureJsonFileName(activePath.file_name)
+      ? normalizePathFileName(activePath.file_name)
       : null,
     active_path_group_id: workspace.active_path_group_id,
     path_groups: serializePathGroupEntries(workspace),
     linked_targets: structuredClone(workspace.linked_targets),
     paths: Object.fromEntries(
       serialized.paths.map((path) => [
-        ensureJsonFileName(path.file_name),
+        normalizePathFileName(path.file_name),
         {
           display_name: path.display_name,
           editor_metadata: path.editor_metadata,
@@ -667,7 +669,7 @@ function serializePathGroupEntries(
   const fileNameByPathId = new Map(
     workspace.paths.map((path) => [
       path.path_id,
-      ensureJsonFileName(path.file_name),
+      normalizePathFileName(path.file_name),
     ]),
   );
   return workspace.path_groups.map((group) => ({
@@ -685,7 +687,7 @@ function serializeLegacyPathMetadata(workspace: ProjectWorkspaceDocument) {
   return {
     paths: Object.fromEntries(
       serialized.paths.map((path) => [
-        ensureJsonFileName(path.file_name),
+        normalizePathFileName(path.file_name),
         { editor_metadata: path.editor_metadata },
       ]),
     ),
@@ -802,10 +804,10 @@ function readAutosEditorState(input: unknown): AutosEditorStateFile | null {
               typeof pathState.display_name === "string" &&
               pathState.display_name.trim()
                 ? pathState.display_name
-                : displayNameFromFileName(fileName);
+                : pathDisplayNameFromFileName(fileName);
             return [
               [
-                ensureJsonFileName(fileName),
+                normalizePathFileName(fileName),
                 {
                   display_name: displayName,
                   editor_metadata: isObject(pathState.editor_metadata)
@@ -855,7 +857,7 @@ function readLegacyPathMetadata(
 
       return [
         [
-          ensureJsonFileName(fileName),
+          normalizePathFileName(fileName),
           pathState.editor_metadata as SerializedPathEditorMetadata,
         ],
       ];
@@ -922,7 +924,7 @@ function statePathByFileName(
     return undefined;
   }
 
-  return state.paths[ensureJsonFileName(fileName)];
+  return state.paths[normalizePathFileName(fileName)];
 }
 
 function stringOrNull(input: unknown): string | null {
@@ -963,7 +965,7 @@ function assertDistinctNormalizedPathFiles(
 ): void {
   const sourceByFileName = new Map<string, string>();
   for (const record of records) {
-    const fileName = ensureJsonFileName(
+    const fileName = normalizePathFileName(
       record.autosPath.slice("paths/".length),
     );
     const key = fileName.toLowerCase();
@@ -1029,7 +1031,7 @@ function inferDisplayName(records: readonly ImportRecord[]): string {
   const firstPath = records[0]?.rawPath;
   const root = firstPath?.split("/").find(Boolean);
 
-  return root ? displayNameFromFileName(root) : "Imported Autos";
+  return root ? pathDisplayNameFromFileName(root) : "Imported Autos";
 }
 
 function isObject(input: unknown): input is Record<string, unknown> {

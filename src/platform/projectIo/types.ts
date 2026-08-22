@@ -8,6 +8,12 @@ import type {
   WriteResult,
 } from "../../storage";
 
+export type {
+  LegacyProjectMigrationPreparation,
+  ProjectWorkspaceSummary,
+  WriteResult,
+} from "../../storage";
+
 export type { ProjectFolderExport } from "../../core/io/projectFolder";
 
 export type ProjectIoAction =

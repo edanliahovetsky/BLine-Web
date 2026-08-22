@@ -98,27 +98,6 @@ describe("BrowserStorage", () => {
     });
   });
 
-  it("exports BLine project archives with shared config and multiple paths", async () => {
-    const source = new BrowserStorage({
-      storage: new MemoryStorage(),
-      now: fixedClock("2026-04-23T15:35:00.000Z"),
-    });
-    await source.writeProject(
-      exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]),
-    );
-
-    const archive = await source.exportWorkspaceArchive("workspace-a");
-    const rawArchive = JSON.parse(await archive.text()) as {
-      bline_project_schema_version: number;
-      paths: Array<{ file_name: string }>;
-    };
-    expect(rawArchive.bline_project_schema_version).toBe(1);
-    expect(rawArchive.paths.map((path) => path.file_name).sort()).toEqual([
-      "One.json",
-      "Two.json",
-    ]);
-  });
-
   it("migrates a one-path record through the guarded Field Background lifecycle", async () => {
     const memory = new MemoryStorage();
     const legacyField = {
@@ -1069,6 +1048,22 @@ describe("TauriStorage", () => {
     expect(calls[1]).toEqual({
       command: "storage_read_project_files",
       args: { directoryLocator: "workspace-a" },
+    });
+  });
+
+  it("normalizes a raw native workspace conflict at the storage boundary", async () => {
+    const storage = new TauriStorage({
+      invoke: async () => {
+        throw "storage-conflict: project changed before activation";
+      },
+    });
+
+    const switching = storage.switchWorkspace("/tmp/autos", "expected-v1");
+
+    await expect(switching).rejects.toBeInstanceOf(StorageConflictError);
+    await expect(switching).rejects.toMatchObject({
+      expectedVersion: "expected-v1",
+      message: "storage-conflict: project changed before activation",
     });
   });
 

@@ -70,6 +70,7 @@ import {
   createProjectIoService,
   type ProjectImportResult,
   type ProjectImportRollback,
+  type ProjectWorkspaceSummary,
 } from "../../platform/projectIo";
 import {
   downloadBlob,
@@ -77,8 +78,12 @@ import {
   saveBlobAs,
 } from "../../platform/fileExport";
 import {
+  createBrowserAutosaveRecoveryJournal,
   createProjectAutosaveCoordinator,
+  installDurableAutosaveCloseHandler,
+  restoreAutosaveRecoveryJournal,
   type AutosaveCoordinator,
+  type AutosaveRecoveryJournal,
   type AutosaveStatus,
 } from "../../state/autosave";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
@@ -124,7 +129,6 @@ import {
   SelectControl,
   SwitchInput,
 } from "../controls";
-import type { ProjectWorkspaceSummary } from "../../storage";
 import { Sidebar } from "../sidebar/Sidebar";
 import { createDefaultElement } from "../sidebar/sidebarCommands";
 import "./AppShell.css";
@@ -179,7 +183,7 @@ import {
   migrateImportedLegacyFieldBackgrounds,
   migrateLegacyProjectFieldBackgrounds,
 } from "../../userData/legacyFieldMigration";
-import { displayNameFromFileName } from "../../core/io/workspaceSerde";
+import { pathDisplayNameFromFileName } from "../../core/model/projectIdentity";
 import { editorBasicsTour, tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
@@ -364,6 +368,14 @@ export function AppShell() {
     useState<CurveToolSession | null>(null);
   const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false);
   const autosaveRef = useRef<AutosaveCoordinator | null>(null);
+  const [environmentCapabilities] = useState(detectEnvironmentCapabilities);
+  const [autosaveRecoveryJournal] = useState<AutosaveRecoveryJournal | null>(
+    () =>
+      environmentCapabilities.shell === "browser-web"
+        ? createBrowserAutosaveRecoveryJournal()
+        : null,
+  );
+  const autosaveRecoveryFailedRef = useRef(false);
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
   const importHandlingRef = useRef(false);
@@ -572,7 +584,7 @@ export function AppShell() {
 
   useEffect(() => {
     let cancelled = false;
-    const capabilities = detectEnvironmentCapabilities();
+    const capabilities = environmentCapabilities;
     const service = createProjectIoService(capabilities);
 
     projectStore.getState().setProjectIoService(service);
@@ -592,7 +604,22 @@ export function AppShell() {
           .setAutoSyncEnabled(userData.automatic_generation.keep_in_sync);
         tourStore.getState().hydrateCompleted(userData.completed_tour_ids);
         setFieldBackgrounds(userData.field_backgrounds);
+        let recoveryError: unknown;
+        if (autosaveRecoveryJournal) {
+          try {
+            await restoreAutosaveRecoveryJournal(
+              service,
+              autosaveRecoveryJournal,
+            );
+          } catch (error) {
+            autosaveRecoveryFailedRef.current = true;
+            recoveryError = error;
+          }
+        }
         await projectStore.getState().initializeWorkspace();
+        if (recoveryError) {
+          throw recoveryError;
+        }
         if (!cancelled) {
           await refreshWorkspaceSummaries(service);
         }
@@ -613,7 +640,11 @@ export function AppShell() {
       cancelled = true;
       autosaveRef.current?.cancel();
     };
-  }, [refreshWorkspaceSummaries]);
+  }, [
+    autosaveRecoveryJournal,
+    environmentCapabilities,
+    refreshWorkspaceSummaries,
+  ]);
 
   const legacyFieldMigrationKey =
     durableProject && projectSessionId
@@ -789,21 +820,60 @@ export function AppShell() {
     autosaveRef.current = createProjectAutosaveCoordinator(projectStore, {
       delayMs: 300,
       onStatusChange: setAutosaveStatus,
+      onSaved: () => {
+        autosaveRecoveryFailedRef.current = false;
+      },
+      recoveryJournal: autosaveRecoveryJournal ?? undefined,
       shouldDefer: () =>
-        canvasInteractionActiveRef.current ||
         legacyProjectMigrationOwnsSession(projectStore.getState()) ||
         projectStore.getState().status === "conflict" ||
         projectStore.getState().status === "damaged",
     });
+    const coordinator = autosaveRef.current;
+    const checkpoint = () => coordinator.checkpoint();
+    const checkpointBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (projectStore.getState().dirty && !coordinator.checkpoint()) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    let disposed = false;
+    let removeCloseListener: (() => void) | undefined;
+
+    if (environmentCapabilities.shell === "browser-web") {
+      window.addEventListener("beforeunload", checkpointBeforeUnload);
+      window.addEventListener("pagehide", checkpoint);
+    } else {
+      void import("@tauri-apps/api/window")
+        .then(({ getCurrentWindow }) =>
+          installDurableAutosaveCloseHandler(getCurrentWindow(), coordinator),
+        )
+        .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+          } else {
+            removeCloseListener = unlisten;
+          }
+        })
+        .catch(() => {});
+    }
 
     return () => {
-      autosaveRef.current?.cancel();
+      disposed = true;
+      removeCloseListener?.();
+      window.removeEventListener("beforeunload", checkpointBeforeUnload);
+      window.removeEventListener("pagehide", checkpoint);
+      coordinator.checkpoint();
+      coordinator.cancel();
       autosaveRef.current = null;
     };
-  }, [projectIo]);
+  }, [autosaveRecoveryJournal, environmentCapabilities, projectIo]);
 
   useEffect(() => {
     if (!durableProject || !dirty) {
+      if (!dirty && !autosaveRecoveryFailedRef.current) {
+        autosaveRef.current?.clearCheckpoint();
+      }
       return;
     }
 
@@ -1148,7 +1218,6 @@ export function AppShell() {
           : projectStore.getState().activePathGroupId;
       projectStore.getState().createPath({
         displayName,
-        fileName: ensureJsonFileName(displayName),
         path: createBlankCanvasPath(),
         addToGroupId: addToCurrentGroup ? activeGroupId : null,
       });
@@ -1672,7 +1741,7 @@ export function AppShell() {
   const handleUploadFieldImage = useCallback(
     async (file: File, geometry: FieldGeometry) => {
       const entry = await importFieldBackgroundFromBytes({
-        name: displayNameFromFileName(file.name),
+        name: pathDisplayNameFromFileName(file.name),
         fileName: file.name,
         mimeType: file.type || "image/png",
         bytes: new Uint8Array(await file.arrayBuffer()),
@@ -6123,12 +6192,6 @@ function getSaveStatusTone({
   }
 
   return "saved";
-}
-
-function ensureJsonFileName(value: string): string {
-  const base =
-    safeDownloadName(value.replace(/\.json$/i, "")) || "untitled-path";
-  return `${base}.json`;
 }
 
 async function migrateImportedFieldsForProject(

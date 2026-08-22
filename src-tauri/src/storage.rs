@@ -58,6 +58,20 @@ pub struct FieldAssetPayload {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserDataDocument {
+    pub revision: u64,
+    pub data: Value,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum UserDataCompareAndSwapResult {
+    Written { revision: u64 },
+    Conflict { document: UserDataDocument },
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct FieldAssetMetadataFile {
     assets: std::collections::HashMap<String, FieldAssetMetadata>,
@@ -203,13 +217,7 @@ pub fn storage_switch_workspace(
     }
 
     let selected_dir = effective_project_dir(Path::new(&id));
-    let summary = workspace_summary(&selected_dir)?;
-    if expected_version
-        .as_ref()
-        .is_some_and(|expected| expected != &summary.version)
-    {
-        return Err("storage-conflict: project changed before activation".to_owned());
-    }
+    let summary = workspace_summary_for_activation(&selected_dir, expected_version.as_deref())?;
     remember_workspace_dir(&app, &selected_dir)?;
     Ok(Some(summary))
 }
@@ -268,12 +276,15 @@ pub fn storage_delete_legacy_project_files(
 }
 
 #[tauri::command]
-pub fn storage_read_user_data(app: AppHandle) -> Result<Option<Value>, String> {
+pub fn storage_read_user_data(app: AppHandle) -> Result<Option<UserDataDocument>, String> {
     let path = user_data_path(&app)?;
-    if let Some(data) = read_recoverable_json(&path)? {
-        return Ok(Some(data));
-    }
+    let legacy_data = legacy_user_data(&app)?;
+    with_exclusive_user_data_lock(&path, || {
+        read_user_data_document_unlocked(&path, legacy_data)
+    })
+}
 
+fn legacy_user_data(app: &AppHandle) -> Result<Option<Value>, String> {
     let legacy_state = read_state(&app)?;
     if legacy_state.active_path_by_project_dir.is_empty() {
         return Ok(None);
@@ -292,8 +303,14 @@ pub fn storage_read_user_data(app: AppHandle) -> Result<Option<Value>, String> {
 }
 
 #[tauri::command]
-pub fn storage_write_user_data(app: AppHandle, data: Value) -> Result<(), String> {
-    write_recoverable_json(&user_data_path(&app)?, &data)
+pub fn storage_compare_and_swap_user_data(
+    app: AppHandle,
+    expected_revision: u64,
+    data: Value,
+) -> Result<UserDataCompareAndSwapResult, String> {
+    let path = user_data_path(&app)?;
+    let legacy_data = legacy_user_data(&app)?;
+    compare_and_swap_user_data(&path, expected_revision, data, legacy_data)
 }
 
 #[tauri::command]
@@ -932,13 +949,19 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
     let snapshot = match state.as_str() {
         PROJECT_SAVE_TRANSACTION_COMMITTED => new_snapshot,
         PROJECT_SAVE_TRANSACTION_PREPARED => {
+            let live_files = read_managed_project_files(project_dir)?;
+            let old_files = read_validated_project_snapshot(&old_snapshot)?;
             let new_files = read_validated_project_snapshot(&new_snapshot)?;
-            if read_managed_project_files(project_dir)? == new_files {
-                // Installation completed but the committed marker update did not.
-                new_snapshot
-            } else {
-                old_snapshot
+            if live_files == old_files || live_files == new_files {
+                // Either installation had not begun or it completed before the
+                // committed marker update. The live set is already authoritative;
+                // do not rewrite it after classification and risk racing an editor.
+                return retire_project_file_transaction(project_dir, &transaction_dir);
             }
+            return Err(
+                "storage-conflict: prepared project transaction has divergent live files"
+                    .to_owned(),
+            );
         }
         PROJECT_SAVE_TRANSACTION_ABORTED => {
             return retire_project_file_transaction(project_dir, &transaction_dir);
@@ -1247,6 +1270,17 @@ fn workspace_summary(path: &Path) -> Result<ProjectWorkspaceSummary, String> {
     })
 }
 
+fn workspace_summary_for_activation(
+    path: &Path,
+    expected_version: Option<&str>,
+) -> Result<ProjectWorkspaceSummary, String> {
+    let summary = workspace_summary(path)?;
+    if expected_version.is_some_and(|expected| expected != summary.version) {
+        return Err("storage-conflict: project changed before activation".to_owned());
+    }
+    Ok(summary)
+}
+
 fn workspace_display_name(path: &Path) -> String {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -1379,6 +1413,89 @@ fn user_data_path(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(error_string)?
         .join("user-data.json"))
+}
+
+fn user_data_lock_path(path: &Path) -> PathBuf {
+    sibling_path(path, ".lock")
+}
+
+fn with_exclusive_user_data_lock<T>(
+    path: &Path,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("User Data file has no parent: {}", path.display()))?;
+    let parent_existed = parent.exists();
+    fs::create_dir_all(parent).map_err(error_string)?;
+    if !parent_existed {
+        if let Some(grandparent) = parent.parent() {
+            sync_directory(grandparent)?;
+        }
+    }
+    let lock_file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(user_data_lock_path(path))
+        .map_err(error_string)?;
+    lock_file.lock().map_err(error_string)?;
+    let result = operation();
+    let unlock_result = fs::File::unlock(&lock_file).map_err(error_string);
+    match (result, unlock_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+    }
+}
+
+fn read_user_data_document_unlocked(
+    path: &Path,
+    legacy_data: Option<Value>,
+) -> Result<Option<UserDataDocument>, String> {
+    let Some(value) = read_recoverable_json(path)? else {
+        return Ok(legacy_data.map(|data| UserDataDocument { revision: 0, data }));
+    };
+    match serde_json::from_value::<UserDataDocument>(value.clone()) {
+        Ok(document) => Ok(Some(document)),
+        Err(_) => Ok(Some(UserDataDocument {
+            revision: 0,
+            data: value,
+        })),
+    }
+}
+
+fn write_user_data_document_unlocked(
+    path: &Path,
+    document: &UserDataDocument,
+) -> Result<(), String> {
+    let value = serde_json::to_value(document).map_err(error_string)?;
+    write_recoverable_json(path, &value)
+}
+
+fn compare_and_swap_user_data(
+    path: &Path,
+    expected_revision: u64,
+    data: Value,
+    legacy_data: Option<Value>,
+) -> Result<UserDataCompareAndSwapResult, String> {
+    with_exclusive_user_data_lock(path, || {
+        let current = read_user_data_document_unlocked(path, legacy_data)?;
+        let actual_revision = current.as_ref().map_or(0, |document| document.revision);
+        if expected_revision != actual_revision {
+            return Ok(UserDataCompareAndSwapResult::Conflict {
+                document: current.unwrap_or(UserDataDocument {
+                    revision: 0,
+                    data: Value::Null,
+                }),
+            });
+        }
+        let revision = actual_revision
+            .checked_add(1)
+            .ok_or_else(|| "User Data revision overflow".to_owned())?;
+        write_user_data_document_unlocked(path, &UserDataDocument { revision, data })?;
+        Ok(UserDataCompareAndSwapResult::Written { revision })
+    })
 }
 
 fn user_field_asset_path(app: &AppHandle, entry_id: &str) -> Result<PathBuf, String> {
@@ -1619,6 +1736,31 @@ mod tests {
     }
 
     #[test]
+    fn workspace_activation_checks_the_temporary_projects_expected_version() {
+        let dir = temp_project_dir("activation-version");
+        install_files(
+            &dir,
+            &[
+                project_file("config.json", "config"),
+                project_file("project.json", "metadata"),
+            ],
+        );
+        let current = workspace_summary(&dir).unwrap();
+
+        assert_eq!(
+            workspace_summary_for_activation(&dir, Some(&current.version))
+                .unwrap()
+                .version,
+            current.version
+        );
+        assert_eq!(
+            workspace_summary_for_activation(&dir, Some("stale-version")).unwrap_err(),
+            "storage-conflict: project changed before activation"
+        );
+        assert_eq!(read_managed_project_files(&dir).unwrap().len(), 2);
+    }
+
+    #[test]
     fn legacy_cleanup_is_guarded_and_preserves_field_assets() {
         let dir = temp_project_dir("legacy-cleanup");
         install_files(
@@ -1752,8 +1894,30 @@ mod tests {
     }
 
     #[test]
-    fn prepared_transaction_restores_old_complete_set() {
+    fn prepared_transaction_with_complete_old_live_set_aborts_cleanly() {
         let dir = temp_project_dir("prepared-recovery");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("paths/old.json", "old path"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("paths/new.json", "new path"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &old);
+        stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_PREPARED);
+
+        recover_project_file_transaction(&dir).unwrap();
+
+        assert_eq!(read_managed_project_files(&dir).unwrap(), old);
+        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn prepared_transaction_preserves_partial_install_and_reports_conflict() {
+        let dir = temp_project_dir("prepared-partial-install");
         let old = vec![
             project_file("config.json", "old config"),
             project_file("paths/old.json", "old path"),
@@ -1768,11 +1932,67 @@ mod tests {
         stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_PREPARED);
         remove_live_managed_project_files(&dir).unwrap();
         install_snapshot_file(&dir, &new[0]).unwrap();
+        let partial = read_managed_project_files(&dir).unwrap();
+
+        let error = recover_project_file_transaction(&dir).unwrap_err();
+
+        assert_eq!(
+            error,
+            "storage-conflict: prepared project transaction has divergent live files"
+        );
+        assert_eq!(read_managed_project_files(&dir).unwrap(), partial);
+        assert!(dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn prepared_transaction_preserves_external_live_edits() {
+        let dir = temp_project_dir("prepared-divergent-live");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("paths/old.json", "old path"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("paths/new.json", "new path"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &old);
+        stage_transaction(&dir, &old, &new, PROJECT_SAVE_TRANSACTION_PREPARED);
+        fs::write(dir.join("config.json"), "external config").unwrap();
+
+        let error = recover_project_file_transaction(&dir).unwrap_err();
+
+        assert!(error.contains("divergent live files"));
+        assert_eq!(
+            fs::read_to_string(dir.join("config.json")).unwrap(),
+            "external config"
+        );
+        assert!(dir.join("paths/old.json").exists());
+        assert!(dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn transaction_without_prepared_marker_leaves_live_project_untouched() {
+        let dir = temp_project_dir("before-prepared-marker");
+        let old = vec![
+            project_file("config.json", "old config"),
+            project_file("project.json", "old metadata"),
+        ];
+        let new = vec![
+            project_file("config.json", "new config"),
+            project_file("project.json", "new metadata"),
+        ];
+        install_files(&dir, &old);
+        let transaction_dir = dir.join(PROJECT_SAVE_TRANSACTION_DIR);
+        fs::create_dir(&transaction_dir).unwrap();
+        write_project_snapshot(&transaction_dir.join("old"), &old).unwrap();
+        write_project_snapshot(&transaction_dir.join("new"), &new).unwrap();
 
         recover_project_file_transaction(&dir).unwrap();
 
         assert_eq!(read_managed_project_files(&dir).unwrap(), old);
-        assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+        assert!(!transaction_dir.exists());
     }
 
     #[test]
@@ -2037,6 +2257,72 @@ mod tests {
         assert_eq!(
             read_recoverable_bytes(&asset_path).unwrap(),
             Some(b"new".to_vec())
+        );
+    }
+
+    #[test]
+    fn legacy_user_data_is_revision_zero_and_cas_never_stale_overwrites() {
+        let dir = temp_project_dir("user-data-cas");
+        let data_path = dir.join("user-data.json");
+        fs::write(
+            &data_path,
+            serde_json::to_vec(&json!({ "value": "legacy" })).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            with_exclusive_user_data_lock(&data_path, || {
+                read_user_data_document_unlocked(&data_path, None)
+            })
+            .unwrap(),
+            Some(UserDataDocument {
+                revision: 0,
+                data: json!({ "value": "legacy" }),
+            })
+        );
+        assert_eq!(
+            compare_and_swap_user_data(&data_path, 0, json!({ "value": "first" }), None).unwrap(),
+            UserDataCompareAndSwapResult::Written { revision: 1 }
+        );
+        assert_eq!(
+            compare_and_swap_user_data(&data_path, 0, json!({ "value": "stale" }), None).unwrap(),
+            UserDataCompareAndSwapResult::Conflict {
+                document: UserDataDocument {
+                    revision: 1,
+                    data: json!({ "value": "first" }),
+                },
+            }
+        );
+        assert_eq!(
+            with_exclusive_user_data_lock(&data_path, || {
+                read_user_data_document_unlocked(&data_path, None)
+            })
+            .unwrap(),
+            Some(UserDataDocument {
+                revision: 1,
+                data: json!({ "value": "first" }),
+            })
+        );
+    }
+
+    #[test]
+    fn successful_user_data_cas_is_observable_by_an_unknown_outcome_retry() {
+        let dir = temp_project_dir("user-data-cas-retry");
+        let data_path = dir.join("user-data.json");
+        let committed = json!({ "value": "committed" });
+
+        assert_eq!(
+            compare_and_swap_user_data(&data_path, 0, committed.clone(), None).unwrap(),
+            UserDataCompareAndSwapResult::Written { revision: 1 }
+        );
+        assert_eq!(
+            compare_and_swap_user_data(&data_path, 0, committed.clone(), None).unwrap(),
+            UserDataCompareAndSwapResult::Conflict {
+                document: UserDataDocument {
+                    revision: 1,
+                    data: committed,
+                },
+            }
         );
     }
 

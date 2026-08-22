@@ -49,6 +49,7 @@ import {
   getElementHeadingRadians,
   getElementPosition,
   getRenderableElementPositions,
+  fieldImageStageRect,
   modelToStagePoint,
   type CanvasSize,
   type FieldViewport,
@@ -296,16 +297,15 @@ export class PixiPathRenderer {
       return;
     }
 
-    const rect = getAspectFitRect(
-      this.fieldSprite.texture.width,
-      this.fieldSprite.texture.height,
-      viewport.x,
-      viewport.y,
-      viewport.width,
-      viewport.height,
-    );
-    if (rect) {
+    if (
+      this.fieldSprite.texture.width > 0 &&
+      this.fieldSprite.texture.height > 0
+    ) {
+      const rect = fieldImageStageRect(viewport);
       this.fieldSprite.visible = true;
+      // Field geometry defines the image's calibrated coordinate rectangle.
+      // Drawing into that exact rectangle keeps paths and pixels aligned even
+      // when an uncalibrated upload has a different source aspect ratio.
       this.fieldSprite.x = rect.x;
       this.fieldSprite.y = rect.y;
       this.fieldSprite.width = rect.width;
@@ -1978,33 +1978,6 @@ function rotationHandlePoint(
 
 function rotationHandleRadius(viewport: FieldViewport): number {
   return Math.max(42, Math.min(64, viewport.scale * 0.36));
-}
-
-function getAspectFitRect(
-  sourceWidth: number,
-  sourceHeight: number,
-  targetX: number,
-  targetY: number,
-  targetWidth: number,
-  targetHeight: number,
-): { x: number; y: number; width: number; height: number } | null {
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    return null;
-  }
-
-  const scale = Math.min(
-    targetWidth / sourceWidth,
-    targetHeight / sourceHeight,
-  );
-  const width = sourceWidth * scale;
-  const height = sourceHeight * scale;
-
-  return {
-    x: targetX + Math.max(0, (targetWidth - width) / 2),
-    y: targetY + targetHeight - height,
-    width,
-    height,
-  };
 }
 
 function poseAtOrBefore(result: SimResult, timeS: number) {

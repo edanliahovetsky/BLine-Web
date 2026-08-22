@@ -4,6 +4,12 @@ import {
 } from "../config/projectConfig";
 import { createProject, type Project } from "../model/project";
 import {
+  createPathId,
+  createWorkspaceId,
+  normalizePathFileName,
+  pathDisplayNameFromFileName,
+} from "../model/projectIdentity";
+import {
   isRangedConstraintKey,
   rangedConstraintKeys,
   type PathModel,
@@ -21,13 +27,7 @@ import type {
   SerializedLinkedTarget,
 } from "./projectSchema";
 import { deserializePath, serializePath } from "./projectSerde";
-import {
-  createPathId,
-  createWorkspaceId,
-  applyPathEditorMetadata,
-  displayNameFromFileName,
-  ensureJsonFileName,
-} from "./workspaceSerde";
+import { applyPathEditorMetadata } from "./workspaceSerde";
 
 export const projectFilesSchemaVersion = 1;
 
@@ -99,7 +99,7 @@ export function serializeProjectFiles(project: Project): ProjectTextFile[] {
     textFile("project.json", `${JSON.stringify(metadata, null, 2)}\n`),
     ...project.paths.map((path) =>
       textFile(
-        `paths/${ensureJsonFileName(path.file_name)}`,
+        `paths/${normalizePathFileName(path.file_name)}`,
         stringifyBLineJson(serializePath(path.path)),
       ),
     ),
@@ -218,7 +218,7 @@ function serializeProjectFileMetadata(
       return {
         path_id: path.path_id,
         display_name: path.display_name,
-        file_name: ensureJsonFileName(path.file_name),
+        file_name: normalizePathFileName(path.file_name),
         ...(editorMetadata ? { editor_metadata: editorMetadata } : {}),
       };
     }),
@@ -341,10 +341,12 @@ function deserializeRuntimeOnlyProject(
     display_name: options.fallbackDisplayName ?? "Imported Project",
     config,
     paths: pathFiles.map(([relativePath, text], index) => {
-      const fileName = ensureJsonFileName(relativePath.slice("paths/".length));
+      const fileName = normalizePathFileName(
+        relativePath.slice("paths/".length),
+      );
       return {
         path_id: options.fallbackPathId?.(fileName, index) ?? createPathId(),
-        display_name: displayNameFromFileName(fileName),
+        display_name: pathDisplayNameFromFileName(fileName),
         file_name: fileName,
         path: deserializePath(
           parseJson(text),
@@ -450,7 +452,7 @@ function isProjectFilePath(input: unknown): boolean {
     !isNonEmptyString(input.path_id) ||
     !isNonEmptyString(input.display_name) ||
     !isNonEmptyString(input.file_name) ||
-    input.file_name !== ensureJsonFileName(input.file_name)
+    input.file_name !== normalizePathFileName(input.file_name)
   ) {
     return false;
   }

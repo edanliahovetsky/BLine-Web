@@ -1,6 +1,13 @@
 import { createPathModel, type PathModel } from "./path";
 import { syncLinkedTargetElementsInProject } from "../linkedTargets";
 import {
+  createPathGroupId,
+  createPathId,
+  normalizePathFileName,
+  pathDisplayNameFromFileName,
+  pathFileNameFromDisplayName,
+} from "./projectIdentity";
+import {
   cloneProject,
   type Project,
   type ProjectPath,
@@ -25,11 +32,13 @@ export function addPathToProject(
     display_name: input.display_name,
     file_name: uniquePathFileName(
       project.paths,
-      ensureJsonFileName(input.file_name ?? input.display_name),
+      input.file_name
+        ? normalizePathFileName(input.file_name)
+        : pathFileNameFromDisplayName(input.display_name),
     ),
     path: structuredClone(input.path ?? createPathModel()),
   };
-  path.display_name ||= displayNameFromFileName(path.file_name);
+  path.display_name ||= pathDisplayNameFromFileName(path.file_name);
   const pathGroups = project.path_groups.map((group) =>
     input.addToGroupId && group.group_id === input.addToGroupId
       ? { ...group, path_ids: uniqueStrings([...group.path_ids, path.path_id]) }
@@ -53,7 +62,7 @@ export function renamePathInProject(
 ): Project {
   const nextFileName = uniquePathFileName(
     project.paths.filter((path) => path.path_id !== pathId),
-    ensureJsonFileName(name),
+    pathFileNameFromDisplayName(name),
   );
   return {
     ...cloneProject(project),
@@ -61,7 +70,7 @@ export function renamePathInProject(
       path.path_id === pathId
         ? {
             ...structuredClone(path),
-            display_name: name || displayNameFromFileName(nextFileName),
+            display_name: name || pathDisplayNameFromFileName(nextFileName),
             file_name: nextFileName,
           }
         : structuredClone(path),
@@ -81,7 +90,6 @@ export function duplicatePathInProject(
   }
   const added = addPathToProject(project, {
     display_name: name,
-    file_name: name,
     path: source.path,
     addToGroupId,
   });
@@ -216,19 +224,9 @@ function createBlankPath(): ProjectPath {
   return {
     path_id: createPathId(),
     display_name: "new path",
-    file_name: "new_path.json",
+    file_name: pathFileNameFromDisplayName("new path"),
     path: createPathModel(),
   };
-}
-
-function ensureJsonFileName(value: string): string {
-  const cleaned =
-    safeFileStem(value.replace(/\.json$/i, "")) || "untitled-path";
-  return `${cleaned}.json`;
-}
-
-function displayNameFromFileName(fileName: string): string {
-  return fileName.replace(/\.json$/i, "").replace(/[-_]+/g, " ");
 }
 
 function uniquePathFileName(
@@ -251,27 +249,6 @@ function uniquePathFileName(
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
-}
-
-function safeFileStem(value: string): string {
-  return (
-    value
-      .trim()
-      .replace(/\\/g, "/")
-      .split("/")
-      .filter(Boolean)
-      .at(-1)
-      ?.replace(/[^a-zA-Z0-9_.-]+/g, "_")
-      .replace(/^_+|_+$/g, "") ?? ""
-  );
-}
-
-function createPathId(): string {
-  return `path-${randomId()}`;
-}
-
-function createPathGroupId(): string {
-  return `group-${randomId()}`;
 }
 
 function randomId(): string {

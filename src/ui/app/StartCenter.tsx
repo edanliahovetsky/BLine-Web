@@ -4,7 +4,7 @@ import {
   FolderOpen,
   FlaskConical,
 } from "lucide-react";
-import type { ProjectWorkspaceSummary } from "../../storage";
+import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
 import { parseProjectTimestamp } from "./projectTimestamp";
 
 export function StartCenter({

@@ -6,13 +6,11 @@ import type {
   SerializedPathDocument,
 } from "./projectSchema";
 import type { Project } from "../model/project";
+import { normalizePathFileName } from "../model/projectIdentity";
 import { openProjectFromLegacyWorkspace } from "./legacyWorkspace";
 import { serializePathEditorMetadata } from "./pathEditorMetadata";
 import { serializePath } from "./projectSerde";
-import {
-  deserializeProjectWorkspaceDocument,
-  ensureJsonFileName,
-} from "./workspaceSerde";
+import { deserializeProjectWorkspaceDocument } from "./workspaceSerde";
 
 export const blineProjectArchiveSchemaVersion = 1;
 
@@ -108,7 +106,9 @@ export function createBLineProjectArchive(
     exported_at: exportedAt,
     config: projectConfigWithoutField(project.config),
     paths: project.paths.map((path, index) => ({
-      file_name: ensureJsonFileName(path.file_name || `path-${index + 1}.json`),
+      file_name: normalizePathFileName(
+        path.file_name || `path-${index + 1}.json`,
+      ),
       display_name: path.display_name,
       path: serializePath(path.path),
       editor_metadata: serializePathEditorMetadata(path.path),
@@ -120,7 +120,7 @@ export function createBLineProjectArchive(
         const path = project.paths.find(
           (candidate) => candidate.path_id === pathId,
         );
-        return path ? [ensureJsonFileName(path.file_name)] : [];
+        return path ? [normalizePathFileName(path.file_name)] : [];
       }),
     })),
     linked_targets: project.linked_targets.map((target) => ({

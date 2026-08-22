@@ -1,4 +1,8 @@
-import type { UserDataAdapter, UserDataStorage } from "./adapters";
+import type {
+  UserDataAdapter,
+  UserDataStorage,
+  VersionedUserData,
+} from "./adapters";
 import {
   InvalidUserDataRecordError,
   UnsupportedUserDataVersionError,
@@ -60,6 +64,18 @@ export class UserDataVerificationError extends Error {
   }
 }
 
+class UserDataWriteOutcomeUnknownError extends Error {
+  constructor(readonly writeError: unknown) {
+    super(
+      writeError instanceof Error
+        ? writeError.message
+        : "User Data write outcome is unknown",
+      { cause: writeError },
+    );
+    this.name = "UserDataWriteOutcomeUnknownError";
+  }
+}
+
 export class ProjectViewMigrationError extends Error {
   constructor(legacyPathReference: string) {
     super(
@@ -71,6 +87,8 @@ export class ProjectViewMigrationError extends Error {
 
 export class UserDataService {
   private snapshot = cloneUserData(defaultUserData);
+  private durableSnapshot = cloneUserData(defaultUserData);
+  private storageRevision = 0;
   private pendingWrite: Promise<void> = Promise.resolve();
   private snapshotRevision = 0;
   private durableRevision = -1;
@@ -89,14 +107,15 @@ export class UserDataService {
       return this.getSnapshot();
     }
 
-    let persisted: unknown | null;
+    let document: VersionedUserData | null;
     try {
-      persisted = await this.adapter.read();
+      document = await this.adapter.read();
     } catch {
       this.writable = false;
       this.initialized = true;
       return this.getSnapshot();
     }
+    const persisted = document?.data ?? null;
     if (persisted !== null && !isUserDataRecord(persisted)) {
       this.writable = false;
       this.initialized = true;
@@ -119,6 +138,8 @@ export class UserDataService {
     }
 
     this.initialized = true;
+    this.storageRevision = document?.revision ?? 0;
+    this.durableSnapshot = cloneUserData(this.snapshot);
     const requiresNormalizationWrite = !sameUserData(persisted, this.snapshot);
     if (!requiresNormalizationWrite) {
       this.durableRevision = this.snapshotRevision;
@@ -169,9 +190,19 @@ export class UserDataService {
 
   async verifyDurableSnapshot(): Promise<void> {
     await this.flush();
-    const persisted = migrateUserData(await this.adapter.read());
-    if (!sameUserData(persisted, this.snapshot)) {
+    const document = await this.adapter.read();
+    const persisted = migrateUserData(document?.data ?? null);
+    if ((document?.revision ?? 0) < this.storageRevision) {
       throw new UserDataVerificationError();
+    }
+    if (!sameUserData(persisted, this.durableSnapshot)) {
+      this.snapshot = mergeConcurrentUserData(
+        this.durableSnapshot,
+        this.snapshot,
+        persisted,
+      );
+      this.durableSnapshot = persisted;
+      this.storageRevision = document?.revision ?? 0;
     }
   }
 
@@ -205,7 +236,8 @@ export class UserDataService {
       // First make the stable key durable without removing the legacy key.
       // A crash or failed verification can therefore retry without losing the
       // only copy of the user's last-open Path or Field Background selection.
-      await this.writeVerifiedSnapshot(staged);
+      const durableStaged = await this.writeVerifiedSnapshot(staged);
+      this.acceptDurableSnapshot(staged, durableStaged);
       this.snapshot = migrateProjectViewSnapshot(
         this.snapshot,
         legacyProjectId,
@@ -222,7 +254,8 @@ export class UserDataService {
         pathIdByLegacyReference,
         true,
       );
-      await this.writeVerifiedSnapshot(cleaned);
+      const durableCleaned = await this.writeVerifiedSnapshot(cleaned);
+      this.acceptDurableSnapshot(cleaned, durableCleaned);
       this.snapshot = migrateProjectViewSnapshot(
         this.snapshot,
         legacyProjectId,
@@ -240,8 +273,9 @@ export class UserDataService {
     this.assertWritable();
     const entryId = this.allocateEntryId();
     const bytes = new Uint8Array(input.bytes);
-    return this.enqueue(() =>
-      this.commitNewField(entryId, input, bytes, false),
+    return this.enqueue(
+      async () =>
+        (await this.commitNewField(entryId, input, bytes, false)).entry,
     );
   }
 
@@ -284,10 +318,7 @@ export class UserDataService {
         throw new Error("Duplicate legacy Field Background ID");
       }
       this.issuedEntryIds.add(entryId);
-      return {
-        entry: await this.commitNewField(entryId, input, bytes, true),
-        created: true,
-      };
+      return this.commitNewField(entryId, input, bytes, true);
     });
   }
 
@@ -333,21 +364,13 @@ export class UserDataService {
       });
       const writtenRevision = this.snapshotRevision;
       const next = updateFieldEntry(this.snapshot, entryId, updated);
-      try {
-        await this.adapter.write(next);
-      } catch (error) {
-        let persisted: UserData;
-        try {
-          persisted = migrateUserData(await this.adapter.read());
-        } catch {
-          throw error;
-        }
-        const durableEntry = persisted.field_backgrounds.find(
-          (entry) => entry.id === entryId,
-        );
-        if (!durableEntry || !sameUserData(durableEntry, updated)) {
-          throw error;
-        }
+      const durable = await this.persistWithRetry(next);
+      this.acceptDurableSnapshot(next, durable);
+      const durableEntry = durable.field_backgrounds.find(
+        (entry) => entry.id === entryId,
+      );
+      if (!durableEntry) {
+        throw new UserDataVerificationError();
       }
       this.snapshot = updateFieldEntry(this.snapshot, entryId, updated);
       this.recordDurableWrite(writtenRevision);
@@ -378,21 +401,11 @@ export class UserDataService {
       const writtenRevision = this.snapshotRevision;
       const entryIds = new Set([entryId]);
       const next = removeFieldEntries(this.snapshot, entryIds);
-      let writeError: unknown;
-      try {
-        await this.adapter.write(next);
-      } catch (error) {
-        writeError = error;
-      }
-      let persisted: UserData;
-      try {
-        persisted = migrateUserData(await this.adapter.read());
-      } catch (error) {
-        throw writeError ?? error;
-      }
+      const persisted = await this.persistWithRetry(next);
       if (!fieldEntriesAreRemoved(persisted, entryIds)) {
-        throw writeError ?? new UserDataVerificationError();
+        throw new UserDataVerificationError();
       }
+      this.acceptDurableSnapshot(next, persisted);
       this.snapshot = removeFieldEntries(this.snapshot, entryIds);
       this.recordDurableWrite(writtenRevision);
       this.issuedEntryIds.delete(entryId);
@@ -417,7 +430,8 @@ export class UserDataService {
         ownedSelection,
         priorSelection,
       );
-      await this.writeVerifiedSnapshot(next);
+      const durable = await this.writeVerifiedSnapshot(next);
+      this.acceptDurableSnapshot(next, durable);
       this.snapshot = rollbackImportedFields(
         this.snapshot,
         ownedEntryIds,
@@ -444,7 +458,8 @@ export class UserDataService {
       const snapshot = this.getSnapshot();
       const revision = this.snapshotRevision;
       try {
-        await this.writeQueuedSnapshot(snapshot);
+        const durable = await this.writeQueuedSnapshot(snapshot);
+        this.acceptDurableSnapshot(snapshot, durable);
         this.recordDurableWrite(revision);
       } catch (error) {
         this.recordWriteFailure(revision, error);
@@ -464,7 +479,7 @@ export class UserDataService {
     input: CreateFieldBackgroundInput,
     bytes: Uint8Array,
     releaseReservationForDeterministicRetry: boolean,
-  ): Promise<FieldBackgroundEntry> {
+  ): Promise<LegacyFieldBackgroundMigration> {
     const entry = this.normalizedEntry({
       id: entryId,
       name: input.name,
@@ -487,41 +502,53 @@ export class UserDataService {
       entry,
     ]);
     const writtenRevision = this.snapshotRevision;
+    let durable: UserData;
     try {
-      await this.adapter.write(next);
+      durable = await this.persistWithRetry(next);
     } catch (error) {
-      let persisted: UserData;
-      try {
-        persisted = migrateUserData(await this.adapter.read());
-      } catch {
-        // The asset may already be referenced durably. Deterministic imports
-        // can safely reclaim the same identity and bytes; ordinary creates
-        // retain their reservation so a random collision cannot replace it.
-        if (releaseReservationForDeterministicRetry) {
-          this.issuedEntryIds.delete(entryId);
+      if (!(error instanceof UserDataWriteOutcomeUnknownError)) {
+        try {
+          const document = await this.adapter.read();
+          const persisted = migrateUserData(document?.data ?? null);
+          if (
+            !persisted.field_backgrounds.some(
+              (candidate) => candidate.id === entryId,
+            )
+          ) {
+            await this.deleteAssetBestEffort(entryId);
+            this.issuedEntryIds.delete(entryId);
+          }
+        } catch {
+          // Keep possibly referenced bytes when the metadata outcome is unknown.
         }
-        throw error;
       }
-      const durableEntry = persisted.field_backgrounds.find(
-        (candidate) => candidate.id === entryId,
-      );
-      if (!durableEntry) {
-        await this.deleteAssetBestEffort(entryId);
+      // The asset may already be referenced durably. Deterministic imports can
+      // safely reclaim the same identity and bytes; ordinary creates retain
+      // their reservation so a random collision cannot replace it.
+      if (releaseReservationForDeterministicRetry) {
         this.issuedEntryIds.delete(entryId);
-        throw error;
       }
-      if (!sameUserData(durableEntry, entry)) {
-        throw error;
-      }
-      this.snapshot = addFieldEntry(this.snapshot, entry);
-      this.recordDurableWrite(writtenRevision);
-      return structuredClone(entry);
+      throw error;
     }
-
+    this.acceptDurableSnapshot(next, durable);
+    const durableEntry = durable.field_backgrounds.find(
+      (candidate) => candidate.id === entryId,
+    );
+    if (!durableEntry) {
+      throw new UserDataVerificationError();
+    }
+    if (!sameUserData(durableEntry, entry)) {
+      if (!releaseReservationForDeterministicRetry) {
+        throw new Error(`Duplicate Field Background ID ${entryId}`);
+      }
+      this.recordDurableWrite(writtenRevision);
+      await this.verifyDurableEntry(durableEntry);
+      return { entry: structuredClone(durableEntry), created: false };
+    }
     this.snapshot = addFieldEntry(this.snapshot, entry);
     this.recordDurableWrite(writtenRevision);
     await this.verifyDurableEntry(entry);
-    return structuredClone(entry);
+    return { entry: structuredClone(entry), created: true };
   }
 
   private async writeVerifiedAsset(
@@ -536,7 +563,8 @@ export class UserDataService {
   }
 
   private async verifyDurableEntry(entry: FieldBackgroundEntry): Promise<void> {
-    const persisted = migrateUserData(await this.adapter.read());
+    const document = await this.adapter.read();
+    const persisted = migrateUserData(document?.data ?? null);
     const durableEntry = persisted.field_backgrounds.find(
       (candidate) => candidate.id === entry.id,
     );
@@ -545,16 +573,69 @@ export class UserDataService {
     }
   }
 
-  private async writeVerifiedSnapshot(snapshot: UserData): Promise<void> {
-    await this.adapter.write(snapshot);
-    const persisted = migrateUserData(await this.adapter.read());
-    if (!sameUserData(persisted, snapshot)) {
-      throw new UserDataVerificationError();
-    }
+  private async writeVerifiedSnapshot(snapshot: UserData): Promise<UserData> {
+    return this.persistWithRetry(snapshot);
   }
 
-  private async writeQueuedSnapshot(snapshot: UserData): Promise<void> {
-    await this.adapter.write(migrateUserData(snapshot));
+  private async writeQueuedSnapshot(snapshot: UserData): Promise<UserData> {
+    return this.persistWithRetry(migrateUserData(snapshot));
+  }
+
+  private async persistWithRetry(initial: UserData): Promise<UserData> {
+    let base = this.durableSnapshot;
+    let desired = migrateUserData(initial);
+    let expectedRevision = this.storageRevision;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        const result = await this.adapter.compareAndSwap(
+          expectedRevision,
+          desired,
+        );
+        if (result.status === "written") {
+          this.storageRevision = result.revision;
+          this.durableSnapshot = cloneUserData(desired);
+          return desired;
+        }
+        const remote = migrateUserData(result.document.data);
+        expectedRevision = result.document.revision;
+        desired = mergeConcurrentUserData(base, desired, remote);
+        base = remote;
+        continue;
+      } catch (error) {
+        lastError = error;
+        let document: VersionedUserData | null;
+        try {
+          document = await this.adapter.read();
+        } catch {
+          throw new UserDataWriteOutcomeUnknownError(error);
+        }
+        if (!document || document.revision <= expectedRevision) {
+          throw error;
+        }
+        const remote = migrateUserData(document.data);
+        if (
+          sameUserData(mergeConcurrentUserData(base, desired, remote), remote)
+        ) {
+          this.storageRevision = document.revision;
+          this.durableSnapshot = cloneUserData(remote);
+          return remote;
+        }
+        expectedRevision = document.revision;
+        desired = mergeConcurrentUserData(base, desired, remote);
+        base = remote;
+      }
+    }
+    throw lastError ?? new UserDataVerificationError();
+  }
+
+  private acceptDurableSnapshot(desired: UserData, durable: UserData): void {
+    this.snapshot = mergeConcurrentUserData(desired, this.snapshot, durable);
+    this.durableSnapshot = cloneUserData(durable);
+    for (const entry of durable.field_backgrounds) {
+      this.issuedEntryIds.add(entry.id);
+    }
   }
 
   private recordDurableWrite(revision: number): void {
@@ -724,6 +805,196 @@ function fieldEntriesAreRemoved(
         !entryIds.has(view.selected_field_background_id),
     )
   );
+}
+
+function mergeConcurrentUserData(
+  base: UserData,
+  local: UserData,
+  remote: UserData,
+): UserData {
+  const fieldBackgrounds = mergeFieldBackgrounds(
+    base.field_backgrounds,
+    local.field_backgrounds,
+    remote.field_backgrounds,
+  );
+  const deletedFieldIds = new Set(
+    base.field_backgrounds
+      .map((entry) => entry.id)
+      .filter(
+        (entryId) =>
+          !local.field_backgrounds.some((entry) => entry.id === entryId) ||
+          !remote.field_backgrounds.some((entry) => entry.id === entryId),
+      ),
+  );
+  const projectViews = mergeRecord(
+    base.project_views,
+    local.project_views,
+    remote.project_views,
+    (baseView, localView, remoteView) =>
+      mergeOptionalRecord(baseView, localView, remoteView),
+  );
+  for (const [projectId, view] of Object.entries(projectViews)) {
+    if (
+      view.selected_field_background_id &&
+      deletedFieldIds.has(view.selected_field_background_id)
+    ) {
+      const cleaned = { ...view };
+      delete cleaned.selected_field_background_id;
+      if (Object.keys(cleaned).length === 0) {
+        delete projectViews[projectId];
+      } else {
+        projectViews[projectId] = cleaned;
+      }
+    }
+  }
+
+  return migrateUserData({
+    ...remote,
+    editor_layout: {
+      inspector_tab: mergeValue(
+        base.editor_layout.inspector_tab,
+        local.editor_layout.inspector_tab,
+        remote.editor_layout.inspector_tab,
+      ),
+      inspector_width: mergeValue(
+        base.editor_layout.inspector_width,
+        local.editor_layout.inspector_width,
+        remote.editor_layout.inspector_width,
+      ),
+      show_ghost_paths: mergeValue(
+        base.editor_layout.show_ghost_paths,
+        local.editor_layout.show_ghost_paths,
+        remote.editor_layout.show_ghost_paths,
+      ),
+    },
+    // Tour completion is monotonic; concurrent tabs completing different tours
+    // should retain both accomplishments.
+    completed_tour_ids: [
+      ...new Set([...remote.completed_tour_ids, ...local.completed_tour_ids]),
+    ],
+    automatic_generation: {
+      keep_in_sync: mergeValue(
+        base.automatic_generation.keep_in_sync,
+        local.automatic_generation.keep_in_sync,
+        remote.automatic_generation.keep_in_sync,
+      ),
+    },
+    project_views: projectViews,
+    field_backgrounds: fieldBackgrounds,
+  });
+}
+
+function mergeFieldBackgrounds(
+  baseEntries: readonly FieldBackgroundEntry[],
+  localEntries: readonly FieldBackgroundEntry[],
+  remoteEntries: readonly FieldBackgroundEntry[],
+): FieldBackgroundEntry[] {
+  const base = new Map(baseEntries.map((entry) => [entry.id, entry]));
+  const local = new Map(localEntries.map((entry) => [entry.id, entry]));
+  const remote = new Map(remoteEntries.map((entry) => [entry.id, entry]));
+  const merged = new Map<string, FieldBackgroundEntry>();
+  const ids = new Set([...base.keys(), ...local.keys(), ...remote.keys()]);
+
+  for (const id of ids) {
+    const baseEntry = base.get(id);
+    const localEntry = local.get(id);
+    const remoteEntry = remote.get(id);
+    if (baseEntry && (!localEntry || !remoteEntry)) {
+      // Once either owner deletes durable metadata, a stale full-document write
+      // must not resurrect it (or its Project selection).
+      continue;
+    }
+    if (!localEntry) {
+      if (remoteEntry) merged.set(id, remoteEntry);
+      continue;
+    }
+    if (!remoteEntry) {
+      merged.set(id, localEntry);
+      continue;
+    }
+    if (!baseEntry) {
+      // The remote CAS winner owns a concurrently allocated identity. Equal
+      // deterministic imports converge; a divergent random-ID collision is
+      // surfaced by the caller rather than replacing the winner's metadata.
+      merged.set(id, remoteEntry);
+      continue;
+    }
+    merged.set(
+      id,
+      sameUserData(baseEntry, localEntry) ? remoteEntry : localEntry,
+    );
+  }
+  return [...merged.values()].map((entry) => structuredClone(entry));
+}
+
+function mergeOptionalRecord<T extends object>(
+  base: T | undefined,
+  local: T | undefined,
+  remote: T | undefined,
+): T | undefined {
+  if (base && (!local || !remote)) {
+    return undefined;
+  }
+  if (!local) return remote;
+  if (!remote) return local;
+  const result: Record<string, unknown> = {};
+  const keys = new Set([
+    ...Object.keys(base ?? {}),
+    ...Object.keys(local),
+    ...Object.keys(remote),
+  ]);
+  for (const key of keys) {
+    const baseRecord = base as Record<string, unknown> | undefined;
+    const localRecord = local as Record<string, unknown>;
+    const remoteRecord = remote as Record<string, unknown>;
+    const baseHas = baseRecord ? Object.hasOwn(baseRecord, key) : false;
+    const localHas = Object.hasOwn(localRecord, key);
+    const remoteHas = Object.hasOwn(remoteRecord, key);
+    if (baseHas && (!localHas || !remoteHas)) continue;
+    if (!localHas) {
+      if (remoteHas) result[key] = remoteRecord[key];
+      continue;
+    }
+    if (!remoteHas) {
+      result[key] = localRecord[key];
+      continue;
+    }
+    result[key] = mergeValue(
+      baseRecord?.[key],
+      localRecord[key],
+      remoteRecord[key],
+    );
+  }
+  return result as T;
+}
+
+function mergeRecord<T extends object>(
+  base: Record<string, T>,
+  local: Record<string, T>,
+  remote: Record<string, T>,
+  mergeEntry: (
+    baseEntry: T | undefined,
+    localEntry: T | undefined,
+    remoteEntry: T | undefined,
+  ) => T | undefined,
+): Record<string, T> {
+  const result: Record<string, T> = {};
+  const keys = new Set([
+    ...Object.keys(base),
+    ...Object.keys(local),
+    ...Object.keys(remote),
+  ]);
+  for (const key of keys) {
+    const entry = mergeEntry(base[key], local[key], remote[key]);
+    if (entry) result[key] = entry;
+  }
+  return result;
+}
+
+function mergeValue<T>(base: T, local: T, remote: T): T {
+  return sameUserData(base, local)
+    ? structuredClone(remote)
+    : structuredClone(local);
 }
 
 function rollbackImportedFields(

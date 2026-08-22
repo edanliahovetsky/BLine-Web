@@ -27,7 +27,9 @@ class MemoryUserDataAdapter implements UserDataAdapter {
     return null;
   }
 
-  async write(): Promise<void> {}
+  async compareAndSwap(expectedRevision: number) {
+    return { status: "written" as const, revision: expectedRevision + 1 };
+  }
 
   async writeFieldAsset(entryId: string, bytes: Uint8Array): Promise<void> {
     this.assets.set(entryId, new Uint8Array(bytes));
@@ -62,7 +64,9 @@ export async function initializeUserData(
     capabilities.shell === "tauri"
       ? new TauriUserDataAdapter(options.tauriInvoke)
       : new BrowserUserDataAdapter({
-          storage: legacyStorage,
+          ...(options.browserStorage === undefined
+            ? {}
+            : { storage: options.browserStorage }),
           assetDbName: options.browserAssetDbName,
         });
   runtimeUserData = new UserDataService(adapter, {

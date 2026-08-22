@@ -6,6 +6,7 @@ import {
   createTranslationTarget,
   createWaypoint,
 } from "../../core/model/path";
+import { pathFileNameFromDisplayName } from "../../core/model/projectIdentity";
 
 function createExampleCanvasPath() {
   return createPathModel({
@@ -81,7 +82,7 @@ export function createNamedProject(
   const path = {
     path_id: pathId,
     display_name: pathName.trim() || "Path 1",
-    file_name: `${safePathFileStem(pathName) || "path-1"}.json`,
+    file_name: pathFileNameFromDisplayName(pathName.trim() || "Path 1"),
     path: createBlankCanvasPath(),
   };
 
@@ -105,12 +106,4 @@ export function createSampleProject(now = new Date()) {
       path: createExampleCanvasPath(),
     })),
   };
-}
-
-function safePathFileStem(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
