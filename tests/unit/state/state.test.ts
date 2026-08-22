@@ -342,9 +342,14 @@ describe("project store", () => {
     expect(store.getState().dirty).toBe(true);
   });
 
-  it("keeps path navigation changes outside undo history", async () => {
+  it("keeps path navigation outside save state while preserving undo history", async () => {
     const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
     const firstPathId = requireWorkspace(store).paths[0].path_id;
+
+    store.getState().setActivePath(firstPathId);
+    expect(requireWorkspace(store).active_path_id).toBe(firstPathId);
+    expect(store.getState().dirty).toBe(false);
+    expect(store.getState().history.getState().canUndo).toBe(false);
 
     store.getState().createPath({ displayName: "Third Path" });
     expect(store.getState().history.getState().canUndo).toBe(true);
@@ -352,7 +357,11 @@ describe("project store", () => {
     store.getState().setActivePath(firstPathId);
 
     expect(requireWorkspace(store).active_path_id).toBe(firstPathId);
-    expect(store.getState().history.getState().canUndo).toBe(false);
+    expect(store.getState().dirty).toBe(true);
+    expect(store.getState().history.getState().canUndo).toBe(true);
+
+    store.getState().undo();
+    expect(requireWorkspace(store).paths).toHaveLength(2);
   });
 
   it("continues undoing membership edits after restoring a deleted collection and member paths", async () => {

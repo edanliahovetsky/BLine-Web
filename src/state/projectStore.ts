@@ -353,14 +353,12 @@ export function createProjectStore(
         ...workspace,
         active_path_id: pathId,
       });
-      history.getState().clear();
-      setWorkspace(set, nextWorkspace, true);
+      setWorkspace(set, nextWorkspace, get().dirty);
     },
     setActivePathGroup(groupId) {
       const workspace = requireWorkspace(get().workspace);
       const nextWorkspace = setActivePathGroupInWorkspace(workspace, groupId);
-      history.getState().clear();
-      setWorkspace(set, nextWorkspace, true);
+      setWorkspace(set, nextWorkspace, get().dirty);
     },
     createPath(input) {
       const workspace = requireWorkspace(get().workspace);
