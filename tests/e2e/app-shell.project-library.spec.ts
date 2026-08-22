@@ -141,7 +141,7 @@ test("uses the linked-elements layout across desktop and narrow viewports", asyn
     )
     .toBe(3);
 
-  await page.setViewportSize({ width: 800, height: 720 });
+  await page.setViewportSize({ width: 900, height: 720 });
 
   const narrowViewport = page.viewportSize();
   expect(narrowViewport?.width).toBeLessThanOrEqual(980);
@@ -150,6 +150,7 @@ test("uses the linked-elements layout across desktop and narrow viewports", asyn
   expect(narrowDialogBox.x + narrowDialogBox.width).toBeLessThanOrEqual(
     (narrowViewport?.width ?? 0) - 16,
   );
+  expect(narrowDialogBox.width).toBeLessThanOrEqual(760);
   const sections = body.locator(":scope > *");
   await expect
     .poll(async () => {

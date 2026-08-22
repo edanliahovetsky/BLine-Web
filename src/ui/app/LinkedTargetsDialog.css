@@ -153,6 +153,10 @@
 }
 
 @media (max-width: 980px) {
+  .linked-targets-dialog {
+    width: min(760px, calc(100vw - 32px));
+  }
+
   .linked-targets-dialog__body {
     grid-template-columns: 1fr;
     overflow-y: auto;
