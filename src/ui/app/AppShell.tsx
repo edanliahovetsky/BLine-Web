@@ -153,6 +153,7 @@ import {
 } from "../optimizerBeam";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
+import { initializeUserData } from "../../userData";
 import {
   editorBasicsTour,
   findTour,
@@ -384,7 +385,8 @@ export function AppShell() {
 
   useEffect(() => {
     let cancelled = false;
-    const service = createProjectIoService(detectEnvironmentCapabilities());
+    const capabilities = detectEnvironmentCapabilities();
+    const service = createProjectIoService(capabilities);
 
     projectStore.getState().setProjectIoService(service);
 
@@ -392,6 +394,15 @@ export function AppShell() {
       setInitializing(true);
 
       try {
+        const userData = await initializeUserData(capabilities);
+        if (cancelled) {
+          return;
+        }
+        setInspectorWidth(userData.editor_layout.inspector_width);
+        autoVelocityStore
+          .getState()
+          .setAutoSyncEnabled(userData.automatic_generation.keep_in_sync);
+        tourStore.getState().hydrateCompleted(userData.completed_tour_ids);
         await projectStore.getState().initializeWorkspace();
         if (!cancelled) {
           await refreshWorkspaceSummaries(service);

@@ -351,16 +351,13 @@ describe("project store", () => {
   });
 
   it("keeps path navigation outside save state while preserving undo history", async () => {
-    const { store, io } = await initializedProjectStore(
-      exampleTwoPathWorkspace(),
-    );
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
     const firstPathId = requireWorkspace(store).paths[0].path_id;
 
     store.getState().setActivePath(firstPathId);
     expect(requireWorkspace(store).active_path_id).toBe(firstPathId);
     expect(store.getState().dirty).toBe(false);
     expect(store.getState().history.getState().canUndo).toBe(false);
-    expect(io.activePathWrites.at(-1)).toBe(firstPathId);
 
     store.getState().createPath({ displayName: "Third Path" });
     expect(store.getState().history.getState().canUndo).toBe(true);
@@ -876,7 +873,6 @@ class RecordingIo implements ProjectIoService {
     pathName: string;
     expectedVersion: string | undefined;
   }> = [];
-  readonly activePathWrites: Array<string | null> = [];
 
   private workspace: ProjectWorkspaceDocument | null;
   private version: string | undefined = this.initialVersion;
@@ -921,13 +917,6 @@ class RecordingIo implements ProjectIoService {
 
   getLastSavedAt(): string | null {
     return this.updatedAt;
-  }
-
-  async setActivePathId(
-    _projectId: string,
-    pathId: string | null,
-  ): Promise<void> {
-    this.activePathWrites.push(pathId);
   }
 
   async createWorkspace(input: { workspace?: ProjectWorkspaceDocument } = {}) {

@@ -3,6 +3,7 @@ import type {
   JointAutoConstraintSolveStats,
   JointAutoConstraintSolveStatus,
 } from "../core/constraints/autoVelocityConstraints";
+import { rememberAutomaticGenerationKeepInSync } from "../userData";
 
 /**
  * `pending` covers the quiet period after an edit, before the solve starts.
@@ -39,16 +40,21 @@ export interface AutoVelocityState {
 
 export type AutoVelocityStore = StoreApi<AutoVelocityState>;
 
-const autoSyncStorageKey = "bline.autoVelocity.autoSync";
+export interface AutoVelocityStoreOptions {
+  initialAutoSyncEnabled?: boolean;
+  onAutoSyncChange?(enabled: boolean): void;
+}
 
-export function createAutoVelocityStore(): AutoVelocityStore {
+export function createAutoVelocityStore(
+  options: AutoVelocityStoreOptions = {},
+): AutoVelocityStore {
   // Subscribers drive the sync loop, so a write that changes nothing must not
   // notify: an idempotent setPhase would otherwise reschedule the debounce
   // that is trying to fire.
   return createStore<AutoVelocityState>((set, get) => ({
     phase: "idle",
     runSource: null,
-    autoSyncEnabled: readStoredAutoSync(),
+    autoSyncEnabled: options.initialAutoSyncEnabled ?? true,
     lastError: null,
     lastRun: null,
     setPhase(phase, source = null) {
@@ -61,7 +67,7 @@ export function createAutoVelocityStore(): AutoVelocityStore {
       if (get().autoSyncEnabled === enabled) {
         return;
       }
-      writeStoredAutoSync(enabled);
+      options.onAutoSyncChange?.(enabled);
       set({ autoSyncEnabled: enabled });
     },
     setLastError(message) {
@@ -94,28 +100,6 @@ export function autoVelocityIsBusy(state: AutoVelocityState): boolean {
   return state.phase !== "idle";
 }
 
-function readStoredAutoSync(): boolean {
-  if (typeof window === "undefined") {
-    return true;
-  }
-
-  try {
-    return window.localStorage.getItem(autoSyncStorageKey) !== "off";
-  } catch {
-    return true;
-  }
-}
-
-function writeStoredAutoSync(enabled: boolean): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(autoSyncStorageKey, enabled ? "on" : "off");
-  } catch {
-    // A blocked storage quota should not stop the toggle from working.
-  }
-}
-
-export const autoVelocityStore = createAutoVelocityStore();
+export const autoVelocityStore = createAutoVelocityStore({
+  onAutoSyncChange: rememberAutomaticGenerationKeepInSync,
+});

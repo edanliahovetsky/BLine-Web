@@ -1,3 +1,8 @@
+import {
+  readEditorLayoutPreferences,
+  rememberEditorLayoutPreferences,
+} from "../../userData";
+
 export type EditorTool =
   | "select"
   | "waypoint"
@@ -30,17 +35,13 @@ export interface EditorUiPreferencesV1 {
   version: 1;
   inspectorTab: "elements" | "constraints";
   inspectorWidth: number;
-  navigatorPinned: boolean;
   showGhostPaths: boolean;
 }
-
-const editorUiPreferencesKey = "bline-web:ui-preferences:v1";
 
 export const defaultEditorUiPreferences: EditorUiPreferencesV1 = {
   version: 1,
   inspectorTab: "elements",
   inspectorWidth: 340,
-  navigatorPinned: false,
   showGhostPaths: true,
 };
 
@@ -48,49 +49,23 @@ export const inspectorWidthMin = 280;
 export const inspectorWidthMax = 560;
 
 export function readEditorUiPreferences(): EditorUiPreferencesV1 {
-  if (typeof window === "undefined") {
-    return defaultEditorUiPreferences;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(editorUiPreferencesKey);
-    if (!rawValue) {
-      return defaultEditorUiPreferences;
-    }
-
-    const parsed = JSON.parse(rawValue) as Partial<EditorUiPreferencesV1>;
-    return {
-      version: 1,
-      inspectorTab:
-        parsed.inspectorTab === "constraints" ? "constraints" : "elements",
-      inspectorWidth: clampInspectorWidth(parsed.inspectorWidth),
-      navigatorPinned: parsed.navigatorPinned === true,
-      showGhostPaths: parsed.showGhostPaths !== false,
-    };
-  } catch {
-    return defaultEditorUiPreferences;
-  }
+  const preferences = readEditorLayoutPreferences();
+  return {
+    version: 1,
+    inspectorTab: preferences.inspector_tab,
+    inspectorWidth: clampInspectorWidth(preferences.inspector_width),
+    showGhostPaths: preferences.show_ghost_paths,
+  };
 }
 
 export function writeEditorUiPreferences(
   preferences: EditorUiPreferencesV1,
 ): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      editorUiPreferencesKey,
-      JSON.stringify({
-        ...preferences,
-        version: 1,
-        inspectorWidth: clampInspectorWidth(preferences.inspectorWidth),
-      }),
-    );
-  } catch {
-    // Preferences are optional; the editor remains usable without persistence.
-  }
+  rememberEditorLayoutPreferences({
+    inspector_tab: preferences.inspectorTab,
+    inspector_width: clampInspectorWidth(preferences.inspectorWidth),
+    show_ghost_paths: preferences.showGhostPaths,
+  });
 }
 
 export function commandMatchesQuery(

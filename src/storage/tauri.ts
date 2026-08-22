@@ -53,12 +53,6 @@ export class TauriStorage implements ProjectFolderAdapter {
     workspace: ProjectWorkspaceDocument,
     expectedVersion?: string,
   ): Promise<WriteResult> {
-    if (workspace.active_path_id) {
-      await this.setActivePathId(
-        workspace.project_id,
-        workspace.active_path_id,
-      );
-    }
     return this.invoke<WriteResult>("storage_write_workspace", {
       workspace: serializeProjectWorkspaceDocument({
         ...workspace,
@@ -150,16 +144,5 @@ export class TauriStorage implements ProjectFolderAdapter {
         id,
       },
     );
-  }
-
-  async getActivePathId(projectId: string): Promise<string | null> {
-    return this.invoke<string | null>("storage_get_active_path", { projectId });
-  }
-
-  async setActivePathId(
-    projectId: string,
-    pathId: string | null,
-  ): Promise<void> {
-    await this.invoke("storage_set_active_path", { projectId, pathId });
   }
 }

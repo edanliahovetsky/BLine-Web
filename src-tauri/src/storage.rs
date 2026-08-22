@@ -224,29 +224,64 @@ pub fn storage_write_workspace(
 }
 
 #[tauri::command]
-pub fn storage_get_active_path(
-    app: AppHandle,
-    project_id: String,
-) -> Result<Option<String>, String> {
-    let state = read_state(&app)?;
-    Ok(state.active_path_by_project_dir.get(&project_id).cloned())
+pub fn storage_read_user_data(app: AppHandle) -> Result<Option<Value>, String> {
+    let path = user_data_path(&app)?;
+    if let Some(data) = read_recoverable_json(&path)? {
+        return Ok(Some(data));
+    }
+
+    let legacy_state = read_state(&app)?;
+    if legacy_state.active_path_by_project_dir.is_empty() {
+        return Ok(None);
+    }
+    let project_views = legacy_state
+        .active_path_by_project_dir
+        .into_iter()
+        .map(|(project_id, active_path_id)| {
+            (project_id, json!({ "active_path_id": active_path_id }))
+        })
+        .collect::<serde_json::Map<String, Value>>();
+    Ok(Some(json!({
+        "schema_version": 1,
+        "project_views": project_views
+    })))
 }
 
 #[tauri::command]
-pub fn storage_set_active_path(
+pub fn storage_write_user_data(app: AppHandle, data: Value) -> Result<(), String> {
+    write_recoverable_json(&user_data_path(&app)?, &data)
+}
+
+#[tauri::command]
+pub fn storage_write_user_field_asset(
     app: AppHandle,
-    project_id: String,
-    path_id: Option<String>,
+    entry_id: String,
+    bytes: Vec<u8>,
 ) -> Result<(), String> {
-    let mut state = read_state(&app)?;
-    if let Some(path_id) = path_id {
-        state
-            .active_path_by_project_dir
-            .insert(project_id, safe_path_file_name(&path_id)?);
-    } else {
-        state.active_path_by_project_dir.remove(&project_id);
+    write_recoverable_bytes(&user_field_asset_path(&app, &entry_id)?, &bytes)
+}
+
+#[tauri::command]
+pub fn storage_read_user_field_asset(
+    app: AppHandle,
+    entry_id: String,
+) -> Result<Option<Vec<u8>>, String> {
+    read_recoverable_bytes(&user_field_asset_path(&app, &entry_id)?)
+}
+
+#[tauri::command]
+pub fn storage_delete_user_field_asset(app: AppHandle, entry_id: String) -> Result<(), String> {
+    let path = user_field_asset_path(&app, &entry_id)?;
+    for candidate in [
+        path.clone(),
+        sibling_path(&path, ".tmp"),
+        sibling_path(&path, ".bak"),
+    ] {
+        if candidate.exists() {
+            fs::remove_file(candidate).map_err(error_string)?;
+        }
     }
-    write_state(&app, &state)
+    Ok(())
 }
 
 #[tauri::command]
@@ -1620,6 +1655,80 @@ fn state_path(app: &AppHandle) -> Result<PathBuf, String> {
         .join("desktop-storage.json"))
 }
 
+fn user_data_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(error_string)?
+        .join("user-data.json"))
+}
+
+fn user_field_asset_path(app: &AppHandle, entry_id: &str) -> Result<PathBuf, String> {
+    let safe_id = safe_asset_file_name(entry_id)?;
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(error_string)?
+        .join("field-backgrounds")
+        .join(safe_id))
+}
+
+fn read_recoverable_json(path: &Path) -> Result<Option<Value>, String> {
+    read_recoverable_bytes(path)?
+        .map(|raw| serde_json::from_slice(&raw).map_err(error_string))
+        .transpose()
+}
+
+fn write_recoverable_json(path: &Path, value: &Value) -> Result<(), String> {
+    let encoded = serde_json::to_string_pretty(value).map_err(error_string)?;
+    write_recoverable_bytes(path, encoded.as_bytes())
+}
+
+fn read_recoverable_bytes(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    let backup = sibling_path(path, ".bak");
+    if !path.exists() && backup.exists() {
+        fs::rename(&backup, path).map_err(error_string)?;
+    }
+    if !path.exists() {
+        return Ok(None);
+    }
+    fs::read(path).map(Some).map_err(error_string)
+}
+
+fn write_recoverable_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(error_string)?;
+    }
+    let temporary = sibling_path(path, ".tmp");
+    let backup = sibling_path(path, ".bak");
+    fs::write(&temporary, bytes).map_err(error_string)?;
+
+    if !path.exists() {
+        return fs::rename(&temporary, path).map_err(error_string);
+    }
+
+    if backup.exists() {
+        fs::remove_file(&backup).map_err(error_string)?;
+    }
+    fs::rename(path, &backup).map_err(error_string)?;
+    match fs::rename(&temporary, path) {
+        Ok(()) => {
+            fs::remove_file(backup).map_err(error_string)?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::rename(&backup, path);
+            Err(error_string(error))
+        }
+    }
+}
+
+fn sibling_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
 fn absolutize(path: &Path) -> PathBuf {
     if path.is_absolute() {
         return path.to_path_buf();
@@ -2717,6 +2826,60 @@ mod tests {
             serde_json::to_string_pretty(value).expect("fixture JSON"),
         )
         .expect("fixture write");
+    }
+
+    #[test]
+    fn user_data_json_replaces_atomically_and_recovers_backup() {
+        let dir = temp_autos_dir("user-data-atomic");
+        let path = dir.join("user-data.json");
+
+        write_recoverable_json(&path, &json!({ "schema_version": 1, "value": "old" }))
+            .expect("initial user data");
+        write_recoverable_json(&path, &json!({ "schema_version": 1, "value": "new" }))
+            .expect("replacement user data");
+        assert_eq!(
+            read_recoverable_json(&path).expect("read replacement"),
+            Some(json!({ "schema_version": 1, "value": "new" }))
+        );
+        assert!(!sibling_path(&path, ".bak").exists());
+
+        fs::rename(&path, sibling_path(&path, ".bak")).expect("simulate interrupted replace");
+        assert_eq!(
+            read_recoverable_json(&path).expect("recover backup"),
+            Some(json!({ "schema_version": 1, "value": "new" }))
+        );
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn malformed_user_data_is_reported_without_rewriting_source() {
+        let dir = temp_autos_dir("user-data-malformed");
+        let path = dir.join("user-data.json");
+        let malformed = b"{<<<<<<< HEAD";
+        fs::write(&path, malformed).expect("malformed fixture");
+
+        assert!(read_recoverable_json(&path).is_err());
+        assert_eq!(fs::read(&path).expect("preserved source"), malformed);
+    }
+
+    #[test]
+    fn user_field_asset_replaces_and_recovers_independently() {
+        let dir = temp_autos_dir("user-field-asset");
+        let path = dir.join("field-backgrounds").join("field-test");
+
+        write_recoverable_bytes(&path, b"old image").expect("initial asset");
+        write_recoverable_bytes(&path, b"new image").expect("replacement asset");
+        assert_eq!(
+            read_recoverable_bytes(&path).expect("read asset"),
+            Some(b"new image".to_vec())
+        );
+
+        fs::rename(&path, sibling_path(&path, ".bak"))
+            .expect("simulate interrupted asset replacement");
+        assert_eq!(
+            read_recoverable_bytes(&path).expect("recover asset"),
+            Some(b"new image".to_vec())
+        );
     }
 
     fn temp_autos_dir(label: &str) -> PathBuf {

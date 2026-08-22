@@ -1,5 +1,6 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { PathModel } from "../../core/model/path";
+import { rememberCompletedTourIds } from "../../userData";
 
 export type TourPlacement = "above" | "below" | "left" | "right";
 
@@ -66,49 +67,23 @@ export interface TourState {
   goTo(stepIndex: number): void;
   next(stepCount: number): void;
   back(): void;
+  hydrateCompleted(ids: readonly string[]): void;
   finish(): void;
   exit(): void;
 }
 
-const storageKey = "bline-web:tours:v1";
-
-export function readCompletedTourIds(): string[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) {
-      return [];
-    }
-
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((value): value is string => typeof value === "string")
-      : [];
-  } catch {
-    return [];
-  }
+export interface TourStoreOptions {
+  completedTourIds?: readonly string[];
+  onCompletedChange?(ids: readonly string[]): void;
 }
 
-function writeCompletedTourIds(ids: readonly string[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify([...ids]));
-  } catch {
-    // Tour history is a convenience; the editor works without it.
-  }
-}
-
-export function createTourStore(): StoreApi<TourState> {
+export function createTourStore(
+  options: TourStoreOptions = {},
+): StoreApi<TourState> {
   return createStore<TourState>((set, get) => ({
     activeTourId: null,
     stepIndex: 0,
-    completedTourIds: readCompletedTourIds(),
+    completedTourIds: [...new Set(options.completedTourIds ?? [])],
     start(tourId) {
       set({ activeTourId: tourId, stepIndex: 0 });
     },
@@ -126,11 +101,14 @@ export function createTourStore(): StoreApi<TourState> {
     back() {
       set({ stepIndex: Math.max(0, get().stepIndex - 1) });
     },
+    hydrateCompleted(ids) {
+      set({ completedTourIds: [...new Set(ids)] });
+    },
     finish() {
       const { activeTourId, completedTourIds } = get();
       if (activeTourId && !completedTourIds.includes(activeTourId)) {
         const nextCompleted = [...completedTourIds, activeTourId];
-        writeCompletedTourIds(nextCompleted);
+        options.onCompletedChange?.(nextCompleted);
         set({ completedTourIds: nextCompleted });
       }
       set({ activeTourId: null, stepIndex: 0 });
@@ -141,4 +119,6 @@ export function createTourStore(): StoreApi<TourState> {
   }));
 }
 
-export const tourStore = createTourStore();
+export const tourStore = createTourStore({
+  onCompletedChange: rememberCompletedTourIds,
+});

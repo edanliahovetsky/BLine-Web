@@ -32,7 +32,7 @@ import {
 } from "../../../src/storage";
 
 describe("ProjectIoService", () => {
-  it("stores and restores browser workspaces with multiple paths and active path", async () => {
+  it("stores and restores browser Project content without session navigation", async () => {
     const memory = new MemoryStorage();
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
@@ -60,7 +60,7 @@ describe("ProjectIoService", () => {
       "One",
       "Two",
     ]);
-    expect(restored?.active_path_id).toBe(activePathId);
+    expect(restored?.active_path_id).toBe(workspace.paths[0]?.path_id);
   });
 
   it("exposes browser and desktop primary actions from capabilities", () => {

@@ -91,8 +91,6 @@ export interface StorageAdapter {
     assetId: string,
   ): Promise<FieldAssetPayload | null>;
   deleteFieldAsset?(workspaceId: string, assetId: string): Promise<void>;
-  getActivePathId?(projectId: string): Promise<string | null>;
-  setActivePathId?(projectId: string, pathId: string | null): Promise<void>;
 }
 
 export interface CurrentWorkspaceAdapter extends StorageAdapter {

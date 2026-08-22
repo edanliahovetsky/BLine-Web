@@ -52,9 +52,7 @@ describe("BrowserStorage", () => {
       memory.getItem("bline-web:workspace:workspace-a") ?? "null",
     ) as { document: { active_path_id: string | null } };
     expect(storedRecord.document.active_path_id).toBeNull();
-    await expect(storage.getActivePathId("workspace-a")).resolves.toBe(
-      workspace.active_path_id,
-    );
+    expect(memory.getItem("bline-web:editor-user-data:v1")).toBeNull();
 
     await storage.deleteWorkspace("workspace-a", write.version);
 
@@ -220,13 +218,6 @@ describe("TauriStorage", () => {
     await expect(storage.listWorkspaces()).resolves.toHaveLength(1);
 
     expect(calls[0]).toEqual({
-      command: "storage_set_active_path",
-      args: {
-        projectId: "workspace-a",
-        pathId: "path-1",
-      },
-    });
-    expect(calls[1]).toEqual({
       command: "storage_write_workspace",
       args: {
         workspace: persisted,

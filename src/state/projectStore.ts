@@ -45,6 +45,10 @@ import type {
 } from "../platform/projectIo";
 import type { WriteResult } from "../storage/adapter";
 import {
+  activePathForProject as locallyRememberedActivePath,
+  rememberActivePath,
+} from "../userData";
+import {
   createHistoryStore,
   type HistoryCommand,
   type HistoryStore,
@@ -894,7 +898,7 @@ export function createProjectStore(
     }
     rememberedProjectId = projectId;
     rememberedPathId = pathId;
-    void state.io?.setActivePathId?.(projectId, pathId);
+    rememberActivePath(projectId, pathId);
   });
 
   return store;
@@ -1051,7 +1055,14 @@ function adoptWorkspace(
 ): Project {
   history.getState().clear();
   const opened = openProjectFromLegacyWorkspace(workspace);
-  setProject(set, opened.project, opened.navigation, dirty, {
+  const navigation = normalizeEditorNavigation(opened.project, {
+    ...opened.navigation,
+    activePathId: locallyRememberedActivePath(
+      opened.project.project_id,
+      opened.navigation.activePathId,
+    ),
+  });
+  setProject(set, opened.project, navigation, dirty, {
     version: io.getCurrentVersion(),
     lastSavedAt: io.getLastSavedAt(),
   });

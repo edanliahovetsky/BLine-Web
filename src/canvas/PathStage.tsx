@@ -50,7 +50,11 @@ import {
   SkipForwardIcon,
 } from "../ui/icons";
 import { IconButton } from "../ui/controls";
-import type { EditorTool } from "../ui/app/editorCommands";
+import {
+  readEditorUiPreferences,
+  writeEditorUiPreferences,
+  type EditorTool,
+} from "../ui/app/editorCommands";
 import {
   isInteractiveShortcutTarget,
   removeSelectedPathElement,
@@ -176,7 +180,9 @@ export function PathStage({
   const rotationFrameRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
-  const [showGhostPaths, setShowGhostPaths] = useState(true);
+  const [showGhostPaths, setShowGhostPaths] = useState(
+    () => readEditorUiPreferences().showGhostPaths,
+  );
   const [panOffset, setPanOffsetState] = useState<StagePoint>({ x: 0, y: 0 });
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [customFieldImage, setCustomFieldImage] = useState<{
@@ -1512,7 +1518,16 @@ export function PathStage({
           scale={viewScale}
           showGhostPaths={showGhostPaths}
           onFit={resetView}
-          onToggleGhostPaths={() => setShowGhostPaths((current) => !current)}
+          onToggleGhostPaths={() =>
+            setShowGhostPaths((current) => {
+              const next = !current;
+              writeEditorUiPreferences({
+                ...readEditorUiPreferences(),
+                showGhostPaths: next,
+              });
+              return next;
+            })
+          }
           onZoomIn={() => zoomFromCenter(1.25)}
           onZoomOut={() => zoomFromCenter(1 / 1.25)}
         />
