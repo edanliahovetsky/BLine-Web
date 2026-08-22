@@ -8,6 +8,7 @@ import type {
   ProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
 import {
+  activeProjectPath,
   legacyWorkspaceForPersistence,
   legacyWorkspaceFromOpenProject,
   normalizeEditorNavigation,
@@ -18,6 +19,7 @@ import {
   cloneProject,
   type Project,
   type ProjectConfig,
+  type ProjectPath,
 } from "../core/model/project";
 import type { PathModel } from "../core/model/path";
 import {
@@ -851,6 +853,12 @@ export function createProjectStore(
 }
 
 export const projectStore = createProjectStore();
+
+export function activePathForProjectStore(
+  state: Pick<ProjectStoreState, "project" | "activePathId">,
+): ProjectPath | null {
+  return activeProjectPath(state.project, state.activePathId);
+}
 
 export function activePathDocumentForProjectStore(
   state: Pick<

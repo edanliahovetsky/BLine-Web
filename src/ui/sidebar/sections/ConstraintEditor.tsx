@@ -52,11 +52,12 @@ import {
   type AutoVelocityConstraintMetadata,
   type RangedConstraint,
   type RangedConstraintKey,
+  type PathModel,
 } from "../../../core/model/path";
 import { autoVelocityStore } from "../../../state/autoVelocityStore";
 import { generateAutoConstraintsInWorker } from "../../../state/autoConstraintGeneration";
 import {
-  activePathDocumentForProjectStore,
+  activePathForProjectStore,
   projectStore,
 } from "../../../state/projectStore";
 import { selectionStore } from "../../../state/selectionStore";
@@ -401,10 +402,10 @@ export function ConstraintEditor({
 
   const setSelectedForKey = (key: RangedConstraintKey, index: number) => {
     setSelectedByKey((selected) => ({ ...selected, [key]: index }));
-    const latestProject =
-      activePathDocumentForProjectStore(projectStore.getState()) ?? project;
-    if (latestProject) {
-      selectRangedConstraint(latestProject, key, index);
+    const latestPath =
+      activePathForProjectStore(projectStore.getState())?.path ?? project?.path;
+    if (latestPath) {
+      selectRangedConstraint(latestPath, key, index);
     }
   };
 
@@ -793,11 +794,11 @@ function AutoConstraintLedgerCard({
       selectionStore.getState().clearSelection();
       return;
     }
-    const latestProject =
-      activePathDocumentForProjectStore(projectStore.getState()) ?? project;
+    const latestPath =
+      activePathForProjectStore(projectStore.getState())?.path ?? project.path;
     selectionStore
       .getState()
-      .selectElement(nextSelection.focusIndex, latestProject.path);
+      .selectElement(nextSelection.focusIndex, latestPath);
   };
 
   return (
@@ -2879,26 +2880,24 @@ function addRangedConstraint(
       ),
     );
 
-  const nextProject = activePathDocumentForProjectStore(
-    projectStore.getState(),
-  );
-  if (!nextProject) {
+  const nextPath = activePathForProjectStore(projectStore.getState())?.path;
+  if (!nextPath) {
     return null;
   }
 
   return findAddedRangedConstraintIndex(
     previousConstraints,
-    nextProject.path.ranged_constraints,
+    nextPath.ranged_constraints,
     key,
   );
 }
 
 function selectRangedConstraint(
-  project: ProjectDocument,
+  path: PathModel,
   key: RangedConstraintKey,
   index: number,
 ): void {
-  const constraint = project.path.ranged_constraints[index];
+  const constraint = path.ranged_constraints[index];
   if (!constraint || constraint.key !== key) {
     return;
   }
@@ -2910,7 +2909,7 @@ function selectRangedConstraint(
       startOrdinal: constraint.start_ordinal,
       endOrdinal: constraint.end_ordinal,
     },
-    project.path,
+    path,
   );
 }
 
@@ -2952,12 +2951,9 @@ function insertRangedConstraint(
     }),
   );
 
-  const nextProject = activePathDocumentForProjectStore(
-    projectStore.getState(),
-  );
-  return nextProject &&
-    nextProject.path.ranged_constraints.length > previousLength
-    ? nextProject.path.ranged_constraints.length - 1
+  const nextPath = activePathForProjectStore(projectStore.getState())?.path;
+  return nextPath && nextPath.ranged_constraints.length > previousLength
+    ? nextPath.ranged_constraints.length - 1
     : null;
 }
 
@@ -3342,14 +3338,12 @@ function selectOrdinalAfterReplace(
     return;
   }
 
-  const nextProject = activePathDocumentForProjectStore(
-    projectStore.getState(),
-  );
-  if (!nextProject) {
+  const nextPath = activePathForProjectStore(projectStore.getState())?.path;
+  if (!nextPath) {
     return;
   }
 
-  const index = nextProject.path.ranged_constraints.findIndex(
+  const index = nextPath.ranged_constraints.findIndex(
     (constraint) =>
       constraint.key === key && ordinalInRange(ordinal, constraint),
   );

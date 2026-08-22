@@ -39,11 +39,7 @@ import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
 import { simulatePathWithTrace, type SimResult } from "../core/sim";
 import type { SimTraceResult } from "../core/sim/types";
-import {
-  activePathDocumentForProjectStore,
-  legacyWorkspaceForProjectStore,
-  projectStore,
-} from "../state/projectStore";
+import { activePathForProjectStore, projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
 import {
@@ -1205,7 +1201,7 @@ export function PathStage({
           .getState()
           .selectElement(
             drag.index,
-            activePathDocumentForProjectStore(projectStore.getState())?.path,
+            activePathForProjectStore(projectStore.getState())?.path,
           );
       }
       return;
@@ -1213,11 +1209,11 @@ export function PathStage({
 
     if (!pointsAlmostEqual(drag.start, nextPosition)) {
       if (drag.linkedTargetId) {
-        const target = legacyWorkspaceForProjectStore(
-          projectStore.getState(),
-        )?.linked_targets.find(
-          (candidate) => candidate.target_id === drag.linkedTargetId,
-        );
+        const target = projectStore
+          .getState()
+          .project?.linked_targets.find(
+            (candidate) => candidate.target_id === drag.linkedTargetId,
+          );
         if (target && !target.locked) {
           projectStore.getState().updateLinkedTarget(drag.linkedTargetId, {
             x_meters: nextPosition.x_meters,
@@ -1227,7 +1223,7 @@ export function PathStage({
             .getState()
             .selectElement(
               drag.index,
-              activePathDocumentForProjectStore(projectStore.getState())?.path,
+              activePathForProjectStore(projectStore.getState())?.path,
             );
         }
         return;
@@ -1241,7 +1237,7 @@ export function PathStage({
         .getState()
         .selectElement(
           drag.index,
-          activePathDocumentForProjectStore(projectStore.getState())?.path,
+          activePathForProjectStore(projectStore.getState())?.path,
         );
     }
   };
@@ -1262,11 +1258,11 @@ export function PathStage({
       Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001
     ) {
       if (rotationDrag.linkedTargetId) {
-        const target = legacyWorkspaceForProjectStore(
-          projectStore.getState(),
-        )?.linked_targets.find(
-          (candidate) => candidate.target_id === rotationDrag.linkedTargetId,
-        );
+        const target = projectStore
+          .getState()
+          .project?.linked_targets.find(
+            (candidate) => candidate.target_id === rotationDrag.linkedTargetId,
+          );
         if (target && !target.locked) {
           projectStore
             .getState()
@@ -1277,7 +1273,7 @@ export function PathStage({
             .getState()
             .selectElement(
               rotationDrag.index,
-              activePathDocumentForProjectStore(projectStore.getState())?.path,
+              activePathForProjectStore(projectStore.getState())?.path,
             );
         }
         return;
@@ -1295,7 +1291,7 @@ export function PathStage({
         .getState()
         .selectElement(
           rotationDrag.index,
-          activePathDocumentForProjectStore(projectStore.getState())?.path,
+          activePathForProjectStore(projectStore.getState())?.path,
         );
       return;
     }
@@ -1411,7 +1407,7 @@ export function PathStage({
       .getState()
       .selectElement(
         elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
     setContextMenu(null);
   };
@@ -1432,7 +1428,7 @@ export function PathStage({
       .getState()
       .selectElement(
         contextMenu.elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
     setContextMenu(null);
   };
@@ -1449,7 +1445,7 @@ export function PathStage({
       .getState()
       .selectElement(
         contextMenu.elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
     setContextMenu(null);
   };

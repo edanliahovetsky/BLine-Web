@@ -695,7 +695,7 @@ export function createConvertedElement(
 }
 
 export function canMovePathElement(
-  project: ProjectDocument,
+  path: PathModel,
   fromIndex: number,
   toIndex: number,
 ): boolean {
@@ -703,7 +703,7 @@ export function canMovePathElement(
     return false;
   }
 
-  const elements = project.path.path_elements;
+  const elements = path.path_elements;
   if (
     fromIndex < 0 ||
     fromIndex >= elements.length ||

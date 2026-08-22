@@ -7,7 +7,7 @@ import {
   type PathModel,
 } from "../../core/model/path";
 import {
-  activePathDocumentForProjectStore,
+  activePathForProjectStore,
   projectStore,
 } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
@@ -87,14 +87,14 @@ let elementCountAtStepStart = 0;
 
 export function captureElementCount(): void {
   elementCountAtStepStart =
-    activePathDocumentForProjectStore(projectStore.getState())?.path
-      .path_elements.length ?? 0;
+    activePathForProjectStore(projectStore.getState())?.path.path_elements
+      .length ?? 0;
 }
 
 function elementWasAdded(): boolean {
   const current =
-    activePathDocumentForProjectStore(projectStore.getState())?.path
-      .path_elements.length ?? 0;
+    activePathForProjectStore(projectStore.getState())?.path.path_elements
+      .length ?? 0;
   return current > elementCountAtStepStart;
 }
 
@@ -119,15 +119,15 @@ function velocityPlanGenerated(): boolean {
 }
 
 function intermediateElementSelected(): boolean {
-  const project = activePathDocumentForProjectStore(projectStore.getState());
+  const path = activePathForProjectStore(projectStore.getState())?.path;
   const index = selectionStore.getState().selectedElementIndex;
-  if (!project || index === null) {
+  if (!path || index === null) {
     return false;
   }
-  if (index <= 0 || index >= project.path.path_elements.length - 1) {
+  if (index <= 0 || index >= path.path_elements.length - 1) {
     return false;
   }
-  return project.path.path_elements[index]?.type === "translation";
+  return path.path_elements[index]?.type === "translation";
 }
 
 function velocitySegmentSelected(): boolean {

@@ -456,7 +456,7 @@ describe("sidebar commands", () => {
       }),
     });
 
-    expect(canMovePathElement(project, 2, 1)).toBe(true);
+    expect(canMovePathElement(project.path, 2, 1)).toBe(true);
     const command = createMovePathElementCommand(2, 1);
     const moved = command.apply(project.path);
 

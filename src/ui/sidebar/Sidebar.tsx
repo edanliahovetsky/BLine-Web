@@ -14,7 +14,7 @@ import {
 import { nextLinkedTargetName } from "../../core/linkedTargets";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
 import {
-  activePathDocumentForProjectStore,
+  activePathForProjectStore,
   projectStore,
 } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
@@ -114,7 +114,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         insertionIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -145,7 +145,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         nextSelectionAfterRemoval(index, selectedElementIndex),
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -166,12 +166,12 @@ export function Sidebar({
       .getState()
       .selectElement(
         index + 1,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 
   const handleMoveElement = (fromIndex: number, toIndex: number) => {
-    if (!project || !canMovePathElement(project, fromIndex, toIndex)) {
+    if (!project || !canMovePathElement(project.path, fromIndex, toIndex)) {
       return;
     }
 
@@ -187,7 +187,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         nextSelection,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -218,7 +218,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -240,7 +240,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -256,7 +256,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 
@@ -297,7 +297,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activePathForProjectStore(projectStore.getState())?.path,
       );
   };
 

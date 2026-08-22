@@ -104,7 +104,7 @@ export function ElementList({
       );
       currentDropIndex =
         nextDropIndex !== null &&
-        canMovePathElement(project, index, nextDropIndex)
+        canMovePathElement(project.path, index, nextDropIndex)
           ? nextDropIndex
           : null;
       setDragOverIndex(currentDropIndex);
@@ -122,7 +122,7 @@ export function ElementList({
       if (
         !active ||
         currentDropIndex === null ||
-        !canMovePathElement(project, index, currentDropIndex)
+        !canMovePathElement(project.path, index, currentDropIndex)
       ) {
         return;
       }
