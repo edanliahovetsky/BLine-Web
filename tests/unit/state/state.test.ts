@@ -140,6 +140,80 @@ describe("project store", () => {
     });
   });
 
+  it("keeps a newer Project revision dirty until its queued save completes", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    io.deferWrites();
+
+    renameActivePath(store, "Beta");
+    const firstSave = store.getState().saveWorkspace();
+    await Promise.resolve();
+
+    expect(store.getState()).toMatchObject({
+      revision: 1,
+      dirty: true,
+      status: "saving",
+    });
+
+    renameActivePath(store, "Gamma");
+    expect(store.getState()).toMatchObject({
+      revision: 2,
+      dirty: true,
+      saveQueued: true,
+    });
+
+    io.completeNextWrite();
+    await firstSave;
+    await Promise.resolve();
+
+    expect(io.writes).toHaveLength(2);
+    expect(io.writes[1]).toMatchObject({
+      pathName: "Gamma",
+      expectedVersion: "v1",
+    });
+    expect(store.getState()).toMatchObject({
+      dirty: true,
+      version: "v1",
+      status: "saving",
+    });
+
+    io.completeNextWrite();
+    await waitForSaveQueue();
+
+    expect(store.getState()).toMatchObject({
+      revision: 2,
+      dirty: false,
+      version: "v2",
+      status: "idle",
+      activeSave: null,
+      saveQueued: false,
+    });
+  });
+
+  it("ignores a save completion after its Project session is closed", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    io.deferWrites();
+    renameActivePath(store, "Beta");
+    const save = store.getState().saveWorkspace();
+    await Promise.resolve();
+
+    store.getState().reset();
+    io.completeNextWrite();
+    await save;
+
+    expect(store.getState()).toMatchObject({
+      project: null,
+      projectSessionId: null,
+      version: undefined,
+      dirty: false,
+      status: "idle",
+      lastSavedAt: null,
+    });
+  });
+
   it("tracks path collection edits through undo and redo", async () => {
     const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
     const firstPathId = requireWorkspace(store).paths[0].path_id;
@@ -536,7 +610,7 @@ describe("autosave coordinator", () => {
     store.getState().setProjectIoService(io);
     await store.getState().initializeWorkspace();
     renameActivePath(store, "Beta");
-    const coordinator = createProjectAutosaveCoordinator(store, io);
+    const coordinator = createProjectAutosaveCoordinator(store);
 
     const result = await coordinator.flush();
 
@@ -643,7 +717,7 @@ describe("save conflict recovery", () => {
     renameActivePath(store, "Beta");
     io.simulateExternalEdit();
 
-    const coordinator = createProjectAutosaveCoordinator(store, io, {
+    const coordinator = createProjectAutosaveCoordinator(store, {
       shouldDefer: () => store.getState().status === "conflict",
     });
 
@@ -879,6 +953,11 @@ class RecordingIo implements ProjectIoService {
   private updatedAt: string | null = "2026-04-23T15:40:00.000Z";
   private armConflict = false;
   private externalCounter = 0;
+  private writesDeferred = false;
+  private readonly pendingWrites: Array<{
+    workspace: ProjectWorkspaceDocument;
+    resolve: (result: WriteResult) => void;
+  }> = [];
 
   /**
    * Simulate an external process (git / gradle / cloud sync) editing the project on
@@ -893,6 +972,18 @@ class RecordingIo implements ProjectIoService {
       this.workspace = structuredClone(modified);
     }
     this.armConflict = true;
+  }
+
+  deferWrites(): void {
+    this.writesDeferred = true;
+  }
+
+  completeNextWrite(): void {
+    const pending = this.pendingWrites.shift();
+    if (!pending) {
+      throw new Error("No deferred write is pending");
+    }
+    pending.resolve(this.commitWrite(pending.workspace));
   }
 
   constructor(workspace: ProjectWorkspaceDocument | null = null) {
@@ -958,6 +1049,19 @@ class RecordingIo implements ProjectIoService {
       expectedVersion,
     });
 
+    if (this.writesDeferred) {
+      return new Promise((resolve) => {
+        this.pendingWrites.push({
+          workspace: structuredClone(workspace),
+          resolve,
+        });
+      });
+    }
+
+    return this.commitWrite(workspace);
+  }
+
+  private commitWrite(workspace: ProjectWorkspaceDocument): WriteResult {
     const version = `v${this.writes.length}`;
     const updatedAt = `2026-04-23T15:4${this.writes.length}:00.000Z`;
     this.workspace = structuredClone(workspace);
@@ -1044,6 +1148,12 @@ class RecordingIo implements ProjectIoService {
       throw new Error("No workspace");
     }
     return structuredClone(this.workspace);
+  }
+}
+
+async function waitForSaveQueue(): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await Promise.resolve();
   }
 }
 

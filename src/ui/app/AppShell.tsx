@@ -544,17 +544,13 @@ export function AppShell() {
     }
 
     autosaveRef.current?.cancel();
-    autosaveRef.current = createProjectAutosaveCoordinator(
-      projectStore,
-      projectIo,
-      {
-        delayMs: 300,
-        onStatusChange: setAutosaveStatus,
-        shouldDefer: () =>
-          canvasInteractionActiveRef.current ||
-          projectStore.getState().status === "conflict",
-      },
-    );
+    autosaveRef.current = createProjectAutosaveCoordinator(projectStore, {
+      delayMs: 300,
+      onStatusChange: setAutosaveStatus,
+      shouldDefer: () =>
+        canvasInteractionActiveRef.current ||
+        projectStore.getState().status === "conflict",
+    });
 
     return () => {
       autosaveRef.current?.cancel();

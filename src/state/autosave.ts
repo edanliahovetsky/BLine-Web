@@ -115,7 +115,6 @@ export function createAutosaveCoordinator<
 
 export function createProjectAutosaveCoordinator(
   projectStore: ProjectStore,
-  io: ProjectIoService,
   options: Omit<
     AutosaveCoordinatorOptions,
     "io" | "getSnapshot" | "onSaved" | "onError"
@@ -123,7 +122,15 @@ export function createProjectAutosaveCoordinator(
 ): AutosaveCoordinator {
   return createAutosaveCoordinator({
     ...options,
-    io,
+    io: {
+      async saveWorkspace() {
+        const result = await projectStore.getState().saveWorkspace();
+        if (!result) {
+          throw new Error("No dirty Project is open");
+        }
+        return result;
+      },
+    },
     getSnapshot: () => {
       const state = projectStore.getState();
       return {
@@ -132,8 +139,6 @@ export function createProjectAutosaveCoordinator(
         dirty: state.dirty,
       };
     },
-    onSaved: (result) => projectStore.getState().markSaved(result),
-    onError: (error) => projectStore.getState().markSaveError(error),
   });
 }
 
