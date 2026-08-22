@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPathModel } from "../../../src/core/model/path";
-import { createProject } from "../../../src/core/model/project";
+import { createProject, type Project } from "../../../src/core/model/project";
+import type {
+  ProjectIoWorkspace,
+  ProjectIoWorkspaceHandle,
+  ProjectIoWriteOutcome,
+} from "../../../src/platform/projectIo";
 import {
+  type BrowserRecoveryLockManager,
   createBrowserAutosaveRecoveryJournal,
   createProjectRecoveryLifecycle,
   installBrowserProjectUnloadHandler,
@@ -14,6 +20,21 @@ import { createTourSessionController } from "../../../src/ui/tours/tourSession";
 import { createTourStore } from "../../../src/ui/tours/tourStore";
 
 describe("Project platform lifecycle", () => {
+  it("acquires a browser journal lease lazily and only once", async () => {
+    const locks = new TestLockManager();
+    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage(), {
+      ownerId: "lazy-owner",
+      lockManager: locks,
+    });
+
+    expect(locks.requestCount).toBe(0);
+    const firstReady = journal.ready?.();
+    const secondReady = journal.ready?.();
+    await Promise.all([firstReady, secondReady]);
+    expect(locks.requestCount).toBe(1);
+    journal.releaseOwnership?.();
+  });
+
   it("does not clear a clean startup journal until recovery initialization completes", () => {
     const storage = new MapStorage();
     const journal = createBrowserAutosaveRecoveryJournal(storage);
@@ -22,6 +43,21 @@ describe("Project platform lifecycle", () => {
 
     lifecycle.clearIfReady();
     expect(journal.read()?.project?.project_id).toBe("startup");
+
+    lifecycle.completeInitialization();
+    lifecycle.clearIfReady();
+    expect(journal.read()).toBeNull();
+  });
+
+  it("allows a successful retry to clear a journal after initialization failed", () => {
+    const storage = new MapStorage();
+    const journal = createBrowserAutosaveRecoveryJournal(storage);
+    const lifecycle = createProjectRecoveryLifecycle(journal);
+    journal.write({ project: project("retry"), dirty: true });
+
+    lifecycle.markInitializationFailed();
+    lifecycle.clearIfReady();
+    expect(journal.read()?.project?.project_id).toBe("retry");
 
     lifecycle.completeInitialization();
     lifecycle.clearIfReady();
@@ -37,8 +73,7 @@ describe("Project platform lifecycle", () => {
     await expect(
       restoreAutosaveRecoveryJournal(
         {
-          initialize: async () => recovered,
-          getWorkspace: async () => recovered,
+          initialize: async () => recoveryWorkspace(recovered, "v1"),
           saveWorkspace: async () => {
             throw "storage-conflict: unnormalized backend failure";
           },
@@ -50,6 +85,87 @@ describe("Project platform lifecycle", () => {
 
     expect(createWorkspace).not.toHaveBeenCalled();
     expect(journal.read()?.project).toEqual(recovered);
+  });
+
+  it("isolates tab checkpoints and only recovers an owner after its lease ends", async () => {
+    const storage = new MapStorage();
+    const locks = new TestLockManager();
+    const first = createBrowserAutosaveRecoveryJournal(storage, {
+      ownerId: "tab-first",
+      lockManager: locks,
+    });
+    const second = createBrowserAutosaveRecoveryJournal(storage, {
+      ownerId: "tab-second",
+      lockManager: locks,
+    });
+    await Promise.all([first.ready?.(), second.ready?.()]);
+    first.write({ project: project("first-dirty"), dirty: true });
+
+    const secondLifecycle = createProjectRecoveryLifecycle(second);
+    secondLifecycle.completeInitialization();
+    secondLifecycle.clearIfReady();
+    expect(first.read()?.project?.project_id).toBe("first-dirty");
+
+    const initialWorkspace = recoveryWorkspace(project("first-dirty"), "v1");
+    const saveWorkspace = vi.fn(
+      async (
+        _handle: ProjectIoWorkspaceHandle,
+        recovered: Project,
+      ): Promise<ProjectIoWriteOutcome> =>
+        recoveryWriteOutcome(recoveryWorkspace(recovered, "v2")),
+    );
+    const io = {
+      initialize: async () => initialWorkspace,
+      saveWorkspace,
+      createWorkspace: vi.fn(async () =>
+        recoveryWorkspace(project("recovered-copy"), "v1"),
+      ),
+    };
+    await expect(restoreAutosaveRecoveryJournal(io, second)).resolves.toBe(
+      false,
+    );
+    expect(saveWorkspace).not.toHaveBeenCalled();
+
+    first.releaseOwnership?.();
+    await locks.settled();
+    await expect(restoreAutosaveRecoveryJournal(io, second)).resolves.toBe(
+      true,
+    );
+    expect(saveWorkspace).toHaveBeenCalledTimes(1);
+    expect(storage.length).toBe(0);
+  });
+
+  it("surfaces duplicate live ownership instead of writing without a lease", async () => {
+    const storage = new MapStorage();
+    const locks = new TestLockManager();
+    const first = createBrowserAutosaveRecoveryJournal(storage, {
+      ownerId: "duplicated-tab",
+      lockManager: locks,
+    });
+    await first.ready?.();
+    const duplicate = createBrowserAutosaveRecoveryJournal(storage, {
+      ownerId: "duplicated-tab",
+      lockManager: locks,
+    });
+
+    await expect(duplicate.ready?.()).rejects.toThrow("already active");
+    expect(() =>
+      duplicate.write({ project: project("unsafe"), dirty: true }),
+    ).toThrow("already active");
+    expect(storage.length).toBe(0);
+    first.releaseOwnership?.();
+  });
+
+  it("surfaces browsers that cannot prove journal ownership", async () => {
+    const journal = createBrowserAutosaveRecoveryJournal(new MapStorage(), {
+      ownerId: "no-lock-support",
+      lockManager: null,
+    });
+
+    await expect(journal.ready?.()).rejects.toThrow("exclusive");
+    expect(() =>
+      journal.write({ project: project("unsafe"), dirty: true }),
+    ).toThrow("exclusive");
   });
 
   it("restores and checkpoints the exact dirty session when closing during a Tour", () => {
@@ -186,10 +302,12 @@ describe("Project platform lifecycle", () => {
   it("keeps the desktop window open while Project persistence is guarded", async () => {
     const close = new RecordingCloseTarget();
     const flushProject = vi.fn();
+    const onError = vi.fn();
     await installDurableProjectCloseHandler(close, {
       getProjectState: () => ({ dirty: true, activeSave: null, blocked: true }),
       flushProject,
       flushUserData: async () => {},
+      onError,
     });
 
     await close.requestClose();
@@ -197,6 +315,7 @@ describe("Project platform lifecycle", () => {
     expect(close.prevented).toBe(true);
     expect(close.destroyed).toBe(false);
     expect(flushProject).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 });
 
@@ -215,8 +334,47 @@ function project(id: string) {
   });
 }
 
+function recoveryWorkspace(
+  project: Project,
+  version: string,
+): ProjectIoWorkspace {
+  const savedAt = "2026-08-22T12:00:00.000Z";
+  return {
+    project,
+    handle: { recoveryTestId: project.project_id },
+    version,
+    lastSavedAt: savedAt,
+    summary: {
+      id: project.project_id,
+      displayName: project.display_name,
+      version,
+      updatedAt: savedAt,
+    },
+    persistenceDamage: null,
+    legacyMigration: null,
+  };
+}
+
+function recoveryWriteOutcome(
+  workspace: ProjectIoWorkspace,
+): ProjectIoWriteOutcome {
+  const result = {
+    version: workspace.version ?? "v1",
+    updatedAt: workspace.lastSavedAt ?? "2026-08-22T12:00:00.000Z",
+  };
+  return { ...result, result, workspace };
+}
+
 class MapStorage {
   private readonly values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  key(index: number): string | null {
+    return [...this.values.keys()][index] ?? null;
+  }
 
   getItem(key: string): string | null {
     return this.values.get(key) ?? null;
@@ -279,6 +437,35 @@ class RecordingCloseTarget {
         this.prevented = true;
       },
     });
+  }
+}
+
+class TestLockManager implements BrowserRecoveryLockManager {
+  requestCount = 0;
+  private readonly active = new Set<string>();
+  private readonly requests = new Set<Promise<unknown>>();
+
+  request<T>(
+    name: string,
+    _options: { mode: "exclusive"; ifAvailable: true },
+    callback: (lock: { name: string } | null) => Promise<T> | T,
+  ): Promise<T> {
+    this.requestCount += 1;
+    if (this.active.has(name)) {
+      return Promise.resolve(callback(null));
+    }
+    this.active.add(name);
+    const request = Promise.resolve(callback({ name })).finally(() => {
+      this.active.delete(name);
+      this.requests.delete(request);
+    });
+    this.requests.add(request);
+    return request;
+  }
+
+  async settled(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
   }
 }
 

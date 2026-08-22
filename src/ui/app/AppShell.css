@@ -6026,6 +6026,39 @@ body.is-resizing-inspector * {
   line-height: 1.55;
 }
 
+.start-center__initialization-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 880px;
+  margin: 0 auto 16px;
+  padding: 12px 14px;
+  border: 1px solid #8d4545;
+  border-radius: 9px;
+  color: #f4d5d5;
+  background: #2b191b;
+}
+
+.start-center__initialization-error div {
+  display: grid;
+  gap: 3px;
+}
+
+.start-center__initialization-error small {
+  color: #d8b5b5;
+}
+
+.start-center__initialization-error button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid #b85b5b;
+  border-radius: 6px;
+  color: #fff0f0;
+  background: #672f34;
+  font-weight: 760;
+}
+
 .start-center__actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

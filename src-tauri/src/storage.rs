@@ -105,6 +105,7 @@ const PROJECT_SAVE_SNAPSHOT_VERSION: &str = "version";
 const PROJECT_SAVE_TRANSACTION_PREPARED: &str = "prepared";
 const PROJECT_SAVE_TRANSACTION_COMMITTED: &str = "committed";
 const PROJECT_SAVE_TRANSACTION_ABORTED: &str = "aborted";
+const PROJECT_STORAGE_LOCK_FILE: &str = "project-storage.lock";
 const LEGACY_CLEANUP_TRANSACTION_DIR: &str = ".bline-legacy-cleanup-transaction";
 const LEGACY_CLEANUP_RETIRE_DIR: &str = ".bline-legacy-cleanup-retired";
 const LEGACY_CLEANUP_EXPECTED_VERSION: &str = "expected-version";
@@ -133,6 +134,7 @@ struct LegacyCleanupManifestEntry {
 pub fn storage_get_current_workspace(
     app: AppHandle,
 ) -> Result<Option<ProjectWorkspaceSummary>, String> {
+    let lock_path = project_storage_lock_path(&app)?;
     let state = read_state(&app)?;
     let Some(dir) = state.current_project_dir else {
         return Ok(None);
@@ -143,13 +145,14 @@ pub fn storage_get_current_workspace(
         return Ok(None);
     }
 
-    workspace_summary(&path).map(Some)
+    workspace_summary_with_lock(&path, &lock_path).map(Some)
 }
 
 #[tauri::command]
 pub fn storage_list_recent_workspaces(
     app: AppHandle,
 ) -> Result<Vec<ProjectWorkspaceSummary>, String> {
+    let lock_path = project_storage_lock_path(&app)?;
     let mut state = read_state(&app)?;
     let mut summaries = Vec::new();
     let mut retained = Vec::new();
@@ -158,7 +161,7 @@ pub fn storage_list_recent_workspaces(
         let path = PathBuf::from(&dir);
         if path.is_dir() {
             retained.push(dir);
-            summaries.push(workspace_summary(&path)?);
+            summaries.push(workspace_summary_with_lock(&path, &lock_path)?);
         }
     }
 
@@ -168,23 +171,31 @@ pub fn storage_list_recent_workspaces(
 }
 
 #[tauri::command]
-pub fn storage_open_workspace_dialog() -> Result<Option<ProjectWorkspaceSummary>, String> {
+pub fn storage_open_workspace_dialog(
+    app: AppHandle,
+) -> Result<Option<ProjectWorkspaceSummary>, String> {
     let Some(selected) = pick_workspace_dir("Open BLine Project") else {
         return Ok(None);
     };
 
-    workspace_summary(&effective_project_dir(&selected)).map(Some)
+    workspace_summary_with_lock(
+        &effective_project_dir(&selected),
+        &project_storage_lock_path(&app)?,
+    )
+    .map(Some)
 }
 
 #[tauri::command]
-pub fn storage_create_workspace_dialog() -> Result<Option<ProjectWorkspaceSummary>, String> {
+pub fn storage_create_workspace_dialog(
+    app: AppHandle,
+) -> Result<Option<ProjectWorkspaceSummary>, String> {
     let Some(selected) = pick_workspace_dir("Create BLine Project in Empty Folder") else {
         return Ok(None);
     };
 
     let effective_dir = effective_project_dir(&selected);
     validate_new_workspace_dir(&effective_dir)?;
-    workspace_summary(&effective_dir).map(Some)
+    workspace_summary_with_lock(&effective_dir, &project_storage_lock_path(&app)?).map(Some)
 }
 
 #[tauri::command]
@@ -217,7 +228,11 @@ pub fn storage_switch_workspace(
     }
 
     let selected_dir = effective_project_dir(Path::new(&id));
-    let summary = workspace_summary_for_activation(&selected_dir, expected_version.as_deref())?;
+    let summary = workspace_summary_for_activation_with_lock(
+        &selected_dir,
+        expected_version.as_deref(),
+        &project_storage_lock_path(&app)?,
+    )?;
     remember_workspace_dir(&app, &selected_dir)?;
     Ok(Some(summary))
 }
@@ -233,7 +248,7 @@ pub fn storage_read_project_files(
     directory_locator: Option<String>,
 ) -> Result<ProjectTextFileSet, String> {
     let dir = resolve_project_directory(&app, directory_locator.as_deref())?;
-    read_project_text_file_set(&dir)
+    read_project_text_file_set_with_lock(&dir, &project_storage_lock_path(&app)?)
 }
 
 /// Atomically replace the complete team-owned Project file set supplied by
@@ -247,7 +262,12 @@ pub fn storage_write_project_files(
     expected: Option<String>,
 ) -> Result<ProjectTextFileWriteResult, String> {
     let dir = resolve_project_directory(&app, directory_locator.as_deref())?;
-    write_project_text_file_set(&dir, &files, expected.as_deref())
+    write_project_text_file_set_with_lock(
+        &dir,
+        &files,
+        expected.as_deref(),
+        &project_storage_lock_path(&app)?,
+    )
 }
 
 /// Write the canonical snapshot used to migrate one explicitly identified legacy
@@ -255,12 +275,18 @@ pub fn storage_write_project_files(
 /// remembered current or recent Project while an asynchronous migration finishes.
 #[tauri::command]
 pub fn storage_prepare_legacy_project_files(
+    app: AppHandle,
     directory_locator: String,
     files: Vec<ProjectTextFile>,
     expected: String,
 ) -> Result<ProjectTextFileWriteResult, String> {
     let dir = resolve_explicit_project_directory(&directory_locator)?;
-    write_project_text_file_set(&dir, &files, Some(&expected))
+    write_project_text_file_set_with_lock(
+        &dir,
+        &files,
+        Some(&expected),
+        &project_storage_lock_path(&app)?,
+    )
 }
 
 /// Remove only the obsolete editor metadata that TypeScript has already migrated
@@ -268,11 +294,12 @@ pub fn storage_prepare_legacy_project_files(
 /// are outside this command's ownership boundary.
 #[tauri::command]
 pub fn storage_delete_legacy_project_files(
+    app: AppHandle,
     directory_locator: String,
     expected: String,
 ) -> Result<ProjectTextFileWriteResult, String> {
     let dir = resolve_explicit_project_directory(&directory_locator)?;
-    delete_legacy_project_files(&dir, &expected)
+    delete_legacy_project_files_with_lock(&dir, &expected, &project_storage_lock_path(&app)?)
 }
 
 #[tauri::command]
@@ -418,7 +445,10 @@ fn resolve_explicit_project_directory(directory_locator: &str) -> Result<PathBuf
     Ok(effective_project_dir(Path::new(directory_locator)))
 }
 
-fn read_project_text_file_set(project_dir: &Path) -> Result<ProjectTextFileSet, String> {
+fn read_project_text_file_set_with_lock(
+    project_dir: &Path,
+    lock_path: &Path,
+) -> Result<ProjectTextFileSet, String> {
     if !project_dir.is_dir() {
         return Err(format!(
             "Desktop project directory does not exist: {}",
@@ -426,6 +456,10 @@ fn read_project_text_file_set(project_dir: &Path) -> Result<ProjectTextFileSet, 
         ));
     }
 
+    with_exclusive_project_lock(lock_path, || read_project_text_file_set_locked(project_dir))
+}
+
+fn read_project_text_file_set_locked(project_dir: &Path) -> Result<ProjectTextFileSet, String> {
     recover_project_file_transaction(project_dir)?;
     recover_legacy_cleanup_transaction(project_dir, None)?;
     let files = read_managed_project_files(project_dir)?;
@@ -439,10 +473,11 @@ fn read_project_text_file_set(project_dir: &Path) -> Result<ProjectTextFileSet, 
     })
 }
 
-fn write_project_text_file_set(
+fn write_project_text_file_set_with_lock(
     project_dir: &Path,
     files: &[ProjectTextFile],
     expected: Option<&str>,
+    lock_path: &Path,
 ) -> Result<ProjectTextFileWriteResult, String> {
     if !project_dir.is_dir() {
         return Err(format!(
@@ -451,6 +486,16 @@ fn write_project_text_file_set(
         ));
     }
 
+    with_exclusive_project_lock(lock_path, || {
+        write_project_text_file_set_locked(project_dir, files, expected)
+    })
+}
+
+fn write_project_text_file_set_locked(
+    project_dir: &Path,
+    files: &[ProjectTextFile],
+    expected: Option<&str>,
+) -> Result<ProjectTextFileWriteResult, String> {
     let canonical_files = validate_complete_project_file_set(files)?;
     recover_project_file_transaction(project_dir)?;
     recover_legacy_cleanup_transaction(project_dir, None)?;
@@ -547,9 +592,10 @@ fn write_project_text_file_set(
     })
 }
 
-fn delete_legacy_project_files(
+fn delete_legacy_project_files_with_lock(
     project_dir: &Path,
     expected: &str,
+    lock_path: &Path,
 ) -> Result<ProjectTextFileWriteResult, String> {
     if !project_dir.is_dir() {
         return Err(format!(
@@ -557,10 +603,18 @@ fn delete_legacy_project_files(
             project_dir.to_string_lossy()
         ));
     }
+    with_exclusive_project_lock(lock_path, || {
+        delete_legacy_project_files_locked(project_dir, expected)
+    })
+}
+
+fn delete_legacy_project_files_locked(
+    project_dir: &Path,
+    expected: &str,
+) -> Result<ProjectTextFileWriteResult, String> {
     if expected.trim().is_empty() {
         return Err("Legacy metadata cleanup requires an expected version".to_owned());
     }
-
     recover_project_file_transaction(project_dir)?;
     if recover_legacy_cleanup_transaction(project_dir, Some(expected))? {
         return legacy_cleanup_result(project_dir);
@@ -594,6 +648,43 @@ fn delete_legacy_project_files(
     sync_directory(project_dir)?;
     finish_legacy_cleanup_transaction(project_dir, &transaction_dir)?;
     legacy_cleanup_result(project_dir)
+}
+
+fn with_exclusive_project_lock<T>(
+    lock_path: &Path,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let parent = lock_path.parent().ok_or_else(|| {
+        format!(
+            "Project storage lock has no parent: {}",
+            lock_path.to_string_lossy()
+        )
+    })?;
+    fs::create_dir_all(parent).map_err(error_string)?;
+    let lock_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(lock_path)
+        .map_err(|error| {
+            format!(
+                "Failed to open Project storage lock {}: {error}",
+                lock_path.to_string_lossy()
+            )
+        })?;
+    lock_file.lock().map_err(|error| {
+        format!(
+            "Failed to acquire Project storage lock {}: {error}",
+            lock_path.to_string_lossy()
+        )
+    })?;
+
+    // File locks are released by Drop, including during unwinding. Keep the
+    // handle alive through the complete operation without turning an unlock-only
+    // failure into a false "save failed" outcome after a verified commit.
+    let result = operation();
+    drop(lock_file);
+    result
 }
 
 fn recover_legacy_cleanup_transaction(
@@ -1271,10 +1362,13 @@ fn current_project_dir(app: &AppHandle) -> Result<Option<PathBuf>, String> {
         .filter(|dir| dir.is_dir()))
 }
 
-fn workspace_summary(path: &Path) -> Result<ProjectWorkspaceSummary, String> {
+fn workspace_summary_with_lock(
+    path: &Path,
+    lock_path: &Path,
+) -> Result<ProjectWorkspaceSummary, String> {
     let display_name = workspace_display_name(path);
     let directory_path = path.to_string_lossy().to_string();
-    let file_set = read_project_text_file_set(path)?;
+    let file_set = read_project_text_file_set_with_lock(path, lock_path)?;
 
     Ok(ProjectWorkspaceSummary {
         id: directory_path.clone(),
@@ -1285,11 +1379,12 @@ fn workspace_summary(path: &Path) -> Result<ProjectWorkspaceSummary, String> {
     })
 }
 
-fn workspace_summary_for_activation(
+fn workspace_summary_for_activation_with_lock(
     path: &Path,
     expected_version: Option<&str>,
+    lock_path: &Path,
 ) -> Result<ProjectWorkspaceSummary, String> {
-    let summary = workspace_summary(path)?;
+    let summary = workspace_summary_with_lock(path, lock_path)?;
     if expected_version.is_some_and(|expected| expected != summary.version) {
         return Err("storage-conflict: project changed before activation".to_owned());
     }
@@ -1420,6 +1515,14 @@ fn state_path(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(error_string)?
         .join("desktop-storage.json"))
+}
+
+fn project_storage_lock_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_local_data_dir()
+        .map_err(error_string)?
+        .join(PROJECT_STORAGE_LOCK_FILE))
 }
 
 fn user_data_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -1678,7 +1781,58 @@ fn error_string(error: impl ToString) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{mpsc, Arc, Barrier};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_project_storage_lock_path(project_dir: &Path) -> PathBuf {
+        project_dir.with_extension("project-storage.lock")
+    }
+
+    fn read_project_text_file_set(project_dir: &Path) -> Result<ProjectTextFileSet, String> {
+        read_project_text_file_set_with_lock(
+            project_dir,
+            &test_project_storage_lock_path(project_dir),
+        )
+    }
+
+    fn write_project_text_file_set(
+        project_dir: &Path,
+        files: &[ProjectTextFile],
+        expected: Option<&str>,
+    ) -> Result<ProjectTextFileWriteResult, String> {
+        write_project_text_file_set_with_lock(
+            project_dir,
+            files,
+            expected,
+            &test_project_storage_lock_path(project_dir),
+        )
+    }
+
+    fn delete_legacy_project_files(
+        project_dir: &Path,
+        expected: &str,
+    ) -> Result<ProjectTextFileWriteResult, String> {
+        delete_legacy_project_files_with_lock(
+            project_dir,
+            expected,
+            &test_project_storage_lock_path(project_dir),
+        )
+    }
+
+    fn workspace_summary(path: &Path) -> Result<ProjectWorkspaceSummary, String> {
+        workspace_summary_with_lock(path, &test_project_storage_lock_path(path))
+    }
+
+    fn workspace_summary_for_activation(
+        path: &Path,
+        expected_version: Option<&str>,
+    ) -> Result<ProjectWorkspaceSummary, String> {
+        workspace_summary_for_activation_with_lock(
+            path,
+            expected_version,
+            &test_project_storage_lock_path(path),
+        )
+    }
 
     #[test]
     fn opening_runtime_only_project_is_byte_preserving_and_read_only() {
@@ -1707,6 +1861,8 @@ mod tests {
         );
         assert!(!dir.join("project.json").exists());
         assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+        assert!(!dir.join(PROJECT_STORAGE_LOCK_FILE).exists());
+        assert!(test_project_storage_lock_path(&dir).is_file());
     }
 
     #[test]
@@ -1740,6 +1896,7 @@ mod tests {
         assert_eq!(read_managed_project_files(&dir).unwrap(), canonical);
         assert!(!dir.join("paths/obsolete.json").exists());
         assert!(!dir.join(PROJECT_SAVE_TRANSACTION_DIR).exists());
+        assert!(!dir.join(PROJECT_STORAGE_LOCK_FILE).exists());
         assert_eq!(
             saved.version,
             read_project_text_file_set(&dir).unwrap().version
@@ -1747,6 +1904,123 @@ mod tests {
         assert_eq!(
             write_project_text_file_set(&dir, &canonical, Some(&before.version)).unwrap_err(),
             "storage-conflict: project file-set version mismatch"
+        );
+    }
+
+    #[test]
+    fn concurrent_project_writers_from_one_version_are_serialized() {
+        let dir = temp_project_dir("concurrent-writers");
+        install_files(
+            &dir,
+            &[
+                project_file("config.json", "initial config"),
+                project_file("project.json", "initial metadata"),
+            ],
+        );
+        let initial_version = read_project_text_file_set(&dir).unwrap().version;
+        let first_files = vec![
+            project_file("config.json", "first config"),
+            project_file("project.json", "first metadata"),
+        ];
+        let second_files = vec![
+            project_file("config.json", "second config"),
+            project_file("project.json", "second metadata"),
+        ];
+        let start = Arc::new(Barrier::new(3));
+
+        let (first_result, second_result) = std::thread::scope(|scope| {
+            let first_dir = dir.clone();
+            let first_version = initial_version.clone();
+            let first_start = Arc::clone(&start);
+            let first = scope.spawn(move || {
+                first_start.wait();
+                write_project_text_file_set(&first_dir, &first_files, Some(&first_version))
+            });
+            let second_dir = dir.clone();
+            let second_version = initial_version.clone();
+            let second_start = Arc::clone(&start);
+            let second = scope.spawn(move || {
+                second_start.wait();
+                write_project_text_file_set(&second_dir, &second_files, Some(&second_version))
+            });
+            start.wait();
+            (first.join().unwrap(), second.join().unwrap())
+        });
+
+        let results = [first_result, second_result];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| {
+                    result.as_ref().is_err_and(|error| {
+                        error == "storage-conflict: project file-set version mismatch"
+                    })
+                })
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn legacy_delete_cannot_erase_a_newer_concurrent_save() {
+        let dir = temp_project_dir("concurrent-save-delete");
+        install_files(
+            &dir,
+            &[
+                project_file("config.json", "initial config"),
+                project_file("project.json", "initial metadata"),
+            ],
+        );
+        fs::write(dir.join("pathgroups.json"), "legacy groups").unwrap();
+        let initial_version = read_project_text_file_set(&dir).unwrap().version;
+        let newer_files = vec![
+            project_file("config.json", "newer config"),
+            project_file("project.json", "newer metadata"),
+        ];
+        let (writer_has_lock_tx, writer_has_lock_rx) = mpsc::channel();
+        let (release_writer_tx, release_writer_rx) = mpsc::channel();
+        let (delete_started_tx, delete_started_rx) = mpsc::channel();
+
+        let (write_result, delete_result) = std::thread::scope(|scope| {
+            let writer_dir = dir.clone();
+            let writer_version = initial_version.clone();
+            let writer = scope.spawn(move || {
+                with_exclusive_project_lock(&test_project_storage_lock_path(&writer_dir), || {
+                    writer_has_lock_tx.send(()).unwrap();
+                    release_writer_rx.recv().unwrap();
+                    write_project_text_file_set_locked(
+                        &writer_dir,
+                        &newer_files,
+                        Some(&writer_version),
+                    )
+                })
+            });
+            writer_has_lock_rx.recv().unwrap();
+
+            let deleter_dir = dir.clone();
+            let delete_version = initial_version.clone();
+            let deleter = scope.spawn(move || {
+                delete_started_tx.send(()).unwrap();
+                delete_legacy_project_files(&deleter_dir, &delete_version)
+            });
+            delete_started_rx.recv().unwrap();
+            release_writer_tx.send(()).unwrap();
+            (writer.join().unwrap(), deleter.join().unwrap())
+        });
+
+        assert!(write_result.is_ok());
+        assert_eq!(
+            delete_result.unwrap_err(),
+            "storage-conflict: project file set changed before legacy cleanup"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("project.json")).unwrap(),
+            "newer metadata"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("pathgroups.json")).unwrap(),
+            "legacy groups"
         );
     }
 

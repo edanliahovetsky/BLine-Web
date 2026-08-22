@@ -1,21 +1,12 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useEffectEvent,
-  useId,
   useMemo,
   useRef,
   useState,
 } from "react";
-import type {
-  ChangeEvent,
-  FocusEvent,
-  PointerEvent as ReactPointerEvent,
-} from "react";
-import type { CSSProperties, ReactNode, RefObject } from "react";
-import { createPortal } from "react-dom";
+import type { ChangeEvent, CSSProperties } from "react";
 import {
   Activity,
   CircleHelp,
@@ -26,70 +17,34 @@ import {
   Settings,
   Undo2,
 } from "lucide-react";
-import { LinkedTargetsCanvas } from "../../canvas/LinkedTargetsCanvas";
 import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
-import { elementColors } from "../../canvas/elementStyle";
 import { activeProjectPath } from "../../core/model/editorNavigation";
-import type {
-  LinkedTarget,
-  LinkedTargetKind,
-  Project,
-  ProjectConfig,
-  ProjectPath,
-  ProjectPathGroup,
-} from "../../core/model/project";
+import type { ProjectConfig } from "../../core/model/project";
 import {
   diffWorkspaceConflict,
   type WorkspaceConflictDiff,
 } from "../../core/io/workspaceConflictDiff";
 import {
-  coordinateEditBounds,
-  fieldCoordinateLengthMeters,
-  fieldCoordinateWidthMeters,
   defaultFieldId,
   resolveUserFieldDefinition,
   type FieldBackgroundEntry,
   type FieldGeometry,
-  type ResolvedFieldDefinition,
 } from "../../core/field/fieldConfig";
-import {
-  type PathElement,
-  type TranslationTarget,
-} from "../../core/model/path";
+import type { TranslationTarget } from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import {
-  getPathElementLinkedTargetId,
-  isElementCompatibleWithLinkedTarget,
-  linkedTargetUseCount,
-  nextLinkedTargetName,
-} from "../../core/linkedTargets";
-import { detectEnvironmentCapabilities } from "../../env/capabilities";
-import {
-  createProjectIoService,
   type ProjectImportResult,
   type ProjectImportRollback,
   type ProjectWorkspaceSummary,
 } from "../../platform/projectIo";
 import {
-  createBrowserAutosaveRecoveryJournal,
-  createProjectRecoveryLifecycle,
-  installBrowserProjectUnloadHandler,
-  installDurableProjectCloseHandler,
-  restoreAutosaveRecoveryJournal,
-  type AutosaveRecoveryJournal,
-} from "../../platform/projectLifecycle";
-import {
   downloadBlob,
   isAbortError,
   saveBlobAs,
 } from "../../platform/fileExport";
-import {
-  createProjectAutosaveCoordinator,
-  type AutosaveCoordinator,
-  type AutosaveStatus,
-} from "../../state/autosave";
+import type { AutosaveStatus } from "../../state/autosave";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
 import {
   canGenerateAutomaticConstraints,
@@ -97,10 +52,7 @@ import {
   startAutomaticConstraintSync,
 } from "../../state/automaticConstraints";
 import { autoVelocitySettingsForPath } from "../../core/constraints/autoVelocityApply";
-import {
-  legacyProjectMigrationOwnsSession,
-  projectStore,
-} from "../../state/projectStore";
+import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
 import {
@@ -113,26 +65,7 @@ import {
   removeSelectedRangedConstraint,
   selectAdjacentPathElement,
 } from "../keyboardShortcuts";
-import {
-  ChevronDownIcon,
-  CopyIcon,
-  DownloadIcon,
-  FilePlusIcon,
-  LockIcon,
-  OpenIcon,
-  PencilIcon,
-  PlusIcon,
-  TrashIcon,
-  UnlockIcon,
-  UploadIcon,
-} from "../icons";
-import {
-  CloseButton,
-  IconButton,
-  NumberStepperControl,
-  SelectControl,
-  SwitchInput,
-} from "../controls";
+import { CloseButton, IconButton } from "../controls";
 import { Sidebar } from "../sidebar/Sidebar";
 import { createDefaultElement } from "../sidebar/sidebarCommands";
 import "./AppShell.css";
@@ -157,7 +90,6 @@ import {
   type EditorCommand,
   type EditorTool,
   type EditorUiPreferencesV1,
-  type ShortcutBinding,
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import {
@@ -175,7 +107,6 @@ import {
   deleteFieldBackground,
   flushUserData,
   importFieldBackgroundFromBytes,
-  initializeUserData,
   listFieldBackgrounds,
   migrateProjectViewIdentity,
   readFieldBackgroundImage,
@@ -194,12 +125,27 @@ import {
   formatStorageLabel,
 } from "./projectStoragePresentation";
 import { parseProjectTimestamp } from "./projectTimestamp";
-
-interface LinkedTargetPickerRequest {
-  pathId: string;
-  elementIndex: number;
-  element: PathElement;
-}
+import { useProjectLifecycle } from "./useProjectLifecycle";
+import {
+  CreateProjectDialog,
+  DeletePathsDialog,
+  DeleteProjectsDialog,
+  NameEntryDialog,
+  NewPathDialog,
+} from "./ProjectDialogs";
+import {
+  LinkedTargetsDialog,
+  type LinkedTargetPickerRequest,
+} from "./LinkedTargetsDialog";
+import { PathLibraryDialog } from "./PathLibraryDialog";
+import {
+  MenuAction,
+  MenuLabel,
+  MenuSubmenu,
+  ToolbarPathNavigator,
+  TopMenuButton,
+  type TopMenuId,
+} from "./ToolbarMenus";
 
 interface PathNameAction {
   kind: "duplicate" | "rename";
@@ -220,19 +166,6 @@ interface TourEditorViewSnapshot {
   optimizerError: string | null;
   showGhostPaths: boolean;
 }
-
-type LibraryNameAction =
-  | {
-      kind: "rename-group";
-      groupId: string;
-      initialName: string;
-    }
-  | {
-      kind: "duplicate-path" | "rename-path";
-      pathId: string;
-      initialName: string;
-      addToGroupId: string | null;
-    };
 
 export function AppShell() {
   const durableProject = useStoreSelector(
@@ -309,15 +242,9 @@ export function AppShell() {
   );
   const undoLabel = undoDescription ? `Undo ${undoDescription}` : "Undo";
   const redoLabel = redoDescription ? `Redo ${redoDescription}` : "Redo";
-  const [workspaceSummaries, setWorkspaceSummaries] = useState<
-    ProjectWorkspaceSummary[]
-  >([]);
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
-  const [fieldBackgrounds, setFieldBackgrounds] = useState<
-    FieldBackgroundEntry[]
-  >([]);
   const [fieldSelectionOverride, setFieldSelectionOverride] = useState<{
     projectId: string;
     fieldId: string;
@@ -362,8 +289,6 @@ export function AppShell() {
     useState<ImportMode>("archive");
   const [pendingToolbarAction, setPendingToolbarAction] =
     useState<PendingToolbarAction>(null);
-  const [initializing, setInitializing] = useState(true);
-  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
   const [legacyFieldMigrationAttempt, setLegacyFieldMigrationAttempt] =
     useState<{ key: string; phase: "running" | "failed" } | null>(null);
   const [legacyFieldMigrationRetry, setLegacyFieldMigrationRetry] = useState(0);
@@ -371,17 +296,6 @@ export function AppShell() {
   const [curveToolSession, setCurveToolSession] =
     useState<CurveToolSession | null>(null);
   const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false);
-  const autosaveRef = useRef<AutosaveCoordinator | null>(null);
-  const [environmentCapabilities] = useState(detectEnvironmentCapabilities);
-  const [autosaveRecoveryJournal] = useState<AutosaveRecoveryJournal | null>(
-    () =>
-      environmentCapabilities.shell === "browser-web"
-        ? createBrowserAutosaveRecoveryJournal()
-        : null,
-  );
-  const [projectRecoveryLifecycle] = useState(() =>
-    createProjectRecoveryLifecycle(autosaveRecoveryJournal),
-  );
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
   const importHandlingRef = useRef(false);
@@ -396,6 +310,31 @@ export function AppShell() {
     snapshot: TourEditorViewSnapshot;
   } | null>(null);
   const tourSessionRef = useRef<TourSessionController | null>(null);
+  const {
+    autosaveStatus,
+    cancelAutosave,
+    fieldBackgrounds,
+    initializing,
+    initializationError,
+    projectRecoveryLifecycle,
+    refreshWorkspaceSummaries,
+    setAutosaveStatus,
+    setFieldBackgrounds,
+    retryInitialization,
+    workspaceSummaries,
+  } = useProjectLifecycle({
+    canvasInteractionActive,
+    canvasInteractionActiveRef,
+    dirty,
+    durableProject,
+    lastSavedAt,
+    prepareClose: () => tourSessionRef.current?.restore(),
+    projectIo,
+    onEditorLayoutLoaded: ({ inspectorWidth, showGhostPaths }) => {
+      setInspectorWidth(inspectorWidth);
+      setShowGhostPaths(showGhostPaths);
+    },
+  });
 
   useEffect(() => {
     tourViewRef.current = {
@@ -496,7 +435,7 @@ export function AppShell() {
           dirty: state.dirty,
         });
         if (protectedSession) {
-          autosaveRef.current?.cancel();
+          cancelAutosave();
         }
         return protectedSession;
       },
@@ -508,7 +447,7 @@ export function AppShell() {
       controller.dispose();
       tourSessionRef.current = null;
     };
-  }, [projectRecoveryLifecycle]);
+  }, [cancelAutosave, projectRecoveryLifecycle, setAutosaveStatus]);
 
   const setActiveTopMenu = useCallback((menu: TopMenuId | null) => {
     if (menu) {
@@ -517,33 +456,22 @@ export function AppShell() {
     setOpenTopMenu(menu);
   }, []);
 
-  const refreshWorkspaceSummaries = useCallback(
-    async (service = projectStore.getState().io) => {
-      if (!service) {
-        setWorkspaceSummaries([]);
-        return [];
-      }
-
-      const summaries = await service.listWorkspaces();
-      setWorkspaceSummaries(summaries);
-      return summaries;
-    },
-    [],
-  );
-
   const attachFolderInput = useCallback((element: HTMLInputElement | null) => {
     folderInputRef.current = element;
     element?.setAttribute("webkitdirectory", "");
     element?.setAttribute("directory", "");
   }, []);
 
-  const handleCanvasInteractionStateChange = useCallback((active: boolean) => {
-    canvasInteractionActiveRef.current = active;
-    setCanvasInteractionActive(active);
-    if (active) {
-      autosaveRef.current?.cancel();
-    }
-  }, []);
+  const handleCanvasInteractionStateChange = useCallback(
+    (active: boolean) => {
+      canvasInteractionActiveRef.current = active;
+      setCanvasInteractionActive(active);
+      if (active) {
+        cancelAutosave();
+      }
+    },
+    [cancelAutosave],
+  );
 
   const handleStartCurveTool = useCallback((insertionIndex: number) => {
     setCurveToolSession({
@@ -601,74 +529,6 @@ export function AppShell() {
     [],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    const capabilities = environmentCapabilities;
-    const service = createProjectIoService(capabilities);
-
-    projectStore.getState().setProjectIoService(service);
-
-    async function initializeProject() {
-      setInitializing(true);
-
-      try {
-        const userData = await initializeUserData(capabilities);
-        if (cancelled) {
-          return;
-        }
-        setInspectorWidth(userData.editor_layout.inspector_width);
-        setShowGhostPaths(userData.editor_layout.show_ghost_paths);
-        autoVelocityStore
-          .getState()
-          .setAutoSyncEnabled(userData.automatic_generation.keep_in_sync);
-        tourStore.getState().hydrateCompleted(userData.completed_tour_ids);
-        setFieldBackgrounds(userData.field_backgrounds);
-        let recoveryError: unknown;
-        if (autosaveRecoveryJournal) {
-          try {
-            await restoreAutosaveRecoveryJournal(
-              service,
-              autosaveRecoveryJournal,
-            );
-            projectRecoveryLifecycle.completeInitialization();
-          } catch (error) {
-            projectRecoveryLifecycle.markInitializationFailed();
-            recoveryError = error;
-          }
-        } else {
-          projectRecoveryLifecycle.completeInitialization();
-        }
-        await projectStore.getState().initializeWorkspace();
-        if (recoveryError) {
-          throw recoveryError;
-        }
-        if (!cancelled) {
-          await refreshWorkspaceSummaries(service);
-        }
-      } catch (caughtError) {
-        if (!cancelled) {
-          projectStore.getState().markSaveError(caughtError);
-        }
-      } finally {
-        if (!cancelled) {
-          setInitializing(false);
-        }
-      }
-    }
-
-    void initializeProject();
-
-    return () => {
-      cancelled = true;
-      autosaveRef.current?.cancel();
-    };
-  }, [
-    autosaveRecoveryJournal,
-    environmentCapabilities,
-    projectRecoveryLifecycle,
-    refreshWorkspaceSummaries,
-  ]);
-
   const legacyFieldMigrationKey =
     durableProject && projectSessionId
       ? JSON.stringify({
@@ -686,7 +546,7 @@ export function AppShell() {
 
     const projectId = migrationProject.project_id;
     const migrationSessionId = projectSessionId;
-    const migration = projectIo?.getLegacyProjectViewMigration() ?? null;
+    const migration = projectStore.getState().legacyProjectViewMigration;
 
     if (
       !projectIo ||
@@ -787,6 +647,7 @@ export function AppShell() {
     legacyFieldMigrationRetry,
     projectIo,
     projectSessionId,
+    setFieldBackgrounds,
   ]);
 
   const legacyFieldMigrationPhase =
@@ -831,132 +692,6 @@ export function AppShell() {
       mobileQuery.removeEventListener("change", syncMobileWarning);
     };
   }, []);
-
-  useEffect(() => {
-    if (!projectIo) {
-      autosaveRef.current?.cancel();
-      autosaveRef.current = null;
-      return;
-    }
-
-    autosaveRef.current?.cancel();
-    autosaveRef.current = createProjectAutosaveCoordinator(projectStore, {
-      delayMs: 300,
-      onStatusChange: setAutosaveStatus,
-      onSaved: () => {
-        if (!projectStore.getState().dirty) {
-          projectRecoveryLifecycle.clearIfReady();
-        }
-      },
-      onCheckpoint: (snapshot) => {
-        if (!projectRecoveryLifecycle.checkpoint(snapshot)) {
-          throw new Error("Project recovery checkpoint could not be written");
-        }
-      },
-      shouldDefer: () =>
-        legacyProjectMigrationOwnsSession(projectStore.getState()) ||
-        projectStore.getState().status === "conflict" ||
-        projectStore.getState().status === "damaged",
-    });
-    const coordinator = autosaveRef.current;
-
-    return () => {
-      coordinator.checkpoint();
-      coordinator.cancel();
-      autosaveRef.current = null;
-    };
-  }, [projectIo, projectRecoveryLifecycle]);
-
-  useEffect(() => {
-    const prepareClose = () => tourSessionRef.current?.restore();
-    const checkpoint = () => {
-      const state = projectStore.getState();
-      if (!state.dirty) {
-        return true;
-      }
-      return projectRecoveryLifecycle.checkpoint({
-        project: state.project,
-        expectedVersion: state.version,
-        dirty: state.dirty,
-      });
-    };
-
-    if (environmentCapabilities.shell === "browser-web") {
-      return installBrowserProjectUnloadHandler(window, {
-        prepareClose,
-        checkpoint,
-      });
-    }
-
-    let disposed = false;
-    let removeCloseListener: (() => void) | undefined;
-    void import("@tauri-apps/api/window")
-      .then(({ getCurrentWindow }) =>
-        installDurableProjectCloseHandler(getCurrentWindow(), {
-          prepareClose,
-          getProjectState: () => {
-            const state = projectStore.getState();
-            return {
-              dirty: state.dirty,
-              activeSave: state.activeSave,
-              blocked:
-                state.projectTransitionInProgress ||
-                legacyProjectMigrationOwnsSession(state) ||
-                state.status === "conflict" ||
-                state.status === "damaged",
-            };
-          },
-          flushProject: () => projectStore.getState().saveWorkspace(),
-          flushUserData,
-        }),
-      )
-      .then((unlisten) => {
-        if (disposed) {
-          unlisten();
-        } else {
-          removeCloseListener = unlisten;
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      disposed = true;
-      removeCloseListener?.();
-    };
-  }, [environmentCapabilities, projectRecoveryLifecycle]);
-
-  useEffect(() => {
-    if (!durableProject || !dirty) {
-      if (!dirty) {
-        projectRecoveryLifecycle.clearIfReady();
-      }
-      return;
-    }
-
-    if (canvasInteractionActiveRef.current) {
-      autosaveRef.current?.cancel();
-      return;
-    }
-
-    autosaveRef.current?.schedule();
-  }, [
-    canvasInteractionActive,
-    dirty,
-    durableProject,
-    projectRecoveryLifecycle,
-  ]);
-
-  useEffect(() => {
-    if (lastSavedAt && projectIo) {
-      const refreshTimer = window.setTimeout(() => {
-        void refreshWorkspaceSummaries(projectIo);
-      }, 0);
-
-      return () => window.clearTimeout(refreshTimer);
-    }
-
-    return undefined;
-  }, [lastSavedAt, projectIo, refreshWorkspaceSummaries]);
 
   useEffect(() => {
     if (!openTopMenu) {
@@ -1031,7 +766,7 @@ export function AppShell() {
       pathName: string;
       projectName: string;
     }) => {
-      autosaveRef.current?.cancel();
+      cancelAutosave();
 
       try {
         await projectStore
@@ -1045,11 +780,11 @@ export function AppShell() {
         // The project store already records the error for the status bar.
       }
     },
-    [refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries],
   );
 
   const handleOpenSample = useCallback(async () => {
-    autosaveRef.current?.cancel();
+    cancelAutosave();
 
     try {
       await projectStore.getState().createWorkspace(createSampleProject());
@@ -1061,7 +796,7 @@ export function AppShell() {
     } finally {
       setOpenTopMenu(null);
     }
-  }, [refreshWorkspaceSummaries]);
+  }, [cancelAutosave, refreshWorkspaceSummaries]);
 
   const startGuidedTour = useCallback(
     (tourId: string) => tourSessionRef.current?.start(tourId) ?? false,
@@ -1163,7 +898,11 @@ export function AppShell() {
       try {
         const currentProject = projectStore.getState().project;
         const mine = currentProject;
-        const theirs = await projectIo.peekWorkspace();
+        const workspaceHandle = projectStore.getState().workspaceHandle;
+        if (!workspaceHandle) {
+          return;
+        }
+        const theirs = await projectIo.peekWorkspace(workspaceHandle);
         if (cancelled || !mine) {
           return;
         }
@@ -1188,37 +927,37 @@ export function AppShell() {
     setResolvingConflict(true);
     try {
       await projectStore.getState().reloadFromDisk();
-      autosaveRef.current?.cancel();
+      cancelAutosave();
     } catch {
       // The store keeps the conflict/error state so the dialog stays actionable.
     } finally {
       setResolvingConflict(false);
     }
-  }, []);
+  }, [cancelAutosave]);
 
   const handleOverwriteConflict = useCallback(async () => {
     setResolvingConflict(true);
     try {
       await projectStore.getState().overwriteConflict();
-      autosaveRef.current?.cancel();
+      cancelAutosave();
     } catch {
       // Overwrite can still fail (e.g. permissions); leave the dialog open.
     } finally {
       setResolvingConflict(false);
     }
-  }, []);
+  }, [cancelAutosave]);
 
   const handleReplaceDamagedProject = useCallback(async () => {
     setResolvingConflict(true);
     try {
       await projectStore.getState().replaceDamagedProject();
-      autosaveRef.current?.cancel();
+      cancelAutosave();
     } catch {
       // The store keeps the damaged/error state so the choice stays actionable.
     } finally {
       setResolvingConflict(false);
     }
-  }, []);
+  }, [cancelAutosave]);
 
   const handleCreateNewPath = useCallback(async () => {
     setShowOpenPanel(false);
@@ -1291,7 +1030,7 @@ export function AppShell() {
 
   const handleSaveProject = useCallback(async () => {
     setShowOpenPanel(false);
-    autosaveRef.current?.cancel();
+    cancelAutosave();
 
     if (legacyFieldMigrationPhase === "running") {
       return;
@@ -1307,7 +1046,7 @@ export function AppShell() {
     } catch {
       // The project store already records the error for the status bar.
     }
-  }, [legacyFieldMigrationPhase, refreshWorkspaceSummaries]);
+  }, [cancelAutosave, legacyFieldMigrationPhase, refreshWorkspaceSummaries]);
 
   const beginToolbarAction = useCallback(
     (action: Exclude<PendingToolbarAction, null>) => {
@@ -1342,7 +1081,7 @@ export function AppShell() {
 
   const handleOpenWorkspaceById = useCallback(
     async (id: string) => {
-      autosaveRef.current?.cancel();
+      cancelAutosave();
 
       try {
         await projectStore.getState().openWorkspace(id);
@@ -1354,7 +1093,7 @@ export function AppShell() {
         // The project store already records the error for the status bar.
       }
     },
-    [refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries],
   );
 
   const handleOpenWorkspaceFromMenu = useCallback(
@@ -1370,7 +1109,7 @@ export function AppShell() {
       return;
     }
 
-    autosaveRef.current?.cancel();
+    cancelAutosave();
 
     try {
       await projectStore.getState().openWorkspace();
@@ -1382,7 +1121,12 @@ export function AppShell() {
     } finally {
       endToolbarAction("open");
     }
-  }, [beginToolbarAction, endToolbarAction, refreshWorkspaceSummaries]);
+  }, [
+    beginToolbarAction,
+    cancelAutosave,
+    endToolbarAction,
+    refreshWorkspaceSummaries,
+  ]);
 
   const handleCreateWorkspace = useCallback(() => {
     setShowOpenPanel(false);
@@ -1403,11 +1147,11 @@ export function AppShell() {
         return;
       }
 
-      autosaveRef.current?.cancel();
+      cancelAutosave();
 
       try {
         const currentStorageId =
-          projectStore.getState().io?.getCurrentWorkspaceSummary()?.id ?? null;
+          projectStore.getState().currentWorkspaceSummary?.id ?? null;
         const orderedProjects = [
           ...projects.filter(({ id }) => id !== currentStorageId),
           ...projects.filter(({ id }) => id === currentStorageId),
@@ -1425,12 +1169,12 @@ export function AppShell() {
         projectStore.getState().markSaveError(caughtError);
       }
     },
-    [refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries],
   );
 
   const handleSwitchWorkspace = useCallback(
     async (id: string) => {
-      autosaveRef.current?.cancel();
+      cancelAutosave();
 
       try {
         await projectStore.getState().switchWorkspace(id);
@@ -1443,7 +1187,7 @@ export function AppShell() {
         setOpenTopMenu(null);
       }
     },
-    [refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries],
   );
 
   const handleExportProjectArchive = useCallback(async () => {
@@ -1706,7 +1450,12 @@ export function AppShell() {
         endToolbarAction("import");
       }
     },
-    [endToolbarAction, pendingImportMode, refreshWorkspaceSummaries],
+    [
+      endToolbarAction,
+      pendingImportMode,
+      refreshWorkspaceSummaries,
+      setFieldBackgrounds,
+    ],
   );
 
   const handleImportProjectFolder = useCallback(
@@ -1735,7 +1484,7 @@ export function AppShell() {
         endToolbarAction("import");
       }
     },
-    [endToolbarAction, refreshWorkspaceSummaries],
+    [endToolbarAction, refreshWorkspaceSummaries, setFieldBackgrounds],
   );
 
   const handleSaveConfig = useCallback(
@@ -1796,7 +1545,7 @@ export function AppShell() {
       autoVelocityStore.getState().setAutoSyncEnabled(options.autoSyncEnabled);
       setShowConfigDialog(false);
     },
-    [],
+    [setFieldBackgrounds],
   );
 
   const handleUploadFieldImage = useCallback(
@@ -1811,7 +1560,7 @@ export function AppShell() {
       setFieldBackgrounds(listFieldBackgrounds());
       return entry;
     },
-    [],
+    [setFieldBackgrounds],
   );
 
   const handleLoadFieldImage = useCallback(
@@ -1839,8 +1588,10 @@ export function AppShell() {
     ioCapabilities?.supportsProjectFolders,
   );
   const pathDocuments = durableProject?.paths ?? [];
-  const currentWorkspaceSummary =
-    projectIo?.getCurrentWorkspaceSummary() ?? null;
+  const currentWorkspaceSummary = useStoreSelector(
+    projectStore,
+    (state) => state.currentWorkspaceSummary,
+  );
   const activePathGroup =
     durableProject?.path_groups.find(
       (group) => group.group_id === activePathGroupId,
@@ -2747,6 +2498,7 @@ export function AppShell() {
         {!durableProject ? (
           <StartCenter
             initializing={initializing}
+            initializationError={initializationError}
             recentWorkspaces={projectSummaries}
             supportsProjectFolders={supportsProjectFolders}
             onCreateProject={handleNewProject}
@@ -2769,6 +2521,7 @@ export function AppShell() {
             onOpenSample={() => void handleOpenSample()}
             tourSupported={toursSupported}
             onStartTour={() => startGuidedTour(editorBasicsTour.id)}
+            onRetryInitialization={retryInitialization}
           />
         ) : (
           <>
@@ -3131,7 +2884,6 @@ function TourPickerDialog({
   );
 }
 
-type TopMenuId = "project" | "path" | "edit" | "view" | "help" | "actions";
 type ImportMode = "archive" | "path" | "config";
 type PendingToolbarAction = "open" | "import" | "export" | null;
 
@@ -3140,16 +2892,6 @@ const MOBILE_SUPPORT_WARNING_DISMISSED_KEY =
 
 const mobileSupportMediaQuery =
   "(max-width: 767px), (pointer: coarse) and (max-width: 980px)";
-
-interface TopMenuSubmenuContextValue {
-  activeSubmenuId: string | null;
-  closeDelayMs: number;
-  setActiveSubmenuId(id: string | null): void;
-}
-
-const TopMenuSubmenuContext = createContext<TopMenuSubmenuContextValue | null>(
-  null,
-);
 
 function hasDismissedMobileSupportWarning(): boolean {
   try {
@@ -3427,2104 +3169,6 @@ function SaveConflictDiffSummary({
         ) : null}
       </ul>
     </div>
-  );
-}
-
-function ToolbarPathNavigator({
-  project,
-  activeGroup,
-  activePath,
-  visiblePaths,
-  onSelectGroup,
-  onSelectPath,
-}: {
-  project: Project | null;
-  activeGroup: ProjectPathGroup | null;
-  activePath: ProjectPath | null;
-  visiblePaths: ProjectPath[];
-  onSelectGroup(groupId: string | null): void;
-  onSelectPath(pathId: string): void;
-}) {
-  const collectionValue = activeGroup?.group_id ?? "__all_paths__";
-  const collectionLabel = activeGroup?.display_name ?? "All Paths";
-  const collectionOptions = [
-    { label: "All Paths", value: "__all_paths__" },
-    ...(project?.path_groups.map((group) => ({
-      label: group.display_name,
-      value: group.group_id,
-    })) ?? []),
-  ];
-  const pathOptions =
-    visiblePaths.length > 0
-      ? visiblePaths.map((path) => ({
-          label: path.display_name,
-          value: path.path_id,
-        }))
-      : [{ label: "No paths", value: "__no_path__" }];
-  const pathValue = activePath?.path_id ?? "__no_path__";
-  const pathLabel = activePath?.display_name ?? "No paths";
-
-  return (
-    <div
-      className="path-toolbar-navigator"
-      data-testid="path-toolbar-nav"
-      data-tour="path-breadcrumb"
-    >
-      <div
-        className="path-toolbar-navigator__field path-toolbar-navigator__field--collection"
-        style={toolbarSelectWidthStyle(collectionLabel, 14, 26)}
-      >
-        <ToolbarSelectControl
-          ariaLabel="Toolbar collection"
-          value={collectionValue}
-          disabled={!project}
-          options={collectionOptions}
-          onChange={(value) =>
-            onSelectGroup(value === "__all_paths__" ? null : value)
-          }
-        />
-      </div>
-      <span className="path-toolbar-navigator__separator" aria-hidden="true">
-        /
-      </span>
-      <div
-        className="path-toolbar-navigator__field path-toolbar-navigator__field--path"
-        style={toolbarSelectWidthStyle(pathLabel, 15, 34)}
-      >
-        <ToolbarSelectControl
-          ariaLabel="Toolbar path"
-          value={pathValue}
-          disabled={visiblePaths.length === 0}
-          options={pathOptions}
-          onChange={(value) => {
-            if (value !== "__no_path__") {
-              onSelectPath(value);
-            }
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-interface ToolbarSelectOption<T extends string> {
-  label: string;
-  value: T;
-}
-
-function ToolbarSelectControl<T extends string>({
-  ariaLabel,
-  disabled = false,
-  onChange,
-  options,
-  value,
-}: {
-  ariaLabel: string;
-  disabled?: boolean;
-  onChange(value: T): void;
-  options: readonly ToolbarSelectOption<T>[];
-  value: T;
-}) {
-  const listboxId = useId();
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const [open, setOpen] = useState(false);
-  const selectedOption =
-    options.find((option) => option.value === value) ?? options[0] ?? null;
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handlePointerDown = (event: globalThis.PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  const selectRelativeOption = (direction: 1 | -1) => {
-    if (options.length === 0) {
-      return;
-    }
-
-    const currentIndex = Math.max(
-      0,
-      options.findIndex((option) => option.value === value),
-    );
-    const nextIndex =
-      (currentIndex + direction + options.length) % options.length;
-    const nextOption = options[nextIndex];
-    if (nextOption) {
-      onChange(nextOption.value);
-    }
-  };
-
-  return (
-    <div
-      className={`toolbar-select-control${open ? " is-open" : ""}`}
-      ref={rootRef}
-    >
-      <button
-        type="button"
-        className="toolbar-select-control__button"
-        aria-label={ariaLabel}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            if (!open) {
-              setOpen(true);
-              return;
-            }
-            selectRelativeOption(event.key === "ArrowDown" ? 1 : -1);
-          }
-        }}
-      >
-        <span className="toolbar-select-control__value">
-          {selectedOption?.label ?? ""}
-        </span>
-        <span className="toolbar-select-control__indicator" aria-hidden="true">
-          <ChevronDownIcon size={12} />
-        </span>
-      </button>
-      {open ? (
-        <div
-          className="toolbar-select-control__menu"
-          id={listboxId}
-          role="listbox"
-          aria-label={`${ariaLabel} options`}
-        >
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={[
-                "toolbar-select-control__option",
-                option.value === value ? "is-selected" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              role="option"
-              aria-selected={option.value === value}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function toolbarSelectWidthStyle(label: string, minCh: number, maxCh: number) {
-  const widthCh = Math.max(minCh, Math.min(maxCh, label.length + 7));
-
-  return {
-    "--path-toolbar-field-width": `${widthCh}ch`,
-  } as CSSProperties;
-}
-
-function CreateProjectDialog({
-  onCancel,
-  onCreate,
-}: {
-  onCancel(): void;
-  onCreate(input: { projectName: string; pathName: string }): void;
-}) {
-  const dialogRef = useDialogFocusTrap<HTMLFormElement>();
-  const projectInputRef = useRef<HTMLInputElement | null>(null);
-  const [projectName, setProjectName] = useState("My Robot Project");
-  const [pathName, setPathName] = useState("Path 1");
-
-  useEffect(() => {
-    projectInputRef.current?.focus();
-    projectInputRef.current?.select();
-  }, []);
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        ref={dialogRef}
-        className="create-project-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="create-project-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          }
-        }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          onCreate({
-            projectName: projectName.trim() || "Untitled Project",
-            pathName: pathName.trim() || "Path 1",
-          });
-        }}
-      >
-        <header className="config-dialog__header">
-          <div>
-            <strong id="create-project-title">Create project</strong>
-            <span>Give your team a clear starting point.</span>
-          </div>
-          <CloseButton ariaLabel="Close create project" onClick={onCancel} />
-        </header>
-        <section className="create-project-dialog__body">
-          <label className="dialog-field">
-            <span>Project name</span>
-            <input
-              ref={projectInputRef}
-              aria-label="Project name"
-              type="text"
-              value={projectName}
-              onChange={(event) => setProjectName(event.currentTarget.value)}
-            />
-            <small>Use your robot, event, or season name.</small>
-          </label>
-          <label className="dialog-field">
-            <span>First path</span>
-            <input
-              aria-label="First path name"
-              type="text"
-              value={pathName}
-              onFocus={(event) => event.currentTarget.select()}
-              onChange={(event) => setPathName(event.currentTarget.value)}
-            />
-            <small>You can add collections and more paths later.</small>
-          </label>
-        </section>
-        <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="primary-dialog-action">
-            Create project
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
-function NewPathDialog({
-  activeGroup,
-  onCancel,
-  onCreate,
-}: {
-  activeGroup: ProjectPathGroup | null;
-  onCancel(): void;
-  onCreate(input: { displayName: string; addToCurrentGroup: boolean }): void;
-}) {
-  const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const [displayName, setDisplayName] = useState("new_path");
-  const [addToCurrentGroup, setAddToCurrentGroup] = useState(
-    Boolean(activeGroup),
-  );
-
-  useEffect(() => {
-    nameInputRef.current?.focus();
-    nameInputRef.current?.select();
-  }, []);
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        className="new-path-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create New Path"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onCreate({
-            displayName: displayName.trim() || "Untitled Path",
-            addToCurrentGroup: Boolean(activeGroup) && addToCurrentGroup,
-          });
-        }}
-      >
-        <header className="config-dialog__header">
-          <strong>Create New Path</strong>
-          <CloseButton ariaLabel="Close new path" onClick={onCancel} />
-        </header>
-        <section className="new-path-dialog__body">
-          <label className="dialog-field">
-            <span>Path name</span>
-            <input
-              ref={nameInputRef}
-              aria-label="Path name"
-              type="text"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.currentTarget.value)}
-            />
-          </label>
-          {activeGroup ? (
-            <label className="dialog-checkbox-row">
-              <input
-                aria-label={`Add to ${activeGroup.display_name}`}
-                type="checkbox"
-                checked={addToCurrentGroup}
-                onChange={(event) =>
-                  setAddToCurrentGroup(event.currentTarget.checked)
-                }
-              />
-              <span>Add to {activeGroup.display_name}</span>
-            </label>
-          ) : null}
-        </section>
-        <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="primary-dialog-action">
-            Create Path
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
-function NameEntryDialog({
-  ariaLabel,
-  description,
-  fieldLabel,
-  initialValue,
-  onCancel,
-  onSubmit,
-  submitLabel,
-  title,
-}: {
-  ariaLabel: string;
-  description: string;
-  fieldLabel: string;
-  initialValue: string;
-  onCancel(): void;
-  onSubmit(displayName: string): void;
-  submitLabel: string;
-  title: string;
-}) {
-  const dialogRef = useDialogFocusTrap<HTMLFormElement>();
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [displayName, setDisplayName] = useState(initialValue);
-  const normalizedName = displayName.trim();
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        ref={dialogRef}
-        className="new-path-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={ariaLabel}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          }
-        }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (normalizedName) {
-            onSubmit(normalizedName);
-          }
-        }}
-      >
-        <header className="config-dialog__header">
-          <div>
-            <strong>{title}</strong>
-            <span>{description}</span>
-          </div>
-          <CloseButton
-            ariaLabel={`Close ${ariaLabel.toLocaleLowerCase()}`}
-            onClick={onCancel}
-          />
-        </header>
-        <section className="new-path-dialog__body">
-          <label className="dialog-field">
-            <span>{fieldLabel}</span>
-            <input
-              ref={inputRef}
-              aria-label={fieldLabel}
-              type="text"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.currentTarget.value)}
-            />
-          </label>
-        </section>
-        <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="primary-dialog-action"
-            disabled={!normalizedName}
-          >
-            {submitLabel}
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
-function PathLibraryDialog({
-  project,
-  activePathId,
-  activePathGroupId,
-  onCancel,
-  onCreatePath,
-  onDeletePaths,
-  onExportPath,
-  onImportPath,
-}: {
-  project: Project;
-  activePathId: string | null;
-  activePathGroupId: string | null;
-  onCancel(): void;
-  onCreatePath(groupId: string | null): void;
-  onDeletePaths(): void;
-  onExportPath(): void;
-  onImportPath(): void;
-}) {
-  const dialogRef = useDialogFocusTrap<HTMLElement>();
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
-    activePathGroupId,
-  );
-  const [selectedPathId, setSelectedPathId] = useState<string | null>(
-    activePathId ?? project.paths[0]?.path_id ?? null,
-  );
-  const [query, setQuery] = useState("");
-  const [showCreateCollectionDialog, setShowCreateCollectionDialog] =
-    useState(false);
-  const [deletingGroup, setDeletingGroup] = useState<ProjectPathGroup | null>(
-    null,
-  );
-  const [nameAction, setNameAction] = useState<LibraryNameAction | null>(null);
-
-  useEffect(() => {
-    searchInputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        deletingGroup ||
-        showCreateCollectionDialog ||
-        nameAction
-      ) {
-        return;
-      }
-
-      const modifier = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-      if (
-        !modifier ||
-        event.altKey ||
-        isEditableShortcutTarget(event.target) ||
-        (key !== "z" && key !== "y")
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      if (key === "y" || event.shiftKey) {
-        projectStore.getState().redo();
-      } else {
-        projectStore.getState().undo();
-      }
-    };
-
-    window.addEventListener("keydown", handleHistoryShortcut);
-    return () => window.removeEventListener("keydown", handleHistoryShortcut);
-  }, [deletingGroup, nameAction, showCreateCollectionDialog]);
-
-  const selectedGroup =
-    project.path_groups.find((group) => group.group_id === selectedGroupId) ??
-    null;
-  const selectedCollectionPaths = visiblePathsForGroup(
-    project.paths,
-    selectedGroup,
-  ).filter((path) => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    return (
-      !normalizedQuery ||
-      path.display_name.toLocaleLowerCase().includes(normalizedQuery) ||
-      path.file_name.toLocaleLowerCase().includes(normalizedQuery)
-    );
-  });
-  const selectedPathFromState =
-    project.paths.find((path) => path.path_id === selectedPathId) ?? null;
-  const selectedPath =
-    selectedPathFromState &&
-    selectedCollectionPaths.some(
-      (path) => path.path_id === selectedPathFromState.path_id,
-    )
-      ? selectedPathFromState
-      : (selectedCollectionPaths.find(
-          (path) => path.path_id === activePathId,
-        ) ??
-        selectedCollectionPaths[0] ??
-        null);
-  const effectiveSelectedPathId = selectedPath?.path_id ?? null;
-  const handleSelectLibraryGroup = (groupId: string | null) => {
-    const nextGroup =
-      project.path_groups.find((group) => group.group_id === groupId) ?? null;
-    const nextPaths = visiblePathsForGroup(project.paths, nextGroup);
-
-    setSelectedGroupId(groupId);
-    setSelectedPathId((current) =>
-      current && nextPaths.some((path) => path.path_id === current)
-        ? current
-        : (nextPaths[0]?.path_id ?? null),
-    );
-  };
-
-  const handleUsePath = (pathId: string) => {
-    projectStore.getState().setActivePathGroup(selectedGroup?.group_id ?? null);
-    projectStore.getState().setActivePath(pathId);
-    selectionStore.getState().clearSelection();
-  };
-
-  const handleCreateGroup = (displayName: string) => {
-    const pathId = effectiveSelectedPathId;
-
-    projectStore.getState().createPathGroup({
-      displayName,
-      activePathId: pathId,
-      pathIds: pathId ? [pathId] : [],
-      makeActive: true,
-    });
-
-    const createdGroupId = projectStore.getState().activePathGroupId;
-    selectionStore.getState().clearSelection();
-    setSelectedGroupId(createdGroupId);
-    setSelectedPathId(pathId);
-    setShowCreateCollectionDialog(false);
-  };
-
-  const handleRenameGroup = () => {
-    if (!selectedGroup) {
-      return;
-    }
-
-    setNameAction({
-      kind: "rename-group",
-      groupId: selectedGroup.group_id,
-      initialName: selectedGroup.display_name,
-    });
-  };
-
-  const handleToggleSelectedPathMembership = (
-    groupId: string,
-    checked: boolean,
-  ) => {
-    if (!selectedPath) {
-      return;
-    }
-
-    if (checked) {
-      projectStore.getState().addPathsToGroup(groupId, [selectedPath.path_id]);
-    } else {
-      projectStore
-        .getState()
-        .removePathsFromGroup(groupId, [selectedPath.path_id]);
-    }
-    selectionStore.getState().clearSelection();
-  };
-
-  const handleCreatePathInSelectedCollection = () => {
-    selectionStore.getState().clearSelection();
-    onCreatePath(selectedGroup?.group_id ?? null);
-  };
-
-  const handleDuplicateSelectedPath = () => {
-    if (!selectedPath) {
-      return;
-    }
-
-    setNameAction({
-      kind: "duplicate-path",
-      pathId: selectedPath.path_id,
-      initialName: selectedPath.display_name,
-      addToGroupId: selectedGroup?.group_id ?? null,
-    });
-  };
-
-  const handleRenameSelectedPath = () => {
-    if (!selectedPath) {
-      return;
-    }
-
-    setNameAction({
-      kind: "rename-path",
-      pathId: selectedPath.path_id,
-      initialName: selectedPath.display_name,
-      addToGroupId: selectedGroup?.group_id ?? null,
-    });
-  };
-
-  const handleConfirmNameAction = (displayName: string) => {
-    if (!nameAction) {
-      return;
-    }
-
-    try {
-      if (nameAction.kind === "rename-group") {
-        projectStore
-          .getState()
-          .renamePathGroup(nameAction.groupId, displayName);
-      } else if (nameAction.kind === "duplicate-path") {
-        projectStore.getState().duplicatePath(nameAction.pathId, displayName, {
-          addToGroupId: nameAction.addToGroupId,
-        });
-        const nextPathId = projectStore.getState().activePathId;
-        selectionStore.getState().clearSelection();
-        setSelectedPathId(nextPathId);
-      } else {
-        projectStore.getState().renamePath(nameAction.pathId, displayName);
-        setSelectedPathId(nameAction.pathId);
-      }
-      setNameAction(null);
-    } catch (caughtError) {
-      projectStore.getState().markSaveError(caughtError);
-    }
-  };
-
-  const handleExportSelectedPath = () => {
-    if (!selectedPath) {
-      return;
-    }
-
-    projectStore.getState().setActivePath(selectedPath.path_id);
-    selectionStore.getState().clearSelection();
-    onExportPath();
-  };
-
-  const handleDeleteSelectedPath = () => {
-    selectionStore.getState().clearSelection();
-    onDeletePaths();
-  };
-
-  return (
-    <div className="project-navigator-backdrop" role="presentation">
-      <section
-        ref={dialogRef}
-        className="path-library-dialog project-navigator"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Project Navigator"
-        data-testid="path-library-dialog"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          } else if (event.key === "F2" && selectedPath) {
-            event.preventDefault();
-            handleRenameSelectedPath();
-          }
-        }}
-      >
-        <header className="config-dialog__header">
-          <div>
-            <strong>Project Navigator</strong>
-            <span>{project.display_name}</span>
-          </div>
-          <CloseButton ariaLabel="Close project navigator" onClick={onCancel} />
-        </header>
-
-        <div className="path-library-dialog__utility-bar">
-          <div className="path-library-dialog__selection-summary">
-            <strong>{selectedGroup?.display_name ?? "All Paths"}</strong>
-            <span>
-              {selectedCollectionPaths.length}{" "}
-              {selectedCollectionPaths.length === 1 ? "path" : "paths"} visible
-            </span>
-          </div>
-          <label className="project-navigator__search">
-            <Search aria-hidden="true" size={15} />
-            <input
-              ref={searchInputRef}
-              type="search"
-              aria-label="Search paths"
-              placeholder="Search paths…"
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </label>
-          <div className="path-library-dialog__utility-actions">
-            <button
-              type="button"
-              className="path-library-dialog__utility-button"
-              onClick={onImportPath}
-            >
-              <UploadIcon size={17} />
-              <span>Import Path</span>
-            </button>
-            <button
-              type="button"
-              className="path-library-dialog__utility-button"
-              disabled={!selectedPath}
-              onClick={handleExportSelectedPath}
-            >
-              <DownloadIcon size={17} />
-              <span>Export Path</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="path-library-dialog__body">
-          <aside
-            className="path-library-dialog__groups"
-            aria-label="Collections"
-          >
-            <div className="path-library-dialog__column-header path-library-dialog__column-header--action">
-              <strong>Collections</strong>
-              <div className="path-library-dialog__header-actions">
-                <PathLibraryHeaderButton
-                  label="Create collection"
-                  onClick={() => setShowCreateCollectionDialog(true)}
-                >
-                  <PlusIcon size={17} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Rename collection"
-                  disabled={!selectedGroup}
-                  onClick={handleRenameGroup}
-                >
-                  <PencilIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Delete collection"
-                  tone="danger"
-                  disabled={!selectedGroup}
-                  onClick={() => {
-                    if (selectedGroup) {
-                      setDeletingGroup(selectedGroup);
-                    }
-                  }}
-                >
-                  <TrashIcon size={16} />
-                </PathLibraryHeaderButton>
-              </div>
-            </div>
-            <div
-              className="path-library-dialog__group-list"
-              role="listbox"
-              aria-label="Collection list"
-            >
-              <button
-                type="button"
-                className={[
-                  "path-library-dialog__group",
-                  "is-permanent",
-                  !selectedGroup ? "is-selected" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                role="option"
-                aria-selected={!selectedGroup}
-                onClick={() => handleSelectLibraryGroup(null)}
-              >
-                <span>All Paths</span>
-                <small>
-                  Permanent collection / {project.paths.length} paths
-                </small>
-              </button>
-              {project.path_groups.map((group) => (
-                <button
-                  key={group.group_id}
-                  type="button"
-                  className={
-                    selectedGroup?.group_id === group.group_id
-                      ? "path-library-dialog__group is-selected"
-                      : "path-library-dialog__group"
-                  }
-                  role="option"
-                  aria-selected={selectedGroup?.group_id === group.group_id}
-                  onClick={() => handleSelectLibraryGroup(group.group_id)}
-                >
-                  <span>{group.display_name}</span>
-                  <small>
-                    {group.path_ids.length}{" "}
-                    {group.path_ids.length === 1 ? "path" : "paths"}
-                    {activePathGroupId === group.group_id ? " / active" : ""}
-                  </small>
-                </button>
-              ))}
-            </div>
-          </aside>
-
-          <section
-            className="path-library-dialog__paths"
-            aria-label="Paths in selected collection"
-          >
-            <div className="path-library-dialog__column-header path-library-dialog__column-header--action">
-              <strong>Paths</strong>
-              <div className="path-library-dialog__header-actions">
-                <PathLibraryHeaderButton
-                  label="Open path"
-                  disabled={!selectedPath}
-                  onClick={() => {
-                    if (selectedPath) {
-                      handleUsePath(selectedPath.path_id);
-                    }
-                  }}
-                >
-                  <OpenIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Save path as"
-                  disabled={!selectedPath}
-                  onClick={handleDuplicateSelectedPath}
-                >
-                  <CopyIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Create new path"
-                  onClick={handleCreatePathInSelectedCollection}
-                >
-                  <FilePlusIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Rename path"
-                  disabled={!selectedPath}
-                  onClick={handleRenameSelectedPath}
-                >
-                  <PencilIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Delete path"
-                  tone="danger"
-                  disabled={!selectedPath}
-                  onClick={handleDeleteSelectedPath}
-                >
-                  <TrashIcon size={16} />
-                </PathLibraryHeaderButton>
-              </div>
-            </div>
-            <div
-              className="path-library-dialog__path-list"
-              role="listbox"
-              aria-label="Path list"
-            >
-              {selectedCollectionPaths.length > 0 ? (
-                selectedCollectionPaths.map((path) => (
-                  <button
-                    key={path.path_id}
-                    type="button"
-                    role="option"
-                    className={[
-                      "path-library-dialog__path",
-                      path.path_id === effectiveSelectedPathId
-                        ? "is-selected"
-                        : "",
-                      path.path_id === activePathId ? "is-current" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    aria-selected={path.path_id === effectiveSelectedPathId}
-                    onClick={() => setSelectedPathId(path.path_id)}
-                    onDoubleClick={() => handleUsePath(path.path_id)}
-                  >
-                    <span>{path.display_name}</span>
-                    <small>
-                      {path.file_name}
-                      {path.path_id === activePathId ? " / open" : ""}
-                    </small>
-                  </button>
-                ))
-              ) : (
-                <div className="path-library-dialog__empty">
-                  No paths are in this collection yet.
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section
-            className="path-library-dialog__details"
-            aria-label="Collection membership"
-          >
-            <div className="path-library-dialog__column-header">
-              <strong>Membership</strong>
-              <span>
-                {selectedPath ? selectedPath.display_name : "No path"}
-              </span>
-            </div>
-            <div className="path-library-dialog__details-scroll">
-              {selectedPath ? (
-                <section className="path-library-dialog__membership">
-                  <div className="path-library-dialog__subhead">
-                    <strong>{selectedPath.file_name}</strong>
-                    <span>{project.path_groups.length + 1} collections</span>
-                  </div>
-                  <div className="path-library-dialog__membership-list">
-                    <label className="path-library-dialog__membership-row is-permanent">
-                      <input type="checkbox" checked disabled />
-                      <span>All Paths</span>
-                      <small>Permanent</small>
-                    </label>
-                    {project.path_groups.map((group) => (
-                      <label
-                        key={group.group_id}
-                        className={
-                          group.group_id === selectedGroup?.group_id
-                            ? "path-library-dialog__membership-row is-current"
-                            : "path-library-dialog__membership-row"
-                        }
-                      >
-                        <input
-                          type="checkbox"
-                          checked={group.path_ids.includes(
-                            selectedPath.path_id,
-                          )}
-                          onChange={(event) =>
-                            handleToggleSelectedPathMembership(
-                              group.group_id,
-                              event.currentTarget.checked,
-                            )
-                          }
-                        />
-                        <span>{group.display_name}</span>
-                        <small>
-                          {group.path_ids.length}{" "}
-                          {group.path_ids.length === 1 ? "path" : "paths"}
-                        </small>
-                      </label>
-                    ))}
-                  </div>
-                </section>
-              ) : (
-                <div className="path-library-dialog__empty">
-                  Select a path to manage collection membership.
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-
-        <footer className="config-dialog__footer path-library-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Close
-          </button>
-        </footer>
-      </section>
-
-      {deletingGroup ? (
-        <DeletePathGroupDialog
-          group={deletingGroup}
-          memberPaths={visiblePathsForGroup(project.paths, deletingGroup)}
-          onCancel={() => setDeletingGroup(null)}
-          onDelete={(deleteMemberPaths) => {
-            projectStore
-              .getState()
-              .deletePathGroup(deletingGroup.group_id, { deleteMemberPaths });
-            selectionStore.getState().clearSelection();
-            setDeletingGroup(null);
-          }}
-        />
-      ) : null}
-      {showCreateCollectionDialog ? (
-        <CreateCollectionDialog
-          onCancel={() => setShowCreateCollectionDialog(false)}
-          onCreate={handleCreateGroup}
-        />
-      ) : null}
-      {nameAction ? (
-        <NameEntryDialog
-          ariaLabel={
-            nameAction.kind === "rename-group"
-              ? "Rename Collection"
-              : nameAction.kind === "duplicate-path"
-                ? "Save Path As"
-                : "Rename Path"
-          }
-          title={
-            nameAction.kind === "rename-group"
-              ? "Rename Collection"
-              : nameAction.kind === "duplicate-path"
-                ? "Save Path As"
-                : "Rename Path"
-          }
-          description={
-            nameAction.kind === "rename-group"
-              ? "Update this collection name without changing its paths."
-              : nameAction.kind === "duplicate-path"
-                ? "Create a separate editable copy of this path."
-                : "Update the path name everywhere it appears in this project."
-          }
-          fieldLabel={
-            nameAction.kind === "rename-group" ? "Collection name" : "Path name"
-          }
-          initialValue={nameAction.initialName}
-          submitLabel={
-            nameAction.kind === "duplicate-path" ? "Save Copy" : "Rename"
-          }
-          onCancel={() => setNameAction(null)}
-          onSubmit={handleConfirmNameAction}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function LinkedTargetsDialog({
-  linkRequest,
-  project,
-  field,
-  onCancel,
-}: {
-  linkRequest?: LinkedTargetPickerRequest | null;
-  project: Project;
-  field: ResolvedFieldDefinition;
-  onCancel(): void;
-}) {
-  const [requestedTargetId, setSelectedTargetId] = useState<
-    string | null | undefined
-  >(undefined);
-  const pickerElement = linkRequest?.element ?? null;
-  const pickerCompatibleTargets = pickerElement
-    ? project.linked_targets.filter((target) =>
-        isElementCompatibleWithLinkedTarget(pickerElement, target),
-      )
-    : project.linked_targets;
-  const currentPickerTargetId = pickerElement
-    ? getPathElementLinkedTargetId(pickerElement)
-    : null;
-  const fallbackTargetId =
-    linkRequest && currentPickerTargetId
-      ? currentPickerTargetId
-      : (pickerCompatibleTargets[0]?.target_id ??
-        project.linked_targets[0]?.target_id ??
-        null);
-
-  const selectedTargetId =
-    requestedTargetId === undefined
-      ? fallbackTargetId
-      : requestedTargetId &&
-          project.linked_targets.some(
-            (target) => target.target_id === requestedTargetId,
-          )
-        ? requestedTargetId
-        : null;
-
-  const selectedTarget =
-    project.linked_targets.find(
-      (target) => target.target_id === selectedTargetId,
-    ) ?? null;
-  const selectedTargetCompatible =
-    !pickerElement ||
-    (selectedTarget
-      ? isElementCompatibleWithLinkedTarget(pickerElement, selectedTarget)
-      : false);
-  const compatibleTargetIds = useMemo(
-    () =>
-      pickerElement
-        ? new Set(pickerCompatibleTargets.map((target) => target.target_id))
-        : null,
-    [pickerElement, pickerCompatibleTargets],
-  );
-  const activeUseCount = selectedTarget
-    ? linkedTargetUseCount(project, selectedTarget.target_id)
-    : 0;
-  const coordinateLength = fieldCoordinateLengthMeters(field.geometry);
-  const coordinateWidth = fieldCoordinateWidthMeters(field.geometry);
-
-  const createTarget = (kind: LinkedTargetKind) => {
-    const targetId = projectStore.getState().createLinkedTarget({
-      display_name: nextLinkedTargetName(project, kind),
-      kind,
-      x_meters: coordinateLength / 2,
-      y_meters: coordinateWidth / 2,
-      rotation_radians: kind === "waypoint" ? 0 : null,
-      locked: false,
-    });
-    setSelectedTargetId(targetId);
-  };
-
-  const updateTarget = (
-    targetId: string,
-    update: Partial<
-      Pick<
-        LinkedTarget,
-        | "display_name"
-        | "kind"
-        | "x_meters"
-        | "y_meters"
-        | "rotation_radians"
-        | "locked"
-      >
-    >,
-  ) => {
-    projectStore.getState().updateLinkedTarget(targetId, update);
-  };
-
-  const linkSelectedTarget = () => {
-    if (!linkRequest || !selectedTarget || !selectedTargetCompatible) {
-      return;
-    }
-
-    projectStore
-      .getState()
-      .linkPathElementToTarget(
-        linkRequest.pathId,
-        linkRequest.elementIndex,
-        selectedTarget.target_id,
-      );
-    selectionStore
-      .getState()
-      .selectElement(
-        linkRequest.elementIndex,
-        activeProjectPath(
-          projectStore.getState().project,
-          projectStore.getState().activePathId,
-        )?.path,
-      );
-    onCancel();
-  };
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <section
-        className="path-library-dialog linked-targets-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={linkRequest ? "Choose Linked Element" : "Linked Elements"}
-        data-testid="linked-targets-dialog"
-      >
-        <header className="config-dialog__header">
-          <strong>
-            {linkRequest ? "Choose Linked Element" : "Linked Elements"}
-          </strong>
-          <CloseButton ariaLabel="Close linked elements" onClick={onCancel} />
-        </header>
-
-        <div className="path-library-dialog__utility-bar">
-          <div className="path-library-dialog__selection-summary">
-            <strong>
-              {linkRequest
-                ? `Element ${linkRequest.elementIndex + 1}`
-                : (selectedTarget?.display_name ?? "No linked element")}
-            </strong>
-            <span>
-              {linkRequest
-                ? `${pickerCompatibleTargets.length} compatible / ${project.linked_targets.length} total`
-                : `${project.linked_targets.length} ${
-                    project.linked_targets.length === 1 ? "element" : "elements"
-                  } / ${activeUseCount} ${
-                    activeUseCount === 1 ? "use" : "uses"
-                  }`}
-            </span>
-          </div>
-          <button
-            type="button"
-            className="path-library-dialog__utility-button"
-            onClick={() => createTarget("translation")}
-          >
-            <PlusIcon size={17} />
-            <span>New Translation</span>
-          </button>
-          <button
-            type="button"
-            className="path-library-dialog__utility-button"
-            onClick={() => createTarget("waypoint")}
-          >
-            <PlusIcon size={17} />
-            <span>New Waypoint</span>
-          </button>
-        </div>
-
-        <div
-          className="linked-targets-dialog__body"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              setSelectedTargetId(null);
-            }
-          }}
-        >
-          <aside className="linked-targets-dialog__list" aria-label="Elements">
-            <div className="path-library-dialog__column-header">
-              <strong>Elements</strong>
-              <span>{project.linked_targets.length}</span>
-            </div>
-            <div
-              className="path-library-dialog__path-list"
-              role="list"
-              onClick={(event) => {
-                if (event.target === event.currentTarget) {
-                  setSelectedTargetId(null);
-                }
-              }}
-            >
-              {project.linked_targets.length > 0 ? (
-                project.linked_targets.map((target) => {
-                  const selected = target.target_id === selectedTargetId;
-                  const compatible =
-                    !pickerElement ||
-                    isElementCompatibleWithLinkedTarget(pickerElement, target);
-                  const useCount = linkedTargetUseCount(
-                    project,
-                    target.target_id,
-                  );
-                  return (
-                    <button
-                      key={target.target_id}
-                      type="button"
-                      role="listitem"
-                      className={[
-                        "path-library-dialog__path",
-                        "linked-targets-dialog__target-row",
-                        selected ? "is-selected" : "",
-                        compatible ? "" : "is-incompatible",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      aria-pressed={selected}
-                      onClick={() => setSelectedTargetId(target.target_id)}
-                    >
-                      <span className="linked-targets-dialog__target-title">
-                        <LinkedTargetListGlyph target={target} />
-                        <span>{target.display_name}</span>
-                      </span>
-                      <small>
-                        {target.locked ? "Locked / " : ""}
-                        {formatLinkedTargetKind(target.kind)} / {useCount}{" "}
-                        {useCount === 1 ? "use" : "uses"}
-                      </small>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="path-library-dialog__empty">
-                  No linked elements yet.
-                </div>
-              )}
-            </div>
-          </aside>
-
-          <section
-            className="linked-targets-dialog__preview-column"
-            aria-label="Linked element preview"
-          >
-            <div className="path-library-dialog__column-header">
-              <strong>Field Preview</strong>
-              <span>{field.label}</span>
-            </div>
-            <div
-              className="linked-targets-dialog__preview-shell"
-              onClick={(event) => {
-                if (event.target === event.currentTarget) {
-                  setSelectedTargetId(null);
-                }
-              }}
-            >
-              <LinkedTargetsCanvas
-                compatibleTargetIds={compatibleTargetIds}
-                config={project.config}
-                field={field}
-                selectedTargetId={selectedTargetId}
-                targets={project.linked_targets}
-                onSelectTarget={setSelectedTargetId}
-                onMoveTarget={(targetId, position) =>
-                  projectStore.getState().updateLinkedTarget(targetId, {
-                    x_meters: position.x_meters,
-                    y_meters: position.y_meters,
-                  })
-                }
-                onRotateTarget={(targetId, rotation_radians) =>
-                  projectStore.getState().updateLinkedTarget(targetId, {
-                    rotation_radians,
-                  })
-                }
-              />
-            </div>
-          </section>
-
-          <section
-            className="path-library-dialog__details linked-targets-dialog__details"
-            aria-label="Linked element details"
-          >
-            <div className="path-library-dialog__column-header">
-              <strong>Details</strong>
-              <span>
-                {selectedTarget
-                  ? formatLinkedTargetKind(selectedTarget.kind)
-                  : ""}
-              </span>
-            </div>
-            <div className="path-library-dialog__details-scroll">
-              {selectedTarget ? (
-                <div className="linked-targets-dialog__editor">
-                  <label className="dialog-field">
-                    <span>Name</span>
-                    <input
-                      aria-label="Linked element name"
-                      value={selectedTarget.display_name}
-                      onChange={(event) =>
-                        updateTarget(selectedTarget.target_id, {
-                          display_name: event.currentTarget.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="dialog-field">
-                    <span>Type</span>
-                    <SelectControl
-                      ariaLabel="Linked element type"
-                      value={selectedTarget.kind}
-                      options={[
-                        { label: "Translation", value: "translation" },
-                        { label: "Waypoint", value: "waypoint" },
-                      ]}
-                      onChange={(kind) =>
-                        updateTarget(selectedTarget.target_id, {
-                          kind,
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="dialog-field dialog-field--toggle linked-targets-dialog__lock-field">
-                    <span>
-                      {selectedTarget.locked ? (
-                        <LockIcon size={15} />
-                      ) : (
-                        <UnlockIcon size={15} />
-                      )}
-                      Locked
-                    </span>
-                    <SwitchInput
-                      ariaLabel="Locked"
-                      checked={Boolean(selectedTarget.locked)}
-                      onChange={(locked) =>
-                        updateTarget(selectedTarget.target_id, {
-                          locked,
-                        })
-                      }
-                    />
-                  </label>
-                  <LinkedTargetNumberField
-                    label="X (m)"
-                    value={selectedTarget.x_meters}
-                    disabled={Boolean(selectedTarget.locked)}
-                    {...coordinateEditBounds(
-                      selectedTarget.x_meters,
-                      coordinateLength,
-                    )}
-                    onChange={(x_meters) =>
-                      updateTarget(selectedTarget.target_id, { x_meters })
-                    }
-                  />
-                  <LinkedTargetNumberField
-                    label="Y (m)"
-                    value={selectedTarget.y_meters}
-                    disabled={Boolean(selectedTarget.locked)}
-                    {...coordinateEditBounds(
-                      selectedTarget.y_meters,
-                      coordinateWidth,
-                    )}
-                    onChange={(y_meters) =>
-                      updateTarget(selectedTarget.target_id, { y_meters })
-                    }
-                  />
-                  {selectedTarget.kind === "waypoint" ? (
-                    <LinkedTargetNumberField
-                      label="Heading (deg)"
-                      value={radiansToDegrees(
-                        selectedTarget.rotation_radians ?? 0,
-                      )}
-                      disabled={Boolean(selectedTarget.locked)}
-                      onChange={(degrees) =>
-                        updateTarget(selectedTarget.target_id, {
-                          rotation_radians: degreesToRadians(degrees),
-                        })
-                      }
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    className="linked-targets-dialog__danger"
-                    onClick={() => {
-                      const nextSelection =
-                        project.linked_targets.find(
-                          (target) =>
-                            target.target_id !== selectedTarget.target_id,
-                        )?.target_id ?? null;
-                      projectStore
-                        .getState()
-                        .deleteLinkedTarget(selectedTarget.target_id);
-                      setSelectedTargetId(nextSelection);
-                    }}
-                  >
-                    Delete Linked Element
-                  </button>
-                </div>
-              ) : (
-                <div className="path-library-dialog__empty">
-                  Select or create a linked element.
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-
-        <footer className="config-dialog__footer path-library-dialog__footer">
-          {linkRequest ? (
-            <button
-              type="button"
-              className="primary-dialog-action linked-targets-dialog__link-selected"
-              disabled={!selectedTarget || !selectedTargetCompatible}
-              onClick={linkSelectedTarget}
-            >
-              Link Selected
-            </button>
-          ) : null}
-          <button type="button" onClick={onCancel}>
-            Close
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
-}
-
-function LinkedTargetNumberField({
-  disabled = false,
-  label,
-  max,
-  min,
-  value,
-  onChange,
-}: {
-  disabled?: boolean;
-  label: string;
-  max?: number;
-  min?: number;
-  value: number;
-  onChange(value: number): void;
-}) {
-  return (
-    <label className="dialog-field">
-      <span>{label}</span>
-      <NumberStepperControl
-        ariaLabel={label}
-        className="dialog-number-control"
-        disabled={disabled}
-        min={min}
-        max={max}
-        step={label === "Heading (deg)" ? 1 : 0.05}
-        precision={3}
-        value={value}
-        onChange={(nextValue) => {
-          if (nextValue !== null && nextValue !== value) {
-            onChange(nextValue);
-          }
-        }}
-      />
-    </label>
-  );
-}
-
-function LinkedTargetListGlyph({ target }: { target: LinkedTarget }) {
-  return (
-    <svg
-      className="linked-targets-dialog__target-glyph"
-      viewBox="-16 -16 32 32"
-      aria-hidden="true"
-    >
-      {target.kind === "waypoint" ? (
-        <g
-          transform={`rotate(${-radiansToDegrees(target.rotation_radians ?? 0)})`}
-        >
-          <rect
-            x="-12.2"
-            y="-12.2"
-            width="24.4"
-            height="24.4"
-            rx="3.4"
-            fill="#05080b"
-            fillOpacity="0.28"
-            stroke="#05080b"
-            strokeOpacity="0.82"
-            strokeWidth="3.1"
-          />
-          <rect
-            x="-10"
-            y="-10"
-            width="20"
-            height="20"
-            rx="2.8"
-            fill={elementColors.waypoint}
-            fillOpacity="0.1"
-            stroke={elementColors.waypoint}
-            strokeWidth="2.3"
-          />
-          <path
-            d="M 6.8 0 L -6.8 6.8 L -6.8 -6.8 Z"
-            fill="#05080b"
-            fillOpacity="0.25"
-            stroke={elementColors.waypoint}
-            strokeLinejoin="round"
-            strokeWidth="1.85"
-          />
-        </g>
-      ) : (
-        <>
-          <circle r="12.2" fill="#05080b" fillOpacity="0.72" />
-          <circle
-            r="8.1"
-            fill={elementColors.translation}
-            stroke="#eff8ff"
-            strokeOpacity="0.9"
-            strokeWidth="1.5"
-          />
-          <circle r="2.4" fill="#f7fbff" />
-        </>
-      )}
-    </svg>
-  );
-}
-
-function formatLinkedTargetKind(kind: LinkedTargetKind): string {
-  return kind === "waypoint" ? "Waypoint" : "Translation";
-}
-
-function radiansToDegrees(radians: number): number {
-  return radians * (180 / Math.PI);
-}
-
-function degreesToRadians(degrees: number): number {
-  return degrees * (Math.PI / 180);
-}
-
-function PathLibraryHeaderButton({
-  children,
-  disabled = false,
-  label,
-  onClick,
-  tone = "neutral",
-}: {
-  children: ReactNode;
-  disabled?: boolean;
-  label: string;
-  onClick(): void;
-  tone?: "danger" | "neutral";
-}) {
-  return (
-    <IconButton
-      className={`path-library-dialog__header-button path-library-dialog__header-button--${tone}`}
-      aria-label={label}
-      title={label}
-      tone={tone === "danger" ? "danger" : "accent"}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </IconButton>
-  );
-}
-
-function CreateCollectionDialog({
-  onCancel,
-  onCreate,
-}: {
-  onCancel(): void;
-  onCreate(displayName: string): void;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [displayName, setDisplayName] = useState("");
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  return (
-    <form
-      className="path-library-create-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Create collection"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onCreate(displayName.trim() || "New Collection");
-      }}
-    >
-      <header>
-        <strong>Create Collection</strong>
-        <CloseButton ariaLabel="Close create collection" onClick={onCancel} />
-      </header>
-      <label className="dialog-field">
-        <span>Collection name</span>
-        <input
-          ref={inputRef}
-          aria-label="Collection name"
-          data-testid="path-collection-new-name"
-          type="text"
-          value={displayName}
-          placeholder="Score autos"
-          onChange={(event) => setDisplayName(event.currentTarget.value)}
-        />
-      </label>
-      <footer>
-        <button type="button" onClick={onCancel}>
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="primary-dialog-action"
-          data-testid="create-path-collection"
-        >
-          Create
-        </button>
-      </footer>
-    </form>
-  );
-}
-
-function TopMenuButton({
-  id,
-  label,
-  active = false,
-  disabled = false,
-  triggerRef,
-  openTopMenu,
-  setOpenTopMenu,
-  onBeforeOpen,
-  align = "start",
-  children,
-}: {
-  id: TopMenuId;
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  triggerRef?: RefObject<HTMLButtonElement | null>;
-  openTopMenu: TopMenuId | null;
-  setOpenTopMenu(menu: TopMenuId | null): void;
-  onBeforeOpen?: () => Promise<unknown> | void;
-  align?: "start" | "end";
-  children: ReactNode;
-}) {
-  const open = openTopMenu === id;
-  const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
-  const submenuCloseDelayMs = id === "project" ? 220 : 100;
-  const className = [
-    "top-menu",
-    `top-menu--${id}`,
-    align === "end" ? "top-menu--align-end" : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return (
-    <div className={className}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className={active ? "is-active" : undefined}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={() => {
-          if (disabled) {
-            return;
-          }
-          setActiveSubmenuId(null);
-          if (!open) {
-            void onBeforeOpen?.();
-          }
-          setOpenTopMenu(open ? null : id);
-        }}
-      >
-        {label}
-      </button>
-      {open ? (
-        <TopMenuSubmenuContext.Provider
-          value={{
-            activeSubmenuId,
-            closeDelayMs: submenuCloseDelayMs,
-            setActiveSubmenuId,
-          }}
-        >
-          <div
-            className="top-menu__panel"
-            role="menu"
-            data-testid={`top-menu-${id}`}
-          >
-            {children}
-          </div>
-        </TopMenuSubmenuContext.Provider>
-      ) : null}
-    </div>
-  );
-}
-
-function MenuSubmenu({
-  label,
-  testId,
-  children,
-}: {
-  label: string;
-  testId: string;
-  children: ReactNode;
-}) {
-  const submenuId = useId();
-  const submenuContext = useContext(TopMenuSubmenuContext);
-  const submenuRef = useRef<HTMLDivElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const closeTimerRef = useRef<number | null>(null);
-  const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
-  const activeSubmenuIdRef = useRef<string | null>(null);
-  const [localOpen, setLocalOpen] = useState(false);
-  const [placement, setPlacement] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    maxHeight: number;
-  } | null>(null);
-  const open = submenuContext
-    ? submenuContext.activeSubmenuId === submenuId
-    : localOpen;
-  const closeDelayMs = submenuContext?.closeDelayMs ?? 100;
-  const setActiveSubmenuId = submenuContext?.setActiveSubmenuId;
-
-  useEffect(() => {
-    activeSubmenuIdRef.current = submenuContext?.activeSubmenuId ?? null;
-  }, [submenuContext?.activeSubmenuId]);
-
-  const setSubmenuOpen = useCallback(
-    (nextOpen: boolean) => {
-      if (setActiveSubmenuId) {
-        if (nextOpen) {
-          setActiveSubmenuId(submenuId);
-          return;
-        }
-
-        if (activeSubmenuIdRef.current === submenuId) {
-          setActiveSubmenuId(null);
-        }
-        return;
-      }
-
-      setLocalOpen(nextOpen);
-    },
-    [setActiveSubmenuId, submenuId],
-  );
-
-  const clearCloseTimer = useCallback(() => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  }, []);
-
-  const updatePlacement = useCallback(() => {
-    const rect = submenuRef.current?.getBoundingClientRect();
-
-    if (!rect) {
-      return;
-    }
-
-    const viewportMargin = 8;
-    const flyoutGap = 6;
-    const width = Math.min(
-      266,
-      Math.max(160, window.innerWidth - viewportMargin * 2),
-    );
-    const rightSpace =
-      window.innerWidth - viewportMargin - rect.right - flyoutGap;
-    const leftSpace = rect.left - viewportMargin - flyoutGap;
-    const shouldOpenLeft = rightSpace < width && leftSpace > rightSpace;
-    const idealLeft = shouldOpenLeft
-      ? rect.left - flyoutGap - width
-      : rect.right + flyoutGap;
-    const left = Math.min(
-      Math.max(viewportMargin, idealLeft),
-      window.innerWidth - width - viewportMargin,
-    );
-    const top = Math.max(
-      viewportMargin,
-      Math.min(rect.top - 4, window.innerHeight - 128),
-    );
-    const maxHeight = Math.max(120, window.innerHeight - top - viewportMargin);
-
-    setPlacement({
-      left,
-      maxHeight,
-      top,
-      width,
-    });
-  }, []);
-
-  const openSubmenu = useCallback(() => {
-    clearCloseTimer();
-    updatePlacement();
-    setSubmenuOpen(true);
-  }, [clearCloseTimer, setSubmenuOpen, updatePlacement]);
-
-  const getSubmenuPointerZone = useCallback((x: number, y: number) => {
-    const triggerRect = submenuRef.current?.getBoundingClientRect();
-    const panelRect = panelRef.current?.getBoundingClientRect();
-    const bridgePadding = 4;
-    const surfacePadding = 1;
-
-    if (triggerRect && pointInsideRect(x, y, triggerRect, surfacePadding)) {
-      return "surface";
-    }
-
-    if (panelRect && pointInsideRect(x, y, panelRect, surfacePadding)) {
-      return "surface";
-    }
-
-    if (!triggerRect || !panelRect) {
-      return "outside";
-    }
-
-    const horizontalGap =
-      panelRect.left >= triggerRect.right
-        ? { left: triggerRect.right, right: panelRect.left }
-        : triggerRect.left >= panelRect.right
-          ? { left: panelRect.right, right: triggerRect.left }
-          : {
-              left: Math.min(triggerRect.left, panelRect.left),
-              right: Math.max(triggerRect.right, panelRect.right),
-            };
-    const bridgeRect = {
-      bottom: Math.max(triggerRect.bottom, panelRect.bottom) + bridgePadding,
-      left: horizontalGap.left - bridgePadding,
-      right: horizontalGap.right + bridgePadding,
-      top: Math.min(triggerRect.top, panelRect.top) - bridgePadding,
-    };
-
-    if (
-      x >= bridgeRect.left &&
-      x <= bridgeRect.right &&
-      y >= bridgeRect.top &&
-      y <= bridgeRect.bottom
-    ) {
-      return "bridge";
-    }
-
-    return "outside";
-  }, []);
-
-  const isSubmenuHovered = useCallback(() => {
-    return Boolean(
-      submenuRef.current?.matches(":hover") ||
-      panelRef.current?.matches(":hover"),
-    );
-  }, []);
-
-  const closeSubmenu = useCallback(() => {
-    clearCloseTimer();
-    closeTimerRef.current = window.setTimeout(() => {
-      const pointerPosition = pointerPositionRef.current;
-      const pointerZone = pointerPosition
-        ? getSubmenuPointerZone(pointerPosition.x, pointerPosition.y)
-        : "outside";
-      if (isSubmenuHovered() || pointerZone === "surface") {
-        clearCloseTimer();
-        return;
-      }
-
-      setSubmenuOpen(false);
-    }, closeDelayMs);
-  }, [
-    clearCloseTimer,
-    closeDelayMs,
-    getSubmenuPointerZone,
-    isSubmenuHovered,
-    setSubmenuOpen,
-  ]);
-
-  const isInsideSubmenu = useCallback((target: EventTarget | null) => {
-    return (
-      target instanceof Node &&
-      (Boolean(submenuRef.current?.contains(target)) ||
-        Boolean(panelRef.current?.contains(target)))
-    );
-  }, []);
-
-  const handleBlur = (event: FocusEvent<HTMLElement>) => {
-    if (isInsideSubmenu(event.relatedTarget)) {
-      return;
-    }
-
-    closeSubmenu();
-  };
-
-  const handlePointerLeave = (event: ReactPointerEvent<HTMLElement>) => {
-    pointerPositionRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-    };
-    closeSubmenu();
-  };
-
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const handleReposition = () => updatePlacement();
-    const handlePointerMove = (event: globalThis.PointerEvent) => {
-      pointerPositionRef.current = {
-        x: event.clientX,
-        y: event.clientY,
-      };
-      const pointerZone = getSubmenuPointerZone(event.clientX, event.clientY);
-
-      if (isInsideSubmenu(event.target) || pointerZone === "surface") {
-        clearCloseTimer();
-        return;
-      }
-
-      closeSubmenu();
-    };
-    const handlePointerOut = (event: globalThis.PointerEvent) => {
-      if (event.relatedTarget !== null) {
-        return;
-      }
-
-      pointerPositionRef.current = null;
-      closeSubmenu();
-    };
-
-    window.addEventListener("resize", handleReposition);
-    window.addEventListener("scroll", handleReposition, true);
-    window.addEventListener("pointermove", handlePointerMove, true);
-    window.addEventListener("pointerout", handlePointerOut, true);
-
-    return () => {
-      window.removeEventListener("resize", handleReposition);
-      window.removeEventListener("scroll", handleReposition, true);
-      window.removeEventListener("pointermove", handlePointerMove, true);
-      window.removeEventListener("pointerout", handlePointerOut, true);
-    };
-  }, [
-    clearCloseTimer,
-    closeSubmenu,
-    getSubmenuPointerZone,
-    isInsideSubmenu,
-    open,
-    updatePlacement,
-  ]);
-
-  useEffect(() => clearCloseTimer, [clearCloseTimer]);
-
-  return (
-    <div
-      ref={submenuRef}
-      className={`top-menu__submenu${open ? " is-open" : ""}`}
-      role="none"
-      onBlur={handleBlur}
-      onFocus={openSubmenu}
-      onPointerEnter={openSubmenu}
-      onPointerLeave={handlePointerLeave}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="top-menu__item"
-        onClick={openSubmenu}
-      >
-        <span className="top-menu__item-label">{label}</span>
-        <span className="top-menu__chevron" aria-hidden="true">
-          ›
-        </span>
-      </button>
-      {open && placement
-        ? createPortal(
-            <div
-              ref={panelRef}
-              className="top-menu__submenu-panel"
-              role="menu"
-              data-testid={testId}
-              style={placement}
-              onBlur={handleBlur}
-              onFocus={openSubmenu}
-              onPointerEnter={openSubmenu}
-              onPointerLeave={handlePointerLeave}
-            >
-              {children}
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
-  );
-}
-
-function MenuAction({
-  label,
-  shortcut,
-  disabled = false,
-  onAction,
-}: {
-  label: string;
-  shortcut?: ShortcutBinding;
-  disabled?: boolean;
-  onAction(): void;
-}) {
-  const shortcutLabel = shortcut ? formatShortcut(shortcut) : "";
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      className="top-menu__item"
-      disabled={disabled}
-      onClick={onAction}
-    >
-      <span className="top-menu__item-label">{label}</span>
-      {shortcutLabel ? <kbd>{shortcutLabel}</kbd> : null}
-    </button>
-  );
-}
-
-function MenuLabel({ children }: { children: ReactNode }) {
-  return <div className="top-menu__label">{children}</div>;
-}
-
-function pointInsideRect(
-  x: number,
-  y: number,
-  rect: Pick<DOMRect, "bottom" | "left" | "right" | "top">,
-  padding = 0,
-): boolean {
-  return (
-    x >= rect.left - padding &&
-    x <= rect.right + padding &&
-    y >= rect.top - padding &&
-    y <= rect.bottom + padding
   );
 }
 
@@ -5813,349 +3457,6 @@ function WorkspaceMenuList({
       ))}
     </div>
   );
-}
-
-function DeleteProjectsDialog({
-  activeWorkspaceId,
-  workspaces,
-  onCancel,
-  onDelete,
-}: {
-  activeWorkspaceId: string | null;
-  workspaces: ProjectWorkspaceSummary[];
-  onCancel(): void;
-  onDelete(projects: ProjectWorkspaceSummary[]): void;
-}) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [confirming, setConfirming] = useState(false);
-  const selectedCount = selectedIds.size;
-  const selectedProjects = workspaces.filter((workspaceSummary) =>
-    selectedIds.has(workspaceSummary.id),
-  );
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        className="delete-projects-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Delete Projects"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!confirming) {
-            setConfirming(true);
-            return;
-          }
-          onDelete(selectedProjects);
-        }}
-      >
-        <header className="config-dialog__header">
-          <strong>Delete Projects</strong>
-          <CloseButton ariaLabel="Close delete projects" onClick={onCancel} />
-        </header>
-        {confirming ? (
-          <section
-            className="delete-projects-dialog__confirm"
-            aria-label="Confirm project deletion"
-          >
-            <strong>
-              Delete {selectedCount} selected project
-              {selectedCount === 1 ? "" : "s"}?
-            </strong>
-            <p>
-              This removes the selected project{selectedCount === 1 ? "" : "s"}{" "}
-              from browser storage. Exported autos folders and downloaded
-              archives are not deleted.
-            </p>
-            <ul>
-              {selectedProjects.map((workspaceSummary) => (
-                <li key={workspaceSummary.id}>
-                  {workspaceSummary.displayName}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : (
-          <section
-            className="delete-projects-dialog__list"
-            aria-label="Saved projects"
-          >
-            {workspaces.length === 0 ? (
-              <div className="delete-projects-dialog__empty">
-                No projects found to delete.
-              </div>
-            ) : (
-              workspaces.map((workspaceSummary) => {
-                const checked = selectedIds.has(workspaceSummary.id);
-                const isCurrent = workspaceSummary.id === activeWorkspaceId;
-                return (
-                  <label
-                    key={workspaceSummary.id}
-                    className={
-                      isCurrent
-                        ? "delete-project-row is-current"
-                        : "delete-project-row"
-                    }
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(event) => {
-                        const nextChecked = event.currentTarget.checked;
-                        setSelectedIds((current) => {
-                          const next = new Set(current);
-                          if (nextChecked) {
-                            next.add(workspaceSummary.id);
-                          } else {
-                            next.delete(workspaceSummary.id);
-                          }
-                          return next;
-                        });
-                      }}
-                    />
-                    <span>{workspaceSummary.displayName}</span>
-                    {isCurrent ? <small>Current</small> : null}
-                  </label>
-                );
-              })
-            )}
-          </section>
-        )}
-        <footer className="config-dialog__footer">
-          {confirming ? (
-            <button type="button" onClick={() => setConfirming(false)}>
-              Back
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedIds(
-                    new Set(workspaces.map((summary) => summary.id)),
-                  )
-                }
-                disabled={workspaces.length === 0}
-              >
-                Select All
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedIds(new Set())}
-                disabled={selectedCount === 0}
-              >
-                Select None
-              </button>
-            </>
-          )}
-          <span className="delete-projects-dialog__spacer" />
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="danger-action"
-            disabled={selectedCount === 0}
-          >
-            {confirming ? "Confirm Delete" : "Delete Selected"}
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
-function DeletePathsDialog({
-  activePathId,
-  paths,
-  onCancel,
-  onDelete,
-}: {
-  activePathId: string | null;
-  paths: ProjectPath[];
-  onCancel(): void;
-  onDelete(ids: string[]): void;
-}) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const selectedCount = selectedIds.size;
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        className="delete-paths-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Delete Paths"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onDelete([...selectedIds]);
-        }}
-      >
-        <header className="config-dialog__header">
-          <strong>Delete Paths</strong>
-          <CloseButton ariaLabel="Close delete paths" onClick={onCancel} />
-        </header>
-        <section className="delete-paths-dialog__list" aria-label="Saved paths">
-          {paths.length === 0 ? (
-            <div className="delete-paths-dialog__empty">
-              No paths found to delete.
-            </div>
-          ) : (
-            paths.map((path) => {
-              const checked = selectedIds.has(path.path_id);
-              return (
-                <label
-                  key={path.path_id}
-                  className={
-                    path.path_id === activePathId
-                      ? "delete-path-row is-current"
-                      : "delete-path-row"
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(event) => {
-                      const nextChecked = event.currentTarget.checked;
-                      setSelectedIds((current) => {
-                        const next = new Set(current);
-                        if (nextChecked) {
-                          next.add(path.path_id);
-                        } else {
-                          next.delete(path.path_id);
-                        }
-                        return next;
-                      });
-                    }}
-                  />
-                  <span>{path.display_name}</span>
-                  {path.path_id === activePathId ? (
-                    <small>Current</small>
-                  ) : null}
-                </label>
-              );
-            })
-          )}
-        </section>
-        <footer className="config-dialog__footer">
-          <button
-            type="button"
-            onClick={() =>
-              setSelectedIds(new Set(paths.map((path) => path.path_id)))
-            }
-            disabled={paths.length === 0}
-          >
-            Select All
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedIds(new Set())}
-            disabled={selectedCount === 0}
-          >
-            Select None
-          </button>
-          <span className="delete-paths-dialog__spacer" />
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="danger-action"
-            disabled={selectedCount === 0}
-          >
-            Delete Selected
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
-function DeletePathGroupDialog({
-  group,
-  memberPaths,
-  onCancel,
-  onDelete,
-}: {
-  group: ProjectPathGroup;
-  memberPaths: ProjectPath[];
-  onCancel(): void;
-  onDelete(deleteMemberPaths: boolean): void;
-}) {
-  const [deleteMemberPaths, setDeleteMemberPaths] = useState(false);
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        className="delete-path-group-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Delete Collection"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onDelete(deleteMemberPaths);
-        }}
-      >
-        <header className="config-dialog__header">
-          <strong>Delete Collection</strong>
-          <CloseButton ariaLabel="Close delete collection" onClick={onCancel} />
-        </header>
-        <section className="delete-path-group-dialog__body">
-          <strong>{group.display_name}</strong>
-          <p>
-            Deleting the collection normally keeps every path in All Paths. Only
-            use the checkbox below if you want to delete the member paths too.
-          </p>
-          <label className="delete-path-group-dialog__option">
-            <input
-              type="checkbox"
-              checked={deleteMemberPaths}
-              onChange={(event) =>
-                setDeleteMemberPaths(event.currentTarget.checked)
-              }
-            />
-            <span>
-              Also delete {memberPaths.length} member{" "}
-              {memberPaths.length === 1 ? "path" : "paths"} from All Paths
-            </span>
-          </label>
-          {deleteMemberPaths ? (
-            <div className="delete-path-group-dialog__warning">
-              This removes the selected paths from the project, not just from
-              this collection.
-            </div>
-          ) : null}
-        </section>
-        <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className={deleteMemberPaths ? "danger-action" : undefined}
-          >
-            {deleteMemberPaths
-              ? "Delete Collection and Paths"
-              : "Delete Collection Only"}
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
-function visiblePathsForGroup(
-  paths: readonly ProjectPath[],
-  group: ProjectPathGroup | null,
-): ProjectPath[] {
-  if (!group) {
-    return [...paths];
-  }
-
-  return group.path_ids.flatMap((pathId) => {
-    const path = paths.find((candidate) => candidate.path_id === pathId);
-    return path ? [path] : [];
-  });
 }
 
 interface SaveStatusInput {

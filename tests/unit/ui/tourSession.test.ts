@@ -267,6 +267,7 @@ describe("Tour session", () => {
         projectId: "project-3",
         projectSessionId: "busy-session",
         revision: 0,
+        ioGeneration: 0,
       },
     });
     let blocked = false;

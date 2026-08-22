@@ -1,5 +1,5 @@
 import type { Project } from "../core/model/project";
-import type { ProjectIoService, WriteResult } from "../platform/projectIo";
+import type { WriteResult } from "../platform/projectIo";
 import type { ProjectStore } from "./projectStore";
 
 export type AutosaveStatus = "idle" | "pending" | "saving" | "error";
@@ -16,7 +16,12 @@ export interface AutosaveScheduler<TimerHandle = unknown> {
 }
 
 export interface AutosaveCoordinatorOptions<TimerHandle = unknown> {
-  io: Pick<ProjectIoService, "saveWorkspace">;
+  io: {
+    saveWorkspace(
+      project: Project,
+      expectedVersion?: string,
+    ): Promise<WriteResult>;
+  };
   getSnapshot: () => AutosaveSnapshot;
   delayMs?: number;
   scheduler?: AutosaveScheduler<TimerHandle>;

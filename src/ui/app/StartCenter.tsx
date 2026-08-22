@@ -9,6 +9,7 @@ import { parseProjectTimestamp } from "./projectTimestamp";
 
 export function StartCenter({
   initializing,
+  initializationError,
   recentWorkspaces,
   supportsProjectFolders,
   onCreateProject,
@@ -19,8 +20,10 @@ export function StartCenter({
   onOpenSample,
   tourSupported,
   onStartTour,
+  onRetryInitialization,
 }: {
   initializing: boolean;
+  initializationError: Error | null;
   recentWorkspaces: readonly ProjectWorkspaceSummary[];
   supportsProjectFolders: boolean;
   onCreateProject(): void;
@@ -31,7 +34,9 @@ export function StartCenter({
   onOpenSample(): void;
   tourSupported: boolean;
   onStartTour(): void;
+  onRetryInitialization(): void;
 }) {
+  const actionsDisabled = initializing || initializationError !== null;
   return (
     <section className="start-center" aria-labelledby="start-center-title">
       <div className="start-center__hero">
@@ -43,11 +48,23 @@ export function StartCenter({
         </p>
       </div>
 
+      {initializationError ? (
+        <div className="start-center__initialization-error" role="alert">
+          <div>
+            <strong>Local data could not be opened.</strong>
+            <small>{initializationError.message}</small>
+          </div>
+          <button type="button" onClick={onRetryInitialization}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+
       <div className="start-center__actions" aria-label="Start actions">
         <button
           type="button"
           className="start-center__action is-primary"
-          disabled={initializing}
+          disabled={actionsDisabled}
           onClick={onCreateProject}
         >
           <FilePlus2 aria-hidden="true" size={22} />
@@ -59,7 +76,7 @@ export function StartCenter({
         <button
           type="button"
           className="start-center__action"
-          disabled={initializing}
+          disabled={actionsDisabled}
           onClick={onOpenProject}
         >
           <FolderOpen aria-hidden="true" size={22} />
@@ -78,7 +95,7 @@ export function StartCenter({
           <button
             type="button"
             className="start-center__action"
-            disabled={initializing}
+            disabled={actionsDisabled}
             onClick={onImportFolder}
           >
             <ArchiveRestore aria-hidden="true" size={22} />
@@ -91,7 +108,7 @@ export function StartCenter({
         <button
           type="button"
           className="start-center__action"
-          disabled={initializing}
+          disabled={actionsDisabled}
           onClick={onImportArchive}
         >
           <ArchiveRestore aria-hidden="true" size={22} />
@@ -135,7 +152,7 @@ export function StartCenter({
             <div className="start-center__sample-actions">
               <button
                 type="button"
-                disabled={initializing}
+                disabled={actionsDisabled}
                 onClick={onOpenSample}
               >
                 Open sample
@@ -144,7 +161,7 @@ export function StartCenter({
                 <button
                   type="button"
                   data-testid="start-center-guided-tour"
-                  disabled={initializing}
+                  disabled={actionsDisabled}
                   onClick={onStartTour}
                 >
                   <span aria-hidden="true">🧭</span> Take the guided tour

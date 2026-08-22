@@ -45,6 +45,9 @@ import type {
   DeleteWorkspaceResult,
   LegacyProjectViewMigration,
   ProjectIoCapabilities,
+  ProjectIoWorkspace,
+  ProjectIoWorkspaceHandle,
+  ProjectIoWriteOutcome,
   ProjectIoService,
   ProjectImportOptions,
   ProjectImportResult,
@@ -261,7 +264,14 @@ describe("project store", () => {
   it("loads and saves through the configured IO service", async () => {
     const workspace = exampleWorkspace("project-a", "Alpha", 1);
     const io = new RecordingIo(workspace);
-    const initialWrite = await io.saveWorkspace(workspace);
+    const initialWorkspace = (await io.initialize())!;
+    const initialWrite = (
+      await io.saveWorkspace(
+        initialWorkspace.handle,
+        workspace,
+        initialWorkspace.version,
+      )
+    ).result;
     const store = createProjectStore();
 
     store.getState().setProjectIoService(io);
@@ -831,7 +841,7 @@ describe("project store", () => {
       exampleWorkspace("project-a", "Alpha", 1),
     );
     let resolvePreparation!: (
-      result: LegacyProjectMigrationPreparation,
+      result: Awaited<ReturnType<typeof io.prepareLegacyProjectMigration>>,
     ) => void;
     io.prepareLegacyProjectMigration = async () =>
       new Promise((resolve) => {
@@ -854,9 +864,12 @@ describe("project store", () => {
     ).rejects.toThrow("must be prepared before cleanup");
 
     resolvePreparation({
-      status: "prepared",
-      version: "prepared-v1",
-      updatedAt: "2026-04-23T15:44:00.000Z",
+      preparation: {
+        status: "prepared",
+        version: "prepared-v1",
+        updatedAt: "2026-04-23T15:44:00.000Z",
+      },
+      workspace: io.ioWorkspace()!,
     });
     await preparation;
     expect(store.getState().legacyMigrationPhase).toBe("prepared");
@@ -897,7 +910,9 @@ describe("project store", () => {
     const projectSessionId = requireProjectSessionId(store);
     const migration = legacyMigration("project-a");
     let prepareCalls = 0;
-    let resolvePrepare!: (result: LegacyProjectMigrationPreparation) => void;
+    let resolvePrepare!: (
+      result: Awaited<ReturnType<typeof io.prepareLegacyProjectMigration>>,
+    ) => void;
     io.prepareLegacyProjectMigration = async () => {
       prepareCalls += 1;
       return new Promise((resolve) => {
@@ -914,9 +929,12 @@ describe("project store", () => {
       .createWorkspace(exampleWorkspace("project-b", "Beta", 1));
 
     resolvePrepare({
-      status: "prepared",
-      version: "prepared-project-a",
-      updatedAt: "2026-04-23T15:46:00.000Z",
+      preparation: {
+        status: "prepared",
+        version: "prepared-project-a",
+        updatedAt: "2026-04-23T15:46:00.000Z",
+      },
+      workspace: io.ioWorkspace()!,
     });
     await pending;
 
@@ -940,7 +958,7 @@ describe("project store", () => {
     const projectSessionId = requireProjectSessionId(store);
     const migration = legacyMigration("project-a");
     let cleanupCalls = 0;
-    let resolveCleanup!: (result: WriteResult) => void;
+    let resolveCleanup!: (result: ProjectIoWriteOutcome) => void;
     io.completeLegacyProjectMigration = async () => {
       cleanupCalls += 1;
       return new Promise((resolve) => {
@@ -960,9 +978,14 @@ describe("project store", () => {
       .getState()
       .createWorkspace(exampleWorkspace("project-b", "Beta", 1));
 
-    resolveCleanup({
+    const cleanupResult = {
       version: "cleaned-project-a",
       updatedAt: "2026-04-23T15:47:00.000Z",
+    };
+    resolveCleanup({
+      ...cleanupResult,
+      result: cleanupResult,
+      workspace: io.ioWorkspace()!,
     });
     await pending;
 
@@ -1455,7 +1478,7 @@ describe("autosave coordinator", () => {
     const io = new RecordingIo(exampleWorkspace("project-a", "Alpha", 1));
     const scheduler = new ManualScheduler();
     const coordinator = createAutosaveCoordinator({
-      io,
+      io: autosaveIo(io),
       delayMs: 25,
       scheduler,
       getSnapshot: () => ({
@@ -1484,7 +1507,7 @@ describe("autosave coordinator", () => {
     const scheduler = new ManualScheduler();
     let shouldDefer = true;
     const coordinator = createAutosaveCoordinator({
-      io,
+      io: autosaveIo(io),
       delayMs: 25,
       scheduler,
       shouldDefer: () => shouldDefer,
@@ -1516,7 +1539,7 @@ describe("autosave coordinator", () => {
     const storage = new MapStorage();
     const journal = createBrowserAutosaveRecoveryJournal(storage);
     const coordinator = createAutosaveCoordinator({
-      io: new RecordingIo(workspace),
+      io: autosaveIo(new RecordingIo(workspace)),
       scheduler: new ManualScheduler(),
       onCheckpoint: (snapshot) => journal.write(snapshot),
       getSnapshot: () => ({ project, expectedVersion: "v0", dirty: true }),
@@ -1544,7 +1567,9 @@ describe("autosave coordinator", () => {
       true,
     );
 
-    expect((await io.getWorkspace())?.display_name).toBe("Recovered Alpha");
+    expect((await io.initialize())?.project.display_name).toBe(
+      "Recovered Alpha",
+    );
     expect(journal.read()).toBeNull();
   });
 
@@ -1561,10 +1586,10 @@ describe("autosave coordinator", () => {
       true,
     );
 
-    expect((await io.getWorkspace())?.display_name).toBe(
+    expect((await io.initialize())?.project.display_name).toBe(
       "Recovered Alpha (Recovered)",
     );
-    expect((await io.getWorkspace())?.project_id).toContain(
+    expect((await io.initialize())?.project.project_id).toContain(
       "project-a-recovered-",
     );
     expect(journal.read()).toBeNull();
@@ -1581,10 +1606,7 @@ describe("autosave coordinator", () => {
       restoreAutosaveRecoveryJournal(
         {
           async initialize() {
-            return recovered;
-          },
-          async getWorkspace() {
-            return recovered;
+            return testIoWorkspace(recovered);
           },
           async saveWorkspace() {
             throw new Error("IndexedDB unavailable");
@@ -1693,7 +1715,7 @@ describe("save conflict recovery", () => {
     const state = store.getState();
     expect(state.status).toBe("idle");
     expect(state.dirty).toBe(false);
-    expect(state.version).toBe(io.getCurrentVersion());
+    expect(state.version).toBe((await io.initialize())?.version);
     expect(requireWorkspace(store).display_name).toBe("External Edit");
   });
 
@@ -1702,8 +1724,8 @@ describe("save conflict recovery", () => {
       exampleWorkspace("project-a", "Alpha", 1),
     );
     const diskWorkspace = exampleWorkspace("project-a", "External Edit", 1);
-    let resolveReload!: (project: Project) => void;
-    io.reloadCurrentProject = async () =>
+    let resolveReload!: (project: ProjectIoWorkspace) => void;
+    io.reloadWorkspace = async () =>
       new Promise((resolve) => {
         resolveReload = resolve;
       });
@@ -1716,7 +1738,7 @@ describe("save conflict recovery", () => {
       /temporarily unavailable while changing Projects/,
     );
     await Promise.resolve();
-    resolveReload(diskWorkspace);
+    resolveReload(testIoWorkspace(diskWorkspace));
     await reloading;
 
     expect(store.getState()).toMatchObject({
@@ -1730,7 +1752,7 @@ describe("save conflict recovery", () => {
 describe("Project IO service ownership", () => {
   it("does not let delayed initialization from a replaced service adopt state", async () => {
     const firstIo = new RecordingIo(exampleWorkspace("project-a", "Alpha", 1));
-    let resolveFirst!: (project: Project | null) => void;
+    let resolveFirst!: (project: ProjectIoWorkspace | null) => void;
     firstIo.initialize = async () =>
       new Promise((resolve) => {
         resolveFirst = resolve;
@@ -1745,7 +1767,7 @@ describe("Project IO service ownership", () => {
     store.getState().setProjectIoService(secondIo);
     const secondInitialization = store.getState().initializeWorkspace();
     await secondInitialization;
-    resolveFirst(exampleWorkspace("project-a", "Alpha", 1));
+    resolveFirst(testIoWorkspace(exampleWorkspace("project-a", "Alpha", 1)));
     await expect(firstInitialization).rejects.toThrow(
       /active Project changed before the operation finished/,
     );
@@ -1754,6 +1776,54 @@ describe("Project IO service ownership", () => {
       io: secondIo,
       projectTransitionInProgress: false,
       project: { project_id: "project-b", display_name: "Beta" },
+    });
+  });
+
+  it("does not let a save from a replaced service update the current session", async () => {
+    const { store, io: firstIo } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const secondIo = new RecordingIo(
+      exampleWorkspace("project-a", "Second service", 1),
+    );
+    firstIo.deferWrites();
+    renameActivePath(store, "Unsaved edit");
+    const versionBeforeSave = store.getState().version;
+
+    const saving = store.getState().saveWorkspace();
+    await waitForWriteCount(firstIo, 1);
+    store.getState().setProjectIoService(secondIo);
+    firstIo.completeNextWrite();
+    await saving;
+
+    expect(store.getState()).toMatchObject({
+      io: secondIo,
+      version: versionBeforeSave,
+      dirty: true,
+      activeSave: null,
+      saveQueued: false,
+    });
+  });
+
+  it("uses the service captured by transition ownership after an async barrier", async () => {
+    const { store, io: firstIo } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const secondIo = new RecordingIo(
+      exampleWorkspace("project-a", "Second service", 1),
+    );
+
+    const creating = store
+      .getState()
+      .createWorkspace(exampleWorkspace("project-b", "Beta", 1));
+    store.getState().setProjectIoService(secondIo);
+    await creating;
+
+    expect(firstIo.transitionCalls).not.toContain("createWorkspace");
+    expect(secondIo.transitionCalls).toContain("createWorkspace");
+    expect(store.getState()).toMatchObject({
+      io: secondIo,
+      project: { project_id: "project-b" },
     });
   });
 });
@@ -2006,6 +2076,14 @@ function legacyMigration(projectId: string): LegacyProjectViewMigration {
   };
 }
 
+function autosaveIo(io: RecordingIo) {
+  return {
+    async saveWorkspace(project: Project, expectedVersion?: string) {
+      return (await io.saveWorkspace({}, project, expectedVersion)).result;
+    },
+  };
+}
+
 class RecordingIo implements ProjectIoService {
   readonly capabilities: ProjectIoCapabilities = {
     shellLabel: "Test",
@@ -2045,7 +2123,7 @@ class RecordingIo implements ProjectIoService {
   private transitionsDeferred = false;
   private readonly pendingWrites: Array<{
     workspace: Project;
-    resolve: (result: WriteResult) => void;
+    resolve: (result: ProjectIoWriteOutcome) => void;
   }> = [];
   private readonly pendingTransitionResumes: Array<() => void> = [];
 
@@ -2077,7 +2155,7 @@ class RecordingIo implements ProjectIoService {
     if (!pending) {
       throw new Error("No deferred write is pending");
     }
-    pending.resolve(this.commitWrite(pending.workspace));
+    pending.resolve(this.writeOutcome(this.commitWrite(pending.workspace)));
   }
 
   completeNextTransition(): void {
@@ -2092,48 +2170,17 @@ class RecordingIo implements ProjectIoService {
     this.workspace = workspace ? structuredClone(workspace) : null;
   }
 
-  async initialize(): Promise<Project | null> {
-    return this.getWorkspace();
-  }
-
-  async getWorkspace(): Promise<Project | null> {
-    return this.workspace ? structuredClone(this.workspace) : null;
+  async initialize(): Promise<ProjectIoWorkspace | null> {
+    return this.ioWorkspace();
   }
 
   async peekWorkspace(): Promise<Project | null> {
     return this.workspace ? structuredClone(this.workspace) : null;
   }
 
-  getCurrentVersion(): string | undefined {
-    return this.version;
-  }
-
-  getLastSavedAt(): string | null {
-    return this.updatedAt;
-  }
-
-  getCurrentWorkspaceSummary(): ProjectWorkspaceSummary | null {
-    return this.workspace
-      ? {
-          id: this.workspace.project_id,
-          displayName: this.workspace.display_name,
-          version: this.version ?? "",
-          updatedAt: this.updatedAt ?? "",
-        }
-      : null;
-  }
-
-  getPersistenceDamage() {
-    return this.damage;
-  }
-
-  getLegacyProjectViewMigration() {
-    return null;
-  }
-
-  async prepareLegacyProjectMigration(): Promise<LegacyProjectMigrationPreparation> {
+  async prepareLegacyProjectMigration(workspace: ProjectIoWorkspace) {
     if (this.legacyPrepareRejected) {
-      return { status: "rejected" };
+      return { preparation: { status: "rejected" } as const, workspace };
     }
     const result = this.legacyPrepareResult;
     if (result) {
@@ -2141,23 +2188,24 @@ class RecordingIo implements ProjectIoService {
       this.updatedAt = result.updatedAt;
       this.legacyPrepareResult = null;
     }
-    return result
+    const preparation: LegacyProjectMigrationPreparation = result
       ? { status: "prepared", ...result }
       : {
           status: "already-prepared",
           version: this.version ?? this.initialVersion,
           updatedAt: this.updatedAt ?? "2026-04-23T15:40:00.000Z",
         };
+    return { preparation, workspace: this.ioWorkspace()! };
   }
 
-  async completeLegacyProjectMigration(): Promise<WriteResult | null> {
+  async completeLegacyProjectMigration(): Promise<ProjectIoWriteOutcome | null> {
     const result = this.legacyMigrationResult;
     if (result) {
       this.version = result.version;
       this.updatedAt = result.updatedAt;
       this.legacyMigrationResult = null;
     }
-    return result;
+    return result ? this.writeOutcome(result) : null;
   }
 
   async createWorkspace(input: { project?: Project } = {}) {
@@ -2167,35 +2215,36 @@ class RecordingIo implements ProjectIoService {
       throw new Error("Test createWorkspace requires a workspace");
     }
     this.workspace = structuredClone(input.project);
-    return structuredClone(input.project);
+    return this.ioWorkspace()!;
   }
 
-  async openWorkspace(): Promise<Project | null> {
+  async openWorkspace(): Promise<ProjectIoWorkspace | null> {
     this.transitionCalls.push("openWorkspace");
     await this.waitForTransition();
-    return this.getWorkspace();
+    return this.ioWorkspace();
   }
 
-  async reloadCurrentProject(): Promise<Project | null> {
-    return this.getWorkspace();
+  async reloadWorkspace(): Promise<ProjectIoWorkspace | null> {
+    return this.ioWorkspace();
   }
 
   async deleteWorkspace(): Promise<DeleteWorkspaceResult> {
     this.transitionCalls.push("deleteWorkspace");
     await this.waitForTransition();
     if (!this.deleteChangesCurrent) {
-      return { project: await this.getWorkspace(), changedCurrent: false };
+      return { workspace: this.ioWorkspace(), changedCurrent: false };
     }
     this.workspace = null;
     this.version = undefined;
     this.updatedAt = null;
-    return { project: null, changedCurrent: true };
+    return { workspace: null, changedCurrent: true };
   }
 
   async saveWorkspace(
-    workspace: Project,
+    _handle: ProjectIoWorkspaceHandle,
+    project: Project,
     expectedVersion?: string,
-  ): Promise<WriteResult> {
+  ): Promise<ProjectIoWriteOutcome> {
     if (this.damage) {
       throw new ProjectPersistenceDamageError(this.damage);
     }
@@ -2214,29 +2263,30 @@ class RecordingIo implements ProjectIoService {
     this.armConflict = false;
 
     this.writes.push({
-      workspaceId: workspace.project_id,
-      pathName: workspace.paths[0]?.display_name ?? "",
+      workspaceId: project.project_id,
+      pathName: project.paths[0]?.display_name ?? "",
       expectedVersion,
     });
 
     if (this.writesDeferred) {
       return new Promise((resolve) => {
         this.pendingWrites.push({
-          workspace: structuredClone(workspace),
+          workspace: structuredClone(project),
           resolve,
         });
       });
     }
 
-    return this.commitWrite(workspace);
+    return this.writeOutcome(this.commitWrite(project));
   }
 
   async replaceDamagedProject(
+    _handle: ProjectIoWorkspaceHandle,
     project: Project,
     expectedVersion?: string,
-  ): Promise<WriteResult> {
+  ): Promise<ProjectIoWriteOutcome> {
     this.damage = null;
-    return this.saveWorkspace(project, expectedVersion);
+    return this.saveWorkspace(_handle, project, expectedVersion);
   }
 
   private commitWrite(workspace: Project): WriteResult {
@@ -2262,13 +2312,13 @@ class RecordingIo implements ProjectIoService {
       : [];
   }
 
-  async switchWorkspace(): Promise<Project | null> {
+  async switchWorkspace(): Promise<ProjectIoWorkspace | null> {
     this.transitionCalls.push("switchWorkspace");
     await this.waitForTransition();
-    return this.getWorkspace();
+    return this.ioWorkspace();
   }
 
-  async importPath(file: File): Promise<Project> {
+  async importPath(_project: Project, file: File): Promise<Project> {
     this.transitionCalls.push("importPath");
     await this.waitForTransition();
     const parsed = JSON.parse(await file.text()) as {
@@ -2286,7 +2336,6 @@ class RecordingIo implements ProjectIoService {
         path: createPathModel(),
       },
     );
-    await this.saveWorkspace(nextWorkspace, this.version);
     return nextWorkspace;
   }
 
@@ -2294,10 +2343,10 @@ class RecordingIo implements ProjectIoService {
     return new Blob([]);
   }
 
-  async importConfig(): Promise<Project> {
+  async importConfig(project: Project): Promise<Project> {
     this.transitionCalls.push("importConfig");
     await this.waitForTransition();
-    return this.requireWorkspace();
+    return structuredClone(project);
   }
 
   async exportConfig(): Promise<Blob> {
@@ -2305,7 +2354,8 @@ class RecordingIo implements ProjectIoService {
   }
 
   async importProjectFolder(
-    _files?: readonly File[],
+    _workspace: ProjectIoWorkspace,
+    _files: readonly File[],
     options?: ProjectImportOptions,
   ) {
     this.transitionCalls.push("importProjectFolder");
@@ -2324,7 +2374,11 @@ class RecordingIo implements ProjectIoService {
     };
   }
 
-  async importProjectArchive(_file?: File, options?: ProjectImportOptions) {
+  async importProjectArchive(
+    _workspace: ProjectIoWorkspace,
+    _file: File,
+    options?: ProjectImportOptions,
+  ) {
     this.transitionCalls.push("importProjectArchive");
     await this.waitForTransition();
     return this.commitImport(options);
@@ -2340,9 +2394,7 @@ class RecordingIo implements ProjectIoService {
 
   async deleteLegacyFieldImageAsset(): Promise<void> {}
 
-  private async commitImport(
-    options?: ProjectImportOptions,
-  ): Promise<ProjectImportResult> {
+  private async commitImport(options?: ProjectImportOptions) {
     const result =
       this.importResult ?? emptyImportResult(this.requireWorkspace());
     if (result.legacyFieldBackgrounds.length > 0) {
@@ -2352,7 +2404,7 @@ class RecordingIo implements ProjectIoService {
       await options.migrateLegacyFieldBackgrounds(result);
     }
     this.workspace = structuredClone(result.project);
-    return structuredClone(result);
+    return { ...structuredClone(result), workspace: this.ioWorkspace()! };
   }
 
   private async waitForTransition(): Promise<void> {
@@ -2370,6 +2422,32 @@ class RecordingIo implements ProjectIoService {
     }
     return structuredClone(this.workspace);
   }
+
+  ioWorkspace(): ProjectIoWorkspace | null {
+    if (!this.workspace) {
+      return null;
+    }
+    const project = structuredClone(this.workspace);
+    const summary = {
+      id: project.project_id,
+      displayName: project.display_name,
+      version: this.version ?? "",
+      updatedAt: this.updatedAt ?? "",
+    };
+    return {
+      project,
+      handle: { storageId: project.project_id },
+      version: this.version,
+      lastSavedAt: this.updatedAt,
+      summary,
+      persistenceDamage: this.damage,
+      legacyMigration: null,
+    };
+  }
+
+  private writeOutcome(result: WriteResult): ProjectIoWriteOutcome {
+    return { ...result, result, workspace: this.ioWorkspace()! };
+  }
 }
 
 function emptyImportResult(project: Project) {
@@ -2377,6 +2455,24 @@ function emptyImportResult(project: Project) {
     project,
     legacySelectedFieldId: null,
     legacyFieldBackgrounds: [],
+  };
+}
+
+function testIoWorkspace(project: Project): ProjectIoWorkspace {
+  const cloned = structuredClone(project);
+  return {
+    project: cloned,
+    handle: { storageId: cloned.project_id },
+    version: "v0",
+    lastSavedAt: "2026-04-23T15:40:00.000Z",
+    summary: {
+      id: cloned.project_id,
+      displayName: cloned.display_name,
+      version: "v0",
+      updatedAt: "2026-04-23T15:40:00.000Z",
+    },
+    persistenceDamage: null,
+    legacyMigration: null,
   };
 }
 
@@ -2434,6 +2530,14 @@ class ManualScheduler {
 
 class MapStorage {
   private readonly values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  key(index: number): string | null {
+    return [...this.values.keys()][index] ?? null;
+  }
 
   getItem(key: string): string | null {
     return this.values.get(key) ?? null;

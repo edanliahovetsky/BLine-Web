@@ -146,16 +146,22 @@ describe("UserData", () => {
       new BrowserUserDataAdapter({ storage }),
     );
 
-    await service.initialize();
-    service.update((current) => ({
-      ...current,
-      completed_tour_ids: ["memory-only-change"],
-    }));
-    await expect(service.flush()).rejects.toBeInstanceOf(UserDataReadOnlyError);
+    await expect(service.initialize()).rejects.toMatchObject({
+      availability: "read-only",
+    });
+    expect(() =>
+      service.update((current) => ({
+        ...current,
+        completed_tour_ids: ["memory-only-change"],
+      })),
+    ).toThrow(UserDataReadOnlyError);
+    await expect(service.flush()).resolves.toBeUndefined();
 
-    expect(service.getSnapshot().completed_tour_ids).toEqual([
-      "memory-only-change",
-    ]);
+    expect(service.getStatus()).toMatchObject({
+      availability: "read-only",
+      hasUnsavedChanges: false,
+    });
+    expect(service.getSnapshot().completed_tour_ids).toEqual([]);
     expect(storage.getItem(BROWSER_USER_DATA_KEY)).toBe(future);
   });
 
@@ -168,16 +174,18 @@ describe("UserData", () => {
       new BrowserUserDataAdapter({ storage }),
     );
 
-    await service.initialize();
-    service.update((current) => ({
-      ...current,
-      completed_tour_ids: ["memory-only-change"],
-    }));
-    await expect(service.flush()).rejects.toBeInstanceOf(UserDataReadOnlyError);
+    await expect(service.initialize()).rejects.toMatchObject({
+      availability: "read-only",
+    });
+    expect(() =>
+      service.update((current) => ({
+        ...current,
+        completed_tour_ids: ["memory-only-change"],
+      })),
+    ).toThrow(UserDataReadOnlyError);
+    await expect(service.flush()).resolves.toBeUndefined();
 
-    expect(service.getSnapshot().completed_tour_ids).toEqual([
-      "memory-only-change",
-    ]);
+    expect(service.getSnapshot().completed_tour_ids).toEqual([]);
     expect(storage.getItem(BROWSER_USER_DATA_KEY)).toBe(malformed);
   });
 
@@ -207,13 +215,17 @@ describe("UserData", () => {
       new BrowserUserDataAdapter({ storage }),
     );
 
-    await expect(service.initialize()).resolves.toEqual(defaultUserData);
-    service.update((current) => ({
-      ...current,
-      completed_tour_ids: ["memory-only-change"],
-    }));
+    await expect(service.initialize()).rejects.toMatchObject({
+      availability: "read-only",
+    });
+    expect(() =>
+      service.update((current) => ({
+        ...current,
+        completed_tour_ids: ["memory-only-change"],
+      })),
+    ).toThrow(UserDataReadOnlyError);
 
-    await expect(service.flush()).rejects.toBeInstanceOf(UserDataReadOnlyError);
+    await expect(service.flush()).resolves.toBeUndefined();
     expect(storage.getItem(BROWSER_USER_DATA_KEY)).toBe(damaged);
   });
 
@@ -292,6 +304,56 @@ describe("UserData", () => {
     await service.flush();
 
     expect(writes).toEqual([]);
+  });
+
+  it("rejects mutations during initialization and recovers on a later retry", async () => {
+    const firstRead = deferred<void>();
+    let reads = 0;
+    let failRead = true;
+    const adapter: UserDataAdapter = {
+      async read() {
+        reads += 1;
+        if (reads === 1) {
+          await firstRead.promise;
+        }
+        if (failRead) {
+          throw new Error("storage temporarily unavailable");
+        }
+        return { revision: 3, data: structuredClone(defaultUserData) };
+      },
+      async compareAndSwap(expectedRevision) {
+        return { status: "written", revision: expectedRevision + 1 };
+      },
+      async writeFieldAsset() {},
+      async readFieldAsset() {
+        return null;
+      },
+      async deleteFieldAsset() {},
+    };
+    const service = new UserDataService(adapter);
+    const initializing = service.initialize();
+
+    expect(service.getStatus().availability).toBe("initializing");
+    expect(() => service.update((current) => current)).toThrow(
+      UserDataReadOnlyError,
+    );
+    await expect(
+      service.createFieldBackgroundFromBytes(fieldInput()),
+    ).rejects.toBeInstanceOf(UserDataReadOnlyError);
+    firstRead.resolve();
+    await expect(initializing).rejects.toMatchObject({
+      availability: "unavailable",
+    });
+    await expect(service.flush()).resolves.toBeUndefined();
+
+    failRead = false;
+    await expect(service.initialize()).resolves.toEqual(defaultUserData);
+    expect(service.getStatus()).toEqual({
+      availability: "ready",
+      error: null,
+      hasUnsavedChanges: false,
+    });
+    expect(reads).toBe(2);
   });
 
   it("serializes queued writes against the latest owned snapshot", async () => {
@@ -537,23 +599,18 @@ describe("UserData", () => {
     adapter.rejectWrites = true;
     const service = new UserDataService(adapter);
 
+    await expect(service.initialize()).rejects.toMatchObject({
+      availability: "unavailable",
+    });
+    expect(() => service.update((current) => current)).toThrow(
+      UserDataReadOnlyError,
+    );
+    await expect(service.flush()).resolves.toBeUndefined();
+
+    adapter.rejectWrites = false;
     await expect(service.initialize()).resolves.toMatchObject({
       completed_tour_ids: ["editor-basics"],
     });
-    await expect(service.flush()).rejects.toThrow("quota exceeded");
-
-    service.update((current) => ({
-      ...current,
-      completed_tour_ids: ["editor-basics"],
-    }));
-
-    await expect(service.flush()).rejects.toThrow("quota exceeded");
-    expect(service.getSnapshot().completed_tour_ids).toEqual(["editor-basics"]);
-
-    adapter.rejectWrites = false;
-    service.update((current) => current);
-
-    await expect(service.flush()).resolves.toBeUndefined();
     await expect(service.flush()).resolves.toBeUndefined();
     expect(adapter.persisted?.completed_tour_ids).toEqual(["editor-basics"]);
   });
@@ -1261,7 +1318,7 @@ describe("UserData", () => {
       const service = new UserDataService(adapter, {
         idFactory: () => "field-read-only",
       });
-      await service.initialize();
+      await expect(service.initialize()).rejects.toBeDefined();
 
       await expect(
         service.createFieldBackgroundFromBytes(fieldInput()),

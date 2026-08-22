@@ -34,8 +34,10 @@ import {
 import type {
   ProjectIoCapabilities,
   ProjectIoService,
+  ProjectIoWorkspace,
+  ProjectIoWorkspaceHandle,
+  ProjectIoWriteOutcome,
 } from "../../../src/platform/projectIo";
-import type { WriteResult } from "../../../src/storage";
 import { createSetHandoffRadiusCommand } from "../../../src/canvas/modelSync";
 
 const syncDelayMs = 5;
@@ -794,31 +796,55 @@ class MemoryIo {
   };
 
   private workspace: ProjectWorkspaceDocument;
+  private version = 0;
+  private readonly handle: ProjectIoWorkspaceHandle = {
+    memoryWorkspace: "auto-velocity-sync",
+  };
 
   constructor(workspace: ProjectWorkspaceDocument) {
     this.workspace = structuredClone(workspace);
   }
 
-  async initialize(): Promise<ProjectWorkspaceDocument> {
-    return structuredClone(this.workspace);
-  }
-
-  async getWorkspace(): Promise<ProjectWorkspaceDocument> {
-    return structuredClone(this.workspace);
-  }
-
-  getCurrentVersion(): string | undefined {
-    return "v0";
-  }
-
-  getLastSavedAt(): string | null {
-    return null;
+  async initialize(): Promise<ProjectIoWorkspace> {
+    return this.currentWorkspace();
   }
 
   async saveWorkspace(
+    handle: ProjectIoWorkspaceHandle,
     workspace: ProjectWorkspaceDocument,
-  ): Promise<WriteResult> {
+  ): Promise<ProjectIoWriteOutcome> {
+    if (handle !== this.handle) {
+      throw new Error("Unexpected Project I/O workspace handle");
+    }
     this.workspace = structuredClone(workspace);
-    return { version: "v1", updatedAt: "2026-07-26T00:00:00.000Z" };
+    this.version += 1;
+    const result = {
+      version: `v${this.version}`,
+      updatedAt: "2026-07-26T00:00:00.000Z",
+    };
+    return {
+      ...result,
+      result,
+      workspace: this.currentWorkspace(),
+    };
+  }
+
+  private currentWorkspace(): ProjectIoWorkspace {
+    const project = structuredClone(this.workspace);
+    const version = `v${this.version}`;
+    return {
+      project,
+      handle: this.handle,
+      version,
+      lastSavedAt: this.version === 0 ? null : "2026-07-26T00:00:00.000Z",
+      summary: {
+        id: project.project_id,
+        displayName: project.display_name,
+        version,
+        updatedAt: "2026-07-26T00:00:00.000Z",
+      },
+      persistenceDamage: null,
+      legacyMigration: null,
+    };
   }
 }

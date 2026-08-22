@@ -18,6 +18,14 @@ import {
   type CreateFieldBackgroundInput,
   type FieldBackgroundMetadataUpdate,
   type LegacyFieldBackgroundMigration,
+  type UserDataStatus,
+} from "./service";
+
+export {
+  UserDataInitializationError,
+  UserDataReadOnlyError,
+  type UserDataAvailability,
+  type UserDataStatus,
 } from "./service";
 
 class MemoryUserDataAdapter implements UserDataAdapter {
@@ -45,7 +53,9 @@ class MemoryUserDataAdapter implements UserDataAdapter {
   }
 }
 
-let runtimeUserData = new UserDataService(new MemoryUserDataAdapter());
+let runtimeUserData = new UserDataService(new MemoryUserDataAdapter(), {
+  assumeEmptyDurableSource: true,
+});
 
 export async function initializeUserData(
   capabilities: EnvironmentCapabilities,
@@ -79,6 +89,10 @@ export async function initializeUserData(
 
 export function readUserData(): UserData {
   return runtimeUserData.getSnapshot();
+}
+
+export function readUserDataStatus(): UserDataStatus {
+  return runtimeUserData.getStatus();
 }
 
 function updateUserData(update: (current: UserData) => UserData): UserData {

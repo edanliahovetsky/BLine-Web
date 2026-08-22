@@ -54,6 +54,33 @@ export interface ProjectImportResult {
   legacyFieldBackgrounds: ImportedLegacyFieldBackground[];
 }
 
+/** Opaque persistence locator owned by the Project store and interpreted by Project I/O. */
+export type ProjectIoWorkspaceHandle = Readonly<Record<string, unknown>>;
+
+export interface ProjectIoWorkspace {
+  project: Project;
+  handle: ProjectIoWorkspaceHandle;
+  version: string | undefined;
+  lastSavedAt: string | null;
+  summary: ProjectWorkspaceSummary | null;
+  persistenceDamage: ProjectFileDamage | null;
+  legacyMigration: LegacyProjectViewMigration | null;
+}
+
+export interface ProjectIoWriteOutcome extends WriteResult {
+  result: WriteResult;
+  workspace: ProjectIoWorkspace;
+}
+
+export interface ProjectIoMigrationPreparationOutcome {
+  preparation: LegacyProjectMigrationPreparation;
+  workspace: ProjectIoWorkspace;
+}
+
+export interface CommittedProjectImportResult extends ProjectImportResult {
+  workspace: ProjectIoWorkspace;
+}
+
 export interface ProjectImportRollback {
   rollback(): Promise<void>;
 }
@@ -80,7 +107,7 @@ export interface ProjectImportOptions {
 }
 
 export interface DeleteWorkspaceResult {
-  project: Project | null;
+  workspace: ProjectIoWorkspace | null;
   changedCurrent: boolean;
 }
 
@@ -92,56 +119,67 @@ export interface LegacyProjectViewMigration {
 
 export interface ProjectIoService {
   readonly capabilities: ProjectIoCapabilities;
-  initialize(): Promise<Project | null>;
-  getWorkspace(): Promise<Project | null>;
+  initialize(): Promise<ProjectIoWorkspace | null>;
   /**
    * Re-read the current project from its backing store *without* adopting it or
    * changing the tracked version. Used to diff on-disk state against unsaved edits
    * when resolving a save conflict.
    */
-  peekWorkspace(): Promise<Project | null>;
-  getCurrentVersion(): string | undefined;
-  getLastSavedAt(): string | null;
-  /** The backing-store identity and presentation metadata for the open Project. */
-  getCurrentWorkspaceSummary(): ProjectWorkspaceSummary | null;
-  getPersistenceDamage(): ProjectFileDamage | null;
-  getLegacyProjectViewMigration(): LegacyProjectViewMigration | null;
+  peekWorkspace(handle: ProjectIoWorkspaceHandle): Promise<Project | null>;
   prepareLegacyProjectMigration(
+    workspace: ProjectIoWorkspace,
     migration: LegacyProjectViewMigration,
-  ): Promise<LegacyProjectMigrationPreparation>;
+  ): Promise<ProjectIoMigrationPreparationOutcome>;
   completeLegacyProjectMigration(
+    workspace: ProjectIoWorkspace,
     migration: LegacyProjectViewMigration,
-  ): Promise<WriteResult | null>;
-  createWorkspace(input?: CreateWorkspaceInput): Promise<Project>;
-  openWorkspace(id?: string): Promise<Project | null>;
-  reloadCurrentProject(): Promise<Project | null>;
+  ): Promise<ProjectIoWriteOutcome | null>;
+  createWorkspace(
+    input?: CreateWorkspaceInput,
+    previous?: ProjectIoWorkspaceHandle,
+  ): Promise<ProjectIoWorkspace>;
+  openWorkspace(
+    id?: string,
+    previous?: ProjectIoWorkspaceHandle,
+  ): Promise<ProjectIoWorkspace | null>;
+  reloadWorkspace(
+    handle: ProjectIoWorkspaceHandle,
+  ): Promise<ProjectIoWorkspace | null>;
   deleteWorkspace(
+    current: ProjectIoWorkspace | null,
     id?: string,
     expectedVersion?: string,
   ): Promise<DeleteWorkspaceResult>;
   saveWorkspace(
+    handle: ProjectIoWorkspaceHandle,
     project: Project,
     expectedVersion?: string,
-  ): Promise<WriteResult>;
+  ): Promise<ProjectIoWriteOutcome>;
   replaceDamagedProject(
+    handle: ProjectIoWorkspaceHandle,
     project: Project,
     expectedVersion?: string,
-  ): Promise<WriteResult>;
+  ): Promise<ProjectIoWriteOutcome>;
   listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
-  switchWorkspace(id: string): Promise<Project | null>;
-  importPath(file: File): Promise<Project>;
+  switchWorkspace(
+    id: string,
+    previous?: ProjectIoWorkspaceHandle,
+  ): Promise<ProjectIoWorkspace | null>;
+  importPath(project: Project, file: File): Promise<Project>;
   exportPath(project: Project, pathId: string): Promise<Blob>;
-  importConfig(file: File): Promise<Project>;
+  importConfig(project: Project, file: File): Promise<Project>;
   exportConfig(project: Project): Promise<Blob>;
   importProjectFolder(
+    workspace: ProjectIoWorkspace,
     files: readonly File[],
     options?: ProjectImportOptions,
-  ): Promise<ProjectImportResult>;
+  ): Promise<CommittedProjectImportResult>;
   exportProjectFolder(project: Project): Promise<ProjectFolderExport>;
   importProjectArchive(
+    workspace: ProjectIoWorkspace,
     file: File,
     options?: ProjectImportOptions,
-  ): Promise<ProjectImportResult>;
+  ): Promise<CommittedProjectImportResult>;
   exportProjectArchive(project: Project): Promise<Blob>;
   readLegacyFieldImageAsset(
     projectId: string,

@@ -14,6 +14,7 @@ import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspac
 import {
   createProjectIoService,
   ProjectImportOutcomeUncertainError,
+  type ProjectIoWorkspace,
 } from "../../../src/platform/projectIo";
 import {
   browserWebCapabilities,
@@ -43,27 +44,32 @@ describe("ProjectIoService", () => {
     const first = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
     });
-    await first.initialize();
-    const firstMigration = first.getLegacyProjectViewMigration();
+    let firstWorkspace = (await first.initialize())!;
+    const firstMigration = firstWorkspace.legacyMigration;
 
     expect(firstMigration).toMatchObject({
       legacyProjectId: "legacy-locator",
       stableProjectId: "stable-project",
     });
-    await first.prepareLegacyProjectMigration(firstMigration!);
+    firstWorkspace = (
+      await first.prepareLegacyProjectMigration(firstWorkspace, firstMigration!)
+    ).workspace;
 
     const restarted = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
     });
-    await restarted.initialize();
-    const resumedMigration = restarted.getLegacyProjectViewMigration();
+    let restartedWorkspace = (await restarted.initialize())!;
+    const resumedMigration = restartedWorkspace.legacyMigration;
 
     expect(resumedMigration).toMatchObject({
       legacyProjectId: "legacy-locator",
       stableProjectId: "stable-project",
     });
-    await restarted.completeLegacyProjectMigration(resumedMigration!);
-    expect(restarted.getLegacyProjectViewMigration()).toBeNull();
+    restartedWorkspace = (await restarted.completeLegacyProjectMigration(
+      restartedWorkspace,
+      resumedMigration!,
+    ))!.workspace;
+    expect(restartedWorkspace.legacyMigration).toBeNull();
   });
 
   it("stores and restores browser Project content without session navigation", async () => {
@@ -81,11 +87,11 @@ describe("ProjectIoService", () => {
     });
     const restored = await restoredService.initialize();
 
-    expect(restored).toMatchObject({
+    expect(restored?.project).toMatchObject({
       project_id: "workspace-a",
       display_name: "Alpha",
     });
-    expect(restored?.paths.map((path) => path.display_name)).toEqual([
+    expect(restored?.project.paths.map((path) => path.display_name)).toEqual([
       "One",
       "Two",
     ]);
@@ -96,32 +102,42 @@ describe("ProjectIoService", () => {
     const storage = new BrowserStorage({ storage: memory });
     const service = createProjectIoService(browserWebCapabilities, { storage });
     const original = exampleWorkspace("project-a", "Alpha", ["One"]);
-    await service.createWorkspace({ project: original });
+    let currentWorkspace = await service.createWorkspace({ project: original });
     const originalWriteNew = storage.writeNewProject.bind(storage);
     storage.writeNewProject = async () => {
       throw new Error("initial write failed");
     };
 
     await expect(
-      service.createWorkspace({
-        project: exampleWorkspace("project-b", "Beta", ["Two"]),
-      }),
+      service.createWorkspace(
+        {
+          project: exampleWorkspace("project-b", "Beta", ["Two"]),
+        },
+        currentWorkspace.handle,
+      ),
     ).rejects.toThrow("initial write failed");
-    expect(service.getCurrentWorkspaceSummary()?.id).toBe("project-a");
+    expect(currentWorkspace.summary?.id).toBe("project-a");
     expect(memory.getItem("bline-web:current-workspace")).toBe("project-a");
 
     storage.writeNewProject = originalWriteNew;
-    const current = await currentProject(service);
-    await service.saveWorkspace(
-      { ...current, display_name: "Alpha saved after failure" },
-      service.getCurrentVersion(),
-    );
+    currentWorkspace = (
+      await service.saveWorkspace(
+        currentWorkspace.handle,
+        {
+          ...currentWorkspace.project,
+          display_name: "Alpha saved after failure",
+        },
+        currentWorkspace.version,
+      )
+    ).workspace;
     const restarted = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
     });
     await expect(restarted.initialize()).resolves.toMatchObject({
-      project_id: "project-a",
-      display_name: "Alpha saved after failure",
+      project: {
+        project_id: "project-a",
+        display_name: "Alpha saved after failure",
+      },
     });
     await expect(restarted.listWorkspaces()).resolves.toHaveLength(1);
   });
@@ -189,33 +205,40 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await service.initialize();
+    let currentWorkspace = (await service.initialize())!;
 
     await expect(
-      service.createWorkspace({
-        project: projectB,
-      }),
+      service.createWorkspace(
+        {
+          project: projectB,
+        },
+        currentWorkspace.handle,
+      ),
     ).rejects.toThrow("desktop initial write failed");
     expect(currentLocator).toBe("/repo/a/autos");
     expect(switches).toEqual(["/repo/a/autos"]);
-    expect(service.getCurrentWorkspaceSummary()?.id).toBe("/repo/a/autos");
+    expect(currentWorkspace.summary?.id).toBe("/repo/a/autos");
 
-    await service.saveWorkspace(projectA, service.getCurrentVersion());
+    currentWorkspace = (
+      await service.saveWorkspace(
+        currentWorkspace.handle,
+        projectA,
+        currentWorkspace.version,
+      )
+    ).workspace;
     const restarted = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
     await expect(restarted.initialize()).resolves.toMatchObject({
-      project_id: "stable-a",
-      display_name: "Alpha",
+      project: { project_id: "stable-a", display_name: "Alpha" },
     });
     expect(currentLocator).toBe("/repo/a/autos");
 
     rejectCandidateWrite = false;
     await expect(
-      service.createWorkspace({ project: projectB }),
+      service.createWorkspace({ project: projectB }, currentWorkspace.handle),
     ).resolves.toMatchObject({
-      project_id: "stable-b",
-      display_name: "Beta",
+      project: { project_id: "stable-b", display_name: "Beta" },
     });
     expect(currentLocator).toBe("/repo/b/autos");
     expect(switches.at(-1)).toBe("/repo/b/autos");
@@ -223,8 +246,7 @@ describe("ProjectIoService", () => {
       tauri: { invoke },
     });
     await expect(restartedAfterSuccess.initialize()).resolves.toMatchObject({
-      project_id: "stable-b",
-      display_name: "Beta",
+      project: { project_id: "stable-b", display_name: "Beta" },
     });
   });
 
@@ -292,15 +314,23 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await service.initialize();
+    let currentWorkspace = (await service.initialize())!;
 
-    await expect(
-      service.createWorkspace({ project: projectB }),
-    ).resolves.toMatchObject({ project_id: "stable-b" });
-    expect(service.getCurrentWorkspaceSummary()?.id).toBe("/repo/b/autos");
+    currentWorkspace = await service.createWorkspace(
+      { project: projectB },
+      currentWorkspace.handle,
+    );
+    expect(currentWorkspace.project).toMatchObject({ project_id: "stable-b" });
+    expect(currentWorkspace.summary?.id).toBe("/repo/b/autos");
     expect(durableCurrent).toBe("/repo/a/autos");
 
-    await service.saveWorkspace(projectB, service.getCurrentVersion());
+    currentWorkspace = (
+      await service.saveWorkspace(
+        currentWorkspace.handle,
+        projectB,
+        currentWorkspace.version,
+      )
+    ).workspace;
     expect(writeLocators).toEqual(["/repo/b/autos", "/repo/b/autos"]);
   });
 
@@ -354,17 +384,17 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await service.initialize();
+    const currentWorkspace = (await service.initialize())!;
 
-    await expect(service.openWorkspace()).rejects.toThrow(
-      "candidate Project is invalid",
-    );
-    await expect(service.switchWorkspace("/repo/b/autos")).rejects.toThrow(
-      "candidate Project is invalid",
-    );
+    await expect(
+      service.openWorkspace(undefined, currentWorkspace.handle),
+    ).rejects.toThrow("candidate Project is invalid");
+    await expect(
+      service.switchWorkspace("/repo/b/autos", currentWorkspace.handle),
+    ).rejects.toThrow("candidate Project is invalid");
     expect(switches).toEqual(["/repo/a/autos", "/repo/a/autos"]);
     expect(durableCurrent).toBe("/repo/a/autos");
-    await expect(service.getWorkspace()).resolves.toMatchObject({
+    expect(currentWorkspace.project).toMatchObject({
       project_id: "stable-a",
     });
 
@@ -372,7 +402,7 @@ describe("ProjectIoService", () => {
       tauri: { invoke },
     });
     await expect(restarted.initialize()).resolves.toMatchObject({
-      project_id: "stable-a",
+      project: { project_id: "stable-a" },
     });
   });
 
@@ -414,8 +444,6 @@ describe("ProjectIoService", () => {
       "candidate Project is invalid",
     );
     expect(calls).not.toContain("storage_switch_workspace");
-    expect(service.getCurrentWorkspaceSummary()).toBeNull();
-    await expect(service.getWorkspace()).resolves.toBeNull();
     await storage.writeProject(
       exampleWorkspace("recovery", "Recovery", ["One"]),
     );
@@ -475,19 +503,19 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await service.initialize();
+    const currentWorkspace = (await service.initialize())!;
 
     await expect(
-      service.switchWorkspace("/repo/b/autos"),
+      service.switchWorkspace("/repo/b/autos", currentWorkspace.handle),
     ).rejects.toBeInstanceOf(StorageConflictError);
     expect(expectedVersions).toEqual(["b-v1", "a-v1"]);
     expect(switches).toEqual(["/repo/a/autos"]);
     expect(durableCurrent).toBe("/repo/a/autos");
-    expect(service.getCurrentWorkspaceSummary()).toMatchObject({
+    expect(currentWorkspace.summary).toMatchObject({
       id: "/repo/a/autos",
       version: "a-v1",
     });
-    await expect(service.getWorkspace()).resolves.toMatchObject({
+    expect(currentWorkspace.project).toMatchObject({
       project_id: "stable-a",
     });
   });
@@ -517,13 +545,11 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await service.createWorkspace({
+    const workspace = await service.createWorkspace({
       project: exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]),
     });
 
-    const folder = await service.exportProjectFolder(
-      await currentProject(service),
-    );
+    const folder = await service.exportProjectFolder(workspace.project);
     expect(folder.files.map((file) => file.relativePath)).toEqual([
       "config.json",
       "project.json",
@@ -535,6 +561,7 @@ describe("ProjectIoService", () => {
       browser: { storage: new MemoryStorage() },
     });
     const imported = await targetService.importProjectFolder(
+      workspace,
       folder.files.map(
         (file) =>
           ({
@@ -569,9 +596,13 @@ describe("ProjectIoService", () => {
         },
       },
     });
+    const contextService = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    const context = await contextService.createWorkspace();
 
     for (const service of [browser, desktop]) {
-      await expect(service.importProjectFolder(files)).rejects.toThrow(
+      await expect(service.importProjectFolder(context, files)).rejects.toThrow(
         /duplicate or case-colliding normalized Path file names\/IDs: (Foo\.json and foo\.json|foo\.json and Foo\.json)/,
       );
     }
@@ -583,18 +614,21 @@ describe("ProjectIoService", () => {
     const source = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await source.createWorkspace({
+    const sourceWorkspace = await source.createWorkspace({
       project: exampleWorkspace("shared-id", "Imported", ["Imported Path"]),
     });
-    const sourceProject = await currentProject(source);
-    const folder = await source.exportProjectFolder(sourceProject);
-    const archive = await source.exportProjectArchive(sourceProject);
+    const folder = await source.exportProjectFolder(sourceWorkspace.project);
+    const archive = await source.exportProjectArchive(sourceWorkspace.project);
 
     for (const { collisionId, importProject } of [
       {
         collisionId: "shared-id",
-        importProject: (target: ReturnType<typeof createProjectIoService>) =>
+        importProject: (
+          target: ReturnType<typeof createProjectIoService>,
+          workspace: ProjectIoWorkspace,
+        ) =>
           target.importProjectFolder(
+            workspace,
             folder.files.map(
               (file) =>
                 ({
@@ -608,8 +642,11 @@ describe("ProjectIoService", () => {
       },
       {
         collisionId: "imported-project",
-        importProject: (target: ReturnType<typeof createProjectIoService>) =>
-          target.importProjectArchive({
+        importProject: (
+          target: ReturnType<typeof createProjectIoService>,
+          workspace: ProjectIoWorkspace,
+        ) =>
+          target.importProjectArchive(workspace, {
             name: "shared.bline-project.json",
             type: "application/json",
             text: () => archive.text(),
@@ -619,14 +656,16 @@ describe("ProjectIoService", () => {
       const target = createProjectIoService(browserWebCapabilities, {
         browser: { storage: new MemoryStorage() },
       });
-      await target.createWorkspace({
+      const targetWorkspace = await target.createWorkspace({
         project: exampleWorkspace(collisionId, "Existing", ["Kept Path"]),
       });
 
-      await expect(importProject(target)).rejects.toBeInstanceOf(
-        StorageConflictError,
-      );
-      await expect(target.peekWorkspace()).resolves.toMatchObject({
+      await expect(
+        importProject(target, targetWorkspace),
+      ).rejects.toBeInstanceOf(StorageConflictError);
+      await expect(
+        target.peekWorkspace(targetWorkspace.handle),
+      ).resolves.toMatchObject({
         project_id: collisionId,
         display_name: "Existing",
         paths: [{ display_name: "Kept Path" }],
@@ -639,44 +678,49 @@ describe("ProjectIoService", () => {
     const source = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await source.createWorkspace({
+    const sourceWorkspace = await source.createWorkspace({
       project: exampleWorkspace("imported-id", "Imported", ["Imported Path"]),
     });
-    const archive = await source.exportProjectArchive(
-      await currentProject(source),
-    );
+    const archive = await source.exportProjectArchive(sourceWorkspace.project);
 
     const target = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await target.createWorkspace({
+    let targetWorkspace = await target.createWorkspace({
       project: exampleWorkspace("prior-id", "Prior", ["Prior Path"]),
     });
-    const imported = await target.importProjectArchive({
+    const imported = await target.importProjectArchive(targetWorkspace, {
       name: "imported.bline-project.json",
       type: "application/json",
       text: () => archive.text(),
     } as File);
+    targetWorkspace = imported.workspace;
 
     expect(imported.project.project_id).toBe("imported-project");
-    await expect(target.getWorkspace()).resolves.toMatchObject({
+    await expect(
+      target.peekWorkspace(targetWorkspace.handle),
+    ).resolves.toMatchObject({
       project_id: "imported-project",
       paths: [{ display_name: "Imported Path" }],
     });
-    await expect(target.peekWorkspace()).resolves.toMatchObject({
-      project_id: "imported-project",
-      paths: [{ display_name: "Imported Path" }],
-    });
-    await expect(target.reloadCurrentProject()).resolves.toMatchObject({
-      project_id: "imported-project",
-      paths: [{ display_name: "Imported Path" }],
+    await expect(
+      target.reloadWorkspace(targetWorkspace.handle),
+    ).resolves.toMatchObject({
+      project: {
+        project_id: "imported-project",
+        paths: [{ display_name: "Imported Path" }],
+      },
     });
     expect(
       (await target.listWorkspaces()).map((summary) => summary.id).sort(),
     ).toEqual(["imported-project", "prior-id"]);
-    await expect(target.openWorkspace("prior-id")).resolves.toMatchObject({
-      project_id: "prior-id",
-      paths: [{ display_name: "Prior Path" }],
+    await expect(
+      target.openWorkspace("prior-id", targetWorkspace.handle),
+    ).resolves.toMatchObject({
+      project: {
+        project_id: "prior-id",
+        paths: [{ display_name: "Prior Path" }],
+      },
     });
   });
 
@@ -685,7 +729,7 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
     });
-    await service.createWorkspace({
+    const originalWorkspace = await service.createWorkspace({
       project: exampleWorkspace("project-a", "Alpha", ["One"]),
     });
     const damagedProject = exampleWorkspace("project-b", "Beta", ["Two"]);
@@ -703,26 +747,34 @@ describe("ProjectIoService", () => {
       }),
     );
 
-    const recovered = await service.openWorkspace("project-b");
+    const recovered = await service.openWorkspace(
+      "project-b",
+      originalWorkspace.handle,
+    );
 
     expect(memory.getItem("bline-web:current-workspace")).toBe("project-b");
     memory.setItem("bline-web:current-workspace", "project-a");
-    expect(service.getPersistenceDamage()).toMatchObject({
+    expect(recovered?.persistenceDamage).toMatchObject({
       sourcePath: "project.json",
       rawText: "{damaged project metadata",
     });
     await expect(
-      service.saveWorkspace(recovered!, "damaged-b-v1"),
+      service.saveWorkspace(
+        recovered!.handle,
+        recovered!.project,
+        "damaged-b-v1",
+      ),
     ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
     await service.openWorkspace("project-b");
 
     const restarted = createProjectIoService(browserWebCapabilities, {
       browser: { storage: memory },
     });
-    await expect(restarted.initialize()).resolves.toMatchObject({
+    const restartedWorkspace = await restarted.initialize();
+    expect(restartedWorkspace?.project).toMatchObject({
       project_id: "project-b",
     });
-    expect(restarted.getPersistenceDamage()).toMatchObject({
+    expect(restartedWorkspace?.persistenceDamage).toMatchObject({
       rawText: "{damaged project metadata",
     });
   });
@@ -731,12 +783,15 @@ describe("ProjectIoService", () => {
     const memory = new MemoryStorage();
     const storage = new BrowserStorage({ storage: memory });
     const service = createProjectIoService(browserWebCapabilities, { storage });
-    await service.createWorkspace({
+    const projectAWorkspace = await service.createWorkspace({
       project: exampleWorkspace("project-a", "Alpha", ["One"]),
     });
-    await service.createWorkspace({
-      project: exampleWorkspace("project-b", "Beta", ["Two"]),
-    });
+    const currentWorkspace = await service.createWorkspace(
+      {
+        project: exampleWorkspace("project-b", "Beta", ["Two"]),
+      },
+      projectAWorkspace.handle,
+    );
     const listed = (await service.listWorkspaces()).find(
       ({ id }) => id === "project-a",
     )!;
@@ -748,7 +803,7 @@ describe("ProjectIoService", () => {
     );
 
     await expect(
-      service.deleteWorkspace("project-a", listed.version),
+      service.deleteWorkspace(currentWorkspace, "project-a", listed.version),
     ).rejects.toBeInstanceOf(StorageConflictError);
     await expect(storage.readProject("project-a")).resolves.toMatchObject({
       display_name: "Externally changed",
@@ -776,16 +831,21 @@ describe("ProjectIoService", () => {
     const recovered = await service.initialize();
 
     const replacement = await service.replaceDamagedProject(
-      recovered!,
+      recovered!.handle,
+      recovered!.project,
       "damaged-v1",
     );
 
-    expect(service.getCurrentWorkspaceSummary()?.id).toBe("stable-project");
+    expect(replacement.workspace.summary?.id).toBe("stable-project");
     expect(memory.getItem("bline-web:current-workspace")).toBe(
       "stable-project",
     );
     await expect(
-      service.saveWorkspace(recovered!, replacement.version),
+      service.saveWorkspace(
+        replacement.workspace.handle,
+        replacement.workspace.project,
+        replacement.workspace.version,
+      ),
     ).resolves.toMatchObject({ version: expect.any(String) });
     expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
     expect(memory.getItem("bline-web:workspace:stable-project")).not.toBeNull();
@@ -796,7 +856,7 @@ describe("ProjectIoService", () => {
     const sourceService = createProjectIoService(browserWebCapabilities, {
       storage: sourceStorage,
     });
-    await sourceService.createWorkspace({
+    let sourceWorkspace = await sourceService.createWorkspace({
       project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
     });
 
@@ -815,28 +875,28 @@ describe("ProjectIoService", () => {
         coordinate_offset_meters: 0.25,
       },
     };
-    const workspace = await sourceService.getWorkspace();
-    if (!workspace) {
-      throw new Error("Expected workspace to be open");
-    }
-    await sourceService.saveWorkspace({
-      ...workspace,
-      config: createProjectConfig({
-        ...workspace.config,
-        gui: {
-          ...workspace.config.gui,
-          field: {
-            selected_field_id: customField.id,
-            custom_fields: [customField],
-          },
+    sourceWorkspace = (
+      await sourceService.saveWorkspace(
+        sourceWorkspace.handle,
+        {
+          ...sourceWorkspace.project,
+          config: createProjectConfig({
+            ...sourceWorkspace.project.config,
+            gui: {
+              ...sourceWorkspace.project.config.gui,
+              field: {
+                selected_field_id: customField.id,
+                custom_fields: [customField],
+              },
+            },
+          }),
         },
-      }),
-    });
+        sourceWorkspace.version,
+      )
+    ).workspace;
 
     const archiveText = await (
-      await sourceService.exportProjectArchive(
-        await currentProject(sourceService),
-      )
+      await sourceService.exportProjectArchive(sourceWorkspace.project)
     ).text();
     const archive = JSON.parse(archiveText) as Record<string, unknown>;
     expect(archive).not.toHaveProperty("field_assets");
@@ -844,7 +904,7 @@ describe("ProjectIoService", () => {
     expect(archiveText).not.toContain("AQIDBA");
 
     const folder = await sourceService.exportProjectFolder(
-      await currentProject(sourceService),
+      sourceWorkspace.project,
     );
     expect(folder.files.map((file) => file.relativePath)).not.toEqual(
       expect.arrayContaining([expect.stringContaining("assets/fields")]),
@@ -877,13 +937,11 @@ describe("ProjectIoService", () => {
     const source = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await source.createWorkspace({
+    const sourceWorkspace = await source.createWorkspace({
       project: exampleWorkspace("source", "Source", ["One"]),
     });
     const archive = JSON.parse(
-      await (
-        await source.exportProjectArchive(await currentProject(source))
-      ).text(),
+      await (await source.exportProjectArchive(sourceWorkspace.project)).text(),
     ) as Record<string, unknown>;
     const field = {
       id: "legacy-field",
@@ -924,17 +982,17 @@ describe("ProjectIoService", () => {
       type: "application/json",
       text: async () => JSON.stringify(archive),
     } as File;
-    await expect(target.importProjectArchive(file)).rejects.toThrow(
-      "migration is required",
-    );
     await expect(
-      target.importProjectArchive(file, {
+      target.importProjectArchive(sourceWorkspace, file),
+    ).rejects.toThrow("migration is required");
+    await expect(
+      target.importProjectArchive(sourceWorkspace, file, {
         migrateLegacyFieldBackgrounds: async () => undefined as never,
       }),
     ).rejects.toThrow("must return a rollback handle");
     await expect(target.listWorkspaces()).resolves.toEqual([]);
     let migratedBeforeCommit = false;
-    const imported = await target.importProjectArchive(file, {
+    const imported = await target.importProjectArchive(sourceWorkspace, file, {
       migrateLegacyFieldBackgrounds: async () => {
         migratedBeforeCommit = true;
         expect(await target.listWorkspaces()).toEqual([]);
@@ -957,31 +1015,89 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await target.createWorkspace({
+    const targetWorkspace = await target.createWorkspace({
       project: exampleWorkspace("imported-project", "Existing", ["Kept"]),
     });
     let preparations = 0;
 
     await expect(
-      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
-        migrateLegacyFieldBackgrounds: async () => {
-          preparations += 1;
-          return noOpImportRollback();
+      target.importProjectArchive(
+        targetWorkspace,
+        projectArchiveFile(legacyFieldArchive()),
+        {
+          migrateLegacyFieldBackgrounds: async () => {
+            preparations += 1;
+            return noOpImportRollback();
+          },
         },
-      }),
+      ),
     ).rejects.toBeInstanceOf(StorageConflictError);
 
     expect(preparations).toBe(0);
-    await expect(target.getWorkspace()).resolves.toMatchObject({
-      project_id: "imported-project",
-      display_name: "Existing",
+    await expect(
+      target.reloadWorkspace(targetWorkspace.handle),
+    ).resolves.toMatchObject({
+      project: {
+        project_id: "imported-project",
+        display_name: "Existing",
+      },
     });
+  });
+
+  it("retains deterministic Fields when a concurrent browser import wins after preparation", async () => {
+    const storage = new BrowserStorage({ storage: new MemoryStorage() });
+    const first = createProjectIoService(browserWebCapabilities, { storage });
+    const second = createProjectIoService(browserWebCapabilities, { storage });
+    const contextService = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    const context = await contextService.createWorkspace();
+    let preparations = 0;
+    let releasePreparations!: () => void;
+    const bothPrepared = new Promise<void>((resolve) => {
+      releasePreparations = resolve;
+    });
+    let rollbacks = 0;
+    const migrateLegacyFieldBackgrounds = async () => {
+      preparations += 1;
+      if (preparations === 2) {
+        releasePreparations();
+      }
+      await bothPrepared;
+      return {
+        rollback: async () => {
+          rollbacks += 1;
+        },
+      };
+    };
+    const archive = projectArchiveFile(legacyFieldArchive());
+
+    const outcomes = await Promise.allSettled([
+      first.importProjectArchive(context, archive, {
+        migrateLegacyFieldBackgrounds,
+      }),
+      second.importProjectArchive(context, archive, {
+        migrateLegacyFieldBackgrounds,
+      }),
+    ]);
+
+    expect(
+      outcomes.filter(({ status }) => status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = outcomes.find(({ status }) => status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: expect.any(StorageConflictError),
+    });
+    expect(preparations).toBe(2);
+    expect(rollbacks).toBe(0);
+    await expect(first.listWorkspaces()).resolves.toHaveLength(1);
   });
 
   it("rolls back prepared browser Fields when the Project write fails", async () => {
     const storage = new BrowserStorage({ storage: new MemoryStorage() });
     const target = createProjectIoService(browserWebCapabilities, { storage });
-    await target.createWorkspace({
+    const targetWorkspace = await target.createWorkspace({
       project: exampleWorkspace("existing", "Existing", ["Kept"]),
     });
     storage.writeNewProject = async () => {
@@ -990,27 +1106,37 @@ describe("ProjectIoService", () => {
     let rollbacks = 0;
 
     await expect(
-      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
-        migrateLegacyFieldBackgrounds: async () => ({
-          rollback: async () => {
-            rollbacks += 1;
-          },
-        }),
-      }),
+      target.importProjectArchive(
+        targetWorkspace,
+        projectArchiveFile(legacyFieldArchive()),
+        {
+          migrateLegacyFieldBackgrounds: async () => ({
+            rollback: async () => {
+              rollbacks += 1;
+            },
+          }),
+        },
+      ),
     ).rejects.toThrow("browser Project write failed");
     expect(rollbacks).toBe(1);
-    await expect(target.getWorkspace()).resolves.toMatchObject({
-      project_id: "existing",
+    await expect(
+      target.reloadWorkspace(targetWorkspace.handle),
+    ).resolves.toMatchObject({
+      project: { project_id: "existing" },
     });
 
     const failure = await target
-      .importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
-        migrateLegacyFieldBackgrounds: async () => ({
-          rollback: async () => {
-            throw new Error("User Data rollback failed");
-          },
-        }),
-      })
+      .importProjectArchive(
+        targetWorkspace,
+        projectArchiveFile(legacyFieldArchive()),
+        {
+          migrateLegacyFieldBackgrounds: async () => ({
+            rollback: async () => {
+              throw new Error("User Data rollback failed");
+            },
+          }),
+        },
+      )
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(AggregateError);
     expect((failure as AggregateError).errors).toHaveLength(2);
@@ -1020,7 +1146,7 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await target.createWorkspace({
+    const targetWorkspace = await target.createWorkspace({
       project: exampleWorkspace("existing", "Existing", ["Kept"]),
     });
     const archive = {
@@ -1049,15 +1175,16 @@ describe("ProjectIoService", () => {
     };
 
     await expect(
-      target.importProjectArchive({
+      target.importProjectArchive(targetWorkspace, {
         name: "missing-field.bline-project.json",
         type: "application/json",
         text: async () => JSON.stringify(archive),
       } as File),
     ).rejects.toThrow("missing.png");
-    await expect(target.getWorkspace()).resolves.toMatchObject({
-      project_id: "existing",
-      display_name: "Existing",
+    await expect(
+      target.reloadWorkspace(targetWorkspace.handle),
+    ).resolves.toMatchObject({
+      project: { project_id: "existing", display_name: "Existing" },
     });
     await expect(target.listWorkspaces()).resolves.toHaveLength(1);
   });
@@ -1103,11 +1230,12 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await target.initialize();
+    const targetWorkspace = (await target.initialize())!;
     const archive = legacyFieldArchive();
 
     await expect(
       target.importProjectArchive(
+        targetWorkspace,
         {
           name: "legacy.bline-project.json",
           type: "application/json",
@@ -1122,17 +1250,23 @@ describe("ProjectIoService", () => {
     ).rejects.toThrow("User Data write failed");
 
     expect(projectWrites).toBe(0);
-    await expect(target.getWorkspace()).resolves.toMatchObject({
-      project_id: "desktop-current",
-      display_name: "Current",
-      paths: [{ display_name: "Kept" }],
+    await expect(
+      target.reloadWorkspace(targetWorkspace.handle),
+    ).resolves.toMatchObject({
+      project: {
+        project_id: "desktop-current",
+        display_name: "Current",
+        paths: [{ display_name: "Kept" }],
+      },
     });
     const restarted = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
     await expect(restarted.initialize()).resolves.toMatchObject({
-      project_id: "desktop-current",
-      paths: [{ display_name: "Kept" }],
+      project: {
+        project_id: "desktop-current",
+        paths: [{ display_name: "Kept" }],
+      },
     });
   });
 
@@ -1173,15 +1307,19 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await target.initialize();
+    const targetWorkspace = (await target.initialize())!;
 
     await expect(
-      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
-        migrateLegacyFieldBackgrounds: async () => {
-          preparations += 1;
-          return noOpImportRollback();
+      target.importProjectArchive(
+        targetWorkspace,
+        projectArchiveFile(legacyFieldArchive()),
+        {
+          migrateLegacyFieldBackgrounds: async () => {
+            preparations += 1;
+            return noOpImportRollback();
+          },
         },
-      }),
+      ),
     ).rejects.toBeInstanceOf(StorageConflictError);
     expect(preparations).toBe(0);
     expect(projectWrites).toBe(0);
@@ -1222,22 +1360,30 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await target.initialize();
+    const targetWorkspace = (await target.initialize())!;
 
     await expect(
-      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
-        migrateLegacyFieldBackgrounds: async () => ({
-          rollback: async () => {
-            rollbacks += 1;
-          },
-        }),
-      }),
+      target.importProjectArchive(
+        targetWorkspace,
+        projectArchiveFile(legacyFieldArchive()),
+        {
+          migrateLegacyFieldBackgrounds: async () => ({
+            rollback: async () => {
+              rollbacks += 1;
+            },
+          }),
+        },
+      ),
     ).rejects.toThrow("desktop Project write failed");
     expect(projectWrites).toBe(1);
     expect(rollbacks).toBe(1);
-    await expect(target.getWorkspace()).resolves.toMatchObject({
-      project_id: "desktop-current",
-      paths: [{ display_name: "Kept" }],
+    await expect(
+      target.reloadWorkspace(targetWorkspace.handle),
+    ).resolves.toMatchObject({
+      project: {
+        project_id: "desktop-current",
+        paths: [{ display_name: "Kept" }],
+      },
     });
   });
 
@@ -1278,10 +1424,12 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await target.initialize();
+    const targetWorkspace = (await target.initialize())!;
 
-    await expect(
-      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
+    const imported = await target.importProjectArchive(
+      targetWorkspace,
+      projectArchiveFile(legacyFieldArchive()),
+      {
         migrateLegacyFieldBackgrounds: async (pending) => {
           intended = structuredClone(pending.project);
           return {
@@ -1290,11 +1438,14 @@ describe("ProjectIoService", () => {
             },
           };
         },
-      }),
-    ).resolves.toMatchObject({ project: { project_id: "desktop-current" } });
+      },
+    );
+    expect(imported).toMatchObject({
+      project: { project_id: "desktop-current" },
+    });
     expect(rollbacks).toBe(0);
-    expect(target.getCurrentVersion()).toBe("committed-v2");
-    await expect(target.getWorkspace()).resolves.toMatchObject({
+    expect(imported.workspace.version).toBe("committed-v2");
+    expect(imported.workspace.project).toMatchObject({
       project_id: "desktop-current",
       paths: [],
     });
@@ -1338,16 +1489,20 @@ describe("ProjectIoService", () => {
     const target = createProjectIoService(tauriCapabilities, {
       tauri: { invoke },
     });
-    await target.initialize();
+    const targetWorkspace = (await target.initialize())!;
 
     await expect(
-      target.importProjectArchive(projectArchiveFile(legacyFieldArchive()), {
-        migrateLegacyFieldBackgrounds: async () => ({
-          rollback: async () => {
-            rollbacks += 1;
-          },
-        }),
-      }),
+      target.importProjectArchive(
+        targetWorkspace,
+        projectArchiveFile(legacyFieldArchive()),
+        {
+          migrateLegacyFieldBackgrounds: async () => ({
+            rollback: async () => {
+              rollbacks += 1;
+            },
+          }),
+        },
+      ),
     ).rejects.toBeInstanceOf(ProjectImportOutcomeUncertainError);
     expect(rollbacks).toBe(0);
   });
@@ -1356,19 +1511,22 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await service.createWorkspace({
+    const workspaceA = await service.createWorkspace({
       project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
     });
-    await service.createWorkspace({
-      project: exampleWorkspace("workspace-b", "Beta", ["Two"]),
-    });
+    const workspaceB = await service.createWorkspace(
+      {
+        project: exampleWorkspace("workspace-b", "Beta", ["Two"]),
+      },
+      workspaceA.handle,
+    );
 
-    const next = await service.deleteWorkspace("workspace-b");
+    const next = await service.deleteWorkspace(workspaceB, "workspace-b");
     const summaries = await service.listWorkspaces();
 
     expect(next).toMatchObject({
       changedCurrent: true,
-      project: { project_id: "workspace-a" },
+      workspace: { project: { project_id: "workspace-a" } },
     });
     expect(summaries.map((summary) => summary.id)).toEqual(["workspace-a"]);
   });
@@ -1377,39 +1535,43 @@ describe("ProjectIoService", () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await service.createWorkspace({
+    const workspaceA = await service.createWorkspace({
       project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
     });
-    await service.createWorkspace({
-      project: exampleWorkspace("workspace-b", "Beta", ["Two"]),
-    });
+    const workspaceB = await service.createWorkspace(
+      {
+        project: exampleWorkspace("workspace-b", "Beta", ["Two"]),
+      },
+      workspaceA.handle,
+    );
     const projectA = (await service.listWorkspaces()).find(
       (summary) => summary.id === "workspace-a",
     );
 
     const result = await service.deleteWorkspace(
+      workspaceB,
       "workspace-a",
       projectA?.version,
     );
 
     expect(result).toMatchObject({
       changedCurrent: false,
-      project: { project_id: "workspace-b" },
+      workspace: { project: { project_id: "workspace-b" } },
     });
-    expect(service.getCurrentWorkspaceSummary()?.id).toBe("workspace-b");
+    expect(result.workspace?.summary?.id).toBe("workspace-b");
   });
 
   it("returns to an empty start state after deleting the final project", async () => {
     const service = createProjectIoService(browserWebCapabilities, {
       browser: { storage: new MemoryStorage() },
     });
-    await service.createWorkspace({
+    const workspace = await service.createWorkspace({
       project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
     });
 
-    const next = await service.deleteWorkspace("workspace-a");
+    const next = await service.deleteWorkspace(workspace, "workspace-a");
 
-    expect(next).toEqual({ project: null, changedCurrent: true });
+    expect(next).toEqual({ workspace: null, changedCurrent: true });
     await expect(service.listWorkspaces()).resolves.toEqual([]);
   });
 
@@ -1472,34 +1634,42 @@ describe("ProjectIoService", () => {
     });
     const service = createProjectIoService(tauriCapabilities, { storage });
 
-    const project = await service.initialize();
-    expect(project?.project_id).not.toBe("/repo/autos");
-    expect(service.getCurrentVersion()).toBe("runtime-v1");
-    expect(service.getCurrentWorkspaceSummary()).toMatchObject({
+    let workspace = (await service.initialize())!;
+    expect(workspace.project.project_id).not.toBe("/repo/autos");
+    expect(workspace.version).toBe("runtime-v1");
+    expect(workspace.summary).toMatchObject({
       id: "/repo/autos",
       directoryPath: "/repo/autos",
       version: "runtime-v1",
     });
-    const migration = service.getLegacyProjectViewMigration();
+    const migration = workspace.legacyMigration;
     expect(migration).toMatchObject({
       legacyProjectId: "/repo/autos",
-      stableProjectId: project?.project_id,
+      stableProjectId: workspace.project.project_id,
       pathIdByLegacyReference: { "One.json": "One.json" },
     });
 
-    const prepared = await service.prepareLegacyProjectMigration(migration!);
-    expect(prepared).toMatchObject({
+    const prepared = await service.prepareLegacyProjectMigration(
+      workspace,
+      migration!,
+    );
+    workspace = prepared.workspace;
+    expect(prepared.preparation).toMatchObject({
       status: "prepared",
       version: "canonical-v2",
     });
-    expect(service.getLegacyProjectViewMigration()).toMatchObject({
+    expect(workspace.legacyMigration).toMatchObject({
       legacyProjectId: "/repo/autos",
-      stableProjectId: project?.project_id,
+      stableProjectId: workspace.project.project_id,
     });
-    const completed = await service.completeLegacyProjectMigration(migration!);
+    const completed = await service.completeLegacyProjectMigration(
+      workspace,
+      migration!,
+    );
+    workspace = completed!.workspace;
 
     expect(completed).toMatchObject({ version: "clean-v3" });
-    expect(service.getCurrentVersion()).toBe("clean-v3");
+    expect(workspace.version).toBe("clean-v3");
     const write = calls.find(
       (call) => call.command === "storage_prepare_legacy_project_files",
     );
@@ -1555,10 +1725,10 @@ describe("ProjectIoService", () => {
     });
     const service = createProjectIoService(tauriCapabilities, { storage });
 
-    const project = await service.initialize();
+    const workspace = await service.initialize();
 
-    expect(project?.paths).toHaveLength(1);
-    expect(service.getLegacyProjectViewMigration()).toBeNull();
+    expect(workspace?.project.paths).toHaveLength(1);
+    expect(workspace?.legacyMigration).toBeNull();
     expect(commands).not.toContain("storage_prepare_legacy_project_files");
   });
 
@@ -1611,30 +1781,24 @@ describe("ProjectIoService", () => {
     });
     const service = createProjectIoService(tauriCapabilities, { storage });
 
-    const project = await service.initialize();
+    const workspace = await service.initialize();
 
-    expect(project?.paths).toHaveLength(1);
-    expect(service.getPersistenceDamage()).toMatchObject({
+    expect(workspace?.project.paths).toHaveLength(1);
+    expect(workspace?.persistenceDamage).toMatchObject({
       sourcePath: "config.json",
       rawText: futureConfig,
     });
-    expect(service.getLegacyProjectViewMigration()).toBeNull();
-    await expect(service.saveWorkspace(project!)).rejects.toBeInstanceOf(
-      ProjectPersistenceDamageError,
-    );
+    expect(workspace?.legacyMigration).toBeNull();
+    await expect(
+      service.saveWorkspace(
+        workspace!.handle,
+        workspace!.project,
+        workspace!.version,
+      ),
+    ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
     expect(commands).not.toContain("storage_prepare_legacy_project_files");
   });
 });
-
-async function currentProject(
-  service: ReturnType<typeof createProjectIoService>,
-) {
-  const workspace = await service.getWorkspace();
-  if (!workspace) {
-    throw new Error("Expected an open Project");
-  }
-  return workspace;
-}
 
 function exampleWorkspace(
   project_id: string,

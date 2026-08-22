@@ -36,6 +36,15 @@ export interface BrowserStorageOptions {
   legacyProjectKeyPrefix?: string;
   now?: () => Date;
   fieldAssetDbName?: string;
+  projectMutationLock?: BrowserProjectMutationLock;
+}
+
+/**
+ * The subset of the Web Locks API needed to serialize Project compare-and-swap
+ * mutations. Injecting this owner keeps the cross-context lock boundary testable.
+ */
+export interface BrowserProjectMutationLock {
+  request<T>(name: string, callback: () => Promise<T> | T): Promise<T>;
 }
 
 export interface StorageLike {
@@ -59,6 +68,8 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   private readonly legacyProjectKeyPrefix: string;
   private readonly now: () => Date;
   private readonly fieldAssetDbName: string;
+  private readonly projectMutationLock: BrowserProjectMutationLock | null;
+  private readonly projectMutationLockName: string;
   private fieldAssetDbPromise: Promise<IDBDatabase> | null = null;
   private readonly damageById = new Map<string, ProjectFileDamage>();
   private readonly pendingLegacyProjects = new Map<string, Project>();
@@ -72,6 +83,9 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       options.legacyProjectKeyPrefix ?? defaultLegacyProjectKeyPrefix;
     this.now = options.now ?? (() => new Date());
     this.fieldAssetDbName = options.fieldAssetDbName ?? defaultFieldAssetDbName;
+    this.projectMutationLock =
+      options.projectMutationLock ?? defaultProjectMutationLock();
+    this.projectMutationLockName = `bline-web:project-mutation:${this.keyPrefix}`;
   }
 
   async initialize(): Promise<void> {
@@ -180,56 +194,60 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     expectedVersion?: string,
     requestedStorageId?: string,
   ): Promise<WriteResult> {
-    const storageId =
-      requestedStorageId ??
-      (await this.getCurrentWorkspaceId()) ??
-      project.project_id;
-    const damage = this.damageById.get(storageId);
-    if (damage) {
-      throw new ProjectPersistenceDamageError(damage);
-    }
-    const storedDamage = this.readRecord(storageId)?.persistenceDamage;
-    if (storedDamage) {
-      throw new ProjectPersistenceDamageError(storedDamage);
-    }
-    const pendingLegacyProject = this.pendingLegacyProjects.get(storageId);
-    if (pendingLegacyProject?.project_id === project.project_id) {
-      throw new Error(
-        "Legacy Project migration must finish before this Project can be saved",
-      );
-    }
-    return this.writeProjectFilesRecord(project, expectedVersion, storageId);
+    return this.withProjectMutationLock(async () => {
+      const storageId =
+        requestedStorageId ??
+        (await this.getCurrentWorkspaceId()) ??
+        project.project_id;
+      const damage = this.damageById.get(storageId);
+      if (damage) {
+        throw new ProjectPersistenceDamageError(damage);
+      }
+      const storedDamage = this.readRecord(storageId)?.persistenceDamage;
+      if (storedDamage) {
+        throw new ProjectPersistenceDamageError(storedDamage);
+      }
+      const pendingLegacyProject = this.pendingLegacyProjects.get(storageId);
+      if (pendingLegacyProject?.project_id === project.project_id) {
+        throw new Error(
+          "Legacy Project migration must finish before this Project can be saved",
+        );
+      }
+      return this.writeProjectFilesRecord(project, expectedVersion, storageId);
+    });
   }
 
   async writeNewProject(project: Project): Promise<WriteResult> {
-    const previousCurrentId = await this.getCurrentWorkspaceId();
-    const targetKey = this.storageKey(project.project_id);
-    const legacyTargetKey = this.legacyProjectKey(project.project_id);
-    const existing = this.readVersionedRecord(project.project_id);
-    if (
-      this.storage.getItem(targetKey) !== null ||
-      this.storage.getItem(legacyTargetKey) !== null
-    ) {
-      throw new StorageConflictError(
-        `A saved Project already uses ID ${project.project_id}`,
-        undefined,
-        existing?.version,
-      );
-    }
-
-    try {
-      return await this.writeProjectFilesRecord(project);
-    } catch (error) {
-      // The target was proven absent, so removing it is a safe rollback if the
-      // current-Project pointer fails after the new record is written.
-      this.storage.removeItem(targetKey);
-      try {
-        await this.setCurrentWorkspaceId(previousCurrentId);
-      } catch {
-        // Preserve the original import failure when storage itself is unwritable.
+    return this.withProjectMutationLock(async () => {
+      const previousCurrentId = await this.getCurrentWorkspaceId();
+      const targetKey = this.storageKey(project.project_id);
+      const legacyTargetKey = this.legacyProjectKey(project.project_id);
+      const existing = this.readVersionedRecord(project.project_id);
+      if (
+        this.storage.getItem(targetKey) !== null ||
+        this.storage.getItem(legacyTargetKey) !== null
+      ) {
+        throw new StorageConflictError(
+          `A saved Project already uses ID ${project.project_id}`,
+          undefined,
+          existing?.version,
+        );
       }
-      throw error;
-    }
+
+      try {
+        return await this.writeProjectFilesRecord(project);
+      } catch (error) {
+        // The target was proven absent, so removing it is a safe rollback if the
+        // current-Project pointer fails after the new record is written.
+        this.storage.removeItem(targetKey);
+        try {
+          await this.setCurrentWorkspaceId(previousCurrentId);
+        } catch {
+          // Preserve the original import failure when storage itself is unwritable.
+        }
+        throw error;
+      }
+    });
   }
 
   getCurrentProjectDamage(storageId?: string): ProjectFileDamage | null {
@@ -238,6 +256,20 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   async replaceDamagedProject(
+    project: Project,
+    expectedVersion?: string,
+    requestedStorageId?: string,
+  ): Promise<WriteResult> {
+    return this.withProjectMutationLock(() =>
+      this.replaceDamagedProjectUnlocked(
+        project,
+        expectedVersion,
+        requestedStorageId,
+      ),
+    );
+  }
+
+  private async replaceDamagedProjectUnlocked(
     project: Project,
     expectedVersion?: string,
     requestedStorageId?: string,
@@ -319,23 +351,39 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   async deleteWorkspace(id: string, expectedVersion?: string): Promise<void> {
-    const existing = this.readVersionedRecord(id);
-    assertExpectedVersion(existing, expectedVersion);
-    this.storage.removeItem(this.storageKey(id));
-    const legacySource = this.readLegacyProjectRecord(id);
-    if (legacySource) {
-      this.storage.removeItem(this.legacyProjectKey(id));
-    }
+    await this.withProjectMutationLock(async () => {
+      const existing = this.readVersionedRecord(id);
+      assertExpectedVersion(existing, expectedVersion);
+      this.storage.removeItem(this.storageKey(id));
+      const legacySource = this.readLegacyProjectRecord(id);
+      if (legacySource) {
+        this.storage.removeItem(this.legacyProjectKey(id));
+      }
 
-    if ((await this.getCurrentWorkspaceId()) === id) {
-      const nextId = this.listSummaries()[0]?.id ?? null;
-      await this.setCurrentWorkspaceId(nextId);
-    }
-    this.damageById.delete(id);
-    this.pendingLegacyProjects.delete(id);
+      if ((await this.getCurrentWorkspaceId()) === id) {
+        const nextId = this.listSummaries()[0]?.id ?? null;
+        await this.setCurrentWorkspaceId(nextId);
+      }
+      this.damageById.delete(id);
+      this.pendingLegacyProjects.delete(id);
+    });
   }
 
   async deleteLegacyProjectFiles(
+    expectedVersion: string,
+    sourceStorageId: string,
+    stableProjectId: string,
+  ): Promise<WriteResult | null> {
+    return this.withProjectMutationLock(() =>
+      this.deleteLegacyProjectFilesUnlocked(
+        expectedVersion,
+        sourceStorageId,
+        stableProjectId,
+      ),
+    );
+  }
+
+  private async deleteLegacyProjectFilesUnlocked(
     expectedVersion: string,
     sourceStorageId: string,
     stableProjectId: string,
@@ -381,6 +429,20 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   async prepareLegacyProjectMigration(
+    project: Project,
+    expectedVersion: string,
+    sourceStorageId: string,
+  ): Promise<LegacyProjectMigrationPreparation> {
+    return this.withProjectMutationLock(() =>
+      this.prepareLegacyProjectMigrationUnlocked(
+        project,
+        expectedVersion,
+        sourceStorageId,
+      ),
+    );
+  }
+
+  private async prepareLegacyProjectMigrationUnlocked(
     project: Project,
     expectedVersion: string,
     sourceStorageId: string,
@@ -728,6 +790,20 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     return `${this.keyPrefix}${encodeURIComponent(id)}`;
   }
 
+  private withProjectMutationLock<T>(
+    callback: () => Promise<T> | T,
+  ): Promise<T> {
+    if (!this.projectMutationLock) {
+      throw new Error(
+        "Project mutations require the Web Locks API in this browser",
+      );
+    }
+    return this.projectMutationLock.request(
+      this.projectMutationLockName,
+      callback,
+    );
+  }
+
   private openFieldAssetDb(): Promise<IDBDatabase> {
     if (!("indexedDB" in globalThis)) {
       throw new Error("Custom field image storage is unavailable");
@@ -749,6 +825,15 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
     return this.fieldAssetDbPromise;
   }
+}
+
+function defaultProjectMutationLock(): BrowserProjectMutationLock | null {
+  if (typeof navigator === "undefined" || !navigator.locks) {
+    return null;
+  }
+  return {
+    request: (name, callback) => navigator.locks.request(name, callback),
+  };
 }
 
 interface BrowserFieldAssetRecord {

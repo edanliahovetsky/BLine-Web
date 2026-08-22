@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createPathModel,
   createTranslationTarget,
@@ -15,12 +15,35 @@ import { serializeProjectDocument } from "../../../src/core/io/projectSerde";
 import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   BrowserStorage,
+  type BrowserProjectMutationLock,
   ProjectPersistenceDamageError,
   StorageConflictError,
   type LegacyProjectMigrationPreparation,
   type StorageLike,
   TauriStorage,
 } from "../../../src/storage";
+
+const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(
+  globalThis,
+  "navigator",
+);
+let defaultBrowserMutationLock: SerialProjectMutationLock;
+
+beforeAll(() => {
+  defaultBrowserMutationLock = new SerialProjectMutationLock();
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { locks: defaultBrowserMutationLock },
+  });
+});
+
+afterAll(() => {
+  if (originalNavigatorDescriptor) {
+    Object.defineProperty(globalThis, "navigator", originalNavigatorDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, "navigator");
+  }
+});
 
 describe("BrowserStorage", () => {
   it("writes, lists, reads, and deletes workspaces", async () => {
@@ -96,6 +119,72 @@ describe("BrowserStorage", () => {
     ).resolves.toMatchObject({
       updatedAt: "2026-04-23T15:31:00.000Z",
     });
+  });
+
+  it("serializes two browser writers that start from the same version", async () => {
+    const memory = new MemoryStorage();
+    const lock = new SerialProjectMutationLock();
+    const first = new BrowserStorage({
+      storage: memory,
+      projectMutationLock: lock,
+    });
+    const second = new BrowserStorage({
+      storage: memory,
+      projectMutationLock: lock,
+    });
+    const initial = await first.writeProject(
+      exampleWorkspace("workspace-a", "Initial", ["One"]),
+    );
+
+    const results = await Promise.allSettled([
+      first.writeProject(
+        exampleWorkspace("workspace-a", "First writer", ["One"]),
+        initial.version,
+      ),
+      second.writeProject(
+        exampleWorkspace("workspace-a", "Second writer", ["One"]),
+        initial.version,
+      ),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: expect.any(StorageConflictError),
+    });
+    expect(lock.maximumConcurrentOwners).toBe(1);
+  });
+
+  it("does not let a queued delete erase a concurrent newer browser save", async () => {
+    const memory = new MemoryStorage();
+    const lock = new SerialProjectMutationLock();
+    const saver = new BrowserStorage({
+      storage: memory,
+      projectMutationLock: lock,
+    });
+    const deleter = new BrowserStorage({
+      storage: memory,
+      projectMutationLock: lock,
+    });
+    const initial = await saver.writeProject(
+      exampleWorkspace("workspace-a", "Initial", ["One"]),
+    );
+
+    const saving = saver.writeProject(
+      exampleWorkspace("workspace-a", "Newer save", ["One"]),
+      initial.version,
+    );
+    const deleting = deleter.deleteWorkspace("workspace-a", initial.version);
+
+    await expect(saving).resolves.toBeDefined();
+    await expect(deleting).rejects.toBeInstanceOf(StorageConflictError);
+    await expect(saver.readProject("workspace-a")).resolves.toMatchObject({
+      display_name: "Newer save",
+    });
+    expect(lock.maximumConcurrentOwners).toBe(1);
   });
 
   it("migrates a one-path record through the guarded Field Background lifecycle", async () => {
@@ -1539,5 +1628,31 @@ class MemoryStorage implements StorageLike {
 
   removeItem(key: string): void {
     this.values.delete(key);
+  }
+}
+
+class SerialProjectMutationLock implements BrowserProjectMutationLock {
+  private tail: Promise<void> = Promise.resolve();
+  private concurrentOwners = 0;
+  maximumConcurrentOwners = 0;
+
+  request<T>(_name: string, callback: () => Promise<T> | T): Promise<T> {
+    const run = this.tail.then(async () => {
+      this.concurrentOwners += 1;
+      this.maximumConcurrentOwners = Math.max(
+        this.maximumConcurrentOwners,
+        this.concurrentOwners,
+      );
+      try {
+        return await callback();
+      } finally {
+        this.concurrentOwners -= 1;
+      }
+    });
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 }

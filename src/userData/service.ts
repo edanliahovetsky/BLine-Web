@@ -21,6 +21,8 @@ export interface UserDataServiceOptions {
   legacyStorage?: UserDataStorage;
   idFactory?: () => string;
   clock?: () => Date;
+  /** Only for an explicitly non-durable in-memory runtime fallback. */
+  assumeEmptyDurableSource?: boolean;
 }
 
 export interface CreateFieldBackgroundInput {
@@ -41,10 +43,42 @@ export interface LegacyFieldBackgroundMigration {
   created: boolean;
 }
 
-export class UserDataReadOnlyError extends Error {
-  constructor() {
+export type UserDataAvailability =
+  | "uninitialized"
+  | "initializing"
+  | "ready"
+  | "unavailable"
+  | "read-only";
+
+export interface UserDataStatus {
+  availability: UserDataAvailability;
+  error: Error | null;
+  hasUnsavedChanges: boolean;
+}
+
+export class UserDataInitializationError extends Error {
+  constructor(
+    readonly availability: "unavailable" | "read-only",
+    readonly initializationError: unknown,
+  ) {
     super(
-      "User Data is read-only because its durable source was not safe to load",
+      initializationError instanceof Error
+        ? initializationError.message
+        : "User Data could not be initialized",
+      { cause: initializationError },
+    );
+    this.name = "UserDataInitializationError";
+  }
+}
+
+export class UserDataReadOnlyError extends Error {
+  constructor(readonly availability: UserDataAvailability = "read-only") {
+    super(
+      availability === "unavailable"
+        ? "User Data is unavailable because its durable source could not be loaded"
+        : availability === "initializing" || availability === "uninitialized"
+          ? "User Data is unavailable until initialization completes"
+          : "User Data is read-only because its durable source was not safe to load",
     );
     this.name = "UserDataReadOnlyError";
   }
@@ -91,66 +125,107 @@ export class UserDataService {
   private storageRevision = 0;
   private pendingWrite: Promise<void> = Promise.resolve();
   private snapshotRevision = 0;
-  private durableRevision = -1;
+  private durableRevision = 0;
   private readonly writeFailures = new Map<number, unknown>();
-  private initialized = false;
-  private writable = true;
+  private availability: UserDataAvailability = "uninitialized";
+  private availabilityError: Error | null = null;
+  private initialization: Promise<UserData> | null = null;
   private readonly issuedEntryIds = new Set<string>();
 
   constructor(
     private readonly adapter: UserDataAdapter,
     private readonly options: UserDataServiceOptions = {},
-  ) {}
+  ) {
+    if (options.assumeEmptyDurableSource) {
+      this.availability = "ready";
+    }
+  }
 
   async initialize(): Promise<UserData> {
-    if (this.initialized) {
+    if (this.availability === "ready") {
       return this.getSnapshot();
     }
+    if (this.initialization) {
+      return this.initialization;
+    }
+
+    const initialization = this.initializeAttempt();
+    this.initialization = initialization;
+    try {
+      return await initialization;
+    } finally {
+      if (this.initialization === initialization) {
+        this.initialization = null;
+      }
+    }
+  }
+
+  private async initializeAttempt(): Promise<UserData> {
+    this.availability = "initializing";
+    this.availabilityError = null;
+    this.resetVolatileState();
 
     let document: VersionedUserData | null;
     try {
       document = await this.adapter.read();
-    } catch {
-      this.writable = false;
-      this.initialized = true;
-      return this.getSnapshot();
+    } catch (error) {
+      throw this.failInitialization(
+        error instanceof SyntaxError ? "read-only" : "unavailable",
+        error,
+      );
     }
     const persisted = document?.data ?? null;
     if (persisted !== null && !isUserDataRecord(persisted)) {
-      this.writable = false;
-      this.initialized = true;
-      return this.getSnapshot();
+      throw this.failInitialization(
+        "read-only",
+        new InvalidUserDataRecordError(),
+      );
     }
 
+    let migrated: UserData;
     try {
-      this.snapshot = migrateUserData(persisted, this.options.legacyStorage);
+      migrated = migrateUserData(persisted, this.options.legacyStorage);
     } catch (error) {
       if (
-        !(error instanceof UnsupportedUserDataVersionError) &&
-        !(error instanceof InvalidUserDataRecordError)
+        error instanceof UnsupportedUserDataVersionError ||
+        error instanceof InvalidUserDataRecordError
       ) {
-        throw error;
+        throw this.failInitialization("read-only", error);
       }
-      this.snapshot = cloneUserData(defaultUserData);
-      this.writable = false;
-      this.initialized = true;
-      return this.getSnapshot();
+      throw this.failInitialization("unavailable", error);
     }
 
-    this.initialized = true;
+    this.snapshot = migrated;
     this.storageRevision = document?.revision ?? 0;
     this.durableSnapshot = cloneUserData(this.snapshot);
     const requiresNormalizationWrite = !sameUserData(persisted, this.snapshot);
-    if (!requiresNormalizationWrite) {
-      this.durableRevision = this.snapshotRevision;
-    }
     for (const entry of this.snapshot.field_backgrounds) {
       this.issuedEntryIds.add(entry.id);
     }
     if (requiresNormalizationWrite) {
-      this.queueWrite();
+      try {
+        const durable = await this.persistWithRetry(this.snapshot);
+        this.acceptDurableSnapshot(this.snapshot, durable);
+      } catch (error) {
+        throw this.failInitialization("unavailable", error);
+      }
     }
+    this.durableRevision = this.snapshotRevision;
+    this.availability = "ready";
     return this.getSnapshot();
+  }
+
+  getStatus(): UserDataStatus {
+    const failure = [...this.writeFailures.entries()]
+      .filter(([revision]) => revision > this.durableRevision)
+      .sort(([left], [right]) => right - left)[0]?.[1];
+    return {
+      availability: this.availability,
+      error:
+        this.availabilityError ??
+        (failure === undefined ? null : toError(failure)),
+      hasUnsavedChanges: this.snapshotRevision > this.durableRevision,
+    };
   }
 
   getSnapshot(): UserData {
@@ -158,6 +233,7 @@ export class UserDataService {
   }
 
   update(update: (current: UserData) => UserData): UserData {
+    this.assertWritable();
     const current = this.getSnapshot();
     this.snapshot = migrateUserData({
       ...update(current),
@@ -170,9 +246,10 @@ export class UserDataService {
   }
 
   async flush(): Promise<void> {
-    if (!this.writable) {
-      throw new UserDataReadOnlyError();
+    if (this.snapshotRevision <= this.durableRevision) {
+      return;
     }
+    this.assertWritable();
     while (true) {
       const pendingWrite = this.pendingWrite;
       const targetRevision = this.snapshotRevision;
@@ -459,9 +536,6 @@ export class UserDataService {
   }
 
   private queueWrite(): void {
-    if (!this.writable) {
-      return;
-    }
     const write = this.pendingWrite.then(async () => {
       const snapshot = this.getSnapshot();
       const revision = this.snapshotRevision;
@@ -671,9 +745,30 @@ export class UserDataService {
   }
 
   private assertWritable(): void {
-    if (!this.initialized || !this.writable) {
-      throw new UserDataReadOnlyError();
+    if (this.availability !== "ready") {
+      throw new UserDataReadOnlyError(this.availability);
     }
+  }
+
+  private failInitialization(
+    availability: "unavailable" | "read-only",
+    error: unknown,
+  ): UserDataInitializationError {
+    const failure = new UserDataInitializationError(availability, error);
+    this.availability = availability;
+    this.availabilityError = failure;
+    return failure;
+  }
+
+  private resetVolatileState(): void {
+    this.snapshot = cloneUserData(defaultUserData);
+    this.durableSnapshot = cloneUserData(defaultUserData);
+    this.storageRevision = 0;
+    this.pendingWrite = Promise.resolve();
+    this.snapshotRevision = 0;
+    this.durableRevision = 0;
+    this.writeFailures.clear();
+    this.issuedEntryIds.clear();
   }
 
   private allocateEntryId(): string {
@@ -1125,4 +1220,8 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 
 function sameUserData(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
