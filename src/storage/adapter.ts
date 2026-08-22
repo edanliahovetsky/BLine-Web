@@ -103,13 +103,17 @@ export interface DamageAwareStorageAdapter extends StorageAdapter {
   ): Promise<WriteResult>;
 }
 
+export type LegacyProjectMigrationPreparation =
+  | ({ status: "prepared" | "already-prepared" } & WriteResult)
+  | { status: "rejected" };
+
 export interface LegacyProjectMetadataAdapter extends StorageAdapter {
   getLegacyProjectMigrationSourceId(): string | null;
   prepareLegacyProjectMigration(
     project: Project,
     expectedVersion: string,
     sourceStorageId: string,
-  ): Promise<WriteResult | null>;
+  ): Promise<LegacyProjectMigrationPreparation>;
   deleteLegacyProjectFiles(
     expectedVersion: string,
     sourceStorageId: string,

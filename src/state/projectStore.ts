@@ -46,7 +46,10 @@ import type {
   ProjectImportResult,
   ProjectIoService,
 } from "../platform/projectIo";
-import type { WriteResult } from "../storage/adapter";
+import type {
+  LegacyProjectMigrationPreparation,
+  WriteResult,
+} from "../storage/adapter";
 import type { ProjectFileDamage } from "../core/io/projectFiles";
 import {
   activePathForProject as locallyRememberedActivePath,
@@ -102,6 +105,13 @@ export interface ProjectMutationOwnership {
   revision: number;
 }
 
+interface ProjectTransitionOwnership {
+  io: ProjectIoService | null;
+  projectId: string | null;
+  projectSessionId: string | null;
+  revision: number;
+}
+
 export interface ProjectEditOwnership extends ProjectMutationOwnership {
   historyEntry: HistoryCommand<Project>;
   previousProject: Project;
@@ -125,6 +135,7 @@ export interface ProjectStoreState {
   activeSave: SaveOwnership | null;
   saveQueued: boolean;
   legacyMigrationProjectSessionId: string | null;
+  legacyMigrationError: string | null;
   history: HistoryStore<Project>;
   setProjectIoService(io: ProjectIoService | null): void;
   initializeWorkspace(fallback?: Project): Promise<Project | null>;
@@ -139,7 +150,7 @@ export interface ProjectStoreState {
   prepareLegacyProjectMigration(
     projectSessionId: string,
     migration: LegacyProjectViewMigration,
-  ): Promise<WriteResult | null>;
+  ): Promise<LegacyProjectMigrationPreparation>;
   completeLegacyProjectMigration(
     projectSessionId: string,
     migration: LegacyProjectViewMigration,
@@ -214,6 +225,7 @@ export interface ProjectStoreState {
   undo(): void;
   redo(): void;
   markSaveError(error: unknown): void;
+  markLegacyMigrationError(error: unknown): void;
   reset(): void;
 }
 
@@ -224,8 +236,107 @@ export function createProjectStore(
 ): ProjectStore {
   let nextProjectSessionId = 1;
   let savePromise: Promise<WriteResult> | null = null;
+  let activeProjectTransition: ProjectTransitionOwnership | null = null;
   const createProjectSessionId = () =>
     `project-session-${nextProjectSessionId++}`;
+
+  const beginProjectTransition = async (
+    get: StoreApi<ProjectStoreState>["getState"],
+  ): Promise<ProjectTransitionOwnership> => {
+    if (activeProjectTransition) {
+      throw new Error("Another Project change is already in progress");
+    }
+
+    // A save can admit another synchronous edit before its awaiting caller resumes.
+    // Keep draining that work until transition ownership can be captured atomically.
+    while (true) {
+      await persistBeforeProjectTransition(get);
+      if (activeProjectTransition) {
+        throw new Error("Another Project change is already in progress");
+      }
+      const state = get();
+      if (state.dirty) {
+        continue;
+      }
+      const ownership: ProjectTransitionOwnership = {
+        io: state.io,
+        projectId: state.project?.project_id ?? null,
+        projectSessionId: state.projectSessionId,
+        revision: state.revision,
+      };
+      activeProjectTransition = ownership;
+      return ownership;
+    }
+  };
+
+  const projectTransitionIsCurrent = (
+    get: StoreApi<ProjectStoreState>["getState"],
+    ownership: ProjectTransitionOwnership,
+  ): boolean => {
+    const state = get();
+    return (
+      activeProjectTransition === ownership &&
+      state.io === ownership.io &&
+      (state.project?.project_id ?? null) === ownership.projectId &&
+      state.projectSessionId === ownership.projectSessionId &&
+      state.revision === ownership.revision
+    );
+  };
+
+  const requireCurrentProjectTransition = (
+    get: StoreApi<ProjectStoreState>["getState"],
+    ownership: ProjectTransitionOwnership,
+  ): void => {
+    if (!projectTransitionIsCurrent(get, ownership)) {
+      throw new Error(
+        "The active Project changed before the operation finished",
+      );
+    }
+  };
+
+  const finishProjectTransition = (
+    ownership: ProjectTransitionOwnership,
+  ): void => {
+    if (activeProjectTransition === ownership) {
+      activeProjectTransition = null;
+    }
+  };
+
+  const requireProjectMutationAllowed = (): void => {
+    const state = store.getState();
+    if (
+      activeProjectTransition &&
+      activeProjectTransition.projectId ===
+        (state.project?.project_id ?? null) &&
+      activeProjectTransition.projectSessionId === state.projectSessionId
+    ) {
+      throw new Error(
+        "Project edits are temporarily unavailable while changing Projects",
+      );
+    }
+  };
+
+  const performProjectTransition = async <T>(
+    set: StoreApi<ProjectStoreState>["setState"],
+    get: StoreApi<ProjectStoreState>["getState"],
+    operation: (ownership: ProjectTransitionOwnership) => Promise<T>,
+    reportLoading = false,
+  ): Promise<T> => {
+    const ownership = await beginProjectTransition(get);
+    if (reportLoading) {
+      set({ status: "loading", error: null });
+    }
+    try {
+      return await operation(ownership);
+    } catch (error) {
+      if (reportLoading && projectTransitionIsCurrent(get, ownership)) {
+        set({ status: "error", error: errorMessage(error) });
+      }
+      throw error;
+    } finally {
+      finishProjectTransition(ownership);
+    }
+  };
 
   const executeOwnedSave = async (
     set: StoreApi<ProjectStoreState>["setState"],
@@ -349,122 +460,110 @@ export function createProjectStore(
     },
     async createWorkspace(project) {
       const io = requireProjectIo(get().io);
-      await persistBeforeProjectTransition(get);
-      set({ status: "loading", error: null });
-
-      try {
-        const created = await io.createWorkspace({
-          project,
-        });
-        return adoptWorkspace(
-          set,
-          history,
-          io,
-          created,
-          false,
-          createProjectSessionId(),
-        );
-      } catch (error) {
-        set({
-          status: "error",
-          error: errorMessage(error),
-        });
-        throw error;
-      }
+      return performProjectTransition(
+        set,
+        get,
+        async (ownership) => {
+          const created = await io.createWorkspace({
+            project,
+          });
+          requireCurrentProjectTransition(get, ownership);
+          return adoptWorkspace(
+            set,
+            history,
+            io,
+            created,
+            false,
+            createProjectSessionId(),
+          );
+        },
+        true,
+      );
     },
     async openWorkspace(id) {
       const io = requireProjectIo(get().io);
-      await persistBeforeProjectTransition(get);
-      set({ status: "loading", error: null });
-
-      try {
-        const workspace = await io.openWorkspace(id);
-        if (workspace) {
-          return adoptWorkspace(
-            set,
-            history,
-            io,
-            workspace,
-            false,
-            createProjectSessionId(),
-          );
-        } else {
-          set({ status: "idle" });
-        }
-        return null;
-      } catch (error) {
-        set({
-          status: "error",
-          error: errorMessage(error),
-        });
-        throw error;
-      }
+      return performProjectTransition(
+        set,
+        get,
+        async (ownership) => {
+          const workspace = await io.openWorkspace(id);
+          requireCurrentProjectTransition(get, ownership);
+          if (workspace) {
+            return adoptWorkspace(
+              set,
+              history,
+              io,
+              workspace,
+              false,
+              createProjectSessionId(),
+            );
+          } else {
+            set({ status: "idle" });
+          }
+          return null;
+        },
+        true,
+      );
     },
     async deleteWorkspace(id) {
       const io = requireProjectIo(get().io);
-      await persistBeforeProjectTransition(get);
-      set({ status: "loading", error: null });
-
-      try {
-        const workspace = await io.deleteWorkspace(id);
-        if (workspace) {
-          return adoptWorkspace(
-            set,
-            history,
-            io,
-            workspace,
-            false,
-            createProjectSessionId(),
-          );
-        } else {
-          history.getState().clear();
-          set({
-            project: null,
-            activePathId: null,
-            activePathGroupId: null,
-            version: undefined,
-            dirty: false,
-            status: "idle",
-            error: null,
-            lastSavedAt: null,
-            persistenceDamage: null,
-            ...inactiveSaveState(),
-          });
-        }
-        return null;
-      } catch (error) {
-        set({
-          status: "error",
-          error: errorMessage(error),
-        });
-        throw error;
-      }
+      return performProjectTransition(
+        set,
+        get,
+        async (ownership) => {
+          const workspace = await io.deleteWorkspace(id);
+          requireCurrentProjectTransition(get, ownership);
+          if (workspace) {
+            return adoptWorkspace(
+              set,
+              history,
+              io,
+              workspace,
+              false,
+              createProjectSessionId(),
+            );
+          } else {
+            history.getState().clear();
+            set({
+              project: null,
+              activePathId: null,
+              activePathGroupId: null,
+              version: undefined,
+              dirty: false,
+              status: "idle",
+              error: null,
+              lastSavedAt: null,
+              persistenceDamage: null,
+              ...inactiveSaveState(),
+            });
+          }
+          return null;
+        },
+        true,
+      );
     },
     async switchWorkspace(id) {
       const io = requireProjectIo(get().io);
-      await persistBeforeProjectTransition(get);
-      set({ status: "loading", error: null });
-
-      try {
-        const workspace = await io.switchWorkspace(id);
-        if (workspace) {
-          return adoptWorkspace(
-            set,
-            history,
-            io,
-            workspace,
-            false,
-            createProjectSessionId(),
-          );
-        }
-        return null;
-      } catch (error) {
-        set({
-          status: "error",
-          error: errorMessage(error),
-        });
-        throw error;
-      }
+      return performProjectTransition(
+        set,
+        get,
+        async (ownership) => {
+          const workspace = await io.switchWorkspace(id);
+          requireCurrentProjectTransition(get, ownership);
+          if (workspace) {
+            return adoptWorkspace(
+              set,
+              history,
+              io,
+              workspace,
+              false,
+              createProjectSessionId(),
+            );
+          }
+          return null;
+        },
+        true,
+      );
     },
     async saveWorkspace() {
       if (legacyProjectMigrationOwnsSession(get())) {
@@ -558,7 +657,10 @@ export function createProjectStore(
         version: result.version,
         lastSavedAt: result.updatedAt,
         legacyMigrationProjectSessionId: null,
-        ...(current.status === "error"
+        legacyMigrationError: null,
+        ...(current.status === "error" &&
+        current.legacyMigrationError !== null &&
+        current.error === current.legacyMigrationError
           ? { status: "idle" as const, error: null }
           : {}),
       });
@@ -583,11 +685,11 @@ export function createProjectStore(
         !projectSessionId ||
         projectSessionId !== expectedProjectSessionId
       ) {
-        return null;
+        return { status: "rejected" };
       }
       const io = requireProjectIo(before.io);
       set({ legacyMigrationProjectSessionId: projectSessionId });
-      let result: WriteResult | null;
+      let result: LegacyProjectMigrationPreparation;
       try {
         result = await io.prepareLegacyProjectMigration(migration);
       } catch (error) {
@@ -596,8 +698,11 @@ export function createProjectStore(
         }
         throw error;
       }
-      if (!result) {
-        return null;
+      if (result.status === "rejected") {
+        if (get().legacyMigrationProjectSessionId === projectSessionId) {
+          set({ legacyMigrationProjectSessionId: null });
+        }
+        return result;
       }
       const current = get();
       if (current.projectSessionId !== projectSessionId) {
@@ -623,6 +728,7 @@ export function createProjectStore(
       set(navigationForActiveGroup(project, currentNavigation(state), groupId));
     },
     createPath(input) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -646,6 +752,7 @@ export function createProjectStore(
       );
     },
     renamePath(pathId, name) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -663,6 +770,7 @@ export function createProjectStore(
       );
     },
     duplicatePath(pathId, name, options) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -689,6 +797,7 @@ export function createProjectStore(
       );
     },
     createPathGroup(input) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -722,6 +831,7 @@ export function createProjectStore(
       );
     },
     renamePathGroup(groupId, name) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -736,6 +846,7 @@ export function createProjectStore(
       );
     },
     deletePathGroup(groupId, options) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -758,6 +869,7 @@ export function createProjectStore(
       );
     },
     addPathsToGroup(groupId, pathIds) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -785,6 +897,7 @@ export function createProjectStore(
       );
     },
     removePathsFromGroup(groupId, pathIds) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -808,6 +921,7 @@ export function createProjectStore(
       );
     },
     createLinkedTarget(input) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -829,6 +943,7 @@ export function createProjectStore(
       return targetId;
     },
     updateLinkedTarget(targetId, update) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -851,6 +966,7 @@ export function createProjectStore(
       );
     },
     deleteLinkedTarget(targetId) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -865,6 +981,7 @@ export function createProjectStore(
       );
     },
     linkPathElementToTarget(pathId, elementIndex, targetId) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -887,6 +1004,7 @@ export function createProjectStore(
       );
     },
     unlinkPathElement(pathId, elementIndex) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -904,6 +1022,7 @@ export function createProjectStore(
       );
     },
     deletePaths(pathIds) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const navigation = currentNavigation(state);
@@ -921,35 +1040,37 @@ export function createProjectStore(
     },
     async importPath(file) {
       const io = requireProjectIo(get().io);
-      const previousProject = requireProject(get().project);
-      const previousNavigation = currentNavigation(get());
-      await persistBeforeProjectTransition(get);
-      const imported = await io.importPath(file);
-      const createdPathId = createdPathIdFromTransition(
-        previousProject,
-        imported,
-      );
-      applyProjectTransition(
-        set,
-        history,
-        previousProject,
-        imported,
-        previousNavigation,
-        normalizeEditorNavigation(imported, {
-          ...previousNavigation,
-          activePathId: createdPathId ?? previousNavigation.activePathId,
-        }),
-        "Import path",
-        false,
-        {
-          version: io.getCurrentVersion(),
-          lastSavedAt: io.getLastSavedAt(),
-        },
-        {
-          createdPathId,
-        },
-      );
-      return requireProject(get().project);
+      return performProjectTransition(set, get, async (ownership) => {
+        const previousProject = requireProject(get().project);
+        const previousNavigation = currentNavigation(get());
+        const imported = await io.importPath(file);
+        requireCurrentProjectTransition(get, ownership);
+        const createdPathId = createdPathIdFromTransition(
+          previousProject,
+          imported,
+        );
+        applyProjectTransition(
+          set,
+          history,
+          previousProject,
+          imported,
+          previousNavigation,
+          normalizeEditorNavigation(imported, {
+            ...previousNavigation,
+            activePathId: createdPathId ?? previousNavigation.activePathId,
+          }),
+          "Import path",
+          false,
+          {
+            version: io.getCurrentVersion(),
+            lastSavedAt: io.getLastSavedAt(),
+          },
+          {
+            createdPathId,
+          },
+        );
+        return requireProject(get().project);
+      });
     },
     async exportPath(pathId) {
       const project = get().project;
@@ -961,16 +1082,18 @@ export function createProjectStore(
     },
     async importConfig(file) {
       const io = requireProjectIo(get().io);
-      await persistBeforeProjectTransition(get);
-      const workspace = await io.importConfig(file);
-      return adoptWorkspace(
-        set,
-        history,
-        io,
-        workspace,
-        false,
-        createProjectSessionId(),
-      );
+      return performProjectTransition(set, get, async (ownership) => {
+        const workspace = await io.importConfig(file);
+        requireCurrentProjectTransition(get, ownership);
+        return adoptWorkspace(
+          set,
+          history,
+          io,
+          workspace,
+          false,
+          createProjectSessionId(),
+        );
+      });
     },
     async exportConfig() {
       const io = requireProjectIo(get().io);
@@ -982,17 +1105,19 @@ export function createProjectStore(
     },
     async importProjectFolder(files) {
       const io = requireProjectIo(get().io);
-      await persistBeforeProjectTransition(get);
-      const imported = await io.importProjectFolder(files);
-      const project = adoptWorkspace(
-        set,
-        history,
-        io,
-        imported.project,
-        false,
-        createProjectSessionId(),
-      );
-      return { ...imported, project };
+      return performProjectTransition(set, get, async (ownership) => {
+        const imported = await io.importProjectFolder(files);
+        requireCurrentProjectTransition(get, ownership);
+        const project = adoptWorkspace(
+          set,
+          history,
+          io,
+          imported.project,
+          false,
+          createProjectSessionId(),
+        );
+        return { ...imported, project };
+      });
     },
     async exportProjectFolder() {
       const io = requireProjectIo(get().io);
@@ -1004,17 +1129,19 @@ export function createProjectStore(
     },
     async importProjectArchive(file) {
       const io = requireProjectIo(get().io);
-      await persistBeforeProjectTransition(get);
-      const imported = await io.importProjectArchive(file);
-      const project = adoptWorkspace(
-        set,
-        history,
-        io,
-        imported.project,
-        false,
-        createProjectSessionId(),
-      );
-      return { ...imported, project };
+      return performProjectTransition(set, get, async (ownership) => {
+        const imported = await io.importProjectArchive(file);
+        requireCurrentProjectTransition(get, ownership);
+        const project = adoptWorkspace(
+          set,
+          history,
+          io,
+          imported.project,
+          false,
+          createProjectSessionId(),
+        );
+        return { ...imported, project };
+      });
     },
     async exportProjectArchive() {
       const io = requireProjectIo(get().io);
@@ -1025,6 +1152,7 @@ export function createProjectStore(
       return io.exportProjectArchive(project);
     },
     applyPathCommand(command, requestedPathId) {
+      requireProjectMutationAllowed();
       const project = requireProject(get().project);
       const pathId = requestedPathId ?? requireActivePathId(get());
       const nextProject = history
@@ -1034,6 +1162,7 @@ export function createProjectStore(
       setProject(set, nextProject, currentNavigation(get()), true);
     },
     applyPathElementEdit(edit, options) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const pathId = options?.pathId ?? requireActivePathId(state);
@@ -1062,6 +1191,7 @@ export function createProjectStore(
       return result;
     },
     applyPathStructureEdit(edit, options) {
+      requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
       const pathId = options?.pathId ?? requireActivePathId(state);
@@ -1092,6 +1222,7 @@ export function createProjectStore(
       return result;
     },
     applyConfigCommand(command) {
+      requireProjectMutationAllowed();
       const project = requireProject(get().project);
       const nextProject = history
         .getState()
@@ -1100,6 +1231,9 @@ export function createProjectStore(
       setProject(set, nextProject, currentNavigation(get()), true);
     },
     applyDerivedPathCommand(command, ownership, requestedPathId) {
+      if (activeProjectTransition) {
+        return "stale";
+      }
       const state = get();
       const project = state.project;
       const pathId = requestedPathId ?? state.activePathId;
@@ -1151,6 +1285,7 @@ export function createProjectStore(
       return "applied";
     },
     undo() {
+      requireProjectMutationAllowed();
       const project = get().project;
       if (!project) {
         return;
@@ -1168,6 +1303,7 @@ export function createProjectStore(
       }
     },
     redo() {
+      requireProjectMutationAllowed();
       const project = get().project;
       if (!project) {
         return;
@@ -1192,7 +1328,12 @@ export function createProjectStore(
             ? "conflict"
             : "error",
         error: errorMessage(error),
+        legacyMigrationError: null,
       });
+    },
+    markLegacyMigrationError(error) {
+      const message = errorMessage(error);
+      set({ status: "error", error: message, legacyMigrationError: message });
     },
     reset() {
       history.getState().clear();
@@ -1494,6 +1635,7 @@ function inactiveSaveState(projectSessionId: string | null = null) {
     activeSave: null,
     saveQueued: false,
     legacyMigrationProjectSessionId: null,
+    legacyMigrationError: null,
   } satisfies Pick<
     ProjectStoreState,
     | "projectSessionId"
@@ -1501,6 +1643,7 @@ function inactiveSaveState(projectSessionId: string | null = null) {
     | "activeSave"
     | "saveQueued"
     | "legacyMigrationProjectSessionId"
+    | "legacyMigrationError"
   >;
 }
 

@@ -19,6 +19,7 @@ import {
   type ProjectWorkspaceSummary,
   type WorkspaceImportResult,
   type WriteResult,
+  type LegacyProjectMigrationPreparation,
   ProjectPersistenceDamageError,
 } from "./adapter";
 
@@ -255,8 +256,23 @@ export class TauriStorage implements ProjectFolderAdapter {
     project: Project,
     expectedVersion: string,
     sourceStorageId: string,
-  ): Promise<WriteResult | null> {
+  ): Promise<LegacyProjectMigrationPreparation> {
     const attestation = this.legacyAttestationByLocator.get(sourceStorageId);
+    const cleanupProof = this.cleanupProofByLocator.get(sourceStorageId);
+    if (
+      !this.damageByLocator.has(sourceStorageId) &&
+      this.canonicalLocators.has(sourceStorageId) &&
+      (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) > 0 &&
+      cleanupProof?.version === expectedVersion &&
+      cleanupProof.stableProjectId === project.project_id
+    ) {
+      const metadata = this.fileSetMetadata.get(sourceStorageId);
+      return {
+        status: "already-prepared",
+        version: expectedVersion,
+        updatedAt: metadata?.updatedAt ?? this.now().toISOString(),
+      };
+    }
     if (
       this.damageByLocator.has(sourceStorageId) ||
       this.canonicalLocators.has(sourceStorageId) ||
@@ -265,7 +281,7 @@ export class TauriStorage implements ProjectFolderAdapter {
       attestation.version !== expectedVersion ||
       !projectsSemanticallyEqual(project, attestation.project)
     ) {
-      return null;
+      return { status: "rejected" };
     }
     const result = await this.invoke<ProjectFileSetWritePayload>(
       "storage_prepare_legacy_project_files",
@@ -289,7 +305,11 @@ export class TauriStorage implements ProjectFolderAdapter {
         stableProjectId: project.project_id,
       });
     }
-    return { version: result.version, updatedAt: result.updatedAt };
+    return {
+      status: "prepared",
+      version: result.version,
+      updatedAt: result.updatedAt,
+    };
   }
 
   async exportWorkspaceArchive(id?: string): Promise<Blob> {

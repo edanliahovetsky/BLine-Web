@@ -648,12 +648,15 @@ export function AppShell() {
     };
 
     void (async () => {
-      await projectStore
+      const preparation = await projectStore
         .getState()
         .prepareLegacyProjectMigration(migrationSessionId, migration);
       if (!ownsMigrationSession()) {
         abandonAttempt();
         return;
+      }
+      if (preparation.status === "rejected") {
+        throw new Error("Legacy Project migration could not be prepared");
       }
       await migrateProjectViewIdentity(
         migration.legacyProjectId,
@@ -699,7 +702,7 @@ export function AppShell() {
           key: legacyFieldMigrationKey,
           phase: "failed",
         });
-        projectStore.getState().markSaveError(migrationError);
+        projectStore.getState().markLegacyMigrationError(migrationError);
       }
     });
 

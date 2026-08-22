@@ -806,7 +806,7 @@ function isBetterJointCandidate(
 }
 
 /** Global-search ranking must not depend on whichever candidate seeded the solve. */
-function isBetterJointOracleCandidate(
+function isBetterGlobalSearchCandidate(
   candidate: JointCandidateEvaluation,
   current: JointCandidateEvaluation,
 ): boolean {
@@ -1234,7 +1234,7 @@ function refineJointAutoConstraintsForProduction(
   }
 
   const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
-  const variables = jointOracleVariables(problem);
+  const variables = globalSearchVariables(problem);
   const seedSetup = createAutoVelocitySolveSetup(seed.path, config, options);
   const seedCandidate: JointCandidate = {
     radiiBySegmentIndex: [
@@ -1243,23 +1243,23 @@ function refineJointAutoConstraintsForProduction(
     capsByOrdinal: capsByOrdinalFromSegmentCaps(seed.profile.segmentCaps),
   };
   const seedEvaluation = evaluator.evaluate(seedCandidate);
-  const oracleBase = jointOracleBaseCandidate(problem);
+  const globalSearchBase = globalSearchBaseCandidate(problem);
   let best = evaluator.evaluate(
-    decodeJointOracleCandidate(
+    decodeGlobalSearchCandidate(
       variables.map(() => 0.5),
       variables,
-      oracleBase,
+      globalSearchBase,
     ),
   );
   if (!best) {
     return seed;
   }
-  if (seedEvaluation && isBetterJointOracleCandidate(seedEvaluation, best)) {
+  if (seedEvaluation && isBetterGlobalSearchCandidate(seedEvaluation, best)) {
     best = seedEvaluation;
   }
   for (const fraction of [0.2, 0.5, 0.8]) {
     const broad = evaluator.evaluate(
-      decodeJointOracleCandidate(
+      decodeGlobalSearchCandidate(
         variables.map((variable) =>
           variable.kind === "radius" ? fraction : 0.25 + fraction * 0.75,
         ),
@@ -1267,17 +1267,17 @@ function refineJointAutoConstraintsForProduction(
         best.candidate,
       ),
     );
-    if (broad && isBetterJointOracleCandidate(broad, best)) {
+    if (broad && isBetterGlobalSearchCandidate(broad, best)) {
       best = broad;
     }
   }
 
-  best = polishJointOracleCandidate(best, variables, evaluator);
+  best = polishGlobalSearchCandidate(best, variables, evaluator);
   const finalistMap = new Map(
     [
       best,
       ...(seedEvaluation ? [seedEvaluation] : []),
-      ...evaluator.rankedCandidates(32, isBetterJointOracleCandidate),
+      ...evaluator.rankedCandidates(32, isBetterGlobalSearchCandidate),
     ].map((candidate) => [candidate.signature, candidate]),
   );
   const refined = finalizeJointCandidates(
@@ -1548,22 +1548,22 @@ function betterFinalizedJointResult(
   );
 }
 
-type JointOracleVariable =
+type JointGlobalSearchVariable =
   | { kind: "radius"; coordinate: JointRadiusCoordinate }
   | { kind: "cap"; ordinal: number; min: number; max: number };
 
-const jointOracleRestartSeeds = [
+const globalSearchRestartSeeds = [
   0x4b11e, 0x9e3779b9, 0x243f6a88, 0xb7e15162, 0xdeadbeef, 0x85ebca6b,
   0xc2b2ae35, 0x27d4eb2f, 0x165667b1, 0xd3a2646c,
 ] as const;
-const jointOracleHaltonBases = [
+const globalSearchHaltonBases = [
   2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
   73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151,
   157, 163, 167, 173,
 ] as const;
 
-function jointOracleRestartVectors(
-  variables: readonly JointOracleVariable[],
+function globalSearchRestartVectors(
+  variables: readonly JointGlobalSearchVariable[],
 ): number[][] {
   const structured = [0.15, 0.35, 0.5, 0.65, 0.85].map((fraction) =>
     variables.map((variable) =>
@@ -1574,7 +1574,7 @@ function jointOracleRestartVectors(
     variables.map((_, dimension) =>
       radicalInverse(
         sampleIndex + 1,
-        jointOracleHaltonBases[dimension % jointOracleHaltonBases.length]!,
+        globalSearchHaltonBases[dimension % globalSearchHaltonBases.length]!,
       ),
     ),
   );
@@ -1624,7 +1624,7 @@ function solveJointAutoConstraintsGlobalSearchInternal(
     suppliedProductionSeed ??
     solveJointAutoConstraintsInternal(canonicalPath, config, options, false);
   const problem = createJointSearchProblem(canonicalPath, config, options);
-  const variables = jointOracleVariables(problem);
+  const variables = globalSearchVariables(problem);
   const evaluationBudget = Math.max(
     1,
     Math.floor(
@@ -1633,7 +1633,7 @@ function solveJointAutoConstraintsGlobalSearchInternal(
     ),
   );
   const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
-  const oracleBase = jointOracleBaseCandidate(problem);
+  const globalSearchBase = globalSearchBaseCandidate(problem);
   const canonicalProductionSetup = createAutoVelocitySolveSetup(
     canonicalProductionSeed.path,
     config,
@@ -1649,10 +1649,10 @@ function solveJointAutoConstraintsGlobalSearchInternal(
   };
   const productionEvaluation = evaluator.evaluate(canonicalProductionCandidate);
   let best = evaluator.evaluate(
-    decodeJointOracleCandidate(
+    decodeGlobalSearchCandidate(
       variables.map(() => 0.5),
       variables,
-      oracleBase,
+      globalSearchBase,
     ),
   );
   if (!best) {
@@ -1662,14 +1662,14 @@ function solveJointAutoConstraintsGlobalSearchInternal(
   }
   if (
     productionEvaluation &&
-    isBetterJointOracleCandidate(productionEvaluation, best)
+    isBetterGlobalSearchCandidate(productionEvaluation, best)
   ) {
     best = productionEvaluation;
   }
 
   if (variables.length > 0 && evaluationBudget > 1) {
     for (const fraction of [0.2, 0.5, 0.8]) {
-      const broad = decodeJointOracleCandidate(
+      const broad = decodeGlobalSearchCandidate(
         variables.map((variable) =>
           variable.kind === "radius" ? fraction : 0.25 + fraction * 0.75,
         ),
@@ -1677,7 +1677,7 @@ function solveJointAutoConstraintsGlobalSearchInternal(
         best.candidate,
       );
       const evaluation = evaluator.evaluate(broad);
-      if (evaluation && isBetterJointOracleCandidate(evaluation, best)) {
+      if (evaluation && isBetterGlobalSearchCandidate(evaluation, best)) {
         best = evaluation;
       }
     }
@@ -1710,7 +1710,7 @@ function solveJointAutoConstraintsGlobalSearchInternal(
     const expectedNormalLength =
       Math.sqrt(dimension) *
       (1 - 1 / (4 * dimension) + 1 / (21 * dimension * dimension));
-    const restartVectors = jointOracleRestartVectors(variables);
+    const restartVectors = globalSearchRestartVectors(variables);
     const restartSchedule = (
       globalSearchOptions.restartIndices ??
       restartVectors.map((_, index) => index)
@@ -1740,8 +1740,10 @@ function solveJointAutoConstraintsGlobalSearchInternal(
     ) {
       const restart = restartSchedule[scheduleIndex]!;
       const restartIndex = restart.restartIndex;
-      const random = createJointOracleRandom(
-        jointOracleRestartSeeds[restartIndex % jointOracleRestartSeeds.length]!,
+      const random = createGlobalSearchRandom(
+        globalSearchRestartSeeds[
+          restartIndex % globalSearchRestartSeeds.length
+        ]!,
       );
       let mean = restart.vector;
       let sigma = restartIndex < 5 ? 0.28 : 0.34;
@@ -1756,11 +1758,11 @@ function solveJointAutoConstraintsGlobalSearchInternal(
         evaluator.evaluations + evaluationsPerRestart,
       );
       const startEvaluation = evaluator.evaluate(
-        decodeJointOracleCandidate(mean, variables, best.candidate),
+        decodeGlobalSearchCandidate(mean, variables, best.candidate),
       );
       if (startEvaluation) {
         restartBest = startEvaluation;
-        if (isBetterJointOracleCandidate(startEvaluation, best)) {
+        if (isBetterGlobalSearchCandidate(startEvaluation, best)) {
           best = startEvaluation;
         }
       }
@@ -1791,7 +1793,7 @@ function solveJointAutoConstraintsGlobalSearchInternal(
             reflectUnitInterval(value + sigma * (step[index] ?? 0)),
           );
           const evaluation = evaluator.evaluate(
-            decodeJointOracleCandidate(vector, variables, best.candidate),
+            decodeGlobalSearchCandidate(vector, variables, best.candidate),
           );
           if (evaluation) {
             population.push({ vector, evaluation });
@@ -1801,21 +1803,21 @@ function solveJointAutoConstraintsGlobalSearchInternal(
           break;
         }
         population.sort((left, right) =>
-          isBetterJointOracleCandidate(left.evaluation, right.evaluation)
+          isBetterGlobalSearchCandidate(left.evaluation, right.evaluation)
             ? -1
             : 1,
         );
         const populationBest = population[0]!.evaluation;
         if (
           restartBest === null ||
-          isBetterJointOracleCandidate(populationBest, restartBest)
+          isBetterGlobalSearchCandidate(populationBest, restartBest)
         ) {
           restartBest = populationBest;
           generationsWithoutImprovement = 0;
         } else {
           generationsWithoutImprovement += 1;
         }
-        if (isBetterJointOracleCandidate(populationBest, best)) {
+        if (isBetterGlobalSearchCandidate(populationBest, best)) {
           best = populationBest;
         }
 
@@ -1884,12 +1886,12 @@ function solveJointAutoConstraintsGlobalSearchInternal(
     }
   }
 
-  best = polishJointOracleCandidate(best, variables, evaluator);
+  best = polishGlobalSearchCandidate(best, variables, evaluator);
   const finalistMap = new Map(
     [
       best,
       ...(productionEvaluation ? [productionEvaluation] : []),
-      ...evaluator.rankedCandidates(7, isBetterJointOracleCandidate),
+      ...evaluator.rankedCandidates(7, isBetterGlobalSearchCandidate),
     ].map((candidate) => [candidate.signature, candidate]),
   );
   const referenceResult = finalizeJointCandidates(
@@ -1977,12 +1979,14 @@ function finalizeJointCandidates(
   };
 }
 
-function jointOracleVariables(
+function globalSearchVariables(
   problem: JointSearchProblem,
-): JointOracleVariable[] {
-  const variables: JointOracleVariable[] = problem.searchableCoordinates.map(
-    (coordinate) => ({ kind: "radius", coordinate }),
-  );
+): JointGlobalSearchVariable[] {
+  const variables: JointGlobalSearchVariable[] =
+    problem.searchableCoordinates.map((coordinate) => ({
+      kind: "radius",
+      coordinate,
+    }));
   const capOrdinals = new Set<number>();
   for (const coordinate of problem.searchableCoordinates) {
     capOrdinals.add(coordinate.anchorOrdinal);
@@ -2001,7 +2005,9 @@ function jointOracleVariables(
   return variables;
 }
 
-function jointOracleBaseCandidate(problem: JointSearchProblem): JointCandidate {
+function globalSearchBaseCandidate(
+  problem: JointSearchProblem,
+): JointCandidate {
   const capsByOrdinal = initialCapsByOrdinal(
     problem.setup.anchors,
     problem.setup.usableMaxVelocityMps,
@@ -2019,9 +2025,9 @@ function jointOracleBaseCandidate(problem: JointSearchProblem): JointCandidate {
   };
 }
 
-function encodeJointOracleCandidate(
+function encodeGlobalSearchCandidate(
   candidate: JointCandidate,
-  variables: readonly JointOracleVariable[],
+  variables: readonly JointGlobalSearchVariable[],
 ): number[] {
   return variables.map((variable) => {
     const min =
@@ -2041,9 +2047,9 @@ function encodeJointOracleCandidate(
   });
 }
 
-function decodeJointOracleCandidate(
+function decodeGlobalSearchCandidate(
   vector: readonly number[],
-  variables: readonly JointOracleVariable[],
+  variables: readonly JointGlobalSearchVariable[],
   base: JointCandidate,
 ): JointCandidate {
   const candidate: JointCandidate = {
@@ -2068,14 +2074,14 @@ function decodeJointOracleCandidate(
   return candidate;
 }
 
-function polishJointOracleCandidate(
+function polishGlobalSearchCandidate(
   initial: JointCandidateEvaluation,
-  variables: readonly JointOracleVariable[],
+  variables: readonly JointGlobalSearchVariable[],
   evaluator: JointCandidateEvaluator,
 ): JointCandidateEvaluation {
   let best = initial;
   const sweep = (
-    stepFor: (variable: JointOracleVariable) => number,
+    stepFor: (variable: JointGlobalSearchVariable) => number,
   ): boolean => {
     let changed = false;
     for (const variableOrder of [
@@ -2087,7 +2093,7 @@ function polishJointOracleCandidate(
           return changed;
         }
         const variableIndex = variables.indexOf(variable);
-        const vector = encodeJointOracleCandidate(best.candidate, variables);
+        const vector = encodeGlobalSearchCandidate(best.candidate, variables);
         let coordinateBest = best;
         for (const direction of [-1, 1]) {
           const trialVector = [...vector];
@@ -2097,11 +2103,11 @@ function polishJointOracleCandidate(
             1,
           );
           const evaluation = evaluator.evaluate(
-            decodeJointOracleCandidate(trialVector, variables, best.candidate),
+            decodeGlobalSearchCandidate(trialVector, variables, best.candidate),
           );
           if (
             evaluation &&
-            isBetterJointOracleCandidate(evaluation, coordinateBest)
+            isBetterGlobalSearchCandidate(evaluation, coordinateBest)
           ) {
             coordinateBest = evaluation;
           }
@@ -2123,15 +2129,15 @@ function polishJointOracleCandidate(
     }
   }
   for (let pass = 0; pass < 24 && !evaluator.budgetReached; pass += 1) {
-    if (!sweep(jointOraclePersistedQuantumRatio)) {
+    if (!sweep(globalSearchPersistedQuantumRatio)) {
       break;
     }
   }
   return best;
 }
 
-function jointOraclePersistedQuantumRatio(
-  variable: JointOracleVariable,
+function globalSearchPersistedQuantumRatio(
+  variable: JointGlobalSearchVariable,
 ): number {
   const min =
     variable.kind === "radius"
@@ -2216,7 +2222,7 @@ function solveLowerTriangular(
   return result;
 }
 
-function createJointOracleRandom(seed: number): { normal(): number } {
+function createGlobalSearchRandom(seed: number): { normal(): number } {
   let state = seed >>> 0;
   let spare: number | null = null;
   const uniform = (): number => {
@@ -4247,7 +4253,7 @@ function optimizeSmallPathCapsWithGenericSimulation(
       let bestEvaluation = evaluation;
       let bestValue = current;
 
-      for (const candidate of smallPathOracleCandidates(
+      for (const candidate of smallPathSearchCandidates(
         current,
         usableMaxVelocityMps,
       )) {
@@ -6285,7 +6291,7 @@ function localValidationGrid(
   );
 }
 
-function smallPathOracleCandidates(
+function smallPathSearchCandidates(
   current: number,
   usableMaxVelocityMps: number,
 ): number[] {

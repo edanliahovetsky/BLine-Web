@@ -43,6 +43,7 @@ import type {
   ProjectIoService,
 } from "../../../src/platform/projectIo";
 import type {
+  LegacyProjectMigrationPreparation,
   ProjectWorkspaceSummary,
   WriteResult,
 } from "../../../src/storage";
@@ -416,6 +417,143 @@ describe("project store", () => {
     expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
   });
 
+  it("creates the first Project from an empty editor session", async () => {
+    const store = createProjectStore();
+    const io = new RecordingIo();
+    store.getState().setProjectIoService(io);
+    await expect(store.getState().initializeWorkspace()).resolves.toBeNull();
+
+    await store
+      .getState()
+      .createWorkspace(exampleWorkspace("project-a", "Alpha", 1));
+
+    expect(store.getState()).toMatchObject({
+      project: { project_id: "project-a" },
+      dirty: false,
+      status: "idle",
+    });
+  });
+
+  it("rejects editor mutations while Project-changing IO owns the session", async () => {
+    const operations: Array<{
+      name: string;
+      run(store: ProjectStore): Promise<unknown>;
+    }> = [
+      {
+        name: "createWorkspace",
+        run: (store) =>
+          store
+            .getState()
+            .createWorkspace(exampleWorkspace("project-b", "Beta", 1)),
+      },
+      {
+        name: "openWorkspace",
+        run: (store) => store.getState().openWorkspace("project-b"),
+      },
+      {
+        name: "deleteWorkspace",
+        run: (store) => store.getState().deleteWorkspace("project-a"),
+      },
+      {
+        name: "switchWorkspace",
+        run: (store) => store.getState().switchWorkspace("project-b"),
+      },
+      {
+        name: "importPath",
+        run: (store) =>
+          store.getState().importPath(
+            new File(
+              [JSON.stringify({ display_name: "Imported" })],
+              "path.json",
+              {
+                type: "application/json",
+              },
+            ),
+          ),
+      },
+      {
+        name: "importConfig",
+        run: (store) =>
+          store
+            .getState()
+            .importConfig(
+              new File(["{}"], "config.json", { type: "application/json" }),
+            ),
+      },
+      {
+        name: "importProjectFolder",
+        run: (store) => store.getState().importProjectFolder([]),
+      },
+      {
+        name: "importProjectArchive",
+        run: (store) =>
+          store
+            .getState()
+            .importProjectArchive(
+              new File(["{}"], "project.json", { type: "application/json" }),
+            ),
+      },
+    ];
+
+    for (const operation of operations) {
+      const { store, io } = await initializedProjectStore(
+        exampleWorkspace("project-a", "Alpha", 1),
+      );
+      io.deferTransitions();
+
+      const transition = operation.run(store);
+      await waitForTransitionCall(io, operation.name);
+      const before = store.getState();
+
+      expect(
+        () => renameActivePath(store, "Edit that would otherwise be lost"),
+        operation.name,
+      ).toThrow(/temporarily unavailable while changing Projects/);
+      expect(store.getState(), operation.name).toMatchObject({
+        projectSessionId: before.projectSessionId,
+        revision: before.revision,
+        project: {
+          project_id: "project-a",
+          paths: [{ display_name: "Alpha" }],
+        },
+      });
+
+      io.completeNextTransition();
+      await transition;
+    }
+  });
+
+  it("aborts Import Path when an edit arrives during its save barrier", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    io.deferWrites();
+    renameActivePath(store, "Beta");
+
+    const importing = store.getState().importPath(
+      new File([JSON.stringify({ display_name: "Imported" })], "path.json", {
+        type: "application/json",
+      }),
+    );
+    const rejectedImport = expect(importing).rejects.toThrow(
+      /must be saved before changing Projects/,
+    );
+    await waitForWriteCount(io, 1);
+    renameActivePath(store, "Gamma");
+
+    io.completeNextWrite();
+    await waitForWriteCount(io, 2);
+    io.completeNextWrite();
+    await rejectedImport;
+
+    expect(io.transitionCalls).not.toContain("importPath");
+    expect(requireWorkspace(store).paths).toHaveLength(1);
+    expect(requireWorkspace(store).paths[0]?.display_name).toBe("Gamma");
+    store.getState().undo();
+    expect(requireWorkspace(store).paths).toHaveLength(1);
+    expect(requireWorkspace(store).paths[0]?.display_name).toBe("Beta");
+  });
+
   it("blocks Project-changing operations while dirty migration edits are locked", async () => {
     const operations: Array<{
       name: string;
@@ -556,6 +694,51 @@ describe("project store", () => {
     expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
   });
 
+  it("releases the migration lock when preparation is explicitly rejected", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    io.legacyPrepareRejected = true;
+
+    const result = await store
+      .getState()
+      .prepareLegacyProjectMigration(
+        requireProjectSessionId(store),
+        legacyMigration("project-a"),
+      );
+
+    expect(result).toEqual({ status: "rejected" });
+    expect(store.getState().legacyMigrationProjectSessionId).toBeNull();
+  });
+
+  it("does not clear an unrelated error when migration cleanup succeeds", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const projectSessionId = requireProjectSessionId(store);
+    const migration = legacyMigration("project-a");
+    await store
+      .getState()
+      .prepareLegacyProjectMigration(projectSessionId, migration);
+    store.getState().markLegacyMigrationError(new Error("migration failed"));
+    store.getState().markSaveError(new Error("export failed"));
+    io.legacyMigrationResult = {
+      version: "clean-v1",
+      updatedAt: "2026-04-23T15:45:00.000Z",
+    };
+
+    await store
+      .getState()
+      .completeLegacyProjectMigration(projectSessionId, migration);
+
+    expect(store.getState()).toMatchObject({
+      status: "error",
+      error: "export failed",
+      legacyMigrationError: null,
+      legacyMigrationProjectSessionId: null,
+    });
+  });
+
   it("does not adopt a delayed legacy prepare after switching Project sessions", async () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
@@ -563,7 +746,7 @@ describe("project store", () => {
     const projectSessionId = requireProjectSessionId(store);
     const migration = legacyMigration("project-a");
     let prepareCalls = 0;
-    let resolvePrepare!: (result: WriteResult) => void;
+    let resolvePrepare!: (result: LegacyProjectMigrationPreparation) => void;
     io.prepareLegacyProjectMigration = async () => {
       prepareCalls += 1;
       return new Promise((resolve) => {
@@ -580,6 +763,7 @@ describe("project store", () => {
       .createWorkspace(exampleWorkspace("project-b", "Beta", 1));
 
     resolvePrepare({
+      status: "prepared",
       version: "prepared-project-a",
       updatedAt: "2026-04-23T15:46:00.000Z",
     });
@@ -594,7 +778,7 @@ describe("project store", () => {
       store
         .getState()
         .prepareLegacyProjectMigration(projectSessionId, migration),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ status: "rejected" });
     expect(prepareCalls).toBe(1);
   });
 
@@ -1545,6 +1729,7 @@ class RecordingIo implements ProjectIoService {
   failExports = false;
   damage: ProjectFileDamage | null = null;
   legacyPrepareResult: WriteResult | null = null;
+  legacyPrepareRejected = false;
   legacyMigrationResult: WriteResult | null = null;
 
   private workspace: Project | null;
@@ -1553,10 +1738,12 @@ class RecordingIo implements ProjectIoService {
   private armConflict = false;
   private externalCounter = 0;
   private writesDeferred = false;
+  private transitionsDeferred = false;
   private readonly pendingWrites: Array<{
     workspace: Project;
     resolve: (result: WriteResult) => void;
   }> = [];
+  private readonly pendingTransitionResumes: Array<() => void> = [];
 
   /**
    * Simulate an external process (git / gradle / cloud sync) editing the project on
@@ -1577,12 +1764,24 @@ class RecordingIo implements ProjectIoService {
     this.writesDeferred = true;
   }
 
+  deferTransitions(): void {
+    this.transitionsDeferred = true;
+  }
+
   completeNextWrite(): void {
     const pending = this.pendingWrites.shift();
     if (!pending) {
       throw new Error("No deferred write is pending");
     }
     pending.resolve(this.commitWrite(pending.workspace));
+  }
+
+  completeNextTransition(): void {
+    const resume = this.pendingTransitionResumes.shift();
+    if (!resume) {
+      throw new Error("No deferred transition is pending");
+    }
+    resume();
   }
 
   constructor(workspace: ProjectWorkspaceDocument | null = null) {
@@ -1617,14 +1816,23 @@ class RecordingIo implements ProjectIoService {
     return null;
   }
 
-  async prepareLegacyProjectMigration(): Promise<WriteResult | null> {
+  async prepareLegacyProjectMigration(): Promise<LegacyProjectMigrationPreparation> {
+    if (this.legacyPrepareRejected) {
+      return { status: "rejected" };
+    }
     const result = this.legacyPrepareResult;
     if (result) {
       this.version = result.version;
       this.updatedAt = result.updatedAt;
       this.legacyPrepareResult = null;
     }
-    return result;
+    return result
+      ? { status: "prepared", ...result }
+      : {
+          status: "already-prepared",
+          version: this.version ?? this.initialVersion,
+          updatedAt: this.updatedAt ?? "2026-04-23T15:40:00.000Z",
+        };
   }
 
   async completeLegacyProjectMigration(): Promise<WriteResult | null> {
@@ -1639,6 +1847,7 @@ class RecordingIo implements ProjectIoService {
 
   async createWorkspace(input: { project?: Project } = {}) {
     this.transitionCalls.push("createWorkspace");
+    await this.waitForTransition();
     if (!input.project) {
       throw new Error("Test createWorkspace requires a workspace");
     }
@@ -1648,6 +1857,7 @@ class RecordingIo implements ProjectIoService {
 
   async openWorkspace(): Promise<Project | null> {
     this.transitionCalls.push("openWorkspace");
+    await this.waitForTransition();
     return this.getWorkspace();
   }
 
@@ -1657,6 +1867,7 @@ class RecordingIo implements ProjectIoService {
 
   async deleteWorkspace(): Promise<Project | null> {
     this.transitionCalls.push("deleteWorkspace");
+    await this.waitForTransition();
     this.workspace = null;
     this.version = undefined;
     this.updatedAt = null;
@@ -1731,11 +1942,13 @@ class RecordingIo implements ProjectIoService {
 
   async switchWorkspace(): Promise<Project | null> {
     this.transitionCalls.push("switchWorkspace");
+    await this.waitForTransition();
     return this.getWorkspace();
   }
 
   async importPath(file: File): Promise<Project> {
     this.transitionCalls.push("importPath");
+    await this.waitForTransition();
     const parsed = JSON.parse(await file.text()) as {
       display_name?: unknown;
     };
@@ -1761,6 +1974,7 @@ class RecordingIo implements ProjectIoService {
 
   async importConfig(): Promise<Project> {
     this.transitionCalls.push("importConfig");
+    await this.waitForTransition();
     return this.requireWorkspace();
   }
 
@@ -1770,6 +1984,7 @@ class RecordingIo implements ProjectIoService {
 
   async importProjectFolder() {
     this.transitionCalls.push("importProjectFolder");
+    await this.waitForTransition();
     return emptyImportResult(this.requireWorkspace());
   }
 
@@ -1786,6 +2001,7 @@ class RecordingIo implements ProjectIoService {
 
   async importProjectArchive() {
     this.transitionCalls.push("importProjectArchive");
+    await this.waitForTransition();
     return emptyImportResult(this.requireWorkspace());
   }
 
@@ -1798,6 +2014,15 @@ class RecordingIo implements ProjectIoService {
   }
 
   async deleteLegacyFieldImageAsset(): Promise<void> {}
+
+  private async waitForTransition(): Promise<void> {
+    if (!this.transitionsDeferred) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      this.pendingTransitionResumes.push(resolve);
+    });
+  }
 
   private requireWorkspace(): Project {
     if (!this.workspace) {
@@ -1813,6 +2038,32 @@ function emptyImportResult(project: Project) {
     legacySelectedFieldId: null,
     legacyFieldBackgrounds: [],
   };
+}
+
+async function waitForTransitionCall(
+  io: RecordingIo,
+  operation: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (io.transitionCalls.includes(operation)) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`Timed out waiting for ${operation}`);
+}
+
+async function waitForWriteCount(
+  io: RecordingIo,
+  expectedCount: number,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (io.writes.length >= expectedCount) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} Project writes`);
 }
 
 async function waitForSaveQueue(): Promise<void> {

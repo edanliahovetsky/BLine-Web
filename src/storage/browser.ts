@@ -27,6 +27,7 @@ import {
   type ProjectWorkspaceSummary,
   type StoredProjectRecord,
   type LegacyStoredWorkspaceRecord,
+  type LegacyProjectMigrationPreparation,
   type WorkspaceImportResult,
   type WriteResult,
 } from "./adapter";
@@ -352,17 +353,36 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     project: Project,
     expectedVersion: string,
     sourceStorageId: string,
-  ): Promise<WriteResult | null> {
+  ): Promise<LegacyProjectMigrationPreparation> {
     const currentStorageId = await this.getCurrentWorkspaceId();
     if (
       currentStorageId !== sourceStorageId &&
       currentStorageId !== project.project_id
     ) {
-      return null;
+      return { status: "rejected" };
     }
     const legacy = this.readLegacyMigrationSource(sourceStorageId);
     if (!legacy) {
-      return null;
+      const preparedTarget = this.readRecord(project.project_id);
+      const openedTarget = preparedTarget
+        ? openProjectFiles(preparedTarget.files, {
+            fallbackProjectId: project.project_id,
+          })
+        : null;
+      if (
+        preparedTarget?.legacyDocument &&
+        preparedTarget.legacySourceStorageId === sourceStorageId &&
+        !preparedTarget.persistenceDamage &&
+        !openedTarget?.damage &&
+        openedTarget?.project.project_id === project.project_id
+      ) {
+        return {
+          status: "already-prepared",
+          version: preparedTarget.version,
+          updatedAt: preparedTarget.updatedAt,
+        };
+      }
+      return { status: "rejected" };
     }
     assertLegacyEnvelope(legacy.record);
     assertLegacyMigrationDocument(legacy.record);
@@ -415,6 +435,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
           cloneProject(project),
         );
         return {
+          status: "already-prepared",
           version: preparedTarget.version,
           updatedAt: preparedTarget.updatedAt,
         };
@@ -455,7 +476,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     }
     this.pendingLegacyProjects.delete(sourceStorageId);
     this.pendingLegacyProjects.set(project.project_id, cloneProject(project));
-    return { version, updatedAt };
+    return { status: "prepared", version, updatedAt };
   }
 
   async exportWorkspaceArchive(id?: string): Promise<Blob> {

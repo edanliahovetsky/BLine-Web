@@ -391,7 +391,10 @@ describe("ProjectIoService", () => {
     });
 
     const prepared = await service.prepareLegacyProjectMigration(migration!);
-    expect(prepared).toMatchObject({ version: "canonical-v2" });
+    expect(prepared).toMatchObject({
+      status: "prepared",
+      version: "canonical-v2",
+    });
     expect(service.getLegacyProjectViewMigration()).toMatchObject({
       legacyProjectId: "/repo/autos",
       stableProjectId: project?.project_id,

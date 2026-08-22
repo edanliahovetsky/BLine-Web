@@ -31,6 +31,7 @@ import {
   isCurrentWorkspaceAdapter,
   isProjectFolderAdapter,
   type ProjectWorkspaceSummary,
+  type LegacyProjectMigrationPreparation,
   type StorageAdapter,
   type WriteResult,
 } from "../../storage";
@@ -135,14 +136,14 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async prepareLegacyProjectMigration(
     migration: LegacyProjectViewMigration,
-  ): Promise<WriteResult | null> {
+  ): Promise<LegacyProjectMigrationPreparation> {
     if (
       !this.ownsLegacyMigration(migration) ||
       this.getPersistenceDamage() ||
       !this.currentVersion ||
       !isLegacyProjectMetadataAdapter(this.storage)
     ) {
-      return null;
+      return { status: "rejected" } as const;
     }
     const projectEpoch = this.projectEpoch;
     const storageId = this.currentStorageId;
@@ -151,7 +152,10 @@ export class StorageProjectIoService implements ProjectIoService {
       this.currentVersion,
       migration.legacyProjectId,
     );
-    if (result && this.stillOwnsMigration(migration, projectEpoch, storageId)) {
+    if (
+      result.status !== "rejected" &&
+      this.stillOwnsMigration(migration, projectEpoch, storageId)
+    ) {
       const preparedStorageId = isCurrentWorkspaceAdapter(this.storage)
         ? await this.storage.getCurrentWorkspaceId()
         : storageId;

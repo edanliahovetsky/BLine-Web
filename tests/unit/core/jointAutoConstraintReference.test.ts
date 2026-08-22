@@ -91,13 +91,35 @@ describe("solveJointAutoConstraintsReference", () => {
     expect(first).toEqual(second);
     expect(first.stats.algorithm).toBe("global-search");
     expect(first.profile.diagnostics.reachedEnd).toBe(true);
+    expect({
+      objectiveCost: Number(first.stats.objectiveCost.toFixed(6)),
+      radii: generatedRadii(first.path),
+      segmentCaps: first.profile.segmentCaps.map((cap) => cap.value),
+      status: first.status,
+    }).toMatchInlineSnapshot(`
+      {
+        "objectiveCost": 0.918821,
+        "radii": [
+          0.539,
+          0.348,
+        ],
+        "segmentCaps": [
+          2.25,
+          3.04,
+          2.23,
+          3.22,
+        ],
+        "status": "valid",
+      }
+    `);
   });
 
-  it("converges to the same Path 2 basin from independent initial policies", () => {
+  it("canonicalizes generated Path 2 inputs before deterministic search", () => {
     const pathTwo = loadCorpus().paths[1];
     expect(pathTwo).toBeDefined();
     const geometric = pathOf(pathTwo!.points);
     const alternate = solveJointAutoConstraints(geometric, {}).path;
+    expect(generatedRadii(alternate)).not.toEqual(generatedRadii(geometric));
     const first = solveJointAutoConstraintsReference(
       geometric,
       {},

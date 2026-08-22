@@ -17,6 +17,7 @@ import {
   BrowserStorage,
   ProjectPersistenceDamageError,
   StorageConflictError,
+  type LegacyProjectMigrationPreparation,
   type StorageLike,
   TauriStorage,
 } from "../../../src/storage";
@@ -189,10 +190,12 @@ describe("BrowserStorage", () => {
     expect(memory.getItem("bline-web:project:legacy-project")).toBe(legacyJson);
     expect(memory.getItem("bline-web:workspace:legacy-project")).toBeNull();
 
-    const prepared = await storage.prepareLegacyProjectMigration(
-      workspace,
-      "legacy-version",
-      "legacy-project",
+    const prepared = requirePreparedMigration(
+      await storage.prepareLegacyProjectMigration(
+        workspace,
+        "legacy-version",
+        "legacy-project",
+      ),
     );
 
     expect(prepared).not.toBeNull();
@@ -211,7 +214,7 @@ describe("BrowserStorage", () => {
     await damagedPrepared.readProject("legacy-project");
     await expect(
       damagedPrepared.deleteLegacyProjectFiles(
-        prepared!.version,
+        prepared.version,
         "legacy-project",
         "legacy-project",
       ),
@@ -225,12 +228,22 @@ describe("BrowserStorage", () => {
     const resumed = await resumedStorage.readProject("legacy-project");
     expect(resumed.config.gui.field).toEqual(workspace.config.gui.field);
     await expect(
-      resumedStorage.writeProject(resumed, prepared!.version),
+      resumedStorage.writeProject(resumed, prepared.version),
     ).rejects.toThrow("migration must finish");
+    await expect(
+      resumedStorage.prepareLegacyProjectMigration(
+        { ...resumed, display_name: "Unsaved edit after preparation" },
+        prepared.version,
+        "legacy-project",
+      ),
+    ).resolves.toMatchObject({
+      status: "already-prepared",
+      version: prepared.version,
+    });
 
     await expect(
       resumedStorage.deleteLegacyProjectFiles(
-        prepared!.version,
+        prepared.version,
         "legacy-project",
         "legacy-project",
       ),
@@ -418,10 +431,12 @@ describe("BrowserStorage", () => {
     });
     expect(preserved).toHaveProperty("document.config.gui.field");
 
-    const prepared = await storage.prepareLegacyProjectMigration(
-      restored,
-      "legacy-version",
-      "legacy-locator",
+    const prepared = requirePreparedMigration(
+      await storage.prepareLegacyProjectMigration(
+        restored,
+        "legacy-version",
+        "legacy-locator",
+      ),
     );
     expect(prepared).not.toBeNull();
     expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
@@ -442,7 +457,7 @@ describe("BrowserStorage", () => {
     );
     await expect(
       storage.deleteLegacyProjectFiles(
-        prepared!.version,
+        prepared.version,
         "legacy-locator",
         "workspace-a",
       ),
@@ -504,7 +519,11 @@ describe("BrowserStorage", () => {
         "legacy-version",
         "legacy-locator",
       ),
-    ).resolves.toEqual(prepared);
+    ).resolves.toMatchObject({
+      status: "already-prepared",
+      version: prepared.version,
+      updatedAt: prepared.updatedAt,
+    });
     expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
 
     const changedLegacyJson = JSON.stringify({
@@ -539,11 +558,11 @@ describe("BrowserStorage", () => {
       "legacy-locator",
     );
     await expect(
-      restarted.writeProject(resumed, prepared!.version),
+      restarted.writeProject(resumed, prepared.version),
     ).rejects.toThrow("migration must finish");
 
     const result = await restarted.deleteLegacyProjectFiles(
-      prepared!.version,
+      prepared.version,
       "legacy-locator",
       "workspace-a",
     );
@@ -682,14 +701,16 @@ describe("BrowserStorage", () => {
     expect(restored.config.gui.field.custom_fields[0]?.name).toBe(
       "Legacy Practice Field",
     );
-    const prepared = await storage.prepareLegacyProjectMigration(
-      restored,
-      "legacy-version",
-      "workspace-a",
+    const prepared = requirePreparedMigration(
+      await storage.prepareLegacyProjectMigration(
+        restored,
+        "legacy-version",
+        "workspace-a",
+      ),
     );
     await expect(
       storage.deleteLegacyProjectFiles(
-        prepared!.version,
+        prepared.version,
         "workspace-a",
         "workspace-a",
       ),
@@ -1132,7 +1153,7 @@ describe("TauriStorage", () => {
           "damaged-v1",
           "/tmp/autos",
         ),
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ status: "rejected" });
       await expect(
         storage.deleteLegacyProjectFiles(
           "damaged-v1",
@@ -1217,6 +1238,16 @@ describe("TauriStorage", () => {
     expect(resumed.config.gui.field).toEqual(legacyField);
     expect(storage.getCurrentProjectDamage()).toBeNull();
     expect(storage.getLegacyProjectMigrationSourceId()).toBe("/tmp/autos");
+    await expect(
+      storage.prepareLegacyProjectMigration(
+        resumed,
+        "canonical-with-legacy-v2",
+        "/tmp/autos",
+      ),
+    ).resolves.toMatchObject({
+      status: "already-prepared",
+      version: "canonical-with-legacy-v2",
+    });
     await expect(
       storage.deleteLegacyProjectFiles(
         "canonical-with-legacy-v2",
@@ -1351,14 +1382,14 @@ describe("TauriStorage", () => {
         "stale-legacy-version",
         "/repo/project-a/autos",
       ),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ status: "rejected" });
     await expect(
       storage.prepareLegacyProjectMigration(
         { ...project, display_name: "Unrelated Project" },
         "legacy-a-v1",
         "/repo/project-a/autos",
       ),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ status: "rejected" });
     await expect(
       storage.deleteLegacyProjectFiles(
         "legacy-a-v1",
@@ -1493,6 +1524,16 @@ function exampleWorkspace(
 
 function fixedClock(iso: string): () => Date {
   return () => new Date(iso);
+}
+
+function requirePreparedMigration(
+  result: LegacyProjectMigrationPreparation,
+): Exclude<LegacyProjectMigrationPreparation, { status: "rejected" }> {
+  expect(result.status).not.toBe("rejected");
+  if (result.status === "rejected") {
+    throw new Error("Expected migration preparation to succeed");
+  }
+  return result;
 }
 
 class MemoryStorage implements StorageLike {

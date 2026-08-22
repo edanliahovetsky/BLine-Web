@@ -2,7 +2,11 @@ import type { ProjectFolderExport } from "../../core/io/projectFolder";
 import type { CustomFieldImage } from "../../core/field/fieldConfig";
 import type { Project } from "../../core/model/project";
 import type { ProjectFileDamage } from "../../core/io/projectFiles";
-import type { ProjectWorkspaceSummary, WriteResult } from "../../storage";
+import type {
+  LegacyProjectMigrationPreparation,
+  ProjectWorkspaceSummary,
+  WriteResult,
+} from "../../storage";
 
 export type { ProjectFolderExport } from "../../core/io/projectFolder";
 
@@ -66,7 +70,7 @@ export interface ProjectIoService {
   getLegacyProjectViewMigration(): LegacyProjectViewMigration | null;
   prepareLegacyProjectMigration(
     migration: LegacyProjectViewMigration,
-  ): Promise<WriteResult | null>;
+  ): Promise<LegacyProjectMigrationPreparation>;
   completeLegacyProjectMigration(
     migration: LegacyProjectViewMigration,
   ): Promise<WriteResult | null>;
