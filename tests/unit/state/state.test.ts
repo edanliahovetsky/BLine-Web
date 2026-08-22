@@ -8,6 +8,7 @@ import {
   addPathToWorkspace,
   projectDocumentToWorkspaceDocument,
 } from "../../../src/core/io/workspaceSerde";
+import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import { diffWorkspaceConflict } from "../../../src/core/io/workspaceConflictDiff";
 import {
   createPathModel,
@@ -22,8 +23,10 @@ import {
   type HistoryCommand,
 } from "../../../src/state/historyStore";
 import {
+  activePathDocumentForProjectStore,
   createProjectStore,
   isStorageConflict,
+  legacyWorkspaceForProjectStore,
   type ProjectStore,
 } from "../../../src/state/projectStore";
 import { StorageConflictError } from "../../../src/storage";
@@ -86,19 +89,25 @@ describe("project store", () => {
     await store.getState().initializeWorkspace();
     store.getState().applyCommand(renameCommand("Beta", "Alpha"));
 
-    expect(store.getState().project?.display_name).toBe("Beta");
-    expect(store.getState().workspace?.paths[0].display_name).toBe("Beta");
+    expect(
+      activePathDocumentForProjectStore(store.getState())?.display_name,
+    ).toBe("Beta");
+    expect(store.getState().project?.paths[0].display_name).toBe("Beta");
     expect(store.getState().dirty).toBe(true);
     expect(store.getState().history.getState().canUndo).toBe(true);
 
     store.getState().undo();
 
-    expect(store.getState().project?.display_name).toBe("Alpha");
+    expect(
+      activePathDocumentForProjectStore(store.getState())?.display_name,
+    ).toBe("Alpha");
     expect(store.getState().history.getState().canRedo).toBe(true);
 
     store.getState().redo();
 
-    expect(store.getState().project?.display_name).toBe("Beta");
+    expect(
+      activePathDocumentForProjectStore(store.getState())?.display_name,
+    ).toBe("Beta");
   });
 
   it("loads and saves through the configured IO service", async () => {
@@ -552,7 +561,9 @@ describe("autosave coordinator", () => {
       delayMs: 25,
       scheduler,
       getSnapshot: () => ({
-        workspace: exampleWorkspace("project-a", "Alpha", 1),
+        project: openProjectFromLegacyWorkspace(
+          exampleWorkspace("project-a", "Alpha", 1),
+        ).project,
         expectedVersion: "v0",
         dirty: false,
       }),
@@ -580,7 +591,7 @@ describe("autosave coordinator", () => {
       scheduler,
       shouldDefer: () => shouldDefer,
       getSnapshot: () => ({
-        workspace,
+        project: openProjectFromLegacyWorkspace(workspace).project,
         expectedVersion: "v0",
         dirty: true,
       }),
@@ -622,7 +633,7 @@ describe("save conflict recovery", () => {
     expect(state.status).toBe("conflict");
     // The unsaved edits are preserved — nothing is lost, the user gets to choose.
     expect(state.dirty).toBe(true);
-    expect(state.project?.display_name).toBe("Beta");
+    expect(activePathDocumentForProjectStore(state)?.display_name).toBe("Beta");
   });
 
   it("does not wedge: autosave defers instead of erroring in a loop", async () => {
@@ -669,7 +680,7 @@ describe("save conflict recovery", () => {
     expect(state.dirty).toBe(false);
     expect(state.version).toBe(result?.version);
     // The forced write carried the user's in-memory rename to disk.
-    expect(state.project?.display_name).toBe("Beta");
+    expect(activePathDocumentForProjectStore(state)?.display_name).toBe("Beta");
   });
 
   it("reloadFromDisk drops in-memory edits and adopts the on-disk version", async () => {
@@ -823,7 +834,7 @@ async function initializedProjectStore(
 }
 
 function requireWorkspace(store: ProjectStore): ProjectWorkspaceDocument {
-  const workspace = store.getState().workspace;
+  const workspace = legacyWorkspaceForProjectStore(store.getState());
   if (!workspace) {
     throw new Error("Expected project store to have an active workspace");
   }

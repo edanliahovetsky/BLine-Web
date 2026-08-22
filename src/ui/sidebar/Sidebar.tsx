@@ -13,7 +13,10 @@ import {
 } from "../../canvas/geometry";
 import { nextLinkedTargetName } from "../../core/linkedTargets";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
-import { projectStore } from "../../state/projectStore";
+import {
+  activePathDocumentForProjectStore,
+  projectStore,
+} from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
 import { optimizerBeamClass, optimizerBeamTitle } from "../optimizerBeam";
@@ -107,7 +110,10 @@ export function Sidebar({
       .applyCommand(createInsertPathElementCommand(insertionIndex, element));
     selectionStore
       .getState()
-      .selectElement(insertionIndex, projectStore.getState().project);
+      .selectElement(
+        insertionIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
   };
 
   const handleAddCurve = () => {
@@ -137,7 +143,7 @@ export function Sidebar({
       .getState()
       .selectElement(
         nextSelectionAfterRemoval(index, selectedElementIndex),
-        projectStore.getState().project,
+        activePathDocumentForProjectStore(projectStore.getState()),
       );
   };
 
@@ -156,7 +162,10 @@ export function Sidebar({
       .applyCommand(createDuplicatePathElementCommand(index, element));
     selectionStore
       .getState()
-      .selectElement(index + 1, projectStore.getState().project);
+      .selectElement(
+        index + 1,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
   };
 
   const handleMoveElement = (fromIndex: number, toIndex: number) => {
@@ -174,7 +183,10 @@ export function Sidebar({
       .applyCommand(createMovePathElementCommand(fromIndex, toIndex));
     selectionStore
       .getState()
-      .selectElement(nextSelection, projectStore.getState().project);
+      .selectElement(
+        nextSelection,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
   };
 
   const handleChangeElementType = (type: AddableElementType) => {
@@ -202,7 +214,10 @@ export function Sidebar({
       );
     selectionStore
       .getState()
-      .selectElement(selectedElementIndex, projectStore.getState().project);
+      .selectElement(
+        selectedElementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
   };
 
   const handleUpdateElement = (nextElement: PathElement) => {
@@ -221,7 +236,10 @@ export function Sidebar({
       );
     selectionStore
       .getState()
-      .selectElement(selectedElementIndex, projectStore.getState().project);
+      .selectElement(
+        selectedElementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
   };
 
   const handleUnlinkTarget = () => {
@@ -234,7 +252,10 @@ export function Sidebar({
       .unlinkPathElement(project.project_id, selectedElementIndex);
     selectionStore
       .getState()
-      .selectElement(selectedElementIndex, projectStore.getState().project);
+      .selectElement(
+        selectedElementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
   };
 
   const handleCreateLinkedTarget = (
@@ -272,7 +293,10 @@ export function Sidebar({
     });
     selectionStore
       .getState()
-      .selectElement(selectedElementIndex, projectStore.getState().project);
+      .selectElement(
+        selectedElementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
   };
 
   const handleSelectTab = (tab: "elements" | "constraints") => {

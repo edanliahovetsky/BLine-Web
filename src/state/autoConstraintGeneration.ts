@@ -11,7 +11,11 @@ import {
 } from "../platform/autoVelocityRunner";
 import type { ProjectDocument } from "../core/io/projectSchema";
 import { autoVelocityStore, type AutoVelocityStore } from "./autoVelocityStore";
-import { projectStore, type ProjectStore } from "./projectStore";
+import {
+  activePathDocumentForProjectStore,
+  projectStore,
+  type ProjectStore,
+} from "./projectStore";
 
 export interface ManualAutoConstraintGenerationOptions {
   projects?: ProjectStore;
@@ -30,7 +34,7 @@ export async function generateAutoConstraintsInWorker(
   const projects = options.projects ?? projectStore;
   const request = options.request ?? requestAutoRadiiAndCaps;
   const status = options.status ?? autoVelocityStore;
-  const initial = projects.getState().project;
+  const initial = activePathDocumentForProjectStore(projects.getState());
   if (!initial || status.getState().runSource === "manual") {
     return;
   }
@@ -45,7 +49,7 @@ export async function generateAutoConstraintsInWorker(
       return;
     }
 
-    const current = projects.getState().project;
+    const current = activePathDocumentForProjectStore(projects.getState());
     if (
       !current ||
       current.project_id !== initial.project_id ||

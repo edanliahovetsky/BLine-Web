@@ -14,6 +14,7 @@ import {
   supersededAutoVelocityProfile,
 } from "../../../src/platform/autoVelocityRunner";
 import { createProjectDocument } from "../../../src/core/io/projectSchema";
+import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   createPathModel,
@@ -23,7 +24,10 @@ import {
 } from "../../../src/core/model/path";
 import { generateAutoConstraintsInWorker } from "../../../src/state/autoConstraintGeneration";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
-import { createProjectStore } from "../../../src/state/projectStore";
+import {
+  activePathDocumentForProjectStore,
+  createProjectStore,
+} from "../../../src/state/projectStore";
 
 afterEach(() => resetAutoVelocityRunner());
 
@@ -60,13 +64,15 @@ describe("manual auto constraint generation", () => {
       },
     });
     expect(
-      projects
-        .getState()
-        .project?.path.ranged_constraints.some(
-          (constraint) => constraint.source === "auto_velocity",
-        ),
+      activePathDocumentForProjectStore(
+        projects.getState(),
+      )?.path.ranged_constraints.some(
+        (constraint) => constraint.source === "auto_velocity",
+      ),
     ).toBe(true);
-    const generatedPath = projects.getState().project?.path;
+    const generatedPath = activePathDocumentForProjectStore(
+      projects.getState(),
+    )?.path;
     expect(generatedPath).toBeDefined();
     expect(getHandoffRadiusSource(generatedPath!.path_elements[1])).toBe(
       "auto",
@@ -89,7 +95,9 @@ describe("manual auto constraint generation", () => {
     expect(projects.getState().history.getState().undoStack).toHaveLength(1);
 
     projects.getState().undo();
-    expect(projects.getState().project?.path).toEqual(project.path);
+    expect(
+      activePathDocumentForProjectStore(projects.getState())?.path,
+    ).toEqual(project.path);
   });
 
   it("discards a completed worker result when its path changed in flight", async () => {
@@ -133,7 +141,11 @@ describe("manual auto constraint generation", () => {
         ),
       },
     };
-    projects.setState({ project: moved });
+    projects.setState({
+      project: openProjectFromLegacyWorkspace(
+        projectDocumentToWorkspaceDocument(moved),
+      ).project,
+    });
     resolveRequest({
       radii: solved.radii,
       profile: solved.profile,
@@ -144,7 +156,9 @@ describe("manual auto constraint generation", () => {
     await pending;
 
     expect(request).toHaveBeenCalledOnce();
-    expect(projects.getState().project?.path).toEqual(moved.path);
+    expect(
+      activePathDocumentForProjectStore(projects.getState())?.path,
+    ).toEqual(moved.path);
     expect(projects.getState().history.getState().undoStack).toHaveLength(0);
     expect(status.getState().phase).toBe("idle");
   });
@@ -173,9 +187,13 @@ function testProject() {
 
 function projectStoreFor(project: ReturnType<typeof testProject>) {
   const projects = createProjectStore();
+  const opened = openProjectFromLegacyWorkspace(
+    projectDocumentToWorkspaceDocument(project),
+  );
   projects.setState({
-    project,
-    workspace: projectDocumentToWorkspaceDocument(project),
+    project: opened.project,
+    activePathId: opened.navigation.activePathId,
+    activePathGroupId: opened.navigation.activePathGroupId,
   });
   return projects;
 }

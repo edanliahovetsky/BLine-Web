@@ -36,6 +36,17 @@ export function legacyWorkspaceFromOpenProject(
   };
 }
 
+/** Temporary Slice 1–3 writer shell. Navigation is never repository data. */
+export function legacyWorkspaceForPersistence(
+  project: Project,
+): ProjectWorkspaceDocument {
+  return {
+    ...cloneProject(project),
+    active_path_id: null,
+    active_path_group_id: null,
+  };
+}
+
 export function normalizeEditorNavigation(
   project: Project,
   navigation: Partial<EditorNavigation> = {},

@@ -5,7 +5,10 @@ import {
 } from "../core/field/fieldConfig";
 import type { ProjectDocument } from "../core/io/projectSchema";
 import { isTranslationTarget, isWaypoint } from "../core/model/path";
-import { projectStore } from "../state/projectStore";
+import {
+  activePathDocumentForProjectStore,
+  projectStore,
+} from "../state/projectStore";
 import { selectionStore } from "../state/selectionStore";
 import {
   canMovePathElement,
@@ -52,7 +55,7 @@ export function isInteractiveShortcutTarget(
 }
 
 export function removeSelectedPathElement(): boolean {
-  const project = projectStore.getState().project;
+  const project = activePathDocumentForProjectStore(projectStore.getState());
   const selectedElementIndex = selectionStore.getState().selectedElementIndex;
 
   if (!project || selectedElementIndex === null) {
@@ -73,7 +76,7 @@ export function removeSelectedPathElement(): boolean {
     .getState()
     .selectElement(
       nextSelectionAfterRemoval(project, selectedElementIndex),
-      projectStore.getState().project,
+      activePathDocumentForProjectStore(projectStore.getState()),
     );
 
   return true;
@@ -83,7 +86,7 @@ export function nudgeSelectedPathElement(
   dxMeters: number,
   dyMeters: number,
 ): boolean {
-  const project = projectStore.getState().project;
+  const project = activePathDocumentForProjectStore(projectStore.getState());
   const selectedElementIndex = selectionStore.getState().selectedElementIndex;
 
   if (!project || selectedElementIndex === null) {
@@ -133,7 +136,7 @@ export function nudgeSelectedPathElement(
 }
 
 export function duplicateSelectedPathElement(): boolean {
-  const project = projectStore.getState().project;
+  const project = activePathDocumentForProjectStore(projectStore.getState());
   const selectedElementIndex = selectionStore.getState().selectedElementIndex;
 
   if (!project || selectedElementIndex === null) {
@@ -152,13 +155,16 @@ export function duplicateSelectedPathElement(): boolean {
     );
   selectionStore
     .getState()
-    .selectElement(selectedElementIndex + 1, projectStore.getState().project);
+    .selectElement(
+      selectedElementIndex + 1,
+      activePathDocumentForProjectStore(projectStore.getState()),
+    );
 
   return true;
 }
 
 export function moveSelectedPathElement(direction: -1 | 1): boolean {
-  const project = projectStore.getState().project;
+  const project = activePathDocumentForProjectStore(projectStore.getState());
   const selectedElementIndex = selectionStore.getState().selectedElementIndex;
 
   if (!project || selectedElementIndex === null) {
@@ -177,13 +183,16 @@ export function moveSelectedPathElement(direction: -1 | 1): boolean {
     );
   selectionStore
     .getState()
-    .selectElement(nextIndex, projectStore.getState().project);
+    .selectElement(
+      nextIndex,
+      activePathDocumentForProjectStore(projectStore.getState()),
+    );
 
   return true;
 }
 
 export function selectAdjacentPathElement(direction: -1 | 1): boolean {
-  const project = projectStore.getState().project;
+  const project = activePathDocumentForProjectStore(projectStore.getState());
   if (!project || project.path.path_elements.length === 0) {
     return false;
   }
@@ -208,7 +217,7 @@ export function selectAdjacentPathElement(direction: -1 | 1): boolean {
 }
 
 export function removeSelectedRangedConstraint(): boolean {
-  const project = projectStore.getState().project;
+  const project = activePathDocumentForProjectStore(projectStore.getState());
   const selectedRangedConstraint =
     selectionStore.getState().selectedRangedConstraint;
 

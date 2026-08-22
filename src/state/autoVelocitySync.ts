@@ -13,7 +13,11 @@ import {
 } from "../platform/autoVelocityRunner";
 import type { ProjectDocument } from "../core/io/projectSchema";
 import { autoVelocityStore, type AutoVelocityStore } from "./autoVelocityStore";
-import { projectStore, type ProjectStore } from "./projectStore";
+import {
+  activePathDocumentForProjectStore,
+  projectStore,
+  type ProjectStore,
+} from "./projectStore";
 
 /**
  * How long the path must sit still before the optimizer starts. Long enough
@@ -66,7 +70,7 @@ export function startAutoVelocitySync(
   };
 
   const run = (signature: string | null) => {
-    const project = projects.getState().project;
+    const project = activePathDocumentForProjectStore(projects.getState());
     if (!project) {
       settle();
       return;
@@ -93,7 +97,7 @@ export function startAutoVelocitySync(
 
         // The project may have moved on while the solver ran; the next
         // evaluate() will schedule a fresh pass for whatever it is now.
-        const current = projects.getState().project;
+        const current = activePathDocumentForProjectStore(projects.getState());
         if (!current || sameAutoVelocityInputs(current, signature)) {
           if (!request.hasGeneratedVelocityCaps) {
             lastAppliedUnstampedToken = unstampedRefreshToken(
@@ -138,7 +142,7 @@ export function startAutoVelocitySync(
       return;
     }
 
-    const project = projects.getState().project;
+    const project = activePathDocumentForProjectStore(projects.getState());
     const request = project
       ? autoVelocityRefreshRequest(project.path, project.config)
       : null;

@@ -55,7 +55,10 @@ import {
 } from "../../../core/model/path";
 import { autoVelocityStore } from "../../../state/autoVelocityStore";
 import { generateAutoConstraintsInWorker } from "../../../state/autoConstraintGeneration";
-import { projectStore } from "../../../state/projectStore";
+import {
+  activePathDocumentForProjectStore,
+  projectStore,
+} from "../../../state/projectStore";
 import { selectionStore } from "../../../state/selectionStore";
 import { useStoreSelector } from "../../../state/react";
 import {
@@ -398,7 +401,8 @@ export function ConstraintEditor({
 
   const setSelectedForKey = (key: RangedConstraintKey, index: number) => {
     setSelectedByKey((selected) => ({ ...selected, [key]: index }));
-    const latestProject = projectStore.getState().project ?? project;
+    const latestProject =
+      activePathDocumentForProjectStore(projectStore.getState()) ?? project;
     if (latestProject) {
       selectRangedConstraint(latestProject, key, index);
     }
@@ -789,7 +793,8 @@ function AutoConstraintLedgerCard({
       selectionStore.getState().clearSelection();
       return;
     }
-    const latestProject = projectStore.getState().project ?? project;
+    const latestProject =
+      activePathDocumentForProjectStore(projectStore.getState()) ?? project;
     selectionStore
       .getState()
       .selectElement(nextSelection.focusIndex, latestProject);
@@ -2874,7 +2879,9 @@ function addRangedConstraint(
       ),
     );
 
-  const nextProject = projectStore.getState().project;
+  const nextProject = activePathDocumentForProjectStore(
+    projectStore.getState(),
+  );
   if (!nextProject) {
     return null;
   }
@@ -2945,7 +2952,9 @@ function insertRangedConstraint(
     }),
   );
 
-  const nextProject = projectStore.getState().project;
+  const nextProject = activePathDocumentForProjectStore(
+    projectStore.getState(),
+  );
   return nextProject &&
     nextProject.path.ranged_constraints.length > previousLength
     ? nextProject.path.ranged_constraints.length - 1
@@ -3333,7 +3342,9 @@ function selectOrdinalAfterReplace(
     return;
   }
 
-  const nextProject = projectStore.getState().project;
+  const nextProject = activePathDocumentForProjectStore(
+    projectStore.getState(),
+  );
   if (!nextProject) {
     return;
   }

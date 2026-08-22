@@ -7,6 +7,14 @@ import type {
   ProjectDocument,
   ProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
+import {
+  legacyWorkspaceForPersistence,
+  legacyWorkspaceFromOpenProject,
+  normalizeEditorNavigation,
+  openProjectFromLegacyWorkspace,
+  type EditorNavigation,
+} from "../core/io/legacyWorkspace";
+import { cloneProject, type Project } from "../core/model/project";
 import type { PathModel } from "../core/model/path";
 import {
   addLinkedTargetToWorkspace,
@@ -55,40 +63,39 @@ interface WorkspaceHistoryMetadata {
   createdPathId?: string;
 }
 
-interface WorkspaceSnapshotHistoryCommand extends HistoryCommand<ProjectWorkspaceDocument> {
-  kind: "workspace-snapshot";
+interface ProjectSnapshotHistoryCommand extends HistoryCommand<Project> {
+  kind: "project-snapshot";
   createdPathId?: string;
-  previousSnapshot: ProjectWorkspaceDocument;
-  nextSnapshot: ProjectWorkspaceDocument;
+  previousSnapshot: Project;
+  nextSnapshot: Project;
+  previousNavigation: EditorNavigation;
+  nextNavigation: EditorNavigation;
 }
 
-interface WorkspacePathHistoryCommand extends HistoryCommand<ProjectWorkspaceDocument> {
+interface ProjectPathHistoryCommand extends HistoryCommand<Project> {
   kind: "path-command";
   pathId: string;
 }
 
 export interface ProjectStoreState {
-  workspace: ProjectWorkspaceDocument | null;
-  project: ProjectDocument | null;
+  project: Project | null;
+  activePathId: string | null;
+  activePathGroupId: string | null;
   io: ProjectIoService | null;
   version: string | undefined;
   dirty: boolean;
   status: ProjectStatus;
   error: string | null;
   lastSavedAt: string | null;
-  history: HistoryStore<ProjectWorkspaceDocument>;
+  history: HistoryStore<Project>;
   setProjectIoService(io: ProjectIoService | null): void;
-  initializeWorkspace(
-    fallback?: ProjectWorkspaceDocument,
-  ): Promise<ProjectWorkspaceDocument | null>;
-  createWorkspace(
-    workspace: ProjectWorkspaceDocument,
-  ): Promise<ProjectWorkspaceDocument>;
-  openWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null>;
-  deleteWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null>;
-  switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
+  initializeWorkspace(fallback?: Project): Promise<Project | null>;
+  createWorkspace(project: Project): Promise<Project>;
+  openWorkspace(id?: string): Promise<Project | null>;
+  deleteWorkspace(id?: string): Promise<Project | null>;
+  switchWorkspace(id: string): Promise<Project | null>;
   saveWorkspace(): Promise<WriteResult | null>;
-  reloadFromDisk(): Promise<ProjectWorkspaceDocument | null>;
+  reloadFromDisk(): Promise<Project | null>;
   overwriteConflict(): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
   setActivePathGroup(groupId: string | null): void;
@@ -131,15 +138,13 @@ export interface ProjectStoreState {
     targetId: string,
   ): void;
   unlinkPathElement(pathId: string, elementIndex: number): void;
-  importPath(file: File): Promise<ProjectWorkspaceDocument>;
+  importPath(file: File): Promise<Project>;
   exportPath(pathId?: string): Promise<Blob | null>;
-  importConfig(file: File): Promise<ProjectWorkspaceDocument>;
+  importConfig(file: File): Promise<Project>;
   exportConfig(): Promise<Blob | null>;
-  importProjectFolder(
-    files: readonly File[],
-  ): Promise<ProjectWorkspaceDocument>;
+  importProjectFolder(files: readonly File[]): Promise<Project>;
   exportProjectFolder(): Promise<ProjectFolderExport | null>;
-  importProjectArchive(file: File): Promise<ProjectWorkspaceDocument>;
+  importProjectArchive(file: File): Promise<Project>;
   exportProjectArchive(): Promise<Blob | null>;
   writeFieldImageAsset(input: {
     file: File;
@@ -165,11 +170,12 @@ export interface ProjectStoreState {
 export type ProjectStore = StoreApi<ProjectStoreState>;
 
 export function createProjectStore(
-  history = createHistoryStore<ProjectWorkspaceDocument>(),
+  history = createHistoryStore<Project>(),
 ): ProjectStore {
   return createStore<ProjectStoreState>((set, get) => ({
-    workspace: null,
     project: null,
+    activePathId: null,
+    activePathGroupId: null,
     io: null,
     version: undefined,
     dirty: false,
@@ -187,7 +193,9 @@ export function createProjectStore(
       try {
         let workspace = await io.initialize();
         if (!workspace && fallback) {
-          workspace = await io.createWorkspace({ workspace: fallback });
+          workspace = await io.createWorkspace({
+            workspace: legacyWorkspaceForPersistence(fallback),
+          });
         }
 
         if (!workspace) {
@@ -198,8 +206,7 @@ export function createProjectStore(
           return null;
         }
 
-        adoptWorkspace(set, history, io, workspace, false);
-        return workspace;
+        return adoptWorkspace(set, history, io, workspace, false);
       } catch (error) {
         set({
           status: "error",
@@ -208,14 +215,15 @@ export function createProjectStore(
         throw error;
       }
     },
-    async createWorkspace(workspace) {
+    async createWorkspace(project) {
       const io = requireProjectIo(get().io);
       set({ status: "loading", error: null });
 
       try {
-        const created = await io.createWorkspace({ workspace });
-        adoptWorkspace(set, history, io, created, false);
-        return created;
+        const created = await io.createWorkspace({
+          workspace: legacyWorkspaceForPersistence(project),
+        });
+        return adoptWorkspace(set, history, io, created, false);
       } catch (error) {
         set({
           status: "error",
@@ -231,11 +239,11 @@ export function createProjectStore(
       try {
         const workspace = await io.openWorkspace(id);
         if (workspace) {
-          adoptWorkspace(set, history, io, workspace, false);
+          return adoptWorkspace(set, history, io, workspace, false);
         } else {
           set({ status: "idle" });
         }
-        return workspace;
+        return null;
       } catch (error) {
         set({
           status: "error",
@@ -254,12 +262,13 @@ export function createProjectStore(
       try {
         const workspace = await io.deleteWorkspace(id);
         if (workspace) {
-          adoptWorkspace(set, history, io, workspace, false);
+          return adoptWorkspace(set, history, io, workspace, false);
         } else {
           history.getState().clear();
           set({
-            workspace: null,
             project: null,
+            activePathId: null,
+            activePathGroupId: null,
             version: undefined,
             dirty: false,
             status: "idle",
@@ -267,7 +276,7 @@ export function createProjectStore(
             lastSavedAt: null,
           });
         }
-        return workspace;
+        return null;
       } catch (error) {
         set({
           status: "error",
@@ -283,9 +292,9 @@ export function createProjectStore(
       try {
         const workspace = await io.switchWorkspace(id);
         if (workspace) {
-          adoptWorkspace(set, history, io, workspace, false);
+          return adoptWorkspace(set, history, io, workspace, false);
         }
-        return workspace;
+        return null;
       } catch (error) {
         set({
           status: "error",
@@ -295,8 +304,8 @@ export function createProjectStore(
       }
     },
     async saveWorkspace() {
-      const { workspace, io, version } = get();
-      if (!workspace) {
+      const { project, io, version } = get();
+      if (!project) {
         return null;
       }
 
@@ -304,7 +313,10 @@ export function createProjectStore(
       set({ status: "saving", error: null });
 
       try {
-        const result = await service.saveWorkspace(workspace, version);
+        const result = await service.saveWorkspace(
+          legacyWorkspaceForPersistence(project),
+          version,
+        );
         get().markSaved(result);
         return result;
       } catch (error) {
@@ -316,18 +328,18 @@ export function createProjectStore(
       // Conflict recovery: discard the in-memory edits and re-read the project from
       // disk, refreshing the version token so autosave resumes cleanly.
       const io = requireProjectIo(get().io);
-      const workspace = get().workspace;
-      if (!workspace) {
+      const project = get().project;
+      if (!project) {
         return null;
       }
       set({ status: "loading", error: null });
 
       try {
-        const reloaded = await io.switchWorkspace(workspace.project_id);
+        const reloaded = await io.switchWorkspace(project.project_id);
         if (reloaded) {
-          adoptWorkspace(set, history, io, reloaded, false);
+          return adoptWorkspace(set, history, io, reloaded, false);
         }
-        return reloaded;
+        return null;
       } catch (error) {
         set({ status: "error", error: errorMessage(error) });
         throw error;
@@ -336,15 +348,17 @@ export function createProjectStore(
     async overwriteConflict() {
       // Conflict recovery: force the in-memory workspace onto disk, bypassing the
       // version check, then adopt the fresh version returned by the write.
-      const { workspace, io } = get();
-      if (!workspace) {
+      const { project, io } = get();
+      if (!project) {
         return null;
       }
       const service = requireProjectIo(io);
       set({ status: "saving", error: null });
 
       try {
-        const result = await service.saveWorkspace(workspace);
+        const result = await service.saveWorkspace(
+          legacyWorkspaceForPersistence(project),
+        );
         get().markSaved(result);
         return result;
       } catch (error) {
@@ -353,20 +367,24 @@ export function createProjectStore(
       }
     },
     setActivePath(pathId) {
-      const workspace = requireWorkspace(get().workspace);
-      const nextWorkspace = ensureWorkspaceHasActivePath({
-        ...workspace,
-        active_path_id: pathId,
+      const project = requireProject(get().project);
+      const navigation = normalizeEditorNavigation(project, {
+        activePathId: pathId,
+        activePathGroupId: get().activePathGroupId,
       });
-      setWorkspace(set, nextWorkspace, get().dirty);
+      set({ activePathId: navigation.activePathId });
     },
     setActivePathGroup(groupId) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const nextWorkspace = setActivePathGroupInWorkspace(workspace, groupId);
-      setWorkspace(set, nextWorkspace, get().dirty);
+      const { navigation } = openProjectFromLegacyWorkspace(nextWorkspace);
+      set({
+        activePathId: navigation.activePathId,
+        activePathGroupId: navigation.activePathGroupId,
+      });
     },
     createPath(input) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const nextWorkspace = addPathToWorkspace(workspace, {
         display_name: input.displayName,
         file_name: input.fileName,
@@ -388,7 +406,7 @@ export function createProjectStore(
       );
     },
     renamePath(pathId, name) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       applyWorkspaceTransition(
         set,
         history,
@@ -398,7 +416,7 @@ export function createProjectStore(
       );
     },
     duplicatePath(pathId, name, options) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const duplicatedWorkspace = duplicatePathInWorkspace(
         workspace,
         pathId,
@@ -427,7 +445,7 @@ export function createProjectStore(
       );
     },
     createPathGroup(input) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const groupedWorkspace = createPathGroupInWorkspace(workspace, {
         display_name: input.displayName,
         path_ids: input.pathIds,
@@ -457,7 +475,7 @@ export function createProjectStore(
       );
     },
     renamePathGroup(groupId, name) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       applyWorkspaceTransition(
         set,
         history,
@@ -467,7 +485,7 @@ export function createProjectStore(
       );
     },
     deletePathGroup(groupId, options) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const nextWorkspace = deletePathGroupFromWorkspace(
         workspace,
         groupId,
@@ -482,7 +500,7 @@ export function createProjectStore(
       );
     },
     addPathsToGroup(groupId, pathIds) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const nextWorkspace = addPathsToGroupInWorkspace(
         workspace,
         groupId,
@@ -508,7 +526,7 @@ export function createProjectStore(
       );
     },
     removePathsFromGroup(groupId, pathIds) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       applyWorkspaceTransition(
         set,
         history,
@@ -518,7 +536,7 @@ export function createProjectStore(
       );
     },
     createLinkedTarget(input) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const targetId = input.target_id ?? createLinkedTargetId();
       applyWorkspaceTransition(
         set,
@@ -535,7 +553,7 @@ export function createProjectStore(
       return targetId;
     },
     updateLinkedTarget(targetId, update) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       applyWorkspaceTransition(
         set,
         history,
@@ -545,7 +563,7 @@ export function createProjectStore(
       );
     },
     deleteLinkedTarget(targetId) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       applyWorkspaceTransition(
         set,
         history,
@@ -555,7 +573,7 @@ export function createProjectStore(
       );
     },
     linkPathElementToTarget(pathId, elementIndex, targetId) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       applyWorkspaceTransition(
         set,
         history,
@@ -570,7 +588,7 @@ export function createProjectStore(
       );
     },
     unlinkPathElement(pathId, elementIndex) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       applyWorkspaceTransition(
         set,
         history,
@@ -580,7 +598,7 @@ export function createProjectStore(
       );
     },
     deletePaths(pathIds) {
-      const workspace = requireWorkspace(get().workspace);
+      const workspace = sessionWorkspace(get());
       const nextWorkspace = deletePathsFromWorkspace(workspace, pathIds);
       applyWorkspaceTransition(
         set,
@@ -592,7 +610,7 @@ export function createProjectStore(
     },
     async importPath(file) {
       const io = requireProjectIo(get().io);
-      const previousWorkspace = requireWorkspace(get().workspace);
+      const previousWorkspace = sessionWorkspace(get());
       if (get().dirty) {
         await get().saveWorkspace();
       }
@@ -615,18 +633,18 @@ export function createProjectStore(
           ),
         },
       );
-      return workspace;
+      return requireProject(get().project);
     },
     async exportPath(pathId) {
-      const workspace = get().workspace;
+      const project = get().project;
       const io = requireProjectIo(get().io);
-      if (!workspace) {
+      if (!project) {
         return null;
       }
       if (get().dirty) {
         await get().saveWorkspace();
       }
-      return io.exportPath(pathId ?? workspace.active_path_id ?? "");
+      return io.exportPath(pathId ?? get().activePathId ?? "");
     },
     async importConfig(file) {
       const io = requireProjectIo(get().io);
@@ -634,12 +652,11 @@ export function createProjectStore(
         await get().saveWorkspace();
       }
       const workspace = await io.importConfig(file);
-      adoptWorkspace(set, history, io, workspace, false);
-      return workspace;
+      return adoptWorkspace(set, history, io, workspace, false);
     },
     async exportConfig() {
       const io = requireProjectIo(get().io);
-      if (!get().workspace) {
+      if (!get().project) {
         return null;
       }
       if (get().dirty) {
@@ -653,12 +670,11 @@ export function createProjectStore(
         await get().saveWorkspace();
       }
       const workspace = await io.importProjectFolder(files);
-      adoptWorkspace(set, history, io, workspace, false);
-      return workspace;
+      return adoptWorkspace(set, history, io, workspace, false);
     },
     async exportProjectFolder() {
       const io = requireProjectIo(get().io);
-      if (!get().workspace) {
+      if (!get().project) {
         return null;
       }
       if (get().dirty) {
@@ -672,12 +688,11 @@ export function createProjectStore(
         await get().saveWorkspace();
       }
       const workspace = await io.importProjectArchive(file);
-      adoptWorkspace(set, history, io, workspace, false);
-      return workspace;
+      return adoptWorkspace(set, history, io, workspace, false);
     },
     async exportProjectArchive() {
       const io = requireProjectIo(get().io);
-      if (!get().workspace) {
+      if (!get().project) {
         return null;
       }
       if (get().dirty) {
@@ -698,55 +713,62 @@ export function createProjectStore(
       await io.deleteFieldImageAsset(field);
     },
     applyCommand(command) {
-      const workspace = requireWorkspace(get().workspace);
-      const pathId = requireActivePathId(workspace);
-      const nextWorkspace = history
+      const project = requireProject(get().project);
+      const pathId = requireActivePathId(get());
+      const nextProject = history
         .getState()
-        .execute(
-          cloneWorkspace(workspace),
-          workspaceCommand(command, pathId),
-        );
+        .execute(cloneProject(project), projectPathCommand(command, pathId));
 
-      setWorkspace(set, nextWorkspace, true);
+      setProject(set, nextProject, currentNavigation(get()), true);
     },
     applyDerivedCommand(command) {
-      const workspace = get().workspace;
-      if (!workspace) {
+      const project = get().project;
+      if (!project) {
         return;
       }
 
-      const pathId = workspace.active_path_id;
+      const pathId = get().activePathId;
       if (!pathId) {
         return;
       }
-      const nextWorkspace = workspaceCommand(command, pathId).apply(
-        cloneWorkspace(workspace),
+      const nextProject = projectPathCommand(command, pathId).apply(
+        cloneProject(project),
       );
 
-      setWorkspace(set, nextWorkspace, true);
+      setProject(set, nextProject, currentNavigation(get()), true);
     },
     undo() {
-      const workspace = get().workspace;
-      if (!workspace) {
+      const project = get().project;
+      if (!project) {
         return;
       }
 
-      const transition = history.getState().undo(cloneWorkspace(workspace));
+      const transition = history.getState().undo(cloneProject(project));
 
       if (transition.command) {
-        setWorkspace(set, transition.value, true);
+        setProject(
+          set,
+          transition.value,
+          navigationForHistory(transition.command, "undo", get()),
+          true,
+        );
       }
     },
     redo() {
-      const workspace = get().workspace;
-      if (!workspace) {
+      const project = get().project;
+      if (!project) {
         return;
       }
 
-      const transition = history.getState().redo(cloneWorkspace(workspace));
+      const transition = history.getState().redo(cloneProject(project));
 
       if (transition.command) {
-        setWorkspace(set, transition.value, true);
+        setProject(
+          set,
+          transition.value,
+          navigationForHistory(transition.command, "redo", get()),
+          true,
+        );
       }
     },
     markSaved(result) {
@@ -767,8 +789,9 @@ export function createProjectStore(
     reset() {
       history.getState().clear();
       set({
-        workspace: null,
         project: null,
+        activePathId: null,
+        activePathGroupId: null,
         version: undefined,
         dirty: false,
         status: "idle",
@@ -781,16 +804,37 @@ export function createProjectStore(
 
 export const projectStore = createProjectStore();
 
-function setWorkspace(
+export function activePathDocumentForProjectStore(
+  state: Pick<
+    ProjectStoreState,
+    "project" | "activePathId" | "activePathGroupId"
+  >,
+): ProjectDocument | null {
+  return state.project
+    ? activeProjectFromWorkspace(
+        legacyWorkspaceFromOpenProject(state.project, currentNavigation(state)),
+      )
+    : null;
+}
+
+export function legacyWorkspaceForProjectStore(
+  state: ProjectStoreState,
+): ProjectWorkspaceDocument | null {
+  return state.project ? sessionWorkspace(state) : null;
+}
+
+function setProject(
   set: StoreApi<ProjectStoreState>["setState"],
-  workspace: ProjectWorkspaceDocument,
+  project: Project,
+  navigation: EditorNavigation,
   dirty: boolean,
   metadata: Partial<Pick<ProjectStoreState, "lastSavedAt" | "version">> = {},
 ): void {
-  const normalized = ensureWorkspaceHasActivePath(workspace);
+  const normalized = normalizeEditorNavigation(project, navigation);
   set({
-    workspace: cloneWorkspace(normalized),
-    project: activeProjectFromWorkspace(normalized),
+    project: cloneProject(project),
+    activePathId: normalized.activePathId,
+    activePathGroupId: normalized.activePathGroupId,
     dirty,
     status: "idle",
     error: null,
@@ -800,7 +844,7 @@ function setWorkspace(
 
 function applyWorkspaceTransition(
   set: StoreApi<ProjectStoreState>["setState"],
-  history: HistoryStore<ProjectWorkspaceDocument>,
+  history: HistoryStore<Project>,
   previousWorkspace: ProjectWorkspaceDocument,
   nextWorkspace: ProjectWorkspaceDocument,
   description: string,
@@ -808,51 +852,59 @@ function applyWorkspaceTransition(
   metadata: Partial<Pick<ProjectStoreState, "lastSavedAt" | "version">> = {},
   historyMetadata: WorkspaceHistoryMetadata = {},
 ): void {
-  const command = workspaceSnapshotCommand(
+  const previous = openProjectFromLegacyWorkspace(previousWorkspace);
+  const next = openProjectFromLegacyWorkspace(nextWorkspace);
+  const command = projectSnapshotCommand(
     description,
-    previousWorkspace,
-    nextWorkspace,
+    previous.project,
+    next.project,
+    previous.navigation,
+    next.navigation,
     historyMetadata,
   );
-  const appliedWorkspace = history
+  const appliedProject = history
     .getState()
-    .execute(cloneWorkspace(previousWorkspace), command);
+    .execute(cloneProject(previous.project), command);
 
-  setWorkspace(set, appliedWorkspace, dirty, metadata);
+  setProject(set, appliedProject, next.navigation, dirty, metadata);
 }
 
-function workspaceSnapshotCommand(
+function projectSnapshotCommand(
   description: string,
-  previousWorkspace: ProjectWorkspaceDocument,
-  nextWorkspace: ProjectWorkspaceDocument,
+  previousProject: Project,
+  nextProject: Project,
+  previousNavigation: EditorNavigation,
+  nextNavigation: EditorNavigation,
   metadata: WorkspaceHistoryMetadata = {},
-): WorkspaceSnapshotHistoryCommand {
-  const previousSnapshot = cloneWorkspace(previousWorkspace);
-  const nextSnapshot = cloneWorkspace(nextWorkspace);
+): ProjectSnapshotHistoryCommand {
+  const previousSnapshot = cloneProject(previousProject);
+  const nextSnapshot = cloneProject(nextProject);
 
   return {
-    kind: "workspace-snapshot",
+    kind: "project-snapshot",
     description,
     createdPathId: metadata.createdPathId,
     previousSnapshot,
     nextSnapshot,
-    apply: () => cloneWorkspace(nextSnapshot),
-    revert: () => cloneWorkspace(previousSnapshot),
+    previousNavigation: structuredClone(previousNavigation),
+    nextNavigation: structuredClone(nextNavigation),
+    apply: () => cloneProject(nextSnapshot),
+    revert: () => cloneProject(previousSnapshot),
   };
 }
 
-function isWorkspaceSnapshotCommand(
-  command: HistoryCommand<ProjectWorkspaceDocument> | undefined,
-): command is WorkspaceSnapshotHistoryCommand {
+function isProjectSnapshotCommand(
+  command: HistoryCommand<Project> | undefined,
+): command is ProjectSnapshotHistoryCommand {
   return (
     Boolean(command) &&
-    (command as WorkspaceSnapshotHistoryCommand).kind === "workspace-snapshot"
+    (command as ProjectSnapshotHistoryCommand).kind === "project-snapshot"
   );
 }
 
 function mergeCreatedPathMembershipTransition(
   set: StoreApi<ProjectStoreState>["setState"],
-  history: HistoryStore<ProjectWorkspaceDocument>,
+  history: HistoryStore<Project>,
   nextWorkspace: ProjectWorkspaceDocument,
   pathIds: readonly string[],
 ): boolean {
@@ -863,16 +915,19 @@ function mergeCreatedPathMembershipTransition(
   const state = history.getState();
   const previousCommand = state.undoStack.at(-1);
   if (
-    !isWorkspaceSnapshotCommand(previousCommand) ||
+    !isProjectSnapshotCommand(previousCommand) ||
     previousCommand.createdPathId !== pathIds[0]
   ) {
     return false;
   }
 
-  const mergedCommand = workspaceSnapshotCommand(
+  const next = openProjectFromLegacyWorkspace(nextWorkspace);
+  const mergedCommand = projectSnapshotCommand(
     previousCommand.description,
     previousCommand.previousSnapshot,
-    nextWorkspace,
+    next.project,
+    previousCommand.previousNavigation,
+    next.navigation,
     { createdPathId: previousCommand.createdPathId },
   );
   const undoStack = [...state.undoStack.slice(0, -1), mergedCommand];
@@ -883,7 +938,7 @@ function mergeCreatedPathMembershipTransition(
     canUndo: undoStack.length > 0,
     canRedo: false,
   });
-  setWorkspace(set, nextWorkspace, true);
+  setProject(set, next.project, next.navigation, true);
   return true;
 }
 
@@ -903,59 +958,95 @@ function createdPathIdFromTransition(
 
 function adoptWorkspace(
   set: StoreApi<ProjectStoreState>["setState"],
-  history: HistoryStore<ProjectWorkspaceDocument>,
+  history: HistoryStore<Project>,
   io: ProjectIoService,
   workspace: ProjectWorkspaceDocument,
   dirty: boolean,
-): void {
+): Project {
   history.getState().clear();
-  const normalized = ensureWorkspaceHasActivePath(workspace);
-  set({
-    workspace: cloneWorkspace(normalized),
-    project: activeProjectFromWorkspace(normalized),
+  const opened = openProjectFromLegacyWorkspace(workspace);
+  setProject(set, opened.project, opened.navigation, dirty, {
     version: io.getCurrentVersion(),
-    dirty,
-    status: "idle",
-    error: null,
     lastSavedAt: io.getLastSavedAt(),
   });
+  return cloneProject(opened.project);
 }
 
-function workspaceCommand(
+function projectPathCommand(
   command: HistoryCommand<ProjectDocument>,
   pathId: string,
-): WorkspacePathHistoryCommand {
+): ProjectPathHistoryCommand {
   return {
     kind: "path-command",
     pathId,
     description: command.description,
-    apply: (workspace) => {
-      const focusedWorkspace = { ...workspace, active_path_id: pathId };
-      const project = activeProjectFromWorkspace(focusedWorkspace);
-      if (!project) {
-        return workspace;
+    apply: (project) => {
+      const focusedWorkspace = legacyWorkspaceFromOpenProject(project, {
+        activePathId: pathId,
+        activePathGroupId: null,
+      });
+      const activeDocument = activeProjectFromWorkspace(focusedWorkspace);
+      if (!activeDocument) {
+        return openProjectFromLegacyWorkspace(focusedWorkspace).project;
       }
-      return replaceActiveProjectInWorkspace(
-        focusedWorkspace,
-        command.apply(project),
-      );
+      return openProjectFromLegacyWorkspace(
+        replaceActiveProjectInWorkspace(
+          focusedWorkspace,
+          command.apply(activeDocument),
+        ),
+      ).project;
     },
-    revert: (workspace) => {
-      const focusedWorkspace = { ...workspace, active_path_id: pathId };
-      const project = activeProjectFromWorkspace(focusedWorkspace);
-      if (!project) {
-        return workspace;
+    revert: (project) => {
+      const focusedWorkspace = legacyWorkspaceFromOpenProject(project, {
+        activePathId: pathId,
+        activePathGroupId: null,
+      });
+      const activeDocument = activeProjectFromWorkspace(focusedWorkspace);
+      if (!activeDocument) {
+        return openProjectFromLegacyWorkspace(focusedWorkspace).project;
       }
-      return replaceActiveProjectInWorkspace(
-        focusedWorkspace,
-        command.revert(project),
-      );
+      return openProjectFromLegacyWorkspace(
+        replaceActiveProjectInWorkspace(
+          focusedWorkspace,
+          command.revert(activeDocument),
+        ),
+      ).project;
     },
   };
 }
 
-function requireActivePathId(workspace: ProjectWorkspaceDocument): string {
-  const pathId = workspace.active_path_id;
+function navigationForHistory(
+  command: HistoryCommand<Project>,
+  direction: "undo" | "redo",
+  state: ProjectStoreState,
+): EditorNavigation {
+  if (isProjectSnapshotCommand(command)) {
+    return direction === "undo"
+      ? command.previousNavigation
+      : command.nextNavigation;
+  }
+  if ((command as Partial<ProjectPathHistoryCommand>).kind === "path-command") {
+    return {
+      activePathId: (command as ProjectPathHistoryCommand).pathId,
+      activePathGroupId: state.activePathGroupId,
+    };
+  }
+  return currentNavigation(state);
+}
+
+function currentNavigation(
+  state: Pick<ProjectStoreState, "activePathId" | "activePathGroupId">,
+): EditorNavigation {
+  return {
+    activePathId: state.activePathId,
+    activePathGroupId: state.activePathGroupId,
+  };
+}
+
+function requireActivePathId(
+  state: Pick<ProjectStoreState, "activePathId">,
+): string {
+  const pathId = state.activePathId;
   if (!pathId) {
     throw new Error("No active path");
   }
@@ -969,19 +1060,18 @@ function requireProjectIo(io: ProjectIoService | null): ProjectIoService {
   return io;
 }
 
-function requireWorkspace(
-  workspace: ProjectWorkspaceDocument | null,
-): ProjectWorkspaceDocument {
-  if (!workspace) {
-    throw new Error("No active project workspace");
+function requireProject(project: Project | null): Project {
+  if (!project) {
+    throw new Error("No active Project");
   }
-  return workspace;
+  return project;
 }
 
-function cloneWorkspace(
-  workspace: ProjectWorkspaceDocument,
-): ProjectWorkspaceDocument {
-  return structuredClone(workspace);
+function sessionWorkspace(state: ProjectStoreState): ProjectWorkspaceDocument {
+  return legacyWorkspaceFromOpenProject(
+    requireProject(state.project),
+    currentNavigation(state),
+  );
 }
 
 function errorMessage(error: unknown): string {

@@ -8,6 +8,7 @@ import {
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { projectDocumentToWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
+import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import {
   createPathModel,
   createTranslationTarget,
@@ -18,6 +19,7 @@ import {
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import { startAutoVelocitySync } from "../../../src/state/autoVelocitySync";
 import {
+  activePathDocumentForProjectStore,
   createProjectStore,
   type ProjectStore,
 } from "../../../src/state/projectStore";
@@ -88,7 +90,7 @@ describe("auto velocity sync", () => {
     expect(secondAnchorRadius(store)).toBeLessThan(radiusBefore ?? 0);
     expect(
       getHandoffRadiusSource(
-        store.getState().project?.path.path_elements[1] as PathElement,
+        activeDocument(store)?.path.path_elements[1] as PathElement,
       ),
     ).toBe("auto");
     expect(generatedValues(store)).not.toEqual(staleValuesBeforeMove);
@@ -109,7 +111,7 @@ describe("auto velocity sync", () => {
     expect(secondAnchorRadius(store)).toBeLessThan(radiusBefore ?? 0);
     expect(
       getHandoffRadiusSource(
-        store.getState().project?.path.path_elements[1] as PathElement,
+        activeDocument(store)?.path.path_elements[1] as PathElement,
       ),
     ).toBe("auto");
     expect(generatedValues(store)).toEqual([]);
@@ -142,7 +144,7 @@ describe("auto velocity sync", () => {
     expect(secondAnchorRadius(store)).toBeNull();
     expect(
       getHandoffRadiusSource(
-        store.getState().project?.path.path_elements[1] as PathElement,
+        activeDocument(store)?.path.path_elements[1] as PathElement,
       ),
     ).toBeNull();
     stop();
@@ -170,7 +172,7 @@ describe("auto velocity sync", () => {
     moveSecondAnchor(store, 3.9);
     await waitForIdle(status);
 
-    expect(store.getState().project?.path.ranged_constraints).toEqual([]);
+    expect(activeDocument(store)?.path.ranged_constraints).toEqual([]);
     expect(status.getState().phase).toBe("idle");
     stop();
   });
@@ -271,35 +273,44 @@ function withSecondAnchorX(
 }
 
 function secondAnchorRadius(store: ProjectStore): number | null {
-  const element = store.getState().project?.path.path_elements[1];
+  const element = activeDocument(store)?.path.path_elements[1];
   return element && isTranslationTarget(element)
     ? element.intermediate_handoff_radius_meters
     : null;
 }
 
 function generatedValues(store: ProjectStore): number[] {
-  return (store.getState().project?.path.ranged_constraints ?? [])
+  return (activeDocument(store)?.path.ranged_constraints ?? [])
     .filter((constraint) => constraint.source === "auto_velocity")
     .map((constraint) => constraint.value);
 }
 
 /** The same refresh the sync performs, applied inline for comparison. */
 function refreshedStore(store: ProjectStore): ProjectStore {
-  const project = store.getState().project;
+  const project = activeDocument(store);
   if (!project) {
     throw new Error("Expected an active project");
   }
 
   const refreshed = createProjectStore();
-  refreshed.setState({
-    project: {
+  const opened = openProjectFromLegacyWorkspace(
+    projectDocumentToWorkspaceDocument({
       ...project,
       path: refreshAutoVelocityConstraints(project.path, project.config, {
         whenPresentOnly: true,
       }),
-    },
+    }),
+  );
+  refreshed.setState({
+    project: opened.project,
+    activePathId: opened.navigation.activePathId,
+    activePathGroupId: opened.navigation.activePathGroupId,
   });
   return refreshed;
+}
+
+function activeDocument(store: ProjectStore): ProjectDocument | null {
+  return activePathDocumentForProjectStore(store.getState());
 }
 
 async function initializedStore(

@@ -32,12 +32,18 @@ import type {
   LinkedTargetKind,
   ProjectDocument,
 } from "../core/io/projectSchema";
+import { legacyWorkspaceFromOpenProject } from "../core/io/legacyWorkspace";
+import { activeProjectFromWorkspace } from "../core/io/workspaceSerde";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
 import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
 import { simulatePathWithTrace, type SimResult } from "../core/sim";
 import type { SimTraceResult } from "../core/sim/types";
-import { projectStore } from "../state/projectStore";
+import {
+  activePathDocumentForProjectStore,
+  legacyWorkspaceForProjectStore,
+  projectStore,
+} from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
 import {
@@ -209,8 +215,32 @@ export function PathStage({
   const [dragPreview, setDragPreview] =
     useState<PositionOverrides>(emptyPreview);
   const [selectedPulse, setSelectedPulse] = useState(0);
-  const project = useStoreSelector(projectStore, (state) => state.project);
-  const workspace = useStoreSelector(projectStore, (state) => state.workspace);
+  const durableProject = useStoreSelector(
+    projectStore,
+    (state) => state.project,
+  );
+  const activePathId = useStoreSelector(
+    projectStore,
+    (state) => state.activePathId,
+  );
+  const activePathGroupId = useStoreSelector(
+    projectStore,
+    (state) => state.activePathGroupId,
+  );
+  const workspace = useMemo(
+    () =>
+      durableProject
+        ? legacyWorkspaceFromOpenProject(durableProject, {
+            activePathId,
+            activePathGroupId,
+          })
+        : null,
+    [activePathGroupId, activePathId, durableProject],
+  );
+  const project = useMemo(
+    () => activeProjectFromWorkspace(workspace),
+    [workspace],
+  );
   const selectedElementIndex = useStoreSelector(
     selectionStore,
     (state) => state.selectedElementIndex,
@@ -1173,18 +1203,21 @@ export function PathStage({
           );
         selectionStore
           .getState()
-          .selectElement(drag.index, projectStore.getState().project);
+          .selectElement(
+            drag.index,
+            activePathDocumentForProjectStore(projectStore.getState()),
+          );
       }
       return;
     }
 
     if (!pointsAlmostEqual(drag.start, nextPosition)) {
       if (drag.linkedTargetId) {
-        const target = projectStore
-          .getState()
-          .workspace?.linked_targets.find(
-            (candidate) => candidate.target_id === drag.linkedTargetId,
-          );
+        const target = legacyWorkspaceForProjectStore(
+          projectStore.getState(),
+        )?.linked_targets.find(
+          (candidate) => candidate.target_id === drag.linkedTargetId,
+        );
         if (target && !target.locked) {
           projectStore.getState().updateLinkedTarget(drag.linkedTargetId, {
             x_meters: nextPosition.x_meters,
@@ -1192,7 +1225,10 @@ export function PathStage({
           });
           selectionStore
             .getState()
-            .selectElement(drag.index, projectStore.getState().project);
+            .selectElement(
+              drag.index,
+              activePathDocumentForProjectStore(projectStore.getState()),
+            );
         }
         return;
       }
@@ -1203,7 +1239,10 @@ export function PathStage({
         );
       selectionStore
         .getState()
-        .selectElement(drag.index, projectStore.getState().project);
+        .selectElement(
+          drag.index,
+          activePathDocumentForProjectStore(projectStore.getState()),
+        );
     }
   };
 
@@ -1223,11 +1262,11 @@ export function PathStage({
       Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001
     ) {
       if (rotationDrag.linkedTargetId) {
-        const target = projectStore
-          .getState()
-          .workspace?.linked_targets.find(
-            (candidate) => candidate.target_id === rotationDrag.linkedTargetId,
-          );
+        const target = legacyWorkspaceForProjectStore(
+          projectStore.getState(),
+        )?.linked_targets.find(
+          (candidate) => candidate.target_id === rotationDrag.linkedTargetId,
+        );
         if (target && !target.locked) {
           projectStore
             .getState()
@@ -1236,7 +1275,10 @@ export function PathStage({
             });
           selectionStore
             .getState()
-            .selectElement(rotationDrag.index, projectStore.getState().project);
+            .selectElement(
+              rotationDrag.index,
+              activePathDocumentForProjectStore(projectStore.getState()),
+            );
         }
         return;
       }
@@ -1251,7 +1293,10 @@ export function PathStage({
         );
       selectionStore
         .getState()
-        .selectElement(rotationDrag.index, projectStore.getState().project);
+        .selectElement(
+          rotationDrag.index,
+          activePathDocumentForProjectStore(projectStore.getState()),
+        );
       return;
     }
 
@@ -1364,7 +1409,10 @@ export function PathStage({
     });
     selectionStore
       .getState()
-      .selectElement(elementIndex, projectStore.getState().project);
+      .selectElement(
+        elementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
     setContextMenu(null);
   };
 
@@ -1382,7 +1430,10 @@ export function PathStage({
       );
     selectionStore
       .getState()
-      .selectElement(contextMenu.elementIndex, projectStore.getState().project);
+      .selectElement(
+        contextMenu.elementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
     setContextMenu(null);
   };
 
@@ -1396,7 +1447,10 @@ export function PathStage({
       .unlinkPathElement(project.project_id, contextMenu.elementIndex);
     selectionStore
       .getState()
-      .selectElement(contextMenu.elementIndex, projectStore.getState().project);
+      .selectElement(
+        contextMenu.elementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
     setContextMenu(null);
   };
 
@@ -1954,7 +2008,7 @@ function CanvasContextMenu({
 }
 
 function curveTargetPointsForSamples(
-  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  project: ProjectDocument,
   insertionIndex: number,
   samples: readonly PointMeters[],
 ): PointMeters[] {
@@ -1967,7 +2021,7 @@ function curveTargetPointsForSamples(
 }
 
 function curveTargetsForSamples(
-  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  project: ProjectDocument,
   insertionIndex: number,
   samples: readonly PointMeters[],
 ): TranslationTarget[] {
@@ -2042,7 +2096,7 @@ function modelPointDistance(first: PointMeters, second: PointMeters): number {
 }
 
 function hitTestRotationHandle(
-  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  project: ProjectDocument,
   selectedElementIndex: number | null,
   viewport: FieldViewport,
   positionPreview: PositionOverrides,
@@ -2081,7 +2135,7 @@ function hitTestRotationHandle(
 }
 
 function hitTestPathElement(
-  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  project: ProjectDocument,
   viewport: FieldViewport,
   positionPreview: PositionOverrides,
   pointer: StagePoint,
@@ -2203,7 +2257,7 @@ function hitTestElementShape(
 }
 
 function projectDragStagePoint(
-  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  project: ProjectDocument,
   viewport: FieldViewport,
   index: number,
   stagePoint: StagePoint,
@@ -2272,7 +2326,7 @@ function isCanvasChromeEventTarget(target: EventTarget): boolean {
 }
 
 function rotationFromStagePoint(
-  project: NonNullable<ReturnType<typeof projectStore.getState>["project"]>,
+  project: ProjectDocument,
   index: number,
   viewport: FieldViewport,
   point: StagePoint,

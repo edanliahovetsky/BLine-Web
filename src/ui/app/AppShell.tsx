@@ -37,6 +37,11 @@ import type {
   ProjectWorkspaceDocument,
 } from "../../core/io/projectSchema";
 import {
+  legacyWorkspaceFromOpenProject,
+  openProjectFromLegacyWorkspace,
+} from "../../core/io/legacyWorkspace";
+import { activeProjectFromWorkspace } from "../../core/io/workspaceSerde";
+import {
   diffWorkspaceConflict,
   type WorkspaceConflictDiff,
 } from "../../core/io/workspaceConflictDiff";
@@ -78,7 +83,11 @@ import { autoVelocityStore } from "../../state/autoVelocityStore";
 import { generateAutoConstraintsInWorker } from "../../state/autoConstraintGeneration";
 import { startAutoVelocitySync } from "../../state/autoVelocitySync";
 import { autoVelocitySettingsForPath } from "../../core/constraints/autoVelocityApply";
-import { projectStore } from "../../state/projectStore";
+import {
+  activePathDocumentForProjectStore,
+  legacyWorkspaceForProjectStore,
+  projectStore,
+} from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
 import {
@@ -180,8 +189,32 @@ type LibraryNameAction =
     };
 
 export function AppShell() {
-  const workspace = useStoreSelector(projectStore, (state) => state.workspace);
-  const project = useStoreSelector(projectStore, (state) => state.project);
+  const durableProject = useStoreSelector(
+    projectStore,
+    (state) => state.project,
+  );
+  const activePathId = useStoreSelector(
+    projectStore,
+    (state) => state.activePathId,
+  );
+  const activePathGroupId = useStoreSelector(
+    projectStore,
+    (state) => state.activePathGroupId,
+  );
+  const workspace = useMemo(
+    () =>
+      durableProject
+        ? legacyWorkspaceFromOpenProject(durableProject, {
+            activePathId,
+            activePathGroupId,
+          })
+        : null,
+    [activePathGroupId, activePathId, durableProject],
+  );
+  const project = useMemo(
+    () => activeProjectFromWorkspace(workspace),
+    [workspace],
+  );
   const projectIo = useStoreSelector(projectStore, (state) => state.io);
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
   const status = useStoreSelector(projectStore, (state) => state.status);
@@ -330,7 +363,9 @@ export function AppShell() {
 
   const handleCommitCurveTool = useCallback(
     (insertionIndex: number, targets: readonly TranslationTarget[]) => {
-      const activeProject = projectStore.getState().project;
+      const activeProject = activePathDocumentForProjectStore(
+        projectStore.getState(),
+      );
       if (!activeProject || targets.length === 0) {
         setCurveToolSession(null);
         return;
@@ -343,7 +378,10 @@ export function AppShell() {
       );
       selectionStore
         .getState()
-        .selectElement(insertionIndex, projectStore.getState().project);
+        .selectElement(
+          insertionIndex,
+          activePathDocumentForProjectStore(projectStore.getState()),
+        );
       setCurveToolSession(null);
       setActiveTool("select");
     },
@@ -447,7 +485,7 @@ export function AppShell() {
   }, [projectIo]);
 
   useEffect(() => {
-    if (!workspace || !dirty) {
+    if (!durableProject || !dirty) {
       return;
     }
 
@@ -457,7 +495,7 @@ export function AppShell() {
     }
 
     autosaveRef.current?.schedule();
-  }, [canvasInteractionActive, dirty, workspace]);
+  }, [canvasInteractionActive, dirty, durableProject]);
 
   useEffect(() => {
     if (lastSavedAt && projectIo) {
@@ -549,7 +587,11 @@ export function AppShell() {
       try {
         await projectStore
           .getState()
-          .createWorkspace(createNamedCanvasWorkspace(projectName, pathName));
+          .createWorkspace(
+            openProjectFromLegacyWorkspace(
+              createNamedCanvasWorkspace(projectName, pathName),
+            ).project,
+          );
         selectionStore.getState().clearSelection();
         setShowNewProjectDialog(false);
         setShowOpenPanel(false);
@@ -567,7 +609,9 @@ export function AppShell() {
     try {
       await projectStore
         .getState()
-        .createWorkspace(createSampleCanvasWorkspace());
+        .createWorkspace(
+          openProjectFromLegacyWorkspace(createSampleCanvasWorkspace()).project,
+        );
       selectionStore.getState().clearSelection();
       setShowOpenPanel(false);
       await refreshWorkspaceSummaries();
@@ -582,7 +626,7 @@ export function AppShell() {
   const startGuidedTour = useCallback((tourId: string) => {
     const tourDefinition = findTour(tourId);
     const state = projectStore.getState();
-    const currentWorkspace = state.workspace;
+    const currentWorkspace = legacyWorkspaceForProjectStore(state);
     if (!tourDefinition || !currentWorkspace) {
       return;
     }
@@ -609,7 +653,7 @@ export function AppShell() {
     // Lessons teach on the neutral blank grid; the user's field comes back
     // as soon as the tour ends.
     const latestState = projectStore.getState();
-    const activeProject = latestState.project;
+    const activeProject = activePathDocumentForProjectStore(latestState);
     if (
       activeProject &&
       activeProject.config.gui.field.selected_field_id !== "blank-grid"
@@ -641,7 +685,7 @@ export function AppShell() {
     if (returnFieldId) {
       tourReturnFieldRef.current = null;
       const state = projectStore.getState();
-      const activeProject = state.project;
+      const activeProject = activePathDocumentForProjectStore(state);
       if (
         activeProject &&
         activeProject.config.gui.field.selected_field_id !== returnFieldId
@@ -660,7 +704,9 @@ export function AppShell() {
     }
 
     tourReturnPathRef.current = null;
-    const currentWorkspace = projectStore.getState().workspace;
+    const currentWorkspace = legacyWorkspaceForProjectStore(
+      projectStore.getState(),
+    );
     if (currentWorkspace?.paths.some((path) => path.path_id === returnPathId)) {
       projectStore.getState().setActivePath(returnPathId);
     }
@@ -670,7 +716,9 @@ export function AppShell() {
     (tool: EditorTool) => {
       setActiveTool(tool);
       if (tool === "curve") {
-        const activeProject = projectStore.getState().project;
+        const activeProject = activePathDocumentForProjectStore(
+          projectStore.getState(),
+        );
         if (activeProject) {
           handleStartCurveTool(activeProject.path.path_elements.length);
         }
@@ -707,7 +755,9 @@ export function AppShell() {
 
   const handlePlaceCanvasElement = useCallback(
     (placement: CanvasElementPlacement) => {
-      const activeProject = projectStore.getState().project;
+      const activeProject = activePathDocumentForProjectStore(
+        projectStore.getState(),
+      );
       if (!activeProject) {
         return;
       }
@@ -740,7 +790,7 @@ export function AppShell() {
         .getState()
         .selectElement(
           placement.insertionIndex,
-          projectStore.getState().project,
+          activePathDocumentForProjectStore(projectStore.getState()),
         );
     },
     [],
@@ -766,7 +816,7 @@ export function AppShell() {
       setConflictDiff(null);
       setConflictDiffLoading(true);
       try {
-        const mine = projectStore.getState().workspace;
+        const mine = legacyWorkspaceForProjectStore(projectStore.getState());
         const theirs = await projectIo.peekWorkspace();
         if (cancelled || !mine) {
           return;
@@ -865,7 +915,9 @@ export function AppShell() {
       addToCurrentGroup: boolean;
       displayName: string;
     }) => {
-      const workspaceSnapshot = projectStore.getState().workspace;
+      const workspaceSnapshot = legacyWorkspaceForProjectStore(
+        projectStore.getState(),
+      );
       const activeGroupId =
         newPathGroupContextId !== undefined
           ? newPathGroupContextId
@@ -1008,7 +1060,10 @@ export function AppShell() {
       }
 
       const toolShortcut = toolForShortcut(event.key);
-      if (toolShortcut && projectStore.getState().project) {
+      if (
+        toolShortcut &&
+        activePathDocumentForProjectStore(projectStore.getState())
+      ) {
         event.preventDefault();
         handleToolChange(toolShortcut);
         return;
@@ -1192,7 +1247,8 @@ export function AppShell() {
 
       try {
         const currentProjectId =
-          projectStore.getState().workspace?.project_id ?? null;
+          legacyWorkspaceForProjectStore(projectStore.getState())?.project_id ??
+          null;
         const orderedIds = [
           ...ids.filter((id) => id !== currentProjectId),
           ...ids.filter((id) => id === currentProjectId),
@@ -1236,7 +1292,9 @@ export function AppShell() {
       return;
     }
 
-    const activeWorkspace = projectStore.getState().workspace;
+    const activeWorkspace = legacyWorkspaceForProjectStore(
+      projectStore.getState(),
+    );
     if (!activeWorkspace) {
       endToolbarAction("export");
       return;
@@ -1281,7 +1339,9 @@ export function AppShell() {
       return;
     }
 
-    const activeWorkspace = projectStore.getState().workspace;
+    const activeWorkspace = legacyWorkspaceForProjectStore(
+      projectStore.getState(),
+    );
     const activePath = activePathDocument(activeWorkspace);
     if (!activePath) {
       endToolbarAction("export");
@@ -1371,7 +1431,9 @@ export function AppShell() {
   }, [beginToolbarAction, endToolbarAction]);
 
   const handleSavePathAs = useCallback(() => {
-    const activeWorkspace = projectStore.getState().workspace;
+    const activeWorkspace = legacyWorkspaceForProjectStore(
+      projectStore.getState(),
+    );
     const activePath = activePathDocument(activeWorkspace);
     if (!activePath) {
       return;
@@ -1387,7 +1449,9 @@ export function AppShell() {
   }, []);
 
   const handleRenamePath = useCallback(() => {
-    const activeWorkspace = projectStore.getState().workspace;
+    const activeWorkspace = legacyWorkspaceForProjectStore(
+      projectStore.getState(),
+    );
     const activePath = activePathDocument(activeWorkspace);
     if (!activePath) {
       return;
@@ -1520,7 +1584,9 @@ export function AppShell() {
       nextConfig: NonNullable<typeof project>["config"],
       options: { autoSyncEnabled: boolean; configChanged: boolean },
     ) => {
-      const activeProject = projectStore.getState().project;
+      const activeProject = activePathDocumentForProjectStore(
+        projectStore.getState(),
+      );
       if (!activeProject) {
         return;
       }
@@ -2555,7 +2621,7 @@ export function AppShell() {
               .getState()
               .selectElement(
                 preparation.selectElement,
-                projectStore.getState().project,
+                activePathDocumentForProjectStore(projectStore.getState()),
               );
           }
         }}
@@ -3469,7 +3535,8 @@ function PathLibraryDialog({
     });
 
     const createdGroupId =
-      projectStore.getState().workspace?.active_path_group_id ?? null;
+      legacyWorkspaceForProjectStore(projectStore.getState())
+        ?.active_path_group_id ?? null;
     selectionStore.getState().clearSelection();
     setSelectedGroupId(createdGroupId);
     setSelectedPathId(pathId);
@@ -3552,7 +3619,8 @@ function PathLibraryDialog({
           addToGroupId: nameAction.addToGroupId,
         });
         const nextPathId =
-          projectStore.getState().workspace?.active_path_id ?? null;
+          legacyWorkspaceForProjectStore(projectStore.getState())
+            ?.active_path_id ?? null;
         selectionStore.getState().clearSelection();
         setSelectedPathId(nextPathId);
       } else {
@@ -4056,7 +4124,10 @@ function LinkedTargetsDialog({
       );
     selectionStore
       .getState()
-      .selectElement(linkRequest.elementIndex, projectStore.getState().project);
+      .selectElement(
+        linkRequest.elementIndex,
+        activePathDocumentForProjectStore(projectStore.getState()),
+      );
     onCancel();
   };
 

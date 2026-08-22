@@ -1,4 +1,5 @@
-import type { ProjectWorkspaceDocument } from "../core/io/projectSchema";
+import { legacyWorkspaceForPersistence } from "../core/io/legacyWorkspace";
+import type { Project } from "../core/model/project";
 import type { ProjectIoService } from "../platform/projectIo";
 import type { WriteResult } from "../storage/adapter";
 import type { ProjectStore } from "./projectStore";
@@ -6,7 +7,7 @@ import type { ProjectStore } from "./projectStore";
 export type AutosaveStatus = "idle" | "pending" | "saving" | "error";
 
 export interface AutosaveSnapshot {
-  workspace: ProjectWorkspaceDocument | null;
+  project: Project | null;
   expectedVersion?: string;
   dirty?: boolean;
 }
@@ -80,7 +81,7 @@ export function createAutosaveCoordinator<
       }
 
       const snapshot = options.getSnapshot();
-      if (!snapshot.workspace || snapshot.dirty === false) {
+      if (!snapshot.project || snapshot.dirty === false) {
         setStatus("idle");
         return null;
       }
@@ -89,7 +90,7 @@ export function createAutosaveCoordinator<
 
       try {
         const result = await options.io.saveWorkspace(
-          snapshot.workspace,
+          legacyWorkspaceForPersistence(snapshot.project),
           snapshot.expectedVersion,
         );
         setStatus("idle");
@@ -126,7 +127,7 @@ export function createProjectAutosaveCoordinator(
     getSnapshot: () => {
       const state = projectStore.getState();
       return {
-        workspace: state.workspace,
+        project: state.project,
         expectedVersion: state.version,
         dirty: state.dirty,
       };

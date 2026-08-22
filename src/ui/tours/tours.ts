@@ -6,7 +6,10 @@ import {
   createWaypoint,
   type PathModel,
 } from "../../core/model/path";
-import { projectStore } from "../../state/projectStore";
+import {
+  activePathDocumentForProjectStore,
+  projectStore,
+} from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import type { TourDefinition } from "./tourStore";
 
@@ -84,12 +87,14 @@ let elementCountAtStepStart = 0;
 
 export function captureElementCount(): void {
   elementCountAtStepStart =
-    projectStore.getState().project?.path.path_elements.length ?? 0;
+    activePathDocumentForProjectStore(projectStore.getState())?.path
+      .path_elements.length ?? 0;
 }
 
 function elementWasAdded(): boolean {
   const current =
-    projectStore.getState().project?.path.path_elements.length ?? 0;
+    activePathDocumentForProjectStore(projectStore.getState())?.path
+      .path_elements.length ?? 0;
   return current > elementCountAtStepStart;
 }
 
@@ -114,7 +119,7 @@ function velocityPlanGenerated(): boolean {
 }
 
 function intermediateElementSelected(): boolean {
-  const project = projectStore.getState().project;
+  const project = activePathDocumentForProjectStore(projectStore.getState());
   const index = selectionStore.getState().selectedElementIndex;
   if (!project || index === null) {
     return false;
