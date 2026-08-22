@@ -15,6 +15,7 @@ import {
   StorageConflictError,
   createStorageAdapter,
   createStoredProjectRecord,
+  createStoredWorkspaceRecord,
   type StorageLike,
   TauriStorage,
 } from "../../../src/storage";
@@ -50,8 +51,16 @@ describe("BrowserStorage", () => {
     });
     const storedRecord = JSON.parse(
       memory.getItem("bline-web:workspace:workspace-a") ?? "null",
-    ) as { document: { active_path_id: string | null } };
-    expect(storedRecord.document.active_path_id).toBeNull();
+    ) as { files: Array<{ relativePath: string; text: string }> };
+    expect(storedRecord.files.map((file) => file.relativePath)).toEqual([
+      "config.json",
+      "project.json",
+      "paths/One.json",
+    ]);
+    expect(
+      storedRecord.files.find((file) => file.relativePath === "project.json")
+        ?.text,
+    ).not.toContain("active_path");
     expect(memory.getItem("bline-web:editor-user-data:v1")).toBeNull();
 
     await storage.deleteWorkspace("workspace-a", write.version);
@@ -157,6 +166,39 @@ describe("BrowserStorage", () => {
       file_name: "legacy.json",
     });
     expect(memory.getItem("bline-web:project:legacy-project")).toBeNull();
+  });
+
+  it("migrates legacy workspace records to the canonical Project file set", async () => {
+    const memory = new MemoryStorage();
+    const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
+    memory.setItem(
+      "bline-web:workspace:workspace-a",
+      JSON.stringify(
+        createStoredWorkspaceRecord(
+          workspace,
+          "legacy-version",
+          "2026-04-23T15:38:00.000Z",
+        ),
+      ),
+    );
+    const storage = new BrowserStorage({ storage: memory });
+
+    await storage.initialize();
+    const restored = await storage.readWorkspace("workspace-a");
+    const migrated = JSON.parse(
+      memory.getItem("bline-web:workspace:workspace-a") ?? "null",
+    ) as Record<string, unknown>;
+
+    expect(restored).toMatchObject({
+      project_id: "workspace-a",
+      paths: [{ path_id: "path-1" }],
+    });
+    expect(migrated).toHaveProperty("files");
+    expect(migrated).not.toHaveProperty("document");
+    expect(migrated).toMatchObject({
+      version: "legacy-version",
+      updatedAt: "2026-04-23T15:38:00.000Z",
+    });
   });
 });
 

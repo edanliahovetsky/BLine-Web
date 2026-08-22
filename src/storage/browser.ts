@@ -1,15 +1,20 @@
 import { deserializeProjectDocument } from "../core/io/projectSerde";
 import type { ProjectWorkspaceDocument } from "../core/io/projectSchema";
-import { projectDocumentToWorkspaceDocument } from "../core/io/workspaceSerde";
+import {
+  deserializeProjectWorkspaceDocument,
+  projectDocumentToWorkspaceDocument,
+} from "../core/io/workspaceSerde";
+import {
+  deserializeProjectFiles,
+  serializeProjectFiles,
+  type ProjectTextFile,
+} from "../core/io/projectFiles";
 import {
   ProjectNotFoundError,
   StorageConflictError,
   compareWorkspaceSummaries,
   createBLineWorkspaceArchive,
-  createStoredWorkspaceRecord,
   importWorkspaceArchive,
-  workspaceFromRecord,
-  workspaceSummaryFromRecord,
   type FieldAssetPayload,
   type FieldAssetWriteInput,
   type CurrentWorkspaceAdapter,
@@ -65,26 +70,29 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   async initialize(): Promise<void> {
     this.migrateLegacyProjects();
+    this.migrateLegacyWorkspaces();
   }
 
   async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
     this.migrateLegacyProjects();
+    this.migrateLegacyWorkspaces();
     return this.listRecords()
-      .map(workspaceSummaryFromRecord)
+      .map(projectFilesSummaryFromRecord)
       .sort(compareWorkspaceSummaries);
   }
 
   async readWorkspace(id?: string): Promise<ProjectWorkspaceDocument> {
     this.migrateLegacyProjects();
+    this.migrateLegacyWorkspaces();
     const workspaceId =
       id ??
       (await this.getCurrentWorkspaceId()) ??
-      this.listRecords()[0]?.document.project_id;
+      this.listRecords()[0]?.filesProjectId;
     if (!workspaceId) {
       throw new ProjectNotFoundError("workspace");
     }
 
-    return workspaceFromRecord(this.requireRecord(workspaceId));
+    return workspaceFromProjectFilesRecord(this.requireRecord(workspaceId));
   }
 
   async writeWorkspace(
@@ -92,19 +100,16 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     expectedVersion?: string,
   ): Promise<WriteResult> {
     this.migrateLegacyProjects();
+    this.migrateLegacyWorkspaces();
     const existing = this.readRecord(workspace.project_id);
     assertExpectedVersion(existing, expectedVersion);
     const updatedAt = this.now().toISOString();
     const version = createBrowserVersion(updatedAt);
-    const record = createStoredWorkspaceRecord(
-      {
-        ...workspace,
-        active_path_id: null,
-        active_path_group_id: null,
-      },
+    const record: StoredProjectFilesRecord = {
+      files: serializeProjectFiles(workspace),
       version,
       updatedAt,
-    );
+    };
 
     this.storage.setItem(
       this.storageKey(workspace.project_id),
@@ -117,12 +122,13 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   async deleteWorkspace(id: string, expectedVersion?: string): Promise<void> {
     this.migrateLegacyProjects();
+    this.migrateLegacyWorkspaces();
     const existing = this.readRecord(id);
     assertExpectedVersion(existing, expectedVersion);
     this.storage.removeItem(this.storageKey(id));
 
     if ((await this.getCurrentWorkspaceId()) === id) {
-      const nextId = this.listRecords()[0]?.document.project_id ?? null;
+      const nextId = this.listRecords()[0]?.filesProjectId ?? null;
       await this.setCurrentWorkspaceId(nextId);
     }
   }
@@ -207,8 +213,8 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     }
   }
 
-  private listRecords(): StoredWorkspaceRecord[] {
-    const records: StoredWorkspaceRecord[] = [];
+  private listRecords(): ParsedProjectFilesRecord[] {
+    const records: ParsedProjectFilesRecord[] = [];
 
     for (const key of this.storageKeys()) {
       if (!key.startsWith(this.keyPrefix)) {
@@ -224,7 +230,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     return records;
   }
 
-  private requireRecord(id: string): StoredWorkspaceRecord {
+  private requireRecord(id: string): ParsedProjectFilesRecord {
     const record = this.readRecord(id);
     if (!record) {
       throw new ProjectNotFoundError(id);
@@ -232,18 +238,24 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     return record;
   }
 
-  private readRecord(id: string): StoredWorkspaceRecord | null {
+  private readRecord(id: string): ParsedProjectFilesRecord | null {
     return this.parseRecord(this.storage.getItem(this.storageKey(id)));
   }
 
-  private parseRecord(value: string | null): StoredWorkspaceRecord | null {
+  private parseRecord(value: string | null): ParsedProjectFilesRecord | null {
     if (value === null) {
       return null;
     }
 
     try {
       const parsed = JSON.parse(value) as unknown;
-      return isStoredWorkspaceRecord(parsed) ? parsed : null;
+      if (!isStoredProjectFilesRecord(parsed)) {
+        return null;
+      }
+      return {
+        ...parsed,
+        filesProjectId: deserializeProjectFiles(parsed.files).project_id,
+      };
     } catch {
       return null;
     }
@@ -269,17 +281,44 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       if (!this.storage.getItem(workspaceKey)) {
         this.storage.setItem(
           workspaceKey,
-          JSON.stringify(
-            createStoredWorkspaceRecord(
-              workspace,
-              legacyRecord.version,
-              legacyRecord.updatedAt,
-            ),
-          ),
+          JSON.stringify({
+            files: serializeProjectFiles(workspace),
+            version: legacyRecord.version,
+            updatedAt: legacyRecord.updatedAt,
+          } satisfies StoredProjectFilesRecord),
         );
       }
 
       this.storage.removeItem(key);
+    }
+  }
+
+  private migrateLegacyWorkspaces(): void {
+    for (const key of this.storageKeys()) {
+      if (!key.startsWith(this.keyPrefix)) {
+        continue;
+      }
+      const value = this.storage.getItem(key);
+      if (value === null) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (!isStoredWorkspaceRecord(parsed)) {
+          continue;
+        }
+        const project = deserializeProjectWorkspaceDocument(parsed.document);
+        this.storage.setItem(
+          key,
+          JSON.stringify({
+            files: serializeProjectFiles(project),
+            version: parsed.version,
+            updatedAt: parsed.updatedAt,
+          } satisfies StoredProjectFilesRecord),
+        );
+      } catch {
+        // Preserve malformed records verbatim for explicit recovery.
+      }
     }
   }
 
@@ -341,8 +380,18 @@ interface BrowserFieldAssetRecord {
   updatedAt: string;
 }
 
+interface StoredProjectFilesRecord {
+  files: ProjectTextFile[];
+  version: string;
+  updatedAt: string;
+}
+
+interface ParsedProjectFilesRecord extends StoredProjectFilesRecord {
+  filesProjectId: string;
+}
+
 function assertExpectedVersion(
-  existing: StoredWorkspaceRecord | null,
+  existing: StoredProjectFilesRecord | null,
   expectedVersion?: string,
 ): void {
   if (expectedVersion === undefined) {
@@ -356,6 +405,29 @@ function assertExpectedVersion(
       existing?.version,
     );
   }
+}
+
+function projectFilesSummaryFromRecord(
+  record: ParsedProjectFilesRecord,
+): ProjectWorkspaceSummary {
+  const project = deserializeProjectFiles(record.files);
+  return {
+    id: project.project_id,
+    displayName: project.display_name,
+    updatedAt: record.updatedAt,
+    version: record.version,
+  };
+}
+
+function workspaceFromProjectFilesRecord(
+  record: StoredProjectFilesRecord,
+): ProjectWorkspaceDocument {
+  const project = deserializeProjectFiles(record.files);
+  return {
+    ...project,
+    active_path_id: null,
+    active_path_group_id: null,
+  };
 }
 
 function createBrowserVersion(updatedAt: string): string {
@@ -416,6 +488,28 @@ function isStoredWorkspaceRecord(
     typeof candidate.document === "object" &&
     candidate.document !== null &&
     Array.isArray(candidate.document.paths)
+  );
+}
+
+function isStoredProjectFilesRecord(
+  input: unknown,
+): input is StoredProjectFilesRecord {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return false;
+  }
+
+  const candidate = input as Partial<StoredProjectFilesRecord>;
+  return (
+    typeof candidate.version === "string" &&
+    typeof candidate.updatedAt === "string" &&
+    Array.isArray(candidate.files) &&
+    candidate.files.every(
+      (file) =>
+        typeof file === "object" &&
+        file !== null &&
+        typeof file.relativePath === "string" &&
+        typeof file.text === "string",
+    )
   );
 }
 
