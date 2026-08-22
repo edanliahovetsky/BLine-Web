@@ -22,6 +22,7 @@ import {
 import { CloseButton, IconButton } from "../controls";
 import { DeletePathGroupDialog, NameEntryDialog } from "./ProjectDialogs";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
+import "./LibraryDialog.css";
 import "./ProjectLibraryDialogs.css";
 
 type LibraryNameAction =
@@ -281,7 +282,7 @@ export function PathLibraryDialog({
     <div className="project-navigator-backdrop" role="presentation">
       <section
         ref={dialogRef}
-        className="path-library-dialog project-navigator"
+        className="library-dialog path-library-dialog project-navigator"
         role="dialog"
         aria-modal="true"
         aria-label="Project Navigator"
@@ -304,8 +305,8 @@ export function PathLibraryDialog({
           <CloseButton ariaLabel="Close project navigator" onClick={onCancel} />
         </header>
 
-        <div className="path-library-dialog__utility-bar">
-          <div className="path-library-dialog__selection-summary">
+        <div className="library-dialog__utility-bar path-library-dialog__utility-bar">
+          <div className="library-dialog__selection-summary path-library-dialog__selection-summary">
             <strong>{selectedGroup?.display_name ?? "All Paths"}</strong>
             <span>
               {selectedCollectionPaths.length}{" "}
@@ -326,7 +327,7 @@ export function PathLibraryDialog({
           <div className="path-library-dialog__utility-actions">
             <button
               type="button"
-              className="path-library-dialog__utility-button"
+              className="library-dialog__utility-button path-library-dialog__utility-button"
               onClick={onImportPath}
             >
               <UploadIcon size={17} />
@@ -334,7 +335,7 @@ export function PathLibraryDialog({
             </button>
             <button
               type="button"
-              className="path-library-dialog__utility-button"
+              className="library-dialog__utility-button path-library-dialog__utility-button"
               disabled={!selectedPath}
               onClick={handleExportSelectedPath}
             >
@@ -346,10 +347,10 @@ export function PathLibraryDialog({
 
         <div className="path-library-dialog__body">
           <aside
-            className="path-library-dialog__groups"
+            className="library-dialog__column path-library-dialog__groups"
             aria-label="Collections"
           >
-            <div className="path-library-dialog__column-header path-library-dialog__column-header--action">
+            <div className="library-dialog__column-header path-library-dialog__column-header path-library-dialog__column-header--action">
               <strong>Collections</strong>
               <div className="path-library-dialog__header-actions">
                 <PathLibraryHeaderButton
@@ -380,7 +381,7 @@ export function PathLibraryDialog({
               </div>
             </div>
             <div
-              className="path-library-dialog__group-list"
+              className="library-dialog__item-list path-library-dialog__group-list"
               role="listbox"
               aria-label="Collection list"
             >
@@ -388,6 +389,7 @@ export function PathLibraryDialog({
                 type="button"
                 className={[
                   "path-library-dialog__group",
+                  "library-dialog__item",
                   "is-permanent",
                   !selectedGroup ? "is-selected" : "",
                 ]
@@ -408,8 +410,8 @@ export function PathLibraryDialog({
                   type="button"
                   className={
                     selectedGroup?.group_id === group.group_id
-                      ? "path-library-dialog__group is-selected"
-                      : "path-library-dialog__group"
+                      ? "library-dialog__item path-library-dialog__group is-selected"
+                      : "library-dialog__item path-library-dialog__group"
                   }
                   role="option"
                   aria-selected={selectedGroup?.group_id === group.group_id}
@@ -427,10 +429,10 @@ export function PathLibraryDialog({
           </aside>
 
           <section
-            className="path-library-dialog__paths"
+            className="library-dialog__column path-library-dialog__paths"
             aria-label="Paths in selected collection"
           >
-            <div className="path-library-dialog__column-header path-library-dialog__column-header--action">
+            <div className="library-dialog__column-header path-library-dialog__column-header path-library-dialog__column-header--action">
               <strong>Paths</strong>
               <div className="path-library-dialog__header-actions">
                 <PathLibraryHeaderButton
@@ -475,7 +477,7 @@ export function PathLibraryDialog({
               </div>
             </div>
             <div
-              className="path-library-dialog__path-list"
+              className="library-dialog__item-list path-library-dialog__path-list"
               role="listbox"
               aria-label="Path list"
             >
@@ -487,6 +489,7 @@ export function PathLibraryDialog({
                     role="option"
                     className={[
                       "path-library-dialog__path",
+                      "library-dialog__item",
                       path.path_id === effectiveSelectedPathId
                         ? "is-selected"
                         : "",
@@ -506,7 +509,7 @@ export function PathLibraryDialog({
                   </button>
                 ))
               ) : (
-                <div className="path-library-dialog__empty">
+                <div className="library-dialog__empty path-library-dialog__empty">
                   No paths are in this collection yet.
                 </div>
               )}
@@ -514,16 +517,16 @@ export function PathLibraryDialog({
           </section>
 
           <section
-            className="path-library-dialog__details"
+            className="library-dialog__column path-library-dialog__details"
             aria-label="Collection membership"
           >
-            <div className="path-library-dialog__column-header">
+            <div className="library-dialog__column-header path-library-dialog__column-header">
               <strong>Membership</strong>
               <span>
                 {selectedPath ? selectedPath.display_name : "No path"}
               </span>
             </div>
-            <div className="path-library-dialog__details-scroll">
+            <div className="library-dialog__details-scroll path-library-dialog__details-scroll">
               {selectedPath ? (
                 <section className="path-library-dialog__membership">
                   <div className="path-library-dialog__subhead">
@@ -567,7 +570,7 @@ export function PathLibraryDialog({
                   </div>
                 </section>
               ) : (
-                <div className="path-library-dialog__empty">
+                <div className="library-dialog__empty path-library-dialog__empty">
                   Select a path to manage collection membership.
                 </div>
               )}
@@ -575,7 +578,7 @@ export function PathLibraryDialog({
           </section>
         </div>
 
-        <footer className="config-dialog__footer path-library-dialog__footer">
+        <footer className="config-dialog__footer library-dialog__footer path-library-dialog__footer">
           <button type="button" onClick={onCancel}>
             Close
           </button>

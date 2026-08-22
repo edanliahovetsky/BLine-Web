@@ -7,16 +7,14 @@ import {
   pointDistance,
   simulationProgress,
 } from "./support/app-shell-canvas";
+import { runEditMenuAction } from "./support/app-shell-commands";
+import { openConstraintsTab } from "./support/app-shell-constraints";
 import {
+  createNewProject,
   installWorkspaceWriteSpy,
   resetWorkspaceWriteSpy,
   workspaceWriteCount,
 } from "./support/app-shell-persistence";
-import {
-  createNewProject,
-  openConstraintsTab,
-  runEditMenuAction,
-} from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test.describe("Pixi canvas rendering", () => {

@@ -31,6 +31,7 @@ import {
   isLegacyProjectMetadataAdapter,
   isCurrentWorkspaceAdapter,
   isProjectFolderAdapter,
+  rollbackReversiblePreparation,
   StorageConflictError,
   type ProjectReadSnapshot,
   type ProjectWorkspaceSummary,
@@ -710,7 +711,7 @@ export class StorageProjectIoService implements ProjectIoService {
       snapshot.summary.version === expectedVersion &&
       projectsMatch(snapshot.project, previousProject)
     ) {
-      await rollbackPreparedImport(projectError, rollback);
+      await rollbackReversiblePreparation(projectError, rollback);
     }
     throw new ProjectImportOutcomeUncertainError(projectError);
   }
@@ -863,24 +864,6 @@ async function prepareImportedFields(
     );
   }
   return rollback;
-}
-
-async function rollbackPreparedImport(
-  projectError: unknown,
-  rollback: ProjectImportRollback | undefined,
-): Promise<never> {
-  if (!rollback) {
-    throw projectError;
-  }
-  try {
-    await rollback.rollback();
-  } catch (rollbackError) {
-    throw new AggregateError(
-      [projectError, rollbackError],
-      "Project import failed and its prepared User Data could not be rolled back",
-    );
-  }
-  throw projectError;
 }
 
 function projectImportCollision(

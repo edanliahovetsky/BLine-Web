@@ -15,22 +15,24 @@ import { serializeProjectDocument } from "../../../src/core/io/projectSerde";
 import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   BrowserStorage,
-  type BrowserProjectMutationLock,
   ProjectPersistenceDamageError,
   StorageConflictError,
   type LegacyProjectMigrationPreparation,
-  type StorageLike,
   TauriStorage,
 } from "../../../src/storage";
+import {
+  MemoryStorage,
+  ObservedSerialProjectMutationLock,
+} from "../support/browserStorageFakes";
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(
   globalThis,
   "navigator",
 );
-let defaultBrowserMutationLock: SerialProjectMutationLock;
+let defaultBrowserMutationLock: ObservedSerialProjectMutationLock;
 
 beforeAll(() => {
-  defaultBrowserMutationLock = new SerialProjectMutationLock();
+  defaultBrowserMutationLock = new ObservedSerialProjectMutationLock();
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: { locks: defaultBrowserMutationLock },
@@ -123,7 +125,7 @@ describe("BrowserStorage", () => {
 
   it("serializes two browser writers that start from the same version", async () => {
     const memory = new MemoryStorage();
-    const lock = new SerialProjectMutationLock();
+    const lock = new ObservedSerialProjectMutationLock();
     const first = new BrowserStorage({
       storage: memory,
       projectMutationLock: lock,
@@ -160,7 +162,7 @@ describe("BrowserStorage", () => {
 
   it("holds new-Project ownership across preparation and collision checking", async () => {
     const memory = new MemoryStorage();
-    const lock = new SerialProjectMutationLock();
+    const lock = new ObservedSerialProjectMutationLock();
     const first = new BrowserStorage({
       storage: memory,
       projectMutationLock: lock,
@@ -208,7 +210,7 @@ describe("BrowserStorage", () => {
 
   it("does not let a queued delete erase a concurrent newer browser save", async () => {
     const memory = new MemoryStorage();
-    const lock = new SerialProjectMutationLock();
+    const lock = new ObservedSerialProjectMutationLock();
     const saver = new BrowserStorage({
       storage: memory,
       projectMutationLock: lock,
@@ -1653,54 +1655,4 @@ function requirePreparedMigration(
     throw new Error("Expected migration preparation to succeed");
   }
   return result;
-}
-
-class MemoryStorage implements StorageLike {
-  private readonly values = new Map<string, string>();
-
-  get length(): number {
-    return this.values.size;
-  }
-
-  key(index: number): string | null {
-    return [...this.values.keys()][index] ?? null;
-  }
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, value);
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-}
-
-class SerialProjectMutationLock implements BrowserProjectMutationLock {
-  private tail: Promise<void> = Promise.resolve();
-  private concurrentOwners = 0;
-  maximumConcurrentOwners = 0;
-
-  request<T>(_name: string, callback: () => Promise<T> | T): Promise<T> {
-    const run = this.tail.then(async () => {
-      this.concurrentOwners += 1;
-      this.maximumConcurrentOwners = Math.max(
-        this.maximumConcurrentOwners,
-        this.concurrentOwners,
-      );
-      try {
-        return await callback();
-      } finally {
-        this.concurrentOwners -= 1;
-      }
-    });
-    this.tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
 }

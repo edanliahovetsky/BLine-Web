@@ -1,20 +1,22 @@
 import { expect, test } from "@playwright/test";
 import {
+  expectGlobalShortcutsBlockedByDialog,
+  runEditMenuAction,
+} from "./support/app-shell-commands";
+import { openConstraintsTab } from "./support/app-shell-constraints";
+import {
   bumpStoredWorkspaceVersion,
+  createNewProject,
+  currentPathName,
   makeDirtyEdit,
+  openProjectMenu,
+  openProjectPanelFromTopMenu,
   waitForSavedProject,
 } from "./support/app-shell-persistence";
 import {
   createNewPathFromTopMenu,
-  createNewProject,
-  currentPathName,
-  expectGlobalShortcutsBlockedByDialog,
-  openConstraintsTab,
   openPathManageMenu,
   openPathMenu,
-  openProjectMenu,
-  openProjectPanelFromTopMenu,
-  runEditMenuAction,
 } from "./support/app-shell-project-library";
 import {
   dismissMobileSupportWarning,

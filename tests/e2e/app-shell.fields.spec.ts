@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { canvasNodePosition } from "./support/app-shell-canvas";
+import { runEditMenuAction } from "./support/app-shell-commands";
 import {
   activeFieldImageLoaded,
   activeFieldLabel,
@@ -12,10 +13,7 @@ import {
   savedFile,
   savedFileCount,
 } from "./support/app-shell-persistence";
-import {
-  openPathMenu,
-  runEditMenuAction,
-} from "./support/app-shell-project-library";
+import { openPathMenu } from "./support/app-shell-project-library";
 import { gotoSampleEditor } from "./support/app-shell-shared";
 
 test("edits project config with undo support", async ({ page }) => {

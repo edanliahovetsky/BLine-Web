@@ -1,103 +1,7 @@
-.path-library-dialog {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(1160px, calc(100vw - 48px));
-  height: min(700px, calc(100vh - 48px));
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid #3f4a55;
-  border-radius: 8px;
-  color: #eef3f7;
-  background: rgba(24, 30, 35, 0.98);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.58);
-}
-
-.path-library-dialog__utility-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 8px 12px;
-  border-bottom: 1px solid #333d47;
-  background: #151b20;
-}
-
-.path-library-dialog__selection-summary {
-  display: grid;
-  align-content: center;
-  gap: 2px;
-  min-width: 0;
-}
-
-.path-library-dialog__selection-summary strong,
-.path-library-dialog__selection-summary span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.path-library-dialog__selection-summary strong {
-  color: #f4f8fc;
-  font-size: 0.88rem;
-  font-weight: 780;
-}
-
-.path-library-dialog__selection-summary span {
-  color: #9eadb9;
-  font-size: 0.74rem;
-  font-weight: 720;
-}
-
-.path-library-dialog__utility-bar button,
-.path-library-dialog .config-dialog__footer button {
-  min-height: 34px;
-  border: 1px solid #3b4854;
-  border-radius: 7px;
-  color: #e2edf7;
-  background: #202830;
-  font-size: 0.84rem;
-  font-weight: 720;
-}
-
-.path-library-dialog__utility-bar button {
-  padding: 0 11px;
-  white-space: nowrap;
-}
-
-.path-library-dialog__utility-bar button:hover:not(:disabled),
-.path-library-dialog__utility-bar button:focus-visible:not(:disabled),
-.path-library-dialog .config-dialog__footer button:hover:not(:disabled),
-.path-library-dialog
-  .config-dialog__footer
-  button:focus-visible:not(:disabled) {
-  border-color: #4d8fe8;
-  color: #f6fbff;
-  background: #213149;
-}
-
-.path-library-dialog__utility-bar button:disabled,
-.path-library-dialog .config-dialog__footer button:disabled {
-  cursor: not-allowed;
-  opacity: 0.52;
-}
-
-.path-library-dialog__utility-button {
-  display: inline-grid;
-  grid-template-columns: auto minmax(0, auto);
-  align-items: center;
-  gap: 7px;
-}
-
 .path-library-dialog__utility-actions {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.path-library-dialog__utility-button svg {
-  display: block;
 }
 
 .path-library-dialog__body {
@@ -109,16 +13,6 @@
   overflow: hidden;
 }
 
-.path-library-dialog__groups,
-.path-library-dialog__paths,
-.path-library-dialog__details {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  border-right: 1px solid #333d47;
-}
-
 .path-library-dialog__groups {
   grid-template-rows: auto minmax(0, 1fr);
 }
@@ -127,37 +21,9 @@
   border-right: 0;
 }
 
-.path-library-dialog__column-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  min-height: 48px;
-  padding: 11px 14px 10px;
-  border-bottom: 1px solid #333d47;
-}
-
 .path-library-dialog__column-header--action {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-}
-
-.path-library-dialog__column-header strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #f4f8fc;
-  font-size: 0.95rem;
-  font-weight: 780;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.path-library-dialog__column-header span {
-  color: #9eadb9;
-  font-size: 0.76rem;
-  font-weight: 720;
-  white-space: nowrap;
 }
 
 .path-library-dialog__header-actions {
@@ -207,42 +73,11 @@
   display: block;
 }
 
-.path-library-dialog__group-list,
-.path-library-dialog__path-list {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px;
-}
-
-.path-library-dialog__group,
-.path-library-dialog__path {
-  min-width: 0;
-  border: 1px solid #2c363f;
-  border-radius: 7px;
-  color: #eef3f7;
-  background: #1b2025;
-}
-
-.path-library-dialog__group,
-.path-library-dialog__path {
-  display: grid;
-  gap: 5px;
-  min-height: 58px;
-  padding: 10px 12px;
-  line-height: 1.22;
-  text-align: left;
-}
-
-.path-library-dialog__group.is-permanent {
+.path-library-dialog__group.is-permanent:not(.is-selected) {
   border-color: rgba(127, 167, 217, 0.45);
   background: linear-gradient(90deg, #1d2832, #1b2025);
 }
 
-.path-library-dialog__group.is-selected,
-.path-library-dialog__path.is-selected,
 .path-library-dialog__path.is-current {
   border-color: #2f81f7;
   box-shadow: inset 3px 0 0 #58a6ff;
@@ -253,38 +88,6 @@
   border-color: rgba(88, 166, 255, 0.46);
   box-shadow: inset 3px 0 0 rgba(88, 166, 255, 0.7);
   background: #1a2633;
-}
-
-.path-library-dialog__group span,
-.path-library-dialog__group small,
-.path-library-dialog__path span,
-.path-library-dialog__path small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.path-library-dialog__group span,
-.path-library-dialog__path span {
-  color: #eef3f7;
-  font-size: 0.88rem;
-  font-weight: 740;
-}
-
-.path-library-dialog__group small,
-.path-library-dialog__path small {
-  color: #9eadb9;
-  font-size: 0.72rem;
-}
-
-.path-library-dialog__details-scroll {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px;
 }
 
 .path-library-dialog__membership {
@@ -385,25 +188,6 @@
   font-weight: 720;
 }
 
-.path-library-dialog__footer {
-  justify-content: flex-end;
-}
-
-.path-library-dialog__empty {
-  color: #9eadb9;
-  font-size: 0.84rem;
-  line-height: 1.35;
-}
-
-.path-library-dialog__empty {
-  display: grid;
-  min-height: 86px;
-  place-items: center;
-  border: 1px dashed #38434e;
-  border-radius: 8px;
-  text-align: center;
-  background: #1b2025;
-}
 .path-library-create-dialog {
   position: absolute;
   z-index: 72;
@@ -478,12 +262,6 @@
 }
 
 @media (max-width: 980px) {
-  .path-library-dialog {
-    width: min(760px, calc(100vw - 32px));
-    height: min(760px, calc(100vh - 32px));
-  }
-
-  .path-library-dialog__utility-bar,
   .path-library-dialog__body {
     grid-template-columns: 1fr;
   }
@@ -495,14 +273,6 @@
 
   .path-library-dialog__body {
     overflow-y: auto;
-  }
-
-  .path-library-dialog__groups,
-  .path-library-dialog__paths,
-  .path-library-dialog__details {
-    min-height: 260px;
-    border-right: 0;
-    border-bottom: 1px solid #333d47;
   }
 }
 

@@ -29,7 +29,7 @@ import {
   SelectControl,
   SwitchInput,
 } from "../controls";
-import "./ProjectLibraryDialogs.css";
+import "./LibraryDialog.css";
 import "./LinkedTargetsDialog.css";
 
 export interface LinkedTargetPickerRequest {
@@ -156,7 +156,7 @@ export function LinkedTargetsDialog({
   return (
     <div className="config-dialog-backdrop" role="presentation">
       <section
-        className="path-library-dialog linked-targets-dialog"
+        className="library-dialog linked-targets-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={linkRequest ? "Choose Linked Element" : "Linked Elements"}
@@ -169,8 +169,8 @@ export function LinkedTargetsDialog({
           <CloseButton ariaLabel="Close linked elements" onClick={onCancel} />
         </header>
 
-        <div className="path-library-dialog__utility-bar">
-          <div className="path-library-dialog__selection-summary">
+        <div className="library-dialog__utility-bar">
+          <div className="library-dialog__selection-summary">
             <strong>
               {linkRequest
                 ? `Element ${linkRequest.elementIndex + 1}`
@@ -188,7 +188,7 @@ export function LinkedTargetsDialog({
           </div>
           <button
             type="button"
-            className="path-library-dialog__utility-button"
+            className="library-dialog__utility-button"
             onClick={() => createTarget("translation")}
           >
             <PlusIcon size={17} />
@@ -196,7 +196,7 @@ export function LinkedTargetsDialog({
           </button>
           <button
             type="button"
-            className="path-library-dialog__utility-button"
+            className="library-dialog__utility-button"
             onClick={() => createTarget("waypoint")}
           >
             <PlusIcon size={17} />
@@ -212,13 +212,16 @@ export function LinkedTargetsDialog({
             }
           }}
         >
-          <aside className="linked-targets-dialog__list" aria-label="Elements">
-            <div className="path-library-dialog__column-header">
+          <aside
+            className="library-dialog__column linked-targets-dialog__list"
+            aria-label="Elements"
+          >
+            <div className="library-dialog__column-header">
               <strong>Elements</strong>
               <span>{project.linked_targets.length}</span>
             </div>
             <div
-              className="path-library-dialog__path-list"
+              className="library-dialog__item-list"
               role="list"
               onClick={(event) => {
                 if (event.target === event.currentTarget) {
@@ -242,7 +245,7 @@ export function LinkedTargetsDialog({
                       type="button"
                       role="listitem"
                       className={[
-                        "path-library-dialog__path",
+                        "library-dialog__item",
                         "linked-targets-dialog__target-row",
                         selected ? "is-selected" : "",
                         compatible ? "" : "is-incompatible",
@@ -265,7 +268,7 @@ export function LinkedTargetsDialog({
                   );
                 })
               ) : (
-                <div className="path-library-dialog__empty">
+                <div className="library-dialog__empty">
                   No linked elements yet.
                 </div>
               )}
@@ -273,10 +276,10 @@ export function LinkedTargetsDialog({
           </aside>
 
           <section
-            className="linked-targets-dialog__preview-column"
+            className="library-dialog__column linked-targets-dialog__preview-column"
             aria-label="Linked element preview"
           >
-            <div className="path-library-dialog__column-header">
+            <div className="library-dialog__column-header">
               <strong>Field Preview</strong>
               <span>{field.label}</span>
             </div>
@@ -311,10 +314,10 @@ export function LinkedTargetsDialog({
           </section>
 
           <section
-            className="path-library-dialog__details linked-targets-dialog__details"
+            className="library-dialog__column linked-targets-dialog__details"
             aria-label="Linked element details"
           >
-            <div className="path-library-dialog__column-header">
+            <div className="library-dialog__column-header">
               <strong>Details</strong>
               <span>
                 {selectedTarget
@@ -322,7 +325,7 @@ export function LinkedTargetsDialog({
                   : ""}
               </span>
             </div>
-            <div className="path-library-dialog__details-scroll">
+            <div className="library-dialog__details-scroll">
               {selectedTarget ? (
                 <div className="linked-targets-dialog__editor">
                   <label className="dialog-field">
@@ -429,7 +432,7 @@ export function LinkedTargetsDialog({
                   </button>
                 </div>
               ) : (
-                <div className="path-library-dialog__empty">
+                <div className="library-dialog__empty">
                   Select or create a linked element.
                 </div>
               )}
@@ -437,7 +440,7 @@ export function LinkedTargetsDialog({
           </section>
         </div>
 
-        <footer className="config-dialog__footer path-library-dialog__footer">
+        <footer className="config-dialog__footer library-dialog__footer">
           {linkRequest ? (
             <button
               type="button"

@@ -3,9 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { modelToCanvasPoint } from "./support/app-shell-canvas";
+import { runEditMenuAction } from "./support/app-shell-commands";
 import {
   disableDirectoryPicker,
   installSaveFilePickerSpy,
+  openProjectMenu,
+  openProjectPanelFromTopMenu,
   parseStoredZip,
   releaseSaveFilePicker,
   requiredZipText,
@@ -21,10 +24,7 @@ import {
   openPathLibraryDialog,
   openPathManageMenu,
   openPathMenu,
-  openProjectMenu,
-  openProjectPanelFromTopMenu,
   pointBetweenFlyoutAndTrigger,
-  runEditMenuAction,
   selectToolbarOption,
   submitNameDialog,
 } from "./support/app-shell-project-library";
@@ -111,7 +111,7 @@ test("switches grouped paths from dropdowns and ghost canvas outlines", async ({
   );
 });
 
-test("uses the linked-elements layout at large viewport sizes", async ({
+test("uses the linked-elements layout across desktop and narrow viewports", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -122,13 +122,35 @@ test("uses the linked-elements layout at large viewport sizes", async ({
 
   const dialog = page.getByRole("dialog", { name: "Linked Elements" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toHaveCSS("width", "1220px");
+  const desktopViewport = page.viewportSize();
+  expect(desktopViewport?.width).toBeGreaterThan(980);
+  const desktopDialogBox = await requiredBox(dialog);
+  expect(desktopDialogBox.x).toBeGreaterThanOrEqual(24);
+  expect(desktopDialogBox.x + desktopDialogBox.width).toBeLessThanOrEqual(
+    (desktopViewport?.width ?? 0) - 24,
+  );
+
+  const body = dialog.locator(".linked-targets-dialog__body");
+  await expect
+    .poll(() =>
+      body.evaluate(
+        (element) =>
+          getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/)
+            .length,
+      ),
+    )
+    .toBe(3);
 
   await page.setViewportSize({ width: 800, height: 720 });
 
-  const body = dialog.locator(".linked-targets-dialog__body");
+  const narrowViewport = page.viewportSize();
+  expect(narrowViewport?.width).toBeLessThanOrEqual(980);
+  const narrowDialogBox = await requiredBox(dialog);
+  expect(narrowDialogBox.x).toBeGreaterThanOrEqual(16);
+  expect(narrowDialogBox.x + narrowDialogBox.width).toBeLessThanOrEqual(
+    (narrowViewport?.width ?? 0) - 16,
+  );
   const sections = body.locator(":scope > *");
-  await expect(dialog).toHaveCSS("width", "760px");
   await expect
     .poll(async () => {
       const boxes = await sections.evaluateAll((elements) =>

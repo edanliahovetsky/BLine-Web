@@ -416,15 +416,10 @@ export function createProjectStore(
       if (ownsProjectSession(current, ownership, ioGeneration)) {
         const savedCurrentRevision = current.revision === ownership.revision;
         set({
-          version: result.version,
+          ...persistenceStateFromWorkspace(workspace),
           dirty: savedCurrentRevision ? false : current.dirty,
           status: savedCurrentRevision ? "idle" : "saving",
           error: null,
-          lastSavedAt: result.updatedAt,
-          workspaceHandle: workspace.handle,
-          currentWorkspaceSummary: workspace.summary,
-          persistenceDamage: workspace.persistenceDamage,
-          legacyProjectViewMigration: workspace.legacyMigration,
           activeSave: null,
           saveQueued: savedCurrentRevision ? false : true,
         });
@@ -741,12 +736,7 @@ export function createProjectStore(
         return result;
       }
       set({
-        version: result.version,
-        lastSavedAt: result.updatedAt,
-        workspaceHandle: workspace.handle,
-        currentWorkspaceSummary: workspace.summary,
-        persistenceDamage: workspace.persistenceDamage,
-        legacyProjectViewMigration: workspace.legacyMigration,
+        ...persistenceStateFromWorkspace(workspace),
         legacyMigrationProjectSessionId: null,
         legacyMigrationPhase: null,
         legacyMigrationError: null,
@@ -784,17 +774,14 @@ export function createProjectStore(
         legacyMigrationProjectSessionId: projectSessionId,
         legacyMigrationPhase: "preparing",
       });
-      let result: LegacyProjectMigrationPreparation;
-      let preparedWorkspace: ProjectIoWorkspace | null = null;
+      let outcome: Awaited<
+        ReturnType<ProjectIoService["prepareLegacyProjectMigration"]>
+      >;
       try {
-        const outcome = await io.prepareLegacyProjectMigration(
+        outcome = await io.prepareLegacyProjectMigration(
           requireIoWorkspace(before),
           migration,
         );
-        result = outcome.preparation;
-        if (result.status !== "rejected") {
-          preparedWorkspace = outcome.workspace;
-        }
       } catch (error) {
         if (get().legacyMigrationProjectSessionId === projectSessionId) {
           set({
@@ -804,6 +791,7 @@ export function createProjectStore(
         }
         throw error;
       }
+      const { preparation: result, workspace: preparedWorkspace } = outcome;
       if (result.status === "rejected") {
         if (get().legacyMigrationProjectSessionId === projectSessionId) {
           set({
@@ -818,16 +806,7 @@ export function createProjectStore(
         return result;
       }
       set({
-        version: result.version,
-        lastSavedAt: result.updatedAt,
-        workspaceHandle: preparedWorkspace?.handle ?? current.workspaceHandle,
-        currentWorkspaceSummary:
-          preparedWorkspace?.summary ?? current.currentWorkspaceSummary,
-        persistenceDamage:
-          preparedWorkspace?.persistenceDamage ?? current.persistenceDamage,
-        legacyProjectViewMigration:
-          preparedWorkspace?.legacyMigration ??
-          current.legacyProjectViewMigration,
+        ...persistenceStateFromWorkspace(preparedWorkspace),
         legacyMigrationPhase: "prepared",
       });
       return result;
@@ -1183,14 +1162,7 @@ export function createProjectStore(
           }),
           "Import path",
           false,
-          {
-            version: saved.result.version,
-            lastSavedAt: saved.result.updatedAt,
-            workspaceHandle: saved.workspace.handle,
-            currentWorkspaceSummary: saved.workspace.summary,
-            persistenceDamage: saved.workspace.persistenceDamage,
-            legacyProjectViewMigration: saved.workspace.legacyMigration,
-          },
+          persistenceStateFromWorkspace(saved.workspace),
           {
             createdPathId,
           },
@@ -1772,20 +1744,36 @@ function adoptWorkspace(
   const persistenceDamage = workspace.persistenceDamage;
   set({
     project: cloneProject(project),
-    workspaceHandle: workspace.handle,
-    currentWorkspaceSummary: workspace.summary,
-    legacyProjectViewMigration: legacyMigration,
+    ...persistenceStateFromWorkspace(workspace),
     activePathId: navigation.activePathId,
     activePathGroupId: navigation.activePathGroupId,
     dirty,
     status: persistenceDamage ? "damaged" : "idle",
     error: persistenceDamage?.message ?? null,
-    version: workspace.version,
-    lastSavedAt: workspace.lastSavedAt,
-    persistenceDamage,
     ...inactiveSaveState(projectSessionId),
   });
   return cloneProject(project);
+}
+
+function persistenceStateFromWorkspace(
+  workspace: ProjectIoWorkspace,
+): Pick<
+  ProjectStoreState,
+  | "workspaceHandle"
+  | "currentWorkspaceSummary"
+  | "legacyProjectViewMigration"
+  | "version"
+  | "lastSavedAt"
+  | "persistenceDamage"
+> {
+  return {
+    workspaceHandle: workspace.handle,
+    currentWorkspaceSummary: workspace.summary,
+    legacyProjectViewMigration: workspace.legacyMigration,
+    version: workspace.version,
+    lastSavedAt: workspace.lastSavedAt,
+    persistenceDamage: workspace.persistenceDamage,
+  };
 }
 
 function inactiveSaveState(projectSessionId: string | null = null) {

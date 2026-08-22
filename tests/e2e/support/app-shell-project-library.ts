@@ -2,58 +2,6 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 import { requiredBox, type Bounds } from "./app-shell-shared";
 
-export async function expectGlobalShortcutsBlockedByDialog(
-  page: Page,
-  dialog: Locator,
-  focusTarget: Locator,
-): Promise<void> {
-  await expect(dialog).toBeVisible();
-  await expect(focusTarget).toBeFocused();
-
-  const inspectorToggle = page.getByRole("button", {
-    name: "Toggle inspector",
-  });
-  const inspectorExpanded = await inspectorToggle.getAttribute("aria-expanded");
-  const useMetaKey = process.platform === "darwin";
-  const results = await page.evaluate(
-    ({ metaKey }) => {
-      const target = document.activeElement;
-      if (!(target instanceof HTMLElement)) {
-        throw new Error("Expected the blocking surface to own focus");
-      }
-
-      return ["b", "s", "k", "F1"].map((key) => {
-        const event = new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          ctrlKey: key === "F1" ? false : !metaKey,
-          key,
-          metaKey: key === "F1" ? false : metaKey,
-        });
-        target.dispatchEvent(event);
-        return { defaultPrevented: event.defaultPrevented, key };
-      });
-    },
-    { metaKey: useMetaKey },
-  );
-
-  expect(results).toEqual([
-    { defaultPrevented: false, key: "b" },
-    { defaultPrevented: false, key: "s" },
-    { defaultPrevented: false, key: "k" },
-    { defaultPrevented: false, key: "F1" },
-  ]);
-  await expect(inspectorToggle).toHaveAttribute(
-    "aria-expanded",
-    inspectorExpanded ?? "false",
-  );
-  await expect(
-    page.getByRole("dialog", { name: "Command palette" }),
-  ).toHaveCount(0);
-  await expect(dialog).toBeVisible();
-  await expect(focusTarget).toBeFocused();
-}
-
 export async function expectDialogOverPathLibrary(
   page: Page,
   dialogName: string,
@@ -109,37 +57,6 @@ export function pointBetweenFlyoutAndTrigger(
     x,
     y: triggerBox.y + triggerBox.height / 2,
   };
-}
-
-export async function currentPathName(page: {
-  getByTestId(testId: string): Locator;
-}): Promise<string> {
-  const currentPath = await page
-    .getByTestId("current-path-status")
-    .textContent();
-  if (!currentPath?.startsWith("Current Path: ")) {
-    throw new Error("Expected current path status to include a project name");
-  }
-
-  return currentPath.replace("Current Path: ", "");
-}
-
-export async function openProjectMenu(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "File", exact: true }).click();
-}
-
-export async function openProjectPanelFromTopMenu(page: Page): Promise<void> {
-  await openProjectMenu(page);
-  await page.getByRole("menuitem", { name: "Workspace" }).click();
-  await page.getByRole("menuitem", { name: "Open Project..." }).click();
-}
-
-export async function runEditMenuAction(
-  page: Page,
-  action: "Undo" | "Redo",
-): Promise<void> {
-  // Undo/Redo now live on the toolbar rather than an Edit menu.
-  await page.getByRole("button", { name: action, exact: true }).click();
 }
 
 export async function openPathMenu(page: Page): Promise<Locator> {
@@ -241,34 +158,6 @@ export async function submitNameDialog(
   await dialog.getByRole("textbox").fill(displayName);
   await dialog.getByRole("button", { name: submitLabel, exact: true }).click();
   await expect(dialog).toHaveCount(0);
-}
-
-let createdProjectSequence = 0;
-
-export async function createNewProject(
-  page: Page,
-): Promise<{ pathName: string; projectName: string }> {
-  await openProjectMenu(page);
-  await page.getByRole("menuitem", { name: "Workspace" }).click();
-  await page.getByRole("menuitem", { name: "New Project" }).click();
-  createdProjectSequence += 1;
-  const projectName = `Test Project ${createdProjectSequence}`;
-  const pathName = `Test Path ${createdProjectSequence}`;
-  const dialog = page.getByRole("dialog", { name: "Create project" });
-  await dialog.getByRole("textbox", { name: "Project name" }).fill(projectName);
-  await dialog.getByRole("textbox", { name: "First path name" }).fill(pathName);
-  await dialog
-    .getByRole("button", { name: "Create project", exact: true })
-    .click();
-  return { pathName, projectName };
-}
-
-export async function openConstraintsTab(page: Page): Promise<void> {
-  const constraintsTab = page.getByRole("tab", { name: /Constraints/ });
-  if (!(await constraintsTab.isVisible())) {
-    await page.getByRole("button", { name: "Toggle inspector" }).click();
-  }
-  await constraintsTab.click();
 }
 
 export async function createNewPathFromTopMenu(

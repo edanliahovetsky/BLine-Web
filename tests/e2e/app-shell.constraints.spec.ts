@@ -1,9 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { canvasNodePosition, pointDistance } from "./support/app-shell-canvas";
-import {
-  openPathMenu,
-  openConstraintsTab,
-} from "./support/app-shell-project-library";
+import { openConstraintsTab } from "./support/app-shell-constraints";
+import { openPathMenu } from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test("opens a polished expanded editor for an individual constraint", async ({

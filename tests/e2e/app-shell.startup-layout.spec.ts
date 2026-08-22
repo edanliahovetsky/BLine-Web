@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openConstraintsTab } from "./support/app-shell-project-library";
+import { openConstraintsTab } from "./support/app-shell-constraints";
 import {
   dismissMobileSupportWarning,
   gotoSampleEditor,

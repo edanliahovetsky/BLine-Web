@@ -5,6 +5,7 @@ import type { ProjectFileDamage } from "../../core/io/projectFiles";
 import type {
   LegacyProjectMigrationPreparation,
   ProjectWorkspaceSummary,
+  ReversiblePreparation,
   WriteResult,
 } from "../../storage";
 
@@ -83,9 +84,8 @@ export interface CommittedProjectImportResult extends ProjectImportResult {
   workspace: ProjectIoWorkspace;
 }
 
-export interface ProjectImportRollback {
-  rollback(): Promise<void>;
-}
+/** Project I/O name for the shared reversible preparation contract. */
+export type ProjectImportRollback = ReversiblePreparation;
 
 export class ProjectImportOutcomeUncertainError extends Error {
   readonly projectError: unknown;

@@ -19,6 +19,7 @@ import {
   ProjectPersistenceDamageError,
   ProjectNotFoundError,
   StorageConflictError,
+  rollbackReversiblePreparation,
   compareWorkspaceSummaries,
   type FieldAssetPayload,
   type CurrentWorkspaceAdapter,
@@ -234,18 +235,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       try {
         return await this.writeNewProjectUnlocked(project, true);
       } catch (projectError) {
-        if (!preparation) {
-          throw projectError;
-        }
-        try {
-          await preparation.rollback();
-        } catch (rollbackError) {
-          throw new AggregateError(
-            [projectError, rollbackError],
-            "Project import failed and its prepared User Data could not be rolled back",
-          );
-        }
-        throw projectError;
+        return await rollbackReversiblePreparation(projectError, preparation);
       }
     });
   }
@@ -269,7 +259,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       try {
         await this.setCurrentWorkspaceId(previousCurrentId);
       } catch {
-        // Preserve the original import failure when storage itself is unwritable.
+        // Preserve the original write failure when storage itself is unwritable.
       }
       throw error;
     }

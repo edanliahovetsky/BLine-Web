@@ -298,6 +298,53 @@ describe("project store", () => {
     });
   });
 
+  it("uses the returned workspace as canonical save metadata", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const saveWorkspace = io.saveWorkspace.bind(io);
+    io.saveWorkspace = async (...args) => {
+      const saved = await saveWorkspace(...args);
+      return {
+        result: {
+          version: "result-version",
+          updatedAt: "2026-04-23T15:50:00.000Z",
+        },
+        workspace: {
+          ...saved.workspace,
+          handle: { storageId: "workspace-storage-id" },
+          version: "workspace-version",
+          lastSavedAt: "2026-04-23T15:51:00.000Z",
+          summary: {
+            id: "project-a",
+            displayName: "Alpha",
+            version: "workspace-version",
+            updatedAt: "2026-04-23T15:51:00.000Z",
+          },
+        },
+      };
+    };
+
+    renameActivePath(store, "Beta");
+    const result = await store.getState().saveWorkspace();
+
+    expect(result).toEqual({
+      version: "result-version",
+      updatedAt: "2026-04-23T15:50:00.000Z",
+    });
+    expect(store.getState()).toMatchObject({
+      workspaceHandle: { storageId: "workspace-storage-id" },
+      version: "workspace-version",
+      lastSavedAt: "2026-04-23T15:51:00.000Z",
+      currentWorkspaceSummary: {
+        version: "workspace-version",
+        updatedAt: "2026-04-23T15:51:00.000Z",
+      },
+      dirty: false,
+      status: "idle",
+    });
+  });
+
   it("keeps a newer Project revision dirty until its queued save completes", async () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),

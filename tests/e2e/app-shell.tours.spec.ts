@@ -1,9 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { openConstraintsTab } from "./support/app-shell-constraints";
 import { activeFieldLabel } from "./support/app-shell-fields";
-import {
-  openPathLibraryDialog,
-  openConstraintsTab,
-} from "./support/app-shell-project-library";
+import { openPathLibraryDialog } from "./support/app-shell-project-library";
 import {
   dismissMobileSupportWarning,
   gotoSampleEditor,

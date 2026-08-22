@@ -37,6 +37,24 @@ export interface ReversiblePreparation {
   rollback(): Promise<void>;
 }
 
+export async function rollbackReversiblePreparation(
+  operationError: unknown,
+  preparation: ReversiblePreparation | undefined,
+): Promise<never> {
+  if (!preparation) {
+    throw operationError;
+  }
+  try {
+    await preparation.rollback();
+  } catch (rollbackError) {
+    throw new AggregateError(
+      [operationError, rollbackError],
+      "Operation failed and its preparation could not be rolled back",
+    );
+  }
+  throw operationError;
+}
+
 export interface FieldAssetPayload {
   fileName: string;
   mimeType: string;

@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 import { gotoSampleEditor } from "./app-shell-shared";
 
@@ -51,6 +51,49 @@ export async function workspaceWriteCount(page: Page): Promise<number> {
     () =>
       (window as WorkspaceWriteSpyWindow).__blineWorkspaceWrites?.length ?? 0,
   );
+}
+
+export async function currentPathName(page: {
+  getByTestId(testId: string): Locator;
+}): Promise<string> {
+  const currentPath = await page
+    .getByTestId("current-path-status")
+    .textContent();
+  if (!currentPath?.startsWith("Current Path: ")) {
+    throw new Error("Expected current path status to include a project name");
+  }
+
+  return currentPath.replace("Current Path: ", "");
+}
+
+export async function openProjectMenu(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "File", exact: true }).click();
+}
+
+export async function openProjectPanelFromTopMenu(page: Page): Promise<void> {
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Workspace" }).click();
+  await page.getByRole("menuitem", { name: "Open Project..." }).click();
+}
+
+let createdProjectSequence = 0;
+
+export async function createNewProject(
+  page: Page,
+): Promise<{ pathName: string; projectName: string }> {
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Workspace" }).click();
+  await page.getByRole("menuitem", { name: "New Project" }).click();
+  createdProjectSequence += 1;
+  const projectName = `Test Project ${createdProjectSequence}`;
+  const pathName = `Test Path ${createdProjectSequence}`;
+  const dialog = page.getByRole("dialog", { name: "Create project" });
+  await dialog.getByRole("textbox", { name: "Project name" }).fill(projectName);
+  await dialog.getByRole("textbox", { name: "First path name" }).fill(pathName);
+  await dialog
+    .getByRole("button", { name: "Create project", exact: true })
+    .click();
+  return { pathName, projectName };
 }
 
 export async function disableDirectoryPicker(page: Page): Promise<void> {

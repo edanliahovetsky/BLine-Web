@@ -1,21 +1,11 @@
 import { describe, expect, it } from "vitest";
-import {
-  createPathModel,
-  createTranslationTarget,
-} from "../../../src/core/model/path";
 import type { Project } from "../../../src/core/model/project";
-import {
-  createProjectPathDocument,
-  createProjectWorkspaceDocument,
-} from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
 import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
 import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   createProjectIoService,
   ProjectImportOutcomeUncertainError,
-  type ProjectImportResult,
-  type ProjectImportRollback,
   type ProjectIoWorkspace,
 } from "../../../src/platform/projectIo";
 import {
@@ -24,19 +14,21 @@ import {
 } from "../../../src/env/capabilities";
 import {
   BrowserStorage,
-  type BrowserProjectMutationLock,
   ProjectPersistenceDamageError,
   StorageConflictError,
   TauriStorage,
-  type StorageLike,
 } from "../../../src/storage";
 import {
-  initializeUserData,
-  readFieldBackgroundImage,
-  readUserData,
-} from "../../../src/userData";
-import { migrateImportedLegacyFieldBackgrounds } from "../../../src/userData/legacyFieldMigration";
-import type { UserData } from "../../../src/userData/model";
+  FailOnceWorkspaceWriteStorage,
+  MemoryStorage,
+} from "../support/browserStorageFakes";
+import {
+  exampleWorkspace,
+  legacyField,
+  legacyFieldArchive,
+  noOpImportRollback,
+  projectArchiveFile,
+} from "../support/projectIoFixtures";
 
 describe("ProjectIoService", () => {
   it("retains browser migration provenance across a restart", async () => {
@@ -1053,178 +1045,6 @@ describe("ProjectIoService", () => {
     });
   });
 
-  it("retains deterministic Fields when a concurrent browser import wins after preparation", async () => {
-    const storage = new BrowserStorage({ storage: new MemoryStorage() });
-    const first = createProjectIoService(browserWebCapabilities, { storage });
-    const second = createProjectIoService(browserWebCapabilities, { storage });
-    const contextService = createProjectIoService(browserWebCapabilities, {
-      browser: { storage: new MemoryStorage() },
-    });
-    const context = await contextService.createWorkspace();
-    let preparations = 0;
-    let rollbacks = 0;
-    const migrateLegacyFieldBackgrounds = async () => {
-      preparations += 1;
-      return {
-        rollback: async () => {
-          rollbacks += 1;
-        },
-      };
-    };
-    const archive = projectArchiveFile(legacyFieldArchive());
-
-    const outcomes = await Promise.allSettled([
-      first.importProjectArchive(context, archive, {
-        migrateLegacyFieldBackgrounds,
-      }),
-      second.importProjectArchive(context, archive, {
-        migrateLegacyFieldBackgrounds,
-      }),
-    ]);
-
-    expect(
-      outcomes.filter(({ status }) => status === "fulfilled"),
-    ).toHaveLength(1);
-    const rejected = outcomes.find(({ status }) => status === "rejected");
-    expect(rejected).toMatchObject({
-      status: "rejected",
-      reason: expect.any(StorageConflictError),
-    });
-    expect(preparations).toBe(1);
-    expect(rollbacks).toBe(0);
-    await expect(first.listWorkspaces()).resolves.toHaveLength(1);
-  });
-
-  it("serializes same-ID browser preparation before distinct Projects can share deterministic Fields", async () => {
-    const storage = new BrowserStorage({ storage: new MemoryStorage() });
-    const first = createProjectIoService(browserWebCapabilities, { storage });
-    const second = createProjectIoService(browserWebCapabilities, { storage });
-    const contextService = createProjectIoService(browserWebCapabilities, {
-      browser: { storage: new MemoryStorage() },
-    });
-    const context = await contextService.createWorkspace();
-    const userData = await initializeImportUserData();
-    let preparations = 0;
-    const migrateLegacyFieldBackgrounds = async (
-      pending: ProjectImportResult,
-    ) => {
-      preparations += 1;
-      return migrateImportedFields(pending);
-    };
-    const firstArchive = legacyFieldArchive();
-    const secondArchive = legacyFieldArchive();
-    secondArchive.config.gui.robot.length_meters = 1.2;
-
-    const outcomes = await Promise.allSettled([
-      first.importProjectArchive(context, projectArchiveFile(firstArchive), {
-        migrateLegacyFieldBackgrounds,
-      }),
-      second.importProjectArchive(context, projectArchiveFile(secondArchive), {
-        migrateLegacyFieldBackgrounds,
-      }),
-    ]);
-
-    expect(
-      outcomes.filter(({ status }) => status === "fulfilled"),
-    ).toHaveLength(1);
-    expect(outcomes.find(({ status }) => status === "rejected")).toMatchObject({
-      status: "rejected",
-      reason: expect.any(StorageConflictError),
-    });
-    const fulfilled = outcomes.find(
-      (outcome) => outcome.status === "fulfilled",
-    );
-    expect(preparations).toBe(1);
-    expect(readUserData().field_backgrounds).toHaveLength(1);
-    const selectedId =
-      readUserData().project_views["imported-project"]
-        ?.selected_field_background_id;
-    expect(selectedId).toBe(readUserData().field_backgrounds[0]?.id);
-    expect(await readFieldBackgroundImage(selectedId!)).toEqual(
-      new Uint8Array([1, 2, 3]),
-    );
-    expect(userData.assets.size).toBe(1);
-    await expect(first.listWorkspaces()).resolves.toHaveLength(1);
-    const durableWinner = await first.reloadWorkspace({
-      storageId: "imported-project",
-    });
-    if (!durableWinner) {
-      throw new Error("Expected the winning imported Project");
-    }
-    expect(durableWinner.project.config.gui.robot.length_meters).toBe(
-      fulfilled?.value.project.config.gui.robot.length_meters,
-    );
-  });
-
-  it("serializes legacy Field selection with its same-ID stripped Project winner", async () => {
-    const storage = new BrowserStorage({ storage: new MemoryStorage() });
-    const first = createProjectIoService(browserWebCapabilities, { storage });
-    const second = createProjectIoService(browserWebCapabilities, { storage });
-    const contextService = createProjectIoService(browserWebCapabilities, {
-      browser: { storage: new MemoryStorage() },
-    });
-    const context = await contextService.createWorkspace();
-    const userData = await initializeImportUserData();
-    let preparations = 0;
-    const migrateLegacyFieldBackgrounds = async (
-      pending: ProjectImportResult,
-    ) => {
-      preparations += 1;
-      return migrateImportedFields(pending);
-    };
-    const firstArchive = legacyFieldArchive();
-    const secondArchive = legacyFieldArchive();
-    const secondField = legacyField("other-field", "other.png");
-    secondArchive.config.gui.field = {
-      selected_field_id: secondField.id,
-      custom_fields: [secondField],
-    };
-    secondArchive.field_assets = [
-      {
-        asset_id: secondField.asset_id,
-        file_name: secondField.file_name,
-        mime_type: secondField.mime_type,
-        data_base64: "BAUG",
-      },
-    ];
-
-    const outcomes = await Promise.allSettled([
-      first.importProjectArchive(context, projectArchiveFile(firstArchive), {
-        migrateLegacyFieldBackgrounds,
-      }),
-      second.importProjectArchive(context, projectArchiveFile(secondArchive), {
-        migrateLegacyFieldBackgrounds,
-      }),
-    ]);
-
-    const fulfilled = outcomes.find(
-      (
-        outcome,
-      ): outcome is PromiseFulfilledResult<
-        Awaited<ReturnType<typeof first.importProjectArchive>>
-      > => outcome.status === "fulfilled",
-    );
-    expect(fulfilled).toBeDefined();
-    expect(
-      outcomes.filter(({ status }) => status === "fulfilled"),
-    ).toHaveLength(1);
-    expect(preparations).toBe(1);
-    const snapshot = readUserData();
-    expect(snapshot.field_backgrounds).toHaveLength(1);
-    const selectedId =
-      snapshot.project_views["imported-project"]?.selected_field_background_id;
-    expect(selectedId).toBe(snapshot.field_backgrounds[0]?.id);
-    expect(snapshot.field_backgrounds[0]?.name).toBe(
-      fulfilled?.value.legacySelectedFieldId,
-    );
-    const expectedBytes =
-      fulfilled?.value.legacySelectedFieldId === "other-field"
-        ? new Uint8Array([4, 5, 6])
-        : new Uint8Array([1, 2, 3]);
-    expect(await readFieldBackgroundImage(selectedId!)).toEqual(expectedBytes);
-    expect(userData.assets.size).toBe(1);
-  });
-
   it("rolls back prepared browser Fields when the Project write fails", async () => {
     const memory = new FailOnceWorkspaceWriteStorage();
     const storage = new BrowserStorage({ storage: memory });
@@ -1271,149 +1091,13 @@ describe("ProjectIoService", () => {
       )
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).message).toBe(
+      "Operation failed and its preparation could not be rolled back",
+    );
     expect((failure as AggregateError).errors).toEqual([
       expect.objectContaining({ message: "browser Project write failed" }),
       expect.objectContaining({ message: "User Data rollback failed" }),
     ]);
-  });
-
-  it("keeps failed browser import rollback inside the Project lock before an identical import prepares", async () => {
-    const memory = new FailOnceWorkspaceWriteStorage();
-    const lock = new ObservableProjectMutationLock();
-    const storage = new BrowserStorage({
-      storage: memory,
-      projectMutationLock: lock,
-    });
-    const target = createProjectIoService(browserWebCapabilities, { storage });
-    const targetWorkspace = await target.createWorkspace({
-      project: exampleWorkspace("existing", "Existing", ["Kept"]),
-    });
-    const userData = await initializeImportUserData();
-    memory.failNextWorkspaceWrite("imported-project");
-
-    let allowFirstRollback!: () => void;
-    const firstRollbackMayComplete = new Promise<void>((resolve) => {
-      allowFirstRollback = resolve;
-    });
-    let firstRollbackStarted!: () => void;
-    const firstRollbackHasStarted = new Promise<void>((resolve) => {
-      firstRollbackStarted = resolve;
-    });
-    let allowSecondPreparation!: () => void;
-    const secondPreparationMayComplete = new Promise<void>((resolve) => {
-      allowSecondPreparation = resolve;
-    });
-    let secondPreparationStarted!: () => void;
-    const secondPreparationHasStarted = new Promise<void>((resolve) => {
-      secondPreparationStarted = resolve;
-    });
-    const events: string[] = [];
-    let preparations = 0;
-    const migrateLegacyFieldBackgrounds = async (
-      pending: ProjectImportResult,
-    ): Promise<ProjectImportRollback> => {
-      preparations += 1;
-      if (preparations === 1) {
-        events.push("first-preparation-started");
-        const migration = await migrateImportedFields(pending);
-        events.push("first-prepared");
-        return {
-          rollback: async () => {
-            events.push("first-rollback-started");
-            firstRollbackStarted();
-            await firstRollbackMayComplete;
-            await migration.rollback();
-            events.push("first-rollback-completed");
-          },
-        };
-      }
-
-      events.push("second-preparation-started");
-      expect(readUserData().field_backgrounds).toHaveLength(0);
-      expect(
-        readUserData().project_views["imported-project"]
-          ?.selected_field_background_id,
-      ).toBeUndefined();
-      const migration = await migrateImportedFields(pending);
-      events.push("second-prepared");
-      expect(readUserData().field_backgrounds).toHaveLength(1);
-      secondPreparationStarted();
-      await secondPreparationMayComplete;
-      return migration;
-    };
-
-    const firstOutcome = target
-      .importProjectArchive(
-        targetWorkspace,
-        projectArchiveFile(legacyFieldArchive()),
-        { migrateLegacyFieldBackgrounds },
-      )
-      .then(
-        (value) => ({ status: "fulfilled" as const, value }),
-        (reason: unknown) => ({ status: "rejected" as const, reason }),
-      );
-    await firstRollbackHasStarted;
-    expect(memory.getItem("bline-web:current-workspace")).toBe("existing");
-
-    const secondImport = target.importProjectArchive(
-      targetWorkspace,
-      projectArchiveFile(legacyFieldArchive()),
-      { migrateLegacyFieldBackgrounds },
-    );
-    await lock.waitForRequestCount(3);
-    expect(preparations).toBe(1);
-    expect(events).toEqual([
-      "first-preparation-started",
-      "first-prepared",
-      "first-rollback-started",
-    ]);
-
-    allowFirstRollback();
-    await secondPreparationHasStarted;
-    expect(await firstOutcome).toMatchObject({
-      status: "rejected",
-      reason: expect.objectContaining({
-        message: "browser Project write failed",
-      }),
-    });
-    expect(events).toEqual([
-      "first-preparation-started",
-      "first-prepared",
-      "first-rollback-started",
-      "first-rollback-completed",
-      "second-preparation-started",
-      "second-prepared",
-    ]);
-    expect(memory.getItem("bline-web:current-workspace")).toBe("existing");
-
-    allowSecondPreparation();
-    const imported = await secondImport;
-    expect(imported.workspace.project.project_id).toBe("imported-project");
-    const snapshot = readUserData();
-    expect(snapshot.field_backgrounds).toHaveLength(1);
-    const field = snapshot.field_backgrounds[0]!;
-    expect(field).toMatchObject({
-      name: "legacy-field",
-      file_name: "legacy.png",
-      mime_type: "image/png",
-      geometry: {
-        length_meters: 12,
-        width_meters: 6,
-        coordinate_offset_meters: 0,
-      },
-    });
-    expect(
-      snapshot.project_views["imported-project"]?.selected_field_background_id,
-    ).toBe(field.id);
-    expect(await readFieldBackgroundImage(field.id)).toEqual(
-      new Uint8Array([1, 2, 3]),
-    );
-    expect(userData.assets.size).toBe(1);
-    expect(memory.getItem("bline-web:current-workspace")).toBe(
-      "imported-project",
-    );
-    expect(lock.maximumConcurrentOwners).toBe(1);
-    expect(lock.concurrentOwners).toBe(0);
   });
 
   it("rejects an import with any missing custom Field asset before adopting it", async () => {
@@ -2070,143 +1754,6 @@ describe("ProjectIoService", () => {
   });
 });
 
-function exampleWorkspace(
-  project_id: string,
-  display_name: string,
-  pathNames: string[],
-) {
-  const paths = pathNames.map((name, index) =>
-    createProjectPathDocument({
-      path_id: `path-${index + 1}`,
-      display_name: name,
-      file_name: `${name}.json`,
-      path: createPathModel({
-        path_elements: [
-          createTranslationTarget({ x_meters: index + 1, y_meters: index + 2 }),
-        ],
-      }),
-    }),
-  );
-
-  return createProjectWorkspaceDocument({
-    project_id,
-    display_name,
-    paths,
-    active_path_id: paths[0]?.path_id ?? null,
-  });
-}
-
-function legacyField(id: string, assetId: string) {
-  return {
-    id,
-    name: id,
-    asset_id: assetId,
-    file_name: assetId,
-    mime_type: "image/png",
-    size_bytes: 3,
-    created_at: "2026-08-22T13:00:00.000Z",
-    geometry: {
-      length_meters: 12,
-      width_meters: 6,
-      coordinate_offset_meters: 0,
-    },
-  };
-}
-
-function legacyFieldArchive() {
-  const field = legacyField("legacy-field", "legacy.png");
-  return {
-    bline_project_schema_version: 1,
-    exported_at: "2026-08-22T13:00:00.000Z",
-    config: createProjectConfig({
-      gui: {
-        field: {
-          selected_field_id: field.id,
-          custom_fields: [field],
-        },
-      },
-    }),
-    paths: [],
-    field_assets: [
-      {
-        asset_id: field.asset_id,
-        file_name: field.file_name,
-        mime_type: field.mime_type,
-        data_base64: "AQID",
-      },
-    ],
-  };
-}
-
-function projectArchiveFile(archive: unknown): File {
-  return {
-    name: "legacy.bline-project.json",
-    type: "application/json",
-    text: async () => JSON.stringify(archive),
-  } as File;
-}
-
-async function migrateImportedFields(
-  pending: ProjectImportResult,
-): Promise<ProjectImportRollback> {
-  const migration = await migrateImportedLegacyFieldBackgrounds({
-    projectId: pending.project.project_id,
-    selectedFieldId: pending.legacySelectedFieldId,
-    entries: pending.legacyFieldBackgrounds,
-  });
-  if (migration.errors[0]) {
-    await migration.rollback();
-    throw migration.errors[0];
-  }
-  return migration;
-}
-
-async function initializeImportUserData(): Promise<{
-  assets: Map<string, number[]>;
-}> {
-  let persisted: UserData | null = null;
-  let revision = 0;
-  const assets = new Map<string, number[]>();
-  await initializeUserData(tauriCapabilities, {
-    tauriInvoke: async <T>(
-      command: string,
-      args?: Record<string, unknown>,
-    ): Promise<T> => {
-      if (command === "storage_read_user_data") {
-        return (
-          persisted === null
-            ? null
-            : { revision, data: structuredClone(persisted) }
-        ) as T;
-      }
-      if (command === "storage_compare_and_swap_user_data") {
-        if (args?.expectedRevision !== revision && persisted) {
-          return {
-            status: "conflict",
-            document: { revision, data: structuredClone(persisted) },
-          } as T;
-        }
-        persisted = structuredClone(args?.data as UserData);
-        revision += 1;
-        return { status: "written", revision } as T;
-      }
-      if (command === "storage_write_user_field_asset") {
-        assets.set(String(args?.entryId), [...(args?.bytes as number[])]);
-        return undefined as T;
-      }
-      if (command === "storage_read_user_field_asset") {
-        return (assets.get(String(args?.entryId)) ?? null) as T;
-      }
-      if (command === "storage_delete_user_field_asset") {
-        assets.delete(String(args?.entryId));
-        return undefined as T;
-      }
-      throw new Error(`Unexpected User Data command: ${command}`);
-    },
-  });
-  return { assets };
-}
-
 function projectFolderFile(webkitRelativePath: string): File {
   return {
     name: webkitRelativePath.split("/").at(-1) ?? "path.json",
@@ -2216,92 +1763,4 @@ function projectFolderFile(webkitRelativePath: string): File {
         path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
       }),
   } as File;
-}
-
-function noOpImportRollback() {
-  return { rollback: async () => {} };
-}
-
-class MemoryStorage implements StorageLike {
-  private readonly values = new Map<string, string>();
-
-  get length(): number {
-    return this.values.size;
-  }
-
-  key(index: number): string | null {
-    return [...this.values.keys()][index] ?? null;
-  }
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, value);
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-}
-
-class FailOnceWorkspaceWriteStorage extends MemoryStorage {
-  private failedWorkspaceId: string | null = null;
-
-  failNextWorkspaceWrite(id: string): void {
-    this.failedWorkspaceId = id;
-  }
-
-  override setItem(key: string, value: string): void {
-    if (
-      this.failedWorkspaceId &&
-      key ===
-        `bline-web:workspace:${encodeURIComponent(this.failedWorkspaceId)}`
-    ) {
-      this.failedWorkspaceId = null;
-      throw new Error("browser Project write failed");
-    }
-    super.setItem(key, value);
-  }
-}
-
-class ObservableProjectMutationLock implements BrowserProjectMutationLock {
-  private tail: Promise<void> = Promise.resolve();
-  private requestCount = 0;
-  private readonly requestWaiters = new Map<number, () => void>();
-  concurrentOwners = 0;
-  maximumConcurrentOwners = 0;
-
-  request<T>(_name: string, callback: () => Promise<T> | T): Promise<T> {
-    this.requestCount += 1;
-    this.requestWaiters.get(this.requestCount)?.();
-    this.requestWaiters.delete(this.requestCount);
-    const run = this.tail.then(async () => {
-      this.concurrentOwners += 1;
-      this.maximumConcurrentOwners = Math.max(
-        this.maximumConcurrentOwners,
-        this.concurrentOwners,
-      );
-      try {
-        return await callback();
-      } finally {
-        this.concurrentOwners -= 1;
-      }
-    });
-    this.tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-
-  waitForRequestCount(count: number): Promise<void> {
-    if (this.requestCount >= count) {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      this.requestWaiters.set(count, resolve);
-    });
-  }
 }
