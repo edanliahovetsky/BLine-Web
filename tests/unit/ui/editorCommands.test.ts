@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   clampInspectorWidth,
+  commandForShortcut,
   commandMatchesQuery,
+  executeCommand,
   formatShortcut,
   shortcutMatches,
   type EditorCommand,
@@ -49,6 +51,50 @@ describe("editor commands", () => {
         shift: true,
       }),
     ).toBe(false);
+  });
+
+  it("matches command aliases only within their focus scope", () => {
+    const redo: EditorCommand = {
+      id: "edit.redo",
+      label: "Redo",
+      category: "Edit",
+      shortcut: { key: "z", metaOrCtrl: true, shift: true },
+      shortcutAliases: [{ key: "y", metaOrCtrl: true }],
+      scope: "editor",
+      run() {},
+    };
+    const event = {
+      key: "y",
+      altKey: false,
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+    } as KeyboardEvent;
+
+    expect(commandForShortcut([redo], event, "editor")).toBe(redo);
+    expect(commandForShortcut([redo], event, "global")).toBeNull();
+  });
+
+  it("recognizes the shifted question-mark key without displaying Shift", () => {
+    const event = {
+      key: "?",
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: true,
+    } as KeyboardEvent;
+
+    expect(shortcutMatches(event, { key: "?" })).toBe(true);
+    expect(formatShortcut({ key: "?" }, "Linux x86_64")).toBe("?");
+  });
+
+  it("does not execute disabled commands", () => {
+    const run = vi.fn();
+    expect(executeCommand({ ...command, disabled: true, run })).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+
+    expect(executeCommand({ ...command, run })).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("keeps persisted inspector widths within usable desktop bounds", () => {

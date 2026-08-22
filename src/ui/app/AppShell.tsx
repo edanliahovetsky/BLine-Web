@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useId,
   useMemo,
   useRef,
@@ -136,6 +137,8 @@ import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
 import {
   clampInspectorWidth,
+  commandForShortcut,
+  executeCommand,
   formatShortcut,
   readEditorUiPreferences,
   writeEditorUiPreferences,
@@ -905,31 +908,6 @@ export function AppShell() {
     },
     [curveToolSession, handleStartCurveTool],
   );
-  const handleSelectTool = useCallback(
-    () => handleToolChange("select"),
-    [handleToolChange],
-  );
-  const handleWaypointTool = useCallback(
-    () => handleToolChange("waypoint"),
-    [handleToolChange],
-  );
-  const handleTranslationTool = useCallback(
-    () => handleToolChange("translation"),
-    [handleToolChange],
-  );
-  const handleRotationTool = useCallback(
-    () => handleToolChange("rotation"),
-    [handleToolChange],
-  );
-  const handleEventTool = useCallback(
-    () => handleToolChange("event"),
-    [handleToolChange],
-  );
-  const handleCurveTool = useCallback(
-    () => handleToolChange("curve"),
-    [handleToolChange],
-  );
-
   const handlePlaceCanvasElement = useCallback(
     (placement: CanvasElementPlacement) => {
       const state = projectStore.getState();
@@ -1142,210 +1120,6 @@ export function AppShell() {
       // The project store already records the error for the status bar.
     }
   }, [refreshWorkspaceSummaries]);
-
-  useEffect(() => {
-    const handleShortcut = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      if (
-        hasActiveBlockingSurface({
-          openTopMenu,
-          showCommandPalette,
-          showConfigDialog,
-          showDeletePathDialog,
-          showDeleteProjectDialog,
-          showLinkedTargetsDialog,
-          showMobileSupportWarning,
-          showNameEntryDialog: pathNameAction !== null,
-          showNewPathDialog,
-          showNewProjectDialog,
-          showOpenPanel,
-          showPathGroupsDialog,
-          showSaveConflict: status === "conflict" || status === "damaged",
-          showShortcutHelp,
-          showTourPicker,
-        })
-      ) {
-        return;
-      }
-
-      const modifier = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-
-      if (event.key === "F1") {
-        event.preventDefault();
-        setShowCommandPalette(true);
-        return;
-      }
-
-      if (modifier) {
-        if (event.altKey) {
-          return;
-        }
-
-        if (key === "k") {
-          event.preventDefault();
-          setShowCommandPalette(true);
-          return;
-        }
-
-        if (key === "b") {
-          event.preventDefault();
-          setInspectorOpen((current) => !current);
-          return;
-        }
-
-        if (key === "s") {
-          event.preventDefault();
-          void handleSaveProject();
-          return;
-        }
-
-        if (isEditableShortcutTarget(event.target)) {
-          return;
-        }
-
-        if (key === "d") {
-          if (duplicateSelectedPathElement()) {
-            event.preventDefault();
-          }
-          return;
-        }
-
-        if (key === "z" && event.shiftKey) {
-          event.preventDefault();
-          projectStore.getState().redo();
-          return;
-        }
-
-        if (key === "z") {
-          event.preventDefault();
-          projectStore.getState().undo();
-          return;
-        }
-
-        if (key === "y") {
-          event.preventDefault();
-          projectStore.getState().redo();
-        }
-        return;
-      }
-
-      if (
-        isEditableShortcutTarget(event.target) ||
-        (isInteractiveShortcutTarget(event.target) &&
-          !isPathElementShortcutTarget(event.target) &&
-          !isRangedConstraintShortcutTarget(event.target))
-      ) {
-        return;
-      }
-
-      if (event.key === "?") {
-        event.preventDefault();
-        setShowShortcutHelp(true);
-        return;
-      }
-
-      if (event.key === "Escape" && activeTool !== "select") {
-        event.preventDefault();
-        setActiveTool("select");
-        setCurveToolSession(null);
-        return;
-      }
-
-      const toolShortcut = toolForShortcut(event.key);
-      const state = projectStore.getState();
-      if (
-        toolShortcut &&
-        activeProjectPath(state.project, state.activePathId)
-      ) {
-        event.preventDefault();
-        handleToolChange(toolShortcut);
-        return;
-      }
-
-      if (event.key === "Delete" || event.key === "Backspace") {
-        if (removeSelectedRangedConstraint() || removeSelectedPathElement()) {
-          event.preventDefault();
-        }
-        return;
-      }
-
-      // Alt + Up/Down reorders the selected element within the path.
-      if (
-        event.altKey &&
-        (event.key === "ArrowUp" || event.key === "ArrowDown")
-      ) {
-        if (moveSelectedPathElement(event.key === "ArrowUp" ? -1 : 1)) {
-          event.preventDefault();
-        }
-        return;
-      }
-
-      // [ and ] step the selection through the path elements.
-      if (event.key === "[" || event.key === "]") {
-        if (selectAdjacentPathElement(event.key === "[" ? -1 : 1)) {
-          event.preventDefault();
-        }
-        return;
-      }
-
-      // Arrow keys nudge the selected element on the field; Shift = coarse.
-      if (
-        event.key === "ArrowUp" ||
-        event.key === "ArrowDown" ||
-        event.key === "ArrowLeft" ||
-        event.key === "ArrowRight"
-      ) {
-        const step = event.shiftKey ? 0.25 : 0.05;
-        const dx =
-          event.key === "ArrowRight"
-            ? step
-            : event.key === "ArrowLeft"
-              ? -step
-              : 0;
-        const dy =
-          event.key === "ArrowUp"
-            ? step
-            : event.key === "ArrowDown"
-              ? -step
-              : 0;
-        if (nudgeSelectedPathElement(dx, dy, activeField.geometry)) {
-          event.preventDefault();
-        }
-        return;
-      }
-
-      if (event.altKey) {
-        return;
-      }
-    };
-
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
-  }, [
-    handleSaveProject,
-    handleToolChange,
-    activeTool,
-    openTopMenu,
-    showCommandPalette,
-    showConfigDialog,
-    showNewProjectDialog,
-    showDeletePathDialog,
-    showDeleteProjectDialog,
-    showPathGroupsDialog,
-    showShortcutHelp,
-    activeField.geometry,
-    showLinkedTargetsDialog,
-    showMobileSupportWarning,
-    showOpenPanel,
-    showNewPathDialog,
-    pathNameAction,
-    showTourPicker,
-    status,
-  ]);
 
   const beginToolbarAction = useCallback(
     (action: Exclude<PendingToolbarAction, null>) => {
@@ -1961,153 +1735,327 @@ export function AppShell() {
     },
     [],
   );
-  const commands: EditorCommand[] = [
-    {
-      id: "project.navigator",
-      label: "Open project navigator",
-      category: "Project",
-      keywords: ["paths", "collections", "library"],
-      disabled: !durableProject,
-      run: handleShowPathLibrary,
+  const projectAvailable = Boolean(durableProject);
+  const pathAvailable = Boolean(activePath);
+  const projectIoAvailable = Boolean(projectIo);
+  const navigatorCommand: EditorCommand = {
+    id: "project.navigator",
+    label: "Open project navigator",
+    category: "Project",
+    keywords: ["paths", "collections", "library"],
+    disabled: !projectAvailable,
+    run: handleShowPathLibrary,
+  };
+  const newPathCommand: EditorCommand = {
+    id: "project.new-path",
+    label: "Create new path",
+    category: "Project",
+    keywords: ["add"],
+    disabled: !projectAvailable || !projectIoAvailable || toolbarBusy,
+    run: () => void handleCreateNewPath(),
+  };
+  const settingsCommand: EditorCommand = {
+    id: "project.settings",
+    label: "Open project settings",
+    category: "Project",
+    disabled: !projectAvailable,
+    run: () => setShowConfigDialog(true),
+  };
+  const saveCommand: EditorCommand = {
+    id: "project.save",
+    label: "Save now",
+    category: "Project",
+    shortcut: { key: "s", metaOrCtrl: true },
+    scope: "global",
+    disabled:
+      !projectAvailable ||
+      !projectIoAvailable ||
+      status === "saving" ||
+      toolbarBusy,
+    run: () => void handleSaveProject(),
+  };
+  const undoCommand: EditorCommand = {
+    id: "edit.undo",
+    label: "Undo",
+    category: "Edit",
+    shortcut: { key: "z", metaOrCtrl: true },
+    scope: "editor",
+    disabled: !canUndo || toolbarBusy,
+    run: () => projectStore.getState().undo(),
+  };
+  const redoCommand: EditorCommand = {
+    id: "edit.redo",
+    label: "Redo",
+    category: "Edit",
+    shortcut: { key: "z", metaOrCtrl: true, shift: true },
+    shortcutAliases: [{ key: "y", metaOrCtrl: true }],
+    scope: "editor",
+    disabled: !canRedo || toolbarBusy,
+    run: () => projectStore.getState().redo(),
+  };
+  const generateConstraintsCommand: EditorCommand = {
+    id: "path.generate-constraints",
+    label: "Generate constraints",
+    category: "Path",
+    keywords: ["corner", "handoff", "radius", "seed", "optimize", "velocity"],
+    disabled:
+      !activePath ||
+      optimizerPhase === "running" ||
+      !canGenerateAutomaticConstraints(activePath.path),
+    run: () => {
+      if (activePath && durableProject) {
+        void generateAutomaticConstraints(
+          autoVelocitySettingsForPath(activePath.path, durableProject.config),
+        );
+      }
     },
-    {
-      id: "project.new-path",
-      label: "Create new path",
-      category: "Project",
-      keywords: ["add"],
-      disabled: !durableProject,
-      run: () => void handleCreateNewPath(),
+  };
+  const duplicateElementCommand: EditorCommand = {
+    id: "edit.duplicate-element",
+    label: "Duplicate element",
+    category: "Edit",
+    keywords: ["copy", "clone"],
+    shortcut: { key: "d", metaOrCtrl: true },
+    scope: "editor",
+    disabled: selectedElementIndex === null,
+    run: () => {
+      duplicateSelectedPathElement();
     },
-    {
-      id: "project.settings",
-      label: "Open project settings",
-      category: "Project",
-      disabled: !durableProject,
-      run: () => setShowConfigDialog(true),
-    },
-    {
-      id: "project.save",
-      label: "Save now",
-      category: "Project",
-      shortcut: { key: "s", metaOrCtrl: true },
-      disabled: !durableProject || !projectIo,
-      run: () => void handleSaveProject(),
-    },
-    {
-      id: "edit.undo",
-      label: "Undo",
-      category: "Edit",
-      shortcut: { key: "z", metaOrCtrl: true },
-      disabled: !canUndo,
-      run: () => projectStore.getState().undo(),
-    },
-    {
-      id: "edit.redo",
-      label: "Redo",
-      category: "Edit",
-      shortcut: { key: "z", metaOrCtrl: true, shift: true },
-      disabled: !canRedo,
-      run: () => projectStore.getState().redo(),
-    },
-    {
-      id: "path.generate-constraints",
-      label: "Generate constraints",
-      category: "Path",
-      keywords: ["corner", "handoff", "radius", "seed", "optimize", "velocity"],
-      disabled:
-        !activePath ||
-        optimizerPhase === "running" ||
-        !canGenerateAutomaticConstraints(activePath.path),
-      run: () => {
-        if (activePath && durableProject) {
-          void generateAutomaticConstraints(
-            autoVelocitySettingsForPath(activePath.path, durableProject.config),
-          );
-        }
-      },
-    },
-    {
-      id: "edit.duplicate-element",
-      label: "Duplicate element",
-      category: "Edit",
-      keywords: ["copy", "clone"],
-      shortcut: { key: "d", metaOrCtrl: true },
-      disabled: selectedElementIndex === null,
-      run: () => {
-        duplicateSelectedPathElement();
-      },
-    },
-    {
-      id: "view.inspector",
-      label: "Toggle inspector",
-      category: "View",
-      shortcut: { key: "b", metaOrCtrl: true },
-      disabled: !activePath,
-      run: () => setInspectorOpen((current) => !current),
-    },
-    {
-      id: "help.shortcuts",
-      label: "Keyboard shortcuts",
-      category: "Help",
-      shortcut: { key: "?" },
-      run: () => setShowShortcutHelp(true),
-    },
+  };
+  const inspectorCommand: EditorCommand = {
+    id: "view.inspector",
+    label: "Toggle inspector",
+    category: "View",
+    shortcut: { key: "b", metaOrCtrl: true },
+    scope: "global",
+    disabled: !pathAvailable,
+    run: () => setInspectorOpen((current) => !current),
+  };
+  const shortcutHelpCommand: EditorCommand = {
+    id: "help.shortcuts",
+    label: "Keyboard shortcuts",
+    category: "Help",
+    shortcut: { key: "?" },
+    scope: "editor",
+    run: () => setShowShortcutHelp(true),
+  };
+  const toolCommands: EditorCommand[] = [
     {
       id: "tool.select",
       label: "Select tool",
       category: "Canvas tools",
       shortcut: { key: "v" },
-      disabled: !activePath,
-      run: handleSelectTool,
+      scope: "editor",
+      disabled: !pathAvailable,
+      run: () => handleToolChange("select"),
     },
     {
       id: "tool.waypoint",
       label: "Waypoint tool",
       category: "Canvas tools",
       shortcut: { key: "1" },
-      disabled: !activePath,
-      run: handleWaypointTool,
+      scope: "editor",
+      disabled: !pathAvailable,
+      run: () => handleToolChange("waypoint"),
     },
     {
       id: "tool.translation",
       label: "Translation tool",
       category: "Canvas tools",
       shortcut: { key: "2" },
-      disabled: !activePath,
-      run: handleTranslationTool,
+      scope: "editor",
+      disabled: !pathAvailable,
+      run: () => handleToolChange("translation"),
     },
     {
       id: "tool.rotation",
       label: "Rotation tool",
       category: "Canvas tools",
       shortcut: { key: "3" },
-      disabled: !activePath,
-      run: handleRotationTool,
+      scope: "editor",
+      disabled: !pathAvailable,
+      run: () => handleToolChange("rotation"),
     },
     {
       id: "tool.event",
       label: "Event tool",
       category: "Canvas tools",
       shortcut: { key: "4" },
-      disabled: !activePath,
-      run: handleEventTool,
+      scope: "editor",
+      disabled: !pathAvailable,
+      run: () => handleToolChange("event"),
     },
     {
       id: "tool.curve",
       label: "Curve tool",
       category: "Canvas tools",
       shortcut: { key: "c" },
-      disabled: !activePath,
-      run: handleCurveTool,
+      scope: "editor",
+      disabled: !pathAvailable,
+      run: () => handleToolChange("curve"),
     },
-    ...pathDocuments.map((path) => ({
-      id: `path.open.${path.path_id}`,
-      label: `Open path: ${path.display_name}`,
-      category: "Paths",
-      keywords: [path.file_name],
-      run: () => handleSelectPathFromToolbar(path.path_id),
-    })),
   ];
+  const pathCommands: EditorCommand[] = pathDocuments.map((path) => ({
+    id: `path.open.${path.path_id}`,
+    label: `Open path: ${path.display_name}`,
+    category: "Paths",
+    keywords: [path.file_name],
+    run: () => handleSelectPathFromToolbar(path.path_id),
+  }));
+  const commands: EditorCommand[] = [
+    navigatorCommand,
+    newPathCommand,
+    settingsCommand,
+    saveCommand,
+    undoCommand,
+    redoCommand,
+    generateConstraintsCommand,
+    duplicateElementCommand,
+    inspectorCommand,
+    shortcutHelpCommand,
+    ...toolCommands,
+    ...pathCommands,
+  ];
+  const shortcutCommands = [
+    saveCommand,
+    undoCommand,
+    redoCommand,
+    duplicateElementCommand,
+    inspectorCommand,
+    shortcutHelpCommand,
+    ...toolCommands,
+  ];
+
+  const handleShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      hasActiveBlockingSurface({
+        openTopMenu,
+        showCommandPalette,
+        showConfigDialog,
+        showDeletePathDialog,
+        showDeleteProjectDialog,
+        showLinkedTargetsDialog,
+        showMobileSupportWarning,
+        showNameEntryDialog: pathNameAction !== null,
+        showNewPathDialog,
+        showNewProjectDialog,
+        showOpenPanel,
+        showPathGroupsDialog,
+        showSaveConflict: status === "conflict" || status === "damaged",
+        showShortcutHelp,
+        showTourPicker,
+      })
+    ) {
+      return;
+    }
+
+    const runShortcut = (scope: "global" | "editor") => {
+      const matchingCommand = commandForShortcut(
+        shortcutCommands,
+        event,
+        scope,
+      );
+      if (!matchingCommand) {
+        return false;
+      }
+      event.preventDefault();
+      executeCommand(matchingCommand);
+      return true;
+    };
+    const modifier = event.metaKey || event.ctrlKey;
+
+    if (event.key === "F1") {
+      event.preventDefault();
+      setShowCommandPalette(true);
+      return;
+    }
+
+    if (modifier) {
+      if (event.altKey) {
+        return;
+      }
+      if (event.key.toLocaleLowerCase() === "k") {
+        event.preventDefault();
+        setShowCommandPalette(true);
+        return;
+      }
+      if (runShortcut("global") || isEditableShortcutTarget(event.target)) {
+        return;
+      }
+      runShortcut("editor");
+      return;
+    }
+
+    if (
+      isEditableShortcutTarget(event.target) ||
+      (isInteractiveShortcutTarget(event.target) &&
+        !isPathElementShortcutTarget(event.target) &&
+        !isRangedConstraintShortcutTarget(event.target))
+    ) {
+      return;
+    }
+
+    if (runShortcut("editor")) {
+      return;
+    }
+
+    if (event.key === "Escape" && activeTool !== "select") {
+      event.preventDefault();
+      setActiveTool("select");
+      setCurveToolSession(null);
+      return;
+    }
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      if (removeSelectedRangedConstraint() || removeSelectedPathElement()) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (
+      event.altKey &&
+      (event.key === "ArrowUp" || event.key === "ArrowDown")
+    ) {
+      if (moveSelectedPathElement(event.key === "ArrowUp" ? -1 : 1)) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (event.key === "[" || event.key === "]") {
+      if (selectAdjacentPathElement(event.key === "[" ? -1 : 1)) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (
+      event.key === "ArrowUp" ||
+      event.key === "ArrowDown" ||
+      event.key === "ArrowLeft" ||
+      event.key === "ArrowRight"
+    ) {
+      const step = event.shiftKey ? 0.25 : 0.05;
+      const dx =
+        event.key === "ArrowRight"
+          ? step
+          : event.key === "ArrowLeft"
+            ? -step
+            : 0;
+      const dy =
+        event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0;
+      if (nudgeSelectedPathElement(dx, dy, activeField.geometry)) {
+        event.preventDefault();
+      }
+    }
+  });
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
 
   return (
     <main className="app-shell" data-testid="app-shell">
@@ -2115,10 +2063,10 @@ export function AppShell() {
         <nav className="app-tabs" aria-label="Top menu">
           <IconButton
             className="app-toolbar__navigator-button"
-            aria-label="Open project navigator"
-            title="Open project navigator"
-            disabled={!durableProject}
-            onClick={handleShowPathLibrary}
+            aria-label={navigatorCommand.label}
+            title={navigatorCommand.label}
+            disabled={navigatorCommand.disabled}
+            onClick={() => executeCommand(navigatorCommand)}
           >
             <FolderTree aria-hidden="true" size={17} />
           </IconButton>
@@ -2257,8 +2205,8 @@ export function AppShell() {
             <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
               <MenuAction
                 label="Create New Path"
-                disabled={!durableProject || !projectIo}
-                onAction={() => void handleCreateNewPath()}
+                disabled={newPathCommand.disabled}
+                onAction={() => executeCommand(newPathCommand)}
               />
               <MenuAction
                 label="Save Path As..."
@@ -2315,21 +2263,21 @@ export function AppShell() {
             >
               <MenuAction
                 label={undoLabel}
-                shortcut={{ key: "z", metaOrCtrl: true }}
-                disabled={!canUndo || toolbarBusy}
+                shortcut={undoCommand.shortcut}
+                disabled={undoCommand.disabled}
                 onAction={() => {
                   setShowOpenPanel(false);
-                  projectStore.getState().undo();
+                  executeCommand(undoCommand);
                   setOpenTopMenu(null);
                 }}
               />
               <MenuAction
                 label={redoLabel}
-                shortcut={{ key: "z", metaOrCtrl: true, shift: true }}
-                disabled={!canRedo || toolbarBusy}
+                shortcut={redoCommand.shortcut}
+                disabled={redoCommand.disabled}
                 onAction={() => {
                   setShowOpenPanel(false);
-                  projectStore.getState().redo();
+                  executeCommand(redoCommand);
                   setOpenTopMenu(null);
                 }}
               />
@@ -2337,9 +2285,9 @@ export function AppShell() {
               {supportsProjectFolders ? (
                 <MenuAction
                   label="New Path"
-                  disabled={!projectIo || toolbarBusy}
+                  disabled={newPathCommand.disabled}
                   onAction={() => {
-                    void handleCreateNewPath();
+                    executeCommand(newPathCommand);
                     setOpenTopMenu(null);
                   }}
                 />
@@ -2383,21 +2331,16 @@ export function AppShell() {
               <div className="top-menu__separator" role="separator" />
               <MenuAction
                 label="Project Navigator..."
-                disabled={!durableProject}
-                onAction={handleShowPathLibrary}
+                disabled={navigatorCommand.disabled}
+                onAction={() => executeCommand(navigatorCommand)}
               />
               <div className="top-menu__separator" role="separator" />
               <MenuAction
                 label="Save"
-                disabled={
-                  !durableProject ||
-                  !projectIo ||
-                  status === "saving" ||
-                  toolbarBusy
-                }
+                disabled={saveCommand.disabled}
                 onAction={() => {
                   setOpenTopMenu(null);
-                  void handleSaveProject();
+                  executeCommand(saveCommand);
                 }}
               />
             </TopMenuButton>
@@ -2406,25 +2349,18 @@ export function AppShell() {
             <IconButton
               aria-label="Undo"
               aria-keyshortcuts="Meta+Z Control+Z"
-              title={`${undoLabel} (${formatShortcut({
-                key: "z",
-                metaOrCtrl: true,
-              })})`}
-              disabled={!canUndo}
-              onClick={() => projectStore.getState().undo()}
+              title={`${undoLabel} (${formatShortcut(undoCommand.shortcut)})`}
+              disabled={undoCommand.disabled}
+              onClick={() => executeCommand(undoCommand)}
             >
               <Undo2 aria-hidden="true" size={16} />
             </IconButton>
             <IconButton
               aria-label="Redo"
-              aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z"
-              title={`${redoLabel} (${formatShortcut({
-                key: "z",
-                metaOrCtrl: true,
-                shift: true,
-              })})`}
-              disabled={!canRedo}
-              onClick={() => projectStore.getState().redo()}
+              aria-keyshortcuts="Meta+Shift+Z Control+Shift+Z Meta+Y Control+Y"
+              title={`${redoLabel} (${formatShortcut(redoCommand.shortcut)})`}
+              disabled={redoCommand.disabled}
+              onClick={() => executeCommand(redoCommand)}
             >
               <Redo2 aria-hidden="true" size={16} />
             </IconButton>
@@ -2512,7 +2448,7 @@ export function AppShell() {
                   }}
                   onShortcuts={() => {
                     setShowHelpHub(false);
-                    setShowShortcutHelp(true);
+                    executeCommand(shortcutHelpCommand);
                   }}
                   onCommandPalette={() => {
                     setShowHelpHub(false);
@@ -2528,8 +2464,8 @@ export function AppShell() {
             <IconButton
               aria-label="Settings"
               title="Project settings"
-              disabled={!durableProject}
-              onClick={() => setShowConfigDialog(true)}
+              disabled={settingsCommand.disabled}
+              onClick={() => executeCommand(settingsCommand)}
             >
               <Settings aria-hidden="true" size={16} />
             </IconButton>
@@ -2546,15 +2482,15 @@ export function AppShell() {
               aria-keyshortcuts="Meta+B Control+B"
               title={
                 inspectorOpen
-                  ? "Toggle inspector (⌘B)"
+                  ? `${inspectorCommand.label} (⌘B)`
                   : optimizerBeamTitle(
                       optimizerPhase,
                       optimizerError,
-                      "Toggle inspector (⌘B)",
+                      `${inspectorCommand.label} (⌘B)`,
                     )
               }
-              disabled={!activePath}
-              onClick={() => setInspectorOpen((current) => !current)}
+              disabled={inspectorCommand.disabled}
+              onClick={() => executeCommand(inspectorCommand)}
             >
               <PanelRight aria-hidden="true" size={16} />
             </IconButton>
@@ -2746,7 +2682,8 @@ export function AppShell() {
             title={`${storageLabel}. ${saveStatus}`}
             aria-label="Save"
             aria-live="polite"
-            onClick={() => void handleSaveProject()}
+            disabled={saveCommand.disabled}
+            onClick={() => executeCommand(saveCommand)}
           >
             <span className="status-bar__save-dot" aria-hidden="true" />
             <span>{compactSaveStatus(saveStatus, saveStatusTone)}</span>
@@ -6188,29 +6125,6 @@ function safeDownloadName(value: string): string {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "") || "bline-project"
   );
-}
-
-function toolForShortcut(key: string): EditorTool | null {
-  const normalized = key.toLocaleLowerCase();
-  if (normalized === "v") {
-    return "select";
-  }
-  if (normalized === "1") {
-    return "waypoint";
-  }
-  if (normalized === "2") {
-    return "translation";
-  }
-  if (normalized === "3") {
-    return "rotation";
-  }
-  if (normalized === "4") {
-    return "event";
-  }
-  if (normalized === "c") {
-    return "curve";
-  }
-  return null;
 }
 
 function toolHint(tool: EditorTool, curveDrawing: boolean): string {

@@ -4917,6 +4917,10 @@ test("keeps disabled palette actions inert and restores focus on Escape", async 
 test("supports common keyboard shortcuts", async ({ page }) => {
   await gotoSampleEditor(page);
 
+  await expect(
+    page.getByRole("button", { name: "Redo", exact: true }),
+  ).toHaveAttribute("aria-keyshortcuts", /Meta\+Y Control\+Y/);
+
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
   await expect(page.getByTestId("path-element-row-5")).toContainText(
@@ -4934,12 +4938,26 @@ test("supports common keyboard shortcuts", async ({ page }) => {
     "6. Event Trigger",
   );
 
+  await page.keyboard.press(`${shortcut}+Z`);
+  await page.keyboard.press(`${shortcut}+Y`);
+  await expect(page.getByTestId("path-element-row-5")).toContainText(
+    "6. Event Trigger",
+  );
+
   await page.getByTestId("path-element-row-0").click();
   await page.getByLabel("X (m)").focus();
   await page.keyboard.press(`${shortcut}+Z`);
   await expect(page.getByTestId("path-element-row-5")).toContainText(
     "6. Event Trigger",
   );
+  await page.keyboard.press(`${shortcut}+B`);
+  await expect(
+    page.getByRole("button", { name: "Toggle inspector" }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press(`${shortcut}+B`);
+  await expect(
+    page.getByRole("button", { name: "Toggle inspector" }),
+  ).toHaveAttribute("aria-expanded", "true");
 
   await page.getByTestId("path-element-row-5").click();
   await page.keyboard.press("Delete");
@@ -4954,6 +4972,12 @@ test("supports common keyboard shortcuts", async ({ page }) => {
 
   await page.keyboard.press(`${shortcut}+S`);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
+
+  await page.keyboard.press("?");
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
 });
 
 test("keeps global shortcuts behind the path name dialog", async ({ page }) => {

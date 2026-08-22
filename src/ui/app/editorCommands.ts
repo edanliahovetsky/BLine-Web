@@ -11,7 +11,9 @@ export type EditorTool =
   | "event"
   | "curve";
 
-export type CommandScope = "global" | "editor" | "project";
+// Global shortcuts may run from editable controls; editor shortcuts wait until
+// the shell's editable/interactive focus guards have passed.
+export type CommandScope = "global" | "editor";
 
 export interface ShortcutBinding {
   key: string;
@@ -26,9 +28,35 @@ export interface EditorCommand {
   category: string;
   keywords?: readonly string[];
   shortcut?: ShortcutBinding;
+  shortcutAliases?: readonly ShortcutBinding[];
   scope?: CommandScope;
   disabled?: boolean;
   run(): void | Promise<void>;
+}
+
+export function executeCommand(command: EditorCommand): boolean {
+  if (command.disabled) {
+    return false;
+  }
+
+  void command.run();
+  return true;
+}
+
+export function commandForShortcut(
+  commands: readonly EditorCommand[],
+  event: KeyboardEvent,
+  scope: CommandScope,
+): EditorCommand | null {
+  return (
+    commands.find(
+      (command) =>
+        command.scope === scope &&
+        [command.shortcut, ...(command.shortcutAliases ?? [])].some(
+          (shortcut) => shortcut && shortcutMatches(event, shortcut),
+        ),
+    ) ?? null
+  );
 }
 
 export interface EditorUiPreferencesV1 {
@@ -95,7 +123,8 @@ export function shortcutMatches(
   return (
     event.key.toLocaleLowerCase() === binding.key.toLocaleLowerCase() &&
     Boolean(event.altKey) === Boolean(binding.alt) &&
-    Boolean(event.shiftKey) === Boolean(binding.shift) &&
+    (binding.key === "?" ||
+      Boolean(event.shiftKey) === Boolean(binding.shift)) &&
     Boolean(event.metaKey || event.ctrlKey) === Boolean(binding.metaOrCtrl)
   );
 }

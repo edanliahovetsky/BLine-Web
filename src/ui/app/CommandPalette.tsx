@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Command, Search } from "lucide-react";
 import type { EditorCommand } from "./editorCommands";
-import { commandMatchesQuery, formatShortcut } from "./editorCommands";
+import {
+  commandMatchesQuery,
+  executeCommand,
+  formatShortcut,
+} from "./editorCommands";
 import { CloseButton } from "../controls";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 
@@ -30,7 +34,7 @@ export function CommandPalette({
       return;
     }
     onClose();
-    void command.run();
+    executeCommand(command);
   };
 
   return (
