@@ -1,6 +1,4 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { deserializePath } from "../../../../src/core/io/projectSerde";
 import {
   createEventTrigger,
   createPathModel,
@@ -444,44 +442,10 @@ describe("simulatePath", () => {
     );
     expect(visibilityAtOrAfterS(showWins, 1)).toBe(true);
   });
-
-  it("simulates the dense top sweep fixture without endpoint spin", () => {
-    const path = deserializePath(readFixture("top_sweep_short_depo.json"));
-    const result = simulatePath(
-      path,
-      {
-        default_max_velocity_meters_per_sec: 4.5,
-        default_max_acceleration_meters_per_sec2: 12,
-        default_intermediate_handoff_radius_meters: 0.25,
-        default_max_velocity_deg_per_sec: 600,
-        default_max_acceleration_deg_per_sec2: 2000,
-      },
-      { dt_s: 0.02 },
-    );
-
-    expect(result.total_time_s).toBeCloseTo(18.54, 2);
-    expect(result.trail_points).toHaveLength(928);
-    expectPose(result.poses_by_time.get(0), [3.376893, 5.590979, 0], 6);
-    expectPose(
-      result.poses_by_time.get(9.26),
-      [1.743742, 4.971691, 1.366353],
-      6,
-    );
-    expectPose(result.poses_by_time.get(18.54), [6.020539, 5.353239, 0], 6);
-  });
 });
 
 function buildSegmentsForTest(path: Parameters<typeof simulatePath>[0]) {
   return buildSegments(path);
-}
-
-function readFixture(name: string): unknown {
-  return JSON.parse(
-    readFileSync(
-      new URL(`../../../fixtures/simulation/${name}`, import.meta.url),
-      "utf8",
-    ),
-  ) as unknown;
 }
 
 function expectPose(

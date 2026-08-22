@@ -19,10 +19,6 @@ import {
   type FieldBackgroundMetadataUpdate,
 } from "./service";
 
-export * from "./adapters";
-export * from "./model";
-export * from "./service";
-
 class MemoryUserDataAdapter implements UserDataAdapter {
   private readonly assets = new Map<string, Uint8Array>();
 
@@ -80,9 +76,7 @@ export function readUserData(): UserData {
   return runtimeUserData.getSnapshot();
 }
 
-export function updateUserData(
-  update: (current: UserData) => UserData,
-): UserData {
+function updateUserData(update: (current: UserData) => UserData): UserData {
   return runtimeUserData.update(update);
 }
 
@@ -163,19 +157,11 @@ export function rememberEditorLayoutPreferences(
   }));
 }
 
-export function readCompletedTourIds(): string[] {
-  return [...readUserData().completed_tour_ids];
-}
-
 export function rememberCompletedTourIds(ids: readonly string[]): void {
   updateUserData((current) => ({
     ...current,
     completed_tour_ids: [...ids],
   }));
-}
-
-export function automaticGenerationKeepInSync(): boolean {
-  return readUserData().automatic_generation.keep_in_sync;
 }
 
 export function rememberAutomaticGenerationKeepInSync(enabled: boolean): void {

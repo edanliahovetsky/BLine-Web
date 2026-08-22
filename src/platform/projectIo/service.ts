@@ -630,17 +630,6 @@ export function createDesktopProjectIoCapabilities(): ProjectIoCapabilities {
   };
 }
 
-export function activePathFileName(
-  project: Project,
-  activePathId?: string | null,
-): string {
-  const activePath =
-    project.paths.find((path) => path.path_id === activePathId) ??
-    project.paths[0] ??
-    null;
-  return activePath?.file_name ?? "path.json";
-}
-
 function isJsonObject(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
 }

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createProjectDocument } from "../../../src/core/io/projectSchema";
-import {
-  fieldCoordinateOffsetMeters,
-  fieldLengthMeters,
-  fieldWidthMeters,
-} from "../../../src/canvas/constants";
+import { defaultFieldGeometry } from "../../../src/core/field/fieldConfig";
 import {
   createEventTrigger,
   createPathModel,
@@ -19,7 +15,6 @@ import {
   clampModelPoint,
   getElementHeadingRadians,
   getElementPosition,
-  getHandoffRadiusMeters,
   getNeighborAnchorPositions,
   interpolateSegmentPosition,
   projectPointToSegmentRatio,
@@ -34,7 +29,6 @@ import {
   updatePathElementHandoffRadius,
 } from "../../../src/canvas/modelSync";
 import {
-  coveredDomainIndexesForConstraint,
   firstDomainIndexForConstraintRange,
   pathIndexesForConstraintRange,
 } from "../../../src/canvas/constraintRange";
@@ -104,8 +98,12 @@ describe("canvas geometry", () => {
     });
 
     expect(clampModelPoint({ x_meters: 100, y_meters: 100 })).toEqual({
-      x_meters: fieldLengthMeters - fieldCoordinateOffsetMeters * 2,
-      y_meters: fieldWidthMeters - fieldCoordinateOffsetMeters * 2,
+      x_meters:
+        defaultFieldGeometry.length_meters -
+        defaultFieldGeometry.coordinate_offset_meters * 2,
+      y_meters:
+        defaultFieldGeometry.width_meters -
+        defaultFieldGeometry.coordinate_offset_meters * 2,
     });
 
     expect(
@@ -176,14 +174,6 @@ describe("canvas geometry", () => {
     ];
 
     expect(
-      coveredDomainIndexesForConstraint(elements, {
-        key: "max_velocity_meters_per_sec",
-        value: 2,
-        start_ordinal: 2,
-        end_ordinal: 2,
-      }),
-    ).toEqual([2]);
-    expect(
       pathIndexesForConstraintRange(elements, {
         key: "max_velocity_meters_per_sec",
         value: 2,
@@ -191,14 +181,6 @@ describe("canvas geometry", () => {
         end_ordinal: 2,
       }),
     ).toEqual([0, 1, 2]);
-    expect(
-      coveredDomainIndexesForConstraint(elements, {
-        key: "max_velocity_deg_per_sec",
-        value: 90,
-        start_ordinal: 1,
-        end_ordinal: 2,
-      }),
-    ).toEqual([1, 2]);
     expect(
       pathIndexesForConstraintRange(elements, {
         key: "max_velocity_deg_per_sec",
@@ -275,9 +257,6 @@ describe("canvas geometry", () => {
     expect(
       getElementHeadingRadians(elements, 2, new Map([[2, Math.PI]])),
     ).toBeCloseTo(Math.PI, 6);
-    expect(getHandoffRadiusMeters(elements[0])).toBe(0.6);
-    expect(getHandoffRadiusMeters(elements[2])).toBe(0.25);
-    expect(getHandoffRadiusMeters(elements[1])).toBeNull();
   });
 
   it("keeps the anchor node exclusion ring on a pixel floor as the view zooms", () => {

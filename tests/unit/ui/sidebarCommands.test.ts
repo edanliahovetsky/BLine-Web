@@ -5,11 +5,7 @@ import {
   canClearAutomaticConstraints,
   canGenerateAutomaticConstraints,
 } from "../../../src/state/automaticConstraints";
-import {
-  fieldCoordinateOffsetMeters,
-  fieldLengthMeters,
-  fieldWidthMeters,
-} from "../../../src/canvas/constants";
+import { defaultFieldGeometry } from "../../../src/core/field/fieldConfig";
 import {
   createProjectDocument,
   type ProjectDocument,
@@ -240,8 +236,8 @@ describe("sidebar commands", () => {
       path: createPathModel({
         path_elements: [
           createTranslationTarget({
-            x_meters: fieldLengthMeters,
-            y_meters: fieldWidthMeters,
+            x_meters: defaultFieldGeometry.length_meters,
+            y_meters: defaultFieldGeometry.width_meters,
           }),
         ],
       }),
@@ -257,10 +253,12 @@ describe("sidebar commands", () => {
     expect(isTranslationTarget(translation)).toBe(true);
     if (isTranslationTarget(translation)) {
       expect(translation.x_meters).toBe(
-        fieldLengthMeters - fieldCoordinateOffsetMeters * 2,
+        defaultFieldGeometry.length_meters -
+          defaultFieldGeometry.coordinate_offset_meters * 2,
       );
       expect(translation.y_meters).toBe(
-        fieldWidthMeters - fieldCoordinateOffsetMeters * 2,
+        defaultFieldGeometry.width_meters -
+          defaultFieldGeometry.coordinate_offset_meters * 2,
       );
     }
   });

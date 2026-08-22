@@ -263,20 +263,6 @@ export function getElementHeadingRadians(
   return 0;
 }
 
-export function getHandoffRadiusMeters(element: PathElement): number | null {
-  if (isTranslationTarget(element)) {
-    return positiveRadiusOrNull(element.intermediate_handoff_radius_meters);
-  }
-
-  if (isWaypoint(element)) {
-    return positiveRadiusOrNull(
-      element.translation_target.intermediate_handoff_radius_meters,
-    );
-  }
-
-  return null;
-}
-
 export function getNeighborAnchorPositions(
   elements: readonly PathElement[],
   index: number,
@@ -363,10 +349,6 @@ function getSegmentHeadingRadians(
       next.x_meters - previous.x_meters,
     ) + offsetRadians
   );
-}
-
-function positiveRadiusOrNull(radius: number | null): number | null {
-  return radius !== null && radius > 0 ? radius : null;
 }
 
 function clamp(value: number, min: number, max: number): number {

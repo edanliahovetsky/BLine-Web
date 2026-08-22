@@ -1,9 +1,7 @@
 import { defaultFieldGeometry } from "../core/field/fieldConfig";
 
-export const fieldLengthMeters = defaultFieldGeometry.length_meters;
-export const fieldWidthMeters = defaultFieldGeometry.width_meters;
-export const fieldCoordinateOffsetMeters =
-  defaultFieldGeometry.coordinate_offset_meters;
+const fieldLengthMeters = defaultFieldGeometry.length_meters;
+const fieldWidthMeters = defaultFieldGeometry.width_meters;
 export const fieldAspectRatio = fieldLengthMeters / fieldWidthMeters;
 
 const robotWidthMeters = 0.6;

@@ -5,7 +5,6 @@ import {
   commandMatchesQuery,
   executeCommand,
   formatShortcut,
-  shortcutMatches,
   type EditorCommand,
 } from "../../../src/ui/app/editorCommands";
 
@@ -35,6 +34,11 @@ describe("editor commands", () => {
   });
 
   it("matches the requested modifier set exactly", () => {
+    const save: EditorCommand = {
+      ...command,
+      shortcut: { key: "s", metaOrCtrl: true },
+      scope: "global",
+    };
     const event = {
       key: "s",
       altKey: false,
@@ -43,14 +47,14 @@ describe("editor commands", () => {
       shiftKey: false,
     } as KeyboardEvent;
 
-    expect(shortcutMatches(event, { key: "s", metaOrCtrl: true })).toBe(true);
+    expect(commandForShortcut([save], event, "global")).toBe(save);
     expect(
-      shortcutMatches(event, {
-        key: "s",
-        metaOrCtrl: true,
-        shift: true,
-      }),
-    ).toBe(false);
+      commandForShortcut(
+        [save],
+        { ...event, shiftKey: true } as KeyboardEvent,
+        "global",
+      ),
+    ).toBeNull();
   });
 
   it("matches command aliases only within their focus scope", () => {
@@ -76,6 +80,11 @@ describe("editor commands", () => {
   });
 
   it("recognizes the shifted question-mark key without displaying Shift", () => {
+    const help: EditorCommand = {
+      ...command,
+      shortcut: { key: "?" },
+      scope: "editor",
+    };
     const event = {
       key: "?",
       altKey: false,
@@ -84,7 +93,7 @@ describe("editor commands", () => {
       shiftKey: true,
     } as KeyboardEvent;
 
-    expect(shortcutMatches(event, { key: "?" })).toBe(true);
+    expect(commandForShortcut([help], event, "editor")).toBe(help);
     expect(formatShortcut({ key: "?" }, "Linux x86_64")).toBe("?");
   });
 

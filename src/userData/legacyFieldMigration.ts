@@ -3,7 +3,10 @@ import {
   type CustomFieldImage,
 } from "../core/field/fieldConfig";
 import type { Project } from "../core/model/project";
-import type { ProjectIoService } from "../platform/projectIo";
+import type {
+  ImportedLegacyFieldBackground,
+  ProjectIoService,
+} from "../platform/projectIo";
 import {
   flushUserData,
   findVerifiedLegacyFieldBackground,
@@ -15,11 +18,6 @@ import {
 
 export interface LegacyFieldMigrationResult {
   errors: Error[];
-}
-
-export interface ImportedLegacyFieldBackground {
-  field: CustomFieldImage;
-  bytes: Uint8Array;
 }
 
 export interface ImportedLegacyFieldMigrationInput {

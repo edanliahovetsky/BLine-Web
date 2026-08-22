@@ -74,8 +74,6 @@ export interface NumberStepperControlProps {
   onChange(value: number | null): void;
 }
 
-export type SidebarSelectOption<T extends string> = SelectControlOption<T>;
-
 export function ActionButton({
   children,
   className,

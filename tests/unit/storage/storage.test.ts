@@ -7,23 +7,19 @@ import {
   createProjectDocument,
   createProjectPathDocument,
   createProjectWorkspaceDocument,
+  type ProjectDocument,
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
+import { serializeProjectDocument } from "../../../src/core/io/projectSerde";
 import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   BrowserStorage,
   ProjectPersistenceDamageError,
   StorageConflictError,
-  createStorageAdapter,
-  createStoredProjectRecord,
   type StorageLike,
   TauriStorage,
 } from "../../../src/storage";
-import {
-  browserWebCapabilities,
-  tauriCapabilities,
-} from "../../../src/env/capabilities";
 
 describe("BrowserStorage", () => {
   it("writes, lists, reads, and deletes workspaces", async () => {
@@ -1452,18 +1448,17 @@ describe("TauriStorage", () => {
   });
 });
 
-describe("createStorageAdapter", () => {
-  it("selects storage based on shell capabilities", () => {
-    expect(
-      createStorageAdapter(browserWebCapabilities, {
-        browser: { storage: new MemoryStorage() },
-      }),
-    ).toBeInstanceOf(BrowserStorage);
-    expect(createStorageAdapter(tauriCapabilities)).toBeInstanceOf(
-      TauriStorage,
-    );
-  });
-});
+function createStoredProjectRecord(
+  project: ProjectDocument,
+  version: string,
+  updatedAt: string,
+) {
+  return {
+    document: serializeProjectDocument(project),
+    version,
+    updatedAt,
+  };
+}
 
 function exampleWorkspace(
   project_id: string,

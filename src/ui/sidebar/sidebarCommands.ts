@@ -6,7 +6,6 @@ import {
   anchorHandoffRadii,
   defaultHandoffRadiusMeters,
   type AnchorHandoffRadius,
-  type AnchorRadiusState,
 } from "../../core/model/handoffRadii";
 import {
   defaultFieldGeometry,
@@ -76,7 +75,6 @@ export function getSwitchableElementTypes(
   return ["translation", "waypoint", "rotation", "event_trigger"];
 }
 
-export type HandoffRadiusChipState = AnchorRadiusState;
 export type HandoffRadiusChip = AnchorHandoffRadius;
 
 export function handoffRadiusChipsForPath(

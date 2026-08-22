@@ -41,31 +41,6 @@ export interface CanonicalProjectConfig {
   };
 }
 
-export interface FlatProjectConfig {
-  robot_length_meters: number;
-  robot_width_meters: number;
-  protrusion_enabled: boolean;
-  protrusion_distance_meters: number;
-  protrusion_side: ProtrusionSide;
-  protrusion_default_state: ProtrusionState;
-  protrusion_show_on_event_keys: string[];
-  protrusion_hide_on_event_keys: string[];
-  robot_protrusion_front_meters: number;
-  robot_protrusion_back_meters: number;
-  robot_protrusion_left_meters: number;
-  robot_protrusion_right_meters: number;
-  default_max_velocity_meters_per_sec: number;
-  default_max_acceleration_meters_per_sec2: number;
-  default_intermediate_handoff_radius_meters: number;
-  default_max_velocity_deg_per_sec: number;
-  default_max_acceleration_deg_per_sec2: number;
-  default_end_translation_tolerance_meters: number;
-  default_end_rotation_tolerance_deg: number;
-  default_auto_velocity_velocity_safety_factor: number;
-  default_auto_velocity_acceleration_safety_factor: number;
-  default_auto_velocity_merge_tolerance_meters_per_sec: number;
-}
-
 const defaultConfig: CanonicalProjectConfig = {
   gui: {
     robot: {
@@ -107,39 +82,6 @@ export function createProjectConfig(input?: unknown): CanonicalProjectConfig {
   return config;
 }
 
-export function projectConfigToFlat(input: unknown): FlatProjectConfig {
-  const config = createProjectConfig(input);
-  const side = normalizeProtrusionSide(config.gui.protrusions.side, "none");
-  const distance = nonNegativeNumber(
-    config.gui.protrusions.distance_meters,
-    defaultConfig.gui.protrusions.distance_meters,
-  );
-  const enabled = Boolean(config.gui.protrusions.enabled);
-  const defaultState = enabled
-    ? normalizeProtrusionState(config.gui.protrusions.default_state, "")
-    : "";
-
-  return {
-    robot_length_meters: config.gui.robot.length_meters,
-    robot_width_meters: config.gui.robot.width_meters,
-    protrusion_enabled: enabled,
-    protrusion_distance_meters: distance,
-    protrusion_side: side,
-    protrusion_default_state: defaultState,
-    protrusion_show_on_event_keys: normalizeKeyList(
-      config.gui.protrusions.show_on_event_keys,
-    ),
-    protrusion_hide_on_event_keys: normalizeKeyList(
-      config.gui.protrusions.hide_on_event_keys,
-    ),
-    robot_protrusion_front_meters: enabled && side === "front" ? distance : 0,
-    robot_protrusion_back_meters: enabled && side === "back" ? distance : 0,
-    robot_protrusion_left_meters: enabled && side === "left" ? distance : 0,
-    robot_protrusion_right_meters: enabled && side === "right" ? distance : 0,
-    ...config.kinematic_constraints,
-  };
-}
-
 export function getDefaultOptionalConfigValue(
   config: unknown,
   key: string,
@@ -163,31 +105,6 @@ export function projectConfigDefaultLookup(
   config: unknown,
 ): (key: string) => number | null {
   return (key: string) => getDefaultOptionalConfigValue(config, key);
-}
-
-export function needsProjectConfigMigration(input: unknown): boolean {
-  if (!isRecord(input)) {
-    return false;
-  }
-
-  const gui = input.gui;
-  if (!isRecord(gui)) {
-    return true;
-  }
-
-  if (
-    !isRecord(gui.robot) ||
-    !isRecord(gui.protrusions) ||
-    !isRecord(gui.field)
-  ) {
-    return true;
-  }
-
-  if (!isRecord(input.kinematic_constraints)) {
-    return true;
-  }
-
-  return legacyProtrusionKeys.some((key) => key in input);
 }
 
 function updateProjectConfig(

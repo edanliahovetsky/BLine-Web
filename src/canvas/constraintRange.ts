@@ -5,7 +5,7 @@ import {
   type RangedConstraint,
 } from "../core/model/path";
 
-export function domainIndexesForConstraint(
+function domainIndexesForConstraint(
   elements: readonly PathElement[],
   constraint: Pick<RangedConstraint, "key">,
 ): number[] {
@@ -26,19 +26,6 @@ export function domainIndexesForConstraint(
 
     return [];
   });
-}
-
-export function coveredDomainIndexesForConstraint(
-  elements: readonly PathElement[],
-  constraint: RangedConstraint,
-): number[] {
-  const domain = domainIndexesForConstraint(elements, constraint);
-  if (domain.length === 0) {
-    return [];
-  }
-
-  const [start, end] = normalizedRange(constraint, domain.length);
-  return domain.slice(start - 1, end);
 }
 
 export function pathIndexesForConstraintRange(

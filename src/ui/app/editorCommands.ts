@@ -116,7 +116,7 @@ export function commandMatchesQuery(
     .includes(normalizedQuery);
 }
 
-export function shortcutMatches(
+function shortcutMatches(
   event: KeyboardEvent,
   binding: ShortcutBinding,
 ): boolean {

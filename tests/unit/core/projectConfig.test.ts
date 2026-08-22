@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   createProjectConfig,
   getDefaultOptionalConfigValue,
-  needsProjectConfigMigration,
-  projectConfigToFlat,
 } from "../../../src/core/config/projectConfig";
 import {
   blankGridFieldGeometry,
@@ -243,35 +241,6 @@ describe("project config", () => {
     });
   });
 
-  it("projects canonical config to the desktop flat compatibility shape", () => {
-    const flat = projectConfigToFlat({
-      gui: {
-        robot: { length_meters: 0.8, width_meters: 0.9 },
-        protrusions: {
-          enabled: true,
-          distance_meters: 0.12,
-          side: "back",
-          default_state: "shown",
-          show_on_event_keys: "deploy, deploy, intake",
-          hide_on_event_keys: ["stow"],
-        },
-      },
-    });
-
-    expect(flat).toMatchObject({
-      robot_length_meters: 0.8,
-      robot_width_meters: 0.9,
-      protrusion_enabled: true,
-      protrusion_distance_meters: 0.12,
-      protrusion_side: "back",
-      protrusion_default_state: "shown",
-      protrusion_show_on_event_keys: ["deploy", "intake"],
-      protrusion_hide_on_event_keys: ["stow"],
-      robot_protrusion_front_meters: 0,
-      robot_protrusion_back_meters: 0.12,
-    });
-  });
-
   it("provides default optional values for path deserialization", () => {
     const config = createProjectConfig({
       kinematic_constraints: {
@@ -315,43 +284,5 @@ describe("project config", () => {
         "auto_velocity_merge_tolerance_meters_per_sec",
       ),
     ).toBe(0.2);
-  });
-
-  it("flags legacy or partial config documents as migration candidates", () => {
-    const canonical = createProjectConfig();
-
-    expect(needsProjectConfigMigration({ robot_length_meters: 0.7 })).toBe(
-      true,
-    );
-    expect(
-      needsProjectConfigMigration({
-        gui: {
-          robot: canonical.gui.robot,
-          protrusions: canonical.gui.protrusions,
-        },
-        kinematic_constraints: {
-          default_max_velocity_meters_per_sec: 4.5,
-        },
-      }),
-    ).toBe(true);
-    expect(
-      needsProjectConfigMigration({
-        gui: {
-          robot: { length_meters: 0.8, width_meters: 0.8 },
-          protrusions: {
-            enabled: false,
-            distance_meters: 0,
-            side: "none",
-            default_state: "",
-            show_on_event_keys: [],
-            hide_on_event_keys: [],
-          },
-          field: canonical.gui.field,
-        },
-        kinematic_constraints: {
-          default_max_velocity_meters_per_sec: 4.5,
-        },
-      }),
-    ).toBe(false);
   });
 });

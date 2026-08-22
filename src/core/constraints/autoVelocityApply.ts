@@ -32,10 +32,6 @@ export interface AutoVelocityRefreshOptions {
   settings?: AutoVelocitySettings;
 }
 
-export interface AutoVelocityOrdinalOptions {
-  refreshExistingAutoVelocity?: boolean;
-}
-
 export interface AutoVelocityStatus {
   currentSignature: string | null;
   expectedMetadata: AutoVelocityConstraintMetadata;
@@ -86,78 +82,6 @@ export function refreshAutoVelocityConstraints(
       cap.targetOrdinal,
       autoVelocityConstraintForCap(cap, metadata),
     );
-  }
-
-  return {
-    ...path,
-    ranged_constraints: [
-      ...path.ranged_constraints.filter(
-        (constraint) => constraint.key !== autoVelocityKey,
-      ),
-      ...autoVelocityConstraintsFromOrdinalMap(
-        existing,
-        total,
-        settings.mergeToleranceMps,
-      ),
-    ],
-  };
-}
-
-export function applyAutoVelocityConstraintsToOrdinals(
-  path: PathModel,
-  config: SimulationConfig,
-  ordinals: readonly number[],
-  options: AutoVelocityOrdinalOptions = {},
-): PathModel {
-  const total = countAnchorElements(path.path_elements);
-  if (total <= 0) {
-    return path;
-  }
-
-  const targetOrdinals = new Set(
-    ordinals
-      .map((ordinal) => Math.trunc(ordinal))
-      .filter((ordinal) => ordinal >= 1 && ordinal <= total),
-  );
-  const shouldRefreshExisting = options.refreshExistingAutoVelocity ?? true;
-  if (targetOrdinals.size === 0 && !shouldRefreshExisting) {
-    return path;
-  }
-
-  const settings = autoVelocitySettings(config);
-  const profile = generateAutoVelocityProfile(
-    path,
-    config,
-    autoVelocityOptions(settings),
-  );
-  const existing = autoVelocityConstraintsByOrdinal(
-    path.ranged_constraints,
-    total,
-  );
-  const metadata = autoVelocityMetadataFor(path, config, settings);
-  let changed = false;
-
-  for (const cap of profile.segmentCaps) {
-    const current = existing.get(cap.targetOrdinal);
-    const isRequestedOrdinal = targetOrdinals.has(cap.targetOrdinal);
-    const isRefreshableAuto =
-      shouldRefreshExisting && current?.source === "auto_velocity";
-    if (!isRequestedOrdinal && !isRefreshableAuto) {
-      continue;
-    }
-    if (current && current.source !== "auto_velocity") {
-      continue;
-    }
-
-    existing.set(
-      cap.targetOrdinal,
-      autoVelocityConstraintForCap(cap, metadata),
-    );
-    changed = true;
-  }
-
-  if (!changed) {
-    return path;
   }
 
   return {

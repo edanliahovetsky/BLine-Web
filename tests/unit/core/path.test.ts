@@ -8,8 +8,6 @@ import {
   createTranslationTarget,
   createWaypoint,
   getHandoffRadiusSource,
-  getPathElement,
-  reorderPathElements,
   setHandoffRadiusSource,
 } from "../../../src/core/model/path";
 
@@ -41,20 +39,6 @@ describe("path model", () => {
     });
     expect(waypoint.translation_target.type).toBe("translation");
     expect(waypoint.rotation_target.type).toBe("rotation");
-  });
-
-  it("gets and reorders path elements without mutating the original path", () => {
-    const first = createTranslationTarget({ x_meters: 1 });
-    const second = createRotationTarget({ rotation_radians: 0.5 });
-    const third = createTranslationTarget({ x_meters: 3 });
-    const path = createPathModel({ path_elements: [first, second, third] });
-
-    expect(getPathElement(path, 1)).toBe(second);
-
-    const reordered = reorderPathElements(path, [2, 0, 1]);
-
-    expect(reordered.path_elements).toEqual([third, first, second]);
-    expect(path.path_elements).toEqual([first, second, third]);
   });
 
   it("leaves handoff radius ownership untagged until someone claims it", () => {

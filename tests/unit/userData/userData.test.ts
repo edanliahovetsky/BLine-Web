@@ -5,19 +5,9 @@ import {
   tauriCapabilities,
 } from "../../../src/env/capabilities";
 import {
-  BROWSER_USER_DATA_KEY,
-  BrowserUserDataAdapter,
-  FieldBackgroundAssetVerificationError,
-  ProjectViewMigrationError,
-  TauriUserDataAdapter,
-  UserDataService,
-  UserDataReadOnlyError,
   activePathForProject,
-  automaticGenerationKeepInSync,
-  defaultUserData,
   flushUserData,
   initializeUserData,
-  readCompletedTourIds,
   readEditorLayoutPreferences,
   readUserData,
   rememberActivePath,
@@ -26,11 +16,22 @@ import {
   rememberEditorLayoutPreferences,
   rememberSelectedFieldBackground,
   selectedFieldBackgroundForProject,
-  type CreateFieldBackgroundInput,
-  type UserData,
+} from "../../../src/userData";
+import {
+  BROWSER_USER_DATA_KEY,
+  BrowserUserDataAdapter,
+  TauriUserDataAdapter,
   type UserDataAdapter,
   type UserDataStorage,
-} from "../../../src/userData";
+} from "../../../src/userData/adapters";
+import { defaultUserData, type UserData } from "../../../src/userData/model";
+import {
+  FieldBackgroundAssetVerificationError,
+  ProjectViewMigrationError,
+  UserDataReadOnlyError,
+  UserDataService,
+  type CreateFieldBackgroundInput,
+} from "../../../src/userData/service";
 import { migrateImportedLegacyFieldBackgrounds } from "../../../src/userData/legacyFieldMigration";
 
 describe("UserData", () => {
@@ -291,8 +292,8 @@ describe("UserData", () => {
       inspector_width: 401,
       show_ghost_paths: false,
     });
-    expect(readCompletedTourIds()).toEqual(["editor-basics"]);
-    expect(automaticGenerationKeepInSync()).toBe(false);
+    expect(readUserData().completed_tour_ids).toEqual(["editor-basics"]);
+    expect(readUserData().automatic_generation.keep_in_sync).toBe(false);
     expect(activePathForProject("project-a", "fallback")).toBe("path-a");
     expect(activePathForProject("project-b", "fallback")).toBe("fallback");
     expect(selectedFieldBackgroundForProject("project-a", "fallback")).toBe(

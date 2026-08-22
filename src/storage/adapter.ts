@@ -1,5 +1,4 @@
 import type {
-  ProjectDocument,
   SerializedProjectDocument,
   SerializedProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
@@ -10,10 +9,7 @@ import {
   isBLineProjectArchive,
   serializeBLineProjectArchive,
 } from "../core/io/blineProject";
-import {
-  deserializeProjectDocument,
-  serializeProjectDocument,
-} from "../core/io/projectSerde";
+import { deserializeProjectDocument } from "../core/io/projectSerde";
 import {
   deserializeProjectWorkspaceDocument,
   projectDocumentToWorkspaceDocument,
@@ -254,18 +250,6 @@ export function isLegacyProjectMetadataAdapter(
     typeof (adapter as Partial<LegacyProjectMetadataAdapter>)
       .deleteLegacyProjectFiles === "function"
   );
-}
-
-export function createStoredProjectRecord(
-  project: ProjectDocument,
-  version: string,
-  updatedAt: string,
-): StoredProjectRecord {
-  return {
-    document: serializeProjectDocument(project),
-    version,
-    updatedAt,
-  };
 }
 
 function legacyProjectBundleToWorkspace(bundle: ProjectBundle): Project {

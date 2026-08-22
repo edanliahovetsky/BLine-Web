@@ -177,44 +177,6 @@ export function createPathModel(overrides: Partial<PathModel> = {}): PathModel {
   };
 }
 
-export function getPathElement(path: PathModel, index: number): PathElement {
-  if (
-    Number.isInteger(index) &&
-    index >= 0 &&
-    index < path.path_elements.length
-  ) {
-    return path.path_elements[index];
-  }
-  throw new RangeError("Index out of range");
-}
-
-export function reorderPathElements(
-  path: PathModel,
-  newOrder: readonly number[],
-): PathModel {
-  if (newOrder.length !== path.path_elements.length) {
-    throw new Error("New order must match elements length");
-  }
-
-  const seen = new Set<number>();
-  for (const index of newOrder) {
-    if (
-      !Number.isInteger(index) ||
-      index < 0 ||
-      index >= path.path_elements.length ||
-      seen.has(index)
-    ) {
-      throw new Error("New order must contain each element index exactly once");
-    }
-    seen.add(index);
-  }
-
-  return {
-    ...path,
-    path_elements: newOrder.map((index) => path.path_elements[index]),
-  };
-}
-
 export function isTranslationTarget(
   element: PathElement,
 ): element is TranslationTarget {

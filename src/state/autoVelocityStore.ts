@@ -76,10 +76,6 @@ export function createAutoVelocityStore(
   }));
 }
 
-export function autoVelocityIsBusy(state: AutoVelocityState): boolean {
-  return state.phase !== "idle";
-}
-
 export const autoVelocityStore = createAutoVelocityStore({
   onAutoSyncChange: rememberAutomaticGenerationKeepInSync,
 });
