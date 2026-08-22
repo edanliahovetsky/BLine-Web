@@ -132,6 +132,91 @@ describe("project store", () => {
     ).toHaveLength(beforeLength);
   });
 
+  it("records linked geometry as one atomic edit and focuses its source Path on undo", async () => {
+    const workspace = exampleTwoPathWorkspace();
+    workspace.linked_targets = [
+      {
+        target_id: "shared",
+        display_name: "Shared",
+        kind: "translation",
+        x_meters: 0,
+        y_meters: 1,
+      },
+    ];
+    for (const path of workspace.paths) {
+      path.path.path_elements[0] = createTranslationTarget({
+        x_meters: 0,
+        y_meters: 1,
+        linked_target_id: "shared",
+      });
+    }
+    const { store } = await initializedProjectStore(workspace);
+    const [firstPath, secondPath] = requireWorkspace(store).paths;
+
+    const result = store.getState().applyPathElementEdit(
+      {
+        kind: "position",
+        index: 0,
+        position: { x_meters: 4, y_meters: 5 },
+      },
+      { pathId: firstPath.path_id },
+    );
+
+    expect(result.status).toBe("applied");
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
+    expect(requireWorkspace(store).linked_targets[0]).toMatchObject({
+      x_meters: 4,
+      y_meters: 5,
+    });
+    for (const path of requireWorkspace(store).paths) {
+      expect(path.path.path_elements[0]).toMatchObject({
+        x_meters: 4,
+        y_meters: 5,
+      });
+    }
+
+    const noop = store.getState().applyPathElementEdit(
+      {
+        kind: "position",
+        index: 0,
+        position: { x_meters: 4, y_meters: 5 },
+      },
+      { pathId: firstPath.path_id },
+    );
+    const rejected = store.getState().applyPathElementEdit(
+      {
+        kind: "position",
+        index: 99,
+        position: { x_meters: 4, y_meters: 5 },
+      },
+      { pathId: firstPath.path_id },
+    );
+    expect(noop.status).toBe("noop");
+    expect(rejected.status).toBe("rejected");
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
+
+    store.getState().setActivePath(secondPath.path_id);
+    store.getState().undo();
+    expect(store.getState().activePathId).toBe(firstPath.path_id);
+    expect(requireWorkspace(store).linked_targets[0]).toMatchObject({
+      x_meters: 0,
+      y_meters: 1,
+    });
+
+    store.getState().redo();
+    expect(store.getState().activePathId).toBe(firstPath.path_id);
+    expect(requireWorkspace(store).linked_targets[0]).toMatchObject({
+      x_meters: 4,
+      y_meters: 5,
+    });
+    for (const path of requireWorkspace(store).paths) {
+      expect(path.path.path_elements[0]).toMatchObject({
+        x_meters: 4,
+        y_meters: 5,
+      });
+    }
+  });
+
   it("applies Path metadata edits and keeps undo/redo state", async () => {
     const store = createProjectStore();
     const workspace = exampleWorkspace("project-a", "Alpha", 1);

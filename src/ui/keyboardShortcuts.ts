@@ -5,15 +5,11 @@ import {
   type FieldGeometry,
 } from "../core/field/fieldConfig";
 import { isTranslationTarget, isWaypoint } from "../core/model/path";
+import { getElementPosition } from "../canvas/geometry";
 import { canMovePathElement } from "../core/model/projectPathEdits";
 import { activePathForProjectStore, projectStore } from "../state/projectStore";
 import { selectionStore } from "../state/selectionStore";
-import {
-  createRemoveRangedConstraintCommand,
-  createUpdatePathElementCommand,
-  updateTranslationTarget,
-  updateWaypoint,
-} from "./sidebar/sidebarCommands";
+import { createRemoveRangedConstraintCommand } from "./sidebar/sidebarCommands";
 
 const editableSelector = [
   "input",
@@ -104,35 +100,25 @@ export function nudgeSelectedPathElement(
   const clamp = (value: number, max: number) =>
     Math.min(Math.max(value, 0), max);
 
-  let nextElement;
-  if (isTranslationTarget(element)) {
-    nextElement = updateTranslationTarget(element, {
-      x_meters: clamp(element.x_meters + dxMeters, maxX),
-      y_meters: clamp(element.y_meters + dyMeters, maxY),
-    });
-  } else if (isWaypoint(element)) {
-    nextElement = updateWaypoint(element, {
-      translation: {
-        x_meters: clamp(element.translation_target.x_meters + dxMeters, maxX),
-        y_meters: clamp(element.translation_target.y_meters + dyMeters, maxY),
-      },
-    });
-  } else {
+  if (!isTranslationTarget(element) && !isWaypoint(element)) {
     // Rotation and event elements have no field position to nudge.
     return false;
   }
+  const position = getElementPosition(path.path_elements, selectedElementIndex);
+  if (!position) {
+    return false;
+  }
 
-  projectStore
-    .getState()
-    .applyPathCommand(
-      createUpdatePathElementCommand(
-        selectedElementIndex,
-        element,
-        nextElement,
-      ),
-    );
+  const result = projectStore.getState().applyPathElementEdit({
+    kind: "position",
+    index: selectedElementIndex,
+    position: {
+      x_meters: clamp(position.x_meters + dxMeters, maxX),
+      y_meters: clamp(position.y_meters + dyMeters, maxY),
+    },
+  });
 
-  return true;
+  return result.status === "applied";
 }
 
 export function duplicateSelectedPathElement(): boolean {

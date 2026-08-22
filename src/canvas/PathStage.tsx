@@ -83,12 +83,7 @@ import {
   type RotationOverrides,
   type StagePoint,
 } from "./geometry";
-import {
-  createMoveElementCommand,
-  createSetElementRatioCommand,
-  createSetElementRotationCommand,
-  isTranslationBearingElement,
-} from "./modelSync";
+import { isTranslationBearingElement } from "./modelSync";
 import {
   PixiPathRenderer,
   type PixiDebugWindow,
@@ -132,14 +127,12 @@ interface ActiveDrag {
   current: PointMeters;
   startRatio: number | null;
   currentRatio: number | null;
-  linkedTargetId: string | null;
 }
 
 interface ActiveRotationDrag {
   index: number;
   startRadians: number;
   currentRadians: number;
-  linkedTargetId: string | null;
 }
 
 interface ActivePanDrag {
@@ -974,7 +967,6 @@ export function PathStage({
         index: rotationHit,
         startRadians,
         currentRadians: startRadians,
-        linkedTargetId,
       });
       return;
     }
@@ -1009,7 +1001,6 @@ export function PathStage({
         current: start,
         startRatio,
         currentRatio: startRatio,
-        linkedTargetId: linkedTarget?.target_id ?? null,
       });
       return;
     }
@@ -1215,15 +1206,11 @@ export function PathStage({
 
     if (drag.startRatio !== null && nextRatio !== null) {
       if (Math.abs(drag.startRatio - nextRatio) >= 0.001) {
-        projectStore
-          .getState()
-          .applyPathCommand(
-            createSetElementRatioCommand(
-              drag.index,
-              drag.startRatio,
-              nextRatio,
-            ),
-          );
+        projectStore.getState().applyPathElementEdit({
+          kind: "ratio",
+          index: drag.index,
+          ratio: nextRatio,
+        });
         selectionStore
           .getState()
           .selectElement(
@@ -1235,31 +1222,11 @@ export function PathStage({
     }
 
     if (!pointsAlmostEqual(drag.start, nextPosition)) {
-      if (drag.linkedTargetId) {
-        const target = projectStore
-          .getState()
-          .project?.linked_targets.find(
-            (candidate) => candidate.target_id === drag.linkedTargetId,
-          );
-        if (target && !target.locked) {
-          projectStore.getState().updateLinkedTarget(drag.linkedTargetId, {
-            x_meters: nextPosition.x_meters,
-            y_meters: nextPosition.y_meters,
-          });
-          selectionStore
-            .getState()
-            .selectElement(
-              drag.index,
-              activePathForProjectStore(projectStore.getState())?.path,
-            );
-        }
-        return;
-      }
-      projectStore
-        .getState()
-        .applyPathCommand(
-          createMoveElementCommand(drag.index, drag.start, nextPosition),
-        );
+      projectStore.getState().applyPathElementEdit({
+        kind: "position",
+        index: drag.index,
+        position: nextPosition,
+      });
       selectionStore
         .getState()
         .selectElement(
@@ -1288,36 +1255,11 @@ export function PathStage({
     if (
       Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001
     ) {
-      if (rotationDrag.linkedTargetId) {
-        const target = projectStore
-          .getState()
-          .project?.linked_targets.find(
-            (candidate) => candidate.target_id === rotationDrag.linkedTargetId,
-          );
-        if (target && !target.locked) {
-          projectStore
-            .getState()
-            .updateLinkedTarget(rotationDrag.linkedTargetId, {
-              rotation_radians: nextRadians,
-            });
-          selectionStore
-            .getState()
-            .selectElement(
-              rotationDrag.index,
-              activePathForProjectStore(projectStore.getState())?.path,
-            );
-        }
-        return;
-      }
-      projectStore
-        .getState()
-        .applyPathCommand(
-          createSetElementRotationCommand(
-            rotationDrag.index,
-            rotationDrag.startRadians,
-            nextRadians,
-          ),
-        );
+      projectStore.getState().applyPathElementEdit({
+        kind: "rotation",
+        index: rotationDrag.index,
+        rotationRadians: nextRadians,
+      });
       selectionStore
         .getState()
         .selectElement(

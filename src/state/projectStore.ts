@@ -23,7 +23,10 @@ import {
 } from "../core/model/projectOperations";
 import type { PathModel } from "../core/model/path";
 import {
+  applyPathElementEdit,
   applyPathStructureEdit,
+  type PathElementEdit,
+  type PathElementEditResult,
   type PathStructureEdit,
   type PathStructureEditResult,
 } from "../core/model/projectPathEdits";
@@ -177,6 +180,10 @@ export interface ProjectStoreState {
   importProjectArchive(file: File): Promise<ProjectImportResult>;
   exportProjectArchive(): Promise<Blob | null>;
   applyPathCommand(command: HistoryCommand<PathModel>, pathId?: string): void;
+  applyPathElementEdit(
+    edit: PathElementEdit,
+    options?: { pathId?: string },
+  ): PathElementEditResult;
   applyPathStructureEdit(
     edit: PathStructureEdit,
     options?: {
@@ -1024,6 +1031,34 @@ export function createProjectStore(
         .execute(cloneProject(project), projectPathCommand(command, pathId));
 
       setProject(set, nextProject, currentNavigation(get()), true);
+    },
+    applyPathElementEdit(edit, options) {
+      const state = get();
+      const project = requireProject(state.project);
+      const pathId = options?.pathId ?? requireActivePathId(state);
+      const navigation = currentNavigation(state);
+      const result = applyPathElementEdit(project, pathId, edit);
+      if (result.status !== "applied") {
+        return result;
+      }
+
+      const nextNavigation = {
+        ...navigation,
+        activePathId: result.consequences.focusPathId,
+      };
+      applyProjectTransition(
+        set,
+        history,
+        project,
+        result.project,
+        navigation,
+        nextNavigation,
+        result.description,
+        true,
+        {},
+        { focusPathId: result.consequences.focusPathId },
+      );
+      return result;
     },
     applyPathStructureEdit(edit, options) {
       const state = get();

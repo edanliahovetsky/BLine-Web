@@ -3639,6 +3639,102 @@ test("keeps linked elements after reload", async ({ page }) => {
   await expect(dialog.getByLabel("Y (m)")).toHaveValue("2.75");
 });
 
+test("synchronizes linked inspector and keyboard edits while respecting locks", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const firstLinkedRow = page.getByTestId("path-element-row-1");
+  const secondLinkedRow = page.getByTestId("path-element-row-3");
+
+  await test.step("link two path elements to one shared point", async () => {
+    await firstLinkedRow.click();
+    await page.getByRole("button", { name: "Link element" }).click();
+
+    let linkedElementActions = page.getByRole("group", {
+      name: "Linked element actions",
+    });
+    await linkedElementActions
+      .getByRole("button", { name: /New Linked Translation/ })
+      .click();
+    await linkedElementActions
+      .getByLabel("Linked element name")
+      .fill("Shared Point");
+    await linkedElementActions
+      .getByRole("button", { name: "Create & Link" })
+      .click();
+
+    await secondLinkedRow.click();
+    await page.getByRole("button", { name: "Link element" }).click();
+    linkedElementActions = page.getByRole("group", {
+      name: "Linked element actions",
+    });
+    await linkedElementActions
+      .getByRole("button", { name: /Choose Existing/ })
+      .click();
+
+    const picker = page.getByRole("dialog", {
+      name: "Choose Linked Element",
+    });
+    await picker
+      .getByRole("listitem")
+      .filter({ hasText: "Shared Point" })
+      .click();
+    await picker.getByRole("button", { name: "Link Selected" }).click();
+
+    await expect(firstLinkedRow).toContainText("7.00, 4.00 m");
+    await expect(secondLinkedRow).toContainText("7.00, 4.00 m");
+  });
+
+  await test.step("propagate an inspector edit and retain it after reload", async () => {
+    await firstLinkedRow.click();
+    await page.getByTestId("property-editor").getByLabel("X (m)").fill("7.5");
+
+    await expect(firstLinkedRow).toContainText("7.50, 4.00 m");
+    await expect(secondLinkedRow).toContainText("7.50, 4.00 m");
+
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
+    await page.reload();
+
+    await expect(firstLinkedRow).toContainText("7.50, 4.00 m");
+    await expect(secondLinkedRow).toContainText("7.50, 4.00 m");
+  });
+
+  await test.step("propagate an unlocked keyboard nudge", async () => {
+    await firstLinkedRow.click();
+    await firstLinkedRow.focus();
+    await page.keyboard.press("ArrowRight");
+
+    await expect(firstLinkedRow).toContainText("7.55, 4.00 m");
+    await expect(secondLinkedRow).toContainText("7.55, 4.00 m");
+  });
+
+  await test.step("prevent keyboard nudges while the shared point is locked", async () => {
+    const pathMenu = await openPathMenu(page);
+    await pathMenu
+      .getByRole("menuitem", { name: "Linked Elements..." })
+      .click();
+
+    const dialog = page.getByRole("dialog", { name: "Linked Elements" });
+    await dialog
+      .getByRole("listitem")
+      .filter({ hasText: "Shared Point" })
+      .click();
+    const lockedSwitch = dialog.getByRole("switch", { name: "Locked" });
+    await lockedSwitch.check();
+    await expect(lockedSwitch).toBeChecked();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+    await firstLinkedRow.click();
+    await firstLinkedRow.focus();
+    await page.keyboard.press("ArrowRight");
+
+    await expect(firstLinkedRow).toContainText("7.55, 4.00 m");
+    await expect(secondLinkedRow).toContainText("7.55, 4.00 m");
+  });
+});
+
 test("opens a saved project from the project list", async ({ page }) => {
   await gotoSampleEditor(page);
 

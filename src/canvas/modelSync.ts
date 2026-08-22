@@ -14,44 +14,6 @@ export function isTranslationBearingElement(element: PathElement): boolean {
   return isTranslationTarget(element) || isWaypoint(element);
 }
 
-export function createMoveElementCommand(
-  index: number,
-  previousPosition: PointMeters,
-  nextPosition: PointMeters,
-): HistoryCommand<PathModel> {
-  return {
-    description: `Move element ${index + 1}`,
-    apply: (path) => updatePathElementPosition(path, index, nextPosition),
-    revert: (path) => updatePathElementPosition(path, index, previousPosition),
-  };
-}
-
-export function createSetElementRatioCommand(
-  index: number,
-  previousRatio: number,
-  nextRatio: number,
-): HistoryCommand<PathModel> {
-  return {
-    description: `Move projected element ${index + 1}`,
-    apply: (path) => updatePathElementRatio(path, index, nextRatio),
-    revert: (path) => updatePathElementRatio(path, index, previousRatio),
-  };
-}
-
-export function createSetElementRotationCommand(
-  index: number,
-  previousRotationRadians: number,
-  nextRotationRadians: number,
-): HistoryCommand<PathModel> {
-  return {
-    description: `Rotate element ${index + 1}`,
-    apply: (path) =>
-      updatePathElementRotation(path, index, nextRotationRadians),
-    revert: (path) =>
-      updatePathElementRotation(path, index, previousRotationRadians),
-  };
-}
-
 export interface HandoffRadiusState {
   radiusMeters: number | null;
   source: HandoffRadiusSource | null;
@@ -129,70 +91,6 @@ function updatePathElementHandoffRadii(
   return nextPath;
 }
 
-export function updatePathElementPosition(
-  path: PathModel,
-  index: number,
-  position: PointMeters,
-): PathModel {
-  const nextPath = structuredClone(path);
-  const element = nextPath.path_elements[index];
-
-  if (isTranslationTarget(element)) {
-    element.x_meters = position.x_meters;
-    element.y_meters = position.y_meters;
-    return nextPath;
-  }
-
-  if (isWaypoint(element)) {
-    element.translation_target.x_meters = position.x_meters;
-    element.translation_target.y_meters = position.y_meters;
-    return nextPath;
-  }
-
-  throw new Error(
-    `Element ${index} does not have an editable translation position`,
-  );
-}
-
-export function updatePathElementRotation(
-  path: PathModel,
-  index: number,
-  rotationRadians: number,
-): PathModel {
-  const nextPath = structuredClone(path);
-  const element = nextPath.path_elements[index];
-  const nextRotation = normalizeRadians(rotationRadians);
-
-  if (isRotationTarget(element)) {
-    element.rotation_radians = nextRotation;
-    return nextPath;
-  }
-
-  if (isWaypoint(element)) {
-    element.rotation_target.rotation_radians = nextRotation;
-    return nextPath;
-  }
-
-  throw new Error(`Element ${index} does not have an editable rotation`);
-}
-
-export function updatePathElementRatio(
-  path: PathModel,
-  index: number,
-  tRatio: number,
-): PathModel {
-  const nextPath = structuredClone(path);
-  const element = nextPath.path_elements[index];
-  const nextRatio = Math.max(0, Math.min(1, tRatio));
-
-  if (isRotationTarget(element) || isEventTrigger(element)) {
-    element.t_ratio = nextRatio;
-    return nextPath;
-  }
-
-  throw new Error(`Element ${index} does not have an editable path ratio`);
-}
-
 export function getElementLabel(element: PathElement): string {
   if (isTranslationTarget(element)) {
     return "TranslationTarget";
@@ -219,19 +117,4 @@ export function formatPointMeters(point: PointMeters | null): string {
   }
 
   return `${point.x_meters.toFixed(2)}, ${point.y_meters.toFixed(2)} m`;
-}
-
-function normalizeRadians(radians: number): number {
-  if (!Number.isFinite(radians)) {
-    return 0;
-  }
-
-  let normalized = radians;
-  while (normalized <= -Math.PI) {
-    normalized += Math.PI * 2;
-  }
-  while (normalized > Math.PI) {
-    normalized -= Math.PI * 2;
-  }
-  return normalized;
 }

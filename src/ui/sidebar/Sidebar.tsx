@@ -24,7 +24,6 @@ import { PropertyEditor } from "./sections/PropertyEditor";
 import {
   createConvertedElement,
   createDefaultElement,
-  createUpdatePathElementCommand,
   getInsertionIndex,
   getSwitchableElementTypes,
   type AddableElementType,
@@ -242,15 +241,11 @@ export function Sidebar({
       return;
     }
 
-    projectStore
-      .getState()
-      .applyPathCommand(
-        createUpdatePathElementCommand(
-          selectedElementIndex,
-          selectedElement,
-          nextElement,
-        ),
-      );
+    projectStore.getState().applyPathElementEdit({
+      kind: "replace",
+      index: selectedElementIndex,
+      element: nextElement,
+    });
     selectionStore
       .getState()
       .selectElement(

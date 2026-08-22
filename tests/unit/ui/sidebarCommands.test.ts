@@ -41,13 +41,11 @@ import {
   createRemoveRangedConstraintCommand,
   createSetScalarConstraintCommand,
   createSplitRangedConstraintCommand,
-  createUpdatePathElementCommand,
   createUpdateRangedConstraintCommand,
   getAddableElementTypes,
   getInsertionIndex,
   getSwitchableElementTypes,
   handoffRadiusChipsForPath,
-  updateWaypoint,
 } from "../../../src/ui/sidebar/sidebarCommands";
 
 function applyStructureToDocument(
@@ -227,47 +225,6 @@ describe("sidebar commands", () => {
         end_ordinal: 4,
       },
     ]);
-  });
-
-  it("updates selected elements while preserving undo payloads", () => {
-    const project = createProjectDocument({
-      project_id: "project-a",
-      display_name: "Alpha",
-      path: createPathModel({
-        path_elements: [
-          createWaypoint({
-            translation_target: createTranslationTarget({
-              x_meters: 2,
-              y_meters: 3,
-            }),
-          }),
-        ],
-      }),
-    });
-    const previous = project.path.path_elements[0];
-    if (!isWaypoint(previous)) {
-      throw new Error("Expected waypoint");
-    }
-    const next = updateWaypoint(previous, {
-      translation: { x_meters: 4 },
-      rotation: { rotation_radians: Math.PI / 3 },
-    });
-
-    const command = createUpdatePathElementCommand(0, previous, next);
-    const updated = command.apply(project.path);
-    const restored = command.revert(updated);
-
-    const updatedElement = updated.path_elements[0];
-    const restoredElement = restored.path_elements[0];
-    expect(isWaypoint(updatedElement)).toBe(true);
-    expect(isWaypoint(restoredElement)).toBe(true);
-    if (isWaypoint(updatedElement) && isWaypoint(restoredElement)) {
-      expect(updatedElement.translation_target.x_meters).toBe(4);
-      expect(updatedElement.rotation_target.rotation_radians).toBeCloseTo(
-        Math.PI / 3,
-      );
-      expect(restoredElement.translation_target.x_meters).toBe(2);
-    }
   });
 
   it("keeps rotation-domain insertions between translation anchors", () => {

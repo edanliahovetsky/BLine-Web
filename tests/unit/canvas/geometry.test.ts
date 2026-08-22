@@ -28,15 +28,9 @@ import {
   stageToModelPoint,
 } from "../../../src/canvas/geometry";
 import {
-  createMoveElementCommand,
-  createSetElementRotationCommand,
-  createSetElementRatioCommand,
   createSetHandoffRadiusCommand,
   createSetHandoffRadiiCommand,
   updatePathElementHandoffRadius,
-  updatePathElementRatio,
-  updatePathElementRotation,
-  updatePathElementPosition,
 } from "../../../src/canvas/modelSync";
 import {
   coveredDomainIndexesForConstraint,
@@ -295,133 +289,6 @@ describe("canvas geometry", () => {
 });
 
 describe("canvas model sync", () => {
-  it("moves and reverts translation-bearing elements through history commands", () => {
-    const project = createProjectDocument({
-      project_id: "project-a",
-      display_name: "Alpha",
-      path: createPathModel({
-        path_elements: [
-          createTranslationTarget({ x_meters: 1, y_meters: 2 }),
-          createWaypoint({
-            translation_target: createTranslationTarget({
-              x_meters: 3,
-              y_meters: 4,
-            }),
-          }),
-        ],
-      }),
-    });
-    const move = createMoveElementCommand(
-      1,
-      { x_meters: 3, y_meters: 4 },
-      { x_meters: 6, y_meters: 7 },
-    );
-
-    const moved = move.apply(project.path);
-    expect(getElementPosition(moved.path_elements, 1)).toEqual({
-      x_meters: 6,
-      y_meters: 7,
-    });
-
-    const reverted = move.revert(moved);
-    expect(getElementPosition(reverted.path_elements, 1)).toEqual({
-      x_meters: 3,
-      y_meters: 4,
-    });
-    expect(project.path.path_elements).not.toBe(moved.path_elements);
-  });
-
-  it("rejects direct position updates for non-translation elements", () => {
-    const project = createProjectDocument({
-      project_id: "project-a",
-      display_name: "Alpha",
-      path: createPathModel({
-        path_elements: [createRotationTarget()],
-      }),
-    });
-
-    expect(() =>
-      updatePathElementPosition(project.path, 0, {
-        x_meters: 2,
-        y_meters: 3,
-      }),
-    ).toThrow("does not have an editable translation position");
-  });
-
-  it("updates and reverts projected rotation/event ratios", () => {
-    const project = createProjectDocument({
-      project_id: "project-a",
-      display_name: "Alpha",
-      path: createPathModel({
-        path_elements: [
-          createTranslationTarget({ x_meters: 0, y_meters: 0 }),
-          createEventTrigger({ t_ratio: 0.25, lib_key: "event" }),
-          createRotationTarget({ t_ratio: 0.5 }),
-          createTranslationTarget({ x_meters: 4, y_meters: 0 }),
-        ],
-      }),
-    });
-
-    const moved = updatePathElementRatio(project.path, 1, 0.75);
-    expect(moved.path_elements[1]).toMatchObject({
-      type: "event_trigger",
-      t_ratio: 0.75,
-    });
-
-    const command = createSetElementRatioCommand(2, 0.5, 0.1);
-    const updated = command.apply(project.path);
-    const reverted = command.revert(updated);
-
-    expect(updated.path_elements[2]).toMatchObject({
-      type: "rotation",
-      t_ratio: 0.1,
-    });
-    expect(reverted.path_elements[2]).toMatchObject({
-      type: "rotation",
-      t_ratio: 0.5,
-    });
-  });
-
-  it("updates and reverts waypoint and rotation target headings", () => {
-    const project = createProjectDocument({
-      project_id: "project-a",
-      display_name: "Alpha",
-      path: createPathModel({
-        path_elements: [
-          createWaypoint({
-            rotation_target: createRotationTarget({ rotation_radians: 0 }),
-          }),
-          createRotationTarget({ rotation_radians: Math.PI / 4 }),
-        ],
-      }),
-    });
-
-    const updatedWaypoint = updatePathElementRotation(
-      project.path,
-      0,
-      Math.PI / 2,
-    );
-    expect(
-      getElementHeadingRadians(updatedWaypoint.path_elements, 0),
-    ).toBeCloseTo(Math.PI / 2, 6);
-
-    const command = createSetElementRotationCommand(
-      1,
-      Math.PI / 4,
-      -Math.PI / 2,
-    );
-    const updatedRotation = command.apply(project.path);
-    const reverted = command.revert(updatedRotation);
-
-    expect(
-      getElementHeadingRadians(updatedRotation.path_elements, 1),
-    ).toBeCloseTo(-Math.PI / 2, 6);
-    expect(getElementHeadingRadians(reverted.path_elements, 1)).toBeCloseTo(
-      Math.PI / 4,
-      6,
-    );
-  });
-
   it("applies and reverts handoff radius plus source together", () => {
     const project = createProjectDocument({
       project_id: "handoff-radius",

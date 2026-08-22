@@ -2,11 +2,52 @@ import { applyAutoVelocityConstraintsToOrdinals } from "../constraints/autoVeloc
 import { clearGeneratedAutoConstraints } from "../constraints/autoConstraintGeneration";
 import { remapRangedConstraints } from "../constraints/rangedConstraints";
 import {
+  getPathElementLinkedTargetId,
+  linkedTargetControlsElementRotation,
+  linkedTargetForPathElement,
   setPathElementLinkedTargetId,
   syncLinkedTargetElementsInProject,
+  updateLinkedTargetInProject,
 } from "../linkedTargets";
 import type { Project, ProjectConfig } from "./project";
-import { isAnchorElement, type PathElement, type PathModel } from "./path";
+import {
+  isAnchorElement,
+  isEventTrigger,
+  isRotationTarget,
+  isTranslationTarget,
+  isWaypoint,
+  type PathElement,
+  type PathModel,
+} from "./path";
+
+export type PathElementEdit =
+  | {
+      kind: "replace";
+      index: number;
+      element: PathElement;
+      description?: string;
+    }
+  | {
+      kind: "position";
+      index: number;
+      position: { x_meters: number; y_meters: number };
+    }
+  | { kind: "rotation"; index: number; rotationRadians: number }
+  | { kind: "ratio"; index: number; ratio: number };
+
+export type PathElementEditResult =
+  | {
+      status: "applied";
+      project: Project;
+      description: string;
+      consequences: { focusPathId: string };
+    }
+  | {
+      status: "noop" | "rejected";
+      project: Project;
+      reason: string;
+      consequences: { focusPathId: string };
+    };
 
 export type PathStructureEdit =
   | { kind: "insert"; index: number; element: PathElement }
@@ -42,6 +83,130 @@ export type PathStructureEditResult =
 
 export interface ApplyPathStructureEditOptions {
   selectedElementIndex?: number | null;
+}
+
+/**
+ * The semantic authority for non-structural Path-element edits. Linked-target
+ * geometry is promoted to its canonical target while element-local properties
+ * remain local, and the complete Project is returned for atomic history.
+ */
+export function applyPathElementEdit(
+  project: Project,
+  pathId: string,
+  edit: PathElementEdit,
+): PathElementEditResult {
+  const consequences = { focusPathId: pathId };
+  const projectPath = project.paths.find(
+    (candidate) => candidate.path_id === pathId,
+  );
+  if (!projectPath) {
+    return elementEditRejected(project, consequences, "Path does not exist");
+  }
+
+  const previous = projectPath.path.path_elements[edit.index];
+  if (!previous) {
+    return elementEditRejected(
+      project,
+      consequences,
+      "Element index is out of range",
+    );
+  }
+
+  const next = elementAfterEdit(previous, edit);
+  if (!next) {
+    return elementEditRejected(
+      project,
+      consequences,
+      "Element does not support that edit",
+    );
+  }
+  if (next.type !== previous.type) {
+    return elementEditRejected(
+      project,
+      consequences,
+      "Element type changes must use a structural edit",
+    );
+  }
+  if (
+    getPathElementLinkedTargetId(next) !==
+    getPathElementLinkedTargetId(previous)
+  ) {
+    return elementEditRejected(
+      project,
+      consequences,
+      "Link changes must use a linked-target edit",
+    );
+  }
+
+  let nextProject: Project = {
+    ...structuredClone(project),
+    paths: project.paths.map((candidate) =>
+      candidate.path_id === pathId
+        ? {
+            ...structuredClone(candidate),
+            path: {
+              ...structuredClone(candidate.path),
+              path_elements: candidate.path.path_elements.map(
+                (element, index) =>
+                  index === edit.index
+                    ? structuredClone(next)
+                    : structuredClone(element),
+              ),
+            },
+          }
+        : structuredClone(candidate),
+    ),
+  };
+
+  const linkedTarget = linkedTargetForPathElement(project, previous);
+  if (linkedTarget && !linkedTarget.locked) {
+    const targetUpdate: {
+      x_meters?: number;
+      y_meters?: number;
+      rotation_radians?: number;
+    } = {};
+    const previousPosition = editablePosition(previous);
+    const position = editablePosition(next);
+    if (
+      position &&
+      previousPosition &&
+      (position.x_meters !== previousPosition.x_meters ||
+        position.y_meters !== previousPosition.y_meters)
+    ) {
+      targetUpdate.x_meters = position.x_meters;
+      targetUpdate.y_meters = position.y_meters;
+    }
+    if (linkedTargetControlsElementRotation(next, linkedTarget)) {
+      const previousRotation = editableRotation(previous);
+      const rotation = editableRotation(next);
+      if (rotation !== null && rotation !== previousRotation) {
+        targetUpdate.rotation_radians = rotation;
+      }
+    }
+    nextProject =
+      Object.keys(targetUpdate).length > 0
+        ? updateLinkedTargetInProject(
+            nextProject,
+            linkedTarget.target_id,
+            targetUpdate,
+          )
+        : syncLinkedTargetElementsInProject(nextProject);
+  } else {
+    // For a locked target this restores only target-controlled geometry while
+    // preserving local changes. It also repairs broken/incompatible links.
+    nextProject = syncLinkedTargetElementsInProject(nextProject);
+  }
+
+  if (sameProject(project, nextProject)) {
+    return elementEditNoop(project, consequences, "Element is unchanged");
+  }
+
+  return {
+    status: "applied",
+    project: nextProject,
+    description: elementEditDescription(edit),
+    consequences,
+  };
 }
 
 /**
@@ -348,6 +513,118 @@ function isElementIndex(index: number, length: number): boolean {
 
 function sameElement(left: PathElement, right: PathElement): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function elementAfterEdit(
+  previous: PathElement,
+  edit: PathElementEdit,
+): PathElement | null {
+  if (edit.kind === "replace") {
+    return structuredClone(edit.element);
+  }
+
+  const next = structuredClone(previous);
+  if (edit.kind === "position") {
+    if (isTranslationTarget(next)) {
+      next.x_meters = edit.position.x_meters;
+      next.y_meters = edit.position.y_meters;
+      return next;
+    }
+    if (isWaypoint(next)) {
+      next.translation_target.x_meters = edit.position.x_meters;
+      next.translation_target.y_meters = edit.position.y_meters;
+      return next;
+    }
+    return null;
+  }
+
+  if (edit.kind === "rotation") {
+    const rotation = normalizeRadians(edit.rotationRadians);
+    if (isRotationTarget(next)) {
+      next.rotation_radians = rotation;
+      return next;
+    }
+    if (isWaypoint(next)) {
+      next.rotation_target.rotation_radians = rotation;
+      return next;
+    }
+    return null;
+  }
+
+  if (isRotationTarget(next) || isEventTrigger(next)) {
+    next.t_ratio = Math.max(0, Math.min(1, edit.ratio));
+    return next;
+  }
+  return null;
+}
+
+function editablePosition(
+  element: PathElement,
+): { x_meters: number; y_meters: number } | null {
+  if (isTranslationTarget(element)) {
+    return { x_meters: element.x_meters, y_meters: element.y_meters };
+  }
+  if (isWaypoint(element)) {
+    return {
+      x_meters: element.translation_target.x_meters,
+      y_meters: element.translation_target.y_meters,
+    };
+  }
+  return null;
+}
+
+function editableRotation(element: PathElement): number | null {
+  if (isRotationTarget(element)) {
+    return element.rotation_radians;
+  }
+  if (isWaypoint(element)) {
+    return element.rotation_target.rotation_radians;
+  }
+  return null;
+}
+
+function normalizeRadians(radians: number): number {
+  if (!Number.isFinite(radians)) {
+    return 0;
+  }
+
+  let normalized = radians;
+  while (normalized <= -Math.PI) normalized += Math.PI * 2;
+  while (normalized > Math.PI) normalized -= Math.PI * 2;
+  return normalized;
+}
+
+function elementEditDescription(edit: PathElementEdit): string {
+  if (edit.kind === "replace") {
+    return edit.description ?? `Update element ${edit.index + 1}`;
+  }
+  if (edit.kind === "position") {
+    return `Move element ${edit.index + 1}`;
+  }
+  if (edit.kind === "rotation") {
+    return `Rotate element ${edit.index + 1}`;
+  }
+  return `Move projected element ${edit.index + 1}`;
+}
+
+function sameProject(left: Project, right: Project): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function elementEditRejected(
+  project: Project,
+  consequences: { focusPathId: string },
+  reason: string,
+): PathElementEditResult {
+  return { status: "rejected", project, reason, consequences };
+}
+
+function elementEditNoop(
+  project: Project,
+  consequences: { focusPathId: string },
+  reason: string,
+): PathElementEditResult {
+  return { status: "noop", project, reason, consequences };
 }
 
 function rejected(

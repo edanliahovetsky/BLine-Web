@@ -138,18 +138,6 @@ function pathCommand(
   };
 }
 
-export function createUpdatePathElementCommand(
-  index: number,
-  previousElement: PathElement,
-  nextElement: PathElement,
-): HistoryCommand<PathModel> {
-  return {
-    description: `Update element ${index + 1}`,
-    apply: (path) => replaceElement(path, index, nextElement),
-    revert: (path) => replaceElement(path, index, previousElement),
-  };
-}
-
 export function createSetScalarConstraintCommand(
   key: ConstraintKey,
   previousValue: number | null,
@@ -549,18 +537,6 @@ export function elementTypeLabel(element: PathElement): string {
 
 export function elementTypeValue(element: PathElement): AddableElementType {
   return element.type;
-}
-
-function replaceElement(
-  path: PathModel,
-  index: number,
-  element: PathElement,
-): PathModel {
-  const nextPath = structuredClone(path);
-  if (index >= 0 && index < nextPath.path_elements.length) {
-    nextPath.path_elements[index] = structuredClone(element);
-  }
-  return nextPath;
 }
 
 function getExistingHandoffRadius(element: PathElement): number | null {
