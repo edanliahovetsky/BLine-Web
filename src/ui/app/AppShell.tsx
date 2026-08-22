@@ -29,10 +29,7 @@ import { LinkedTargetsCanvas } from "../../canvas/LinkedTargetsCanvas";
 import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { elementColors } from "../../canvas/elementStyle";
-import {
-  activeProjectPath,
-  openProjectFromLegacyWorkspace,
-} from "../../core/io/legacyWorkspace";
+import { activeProjectPath } from "../../core/model/editorNavigation";
 import type {
   LinkedTarget,
   LinkedTargetKind,
@@ -130,8 +127,8 @@ import "./AppShell.css";
 import { createUpdateProjectConfigCommand } from "./configCommands";
 import {
   createBlankCanvasPath,
-  createNamedCanvasWorkspace,
-  createSampleCanvasWorkspace,
+  createNamedProject,
+  createSampleProject,
 } from "./initialProject";
 import { ProjectConfigDialog } from "./ProjectConfigDialog";
 import { writeProjectFolder } from "./projectFolderExport";
@@ -166,7 +163,10 @@ import {
   selectedFieldBackgroundForProject,
   updateFieldBackgroundMetadata,
 } from "../../userData";
-import { migrateLegacyProjectFieldBackgrounds } from "../../userData/legacyFieldMigration";
+import {
+  migrateImportedLegacyFieldBackgrounds,
+  migrateLegacyProjectFieldBackgrounds,
+} from "../../userData/legacyFieldMigration";
 import { displayNameFromFileName } from "../../core/io/workspaceSerde";
 import {
   editorBasicsTour,
@@ -682,11 +682,7 @@ export function AppShell() {
       try {
         await projectStore
           .getState()
-          .createWorkspace(
-            openProjectFromLegacyWorkspace(
-              createNamedCanvasWorkspace(projectName, pathName),
-            ).project,
-          );
+          .createWorkspace(createNamedProject(projectName, pathName));
         selectionStore.getState().clearSelection();
         setShowNewProjectDialog(false);
         setShowOpenPanel(false);
@@ -702,11 +698,7 @@ export function AppShell() {
     autosaveRef.current?.cancel();
 
     try {
-      await projectStore
-        .getState()
-        .createWorkspace(
-          openProjectFromLegacyWorkspace(createSampleCanvasWorkspace()).project,
-        );
+      await projectStore.getState().createWorkspace(createSampleProject());
       selectionStore.getState().clearSelection();
       setShowOpenPanel(false);
       await refreshWorkspaceSummaries();
@@ -1635,7 +1627,18 @@ export function AppShell() {
           return;
         }
 
-        await projectStore.getState().importProjectArchive(file);
+        const imported = await projectStore
+          .getState()
+          .importProjectArchive(file);
+        const fieldMigration = await migrateImportedLegacyFieldBackgrounds({
+          projectId: imported.project.project_id,
+          selectedFieldId: imported.legacySelectedFieldId,
+          entries: imported.legacyFieldBackgrounds,
+        });
+        if (fieldMigration.errors[0]) {
+          throw fieldMigration.errors[0];
+        }
+        setFieldBackgrounds(listFieldBackgrounds());
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
@@ -1661,7 +1664,18 @@ export function AppShell() {
       }
 
       try {
-        await projectStore.getState().importProjectFolder(files);
+        const imported = await projectStore
+          .getState()
+          .importProjectFolder(files);
+        const fieldMigration = await migrateImportedLegacyFieldBackgrounds({
+          projectId: imported.project.project_id,
+          selectedFieldId: imported.legacySelectedFieldId,
+          entries: imported.legacyFieldBackgrounds,
+        });
+        if (fieldMigration.errors[0]) {
+          throw fieldMigration.errors[0];
+        }
+        setFieldBackgrounds(listFieldBackgrounds());
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
       } catch (caughtError) {

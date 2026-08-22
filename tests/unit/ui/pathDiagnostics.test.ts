@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createSampleCanvasWorkspace } from "../../../src/ui/app/initialProject";
+import { createSampleProject } from "../../../src/ui/app/initialProject";
 import { derivePathDiagnostics } from "../../../src/ui/app/pathDiagnostics";
 import { defaultFieldGeometry } from "../../../src/core/field/fieldConfig";
 
 describe("path diagnostics", () => {
   it("reports incomplete paths", () => {
-    const workspace = createSampleCanvasWorkspace();
+    const workspace = createSampleProject();
     workspace.paths[0].path.path_elements =
       workspace.paths[0].path.path_elements.slice(0, 1);
     expect(
@@ -22,7 +22,7 @@ describe("path diagnostics", () => {
   });
 
   it("reports empty event keys and off-field elements", () => {
-    const workspace = createSampleCanvasWorkspace();
+    const workspace = createSampleProject();
     const event = workspace.paths[0].path.path_elements.find(
       (element) => element.type === "event_trigger",
     );

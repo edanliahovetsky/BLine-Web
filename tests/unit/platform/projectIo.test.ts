@@ -6,7 +6,6 @@ import {
 import {
   createProjectPathDocument,
   createProjectWorkspaceDocument,
-  type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
 import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
@@ -18,12 +17,7 @@ import {
 import {
   BrowserStorage,
   TauriStorage,
-  type FieldAssetPayload,
-  type FieldAssetWriteInput,
-  type ProjectWorkspaceSummary,
-  type StorageAdapter,
   type StorageLike,
-  type WriteResult,
 } from "../../../src/storage";
 
 describe("ProjectIoService", () => {
@@ -105,14 +99,14 @@ describe("ProjectIoService", () => {
       ),
     );
 
-    expect(imported.paths.map((path) => path.file_name)).toEqual([
+    expect(imported.project.paths.map((path) => path.file_name)).toEqual([
       "One.json",
       "Two.json",
     ]);
   });
 
   it("excludes local Field Background metadata and bytes from exports", async () => {
-    const sourceStorage = new FieldAssetMemoryAdapter();
+    const sourceStorage = new BrowserStorage({ storage: new MemoryStorage() });
     const sourceService = createProjectIoService(browserWebCapabilities, {
       storage: sourceStorage,
     });
@@ -135,13 +129,6 @@ describe("ProjectIoService", () => {
         coordinate_offset_meters: 0.25,
       },
     };
-    await sourceStorage.writeFieldAsset({
-      workspaceId: "workspace-a",
-      assetId: customField.asset_id,
-      fileName: customField.file_name,
-      mimeType: customField.mime_type,
-      bytes: imageBytes,
-    });
     const workspace = await sourceService.getWorkspace();
     if (!workspace) {
       throw new Error("Expected workspace to be open");
@@ -198,6 +185,68 @@ describe("ProjectIoService", () => {
     expect(folderConfig.gui).toBeUndefined();
     expect(folderProject).not.toHaveProperty("editor_config.gui.field");
     expect(folderProject).not.toHaveProperty("field_assets");
+  });
+
+  it("returns legacy imported Field Backgrounds for direct User Data migration", async () => {
+    const source = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await source.createWorkspace({
+      project: exampleWorkspace("source", "Source", ["One"]),
+    });
+    const archive = JSON.parse(
+      await (
+        await source.exportProjectArchive(await currentProject(source))
+      ).text(),
+    ) as Record<string, unknown>;
+    const field = {
+      id: "legacy-field",
+      name: "Legacy Field",
+      asset_id: "legacy.png",
+      file_name: "legacy.png",
+      mime_type: "image/png",
+      size_bytes: 4,
+      created_at: "2026-08-21T12:00:00.000Z",
+      geometry: {
+        length_meters: 12,
+        width_meters: 6,
+        coordinate_offset_meters: 0.25,
+      },
+    };
+    archive.config = createProjectConfig({
+      gui: {
+        field: {
+          selected_field_id: field.id,
+          custom_fields: [field],
+        },
+      },
+    });
+    archive.field_assets = [
+      {
+        asset_id: field.asset_id,
+        file_name: field.file_name,
+        mime_type: field.mime_type,
+        data_base64: "AQIDBA==",
+      },
+    ];
+
+    const target = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    const imported = await target.importProjectArchive({
+      name: "legacy.bline-project.json",
+      type: "application/json",
+      text: async () => JSON.stringify(archive),
+    } as File);
+
+    expect(imported.legacySelectedFieldId).toBe(field.id);
+    expect(imported.legacyFieldBackgrounds).toEqual([
+      {
+        field: expect.objectContaining({ id: field.id }),
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      },
+    ]);
+    expect(imported.project.config.gui.field.custom_fields).toEqual([]);
   });
 
   it("deletes the current browser project and opens the next available workspace", async () => {
@@ -380,88 +429,4 @@ class MemoryStorage implements StorageLike {
   removeItem(key: string): void {
     this.values.delete(key);
   }
-}
-
-class FieldAssetMemoryAdapter implements StorageAdapter {
-  private readonly workspaces = new Map<
-    string,
-    {
-      workspace: ProjectWorkspaceDocument;
-      version: string;
-      updatedAt: string;
-    }
-  >();
-  private readonly assets = new Map<string, FieldAssetPayload>();
-  private writes = 0;
-
-  async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
-    return [...this.workspaces.values()].map((record) => ({
-      id: record.workspace.project_id,
-      displayName: record.workspace.display_name,
-      version: record.version,
-      updatedAt: record.updatedAt,
-    }));
-  }
-
-  async readWorkspace(id?: string): Promise<ProjectWorkspaceDocument> {
-    const workspaceId = id ?? [...this.workspaces.keys()][0];
-    const record = workspaceId ? this.workspaces.get(workspaceId) : undefined;
-    if (!record) {
-      throw new Error(`Project not found: ${workspaceId ?? "workspace"}`);
-    }
-
-    return structuredClone(record.workspace);
-  }
-
-  async writeWorkspace(
-    workspace: ProjectWorkspaceDocument,
-  ): Promise<WriteResult> {
-    this.writes += 1;
-    const updatedAt = new Date(
-      Date.UTC(2026, 5, 16, 12, 0, this.writes),
-    ).toISOString();
-    const version = `v${this.writes}`;
-    this.workspaces.set(workspace.project_id, {
-      workspace: structuredClone(workspace),
-      version,
-      updatedAt,
-    });
-    return { version, updatedAt };
-  }
-
-  async writeFieldAsset(input: FieldAssetWriteInput): Promise<void> {
-    const bytes = new Uint8Array(input.bytes.byteLength);
-    bytes.set(input.bytes);
-    this.assets.set(assetKey(input.workspaceId, input.assetId), {
-      fileName: input.fileName,
-      mimeType: input.mimeType,
-      bytes,
-    });
-  }
-
-  async readFieldAsset(
-    workspaceId: string,
-    assetId: string,
-  ): Promise<FieldAssetPayload | null> {
-    const payload = this.assets.get(assetKey(workspaceId, assetId));
-    if (!payload) {
-      return null;
-    }
-
-    const bytes = new Uint8Array(payload.bytes.byteLength);
-    bytes.set(payload.bytes);
-    return {
-      fileName: payload.fileName,
-      mimeType: payload.mimeType,
-      bytes,
-    };
-  }
-
-  async deleteFieldAsset(workspaceId: string, assetId: string): Promise<void> {
-    this.assets.delete(assetKey(workspaceId, assetId));
-  }
-}
-
-function assetKey(workspaceId: string, assetId: string): string {
-  return `${workspaceId}:${assetId}`;
 }

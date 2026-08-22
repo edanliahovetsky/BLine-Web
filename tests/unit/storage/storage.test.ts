@@ -10,13 +10,13 @@ import {
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { serializeProjectFiles } from "../../../src/core/io/projectFiles";
+import { serializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   BrowserStorage,
   ProjectPersistenceDamageError,
   StorageConflictError,
   createStorageAdapter,
   createStoredProjectRecord,
-  createStoredWorkspaceRecord,
   type StorageLike,
   TauriStorage,
 } from "../../../src/storage";
@@ -34,9 +34,9 @@ describe("BrowserStorage", () => {
     });
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
 
-    const write = await storage.writeWorkspace(workspace);
+    const write = await storage.writeProject(workspace);
     const summaries = await storage.listWorkspaces();
-    const restored = await storage.readWorkspace("workspace-a");
+    const restored = await storage.readProject("workspace-a");
 
     expect(write.updatedAt).toBe("2026-04-23T15:30:00.000Z");
     expect(summaries).toHaveLength(1);
@@ -50,6 +50,8 @@ describe("BrowserStorage", () => {
       display_name: "Alpha",
       paths: [{ display_name: "One" }],
     });
+    expect(restored).not.toHaveProperty("active_path_id");
+    expect(restored).not.toHaveProperty("active_path_group_id");
     const storedRecord = JSON.parse(
       memory.getItem("bline-web:workspace:workspace-a") ?? "null",
     ) as { files: Array<{ relativePath: string; text: string }> };
@@ -75,12 +77,12 @@ describe("BrowserStorage", () => {
       now: fixedClock("2026-04-23T15:31:00.000Z"),
     });
 
-    const write = await storage.writeWorkspace(
+    const write = await storage.writeProject(
       exampleWorkspace("workspace-a", "Alpha", ["One"]),
     );
 
     await expect(
-      storage.writeWorkspace(
+      storage.writeProject(
         exampleWorkspace("workspace-a", "Alpha 2", ["One"]),
         "wrong-version",
       ),
@@ -90,7 +92,7 @@ describe("BrowserStorage", () => {
     ).rejects.toBeInstanceOf(StorageConflictError);
 
     await expect(
-      storage.writeWorkspace(
+      storage.writeProject(
         exampleWorkspace("workspace-a", "Alpha 2", ["One"]),
         write.version,
       ),
@@ -109,7 +111,7 @@ describe("BrowserStorage", () => {
       now: fixedClock("2026-04-23T15:36:00.000Z"),
     });
 
-    await source.writeWorkspace(
+    await source.writeProject(
       exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]),
     );
 
@@ -129,7 +131,7 @@ describe("BrowserStorage", () => {
     ]);
     expect(imported.imported).toHaveLength(1);
     await expect(
-      target.readWorkspace(imported.imported[0].id),
+      target.readProject(imported.imported[0].id),
     ).resolves.toMatchObject({
       paths: [{ file_name: "One.json" }, { file_name: "Two.json" }],
     });
@@ -156,7 +158,7 @@ describe("BrowserStorage", () => {
     const storage = new BrowserStorage({ storage: memory });
 
     const summaries = await storage.listWorkspaces();
-    const workspace = await storage.readWorkspace("legacy-project");
+    const workspace = await storage.readProject("legacy-project");
 
     expect(summaries[0]).toMatchObject({
       id: "legacy-project",
@@ -169,24 +171,23 @@ describe("BrowserStorage", () => {
     expect(memory.getItem("bline-web:project:legacy-project")).toBeNull();
   });
 
-  it("migrates legacy workspace records to the canonical Project file set", async () => {
+  it("preserves legacy workspace metadata until migration is confirmed", async () => {
     const memory = new MemoryStorage();
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
     memory.setItem(
       "bline-web:workspace:workspace-a",
-      JSON.stringify(
-        createStoredWorkspaceRecord(
-          workspace,
-          "legacy-version",
-          "2026-04-23T15:38:00.000Z",
-        ),
-      ),
+      JSON.stringify({
+        document: serializeProjectWorkspaceDocument(workspace),
+        version: "legacy-version",
+        updatedAt: "2026-04-23T15:38:00.000Z",
+      }),
     );
     const storage = new BrowserStorage({ storage: memory });
 
     await storage.initialize();
-    const restored = await storage.readWorkspace("workspace-a");
-    const migrated = JSON.parse(
+    await storage.setCurrentWorkspaceId("workspace-a");
+    const restored = await storage.readProject("workspace-a");
+    const preserved = JSON.parse(
       memory.getItem("bline-web:workspace:workspace-a") ?? "null",
     ) as Record<string, unknown>;
 
@@ -194,12 +195,15 @@ describe("BrowserStorage", () => {
       project_id: "workspace-a",
       paths: [{ path_id: "path-1" }],
     });
+    expect(preserved).toHaveProperty("document.config.gui.field");
+
+    const result = await storage.deleteLegacyProjectFiles("legacy-version");
+    const migrated = JSON.parse(
+      memory.getItem("bline-web:workspace:workspace-a") ?? "null",
+    ) as Record<string, unknown>;
+    expect(result).not.toBeNull();
     expect(migrated).toHaveProperty("files");
     expect(migrated).not.toHaveProperty("document");
-    expect(migrated).toMatchObject({
-      version: "legacy-version",
-      updatedAt: "2026-04-23T15:38:00.000Z",
-    });
   });
 
   it("preserves damaged browser metadata until an explicit replacement", async () => {
@@ -221,23 +225,56 @@ describe("BrowserStorage", () => {
     memory.setItem("bline-web:current-workspace", "workspace-a");
     const storage = new BrowserStorage({ storage: memory });
 
-    const recovered = await storage.readWorkspace("workspace-a");
+    const recovered = await storage.readProject("workspace-a");
     expect(recovered.paths).toHaveLength(1);
     expect(storage.getCurrentProjectDamage()).toMatchObject({
       sourcePath: "project.json",
       rawText: "{<<<<<<< HEAD\n",
     });
     await expect(
-      storage.writeWorkspace(recovered, "damaged-v1"),
+      storage.writeProject(recovered, "damaged-v1"),
     ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
     expect(memory.getItem("bline-web:workspace:workspace-a")).toContain(
       "{<<<<<<< HEAD",
     );
 
-    await storage.replaceDamagedWorkspace(recovered, "damaged-v1");
+    await storage.replaceDamagedProject(recovered, "damaged-v1");
     expect(storage.getCurrentProjectDamage()).toBeNull();
     expect(memory.getItem("bline-web:workspace:workspace-a")).not.toContain(
       "{<<<<<<< HEAD",
+    );
+  });
+
+  it("blocks writes when Project metadata references a missing path file", async () => {
+    const memory = new MemoryStorage();
+    const project = exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]);
+    const files = serializeProjectFiles(project).filter(
+      (file) => file.relativePath !== "paths/Two.json",
+    );
+    memory.setItem(
+      "bline-web:workspace:workspace-a",
+      JSON.stringify({
+        files,
+        version: "damaged-v1",
+        updatedAt: "2026-04-23T15:40:00.000Z",
+      }),
+    );
+    memory.setItem("bline-web:current-workspace", "workspace-a");
+    const storage = new BrowserStorage({ storage: memory });
+    const damagedRecord = memory.getItem("bline-web:workspace:workspace-a");
+
+    const recovered = await storage.readProject("workspace-a");
+
+    expect(recovered.paths.map((path) => path.file_name)).toEqual(["One.json"]);
+    expect(storage.getCurrentProjectDamage()).toMatchObject({
+      sourcePath: "project.json",
+      message: expect.stringContaining("paths/Two.json"),
+    });
+    await expect(
+      storage.writeProject(recovered, "damaged-v1"),
+    ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
+    expect(memory.getItem("bline-web:workspace:workspace-a")).toBe(
+      damagedRecord,
     );
   });
 });
@@ -295,11 +332,11 @@ describe("TauriStorage", () => {
       ) => invoke(command, args) as T,
     });
 
-    await expect(storage.writeWorkspace(workspace, "v0")).resolves.toEqual({
+    await expect(storage.writeProject(workspace, "v0")).resolves.toEqual({
       version: "v1",
       updatedAt: "2026-04-23T15:34:00.000Z",
     });
-    await expect(storage.readWorkspace("workspace-a")).resolves.toMatchObject({
+    await expect(storage.readProject("workspace-a")).resolves.toMatchObject({
       project_id: "workspace-a",
       display_name: "Alpha",
       paths: [{ display_name: "One" }],
@@ -353,14 +390,14 @@ describe("TauriStorage", () => {
       },
     });
 
-    const recovered = await storage.readWorkspace("/tmp/autos");
+    const recovered = await storage.readProject("/tmp/autos");
     expect(recovered.paths).toHaveLength(1);
     expect(storage.getCurrentProjectDamage()).toMatchObject({
       sourcePath: ".bline-web/state.json",
       rawText: "{<<<<<<< HEAD\n",
     });
     await expect(
-      storage.writeWorkspace(recovered, "damaged-v1"),
+      storage.writeProject(recovered, "damaged-v1"),
     ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
     expect(calls).toEqual(["storage_read_project_files"]);
   });

@@ -1,5 +1,8 @@
 import { projectConfigDefaultLookup } from "../../core/config/projectConfig";
-import type { CustomFieldImage } from "../../core/field/fieldConfig";
+import {
+  defaultProjectFieldConfig,
+  type CustomFieldImage,
+} from "../../core/field/fieldConfig";
 import {
   createBLineProjectArchive,
   deserializeProjectConfig,
@@ -13,7 +16,7 @@ import {
 } from "../../core/io/projectFolder";
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
 import {
-  legacyWorkspaceForPersistence,
+  legacyWorkspaceForArchive,
   openProjectFromLegacyWorkspace,
 } from "../../core/io/legacyWorkspace";
 import {
@@ -36,6 +39,8 @@ import {
 } from "../../storage";
 import type {
   CreateWorkspaceInput,
+  ImportedLegacyFieldBackground,
+  ProjectImportResult,
   ProjectIoCapabilities,
   ProjectIoService,
 } from "./types";
@@ -91,10 +96,9 @@ export class StorageProjectIoService implements ProjectIoService {
     if (!this.currentProject) {
       return null;
     }
-    const onDisk = await this.storage.readWorkspace(
+    return this.storage.readProject(
       this.currentStorageId ?? this.currentProject.project_id,
     );
-    return openProjectFromLegacyWorkspace(onDisk).project;
   }
 
   getCurrentVersion(): string | undefined {
@@ -148,9 +152,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
       const project = input.project
         ? cloneProject(input.project)
-        : openProjectFromLegacyWorkspace(
-            await this.storage.readWorkspace(summary.id),
-          ).project;
+        : await this.storage.readProject(summary.id);
 
       await this.saveWorkspace(project);
       return cloneProject(project);
@@ -227,10 +229,7 @@ export class StorageProjectIoService implements ProjectIoService {
     expectedVersion?: string,
   ): Promise<WriteResult> {
     this.currentStorageId ??= project.project_id;
-    const result = await this.storage.writeWorkspace(
-      legacyWorkspaceForPersistence(project),
-      expectedVersion,
-    );
+    const result = await this.storage.writeProject(project, expectedVersion);
     this.currentProject = cloneProject(project);
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
@@ -244,8 +243,8 @@ export class StorageProjectIoService implements ProjectIoService {
     if (!isDamageAwareStorageAdapter(this.storage)) {
       throw new Error("The current storage adapter has no damaged metadata");
     }
-    const result = await this.storage.replaceDamagedWorkspace(
-      legacyWorkspaceForPersistence(project),
+    const result = await this.storage.replaceDamagedProject(
+      project,
       expectedVersion,
     );
     this.currentProject = cloneProject(project);
@@ -327,33 +326,50 @@ export class StorageProjectIoService implements ProjectIoService {
     return jsonBlob(serializeBLineRuntimeConfig(project.config));
   }
 
-  async importProjectFolder(files: readonly File[]): Promise<Project> {
+  async importProjectFolder(
+    files: readonly File[],
+  ): Promise<ProjectImportResult> {
     const imported = openProjectFromLegacyWorkspace(
       await deserializeBLineProjectFolder(files),
     ).project;
+    const legacyFieldBackgrounds = await importedFieldBackgroundsFromFolder(
+      files,
+      imported,
+    );
+    const legacySelectedFieldId =
+      imported.config.gui.field.custom_fields.length > 0
+        ? imported.config.gui.field.selected_field_id
+        : null;
+    const portableProject = withoutLegacyProjectFields(imported);
 
     if (this.capabilities.supportsProjectFolders) {
       const current = this.requireProject();
       const nextProject = {
-        ...imported,
+        ...portableProject,
         project_id: current.project_id,
         display_name: current.display_name,
       };
       await this.saveWorkspace(nextProject, this.currentVersion);
-      await this.importProjectFolderFieldAssets(files, nextProject);
-      return nextProject;
+      return {
+        project: nextProject,
+        legacySelectedFieldId,
+        legacyFieldBackgrounds,
+      };
     }
 
-    await this.saveWorkspace(imported);
-    await this.importProjectFolderFieldAssets(files, imported);
-    return imported;
+    await this.saveWorkspace(portableProject);
+    return {
+      project: portableProject,
+      legacySelectedFieldId,
+      legacyFieldBackgrounds,
+    };
   }
 
   async exportProjectFolder(project: Project): Promise<ProjectFolderExport> {
     return serializeBLineProjectFolder(project);
   }
 
-  async importProjectArchive(file: File): Promise<Project> {
+  async importProjectArchive(file: File): Promise<ProjectImportResult> {
     const raw = await file.text();
     const parsed = JSON.parse(raw) as unknown;
     const imported = openProjectFromLegacyWorkspace(
@@ -361,28 +377,43 @@ export class StorageProjectIoService implements ProjectIoService {
         new Blob([raw], { type: file.type || "application/json" }),
       ),
     ).project;
+    const legacySelectedFieldId =
+      imported.config.gui.field.custom_fields.length > 0
+        ? imported.config.gui.field.selected_field_id
+        : null;
+    const legacyFieldBackgrounds = importedFieldBackgroundsFromArchive(
+      parsed,
+      imported,
+    );
+    const portableProject = withoutLegacyProjectFields(imported);
 
     if (this.capabilities.supportsProjectFolders) {
       const current = this.requireProject();
       const nextProject = {
-        ...imported,
+        ...portableProject,
         project_id: current.project_id,
         display_name: current.display_name,
       };
       await this.saveWorkspace(nextProject, this.currentVersion);
-      await this.importArchiveFieldAssets(parsed, nextProject);
-      return nextProject;
+      return {
+        project: nextProject,
+        legacySelectedFieldId,
+        legacyFieldBackgrounds,
+      };
     }
 
-    await this.saveWorkspace(imported);
-    await this.importArchiveFieldAssets(parsed, imported);
-    return imported;
+    await this.saveWorkspace(portableProject);
+    return {
+      project: portableProject,
+      legacySelectedFieldId,
+      legacyFieldBackgrounds,
+    };
   }
 
   async exportProjectArchive(project: Project): Promise<Blob> {
     return jsonBlob(
       createBLineProjectArchive(
-        legacyWorkspaceForPersistence(project),
+        legacyWorkspaceForArchive(project),
         new Date().toISOString(),
       ),
     );
@@ -418,8 +449,7 @@ export class StorageProjectIoService implements ProjectIoService {
     if (this.currentStorageId !== id) {
       this.legacyMigrationReady = false;
     }
-    const storedWorkspace = await this.storage.readWorkspace(id);
-    const project = openProjectFromLegacyWorkspace(storedWorkspace).project;
+    const project = await this.storage.readProject(id);
     this.currentProject = cloneProject(project);
     this.currentStorageId = id;
     await this.syncVersion(id);
@@ -459,57 +489,64 @@ export class StorageProjectIoService implements ProjectIoService {
 
     return cloneProject(this.currentProject);
   }
+}
 
-  private async importArchiveFieldAssets(
-    parsedArchive: unknown,
-    project: Project,
-  ): Promise<void> {
-    if (!this.storage.writeFieldAsset) {
-      return;
-    }
+function withoutLegacyProjectFields(project: Project): Project {
+  return {
+    ...cloneProject(project),
+    config: {
+      ...structuredClone(project.config),
+      gui: {
+        ...structuredClone(project.config.gui),
+        field: structuredClone(defaultProjectFieldConfig),
+      },
+    },
+  };
+}
 
-    for (const asset of fieldAssetsFromBLineProjectArchive(parsedArchive)) {
-      await this.storage.writeFieldAsset({
-        workspaceId: project.project_id,
-        assetId: asset.asset_id,
-        fileName: asset.file_name,
-        mimeType: asset.mime_type,
-        bytes: base64ToBytes(asset.data_base64),
-      });
-    }
-  }
+function importedFieldBackgroundsFromArchive(
+  parsedArchive: unknown,
+  project: Project,
+): ImportedLegacyFieldBackground[] {
+  const bytesByAssetId = new Map(
+    fieldAssetsFromBLineProjectArchive(parsedArchive).map((asset) => [
+      asset.asset_id,
+      base64ToBytes(asset.data_base64),
+    ]),
+  );
+  return project.config.gui.field.custom_fields.flatMap((field) => {
+    const bytes = bytesByAssetId.get(field.asset_id);
+    return bytes ? [{ field, bytes }] : [];
+  });
+}
 
-  private async importProjectFolderFieldAssets(
-    files: readonly File[],
-    project: Project,
-  ): Promise<void> {
-    if (!this.storage.writeFieldAsset) {
-      return;
-    }
-
-    const assets = new Map(
-      project.config.gui.field.custom_fields.map((field) => [
-        field.asset_id,
-        field,
-      ]),
-    );
-    for (const file of files) {
+async function importedFieldBackgroundsFromFolder(
+  files: readonly File[],
+  project: Project,
+): Promise<ImportedLegacyFieldBackground[]> {
+  const filesByAssetId = new Map(
+    files.flatMap((file) => {
       const assetId = assetIdFromProjectFolderFile(file);
-      if (!assetId || !assets.has(assetId)) {
-        continue;
-      }
-
-      const field = assets.get(assetId);
-      await this.storage.writeFieldAsset({
-        workspaceId: project.project_id,
-        assetId,
-        fileName: field?.file_name ?? file.name,
-        mimeType:
-          field?.mime_type ?? file.type ?? mimeTypeFromFileName(file.name),
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      });
+      return assetId ? [[assetId, file] as const] : [];
+    }),
+  );
+  const imported: ImportedLegacyFieldBackground[] = [];
+  for (const field of project.config.gui.field.custom_fields) {
+    const file = filesByAssetId.get(field.asset_id);
+    if (!file) {
+      continue;
     }
+    imported.push({
+      field: {
+        ...field,
+        file_name: field.file_name || file.name,
+        mime_type:
+          field.mime_type || file.type || mimeTypeFromFileName(file.name),
+      },
+      bytes: new Uint8Array(await file.arrayBuffer()),
+    });
   }
+  return imported;
 }
 
 export function createBrowserProjectIoCapabilities(): ProjectIoCapabilities {

@@ -16,6 +16,77 @@ export interface LegacyFieldMigrationResult {
   errors: Error[];
 }
 
+export interface ImportedLegacyFieldBackground {
+  field: CustomFieldImage;
+  bytes: Uint8Array;
+}
+
+export interface ImportedLegacyFieldMigrationInput {
+  projectId: string;
+  selectedFieldId: string | null;
+  entries: readonly ImportedLegacyFieldBackground[];
+}
+
+/**
+ * Moves Field Backgrounds already decoded from an imported archive or folder
+ * directly into User Data. A legacy field ID, rather than its shared asset ID,
+ * is the deterministic key because each field can carry distinct calibration.
+ */
+export async function migrateImportedLegacyFieldBackgrounds({
+  projectId,
+  selectedFieldId,
+  entries,
+}: ImportedLegacyFieldMigrationInput): Promise<LegacyFieldMigrationResult> {
+  const migratedIds = new Map<string, string>();
+  const errors: Error[] = [];
+
+  for (const { field, bytes } of entries) {
+    try {
+      const entry = await migrateLegacyFieldBackgroundFromBytes(
+        {
+          name: field.name,
+          fileName: field.file_name,
+          mimeType: field.mime_type || "image/png",
+          bytes,
+          geometry: field.geometry,
+        },
+        `${projectId}\0${field.id}`,
+      );
+      migratedIds.set(field.id, entry.id);
+    } catch (error) {
+      errors.push(toError(error));
+    }
+  }
+
+  const migratedSelection = selectedFieldId
+    ? migratedIds.get(selectedFieldId)
+    : undefined;
+  if (
+    selectedFieldId &&
+    (migratedSelection || isBuiltInSelection(selectedFieldId))
+  ) {
+    rememberSelectedFieldBackground(
+      projectId,
+      migratedSelection ?? selectedFieldId,
+    );
+  } else if (selectedFieldId) {
+    errors.push(
+      new Error(
+        `Selected legacy Field Background is missing: ${selectedFieldId}`,
+      ),
+    );
+  }
+
+  await flushUserData();
+  try {
+    await verifyUserDataPersistence();
+  } catch (error) {
+    errors.push(toError(error));
+  }
+
+  return { errors };
+}
+
 /**
  * Copies Project-scoped legacy images into global User Data before removing
  * their old bytes. Metadata remains readable through the Slice 3 legacy seam.

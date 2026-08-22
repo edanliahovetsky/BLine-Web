@@ -17,7 +17,7 @@ import {
   getPathElementLinkedTargetId,
   normalizeLinkedTargets,
   setPathElementLinkedTargetId,
-  syncLinkedTargetElements,
+  syncLinkedTargetElementsInProject,
 } from "../linkedTargets";
 import {
   createProjectDocument,
@@ -293,7 +293,7 @@ export function normalizeProjectWorkspaceDocument(
     ? workspace.active_path_group_id
     : null;
 
-  return syncLinkedTargetElements(
+  return syncLinkedTargetElementsInProject(
     createProjectWorkspaceDocument({
       project_id: workspace.project_id,
       display_name: workspace.display_name,

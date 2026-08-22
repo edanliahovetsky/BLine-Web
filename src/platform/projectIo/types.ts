@@ -33,6 +33,17 @@ export interface CreateWorkspaceInput {
   project?: Project;
 }
 
+export interface ImportedLegacyFieldBackground {
+  field: CustomFieldImage;
+  bytes: Uint8Array;
+}
+
+export interface ProjectImportResult {
+  project: Project;
+  legacySelectedFieldId: string | null;
+  legacyFieldBackgrounds: ImportedLegacyFieldBackground[];
+}
+
 export interface LegacyProjectViewMigration {
   legacyProjectId: string;
   stableProjectId: string;
@@ -72,9 +83,9 @@ export interface ProjectIoService {
   exportPath(project: Project, pathId: string): Promise<Blob>;
   importConfig(file: File): Promise<Project>;
   exportConfig(project: Project): Promise<Blob>;
-  importProjectFolder(files: readonly File[]): Promise<Project>;
+  importProjectFolder(files: readonly File[]): Promise<ProjectImportResult>;
   exportProjectFolder(project: Project): Promise<ProjectFolderExport>;
-  importProjectArchive(file: File): Promise<Project>;
+  importProjectArchive(file: File): Promise<ProjectImportResult>;
   exportProjectArchive(project: Project): Promise<Blob>;
   readLegacyFieldImageAsset(
     projectId: string,

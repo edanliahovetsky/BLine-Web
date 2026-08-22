@@ -3,7 +3,7 @@ import {
   activeProjectPath,
   normalizeEditorNavigation,
   type EditorNavigation,
-} from "../core/io/legacyWorkspace";
+} from "../core/model/editorNavigation";
 import {
   cloneProject,
   type Project,
@@ -34,6 +34,7 @@ import {
 } from "../core/linkedTargets";
 import type {
   ProjectFolderExport,
+  ProjectImportResult,
   ProjectIoService,
 } from "../platform/projectIo";
 import type { WriteResult } from "../storage/adapter";
@@ -157,9 +158,9 @@ export interface ProjectStoreState {
   exportPath(pathId?: string): Promise<Blob | null>;
   importConfig(file: File): Promise<Project>;
   exportConfig(): Promise<Blob | null>;
-  importProjectFolder(files: readonly File[]): Promise<Project>;
+  importProjectFolder(files: readonly File[]): Promise<ProjectImportResult>;
   exportProjectFolder(): Promise<ProjectFolderExport | null>;
-  importProjectArchive(file: File): Promise<Project>;
+  importProjectArchive(file: File): Promise<ProjectImportResult>;
   exportProjectArchive(): Promise<Blob | null>;
   applyPathCommand(command: HistoryCommand<PathModel>, pathId?: string): void;
   applyConfigCommand(command: HistoryCommand<ProjectConfig>): void;
@@ -886,15 +887,16 @@ export function createProjectStore(
       if (get().dirty) {
         await get().saveWorkspace();
       }
-      const workspace = await io.importProjectFolder(files);
-      return adoptWorkspace(
+      const imported = await io.importProjectFolder(files);
+      const project = adoptWorkspace(
         set,
         history,
         io,
-        workspace,
+        imported.project,
         false,
         createProjectSessionId(),
       );
+      return { ...imported, project };
     },
     async exportProjectFolder() {
       const io = requireProjectIo(get().io);
@@ -909,15 +911,16 @@ export function createProjectStore(
       if (get().dirty) {
         await get().saveWorkspace();
       }
-      const workspace = await io.importProjectArchive(file);
-      return adoptWorkspace(
+      const imported = await io.importProjectArchive(file);
+      const project = adoptWorkspace(
         set,
         history,
         io,
-        workspace,
+        imported.project,
         false,
         createProjectSessionId(),
       );
+      return { ...imported, project };
     },
     async exportProjectArchive() {
       const io = requireProjectIo(get().io);

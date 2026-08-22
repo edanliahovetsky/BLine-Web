@@ -15,12 +15,12 @@ import {
   createWaypoint,
 } from "../../../src/core/model/path";
 import {
-  deleteLinkedTargetFromWorkspace,
-  linkPathElementToTargetInWorkspace,
+  deleteLinkedTargetFromProject,
+  linkPathElementToTargetInProject,
   linkedTargetControlsElementRotation,
   linkedTargetForPathElement,
-  unlinkPathElementInWorkspace,
-  updateLinkedTargetInWorkspace,
+  unlinkPathElementInProject,
+  updateLinkedTargetInProject,
 } from "../../../src/core/linkedTargets";
 
 describe("linked targets", () => {
@@ -267,7 +267,7 @@ describe("linked targets", () => {
       ],
     });
 
-    const moved = updateLinkedTargetInWorkspace(workspace, "note-a", {
+    const moved = updateLinkedTargetInProject(workspace, "note-a", {
       x_meters: 5,
       y_meters: 6,
     });
@@ -391,7 +391,7 @@ describe("linked targets", () => {
       ],
     });
 
-    const linkedTranslation = linkPathElementToTargetInWorkspace(
+    const linkedTranslation = linkPathElementToTargetInProject(
       workspace,
       "auto",
       0,
@@ -403,7 +403,7 @@ describe("linked targets", () => {
       y_meters: 8,
     });
 
-    const linkedWaypoint = linkPathElementToTargetInWorkspace(
+    const linkedWaypoint = linkPathElementToTargetInProject(
       linkedTranslation,
       "auto",
       1,
@@ -420,7 +420,7 @@ describe("linked targets", () => {
       },
     });
 
-    const unlinked = unlinkPathElementInWorkspace(linkedWaypoint, "auto", 1);
+    const unlinked = unlinkPathElementInProject(linkedWaypoint, "auto", 1);
     expect(unlinked.paths[0]?.path.path_elements[1]).toMatchObject({
       translation_target: {
         x_meters: 2,
@@ -467,7 +467,7 @@ describe("linked targets", () => {
       ],
     });
 
-    const deleted = deleteLinkedTargetFromWorkspace(workspace, "note-a");
+    const deleted = deleteLinkedTargetFromProject(workspace, "note-a");
     expect(deleted.linked_targets).toEqual([]);
     expect(deleted.paths[0]?.path.path_elements[0]).toMatchObject({
       x_meters: 2,

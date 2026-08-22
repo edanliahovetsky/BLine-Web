@@ -1229,8 +1229,8 @@ class RecordingIo implements ProjectIoService {
     return new Blob([]);
   }
 
-  async importProjectFolder(): Promise<Project> {
-    return this.requireWorkspace();
+  async importProjectFolder() {
+    return emptyImportResult(this.requireWorkspace());
   }
 
   async exportProjectFolder(project: Project) {
@@ -1244,8 +1244,8 @@ class RecordingIo implements ProjectIoService {
     };
   }
 
-  async importProjectArchive(): Promise<Project> {
-    return this.requireWorkspace();
+  async importProjectArchive() {
+    return emptyImportResult(this.requireWorkspace());
   }
 
   async exportProjectArchive(): Promise<Blob> {
@@ -1264,6 +1264,14 @@ class RecordingIo implements ProjectIoService {
     }
     return structuredClone(this.workspace);
   }
+}
+
+function emptyImportResult(project: Project) {
+  return {
+    project,
+    legacySelectedFieldId: null,
+    legacyFieldBackgrounds: [],
+  };
 }
 
 async function waitForSaveQueue(): Promise<void> {

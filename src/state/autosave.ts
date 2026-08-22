@@ -1,4 +1,3 @@
-import { legacyWorkspaceForPersistence } from "../core/io/legacyWorkspace";
 import type { Project } from "../core/model/project";
 import type { ProjectIoService } from "../platform/projectIo";
 import type { WriteResult } from "../storage/adapter";
@@ -90,7 +89,7 @@ export function createAutosaveCoordinator<
 
       try {
         const result = await options.io.saveWorkspace(
-          legacyWorkspaceForPersistence(snapshot.project),
+          snapshot.project,
           snapshot.expectedVersion,
         );
         setStatus("idle");

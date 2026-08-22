@@ -1,21 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectWorkspaceDocument } from "../core/io/projectSchema";
+import type { Project } from "../core/model/project";
 import {
   openProjectFiles,
   serializeProjectFiles,
   type ProjectFileDamage,
   type ProjectTextFile,
 } from "../core/io/projectFiles";
-import {
-  legacyWorkspaceForPersistence,
-  openProjectFromLegacyWorkspace,
-} from "../core/io/legacyWorkspace";
+import { openProjectFromLegacyWorkspace } from "../core/io/legacyWorkspace";
 import { deserializeBLineProjectFolder } from "../core/io/projectFolder";
 import {
   createBLineWorkspaceArchive,
   importWorkspaceArchive,
   type FieldAssetPayload,
-  type FieldAssetWriteInput,
   type ProjectFolderAdapter,
   type ProjectWorkspaceSummary,
   type WorkspaceImportResult,
@@ -54,7 +50,7 @@ export class TauriStorage implements ProjectFolderAdapter {
     return this.listRecentWorkspaces();
   }
 
-  async readWorkspace(id?: string): Promise<ProjectWorkspaceDocument> {
+  async readProject(id?: string): Promise<Project> {
     const result = await this.invoke<ProjectFileSetPayload>(
       "storage_read_project_files",
       { directoryLocator: id ?? this.currentDirectoryLocator },
@@ -82,18 +78,18 @@ export class TauriStorage implements ProjectFolderAdapter {
     } else {
       this.damageByLocator.delete(result.directoryLocator);
     }
-    return legacyWorkspaceForPersistence(project);
+    return project;
   }
 
-  async writeWorkspace(
-    workspace: ProjectWorkspaceDocument,
+  async writeProject(
+    project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult> {
     const damage = this.getCurrentProjectDamage();
     if (damage) {
       throw new ProjectPersistenceDamageError(damage);
     }
-    return this.writeProjectFileSet(workspace, expectedVersion);
+    return this.writeProjectFileSet(project, expectedVersion);
   }
 
   getCurrentProjectDamage(): ProjectFileDamage | null {
@@ -102,11 +98,11 @@ export class TauriStorage implements ProjectFolderAdapter {
       : null;
   }
 
-  async replaceDamagedWorkspace(
-    workspace: ProjectWorkspaceDocument,
+  async replaceDamagedProject(
+    project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult> {
-    const result = await this.writeProjectFileSet(workspace, expectedVersion);
+    const result = await this.writeProjectFileSet(project, expectedVersion);
     if (this.currentDirectoryLocator) {
       this.damageByLocator.delete(this.currentDirectoryLocator);
     }
@@ -114,14 +110,14 @@ export class TauriStorage implements ProjectFolderAdapter {
   }
 
   private async writeProjectFileSet(
-    workspace: ProjectWorkspaceDocument,
+    project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult> {
     const result = await this.invoke<ProjectFileSetWritePayload>(
       "storage_write_project_files",
       {
         directoryLocator: this.currentDirectoryLocator,
-        files: serializeProjectFiles(workspace).map((file) => ({
+        files: serializeProjectFiles(project).map((file) => ({
           relativePath: file.relativePath,
           contents: file.text,
         })),
@@ -157,30 +153,16 @@ export class TauriStorage implements ProjectFolderAdapter {
   }
 
   async exportWorkspaceArchive(id?: string): Promise<Blob> {
-    const workspace = id
-      ? await this.readWorkspace(id)
-      : await this.readWorkspace();
-    const memoryAdapter = {
-      readWorkspace: async () => workspace,
-    };
+    const project = id ? await this.readProject(id) : await this.readProject();
     return createBLineWorkspaceArchive(
-      memoryAdapter,
-      workspace.project_id,
+      { readProject: async () => project },
+      project.project_id,
       this.now().toISOString(),
     );
   }
 
   async importWorkspaceArchive(archive: Blob): Promise<WorkspaceImportResult> {
     return importWorkspaceArchive(this, archive);
-  }
-
-  async writeFieldAsset(input: FieldAssetWriteInput): Promise<void> {
-    await this.invoke("storage_write_field_asset", {
-      assetId: input.assetId,
-      fileName: input.fileName,
-      mimeType: input.mimeType,
-      bytes: Array.from(input.bytes),
-    });
   }
 
   async readFieldAsset(

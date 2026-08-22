@@ -1,10 +1,9 @@
 import { cloneProject, type Project } from "../model/project";
+import {
+  normalizeEditorNavigation,
+  type EditorNavigation,
+} from "../model/editorNavigation";
 import type { ProjectWorkspaceDocument } from "./projectSchema";
-
-export interface EditorNavigation {
-  activePathId: string | null;
-  activePathGroupId: string | null;
-}
 
 export interface OpenProject {
   project: Project;
@@ -36,8 +35,8 @@ export function legacyWorkspaceFromOpenProject(
   };
 }
 
-/** Temporary Slice 1–3 writer shell. Navigation is never repository data. */
-export function legacyWorkspaceForPersistence(
+/** Compatibility shell for legacy archives. Navigation is never repository data. */
+export function legacyWorkspaceForArchive(
   project: Project,
 ): ProjectWorkspaceDocument {
   return {
@@ -45,36 +44,4 @@ export function legacyWorkspaceForPersistence(
     active_path_id: null,
     active_path_group_id: null,
   };
-}
-
-export function normalizeEditorNavigation(
-  project: Project,
-  navigation: Partial<EditorNavigation> = {},
-): EditorNavigation {
-  const activePathId = project.paths.some(
-    (path) => path.path_id === navigation.activePathId,
-  )
-    ? (navigation.activePathId ?? null)
-    : (project.paths[0]?.path_id ?? null);
-  const activePathGroupId = project.path_groups.some(
-    (group) => group.group_id === navigation.activePathGroupId,
-  )
-    ? (navigation.activePathGroupId ?? null)
-    : null;
-
-  return { activePathId, activePathGroupId };
-}
-
-export function activeProjectPath(
-  project: Project | null,
-  activePathId: string | null,
-) {
-  if (!project) {
-    return null;
-  }
-  return (
-    project.paths.find((path) => path.path_id === activePathId) ??
-    project.paths[0] ??
-    null
-  );
 }

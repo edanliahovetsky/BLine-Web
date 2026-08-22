@@ -4,6 +4,11 @@ import type {
   SerializedProjectDocument,
   SerializedProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
+import type { Project } from "../core/model/project";
+import {
+  legacyWorkspaceForArchive,
+  openProjectFromLegacyWorkspace,
+} from "../core/io/legacyWorkspace";
 import {
   deserializeBLineProjectArchive,
   isBLineProjectArchive,
@@ -16,7 +21,6 @@ import {
 import {
   deserializeProjectWorkspaceDocument,
   projectDocumentToWorkspaceDocument,
-  serializeProjectWorkspaceDocument,
 } from "../core/io/workspaceSerde";
 import type { ProjectFileDamage } from "../core/io/projectFiles";
 
@@ -33,14 +37,6 @@ export interface WriteResult {
   updatedAt: string;
 }
 
-export interface FieldAssetWriteInput {
-  workspaceId: string;
-  assetId: string;
-  fileName: string;
-  mimeType: string;
-  bytes: Uint8Array;
-}
-
 export interface FieldAssetPayload {
   fileName: string;
   mimeType: string;
@@ -51,7 +47,8 @@ export interface WorkspaceImportResult {
   imported: ProjectWorkspaceSummary[];
 }
 
-export interface StoredWorkspaceRecord {
+/** Read-only shape for browser records written before canonical Project files. */
+export interface LegacyStoredWorkspaceRecord {
   document: SerializedProjectWorkspaceDocument;
   version: string;
   updatedAt: string;
@@ -78,15 +75,14 @@ export interface WorkspaceBundle {
 export interface StorageAdapter {
   initialize?(): Promise<void>;
   listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
-  readWorkspace(id?: string): Promise<ProjectWorkspaceDocument>;
-  writeWorkspace(
-    workspace: ProjectWorkspaceDocument,
+  readProject(id?: string): Promise<Project>;
+  writeProject(
+    project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
   exportWorkspaceArchive?(id?: string): Promise<Blob>;
   importWorkspaceArchive?(archive: Blob): Promise<WorkspaceImportResult>;
-  writeFieldAsset?(input: FieldAssetWriteInput): Promise<void>;
   readFieldAsset?(
     workspaceId: string,
     assetId: string,
@@ -109,8 +105,8 @@ export interface ProjectFolderAdapter extends StorageAdapter {
 
 export interface DamageAwareStorageAdapter extends StorageAdapter {
   getCurrentProjectDamage(): ProjectFileDamage | null;
-  replaceDamagedWorkspace(
-    workspace: ProjectWorkspaceDocument,
+  replaceDamagedProject(
+    project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult>;
 }
@@ -153,58 +149,29 @@ export class ProjectPersistenceDamageError extends Error {
   }
 }
 
-export function createStoredWorkspaceRecord(
-  workspace: ProjectWorkspaceDocument,
-  version: string,
-  updatedAt: string,
-): StoredWorkspaceRecord {
-  return {
-    document: serializeProjectWorkspaceDocument(workspace),
-    version,
-    updatedAt,
-  };
-}
-
-export function workspaceSummaryFromRecord(
-  record: StoredWorkspaceRecord,
-): ProjectWorkspaceSummary {
-  return {
-    id: record.document.project_id,
-    displayName: record.document.display_name,
-    updatedAt: record.updatedAt,
-    version: record.version,
-  };
-}
-
-export function workspaceFromRecord(
-  record: StoredWorkspaceRecord,
-): ProjectWorkspaceDocument {
-  return deserializeProjectWorkspaceDocument(record.document);
-}
-
 export async function createBLineWorkspaceArchive(
-  adapter: Pick<StorageAdapter, "readWorkspace">,
+  adapter: Pick<StorageAdapter, "readProject">,
   id: string,
   exportedAt: string,
 ): Promise<Blob> {
   return serializeBLineProjectArchive(
-    await adapter.readWorkspace(id),
+    legacyWorkspaceForArchive(await adapter.readProject(id)),
     exportedAt,
   );
 }
 
 export async function importWorkspaceArchive(
-  adapter: Pick<StorageAdapter, "writeWorkspace" | "listWorkspaces">,
+  adapter: Pick<StorageAdapter, "writeProject" | "listWorkspaces">,
   archive: Blob,
 ): Promise<WorkspaceImportResult> {
-  const workspace = await decodeWorkspaceArchive(archive);
-  await adapter.writeWorkspace(workspace);
+  const project = openProjectFromLegacyWorkspace(
+    await decodeWorkspaceArchive(archive),
+  ).project;
+  await adapter.writeProject(project);
   const summaries = await adapter.listWorkspaces();
 
   return {
-    imported: summaries.filter(
-      (summary) => summary.id === workspace.project_id,
-    ),
+    imported: summaries.filter((summary) => summary.id === project.project_id),
   };
 }
 
@@ -272,7 +239,7 @@ export function isDamageAwareStorageAdapter(
   const candidate = adapter as Partial<DamageAwareStorageAdapter>;
   return (
     typeof candidate.getCurrentProjectDamage === "function" &&
-    typeof candidate.replaceDamagedWorkspace === "function"
+    typeof candidate.replaceDamagedProject === "function"
   );
 }
 

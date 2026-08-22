@@ -2755,10 +2755,16 @@ test("migrates a legacy Project field image before deleting its old bytes", asyn
       throw new Error("Expected a saved browser Project");
     }
     const record = JSON.parse(window.localStorage.getItem(storageKey) ?? "");
-    const projectId = String(record.document.project_id);
+    const projectMetadata = JSON.parse(
+      record.files.find(
+        (file: { relativePath: string }) =>
+          file.relativePath === "project.json",
+      ).text,
+    );
+    const projectId = String(projectMetadata.project_id);
     const assetId = "legacy-practice.png";
     const fieldId = "custom:legacy-practice";
-    record.document.config.gui.field = {
+    const fieldConfig = {
       selected_field_id: fieldId,
       custom_fields: [
         {
@@ -2777,7 +2783,35 @@ test("migrates a legacy Project field image before deleting its old bytes", asyn
         },
       ],
     };
-    window.localStorage.setItem(storageKey, JSON.stringify(record));
+    const paths = projectMetadata.paths.map(
+      (path: { path_id: string; display_name: string; file_name: string }) => ({
+        ...path,
+        path: JSON.parse(
+          record.files.find(
+            (file: { relativePath: string }) =>
+              file.relativePath === `paths/${path.file_name}`,
+          ).text,
+        ),
+      }),
+    );
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        document: {
+          schema_version: 1,
+          project_id: projectId,
+          display_name: projectMetadata.display_name,
+          config: { gui: { field: fieldConfig } },
+          paths,
+          path_groups: projectMetadata.path_groups,
+          linked_targets: projectMetadata.linked_targets,
+          active_path_id: paths[0]?.path_id ?? null,
+          active_path_group_id: null,
+        },
+        version: record.version,
+        updatedAt: record.updatedAt,
+      }),
+    );
     window.localStorage.removeItem("bline-web:user-data");
 
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -3202,16 +3236,16 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
 
   const entries = parseStoredZip(await readFile(downloadPath));
   expect([...entries.keys()].sort()).toEqual([
-    "autos/.bline-web/state.json",
     "autos/config.json",
     "autos/paths/phase-1-canvas-draft.json",
+    "autos/project.json",
   ]);
   expect(JSON.parse(requiredZipText(entries, "autos/config.json"))).toEqual({
     kinematic_constraints: expect.any(Object),
   });
   expect(requiredZipText(entries, "autos/config.json")).not.toContain("gui");
   expect(
-    JSON.parse(requiredZipText(entries, "autos/.bline-web/state.json")),
+    JSON.parse(requiredZipText(entries, "autos/project.json")),
   ).toMatchObject({
     schema_version: 1,
     path_groups: [],
@@ -3342,9 +3376,9 @@ test("browser legacy autos folder import re-exports the clean sidecar tree", asy
 
     const entries = parseStoredZip(await readFile(downloadPath));
     expect([...entries.keys()].sort()).toEqual([
-      "autos/.bline-web/state.json",
       "autos/config.json",
       "autos/paths/legacy_auto.json",
+      "autos/project.json",
     ]);
     expect(requiredZipText(entries, "autos/config.json")).not.toContain("gui");
     expect(
@@ -3356,26 +3390,30 @@ test("browser legacy autos folder import re-exports the clean sidecar tree", asy
       },
     });
     expect(
-      JSON.parse(requiredZipText(entries, "autos/.bline-web/state.json")),
+      JSON.parse(requiredZipText(entries, "autos/project.json")),
     ).toMatchObject({
-      active_path_file_name: "legacy_auto.json",
       path_groups: [
         {
           group_id: "legacy",
           display_name: "Legacy Group",
-          path_file_names: ["legacy_auto.json"],
+          path_ids: [expect.any(String)],
         },
       ],
-      paths: {
-        "legacy_auto.json": {
-          editor_metadata: {
-            ranged_constraints: [
-              {
-                source: "auto_velocity",
-              },
-            ],
-          },
+      paths: [
+        {
+          file_name: "legacy_auto.json",
         },
+      ],
+    });
+    expect(
+      JSON.parse(requiredZipText(entries, "autos/paths/legacy_auto.json")),
+    ).toMatchObject({
+      constraints: {
+        max_velocity_meters_per_sec: [
+          {
+            source: "auto_velocity",
+          },
+        ],
       },
     });
   } finally {

@@ -1,7 +1,4 @@
-import {
-  createProjectPathDocument,
-  createProjectWorkspaceDocument,
-} from "../../core/io/projectSchema";
+import { createProject } from "../../core/model/project";
 import {
   createEventTrigger,
   createPathModel,
@@ -66,7 +63,7 @@ export function createBlankCanvasPath() {
   return createPathModel();
 }
 
-export function createNamedCanvasWorkspace(
+export function createNamedProject(
   projectName: string,
   pathName: string,
   now = new Date(),
@@ -79,32 +76,31 @@ export function createNamedCanvasWorkspace(
     globalThis.crypto?.randomUUID?.().slice(0, 8) ??
     Math.random().toString(36).slice(2, 10);
 
-  const workspaceId = `workspace-${stamp}-${random}`;
+  const projectId = `project-${stamp}-${random}`;
   const pathId = `path-${stamp}-${random}`;
-  const path = createProjectPathDocument({
+  const path = {
     path_id: pathId,
     display_name: pathName.trim() || "Path 1",
     file_name: `${safePathFileStem(pathName) || "path-1"}.json`,
     path: createBlankCanvasPath(),
-  });
+  };
 
-  return createProjectWorkspaceDocument({
-    project_id: workspaceId,
+  return createProject({
+    project_id: projectId,
     display_name: projectName.trim() || "Untitled Project",
     paths: [path],
-    active_path_id: path.path_id,
   });
 }
 
-export function createSampleCanvasWorkspace(now = new Date()) {
-  const workspace = createNamedCanvasWorkspace(
+export function createSampleProject(now = new Date()) {
+  const project = createNamedProject(
     "Phase 1 Canvas Draft",
     "Phase 1 Canvas Draft",
     now,
   );
   return {
-    ...workspace,
-    paths: workspace.paths.map((path) => ({
+    ...project,
+    paths: project.paths.map((path) => ({
       ...path,
       path: createExampleCanvasPath(),
     })),

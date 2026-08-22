@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { browserWebCapabilities } from "../../../src/env/capabilities";
+import type { CustomFieldImage } from "../../../src/core/field/fieldConfig";
+import {
+  browserWebCapabilities,
+  tauriCapabilities,
+} from "../../../src/env/capabilities";
 import {
   BROWSER_USER_DATA_KEY,
   BrowserUserDataAdapter,
@@ -15,6 +19,7 @@ import {
   initializeUserData,
   readCompletedTourIds,
   readEditorLayoutPreferences,
+  readUserData,
   rememberActivePath,
   rememberAutomaticGenerationKeepInSync,
   rememberCompletedTourIds,
@@ -26,6 +31,7 @@ import {
   type UserDataAdapter,
   type UserDataStorage,
 } from "../../../src/userData";
+import { migrateImportedLegacyFieldBackgrounds } from "../../../src/userData/legacyFieldMigration";
 
 describe("UserData", () => {
   it("migrates all legacy preferences into one record without deleting sources", async () => {
@@ -632,6 +638,77 @@ describe("UserData", () => {
       expect(adapter.assets.size).toBe(0);
     }
   });
+
+  it("migrates imported legacy calibrations directly into verified User Data", async () => {
+    let persisted: UserData | null = null;
+    const assets = new Map<string, number[]>();
+    await initializeUserData(tauriCapabilities, {
+      tauriInvoke: async <T>(
+        command: string,
+        args?: Record<string, unknown>,
+      ): Promise<T> => {
+        if (command === "storage_read_user_data") {
+          return structuredClone(persisted) as T;
+        }
+        if (command === "storage_write_user_data") {
+          persisted = structuredClone(args?.data as UserData);
+          return undefined as T;
+        }
+        if (command === "storage_write_user_field_asset") {
+          assets.set(String(args?.entryId), [...(args?.bytes as number[])]);
+          return undefined as T;
+        }
+        if (command === "storage_read_user_field_asset") {
+          return (assets.get(String(args?.entryId)) ?? null) as T;
+        }
+        if (command === "storage_delete_user_field_asset") {
+          assets.delete(String(args?.entryId));
+          return undefined as T;
+        }
+        throw new Error(`Unexpected User Data command: ${command}`);
+      },
+    });
+    const bytes = new Uint8Array([7, 8, 9]);
+    const first = legacyField("wide-calibration", "shared-asset", 0.25);
+    const second = legacyField("tight-calibration", "shared-asset", 0.75);
+
+    const firstRun = await migrateImportedLegacyFieldBackgrounds({
+      projectId: "project-imported",
+      selectedFieldId: second.id,
+      entries: [
+        { field: first, bytes },
+        { field: second, bytes },
+      ],
+    });
+    const firstSnapshot = readUserData();
+    const secondRun = await migrateImportedLegacyFieldBackgrounds({
+      projectId: "project-imported",
+      selectedFieldId: second.id,
+      entries: [
+        { field: first, bytes },
+        { field: second, bytes },
+      ],
+    });
+
+    expect(firstRun.errors).toEqual([]);
+    expect(secondRun.errors).toEqual([]);
+    expect(readUserData().field_backgrounds).toEqual(
+      firstSnapshot.field_backgrounds,
+    );
+    expect(firstSnapshot.field_backgrounds).toHaveLength(2);
+    expect(firstSnapshot.field_backgrounds[0]?.id).not.toBe(
+      firstSnapshot.field_backgrounds[1]?.id,
+    );
+    expect(
+      firstSnapshot.field_backgrounds.map((field) => field.geometry),
+    ).toEqual([first.geometry, second.geometry]);
+    expect(assets.size).toBe(2);
+    expect(
+      firstSnapshot.project_views["project-imported"]
+        ?.selected_field_background_id,
+    ).toBe(firstSnapshot.field_backgrounds[1]?.id);
+    expect(persisted).toEqual(readUserData());
+  });
 });
 
 class MemoryStorage implements UserDataStorage {
@@ -748,6 +825,27 @@ function fieldInput(): CreateFieldBackgroundInput {
       coordinate_offset_meters: 0.5,
       coordinate_offset_x_meters: 0.25,
       coordinate_offset_y_meters: 0.5,
+    },
+  };
+}
+
+function legacyField(
+  id: string,
+  assetId: string,
+  coordinateOffset: number,
+): CustomFieldImage {
+  return {
+    id,
+    name: id,
+    asset_id: assetId,
+    file_name: "shared.png",
+    mime_type: "image/png",
+    size_bytes: 3,
+    created_at: "2026-08-21T12:00:00.000Z",
+    geometry: {
+      length_meters: 16.54,
+      width_meters: 8.21,
+      coordinate_offset_meters: coordinateOffset,
     },
   };
 }

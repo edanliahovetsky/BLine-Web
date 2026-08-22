@@ -1,8 +1,4 @@
-import type {
-  LinkedTarget,
-  LinkedTargetKind,
-  ProjectWorkspaceDocument,
-} from "./io/projectSchema";
+import type { LinkedTarget, LinkedTargetKind } from "./io/projectSchema";
 import type { Project } from "./model/project";
 import {
   isTranslationTarget,
@@ -138,13 +134,9 @@ export function linkedTargetControlsElementRotation(
   return isWaypoint(element) && target.kind === "waypoint";
 }
 
-export function syncLinkedTargetElements(
-  workspace: ProjectWorkspaceDocument,
-): ProjectWorkspaceDocument {
-  return syncLinkedTargetElementsIn(workspace);
-}
-
-export function syncLinkedTargetElementsInProject(project: Project): Project {
+export function syncLinkedTargetElementsInProject<T extends Project>(
+  project: T,
+): T {
   return syncLinkedTargetElementsIn(project);
 }
 
@@ -175,17 +167,10 @@ function syncLinkedTargetElementsIn<T extends LinkedTargetContainer>(
   return nextContainer;
 }
 
-export function addLinkedTargetToWorkspace(
-  workspace: ProjectWorkspaceDocument,
+export function addLinkedTargetToProject<T extends Project>(
+  project: T,
   input: CreateLinkedTargetInput,
-): ProjectWorkspaceDocument {
-  return addLinkedTarget(workspace, input);
-}
-
-export function addLinkedTargetToProject(
-  project: Project,
-  input: CreateLinkedTargetInput,
-): Project {
+): T {
   return addLinkedTarget(project, input);
 }
 
@@ -219,19 +204,11 @@ function addLinkedTarget<T extends LinkedTargetContainer>(
   return syncLinkedTargetElementsIn(nextContainer);
 }
 
-export function updateLinkedTargetInWorkspace(
-  workspace: ProjectWorkspaceDocument,
+export function updateLinkedTargetInProject<T extends Project>(
+  project: T,
   targetId: string,
   update: UpdateLinkedTargetInput,
-): ProjectWorkspaceDocument {
-  return updateLinkedTarget(workspace, targetId, update);
-}
-
-export function updateLinkedTargetInProject(
-  project: Project,
-  targetId: string,
-  update: UpdateLinkedTargetInput,
-): Project {
+): T {
   return updateLinkedTarget(project, targetId, update);
 }
 
@@ -251,17 +228,10 @@ function updateLinkedTarget<T extends LinkedTargetContainer>(
   return syncLinkedTargetElementsIn(nextContainer);
 }
 
-export function deleteLinkedTargetFromWorkspace(
-  workspace: ProjectWorkspaceDocument,
+export function deleteLinkedTargetFromProject<T extends Project>(
+  project: T,
   targetId: string,
-): ProjectWorkspaceDocument {
-  return deleteLinkedTarget(workspace, targetId);
-}
-
-export function deleteLinkedTargetFromProject(
-  project: Project,
-  targetId: string,
-): Project {
+): T {
   return deleteLinkedTarget(project, targetId);
 }
 
@@ -287,21 +257,12 @@ function deleteLinkedTarget<T extends LinkedTargetContainer>(
   return nextContainer;
 }
 
-export function linkPathElementToTargetInWorkspace(
-  workspace: ProjectWorkspaceDocument,
+export function linkPathElementToTargetInProject<T extends Project>(
+  project: T,
   pathId: string,
   elementIndex: number,
   targetId: string,
-): ProjectWorkspaceDocument {
-  return linkPathElementToTarget(workspace, pathId, elementIndex, targetId);
-}
-
-export function linkPathElementToTargetInProject(
-  project: Project,
-  pathId: string,
-  elementIndex: number,
-  targetId: string,
-): Project {
+): T {
   return linkPathElementToTarget(project, pathId, elementIndex, targetId);
 }
 
@@ -338,19 +299,11 @@ function linkPathElementToTarget<T extends LinkedTargetContainer>(
   return syncLinkedTargetElementsIn(nextContainer);
 }
 
-export function unlinkPathElementInWorkspace(
-  workspace: ProjectWorkspaceDocument,
+export function unlinkPathElementInProject<T extends Project>(
+  project: T,
   pathId: string,
   elementIndex: number,
-): ProjectWorkspaceDocument {
-  return unlinkPathElement(workspace, pathId, elementIndex);
-}
-
-export function unlinkPathElementInProject(
-  project: Project,
-  pathId: string,
-  elementIndex: number,
-): Project {
+): T {
   return unlinkPathElement(project, pathId, elementIndex);
 }
 

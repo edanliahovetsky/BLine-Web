@@ -10,8 +10,6 @@ pub fn run() {
             storage::storage_create_workspace_dialog,
             storage::storage_write_text_file_dialog,
             storage::storage_switch_workspace,
-            storage::storage_read_workspace,
-            storage::storage_write_workspace,
             storage::storage_read_project_files,
             storage::storage_write_project_files,
             storage::storage_delete_legacy_project_files,
@@ -20,11 +18,6 @@ pub fn run() {
             storage::storage_write_user_field_asset,
             storage::storage_read_user_field_asset,
             storage::storage_delete_user_field_asset,
-            storage::storage_list_projects,
-            storage::storage_read_project,
-            storage::storage_write_project,
-            storage::storage_delete_project,
-            storage::storage_write_field_asset,
             storage::storage_read_field_asset,
             storage::storage_delete_field_asset
         ])
