@@ -8,7 +8,9 @@ import {
 import { createProject } from "../../../src/core/model/project";
 import {
   createPathModel,
+  createRotationTarget,
   createTranslationTarget,
+  type RangedConstraint,
 } from "../../../src/core/model/path";
 import {
   getPathElementLinkedTargetId,
@@ -476,7 +478,180 @@ describe("Project file-set codec", () => {
       expect(opened.damage?.sourcePath).toBe("project.json");
     }
   });
+
+  it("round-trips every accepted editor metadata entry", () => {
+    const files = editorMetadataFiles();
+    const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
+      paths: Array<{
+        editor_metadata: {
+          ranged_constraints: Array<{ key: string }>;
+        };
+      }>;
+    };
+    const restored = deserializeProjectFiles(files);
+
+    expect(
+      metadata.paths[0]!.editor_metadata.ranged_constraints.map(
+        (constraint) => constraint.key,
+      ),
+    ).toEqual([
+      "max_velocity_meters_per_sec",
+      "max_velocity_meters_per_sec",
+      "max_velocity_deg_per_sec",
+    ]);
+    expect(serializeProjectFiles(restored)).toEqual(files);
+  });
+
+  it("rejects editor metadata that cannot be applied losslessly", () => {
+    const cases: Array<{
+      label: string;
+      mutate: (editorMetadata: Record<string, unknown>) => void;
+    }> = [
+      {
+        label: "out-of-range handoff element",
+        mutate: (editorMetadata) => {
+          editorMetadata.handoff_radius_sources = [
+            { element_index: 99, source: "auto" },
+          ];
+        },
+      },
+      {
+        label: "incompatible handoff element",
+        mutate: (editorMetadata) => {
+          editorMetadata.handoff_radius_sources = [
+            { element_index: 2, source: "auto" },
+          ];
+        },
+      },
+      {
+        label: "unmatched ranged constraint",
+        mutate: (editorMetadata) => {
+          const ranged = editorMetadata.ranged_constraints as Array<
+            Record<string, unknown>
+          >;
+          ranged[0]!.start_ordinal = 99;
+          ranged[0]!.end_ordinal = 99;
+        },
+      },
+      {
+        label: "duplicate ranged constraint target",
+        mutate: (editorMetadata) => {
+          const ranged = editorMetadata.ranged_constraints as Array<
+            Record<string, unknown>
+          >;
+          ranged[1] = structuredClone(ranged[0]!);
+        },
+      },
+      {
+        label: "unsupported terminal-tolerance metadata",
+        mutate: (editorMetadata) => {
+          const ranged = editorMetadata.ranged_constraints as Array<
+            Record<string, unknown>
+          >;
+          ranged[0]!.key = "end_translation_tolerance_meters";
+        },
+      },
+      {
+        label: "manual ownership that canonical serialization omits",
+        mutate: (editorMetadata) => {
+          const ranged = editorMetadata.ranged_constraints as Array<
+            Record<string, unknown>
+          >;
+          ranged[0]!.source = "manual";
+          delete ranged[0]!.auto_velocity;
+        },
+      },
+      {
+        label: "metadata order that canonical serialization cannot retain",
+        mutate: (editorMetadata) => {
+          const ranged = editorMetadata.ranged_constraints as unknown[];
+          editorMetadata.ranged_constraints = [...ranged].reverse();
+        },
+      },
+    ];
+
+    for (const { label, mutate } of cases) {
+      const files = editorMetadataFiles();
+      const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
+        paths: Array<{ editor_metadata: Record<string, unknown> }>;
+      };
+      mutate(metadata.paths[0]!.editor_metadata);
+      const opened = openProjectFiles(
+        replaceProjectMetadata(files, `${JSON.stringify(metadata, null, 2)}\n`),
+      );
+
+      expect(opened.damage?.sourcePath, label).toBe("project.json");
+    }
+  });
 });
+
+function editorMetadataFiles(): ProjectTextFile[] {
+  const rangedConstraints: RangedConstraint[] = [
+    {
+      key: "max_velocity_deg_per_sec",
+      value: 3.5,
+      start_ordinal: 1,
+      end_ordinal: 1,
+      source: "auto_velocity",
+      auto_velocity: {
+        velocity_safety_factor: 0.85,
+        acceleration_safety_factor: 0.75,
+        merge_tolerance_meters_per_sec: 0.15,
+      },
+    },
+    {
+      key: "max_velocity_meters_per_sec",
+      value: 1.5,
+      start_ordinal: 1,
+      end_ordinal: 1,
+      source: "auto_velocity",
+      auto_velocity: {
+        velocity_safety_factor: 0.8,
+        acceleration_safety_factor: 0.7,
+        merge_tolerance_meters_per_sec: 0.2,
+      },
+    },
+    {
+      key: "max_velocity_meters_per_sec",
+      value: 2.5,
+      start_ordinal: 2,
+      end_ordinal: 2,
+      source: "auto_velocity",
+      auto_velocity: {
+        velocity_safety_factor: 0.9,
+        acceleration_safety_factor: 0.6,
+        merge_tolerance_meters_per_sec: 0.1,
+      },
+    },
+  ];
+  return serializeProjectFiles(
+    createProject({
+      project_id: "project-editor-metadata",
+      display_name: "Editor Metadata",
+      paths: [
+        {
+          path_id: "path-editor-metadata",
+          display_name: "Auto",
+          file_name: "auto.json",
+          path: createPathModel({
+            path_elements: [
+              createTranslationTarget({
+                intermediate_handoff_radius_meters: 0.45,
+                handoff_radius_source: "manual",
+              }),
+              createTranslationTarget({
+                intermediate_handoff_radius_meters: 0.45,
+                handoff_radius_source: "auto",
+              }),
+              createRotationTarget(),
+            ],
+            ranged_constraints: rangedConstraints,
+          }),
+        },
+      ],
+    }),
+  );
+}
 
 function canonicalFiles(
   options: { withLinkedTarget?: boolean } = {},

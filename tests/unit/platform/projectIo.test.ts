@@ -21,6 +21,44 @@ import {
 } from "../../../src/storage";
 
 describe("ProjectIoService", () => {
+  it("retains browser migration provenance across a restart", async () => {
+    const memory = new MemoryStorage();
+    const project = exampleWorkspace("stable-project", "Alpha", ["One"]);
+    memory.setItem(
+      "bline-web:workspace:legacy-locator",
+      JSON.stringify({
+        document: project,
+        version: "legacy-v1",
+        updatedAt: "2026-08-21T11:00:00.000Z",
+      }),
+    );
+    memory.setItem("bline-web:current-workspace", "legacy-locator");
+    const first = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: memory },
+    });
+    await first.initialize();
+    const firstMigration = first.getLegacyProjectViewMigration();
+
+    expect(firstMigration).toMatchObject({
+      legacyProjectId: "legacy-locator",
+      stableProjectId: "stable-project",
+    });
+    await first.prepareLegacyProjectMigration(firstMigration!);
+
+    const restarted = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: memory },
+    });
+    await restarted.initialize();
+    const resumedMigration = restarted.getLegacyProjectViewMigration();
+
+    expect(resumedMigration).toMatchObject({
+      legacyProjectId: "legacy-locator",
+      stableProjectId: "stable-project",
+    });
+    await restarted.completeLegacyProjectMigration(resumedMigration!);
+    expect(restarted.getLegacyProjectViewMigration()).toBeNull();
+  });
+
   it("stores and restores browser Project content without session navigation", async () => {
     const memory = new MemoryStorage();
     const service = createProjectIoService(browserWebCapabilities, {
@@ -343,19 +381,20 @@ describe("ProjectIoService", () => {
     const project = await service.initialize();
     expect(project?.project_id).not.toBe("/repo/autos");
     expect(service.getCurrentVersion()).toBe("runtime-v1");
-    expect(service.getLegacyProjectViewMigration()).toMatchObject({
+    const migration = service.getLegacyProjectViewMigration();
+    expect(migration).toMatchObject({
       legacyProjectId: "/repo/autos",
       stableProjectId: project?.project_id,
       pathIdByLegacyReference: { "One.json": "One.json" },
     });
 
-    const prepared = await service.prepareLegacyProjectMigration();
+    const prepared = await service.prepareLegacyProjectMigration(migration!);
     expect(prepared).toMatchObject({ version: "canonical-v2" });
     expect(service.getLegacyProjectViewMigration()).toMatchObject({
       legacyProjectId: "/repo/autos",
       stableProjectId: project?.project_id,
     });
-    const completed = await service.completeLegacyProjectMigration();
+    const completed = await service.completeLegacyProjectMigration(migration!);
 
     expect(completed).toMatchObject({ version: "clean-v3" });
     expect(service.getCurrentVersion()).toBe("clean-v3");

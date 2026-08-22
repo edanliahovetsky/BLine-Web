@@ -95,6 +95,7 @@ export async function migrateImportedLegacyFieldBackgrounds({
 export async function migrateLegacyProjectFieldBackgrounds(
   project: Project,
   projectIo: ProjectIoService,
+  sourceStorageId = project.project_id,
 ): Promise<LegacyFieldMigrationResult> {
   const legacy = project.config.gui.field;
   const migratedIds = new Map<string, string>();
@@ -109,7 +110,7 @@ export async function migrateLegacyProjectFieldBackgrounds(
     }
     try {
       const blob = await projectIo.readLegacyFieldImageAsset(
-        project.project_id,
+        sourceStorageId,
         source,
       );
       if (!blob) {
@@ -166,7 +167,7 @@ export async function migrateLegacyProjectFieldBackgrounds(
 
   for (const field of migratedAssets) {
     try {
-      await projectIo.deleteLegacyFieldImageAsset(project.project_id, field);
+      await projectIo.deleteLegacyFieldImageAsset(sourceStorageId, field);
     } catch (error) {
       errors.push(toError(error));
     }

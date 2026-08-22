@@ -38,6 +38,7 @@ import {
   normalizeRangedConstraintSelection,
 } from "../../../src/state/selectionStore";
 import type {
+  LegacyProjectViewMigration,
   ProjectIoCapabilities,
   ProjectIoService,
 } from "../../../src/platform/projectIo";
@@ -205,7 +206,13 @@ describe("project store", () => {
     io.deferWrites();
     renameActivePath(store, "Edited During Migration");
 
-    await store.getState().completeLegacyProjectMigration();
+    const projectSessionId = requireProjectSessionId(store);
+    await store
+      .getState()
+      .completeLegacyProjectMigration(
+        projectSessionId,
+        legacyMigration("project-a"),
+      );
     await Promise.resolve();
 
     expect(store.getState()).toMatchObject({
@@ -221,6 +228,90 @@ describe("project store", () => {
     io.completeNextWrite();
     await waitForSaveQueue();
     expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
+  });
+
+  it("does not adopt a delayed legacy prepare after switching Project sessions", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const projectSessionId = requireProjectSessionId(store);
+    const migration = legacyMigration("project-a");
+    let prepareCalls = 0;
+    let resolvePrepare!: (result: WriteResult) => void;
+    io.prepareLegacyProjectMigration = async () => {
+      prepareCalls += 1;
+      return new Promise((resolve) => {
+        resolvePrepare = resolve;
+      });
+    };
+
+    const pending = store
+      .getState()
+      .prepareLegacyProjectMigration(projectSessionId, migration);
+    await Promise.resolve();
+    await store
+      .getState()
+      .createWorkspace(exampleWorkspace("project-b", "Beta", 1));
+
+    resolvePrepare({
+      version: "prepared-project-a",
+      updatedAt: "2026-04-23T15:46:00.000Z",
+    });
+    await pending;
+
+    expect(store.getState()).toMatchObject({
+      project: { project_id: "project-b" },
+      version: "v0",
+      dirty: false,
+    });
+    await expect(
+      store
+        .getState()
+        .prepareLegacyProjectMigration(projectSessionId, migration),
+    ).resolves.toBeNull();
+    expect(prepareCalls).toBe(1);
+  });
+
+  it("does not adopt or repeat delayed legacy cleanup after switching Project sessions", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const projectSessionId = requireProjectSessionId(store);
+    const migration = legacyMigration("project-a");
+    let cleanupCalls = 0;
+    let resolveCleanup!: (result: WriteResult) => void;
+    io.completeLegacyProjectMigration = async () => {
+      cleanupCalls += 1;
+      return new Promise((resolve) => {
+        resolveCleanup = resolve;
+      });
+    };
+
+    const pending = store
+      .getState()
+      .completeLegacyProjectMigration(projectSessionId, migration);
+    await Promise.resolve();
+    await store
+      .getState()
+      .createWorkspace(exampleWorkspace("project-b", "Beta", 1));
+
+    resolveCleanup({
+      version: "cleaned-project-a",
+      updatedAt: "2026-04-23T15:47:00.000Z",
+    });
+    await pending;
+
+    expect(store.getState()).toMatchObject({
+      project: { project_id: "project-b" },
+      version: "v0",
+      dirty: false,
+    });
+    await expect(
+      store
+        .getState()
+        .completeLegacyProjectMigration(projectSessionId, migration),
+    ).resolves.toBeNull();
+    expect(cleanupCalls).toBe(1);
   });
 
   it("ignores a save completion after its Project session is closed", async () => {
@@ -1085,6 +1176,22 @@ function renameActivePath(store: ProjectStore, nextName: string): void {
     throw new Error("Expected an active Path");
   }
   store.getState().renamePath(pathId, nextName);
+}
+
+function requireProjectSessionId(store: ProjectStore): string {
+  const projectSessionId = store.getState().projectSessionId;
+  if (!projectSessionId) {
+    throw new Error("Expected an open Project session");
+  }
+  return projectSessionId;
+}
+
+function legacyMigration(projectId: string): LegacyProjectViewMigration {
+  return {
+    legacyProjectId: `legacy-${projectId}`,
+    stableProjectId: projectId,
+    pathIdByLegacyReference: {},
+  };
 }
 
 class RecordingIo implements ProjectIoService {

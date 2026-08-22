@@ -40,6 +40,7 @@ import type {
   ProjectImportResult,
   ProjectIoCapabilities,
   ProjectIoService,
+  LegacyProjectViewMigration,
 } from "./types";
 
 export class StorageProjectIoService implements ProjectIoService {
@@ -49,7 +50,7 @@ export class StorageProjectIoService implements ProjectIoService {
   private currentStorageId: string | null = null;
   private currentVersion: string | undefined;
   private lastSavedAt: string | null = null;
-  private legacyMigrationReady = false;
+  private projectEpoch = 0;
 
   constructor(storage: StorageAdapter, capabilities: ProjectIoCapabilities) {
     this.storage = storage;
@@ -114,12 +115,13 @@ export class StorageProjectIoService implements ProjectIoService {
 
   getLegacyProjectViewMigration() {
     const project = this.currentProject;
-    const legacyProjectId = this.currentStorageId;
+    const legacyProjectId = isLegacyProjectMetadataAdapter(this.storage)
+      ? this.storage.getLegacyProjectMigrationSourceId()
+      : this.currentStorageId;
     if (
       this.getPersistenceDamage() ||
       !project ||
-      !legacyProjectId ||
-      legacyProjectId === project.project_id
+      !legacyProjectId
     ) {
       return null;
     }
@@ -135,31 +137,61 @@ export class StorageProjectIoService implements ProjectIoService {
     };
   }
 
-  async prepareLegacyProjectMigration(): Promise<WriteResult | null> {
+  async prepareLegacyProjectMigration(
+    migration: LegacyProjectViewMigration,
+  ): Promise<WriteResult | null> {
     if (
+      !this.ownsLegacyMigration(migration) ||
       this.getPersistenceDamage() ||
       !this.currentVersion ||
       !isLegacyProjectMetadataAdapter(this.storage)
     ) {
       return null;
     }
+    const projectEpoch = this.projectEpoch;
+    const storageId = this.currentStorageId;
     const result = await this.storage.prepareLegacyProjectMigration(
       this.requireProject(),
       this.currentVersion,
+      migration.legacyProjectId,
     );
-    if (result) {
+    if (result && this.stillOwnsMigration(migration, projectEpoch, storageId)) {
+      const preparedStorageId = isCurrentWorkspaceAdapter(this.storage)
+        ? await this.storage.getCurrentWorkspaceId()
+        : storageId;
+      if (!this.stillOwnsMigration(migration, projectEpoch, storageId)) {
+        return result;
+      }
       this.currentVersion = result.version;
       this.lastSavedAt = result.updatedAt;
-      if (isCurrentWorkspaceAdapter(this.storage)) {
-        this.currentStorageId = await this.storage.getCurrentWorkspaceId();
-      }
+      this.currentStorageId = preparedStorageId;
     }
     return result;
   }
 
-  async completeLegacyProjectMigration(): Promise<WriteResult | null> {
-    this.legacyMigrationReady = true;
-    return this.cleanupLegacyProjectMetadata();
+  async completeLegacyProjectMigration(
+    migration: LegacyProjectViewMigration,
+  ): Promise<WriteResult | null> {
+    if (
+      !this.ownsLegacyMigration(migration) ||
+      !this.currentVersion ||
+      this.getPersistenceDamage() ||
+      !isLegacyProjectMetadataAdapter(this.storage)
+    ) {
+      return null;
+    }
+    const projectEpoch = this.projectEpoch;
+    const storageId = this.currentStorageId;
+    const result = await this.storage.deleteLegacyProjectFiles(
+      this.currentVersion,
+      migration.legacyProjectId,
+      migration.stableProjectId,
+    );
+    if (result && this.stillOwnsMigration(migration, projectEpoch, storageId)) {
+      this.currentVersion = result.version;
+      this.lastSavedAt = result.updatedAt;
+    }
+    return result;
   }
 
   async createWorkspace(input: CreateWorkspaceInput = {}): Promise<Project> {
@@ -241,6 +273,7 @@ export class StorageProjectIoService implements ProjectIoService {
     this.currentStorageId = null;
     this.currentVersion = undefined;
     this.lastSavedAt = null;
+    this.projectEpoch += 1;
     return null;
   }
 
@@ -253,7 +286,7 @@ export class StorageProjectIoService implements ProjectIoService {
     this.currentProject = cloneProject(project);
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
-    return (await this.cleanupLegacyProjectMetadata()) ?? result;
+    return result;
   }
 
   async replaceDamagedProject(
@@ -270,7 +303,7 @@ export class StorageProjectIoService implements ProjectIoService {
     this.currentProject = cloneProject(project);
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
-    return (await this.cleanupLegacyProjectMetadata()) ?? result;
+    return result;
   }
 
   async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
@@ -464,33 +497,33 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   private async readAndAdopt(id: string): Promise<Project> {
-    if (this.currentStorageId !== id) {
-      this.legacyMigrationReady = false;
-    }
     const project = await this.storage.readProject(id);
+    this.projectEpoch += 1;
     this.currentProject = cloneProject(project);
     this.currentStorageId = id;
     await this.syncVersion(id);
     return project;
   }
 
-  private async cleanupLegacyProjectMetadata(): Promise<WriteResult | null> {
-    if (
-      !this.legacyMigrationReady ||
-      !this.currentVersion ||
-      this.getPersistenceDamage() ||
-      !isLegacyProjectMetadataAdapter(this.storage)
-    ) {
-      return null;
-    }
-    const result = await this.storage.deleteLegacyProjectFiles(
-      this.currentVersion,
+  private ownsLegacyMigration(migration: LegacyProjectViewMigration): boolean {
+    return (
+      this.currentProject?.project_id === migration.stableProjectId &&
+      isLegacyProjectMetadataAdapter(this.storage) &&
+      this.storage.getLegacyProjectMigrationSourceId() ===
+        migration.legacyProjectId
     );
-    if (result) {
-      this.currentVersion = result.version;
-      this.lastSavedAt = result.updatedAt;
-    }
-    return result;
+  }
+
+  private stillOwnsMigration(
+    migration: LegacyProjectViewMigration,
+    projectEpoch: number,
+    storageId: string | null,
+  ): boolean {
+    return (
+      this.projectEpoch === projectEpoch &&
+      this.currentStorageId === storageId &&
+      this.currentProject?.project_id === migration.stableProjectId
+    );
   }
 
   private async syncVersion(id: string): Promise<void> {

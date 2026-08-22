@@ -33,6 +33,7 @@ import {
   type UpdateLinkedTargetInput,
 } from "../core/linkedTargets";
 import type {
+  LegacyProjectViewMigration,
   ProjectFolderExport,
   ProjectImportResult,
   ProjectIoService,
@@ -113,8 +114,14 @@ export interface ProjectStoreState {
   reloadFromDisk(): Promise<Project | null>;
   overwriteConflict(): Promise<WriteResult | null>;
   replaceDamagedProject(): Promise<WriteResult | null>;
-  prepareLegacyProjectMigration(): Promise<WriteResult | null>;
-  completeLegacyProjectMigration(): Promise<WriteResult | null>;
+  prepareLegacyProjectMigration(
+    projectSessionId: string,
+    migration: LegacyProjectViewMigration,
+  ): Promise<WriteResult | null>;
+  completeLegacyProjectMigration(
+    projectSessionId: string,
+    migration: LegacyProjectViewMigration,
+  ): Promise<WriteResult | null>;
   setActivePath(pathId: string): void;
   setActivePathGroup(groupId: string | null): void;
   createPath(input: {
@@ -501,17 +508,24 @@ export function createProjectStore(
       }
       return executeOwnedSave(set, get, project, version, false, true);
     },
-    async completeLegacyProjectMigration() {
+    async completeLegacyProjectMigration(
+      expectedProjectSessionId,
+      migration,
+    ) {
       if (savePromise) {
         await savePromise;
       }
       const before = get();
       const projectSessionId = before.projectSessionId;
-      if (!before.project || !projectSessionId) {
+      if (
+        !before.project ||
+        !projectSessionId ||
+        projectSessionId !== expectedProjectSessionId
+      ) {
         return null;
       }
       const io = requireProjectIo(before.io);
-      const result = await io.completeLegacyProjectMigration();
+      const result = await io.completeLegacyProjectMigration(migration);
       if (!result) {
         return null;
       }
@@ -530,7 +544,7 @@ export function createProjectStore(
       }
       return result;
     },
-    async prepareLegacyProjectMigration() {
+    async prepareLegacyProjectMigration(expectedProjectSessionId, migration) {
       if (savePromise) {
         // Browser legacy records deliberately reject ordinary saves until the
         // canonical metadata envelope exists. Let the prepare write establish
@@ -539,11 +553,15 @@ export function createProjectStore(
       }
       const before = get();
       const projectSessionId = before.projectSessionId;
-      if (!before.project || !projectSessionId) {
+      if (
+        !before.project ||
+        !projectSessionId ||
+        projectSessionId !== expectedProjectSessionId
+      ) {
         return null;
       }
       const io = requireProjectIo(before.io);
-      const result = await io.prepareLegacyProjectMigration();
+      const result = await io.prepareLegacyProjectMigration(migration);
       if (!result) {
         return null;
       }

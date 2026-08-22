@@ -108,12 +108,16 @@ export interface DamageAwareStorageAdapter extends StorageAdapter {
 }
 
 export interface LegacyProjectMetadataAdapter extends StorageAdapter {
+  getLegacyProjectMigrationSourceId(): string | null;
   prepareLegacyProjectMigration(
     project: Project,
     expectedVersion: string,
+    sourceStorageId: string,
   ): Promise<WriteResult | null>;
   deleteLegacyProjectFiles(
     expectedVersion: string,
+    sourceStorageId: string,
+    stableProjectId: string,
   ): Promise<WriteResult | null>;
 }
 
@@ -242,6 +246,8 @@ export function isLegacyProjectMetadataAdapter(
   adapter: StorageAdapter,
 ): adapter is LegacyProjectMetadataAdapter {
   return (
+    typeof (adapter as Partial<LegacyProjectMetadataAdapter>)
+      .getLegacyProjectMigrationSourceId === "function" &&
     typeof (adapter as Partial<LegacyProjectMetadataAdapter>)
       .prepareLegacyProjectMigration === "function" &&
     typeof (adapter as Partial<LegacyProjectMetadataAdapter>)

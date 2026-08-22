@@ -22,15 +22,3 @@ export function openProjectFromLegacyWorkspace(
     }),
   };
 }
-
-export function legacyWorkspaceFromOpenProject(
-  project: Project,
-  navigation: EditorNavigation,
-): ProjectWorkspaceDocument {
-  const normalized = normalizeEditorNavigation(project, navigation);
-  return {
-    ...cloneProject(project),
-    active_path_id: normalized.activePathId,
-    active_path_group_id: normalized.activePathGroupId,
-  };
-}

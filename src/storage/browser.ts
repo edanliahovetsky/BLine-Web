@@ -217,14 +217,14 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   async deleteLegacyProjectFiles(
     expectedVersion: string,
+    sourceStorageId: string,
+    stableProjectId: string,
   ): Promise<WriteResult | null> {
-    const storageId = await this.getCurrentWorkspaceId();
-    if (!storageId) {
-      return null;
-    }
-
-    const record = this.readRecord(storageId);
-    if (!record?.legacyDocument) {
+    const record = this.readRecord(stableProjectId);
+    if (
+      !record?.legacyDocument ||
+      (record.legacySourceStorageId ?? stableProjectId) !== sourceStorageId
+    ) {
       return null;
     }
     assertExpectedVersion(record, expectedVersion);
@@ -235,21 +235,24 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       version,
       updatedAt,
     };
-    this.storage.setItem(this.storageKey(storageId), JSON.stringify(cleaned));
-    this.pendingLegacyProjects.delete(storageId);
+    this.storage.setItem(
+      this.storageKey(stableProjectId),
+      JSON.stringify(cleaned),
+    );
+    this.pendingLegacyProjects.delete(stableProjectId);
     return { version, updatedAt };
   }
 
   async prepareLegacyProjectMigration(
     project: Project,
     expectedVersion: string,
+    sourceStorageId: string,
   ): Promise<WriteResult | null> {
-    const sourceStorageId = await this.getCurrentWorkspaceId();
-    if (!sourceStorageId) {
-      return null;
-    }
-    const existingCanonical = this.readRecord(sourceStorageId);
-    if (existingCanonical) {
+    const currentStorageId = await this.getCurrentWorkspaceId();
+    if (
+      currentStorageId !== sourceStorageId &&
+      currentStorageId !== project.project_id
+    ) {
       return null;
     }
     const legacy = this.readLegacyWorkspaceRecord(sourceStorageId);
@@ -267,11 +270,14 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
         : null;
       if (
         preparedTarget?.legacyDocument &&
+        preparedTarget.legacySourceStorageId === sourceStorageId &&
         !openedTarget?.damage &&
         openedTarget?.project.project_id === project.project_id
       ) {
         this.storage.removeItem(this.storageKey(sourceStorageId));
-        await this.setCurrentWorkspaceId(project.project_id);
+        if (currentStorageId === sourceStorageId) {
+          await this.setCurrentWorkspaceId(project.project_id);
+        }
         this.pendingLegacyProjects.delete(sourceStorageId);
         this.pendingLegacyProjects.set(
           project.project_id,
@@ -299,6 +305,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       version,
       updatedAt,
       legacyDocument: structuredClone(legacy.document),
+      legacySourceStorageId: sourceStorageId,
     };
     this.storage.setItem(
       this.storageKey(project.project_id),
@@ -307,7 +314,9 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     if (sourceStorageId !== project.project_id) {
       this.storage.removeItem(this.storageKey(sourceStorageId));
     }
-    await this.setCurrentWorkspaceId(project.project_id);
+    if (currentStorageId === sourceStorageId) {
+      await this.setCurrentWorkspaceId(project.project_id);
+    }
     this.pendingLegacyProjects.delete(sourceStorageId);
     this.pendingLegacyProjects.set(project.project_id, cloneProject(project));
     return { version, updatedAt };
@@ -339,6 +348,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     workspaceId: string,
     assetId: string,
   ): Promise<FieldAssetPayload | null> {
+    workspaceId = this.legacyAssetWorkspaceId(workspaceId);
     const db = await this.openFieldAssetDb();
     const record =
       await runFieldAssetTransaction<BrowserFieldAssetRecord | null>(
@@ -358,6 +368,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   async deleteFieldAsset(workspaceId: string, assetId: string): Promise<void> {
+    workspaceId = this.legacyAssetWorkspaceId(workspaceId);
     const db = await this.openFieldAssetDb();
     await runFieldAssetTransaction(db, "readwrite", (store) =>
       store.delete(fieldAssetKey(workspaceId, assetId)),
@@ -374,6 +385,18 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     } else {
       this.storage.removeItem(this.currentWorkspaceKey);
     }
+  }
+
+  getLegacyProjectMigrationSourceId(): string | null {
+    const storageId = this.storage.getItem(this.currentWorkspaceKey);
+    if (!storageId) {
+      return null;
+    }
+    const canonical = this.readRecord(storageId);
+    if (canonical?.legacyDocument) {
+      return canonical.legacySourceStorageId ?? storageId;
+    }
+    return this.readLegacyWorkspaceRecord(storageId) ? storageId : null;
   }
 
   private listSummaries(): ProjectWorkspaceSummary[] {
@@ -485,6 +508,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
             version: legacyRecord.version,
             updatedAt: legacyRecord.updatedAt,
             legacyDocument: legacyRecord.document,
+            legacySourceStorageId: workspace.project_id,
           } satisfies StoredProjectFilesRecord),
         );
       }
@@ -516,6 +540,17 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
   private storageKey(id: string): string {
     return `${this.keyPrefix}${encodeURIComponent(id)}`;
+  }
+
+  private legacyAssetWorkspaceId(requestedWorkspaceId: string): string {
+    const currentStorageId = this.storage.getItem(this.currentWorkspaceKey);
+    if (!currentStorageId) {
+      return requestedWorkspaceId;
+    }
+    const record = this.readRecord(currentStorageId);
+    return record?.legacyDocument
+      ? (record.legacySourceStorageId ?? requestedWorkspaceId)
+      : requestedWorkspaceId;
   }
 
   private openFieldAssetDb(): Promise<IDBDatabase> {
@@ -558,6 +593,7 @@ interface StoredProjectFilesRecord {
   legacyDocument?:
     | LegacyStoredWorkspaceRecord["document"]
     | StoredProjectRecord["document"];
+  legacySourceStorageId?: string;
 }
 
 interface ParsedProjectFilesRecord extends StoredProjectFilesRecord {
@@ -671,7 +707,9 @@ function isStoredProjectFilesRecord(
     ) &&
     (candidate.legacyDocument === undefined ||
       (typeof candidate.legacyDocument === "object" &&
-        candidate.legacyDocument !== null))
+        candidate.legacyDocument !== null)) &&
+    (candidate.legacySourceStorageId === undefined ||
+      typeof candidate.legacySourceStorageId === "string")
   );
 }
 

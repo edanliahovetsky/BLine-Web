@@ -200,9 +200,26 @@ describe("BrowserStorage", () => {
     const prepared = await storage.prepareLegacyProjectMigration(
       restored,
       "legacy-version",
+      "legacy-locator",
     );
     expect(prepared).not.toBeNull();
     expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
+
+    memory.setItem("bline-web:workspace:different-locator", legacyJson);
+    memory.setItem("bline-web:current-workspace", "different-locator");
+    const collision = new BrowserStorage({ storage: memory });
+    const collidingProject = await collision.readProject("different-locator");
+    await expect(
+      collision.prepareLegacyProjectMigration(
+        collidingProject,
+        "legacy-version",
+        "different-locator",
+      ),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(memory.getItem("bline-web:workspace:different-locator")).toBe(
+      legacyJson,
+    );
+    memory.removeItem("bline-web:workspace:different-locator");
 
     // Simulate a browser closing after the stable record was written but before
     // the legacy locator was removed. Preparing again must adopt the verified
@@ -215,6 +232,7 @@ describe("BrowserStorage", () => {
       interrupted.prepareLegacyProjectMigration(
         interruptedProject,
         "legacy-version",
+        "legacy-locator",
       ),
     ).resolves.toEqual(prepared);
     expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
@@ -222,12 +240,17 @@ describe("BrowserStorage", () => {
     const restarted = new BrowserStorage({ storage: memory });
     const resumed = await restarted.readProject("workspace-a");
     expect(resumed.config.gui.field).toEqual(restored.config.gui.field);
+    expect(restarted.getLegacyProjectMigrationSourceId()).toBe(
+      "legacy-locator",
+    );
     await expect(
       restarted.writeProject(resumed, prepared!.version),
     ).rejects.toThrow("migration must finish");
 
     const result = await restarted.deleteLegacyProjectFiles(
       prepared!.version,
+      "legacy-locator",
+      "workspace-a",
     );
     const migrated = JSON.parse(
       memory.getItem("bline-web:workspace:workspace-a") ?? "null",
@@ -496,6 +519,127 @@ describe("TauriStorage", () => {
     expect(resumed.project_id).toBe("stable-project");
     expect(resumed.config.gui.field).toEqual(legacyField);
     expect(storage.getCurrentProjectDamage()).toBeNull();
+  });
+
+  it("keeps delayed legacy prepare and cleanup bound to their source folder", async () => {
+    const source = exampleWorkspace("discarded", "Project A", ["One"]);
+    const runtimeFiles = serializeProjectFiles(source)
+      .filter((file) => file.relativePath !== "project.json")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        contents: file.text,
+      }));
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> =
+      [];
+    let resolvePrepare!: (payload: unknown) => void;
+    let resolveCleanup!: (payload: unknown) => void;
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "storage_read_project_files") {
+          return {
+            directoryLocator: "/repo/project-a/autos",
+            files: runtimeFiles,
+            legacyFiles: [
+              {
+                relativePath: "pathgroups.json",
+                contents: '{"schema_version":1,"groups":[]}',
+              },
+            ],
+            version: "legacy-a-v1",
+            updatedAt: "2026-08-21T12:00:00.000Z",
+          } as T;
+        }
+        if (command === "storage_switch_workspace") {
+          const id = String(args?.id);
+          return {
+            id,
+            displayName: id.endsWith("project-b/autos")
+              ? "Project B"
+              : "Project A",
+            directoryPath: id,
+            version: id.endsWith("project-b/autos") ? "b-v1" : "legacy-a-v1",
+            updatedAt: "2026-08-21T12:01:00.000Z",
+          } as T;
+        }
+        if (command === "storage_write_project_files") {
+          return new Promise<T>((resolve) => {
+            resolvePrepare = (payload) => resolve(payload as T);
+          });
+        }
+        if (command === "storage_delete_legacy_project_files") {
+          return new Promise<T>((resolve) => {
+            resolveCleanup = (payload) => resolve(payload as T);
+          });
+        }
+        if (command === "storage_read_field_asset") {
+          return null as T;
+        }
+        if (command === "storage_delete_field_asset") {
+          return undefined as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+
+    const project = await storage.readProject("/repo/project-a/autos");
+    const preparing = storage.prepareLegacyProjectMigration(
+      project,
+      "legacy-a-v1",
+      "/repo/project-a/autos",
+    );
+    await Promise.resolve();
+    await storage.switchWorkspace("/repo/project-b/autos");
+    resolvePrepare({
+      directoryLocator: "/repo/project-a/autos",
+      version: "canonical-a-v2",
+      updatedAt: "2026-08-21T12:02:00.000Z",
+    });
+    await preparing;
+    expect(storage.getLegacyProjectMigrationSourceId()).toBe(
+      "/repo/project-b/autos",
+    );
+    await storage.readFieldAsset("/repo/project-a/autos", "legacy-asset");
+    await storage.deleteFieldAsset("/repo/project-a/autos", "legacy-asset");
+
+    await storage.switchWorkspace("/repo/project-a/autos");
+    const cleaning = storage.deleteLegacyProjectFiles(
+      "canonical-a-v2",
+      "/repo/project-a/autos",
+      project.project_id,
+    );
+    await Promise.resolve();
+    await storage.switchWorkspace("/repo/project-b/autos");
+    resolveCleanup({
+      directoryLocator: "/repo/project-a/autos",
+      version: "clean-a-v3",
+      updatedAt: "2026-08-21T12:03:00.000Z",
+    });
+    await cleaning;
+
+    expect(storage.getLegacyProjectMigrationSourceId()).toBe(
+      "/repo/project-b/autos",
+    );
+    expect(
+      calls.find((call) => call.command === "storage_write_project_files")
+        ?.args,
+    ).toMatchObject({
+      directoryLocator: "/repo/project-a/autos",
+      expected: "legacy-a-v1",
+    });
+    expect(
+      calls.find(
+        (call) => call.command === "storage_delete_legacy_project_files",
+      )?.args,
+    ).toEqual({
+      directoryLocator: "/repo/project-a/autos",
+      expected: "canonical-a-v2",
+    });
+    expect(
+      calls
+        .filter((call) => call.command.endsWith("field_asset"))
+        .map((call) => call.args?.workspaceId),
+    ).toEqual(["/repo/project-a/autos", "/repo/project-a/autos"]);
   });
 });
 

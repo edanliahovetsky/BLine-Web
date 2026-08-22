@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  legacyWorkspaceFromOpenProject,
-  openProjectFromLegacyWorkspace,
-} from "../../../src/core/io/legacyWorkspace";
+import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import {
   createProjectPathDocument,
   createProjectWorkspaceDocument,
@@ -36,9 +33,6 @@ describe("Project and editor navigation", () => {
     expect(opened.project).not.toHaveProperty("active_path_group_id");
     expect(opened.navigation.activePathId).toBe(secondPath.path_id);
 
-    opened.navigation.activePathId = firstPath.path_id;
     expect(opened.project.paths).toEqual([firstPath, secondPath]);
-    expect(legacyWorkspaceFromOpenProject(opened.project, opened.navigation))
-      .toMatchObject({ active_path_id: firstPath.path_id });
   });
 });

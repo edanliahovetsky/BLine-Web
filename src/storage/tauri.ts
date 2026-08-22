@@ -157,36 +157,54 @@ export class TauriStorage implements ProjectFolderAdapter {
 
   async deleteLegacyProjectFiles(
     expectedVersion: string,
+    sourceStorageId: string,
+    stableProjectId: string,
   ): Promise<WriteResult | null> {
-    const locator = this.currentDirectoryLocator;
+    void stableProjectId;
     if (
-      !locator ||
-      !this.canonicalLocators.has(locator) ||
-      (this.legacyFilesByLocator.get(locator)?.length ?? 0) === 0
+      !this.canonicalLocators.has(sourceStorageId) ||
+      (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0
     ) {
       return null;
     }
     const result = await this.invoke<ProjectFileSetWritePayload>(
       "storage_delete_legacy_project_files",
       {
-        directoryLocator: locator,
+        directoryLocator: sourceStorageId,
         expected: expectedVersion,
       },
     );
-    this.rememberFileSet(result);
-    this.legacyFilesByLocator.delete(locator);
+    this.rememberFileSetWithoutStealingCurrentLocator(result, sourceStorageId);
+    this.legacyFilesByLocator.delete(sourceStorageId);
     return { version: result.version, updatedAt: result.updatedAt };
+  }
+
+  getLegacyProjectMigrationSourceId(): string | null {
+    return this.currentDirectoryLocator;
   }
 
   async prepareLegacyProjectMigration(
     project: Project,
     expectedVersion: string,
+    sourceStorageId: string,
   ): Promise<WriteResult | null> {
-    const locator = this.currentDirectoryLocator;
-    if (!locator || this.canonicalLocators.has(locator)) {
+    if (this.canonicalLocators.has(sourceStorageId)) {
       return null;
     }
-    return this.writeProjectFileSet(project, expectedVersion);
+    const result = await this.invoke<ProjectFileSetWritePayload>(
+      "storage_write_project_files",
+      {
+        directoryLocator: sourceStorageId,
+        files: serializeProjectFiles(project).map((file) => ({
+          relativePath: file.relativePath,
+          contents: file.text,
+        })),
+        expected: expectedVersion,
+      },
+    );
+    this.rememberFileSetWithoutStealingCurrentLocator(result, sourceStorageId);
+    this.canonicalLocators.add(result.directoryLocator);
+    return { version: result.version, updatedAt: result.updatedAt };
   }
 
   async exportWorkspaceArchive(id?: string): Promise<Blob> {
@@ -211,7 +229,7 @@ export class TauriStorage implements ProjectFolderAdapter {
       mimeType: string;
       bytes: number[];
     } | null>("storage_read_field_asset", {
-      workspaceId: this.currentDirectoryLocator ?? workspaceId,
+      workspaceId,
       assetId,
     });
 
@@ -226,7 +244,7 @@ export class TauriStorage implements ProjectFolderAdapter {
 
   async deleteFieldAsset(workspaceId: string, assetId: string): Promise<void> {
     await this.invoke("storage_delete_field_asset", {
-      workspaceId: this.currentDirectoryLocator ?? workspaceId,
+      workspaceId,
       assetId,
     });
   }
@@ -285,6 +303,19 @@ export class TauriStorage implements ProjectFolderAdapter {
     payload: ProjectFileSetPayload | ProjectFileSetWritePayload,
   ): void {
     this.currentDirectoryLocator = payload.directoryLocator;
+    this.fileSetMetadata.set(payload.directoryLocator, {
+      version: payload.version,
+      updatedAt: payload.updatedAt,
+    });
+  }
+
+  private rememberFileSetWithoutStealingCurrentLocator(
+    payload: ProjectFileSetPayload | ProjectFileSetWritePayload,
+    operationLocator: string,
+  ): void {
+    if (this.currentDirectoryLocator === operationLocator) {
+      this.currentDirectoryLocator = payload.directoryLocator;
+    }
     this.fileSetMetadata.set(payload.directoryLocator, {
       version: payload.version,
       updatedAt: payload.updatedAt,

@@ -218,6 +218,10 @@ export function AppShell() {
     [activePathId, durableProject],
   );
   const projectIo = useStoreSelector(projectStore, (state) => state.io);
+  const projectSessionId = useStoreSelector(
+    projectStore,
+    (state) => state.projectSessionId,
+  );
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
   const status = useStoreSelector(projectStore, (state) => state.status);
   const error = useStoreSelector(projectStore, (state) => state.error);
@@ -461,37 +465,73 @@ export function AppShell() {
     : null;
 
   useEffect(() => {
-    if (!durableProject) {
+    if (!durableProject || !projectSessionId) {
       return;
     }
 
     const projectId = durableProject.project_id;
+    const migrationSessionId = projectSessionId;
+    const migration = projectIo?.getLegacyProjectViewMigration() ?? null;
 
     if (
       !projectIo ||
+      !migration ||
+      migration.stableProjectId !== projectId ||
       !legacyFieldMigrationKey ||
       attemptedFieldMigrationKeysRef.current.has(legacyFieldMigrationKey)
     ) {
       return;
     }
     attemptedFieldMigrationKeysRef.current.add(legacyFieldMigrationKey);
+    let cancelled = false;
+    let finished = false;
+    const ownsMigrationSession = () => {
+      const state = projectStore.getState();
+      return (
+        !cancelled &&
+        state.io === projectIo &&
+        state.projectSessionId === migrationSessionId &&
+        state.project?.project_id === projectId
+      );
+    };
+    const abandonAttempt = () => {
+      attemptedFieldMigrationKeysRef.current.delete(legacyFieldMigrationKey);
+    };
 
     void (async () => {
-      const viewMigration = projectIo.getLegacyProjectViewMigration();
-      await projectStore.getState().prepareLegacyProjectMigration();
-      if (viewMigration) {
-        await migrateProjectViewIdentity(
-          viewMigration.legacyProjectId,
-          viewMigration.stableProjectId,
-          viewMigration.pathIdByLegacyReference,
-        );
+      await projectStore
+        .getState()
+        .prepareLegacyProjectMigration(migrationSessionId, migration);
+      if (!ownsMigrationSession()) {
+        abandonAttempt();
+        return;
+      }
+      await migrateProjectViewIdentity(
+        migration.legacyProjectId,
+        migration.stableProjectId,
+        migration.pathIdByLegacyReference,
+      );
+      if (!ownsMigrationSession()) {
+        abandonAttempt();
+        return;
       }
       const { errors } = await migrateLegacyProjectFieldBackgrounds(
         durableProject,
         projectIo,
+        migration.legacyProjectId,
       );
+      if (!ownsMigrationSession()) {
+        abandonAttempt();
+        return;
+      }
       if (errors.length === 0) {
-        await projectStore.getState().completeLegacyProjectMigration();
+        await projectStore
+          .getState()
+          .completeLegacyProjectMigration(migrationSessionId, migration);
+      }
+      if (!ownsMigrationSession()) {
+        abandonAttempt();
+        return;
       }
       setFieldBackgrounds(listFieldBackgrounds());
       setFieldSelectionOverride({
@@ -500,11 +540,21 @@ export function AppShell() {
           selectedFieldBackgroundForProject(projectId, defaultFieldId) ??
           defaultFieldId,
       });
+      finished = true;
     })().catch((migrationError: unknown) => {
-      attemptedFieldMigrationKeysRef.current.delete(legacyFieldMigrationKey);
-      projectStore.getState().markSaveError(migrationError);
+      abandonAttempt();
+      if (ownsMigrationSession()) {
+        projectStore.getState().markSaveError(migrationError);
+      }
     });
-  }, [durableProject, legacyFieldMigrationKey, projectIo]);
+
+    return () => {
+      cancelled = true;
+      if (!finished) {
+        abandonAttempt();
+      }
+    };
+  }, [durableProject, legacyFieldMigrationKey, projectIo, projectSessionId]);
 
   const selectedFieldId = durableProject
     ? fieldSelectionOverride?.projectId === durableProject.project_id

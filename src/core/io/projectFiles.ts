@@ -4,6 +4,11 @@ import {
 } from "../config/projectConfig";
 import { createProject, type Project } from "../model/project";
 import {
+  isRangedConstraintKey,
+  rangedConstraintKeys,
+  type PathModel,
+} from "../model/path";
+import {
   isElementCompatibleWithLinkedTarget,
   syncLinkedTargetElementsInProject,
 } from "../linkedTargets";
@@ -208,14 +213,14 @@ function serializeProjectFileMetadata(
       },
     },
     paths: project.paths.map((path) => {
-      const editorMetadata = serializePathEditorMetadata(path.path);
+      const editorMetadata = canonicalizePathEditorMetadata(
+        serializePathEditorMetadata(path.path),
+      );
       return {
         path_id: path.path_id,
         display_name: path.display_name,
         file_name: ensureJsonFileName(path.file_name),
-        ...(editorMetadata
-          ? { editor_metadata: editorMetadata }
-          : {}),
+        ...(editorMetadata ? { editor_metadata: editorMetadata } : {}),
       };
     }),
     path_groups: project.path_groups.map((group) => ({
@@ -237,6 +242,20 @@ function serializeProjectFileMetadata(
   };
 }
 
+function canonicalizePathEditorMetadata(
+  metadata: SerializedPathEditorMetadata | undefined,
+): SerializedPathEditorMetadata | undefined {
+  if (!metadata?.ranged_constraints) return metadata;
+  return {
+    ...metadata,
+    ranged_constraints: [...metadata.ranged_constraints].sort(
+      (left, right) =>
+        rangedConstraintKeys.indexOf(left.key) -
+        rangedConstraintKeys.indexOf(right.key),
+    ),
+  };
+}
+
 function deserializeMetadataProject(
   files: readonly ProjectTextFile[],
   runtimeConfig: unknown,
@@ -248,11 +267,19 @@ function deserializeMetadataProject(
     metadata.editor_config,
   );
   const paths = metadata.paths.map((path) => {
-    const model = applyPathEditorMetadata(
-      deserializePath(
-        parseJson(requiredText(runtimePathFiles, path.file_name.toLowerCase())),
-        projectConfigDefaultLookup(config),
-      ),
+    const runtimePath = deserializePath(
+      parseJson(requiredText(runtimePathFiles, path.file_name.toLowerCase())),
+      projectConfigDefaultLookup(config),
+    );
+    assertRangedMetadataTargetsAreDistinct(
+      path.path_id,
+      runtimePath,
+      path.editor_metadata,
+    );
+    const model = applyPathEditorMetadata(runtimePath, path.editor_metadata);
+    assertPathEditorMetadataIsLossless(
+      path.path_id,
+      model,
       path.editor_metadata,
     );
     return {
@@ -262,14 +289,16 @@ function deserializeMetadataProject(
       path: model,
     };
   });
-  const project = syncLinkedTargetElementsInProject(createProject({
-    project_id: metadata.project_id,
-    display_name: metadata.display_name,
-    config,
-    paths,
-    path_groups: metadata.path_groups,
-    linked_targets: metadata.linked_targets,
-  }));
+  const project = syncLinkedTargetElementsInProject(
+    createProject({
+      project_id: metadata.project_id,
+      display_name: metadata.display_name,
+      config,
+      paths,
+      path_groups: metadata.path_groups,
+      linked_targets: metadata.linked_targets,
+    }),
+  );
 
   for (const [pathIndex, pathMetadata] of metadata.paths.entries()) {
     const pathElements = project.paths[pathIndex]?.path.path_elements ?? [];
@@ -427,7 +456,8 @@ function isProjectFilePath(input: unknown): boolean {
     return false;
   }
   return (
-    input.editor_metadata === undefined || isPathEditorMetadata(input.editor_metadata)
+    input.editor_metadata === undefined ||
+    isPathEditorMetadata(input.editor_metadata)
   );
 }
 
@@ -481,16 +511,80 @@ function isRangedConstraintMetadata(input: unknown): boolean {
       "max_velocity_deg_per_sec",
       "min_velocity_deg_per_sec",
       "max_acceleration_deg_per_sec2",
-      "end_translation_tolerance_meters",
-      "end_rotation_tolerance_deg",
     ]) &&
     isFiniteNumber(input.value) &&
     Number.isInteger(input.start_ordinal) &&
     Number.isInteger(input.end_ordinal) &&
     (input.start_ordinal as number) >= 0 &&
     (input.end_ordinal as number) >= 0 &&
-    isOneOf(input.source, ["manual", "auto_velocity"]) &&
-    (input.auto_velocity === undefined || isAutoVelocityMetadata(input.auto_velocity))
+    input.source === "auto_velocity" &&
+    (input.auto_velocity === undefined ||
+      isAutoVelocityMetadata(input.auto_velocity))
+  );
+}
+
+function assertRangedMetadataTargetsAreDistinct(
+  pathId: string,
+  path: PathModel,
+  metadata: SerializedPathEditorMetadata | undefined,
+): void {
+  const used = new Set<number>();
+  for (const entry of metadata?.ranged_constraints ?? []) {
+    if (!isRangedConstraintKey(entry.key)) {
+      throw new Error(
+        `Path ${pathId} has unsupported ranged metadata key ${entry.key}`,
+      );
+    }
+    const matches = path.ranged_constraints.flatMap((constraint, index) =>
+      !used.has(index) &&
+      constraint.key === entry.key &&
+      constraint.start_ordinal === entry.start_ordinal &&
+      constraint.end_ordinal === entry.end_ordinal &&
+      Math.abs(constraint.value - entry.value) < 1e-9
+        ? [index]
+        : [],
+    );
+    if (matches.length !== 1) {
+      throw new Error(
+        `Path ${pathId} ranged metadata does not identify one distinct runtime constraint`,
+      );
+    }
+    used.add(matches[0]);
+  }
+}
+
+function assertPathEditorMetadataIsLossless(
+  pathId: string,
+  path: PathModel,
+  expected: SerializedPathEditorMetadata | undefined,
+): void {
+  const actual = serializePathEditorMetadata(path);
+  if (!sameJsonValue(actual, expected)) {
+    throw new Error(
+      `Path ${pathId} editor metadata cannot be applied without loss`,
+    );
+  }
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameJsonValue(value, right[index]))
+    );
+  }
+  if (!isObject(left) || !isObject(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && sameJsonValue(left[key], right[key]),
+    )
   );
 }
 
