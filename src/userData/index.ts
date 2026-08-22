@@ -2,6 +2,7 @@ import type { EnvironmentCapabilities } from "../env/capabilities";
 import {
   BrowserUserDataAdapter,
   TauriUserDataAdapter,
+  type BrowserUserDataAdapterOptions,
   type UserDataAdapter,
   type UserDataInvoke,
   type UserDataStorage,
@@ -9,20 +10,40 @@ import {
 import {
   cloneUserData,
   type EditorLayoutPreferences,
+  type FieldBackgroundEntry,
   type UserData,
 } from "./model";
-import { UserDataService } from "./service";
+import {
+  UserDataService,
+  type CreateFieldBackgroundInput,
+  type FieldBackgroundMetadataUpdate,
+} from "./service";
 
 export * from "./adapters";
 export * from "./model";
 export * from "./service";
 
 class MemoryUserDataAdapter implements UserDataAdapter {
+  private readonly assets = new Map<string, Uint8Array>();
+
   async read(): Promise<null> {
     return null;
   }
 
   async write(): Promise<void> {}
+
+  async writeFieldAsset(entryId: string, bytes: Uint8Array): Promise<void> {
+    this.assets.set(entryId, new Uint8Array(bytes));
+  }
+
+  async readFieldAsset(entryId: string): Promise<Uint8Array | null> {
+    const bytes = this.assets.get(entryId);
+    return bytes ? new Uint8Array(bytes) : null;
+  }
+
+  async deleteFieldAsset(entryId: string): Promise<void> {
+    this.assets.delete(entryId);
+  }
 }
 
 let runtimeUserData = new UserDataService(new MemoryUserDataAdapter());
@@ -31,7 +52,10 @@ export async function initializeUserData(
   capabilities: EnvironmentCapabilities,
   options: {
     browserStorage?: UserDataStorage;
+    browserAssetDbName?: BrowserUserDataAdapterOptions["assetDbName"];
     tauriInvoke?: UserDataInvoke;
+    idFactory?: () => string;
+    clock?: () => Date;
   } = {},
 ): Promise<UserData> {
   const legacyStorage =
@@ -40,8 +64,15 @@ export async function initializeUserData(
   const adapter =
     capabilities.shell === "tauri"
       ? new TauriUserDataAdapter(options.tauriInvoke)
-      : new BrowserUserDataAdapter({ storage: legacyStorage });
-  runtimeUserData = new UserDataService(adapter, { legacyStorage });
+      : new BrowserUserDataAdapter({
+          storage: legacyStorage,
+          assetDbName: options.browserAssetDbName,
+        });
+  runtimeUserData = new UserDataService(adapter, {
+    legacyStorage,
+    idFactory: options.idFactory,
+    clock: options.clock,
+  });
   return runtimeUserData.initialize();
 }
 
@@ -57,6 +88,33 @@ export function updateUserData(
 
 export function flushUserData(): Promise<void> {
   return runtimeUserData.flush();
+}
+
+export function listFieldBackgrounds(): FieldBackgroundEntry[] {
+  return structuredClone(readUserData().field_backgrounds);
+}
+
+export function importFieldBackgroundFromBytes(
+  input: CreateFieldBackgroundInput,
+): Promise<FieldBackgroundEntry> {
+  return runtimeUserData.createFieldBackgroundFromBytes(input);
+}
+
+export function updateFieldBackgroundMetadata(
+  entryId: string,
+  update: FieldBackgroundMetadataUpdate,
+): Promise<FieldBackgroundEntry> {
+  return runtimeUserData.updateFieldBackgroundMetadata(entryId, update);
+}
+
+export function readFieldBackgroundImage(
+  entryId: string,
+): Promise<Uint8Array | null> {
+  return runtimeUserData.readFieldBackgroundImage(entryId);
+}
+
+export function deleteFieldBackground(entryId: string): Promise<void> {
+  return runtimeUserData.deleteFieldBackground(entryId);
 }
 
 export function readEditorLayoutPreferences(): EditorLayoutPreferences {

@@ -1,4 +1,6 @@
-export const USER_DATA_SCHEMA_VERSION = 1 as const;
+import type { FieldGeometry } from "../core/field/fieldConfig";
+
+export const USER_DATA_SCHEMA_VERSION = 2 as const;
 
 export interface EditorLayoutPreferences {
   inspector_tab: "elements" | "constraints";
@@ -11,9 +13,16 @@ export interface ProjectViewPreferences {
   selected_field_background_id?: string;
 }
 
-/** Binary image data deliberately lives behind a separate adapter. */
-export interface FieldBackgroundLibraryPlaceholder {
-  profiles: [];
+/** Binary image data deliberately lives behind the asset adapter. */
+export interface FieldBackgroundEntry {
+  /** Also the global key used by the binary asset adapter. */
+  id: string;
+  name: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+  geometry: FieldGeometry;
 }
 
 export interface UserData {
@@ -22,7 +31,7 @@ export interface UserData {
   completed_tour_ids: string[];
   automatic_generation: { keep_in_sync: boolean };
   project_views: Record<string, ProjectViewPreferences>;
-  field_backgrounds: FieldBackgroundLibraryPlaceholder;
+  field_backgrounds: FieldBackgroundEntry[];
 }
 
 export interface LegacyUserDataStorage {
@@ -39,7 +48,7 @@ export const defaultUserData: UserData = {
   completed_tour_ids: [],
   automatic_generation: { keep_in_sync: true },
   project_views: {},
-  field_backgrounds: { profiles: [] },
+  field_backgrounds: [],
 };
 
 export class UnsupportedUserDataVersionError extends Error {
@@ -113,7 +122,7 @@ export function migrateUserData(
       root?.project_views,
       legacyEditor?.activePathByProjectId,
     ),
-    field_backgrounds: { profiles: [] },
+    field_backgrounds: fieldBackgroundEntries(root?.field_backgrounds),
   };
 }
 
@@ -123,6 +132,95 @@ export function cloneUserData(data: UserData): UserData {
 
 export function isUserDataRecord(value: unknown): boolean {
   return objectValue(value) !== null;
+}
+
+export function isSafeFieldBackgroundId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
+}
+
+function fieldBackgroundEntries(value: unknown): FieldBackgroundEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seenIds = new Set<string>();
+  return value.flatMap((candidate) => {
+    const entry = normalizeFieldBackgroundEntry(candidate);
+    if (!entry || seenIds.has(entry.id)) {
+      return [];
+    }
+    seenIds.add(entry.id);
+    return [entry];
+  });
+}
+
+function normalizeFieldBackgroundEntry(
+  value: unknown,
+): FieldBackgroundEntry | null {
+  const entry = objectValue(value);
+  const id = stringValue(entry?.id);
+  const name = stringValue(entry?.name);
+  const fileName = stringValue(entry?.file_name);
+  const mimeType = stringValue(entry?.mime_type);
+  const sizeBytes = nonNegativeInteger(entry?.size_bytes);
+  const createdAt = stringValue(entry?.created_at);
+  const geometry = fieldGeometry(entry?.geometry);
+  if (
+    !id ||
+    !isSafeFieldBackgroundId(id) ||
+    !name ||
+    !fileName ||
+    !mimeType ||
+    sizeBytes === undefined ||
+    !createdAt ||
+    !geometry
+  ) {
+    return null;
+  }
+  return {
+    id,
+    name,
+    file_name: fileName,
+    mime_type: mimeType,
+    size_bytes: sizeBytes,
+    created_at: createdAt,
+    geometry,
+  };
+}
+
+function fieldGeometry(value: unknown): FieldGeometry | null {
+  const geometry = objectValue(value);
+  const lengthMeters = positiveFiniteNumber(geometry?.length_meters);
+  const widthMeters = positiveFiniteNumber(geometry?.width_meters);
+  const coordinateOffsetMeters = finiteNumber(
+    geometry?.coordinate_offset_meters,
+  );
+  const coordinateOffsetX = optionalFiniteNumber(
+    geometry?.coordinate_offset_x_meters,
+  );
+  const coordinateOffsetY = optionalFiniteNumber(
+    geometry?.coordinate_offset_y_meters,
+  );
+  if (
+    lengthMeters === undefined ||
+    widthMeters === undefined ||
+    coordinateOffsetMeters === undefined ||
+    coordinateOffsetX === null ||
+    coordinateOffsetY === null
+  ) {
+    return null;
+  }
+  return {
+    length_meters: lengthMeters,
+    width_meters: widthMeters,
+    coordinate_offset_meters: coordinateOffsetMeters,
+    ...(coordinateOffsetX === undefined
+      ? {}
+      : { coordinate_offset_x_meters: coordinateOffsetX }),
+    ...(coordinateOffsetY === undefined
+      ? {}
+      : { coordinate_offset_y_meters: coordinateOffsetY }),
+  };
 }
 
 function projectViews(
@@ -207,6 +305,27 @@ function stringValue(value: unknown): string | undefined {
 
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function positiveFiniteNumber(value: unknown): number | undefined {
+  const number = finiteNumber(value);
+  return number !== undefined && number > 0 ? number : undefined;
+}
+
+function optionalFiniteNumber(value: unknown): number | undefined | null {
+  return value === undefined ? undefined : (finiteNumber(value) ?? null);
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
 }
 
 function inspectorTab(

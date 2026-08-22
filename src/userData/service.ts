@@ -3,13 +3,45 @@ import {
   UnsupportedUserDataVersionError,
   cloneUserData,
   defaultUserData,
+  isSafeFieldBackgroundId,
   isUserDataRecord,
   migrateUserData,
+  type FieldBackgroundEntry,
   type UserData,
 } from "./model";
+import type { FieldGeometry } from "../core/field/fieldConfig";
 
 export interface UserDataServiceOptions {
   legacyStorage?: UserDataStorage;
+  idFactory?: () => string;
+  clock?: () => Date;
+}
+
+export interface CreateFieldBackgroundInput {
+  name: string;
+  fileName: string;
+  mimeType: string;
+  bytes: Uint8Array;
+  geometry: FieldGeometry;
+}
+
+export interface FieldBackgroundMetadataUpdate {
+  name?: string;
+  geometry?: FieldGeometry;
+}
+
+export class UserDataReadOnlyError extends Error {
+  constructor() {
+    super("User Data is read-only because its durable source was not readable");
+    this.name = "UserDataReadOnlyError";
+  }
+}
+
+export class FieldBackgroundAssetVerificationError extends Error {
+  constructor(entryId: string) {
+    super(`Field Background bytes for ${entryId} did not round-trip exactly`);
+    this.name = "FieldBackgroundAssetVerificationError";
+  }
 }
 
 export class UserDataService {
@@ -17,6 +49,7 @@ export class UserDataService {
   private pendingWrite: Promise<void> = Promise.resolve();
   private initialized = false;
   private writable = true;
+  private readonly issuedEntryIds = new Set<string>();
 
   constructor(
     private readonly adapter: UserDataAdapter,
@@ -55,6 +88,9 @@ export class UserDataService {
     }
 
     this.initialized = true;
+    for (const entry of this.snapshot.field_backgrounds) {
+      this.issuedEntryIds.add(entry.id);
+    }
     this.queueWrite();
     await this.flush();
     return this.getSnapshot();
@@ -65,13 +101,139 @@ export class UserDataService {
   }
 
   update(update: (current: UserData) => UserData): UserData {
-    this.snapshot = migrateUserData(update(this.getSnapshot()));
+    const current = this.getSnapshot();
+    this.snapshot = migrateUserData({
+      ...update(current),
+      // Asset metadata only enters through the verified async operations.
+      field_backgrounds: current.field_backgrounds,
+    });
     this.queueWrite();
     return this.getSnapshot();
   }
 
   async flush(): Promise<void> {
     await this.pendingWrite;
+  }
+
+  /**
+   * The optional explicit ID is reserved for deterministic internal migration.
+   * Ordinary imports must omit it so every call receives a fresh global ID.
+   */
+  async createFieldBackgroundFromBytes(
+    input: CreateFieldBackgroundInput,
+    explicitEntryId?: string,
+  ): Promise<FieldBackgroundEntry> {
+    this.assertWritable();
+    const entryId = this.allocateEntryId(explicitEntryId);
+    const bytes = new Uint8Array(input.bytes);
+    return this.enqueue(async () => {
+      const entry = this.normalizedEntry({
+        id: entryId,
+        name: input.name,
+        file_name: input.fileName,
+        mime_type: input.mimeType,
+        size_bytes: bytes.byteLength,
+        created_at: this.now().toISOString(),
+        geometry: structuredClone(input.geometry),
+      });
+      let metadataCommitted = false;
+      try {
+        await this.adapter.writeFieldAsset(entryId, bytes);
+        const readback = await this.adapter.readFieldAsset(entryId);
+        if (!readback || !bytesEqual(bytes, readback)) {
+          throw new FieldBackgroundAssetVerificationError(entryId);
+        }
+        const next = this.withFieldEntries([
+          ...this.snapshot.field_backgrounds,
+          entry,
+        ]);
+        await this.adapter.write(next);
+        this.snapshot = next;
+        metadataCommitted = true;
+        return structuredClone(entry);
+      } catch (error) {
+        if (!metadataCommitted) {
+          await this.deleteAssetBestEffort(entryId);
+          this.issuedEntryIds.delete(entryId);
+        }
+        throw error;
+      }
+    });
+  }
+
+  async updateFieldBackgroundMetadata(
+    entryId: string,
+    update: FieldBackgroundMetadataUpdate,
+  ): Promise<FieldBackgroundEntry> {
+    this.assertWritable();
+    return this.enqueue(async () => {
+      const existing = this.snapshot.field_backgrounds.find(
+        (entry) => entry.id === entryId,
+      );
+      if (!existing) {
+        throw new Error(`Unknown Field Background ${entryId}`);
+      }
+      const updated = this.normalizedEntry({
+        ...existing,
+        ...(update.name === undefined ? {} : { name: update.name }),
+        ...(update.geometry === undefined
+          ? {}
+          : { geometry: structuredClone(update.geometry) }),
+      });
+      const next = this.withFieldEntries(
+        this.snapshot.field_backgrounds.map((entry) =>
+          entry.id === entryId ? updated : entry,
+        ),
+      );
+      await this.adapter.write(next);
+      this.snapshot = next;
+      return structuredClone(updated);
+    });
+  }
+
+  async readFieldBackgroundImage(entryId: string): Promise<Uint8Array | null> {
+    if (
+      !this.snapshot.field_backgrounds.some((entry) => entry.id === entryId)
+    ) {
+      return null;
+    }
+    const bytes = await this.adapter.readFieldAsset(entryId);
+    return bytes ? new Uint8Array(bytes) : null;
+  }
+
+  async deleteFieldBackground(entryId: string): Promise<void> {
+    this.assertWritable();
+    return this.enqueue(async () => {
+      if (
+        !this.snapshot.field_backgrounds.some((entry) => entry.id === entryId)
+      ) {
+        return;
+      }
+      const projectViews = Object.fromEntries(
+        Object.entries(this.snapshot.project_views).flatMap(
+          ([projectId, view]) => {
+            if (view.selected_field_background_id !== entryId) {
+              return [[projectId, view]];
+            }
+            const nextView = { ...view };
+            delete nextView.selected_field_background_id;
+            return Object.keys(nextView).length > 0
+              ? [[projectId, nextView]]
+              : [];
+          },
+        ),
+      );
+      const next = migrateUserData({
+        ...this.snapshot,
+        field_backgrounds: this.snapshot.field_backgrounds.filter(
+          (entry) => entry.id !== entryId,
+        ),
+        project_views: projectViews,
+      });
+      await this.adapter.write(next);
+      this.snapshot = next;
+      await this.adapter.deleteFieldAsset(entryId);
+    });
   }
 
   private queueWrite(): void {
@@ -87,9 +249,98 @@ export class UserDataService {
 
   private async tryWrite(snapshot: UserData): Promise<void> {
     try {
-      await this.adapter.write(snapshot);
+      await this.adapter.write(
+        migrateUserData({
+          ...snapshot,
+          // A later queued generic preference write must not erase a verified
+          // asset entry committed by an earlier serial operation.
+          field_backgrounds: this.snapshot.field_backgrounds,
+        }),
+      );
     } catch {
       // Keep the newer in-memory snapshot usable and allow subsequent writes.
     }
   }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pendingWrite.then(operation, operation);
+    this.pendingWrite = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private assertWritable(): void {
+    if (!this.initialized || !this.writable) {
+      throw new UserDataReadOnlyError();
+    }
+  }
+
+  private allocateEntryId(explicitEntryId?: string): string {
+    if (explicitEntryId !== undefined) {
+      if (
+        !isSafeFieldBackgroundId(explicitEntryId) ||
+        this.issuedEntryIds.has(explicitEntryId)
+      ) {
+        throw new Error(`Unsafe or duplicate Field Background ID`);
+      }
+      this.issuedEntryIds.add(explicitEntryId);
+      return explicitEntryId;
+    }
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const candidate = this.makeId();
+      if (
+        isSafeFieldBackgroundId(candidate) &&
+        !this.issuedEntryIds.has(candidate)
+      ) {
+        this.issuedEntryIds.add(candidate);
+        return candidate;
+      }
+    }
+    throw new Error("Could not allocate a unique Field Background ID");
+  }
+
+  private makeId(): string {
+    const supplied = this.options.idFactory?.();
+    if (supplied !== undefined) {
+      return supplied;
+    }
+    const random =
+      globalThis.crypto?.randomUUID?.() ??
+      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return `field-${random}`;
+  }
+
+  private now(): Date {
+    return this.options.clock?.() ?? new Date();
+  }
+
+  private normalizedEntry(entry: FieldBackgroundEntry): FieldBackgroundEntry {
+    const normalized = this.withFieldEntries([entry]).field_backgrounds[0];
+    if (!normalized || normalized.id !== entry.id) {
+      throw new Error("Invalid Field Background metadata");
+    }
+    return normalized;
+  }
+
+  private withFieldEntries(entries: FieldBackgroundEntry[]): UserData {
+    return migrateUserData({ ...this.snapshot, field_backgrounds: entries });
+  }
+
+  private async deleteAssetBestEffort(entryId: string): Promise<void> {
+    try {
+      await this.adapter.deleteFieldAsset(entryId);
+    } catch {
+      // An unreferenced orphan is safer than exposing missing referenced bytes.
+    }
+  }
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return (
+    left.byteLength === right.byteLength &&
+    left.every((value, index) => value === right[index])
+  );
 }

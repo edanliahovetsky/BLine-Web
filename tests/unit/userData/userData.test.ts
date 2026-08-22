@@ -3,8 +3,10 @@ import { browserWebCapabilities } from "../../../src/env/capabilities";
 import {
   BROWSER_USER_DATA_KEY,
   BrowserUserDataAdapter,
+  FieldBackgroundAssetVerificationError,
   TauriUserDataAdapter,
   UserDataService,
+  UserDataReadOnlyError,
   activePathForProject,
   automaticGenerationKeepInSync,
   defaultUserData,
@@ -18,6 +20,8 @@ import {
   rememberEditorLayoutPreferences,
   rememberSelectedFieldBackground,
   selectedFieldBackgroundForProject,
+  type CreateFieldBackgroundInput,
+  type UserData,
   type UserDataAdapter,
   type UserDataStorage,
 } from "../../../src/userData";
@@ -171,7 +175,9 @@ describe("UserData", () => {
         return (
           command === "storage_read_user_data"
             ? { ...defaultUserData, completed_tour_ids: ["editor-basics"] }
-            : undefined
+            : command === "storage_read_user_field_asset"
+              ? [1, 2, 3]
+              : undefined
         ) as T;
       },
     );
@@ -180,10 +186,27 @@ describe("UserData", () => {
       completed_tour_ids: ["editor-basics"],
     });
     await adapter.write(defaultUserData);
+    await adapter.writeFieldAsset("field-a", new Uint8Array([1, 2, 3]));
+    await expect(adapter.readFieldAsset("field-a")).resolves.toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+    await adapter.deleteFieldAsset("field-a");
 
     expect(calls).toEqual([
       { command: "storage_read_user_data", args: undefined },
       { command: "storage_write_user_data", args: { data: defaultUserData } },
+      {
+        command: "storage_write_user_field_asset",
+        args: { entryId: "field-a", bytes: [1, 2, 3] },
+      },
+      {
+        command: "storage_read_user_field_asset",
+        args: { entryId: "field-a" },
+      },
+      {
+        command: "storage_delete_user_field_asset",
+        args: { entryId: "field-a" },
+      },
     ]);
   });
 
@@ -202,6 +225,11 @@ describe("UserData", () => {
           await firstUpdate.promise;
         }
       },
+      async writeFieldAsset() {},
+      async readFieldAsset() {
+        return null;
+      },
+      async deleteFieldAsset() {},
     };
     const service = new UserDataService(adapter);
     await service.initialize();
@@ -303,6 +331,187 @@ describe("UserData", () => {
     expect(persisted).not.toHaveProperty("tour_step_index");
     expect(persisted).not.toHaveProperty("history");
   });
+
+  it("imports identical bytes as independent entries and supports metadata updates", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const ids = ["field-a", "field-b"];
+    const service = new UserDataService(adapter, {
+      idFactory: () => ids.shift()!,
+      clock: () => new Date("2026-08-21T12:00:00.000Z"),
+    });
+    await service.initialize();
+
+    const first = await service.createFieldBackgroundFromBytes(fieldInput());
+    const second = await service.createFieldBackgroundFromBytes(fieldInput());
+    const updated = await service.updateFieldBackgroundMetadata(first.id, {
+      name: "Renamed Field",
+    });
+
+    expect([first.id, second.id]).toEqual(["field-a", "field-b"]);
+    expect(first).toMatchObject({
+      id: "field-a",
+      name: "Practice Field",
+      file_name: "practice.png",
+      mime_type: "image/png",
+      size_bytes: 4,
+      created_at: "2026-08-21T12:00:00.000Z",
+    });
+    expect(updated.name).toBe("Renamed Field");
+    expect(adapter.assets.get("field-a")).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(adapter.assets.get("field-b")).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(service.getSnapshot().field_backgrounds).toHaveLength(2);
+  });
+
+  it("accepts an explicit safe ID only for the service migration operation", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+
+    const entry = await service.createFieldBackgroundFromBytes(
+      fieldInput(),
+      "legacy-project-field",
+    );
+
+    expect(entry.id).toBe("legacy-project-field");
+    await expect(
+      service.createFieldBackgroundFromBytes(
+        fieldInput(),
+        "legacy-project-field",
+      ),
+    ).rejects.toThrow("Unsafe or duplicate");
+    await expect(
+      service.createFieldBackgroundFromBytes(fieldInput(), "../unsafe"),
+    ).rejects.toThrow("Unsafe or duplicate");
+  });
+
+  it.each(["asset-write", "readback", "metadata-write"] as const)(
+    "%s failure leaves no Field Background metadata exposed",
+    async (failure) => {
+      const adapter = new AssetMemoryAdapter();
+      const service = new UserDataService(adapter, {
+        idFactory: () => `field-${failure}`,
+      });
+      await service.initialize();
+      if (failure === "asset-write") {
+        adapter.failAssetWrite = true;
+      } else if (failure === "readback") {
+        adapter.readbackOverride = new Uint8Array([9]);
+      } else {
+        adapter.failMetadataWrite = true;
+      }
+
+      await expect(
+        service.createFieldBackgroundFromBytes(fieldInput()),
+      ).rejects.toThrow();
+
+      expect(service.getSnapshot().field_backgrounds).toEqual([]);
+      expect(adapter.assets.size).toBe(0);
+    },
+  );
+
+  it("can retry a failed deterministic legacy import without duplicating it", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    adapter.readbackOverride = new Uint8Array([9]);
+
+    await expect(
+      service.createFieldBackgroundFromBytes(fieldInput(), "legacy-field"),
+    ).rejects.toBeInstanceOf(FieldBackgroundAssetVerificationError);
+
+    adapter.readbackOverride = undefined;
+    const entry = await service.createFieldBackgroundFromBytes(
+      fieldInput(),
+      "legacy-field",
+    );
+
+    expect(entry.id).toBe("legacy-field");
+    expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
+  });
+
+  it("preserves metadata when referenced image bytes are missing", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-missing",
+    });
+    await service.initialize();
+    const entry = await service.createFieldBackgroundFromBytes(fieldInput());
+    adapter.assets.delete(entry.id);
+
+    await expect(
+      service.readFieldBackgroundImage(entry.id),
+    ).resolves.toBeNull();
+    expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
+  });
+
+  it("durably removes metadata and selections before deleting bytes", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-delete",
+    });
+    await service.initialize();
+    const entry = await service.createFieldBackgroundFromBytes(fieldInput());
+    service.update((current) => ({
+      ...current,
+      project_views: {
+        "project-a": {
+          active_path_id: "path-a",
+          selected_field_background_id: entry.id,
+        },
+        "project-b": { selected_field_background_id: entry.id },
+      },
+    }));
+    await service.flush();
+    adapter.events.length = 0;
+    adapter.failAssetDelete = true;
+
+    await expect(service.deleteFieldBackground(entry.id)).rejects.toThrow(
+      "asset delete failed",
+    );
+
+    expect(adapter.events).toEqual(["metadata-write", "asset-delete"]);
+    expect(service.getSnapshot().field_backgrounds).toEqual([]);
+    expect(service.getSnapshot().project_views).toEqual({
+      "project-a": { active_path_id: "path-a" },
+    });
+    expect(adapter.assets.has(entry.id)).toBe(true);
+  });
+
+  it("does not delete bytes when durable metadata removal fails", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-retained",
+    });
+    await service.initialize();
+    const entry = await service.createFieldBackgroundFromBytes(fieldInput());
+    adapter.events.length = 0;
+    adapter.failMetadataWrite = true;
+
+    await expect(service.deleteFieldBackground(entry.id)).rejects.toThrow(
+      "metadata write failed",
+    );
+
+    expect(adapter.events).toEqual(["metadata-write"]);
+    expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
+    expect(adapter.assets.has(entry.id)).toBe(true);
+  });
+
+  it("keeps future and unreadable stores read-only for asset operations", async () => {
+    for (const adapter of [
+      new AssetMemoryAdapter({ schema_version: 99 }),
+      new UnreadableAssetAdapter(),
+    ]) {
+      const service = new UserDataService(adapter, {
+        idFactory: () => "field-read-only",
+      });
+      await service.initialize();
+
+      await expect(
+        service.createFieldBackgroundFromBytes(fieldInput()),
+      ).rejects.toBeInstanceOf(UserDataReadOnlyError);
+      expect(adapter.assets.size).toBe(0);
+    }
+  });
 });
 
 class MemoryStorage implements UserDataStorage {
@@ -331,6 +540,89 @@ class RejectingAdapter implements UserDataAdapter {
   async write(): Promise<void> {
     throw new Error("quota exceeded");
   }
+
+  async writeFieldAsset(): Promise<void> {}
+
+  async readFieldAsset(): Promise<null> {
+    return null;
+  }
+
+  async deleteFieldAsset(): Promise<void> {}
+}
+
+class AssetMemoryAdapter implements UserDataAdapter {
+  persisted: unknown | null;
+  readonly assets = new Map<string, Uint8Array>();
+  readonly events: string[] = [];
+  failAssetWrite = false;
+  failMetadataWrite = false;
+  failAssetDelete = false;
+  readbackOverride: Uint8Array | null | undefined;
+
+  constructor(persisted: unknown | null = null) {
+    this.persisted = persisted;
+  }
+
+  async read(): Promise<unknown | null> {
+    return structuredClone(this.persisted);
+  }
+
+  async write(data: UserData): Promise<void> {
+    this.events.push("metadata-write");
+    if (this.failMetadataWrite) {
+      throw new Error("metadata write failed");
+    }
+    this.persisted = structuredClone(data);
+  }
+
+  async writeFieldAsset(entryId: string, bytes: Uint8Array): Promise<void> {
+    this.events.push("asset-write");
+    if (this.failAssetWrite) {
+      throw new Error("asset write failed");
+    }
+    this.assets.set(entryId, new Uint8Array(bytes));
+  }
+
+  async readFieldAsset(entryId: string): Promise<Uint8Array | null> {
+    this.events.push("asset-read");
+    if (this.readbackOverride !== undefined) {
+      return this.readbackOverride === null
+        ? null
+        : new Uint8Array(this.readbackOverride);
+    }
+    const bytes = this.assets.get(entryId);
+    return bytes ? new Uint8Array(bytes) : null;
+  }
+
+  async deleteFieldAsset(entryId: string): Promise<void> {
+    this.events.push("asset-delete");
+    if (this.failAssetDelete) {
+      throw new Error("asset delete failed");
+    }
+    this.assets.delete(entryId);
+  }
+}
+
+class UnreadableAssetAdapter extends AssetMemoryAdapter {
+  override async read(): Promise<never> {
+    throw new Error("unreadable");
+  }
+}
+
+function fieldInput(): CreateFieldBackgroundInput {
+  return {
+    name: "Practice Field",
+    fileName: "practice.png",
+    mimeType: "image/png",
+    bytes: new Uint8Array([1, 2, 3, 4]),
+    geometry: {
+      length_meters: 16.54,
+      width_meters: 8.21,
+      coordinate_offset_meters: 0.5,
+      coordinate_offset_x_meters: 0.25,
+      coordinate_offset_y_meters: 0.5,
+    },
+  };
 }
 
 function deferred<T>(): {
