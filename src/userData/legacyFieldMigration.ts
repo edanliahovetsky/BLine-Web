@@ -10,6 +10,7 @@ import type {
 import {
   flushUserData,
   findVerifiedLegacyFieldBackground,
+  listFieldBackgrounds,
   migrateLegacyFieldBackgroundFromBytes,
   rememberSelectedFieldBackground,
   selectedFieldBackgroundForProject,
@@ -60,20 +61,19 @@ export async function migrateImportedLegacyFieldBackgrounds({
   const migratedSelection = selectedFieldId
     ? migratedIds.get(selectedFieldId)
     : undefined;
-  if (
-    selectedFieldId &&
-    (migratedSelection || isBuiltInSelection(selectedFieldId))
-  ) {
-    rememberSelectedFieldBackground(
-      projectId,
-      migratedSelection ?? selectedFieldId,
-    );
-  } else if (selectedFieldId) {
-    errors.push(
-      new Error(
-        `Selected legacy Field Background is missing: ${selectedFieldId}`,
-      ),
-    );
+  if (selectedFieldId) {
+    if (!migratedSelection && !isBuiltInSelection(selectedFieldId)) {
+      errors.push(
+        new Error(
+          `Selected legacy Field Background is missing: ${selectedFieldId}`,
+        ),
+      );
+    } else if (shouldAdoptLegacySelection(projectId, selectedFieldId)) {
+      rememberSelectedFieldBackground(
+        projectId,
+        migratedSelection ?? selectedFieldId,
+      );
+    }
   }
 
   await flushUserData();
@@ -145,7 +145,9 @@ export async function migrateLegacyProjectFieldBackgrounds(
     }
   }
 
-  if (selectedFieldBackgroundForProject(project.project_id) === null) {
+  if (
+    shouldAdoptLegacySelection(project.project_id, legacy.selected_field_id)
+  ) {
     const selectedId = migratedIds.get(legacy.selected_field_id);
     if (selectedId || isBuiltInSelection(legacy.selected_field_id)) {
       rememberSelectedFieldBackground(
@@ -176,6 +178,23 @@ export async function migrateLegacyProjectFieldBackgrounds(
 
 function isBuiltInSelection(fieldId: string): boolean {
   return builtInFieldDefinitions.some((field) => field.id === fieldId);
+}
+
+function shouldAdoptLegacySelection(
+  projectId: string,
+  legacySelectedFieldId: string,
+): boolean {
+  const current = selectedFieldBackgroundForProject(projectId);
+  if (current === null) {
+    return true;
+  }
+  if (
+    isBuiltInSelection(current) ||
+    listFieldBackgrounds().some((entry) => entry.id === current)
+  ) {
+    return false;
+  }
+  return current === legacySelectedFieldId;
 }
 
 function groupFieldsByAsset(

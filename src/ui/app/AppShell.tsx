@@ -243,6 +243,10 @@ export function AppShell() {
     (state) => state.projectSessionId,
   );
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
+  const projectTransitionInProgress = useStoreSelector(
+    projectStore,
+    (state) => state.projectTransitionInProgress,
+  );
   const status = useStoreSelector(projectStore, (state) => state.status);
   const error = useStoreSelector(projectStore, (state) => state.error);
   const persistenceDamage = useStoreSelector(
@@ -373,6 +377,7 @@ export function AppShell() {
     tourViewRef.current = {
       blocked:
         initializing ||
+        projectTransitionInProgress ||
         canvasInteractionActive ||
         curveToolSession !== null ||
         inspectorDialogOpen ||
@@ -417,6 +422,7 @@ export function AppShell() {
     optimizerPhase,
     pathNameAction,
     pendingToolbarAction,
+    projectTransitionInProgress,
     showCommandPalette,
     showConfigDialog,
     showDeletePathDialog,
@@ -518,6 +524,10 @@ export function AppShell() {
   const handleCommitCurveTool = useCallback(
     (insertionIndex: number, targets: readonly TranslationTarget[]) => {
       const state = projectStore.getState();
+      if (state.projectTransitionInProgress) {
+        setCurveToolSession(null);
+        return;
+      }
       const currentPath = activeProjectPath(state.project, state.activePathId);
       if (!state.project || !currentPath || targets.length === 0) {
         setCurveToolSession(null);
@@ -942,6 +952,9 @@ export function AppShell() {
   const handlePlaceCanvasElement = useCallback(
     (placement: CanvasElementPlacement) => {
       const state = projectStore.getState();
+      if (state.projectTransitionInProgress) {
+        return;
+      }
       const currentPath = activeProjectPath(state.project, state.activePathId);
       if (!currentPath || !state.project) {
         return;
@@ -1724,7 +1737,8 @@ export function AppShell() {
     currentVersion,
     lastSavedAt,
   );
-  const toolbarBusy = pendingToolbarAction !== null;
+  const toolbarBusy =
+    pendingToolbarAction !== null || projectTransitionInProgress;
   const projectLabel = durableProject?.display_name ?? "No project";
   const pathLabel = activePath?.display_name ?? "No path";
   const currentProjectSummary = `Project: ${projectLabel}`;
@@ -1764,11 +1778,17 @@ export function AppShell() {
     ? "error"
     : "warning";
   const handleSelectPathFromToolbar = useCallback((pathId: string) => {
+    if (projectStore.getState().projectTransitionInProgress) {
+      return;
+    }
     projectStore.getState().setActivePath(pathId);
     selectionStore.getState().clearSelection();
   }, []);
   const handleSelectCollectionFromToolbar = useCallback(
     (groupId: string | null) => {
+      if (projectStore.getState().projectTransitionInProgress) {
+        return;
+      }
       projectStore.getState().setActivePathGroup(groupId);
       selectionStore.getState().clearSelection();
     },
@@ -1782,7 +1802,7 @@ export function AppShell() {
     label: "Open project navigator",
     category: "Project",
     keywords: ["paths", "collections", "library"],
-    disabled: !projectAvailable,
+    disabled: !projectAvailable || toolbarBusy,
     run: handleShowPathLibrary,
   };
   const newPathCommand: EditorCommand = {
@@ -1797,7 +1817,7 @@ export function AppShell() {
     id: "project.settings",
     label: "Open project settings",
     category: "Project",
-    disabled: !projectAvailable,
+    disabled: !projectAvailable || toolbarBusy,
     run: () => setShowConfigDialog(true),
   };
   const saveCommand: EditorCommand = {
@@ -1840,6 +1860,7 @@ export function AppShell() {
     keywords: ["corner", "handoff", "radius", "seed", "optimize", "velocity"],
     disabled:
       !activePath ||
+      toolbarBusy ||
       optimizerPhase === "running" ||
       !canGenerateAutomaticConstraints(activePath.path),
     run: () => {
@@ -1857,7 +1878,7 @@ export function AppShell() {
     keywords: ["copy", "clone"],
     shortcut: { key: "d", metaOrCtrl: true },
     scope: "editor",
-    disabled: selectedElementIndex === null,
+    disabled: selectedElementIndex === null || toolbarBusy,
     run: () => {
       duplicateSelectedPathElement();
     },
@@ -1886,7 +1907,7 @@ export function AppShell() {
       category: "Canvas tools",
       shortcut: { key: "v" },
       scope: "editor",
-      disabled: !pathAvailable,
+      disabled: !pathAvailable || toolbarBusy,
       run: () => handleToolChange("select"),
     },
     {
@@ -1895,7 +1916,7 @@ export function AppShell() {
       category: "Canvas tools",
       shortcut: { key: "1" },
       scope: "editor",
-      disabled: !pathAvailable,
+      disabled: !pathAvailable || toolbarBusy,
       run: () => handleToolChange("waypoint"),
     },
     {
@@ -1904,7 +1925,7 @@ export function AppShell() {
       category: "Canvas tools",
       shortcut: { key: "2" },
       scope: "editor",
-      disabled: !pathAvailable,
+      disabled: !pathAvailable || toolbarBusy,
       run: () => handleToolChange("translation"),
     },
     {
@@ -1913,7 +1934,7 @@ export function AppShell() {
       category: "Canvas tools",
       shortcut: { key: "3" },
       scope: "editor",
-      disabled: !pathAvailable,
+      disabled: !pathAvailable || toolbarBusy,
       run: () => handleToolChange("rotation"),
     },
     {
@@ -1922,7 +1943,7 @@ export function AppShell() {
       category: "Canvas tools",
       shortcut: { key: "4" },
       scope: "editor",
-      disabled: !pathAvailable,
+      disabled: !pathAvailable || toolbarBusy,
       run: () => handleToolChange("event"),
     },
     {
@@ -1931,7 +1952,7 @@ export function AppShell() {
       category: "Canvas tools",
       shortcut: { key: "c" },
       scope: "editor",
-      disabled: !pathAvailable,
+      disabled: !pathAvailable || toolbarBusy,
       run: () => handleToolChange("curve"),
     },
   ];
@@ -1940,6 +1961,7 @@ export function AppShell() {
     label: `Open path: ${path.display_name}`,
     category: "Paths",
     keywords: [path.file_name],
+    disabled: toolbarBusy,
     run: () => handleSelectPathFromToolbar(path.path_id),
   }));
   const commands: EditorCommand[] = [
@@ -1969,6 +1991,7 @@ export function AppShell() {
   const handleShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
     if (
       event.defaultPrevented ||
+      projectTransitionInProgress ||
       hasActiveBlockingSurface({
         openTopMenu,
         showCommandPalette,
@@ -2098,7 +2121,11 @@ export function AppShell() {
   }, []);
 
   return (
-    <main className="app-shell" data-testid="app-shell">
+    <main
+      className="app-shell"
+      data-testid="app-shell"
+      aria-busy={projectTransitionInProgress}
+    >
       <header className="app-toolbar" ref={toolbarRef}>
         <nav className="app-tabs" aria-label="Top menu">
           <IconButton
@@ -2122,12 +2149,12 @@ export function AppShell() {
                 <MenuSubmenu label="Folder" testId="top-menu-project-folder">
                   <MenuAction
                     label="Open Project Folder..."
-                    disabled={!projectIo}
+                    disabled={!projectIo || toolbarBusy}
                     onAction={() => void handleOpenWorkspace()}
                   />
                   <MenuAction
                     label="Create Project Folder..."
-                    disabled={!projectIo}
+                    disabled={!projectIo || toolbarBusy}
                     onAction={() => void handleCreateWorkspace()}
                   />
                 </MenuSubmenu>
@@ -2140,17 +2167,17 @@ export function AppShell() {
                 >
                   <MenuAction
                     label="New Project"
-                    disabled={!projectIo}
+                    disabled={!projectIo || toolbarBusy}
                     onAction={() => void handleNewProject()}
                   />
                   <MenuAction
                     label="Open Project..."
-                    disabled={!projectIo}
+                    disabled={!projectIo || toolbarBusy}
                     onAction={handleOpenProjectPanel}
                   />
                   <MenuAction
                     label="Delete Projects..."
-                    disabled={!durableProject || !projectIo}
+                    disabled={!durableProject || !projectIo || toolbarBusy}
                     onAction={handleShowDeleteProjects}
                   />
                 </MenuSubmenu>
@@ -2164,7 +2191,7 @@ export function AppShell() {
                 <>
                   <MenuAction
                     label="Import Autos Folder..."
-                    disabled={!projectIo}
+                    disabled={!projectIo || toolbarBusy}
                     onAction={queueFolderImport}
                   />
                   <MenuAction
@@ -2177,7 +2204,7 @@ export function AppShell() {
               ) : null}
               <MenuAction
                 label="Import Project Archive..."
-                disabled={!projectIo}
+                disabled={!projectIo || toolbarBusy}
                 onAction={() => queueFileImport("archive")}
               />
               <MenuAction
@@ -2192,7 +2219,7 @@ export function AppShell() {
             <MenuSubmenu label="Config" testId="top-menu-project-config">
               <MenuAction
                 label="Import Config..."
-                disabled={!durableProject || !projectIo}
+                disabled={!durableProject || !projectIo || toolbarBusy}
                 onAction={() => queueFileImport("config")}
               />
               <MenuAction
@@ -2239,7 +2266,7 @@ export function AppShell() {
             <div className="top-menu__separator" role="separator" />
             <MenuAction
               label="Linked Elements..."
-              disabled={!durableProject}
+              disabled={!durableProject || toolbarBusy}
               onAction={handleShowLinkedTargets}
             />
             <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
@@ -2250,17 +2277,19 @@ export function AppShell() {
               />
               <MenuAction
                 label="Save Path As..."
-                disabled={!activePath || !projectIo}
+                disabled={!activePath || !projectIo || toolbarBusy}
                 onAction={() => void handleSavePathAs()}
               />
               <MenuAction
                 label="Rename Path..."
-                disabled={!activePath}
+                disabled={!activePath || toolbarBusy}
                 onAction={handleRenamePath}
               />
               <MenuAction
                 label="Delete Paths..."
-                disabled={!durableProject || pathDocuments.length === 0}
+                disabled={
+                  !durableProject || pathDocuments.length === 0 || toolbarBusy
+                }
                 onAction={handleShowDeletePaths}
               />
             </MenuSubmenu>
@@ -2270,7 +2299,7 @@ export function AppShell() {
             >
               <MenuAction
                 label="Import Path..."
-                disabled={!durableProject || !projectIo}
+                disabled={!durableProject || !projectIo || toolbarBusy}
                 onAction={() => queueFileImport("path")}
               />
               <MenuAction
@@ -2587,6 +2616,7 @@ export function AppShell() {
             "--inspector-width": `${inspectorWidth}px`,
           } as CSSProperties
         }
+        inert={projectTransitionInProgress ? true : undefined}
       >
         {!durableProject ? (
           <StartCenter

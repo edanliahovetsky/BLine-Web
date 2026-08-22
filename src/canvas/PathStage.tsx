@@ -784,7 +784,11 @@ export function PathStage({
   }, [renderInput]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || isInteractiveShortcutTarget(event.target)) {
+    if (
+      event.defaultPrevented ||
+      projectStore.getState().projectTransitionInProgress ||
+      isInteractiveShortcutTarget(event.target)
+    ) {
       return;
     }
 
@@ -898,7 +902,10 @@ export function PathStage({
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (isCanvasChromeEventTarget(event.target)) {
+    if (
+      projectStore.getState().projectTransitionInProgress ||
+      isCanvasChromeEventTarget(event.target)
+    ) {
       return;
     }
     if (event.button !== 0) {
@@ -1247,6 +1254,10 @@ export function PathStage({
 
     setActiveDrag(null);
 
+    if (projectStore.getState().projectTransitionInProgress) {
+      return;
+    }
+
     if (drag.startRatio !== null && nextRatio !== null) {
       if (Math.abs(drag.startRatio - nextRatio) >= 0.001) {
         projectStore.getState().applyPathElementEdit({
@@ -1301,6 +1312,10 @@ export function PathStage({
         pointer,
       ) ?? rotationDrag.currentRadians;
     setActiveRotationDrag(null);
+
+    if (projectStore.getState().projectTransitionInProgress) {
+      return;
+    }
 
     if (
       Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001

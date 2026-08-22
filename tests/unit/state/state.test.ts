@@ -345,12 +345,13 @@ describe("project store", () => {
     renameActivePath(store, "Edited During Migration");
 
     const projectSessionId = requireProjectSessionId(store);
+    const migration = legacyMigration("project-a");
     await store
       .getState()
-      .completeLegacyProjectMigration(
-        projectSessionId,
-        legacyMigration("project-a"),
-      );
+      .prepareLegacyProjectMigration(projectSessionId, migration);
+    await store
+      .getState()
+      .completeLegacyProjectMigration(projectSessionId, migration);
     await Promise.resolve();
 
     expect(store.getState()).toMatchObject({
@@ -393,6 +394,7 @@ describe("project store", () => {
       version: "prepared-v1",
       dirty: true,
       status: "idle",
+      legacyMigrationPhase: "prepared",
     });
     expect(io.writes).toHaveLength(0);
     await expect(store.getState().saveWorkspace()).resolves.toBeNull();
@@ -504,6 +506,7 @@ describe("project store", () => {
       const transition = operation.run(store);
       await waitForTransitionCall(io, operation.name);
       const before = store.getState();
+      expect(before.projectTransitionInProgress, operation.name).toBe(true);
 
       expect(
         () => renameActivePath(store, "Edit that would otherwise be lost"),
@@ -520,6 +523,9 @@ describe("project store", () => {
 
       io.completeNextTransition();
       await transition;
+      expect(store.getState().projectTransitionInProgress, operation.name).toBe(
+        false,
+      );
     }
   });
 
@@ -711,6 +717,62 @@ describe("project store", () => {
     expect(store.getState().legacyMigrationProjectSessionId).toBeNull();
   });
 
+  it("rejects cleanup until the active Project session has prepared migration", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    io.legacyMigrationResult = {
+      version: "must-not-clean",
+      updatedAt: "2026-04-23T15:45:00.000Z",
+    };
+
+    await expect(
+      store
+        .getState()
+        .completeLegacyProjectMigration(
+          requireProjectSessionId(store),
+          legacyMigration("project-a"),
+        ),
+    ).rejects.toThrow("must be prepared before cleanup");
+    expect(io.legacyMigrationResult).not.toBeNull();
+  });
+
+  it("does not treat an in-flight migration preparation as cleanup proof", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    let resolvePreparation!: (
+      result: LegacyProjectMigrationPreparation,
+    ) => void;
+    io.prepareLegacyProjectMigration = async () =>
+      new Promise((resolve) => {
+        resolvePreparation = resolve;
+      });
+    const projectSessionId = requireProjectSessionId(store);
+    const migration = legacyMigration("project-a");
+
+    const preparation = store
+      .getState()
+      .prepareLegacyProjectMigration(projectSessionId, migration);
+    expect(store.getState()).toMatchObject({
+      legacyMigrationProjectSessionId: projectSessionId,
+      legacyMigrationPhase: "preparing",
+    });
+    await expect(
+      store
+        .getState()
+        .completeLegacyProjectMigration(projectSessionId, migration),
+    ).rejects.toThrow("must be prepared before cleanup");
+
+    resolvePreparation({
+      status: "prepared",
+      version: "prepared-v1",
+      updatedAt: "2026-04-23T15:44:00.000Z",
+    });
+    await preparation;
+    expect(store.getState().legacyMigrationPhase).toBe("prepared");
+  });
+
   it("does not clear an unrelated error when migration cleanup succeeds", async () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
@@ -796,6 +858,10 @@ describe("project store", () => {
         resolveCleanup = resolve;
       });
     };
+
+    await store
+      .getState()
+      .prepareLegacyProjectMigration(projectSessionId, migration);
 
     const pending = store
       .getState()
@@ -1448,6 +1514,66 @@ describe("save conflict recovery", () => {
     expect(state.dirty).toBe(false);
     expect(state.version).toBe(io.getCurrentVersion());
     expect(requireWorkspace(store).display_name).toBe("External Edit");
+  });
+
+  it("reloadFromDisk owns the session before awaiting disk IO", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const diskWorkspace = exampleWorkspace("project-a", "External Edit", 1);
+    let resolveReload!: (project: Project) => void;
+    io.reloadCurrentProject = async () =>
+      new Promise((resolve) => {
+        resolveReload = resolve;
+      });
+    renameActivePath(store, "Unsaved Before Reload");
+
+    const reloading = store.getState().reloadFromDisk();
+
+    expect(store.getState().projectTransitionInProgress).toBe(true);
+    expect(() => renameActivePath(store, "Lost Edit")).toThrow(
+      /temporarily unavailable while changing Projects/,
+    );
+    await Promise.resolve();
+    resolveReload(diskWorkspace);
+    await reloading;
+
+    expect(store.getState()).toMatchObject({
+      projectTransitionInProgress: false,
+      dirty: false,
+      project: { display_name: "External Edit" },
+    });
+  });
+});
+
+describe("Project IO service ownership", () => {
+  it("does not let delayed initialization from a replaced service adopt state", async () => {
+    const firstIo = new RecordingIo(exampleWorkspace("project-a", "Alpha", 1));
+    let resolveFirst!: (project: Project | null) => void;
+    firstIo.initialize = async () =>
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      });
+    const secondIo = new RecordingIo(exampleWorkspace("project-b", "Beta", 1));
+    const store = createProjectStore();
+
+    store.getState().setProjectIoService(firstIo);
+    const firstInitialization = store.getState().initializeWorkspace();
+    expect(store.getState().projectTransitionInProgress).toBe(true);
+
+    store.getState().setProjectIoService(secondIo);
+    const secondInitialization = store.getState().initializeWorkspace();
+    await secondInitialization;
+    resolveFirst(exampleWorkspace("project-a", "Alpha", 1));
+    await expect(firstInitialization).rejects.toThrow(
+      /active Project changed before the operation finished/,
+    );
+
+    expect(store.getState()).toMatchObject({
+      io: secondIo,
+      projectTransitionInProgress: false,
+      project: { project_id: "project-b", display_name: "Beta" },
+    });
   });
 });
 

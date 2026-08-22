@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CustomFieldImage } from "../../../src/core/field/fieldConfig";
+import { createProject } from "../../../src/core/model/project";
 import {
   browserWebCapabilities,
   tauriCapabilities,
@@ -8,6 +9,7 @@ import {
   activePathForProject,
   flushUserData,
   initializeUserData,
+  migrateProjectViewIdentity,
   readEditorLayoutPreferences,
   readUserData,
   rememberActivePath,
@@ -32,7 +34,11 @@ import {
   UserDataService,
   type CreateFieldBackgroundInput,
 } from "../../../src/userData/service";
-import { migrateImportedLegacyFieldBackgrounds } from "../../../src/userData/legacyFieldMigration";
+import {
+  migrateImportedLegacyFieldBackgrounds,
+  migrateLegacyProjectFieldBackgrounds,
+} from "../../../src/userData/legacyFieldMigration";
+import type { ProjectIoService } from "../../../src/platform/projectIo";
 
 describe("UserData", () => {
   it("migrates all legacy preferences into one record without deleting sources", async () => {
@@ -727,6 +733,89 @@ describe("UserData", () => {
       firstSnapshot.project_views["project-imported"]
         ?.selected_field_background_id,
     ).toBe(firstSnapshot.field_backgrounds[1]?.id);
+
+    expect(persisted).toEqual(readUserData());
+  });
+
+  it("remaps a copied Project-scoped field selection without replacing valid selections", async () => {
+    let persisted: UserData | null = null;
+    const assets = new Map<string, number[]>();
+    await initializeUserData(tauriCapabilities, {
+      tauriInvoke: async <T>(
+        command: string,
+        args?: Record<string, unknown>,
+      ): Promise<T> => {
+        if (command === "storage_read_user_data") {
+          return structuredClone(persisted) as T;
+        }
+        if (command === "storage_write_user_data") {
+          persisted = structuredClone(args?.data as UserData);
+          return undefined as T;
+        }
+        if (command === "storage_write_user_field_asset") {
+          assets.set(String(args?.entryId), [...(args?.bytes as number[])]);
+          return undefined as T;
+        }
+        if (command === "storage_read_user_field_asset") {
+          return (assets.get(String(args?.entryId)) ?? null) as T;
+        }
+        if (command === "storage_delete_user_field_asset") {
+          assets.delete(String(args?.entryId));
+          return undefined as T;
+        }
+        throw new Error(`Unexpected User Data command: ${command}`);
+      },
+    });
+
+    const field = legacyField("legacy-selection", "legacy-asset", 0.5);
+    const bytes = new Uint8Array([4, 5, 6]);
+    const project = createProject({
+      project_id: "stable-project",
+      display_name: "Stable",
+      config: {
+        gui: {
+          field: {
+            selected_field_id: field.id,
+            custom_fields: [field],
+          },
+        },
+      },
+    });
+    const projectIo = {
+      readLegacyFieldImageAsset: async () =>
+        new Blob([bytes], { type: "image/png" }),
+      deleteLegacyFieldImageAsset: async () => {},
+    } as unknown as ProjectIoService;
+
+    rememberSelectedFieldBackground("legacy-project", field.id);
+    await flushUserData();
+    await migrateProjectViewIdentity("legacy-project", "stable-project", {});
+    expect(selectedFieldBackgroundForProject("stable-project")).toBe(field.id);
+
+    const migrated = await migrateLegacyProjectFieldBackgrounds(
+      project,
+      projectIo,
+    );
+    const migratedId = readUserData().field_backgrounds[0]?.id;
+    expect(migrated.errors).toEqual([]);
+    expect(migratedId).toBeTruthy();
+    expect(selectedFieldBackgroundForProject("stable-project")).toBe(
+      migratedId,
+    );
+
+    rememberSelectedFieldBackground("stable-project", "blank-grid");
+    await flushUserData();
+    await migrateLegacyProjectFieldBackgrounds(project, projectIo);
+    expect(selectedFieldBackgroundForProject("stable-project")).toBe(
+      "blank-grid",
+    );
+
+    rememberSelectedFieldBackground("stable-project", migratedId!);
+    await flushUserData();
+    await migrateLegacyProjectFieldBackgrounds(project, projectIo);
+    expect(selectedFieldBackgroundForProject("stable-project")).toBe(
+      migratedId,
+    );
     expect(persisted).toEqual(readUserData());
   });
 });

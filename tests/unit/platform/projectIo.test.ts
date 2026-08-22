@@ -18,6 +18,7 @@ import {
 import {
   BrowserStorage,
   ProjectPersistenceDamageError,
+  StorageConflictError,
   TauriStorage,
   type StorageLike,
 } from "../../../src/storage";
@@ -143,6 +144,107 @@ describe("ProjectIoService", () => {
       "One.json",
       "Two.json",
     ]);
+  });
+
+  it("rejects browser folder and archive imports that collide with a saved Project ID", async () => {
+    const source = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await source.createWorkspace({
+      project: exampleWorkspace("shared-id", "Imported", ["Imported Path"]),
+    });
+    const sourceProject = await currentProject(source);
+    const folder = await source.exportProjectFolder(sourceProject);
+    const archive = await source.exportProjectArchive(sourceProject);
+
+    for (const { collisionId, importProject } of [
+      {
+        collisionId: "shared-id",
+        importProject: (target: ReturnType<typeof createProjectIoService>) =>
+          target.importProjectFolder(
+            folder.files.map(
+              (file) =>
+                ({
+                  name:
+                    file.relativePath.split("/").at(-1) ?? file.relativePath,
+                  webkitRelativePath: `autos/${file.relativePath}`,
+                  text: () => file.blob.text(),
+                }) as File,
+            ),
+          ),
+      },
+      {
+        collisionId: "imported-project",
+        importProject: (target: ReturnType<typeof createProjectIoService>) =>
+          target.importProjectArchive({
+            name: "shared.bline-project.json",
+            type: "application/json",
+            text: () => archive.text(),
+          } as File),
+      },
+    ]) {
+      const target = createProjectIoService(browserWebCapabilities, {
+        browser: { storage: new MemoryStorage() },
+      });
+      await target.createWorkspace({
+        project: exampleWorkspace(collisionId, "Existing", ["Kept Path"]),
+      });
+
+      await expect(importProject(target)).rejects.toBeInstanceOf(
+        StorageConflictError,
+      );
+      await expect(target.peekWorkspace()).resolves.toMatchObject({
+        project_id: collisionId,
+        display_name: "Existing",
+        paths: [{ display_name: "Kept Path" }],
+      });
+      expect(await target.listWorkspaces()).toHaveLength(1);
+    }
+  });
+
+  it("rebinds browser Project IO to an identity-changing import", async () => {
+    const source = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await source.createWorkspace({
+      project: exampleWorkspace("imported-id", "Imported", ["Imported Path"]),
+    });
+    const archive = await source.exportProjectArchive(
+      await currentProject(source),
+    );
+
+    const target = createProjectIoService(browserWebCapabilities, {
+      browser: { storage: new MemoryStorage() },
+    });
+    await target.createWorkspace({
+      project: exampleWorkspace("prior-id", "Prior", ["Prior Path"]),
+    });
+    const imported = await target.importProjectArchive({
+      name: "imported.bline-project.json",
+      type: "application/json",
+      text: () => archive.text(),
+    } as File);
+
+    expect(imported.project.project_id).toBe("imported-project");
+    await expect(target.getWorkspace()).resolves.toMatchObject({
+      project_id: "imported-project",
+      paths: [{ display_name: "Imported Path" }],
+    });
+    await expect(target.peekWorkspace()).resolves.toMatchObject({
+      project_id: "imported-project",
+      paths: [{ display_name: "Imported Path" }],
+    });
+    await expect(target.reloadCurrentProject()).resolves.toMatchObject({
+      project_id: "imported-project",
+      paths: [{ display_name: "Imported Path" }],
+    });
+    expect(
+      (await target.listWorkspaces()).map((summary) => summary.id).sort(),
+    ).toEqual(["imported-project", "prior-id"]);
+    await expect(target.openWorkspace("prior-id")).resolves.toMatchObject({
+      project_id: "prior-id",
+      paths: [{ display_name: "Prior Path" }],
+    });
   });
 
   it("excludes local Field Background metadata and bytes from exports", async () => {

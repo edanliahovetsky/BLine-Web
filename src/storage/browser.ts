@@ -204,6 +204,37 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     return this.writeProjectFilesRecord(project, expectedVersion);
   }
 
+  async writeNewProject(project: Project): Promise<WriteResult> {
+    const previousCurrentId = await this.getCurrentWorkspaceId();
+    const targetKey = this.storageKey(project.project_id);
+    const legacyTargetKey = this.legacyProjectKey(project.project_id);
+    const existing = this.readVersionedRecord(project.project_id);
+    if (
+      this.storage.getItem(targetKey) !== null ||
+      this.storage.getItem(legacyTargetKey) !== null
+    ) {
+      throw new StorageConflictError(
+        `A saved Project already uses ID ${project.project_id}`,
+        undefined,
+        existing?.version,
+      );
+    }
+
+    try {
+      return await this.writeProjectFilesRecord(project);
+    } catch (error) {
+      // The target was proven absent, so removing it is a safe rollback if the
+      // current-Project pointer fails after the new record is written.
+      this.storage.removeItem(targetKey);
+      try {
+        await this.setCurrentWorkspaceId(previousCurrentId);
+      } catch {
+        // Preserve the original import failure when storage itself is unwritable.
+      }
+      throw error;
+    }
+  }
+
   getCurrentProjectDamage(): ProjectFileDamage | null {
     const id = this.storage.getItem(this.currentWorkspaceKey);
     return id ? (this.damageById.get(id) ?? null) : null;

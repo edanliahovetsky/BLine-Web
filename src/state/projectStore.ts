@@ -106,6 +106,7 @@ export interface ProjectMutationOwnership {
 }
 
 interface ProjectTransitionOwnership {
+  ioGeneration: number;
   io: ProjectIoService | null;
   projectId: string | null;
   projectSessionId: string | null;
@@ -134,7 +135,9 @@ export interface ProjectStoreState {
   revision: number;
   activeSave: SaveOwnership | null;
   saveQueued: boolean;
+  projectTransitionInProgress: boolean;
   legacyMigrationProjectSessionId: string | null;
+  legacyMigrationPhase: "preparing" | "prepared" | null;
   legacyMigrationError: string | null;
   history: HistoryStore<Project>;
   setProjectIoService(io: ProjectIoService | null): void;
@@ -235,13 +238,16 @@ export function createProjectStore(
   history = createHistoryStore<Project>(),
 ): ProjectStore {
   let nextProjectSessionId = 1;
+  let ioGeneration = 0;
   let savePromise: Promise<WriteResult> | null = null;
   let activeProjectTransition: ProjectTransitionOwnership | null = null;
   const createProjectSessionId = () =>
     `project-session-${nextProjectSessionId++}`;
 
   const beginProjectTransition = async (
+    set: StoreApi<ProjectStoreState>["setState"],
     get: StoreApi<ProjectStoreState>["getState"],
+    persistCurrentProject = true,
   ): Promise<ProjectTransitionOwnership> => {
     if (activeProjectTransition) {
       throw new Error("Another Project change is already in progress");
@@ -250,21 +256,25 @@ export function createProjectStore(
     // A save can admit another synchronous edit before its awaiting caller resumes.
     // Keep draining that work until transition ownership can be captured atomically.
     while (true) {
-      await persistBeforeProjectTransition(get);
+      if (persistCurrentProject) {
+        await persistBeforeProjectTransition(get);
+      }
       if (activeProjectTransition) {
         throw new Error("Another Project change is already in progress");
       }
       const state = get();
-      if (state.dirty) {
+      if (persistCurrentProject && state.dirty) {
         continue;
       }
       const ownership: ProjectTransitionOwnership = {
+        ioGeneration,
         io: state.io,
         projectId: state.project?.project_id ?? null,
         projectSessionId: state.projectSessionId,
         revision: state.revision,
       };
       activeProjectTransition = ownership;
+      set({ projectTransitionInProgress: true });
       return ownership;
     }
   };
@@ -276,6 +286,7 @@ export function createProjectStore(
     const state = get();
     return (
       activeProjectTransition === ownership &&
+      ioGeneration === ownership.ioGeneration &&
       state.io === ownership.io &&
       (state.project?.project_id ?? null) === ownership.projectId &&
       state.projectSessionId === ownership.projectSessionId &&
@@ -295,10 +306,12 @@ export function createProjectStore(
   };
 
   const finishProjectTransition = (
+    set: StoreApi<ProjectStoreState>["setState"],
     ownership: ProjectTransitionOwnership,
   ): void => {
     if (activeProjectTransition === ownership) {
       activeProjectTransition = null;
+      set({ projectTransitionInProgress: false });
     }
   };
 
@@ -321,8 +334,13 @@ export function createProjectStore(
     get: StoreApi<ProjectStoreState>["getState"],
     operation: (ownership: ProjectTransitionOwnership) => Promise<T>,
     reportLoading = false,
+    persistCurrentProject = true,
   ): Promise<T> => {
-    const ownership = await beginProjectTransition(get);
+    const ownership = await beginProjectTransition(
+      set,
+      get,
+      persistCurrentProject,
+    );
     if (reportLoading) {
       set({ status: "loading", error: null });
     }
@@ -334,7 +352,7 @@ export function createProjectStore(
       }
       throw error;
     } finally {
-      finishProjectTransition(ownership);
+      finishProjectTransition(set, ownership);
     }
   };
 
@@ -417,46 +435,46 @@ export function createProjectStore(
     error: null,
     lastSavedAt: null,
     persistenceDamage: null,
+    projectTransitionInProgress: false,
     ...inactiveSaveState(),
     history,
     setProjectIoService(io) {
-      set({ io });
+      ioGeneration += 1;
+      activeProjectTransition = null;
+      set({
+        io,
+        projectTransitionInProgress: false,
+        legacyMigrationProjectSessionId: null,
+        legacyMigrationPhase: null,
+      });
     },
     async initializeWorkspace(fallback) {
-      const io = requireProjectIo(get().io);
-      set({ status: "loading", error: null });
-
-      try {
-        let project = await io.initialize();
-        if (!project && fallback) {
-          project = await io.createWorkspace({
-            project: fallback,
-          });
-        }
-
-        if (!project) {
-          set({
-            status: "idle",
-            error: null,
-          });
-          return null;
-        }
-
-        return adoptWorkspace(
-          set,
-          history,
-          io,
-          project,
-          false,
-          createProjectSessionId(),
-        );
-      } catch (error) {
-        set({
-          status: "error",
-          error: errorMessage(error),
-        });
-        throw error;
-      }
+      return performProjectTransition(
+        set,
+        get,
+        async (ownership) => {
+          const io = requireProjectIo(ownership.io);
+          let project = await io.initialize();
+          if (!project && fallback) {
+            project = await io.createWorkspace({ project: fallback });
+          }
+          requireCurrentProjectTransition(get, ownership);
+          if (!project) {
+            set({ status: "idle", error: null });
+            return null;
+          }
+          return adoptWorkspace(
+            set,
+            history,
+            io,
+            project,
+            false,
+            createProjectSessionId(),
+          );
+        },
+        true,
+        false,
+      );
     },
     async createWorkspace(project) {
       const io = requireProjectIo(get().io);
@@ -584,30 +602,30 @@ export function createProjectStore(
     async reloadFromDisk() {
       // Conflict recovery: discard the in-memory edits and re-read the project from
       // disk, refreshing the version token so autosave resumes cleanly.
-      const io = requireProjectIo(get().io);
-      const project = get().project;
-      if (!project) {
+      if (!get().project) {
         return null;
       }
-      set({ status: "loading", error: null });
-
-      try {
-        const reloaded = await io.reloadCurrentProject();
-        if (reloaded) {
-          return adoptWorkspace(
-            set,
-            history,
-            io,
-            reloaded,
-            false,
-            createProjectSessionId(),
-          );
-        }
-        return null;
-      } catch (error) {
-        set({ status: "error", error: errorMessage(error) });
-        throw error;
-      }
+      return performProjectTransition(
+        set,
+        get,
+        async (ownership) => {
+          const io = requireProjectIo(ownership.io);
+          const reloaded = await io.reloadCurrentProject();
+          requireCurrentProjectTransition(get, ownership);
+          return reloaded
+            ? adoptWorkspace(
+                set,
+                history,
+                io,
+                reloaded,
+                false,
+                createProjectSessionId(),
+              )
+            : null;
+        },
+        true,
+        false,
+      );
     },
     async overwriteConflict() {
       // Conflict recovery: force the in-memory workspace onto disk, bypassing the
@@ -644,19 +662,28 @@ export function createProjectStore(
       ) {
         return null;
       }
+      if (
+        before.legacyMigrationProjectSessionId !== projectSessionId ||
+        before.legacyMigrationPhase !== "prepared"
+      ) {
+        throw new Error(
+          "Legacy Project migration must be prepared before cleanup",
+        );
+      }
       const io = requireProjectIo(before.io);
       const result = await io.completeLegacyProjectMigration(migration);
       if (!result) {
         throw new Error("Legacy Project cleanup could not be confirmed");
       }
       const current = get();
-      if (current.projectSessionId !== projectSessionId) {
+      if (current.io !== io || current.projectSessionId !== projectSessionId) {
         return result;
       }
       set({
         version: result.version,
         lastSavedAt: result.updatedAt,
         legacyMigrationProjectSessionId: null,
+        legacyMigrationPhase: null,
         legacyMigrationError: null,
         ...(current.status === "error" &&
         current.legacyMigrationError !== null &&
@@ -688,29 +715,39 @@ export function createProjectStore(
         return { status: "rejected" };
       }
       const io = requireProjectIo(before.io);
-      set({ legacyMigrationProjectSessionId: projectSessionId });
+      set({
+        legacyMigrationProjectSessionId: projectSessionId,
+        legacyMigrationPhase: "preparing",
+      });
       let result: LegacyProjectMigrationPreparation;
       try {
         result = await io.prepareLegacyProjectMigration(migration);
       } catch (error) {
         if (get().legacyMigrationProjectSessionId === projectSessionId) {
-          set({ legacyMigrationProjectSessionId: null });
+          set({
+            legacyMigrationProjectSessionId: null,
+            legacyMigrationPhase: null,
+          });
         }
         throw error;
       }
       if (result.status === "rejected") {
         if (get().legacyMigrationProjectSessionId === projectSessionId) {
-          set({ legacyMigrationProjectSessionId: null });
+          set({
+            legacyMigrationProjectSessionId: null,
+            legacyMigrationPhase: null,
+          });
         }
         return result;
       }
       const current = get();
-      if (current.projectSessionId !== projectSessionId) {
+      if (current.io !== io || current.projectSessionId !== projectSessionId) {
         return result;
       }
       set({
         version: result.version,
         lastSavedAt: result.updatedAt,
+        legacyMigrationPhase: "prepared",
       });
       return result;
     },
@@ -1635,6 +1672,7 @@ function inactiveSaveState(projectSessionId: string | null = null) {
     activeSave: null,
     saveQueued: false,
     legacyMigrationProjectSessionId: null,
+    legacyMigrationPhase: null,
     legacyMigrationError: null,
   } satisfies Pick<
     ProjectStoreState,
@@ -1643,6 +1681,7 @@ function inactiveSaveState(projectSessionId: string | null = null) {
     | "activeSave"
     | "saveQueued"
     | "legacyMigrationProjectSessionId"
+    | "legacyMigrationPhase"
     | "legacyMigrationError"
   >;
 }

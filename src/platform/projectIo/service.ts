@@ -30,6 +30,7 @@ import {
   isLegacyProjectMetadataAdapter,
   isCurrentWorkspaceAdapter,
   isProjectFolderAdapter,
+  StorageConflictError,
   type ProjectWorkspaceSummary,
   type LegacyProjectMigrationPreparation,
   type StorageAdapter,
@@ -410,7 +411,7 @@ export class StorageProjectIoService implements ProjectIoService {
       };
     }
 
-    await this.saveWorkspace(portableProject);
+    await this.saveImportedBrowserProject(portableProject);
     return {
       project: portableProject,
       legacySelectedFieldId,
@@ -453,7 +454,7 @@ export class StorageProjectIoService implements ProjectIoService {
       };
     }
 
-    await this.saveWorkspace(portableProject);
+    await this.saveImportedBrowserProject(portableProject);
     return {
       project: portableProject,
       legacySelectedFieldId,
@@ -500,6 +501,31 @@ export class StorageProjectIoService implements ProjectIoService {
     this.currentStorageId = id;
     await this.syncVersion(id);
     return project;
+  }
+
+  private async saveImportedBrowserProject(project: Project): Promise<void> {
+    const collision = (await this.storage.listWorkspaces()).find(
+      (summary) => summary.id === project.project_id,
+    );
+    if (collision) {
+      throw new StorageConflictError(
+        `A saved Project already uses ID ${project.project_id}`,
+        undefined,
+        collision.version,
+      );
+    }
+
+    if (!this.storage.writeNewProject) {
+      throw new Error(
+        "This storage adapter cannot safely create an imported Project",
+      );
+    }
+    const result = await this.storage.writeNewProject(project);
+    this.currentProject = cloneProject(project);
+    this.currentStorageId = project.project_id;
+    this.currentVersion = result.version;
+    this.lastSavedAt = result.updatedAt;
+    this.projectEpoch += 1;
   }
 
   private ownsLegacyMigration(migration: LegacyProjectViewMigration): boolean {

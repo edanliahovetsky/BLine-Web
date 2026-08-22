@@ -92,6 +92,26 @@ const PROJECT_SAVE_TRANSACTION_COMMITTED: &str = "committed";
 const LEGACY_CLEANUP_TRANSACTION_DIR: &str = ".bline-legacy-cleanup-transaction";
 const LEGACY_CLEANUP_RETIRE_DIR: &str = ".bline-legacy-cleanup-retired";
 const LEGACY_CLEANUP_EXPECTED_VERSION: &str = "expected-version";
+const LEGACY_CLEANUP_FILE_MANIFEST: &str = "legacy-files.json";
+const LEGACY_PROJECT_FILE_PATHS: [&str; 4] = [
+    ".bline-web/field-assets.json",
+    ".bline-web/path-metadata.json",
+    ".bline-web/state.json",
+    "pathgroups.json",
+];
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyCleanupManifest {
+    files: Vec<LegacyCleanupManifestEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyCleanupManifestEntry {
+    relative_path: String,
+    content_hash: String,
+}
 
 #[tauri::command]
 pub fn storage_get_current_workspace(
@@ -509,6 +529,7 @@ fn delete_legacy_project_files(
         &transaction_dir.join(LEGACY_CLEANUP_EXPECTED_VERSION),
         expected,
     )?;
+    write_legacy_cleanup_manifest(&transaction_dir, &legacy_files)?;
     let staged_version = project_source_file_set_version(
         &read_managed_project_files(project_dir)?,
         &read_legacy_project_files(project_dir)?,
@@ -518,6 +539,7 @@ fn delete_legacy_project_files(
         return Err("storage-conflict: project file set changed before legacy cleanup".to_owned());
     }
     write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_PREPARED)?;
+    sync_directory(&transaction_dir)?;
     sync_directory(project_dir)?;
     finish_legacy_cleanup_transaction(project_dir, &transaction_dir)?;
     legacy_cleanup_result(project_dir)
@@ -553,14 +575,12 @@ fn finish_legacy_cleanup_transaction(
     project_dir: &Path,
     transaction_dir: &Path,
 ) -> Result<(), String> {
-    for relative_path in [
-        ".bline-web/field-assets.json",
-        ".bline-web/state.json",
-        ".bline-web/path-metadata.json",
-        "pathgroups.json",
-    ] {
+    let manifest = read_legacy_cleanup_manifest(transaction_dir)?;
+    validate_legacy_cleanup_manifest(project_dir, &manifest)?;
+    for relative_path in LEGACY_PROJECT_FILE_PATHS {
         let path = project_dir.join(relative_path);
-        if path.exists() {
+        if path.is_file() {
+            validate_legacy_cleanup_file(&path, relative_path, &manifest)?;
             fs::remove_file(path).map_err(error_string)?;
         }
     }
@@ -583,6 +603,81 @@ fn finish_legacy_cleanup_transaction(
     }
     write_transaction_marker(transaction_dir, PROJECT_SAVE_TRANSACTION_COMMITTED)?;
     retire_legacy_cleanup_transaction(project_dir, transaction_dir)
+}
+
+fn write_legacy_cleanup_manifest(
+    transaction_dir: &Path,
+    legacy_files: &[ProjectTextFile],
+) -> Result<(), String> {
+    let manifest = LegacyCleanupManifest {
+        files: legacy_files
+            .iter()
+            .map(|file| LegacyCleanupManifestEntry {
+                relative_path: file.relative_path.clone(),
+                content_hash: project_source_file_set_version(std::slice::from_ref(file), &[]),
+            })
+            .collect(),
+    };
+    let contents = serde_json::to_string(&manifest).map_err(error_string)?;
+    write_synced_text(
+        &transaction_dir.join(LEGACY_CLEANUP_FILE_MANIFEST),
+        &contents,
+    )
+}
+
+fn read_legacy_cleanup_manifest(transaction_dir: &Path) -> Result<LegacyCleanupManifest, String> {
+    let contents = fs::read_to_string(transaction_dir.join(LEGACY_CLEANUP_FILE_MANIFEST))
+        .map_err(|_| "Legacy cleanup transaction is missing its file manifest".to_owned())?;
+    let manifest: LegacyCleanupManifest = serde_json::from_str(&contents)
+        .map_err(|_| "Legacy cleanup transaction file manifest is invalid".to_owned())?;
+    let mut seen = std::collections::HashSet::new();
+    if manifest.files.iter().any(|file| {
+        !LEGACY_PROJECT_FILE_PATHS.contains(&file.relative_path.as_str())
+            || !seen.insert(file.relative_path.as_str())
+    }) {
+        return Err("Legacy cleanup transaction file manifest is invalid".to_owned());
+    }
+    Ok(manifest)
+}
+
+fn validate_legacy_cleanup_manifest(
+    project_dir: &Path,
+    manifest: &LegacyCleanupManifest,
+) -> Result<(), String> {
+    for file in read_legacy_project_files(project_dir)? {
+        validate_legacy_cleanup_contents(&file, manifest)?;
+    }
+    Ok(())
+}
+
+fn validate_legacy_cleanup_file(
+    path: &Path,
+    relative_path: &str,
+    manifest: &LegacyCleanupManifest,
+) -> Result<(), String> {
+    let contents = fs::read_to_string(path).map_err(error_string)?;
+    validate_legacy_cleanup_contents(
+        &ProjectTextFile {
+            relative_path: relative_path.to_owned(),
+            contents,
+        },
+        manifest,
+    )
+}
+
+fn validate_legacy_cleanup_contents(
+    file: &ProjectTextFile,
+    manifest: &LegacyCleanupManifest,
+) -> Result<(), String> {
+    let content_hash = project_source_file_set_version(std::slice::from_ref(file), &[]);
+    if !manifest.files.iter().any(|prepared| {
+        prepared.relative_path == file.relative_path && prepared.content_hash == content_hash
+    }) {
+        return Err(
+            "storage-conflict: legacy metadata changed after cleanup was prepared".to_owned(),
+        );
+    }
+    Ok(())
 }
 
 fn legacy_cleanup_result(project_dir: &Path) -> Result<ProjectTextFileWriteResult, String> {
@@ -727,12 +822,7 @@ fn read_managed_project_files(project_dir: &Path) -> Result<Vec<ProjectTextFile>
 
 fn read_legacy_project_files(project_dir: &Path) -> Result<Vec<ProjectTextFile>, String> {
     let mut files = Vec::new();
-    for relative_path in [
-        ".bline-web/field-assets.json",
-        ".bline-web/path-metadata.json",
-        ".bline-web/state.json",
-        "pathgroups.json",
-    ] {
+    for relative_path in LEGACY_PROJECT_FILE_PATHS {
         let path = project_dir.join(relative_path);
         if !path.is_file() {
             continue;
@@ -1399,14 +1489,7 @@ mod tests {
         fs::write(dir.join(".bline-web/field-assets.json"), "assets").unwrap();
         fs::write(dir.join("pathgroups.json"), "groups").unwrap();
         let expected = read_project_text_file_set(&dir).unwrap().version;
-        let transaction_dir = dir.join(LEGACY_CLEANUP_TRANSACTION_DIR);
-        fs::create_dir(&transaction_dir).unwrap();
-        write_synced_text(
-            &transaction_dir.join(LEGACY_CLEANUP_EXPECTED_VERSION),
-            &expected,
-        )
-        .unwrap();
-        write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_PREPARED).unwrap();
+        stage_legacy_cleanup_transaction(&dir, &expected);
         fs::remove_file(dir.join(".bline-web/state.json")).unwrap();
 
         let cleaned = delete_legacy_project_files(&dir, &expected).unwrap();
@@ -1417,6 +1500,77 @@ mod tests {
             cleaned.version,
             read_project_text_file_set(&dir).unwrap().version
         );
+    }
+
+    #[test]
+    fn legacy_cleanup_recovery_rejects_changed_metadata_after_prepare() {
+        let dir = temp_project_dir("legacy-cleanup-changed-after-prepare");
+        install_files(
+            &dir,
+            &[
+                project_file("config.json", "config"),
+                project_file("project.json", "metadata"),
+            ],
+        );
+        fs::create_dir_all(dir.join(".bline-web")).unwrap();
+        fs::write(dir.join(".bline-web/state.json"), "prepared state").unwrap();
+        fs::write(dir.join("pathgroups.json"), "prepared groups").unwrap();
+        let expected = read_project_text_file_set(&dir).unwrap().version;
+        stage_legacy_cleanup_transaction(&dir, &expected);
+        fs::write(dir.join(".bline-web/state.json"), "new state").unwrap();
+
+        let error = delete_legacy_project_files(&dir, &expected).unwrap_err();
+
+        assert_eq!(
+            error,
+            "storage-conflict: legacy metadata changed after cleanup was prepared"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join(".bline-web/state.json")).unwrap(),
+            "new state"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("pathgroups.json")).unwrap(),
+            "prepared groups"
+        );
+        assert!(dir.join(LEGACY_CLEANUP_TRANSACTION_DIR).exists());
+    }
+
+    #[test]
+    fn legacy_cleanup_recovery_rejects_added_metadata_after_prepare() {
+        let dir = temp_project_dir("legacy-cleanup-added-after-prepare");
+        install_files(
+            &dir,
+            &[
+                project_file("config.json", "config"),
+                project_file("project.json", "metadata"),
+            ],
+        );
+        fs::create_dir_all(dir.join(".bline-web")).unwrap();
+        fs::write(dir.join(".bline-web/state.json"), "prepared state").unwrap();
+        let expected = read_project_text_file_set(&dir).unwrap().version;
+        stage_legacy_cleanup_transaction(&dir, &expected);
+        fs::write(
+            dir.join(".bline-web/path-metadata.json"),
+            "new path metadata",
+        )
+        .unwrap();
+
+        let error = delete_legacy_project_files(&dir, &expected).unwrap_err();
+
+        assert_eq!(
+            error,
+            "storage-conflict: legacy metadata changed after cleanup was prepared"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join(".bline-web/path-metadata.json")).unwrap(),
+            "new path metadata"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join(".bline-web/state.json")).unwrap(),
+            "prepared state"
+        );
+        assert!(dir.join(LEGACY_CLEANUP_TRANSACTION_DIR).exists());
     }
 
     #[test]
@@ -1678,6 +1832,19 @@ mod tests {
         write_project_snapshot(&transaction_dir.join("old"), old).unwrap();
         write_project_snapshot(&transaction_dir.join("new"), new).unwrap();
         write_transaction_marker(&transaction_dir, state).unwrap();
+    }
+
+    fn stage_legacy_cleanup_transaction(dir: &Path, expected: &str) {
+        let transaction_dir = dir.join(LEGACY_CLEANUP_TRANSACTION_DIR);
+        fs::create_dir(&transaction_dir).unwrap();
+        write_synced_text(
+            &transaction_dir.join(LEGACY_CLEANUP_EXPECTED_VERSION),
+            expected,
+        )
+        .unwrap();
+        write_legacy_cleanup_manifest(&transaction_dir, &read_legacy_project_files(dir).unwrap())
+            .unwrap();
+        write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_PREPARED).unwrap();
     }
 
     fn temp_project_dir(label: &str) -> PathBuf {

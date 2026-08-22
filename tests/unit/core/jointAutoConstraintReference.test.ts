@@ -62,7 +62,7 @@ function radiusAtOrdinal(path: PathModel, ordinal: number): number | null {
 }
 
 describe("solveJointAutoConstraintsReference", () => {
-  it("is deterministic and ignores the public seed option", () => {
+  it("is deterministic and matches the fixed reference policy", () => {
     const path = pathOf([
       [0, 0],
       [1.4, 0],
@@ -73,19 +73,13 @@ describe("solveJointAutoConstraintsReference", () => {
       path,
       {},
       {},
-      {
-        maxEvaluations: 180,
-        seed: 42,
-      },
+      { maxEvaluations: 180 },
     );
     const second = solveJointAutoConstraintsReference(
       path,
       {},
       {},
-      {
-        maxEvaluations: 180,
-        seed: 9_999,
-      },
+      { maxEvaluations: 180 },
     );
 
     expect(first).toEqual(second);
@@ -124,13 +118,13 @@ describe("solveJointAutoConstraintsReference", () => {
       geometric,
       {},
       {},
-      { maxEvaluations: 8_000, seed: 1 },
+      { maxEvaluations: 8_000 },
     );
     const second = solveJointAutoConstraintsReference(
       alternate,
       {},
       {},
-      { maxEvaluations: 8_000, seed: 2 },
+      { maxEvaluations: 8_000 },
     );
 
     expect(second.stats.objectiveCost).toBeCloseTo(
@@ -159,17 +153,14 @@ describe("solveJointAutoConstraintsReference", () => {
     "compares the five exported large paths",
     () => {
       const corpus = loadCorpus();
-      const report = corpus.paths.map(({ name, points }, index) => {
+      const report = corpus.paths.map(({ name, points }) => {
         const path = pathOf(points);
         const interactive = solveJointAutoConstraints(path, {});
         const reference = solveJointAutoConstraintsReference(
           path,
           {},
           {},
-          {
-            maxEvaluations: 8_000,
-            seed: 10_000 + index,
-          },
+          { maxEvaluations: 8_000 },
         );
         expect(interactive.stats.objectiveCost).toBeLessThanOrEqual(
           reference.stats.objectiveCost + 1e-6,

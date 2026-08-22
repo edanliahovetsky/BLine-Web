@@ -173,11 +173,6 @@ export interface JointAutoConstraintSolveResult {
 export interface JointAutoConstraintReferenceOptions {
   /** Benchmark budget; production supplies separate budgets to the shared engine. */
   maxEvaluations?: number;
-  /**
-   * Retained for comparison-call compatibility. The reference solver covers
-   * a fixed ensemble of random sequences, so this value cannot select a basin.
-   */
-  seed?: number;
 }
 
 interface JointAutoConstraintGlobalSearchInternalOptions extends JointAutoConstraintReferenceOptions {

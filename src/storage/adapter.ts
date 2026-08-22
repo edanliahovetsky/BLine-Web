@@ -72,6 +72,8 @@ export interface StorageAdapter {
     project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult>;
+  /** Creates a distinct saved Project and rejects any existing target ID. */
+  writeNewProject?(project: Project): Promise<WriteResult>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;
   exportWorkspaceArchive?(id?: string): Promise<Blob>;
   importWorkspaceArchive?(archive: Blob): Promise<WorkspaceImportResult>;
