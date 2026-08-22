@@ -559,6 +559,86 @@ describe("BrowserStorage", () => {
     expect(migrated).not.toHaveProperty("legacyDocument");
   });
 
+  it("checks both browser namespaces when preparing a legacy target", async () => {
+    const project = exampleWorkspace("stable-project", "Legacy", ["One"]);
+    const combinedSource = JSON.stringify({
+      document: serializeProjectWorkspaceDocument(project),
+      version: "legacy-version",
+      updatedAt: "2026-04-23T15:38:00.000Z",
+    });
+    const onePathTarget = JSON.stringify(
+      createStoredProjectRecord(
+        createProjectDocument({
+          project_id: "stable-project",
+          display_name: "Independent one-Path Project",
+          path_file_name: "independent.json",
+          path: createPathModel(),
+        }),
+        "independent-version",
+        "2026-04-23T15:37:00.000Z",
+      ),
+    );
+    const collisionMemory = new MemoryStorage();
+    collisionMemory.setItem(
+      "bline-web:workspace:legacy-locator",
+      combinedSource,
+    );
+    collisionMemory.setItem("bline-web:project:stable-project", onePathTarget);
+    collisionMemory.setItem("bline-web:current-workspace", "legacy-locator");
+    const collisionStorage = new BrowserStorage({
+      storage: collisionMemory,
+    });
+    const collisionProject =
+      await collisionStorage.readProject("legacy-locator");
+
+    await expect(
+      collisionStorage.prepareLegacyProjectMigration(
+        collisionProject,
+        "legacy-version",
+        "legacy-locator",
+      ),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(collisionMemory.getItem("bline-web:workspace:legacy-locator")).toBe(
+      combinedSource,
+    );
+    expect(collisionMemory.getItem("bline-web:project:stable-project")).toBe(
+      onePathTarget,
+    );
+
+    const distinctNamespaceMemory = new MemoryStorage();
+    distinctNamespaceMemory.setItem(
+      "bline-web:workspace:stable-project",
+      combinedSource,
+    );
+    distinctNamespaceMemory.setItem(
+      "bline-web:project:stable-project",
+      onePathTarget,
+    );
+    distinctNamespaceMemory.setItem(
+      "bline-web:current-workspace",
+      "stable-project",
+    );
+    const distinctNamespaceStorage = new BrowserStorage({
+      storage: distinctNamespaceMemory,
+    });
+    const distinctNamespaceProject =
+      await distinctNamespaceStorage.readProject("stable-project");
+
+    await expect(
+      distinctNamespaceStorage.prepareLegacyProjectMigration(
+        distinctNamespaceProject,
+        "legacy-version",
+        "stable-project",
+      ),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(
+      distinctNamespaceMemory.getItem("bline-web:workspace:stable-project"),
+    ).toBe(combinedSource);
+    expect(
+      distinctNamespaceMemory.getItem("bline-web:project:stable-project"),
+    ).toBe(onePathTarget);
+  });
+
   it("accepts a historical sparse custom Field config for migration", async () => {
     const memory = new MemoryStorage();
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
@@ -772,6 +852,81 @@ describe("BrowserStorage", () => {
     expect(await storage.getCurrentWorkspaceId()).toBe("stable-project");
   });
 
+  it("checks both browser namespaces before replacing damaged content", async () => {
+    const project = exampleWorkspace("stable-project", "Recovered", ["One"]);
+    const damagedCombinedSource = JSON.stringify({
+      document: serializeProjectWorkspaceDocument(project),
+      version: "damaged-version",
+      updatedAt: "2026-04-23T15:39:00.000Z",
+      futureEnvelope: true,
+    });
+    const onePathTarget = JSON.stringify(
+      createStoredProjectRecord(
+        createProjectDocument({
+          project_id: "stable-project",
+          display_name: "Independent one-Path Project",
+          path_file_name: "independent.json",
+          path: createPathModel(),
+        }),
+        "independent-version",
+        "2026-04-23T15:37:00.000Z",
+      ),
+    );
+    const collisionMemory = new MemoryStorage();
+    collisionMemory.setItem(
+      "bline-web:workspace:legacy-locator",
+      damagedCombinedSource,
+    );
+    collisionMemory.setItem("bline-web:project:stable-project", onePathTarget);
+    collisionMemory.setItem("bline-web:current-workspace", "legacy-locator");
+    const collisionStorage = new BrowserStorage({
+      storage: collisionMemory,
+    });
+    const recovered = await collisionStorage.readProject("legacy-locator");
+
+    await expect(
+      collisionStorage.replaceDamagedProject(recovered, "damaged-version"),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(collisionMemory.getItem("bline-web:workspace:legacy-locator")).toBe(
+      damagedCombinedSource,
+    );
+    expect(collisionMemory.getItem("bline-web:project:stable-project")).toBe(
+      onePathTarget,
+    );
+
+    const distinctNamespaceMemory = new MemoryStorage();
+    distinctNamespaceMemory.setItem(
+      "bline-web:workspace:stable-project",
+      damagedCombinedSource,
+    );
+    distinctNamespaceMemory.setItem(
+      "bline-web:project:stable-project",
+      onePathTarget,
+    );
+    distinctNamespaceMemory.setItem(
+      "bline-web:current-workspace",
+      "stable-project",
+    );
+    const distinctNamespaceStorage = new BrowserStorage({
+      storage: distinctNamespaceMemory,
+    });
+    const distinctNamespaceProject =
+      await distinctNamespaceStorage.readProject("stable-project");
+
+    await expect(
+      distinctNamespaceStorage.replaceDamagedProject(
+        distinctNamespaceProject,
+        "damaged-version",
+      ),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(
+      distinctNamespaceMemory.getItem("bline-web:workspace:stable-project"),
+    ).toBe(damagedCombinedSource);
+    expect(
+      distinctNamespaceMemory.getItem("bline-web:project:stable-project"),
+    ).toBe(onePathTarget);
+  });
+
   it("opens recoverable legacy browser content but blocks destructive migration when its metadata is unsupported", async () => {
     const memory = new MemoryStorage();
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One"]);
@@ -975,6 +1130,20 @@ describe("TauriStorage", () => {
       await expect(
         storage.writeProject(recovered, "damaged-v1"),
       ).rejects.toBeInstanceOf(ProjectPersistenceDamageError);
+      await expect(
+        storage.prepareLegacyProjectMigration(
+          recovered,
+          "damaged-v1",
+          "/tmp/autos",
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        storage.deleteLegacyProjectFiles(
+          "damaged-v1",
+          "/tmp/autos",
+          recovered.project_id,
+        ),
+      ).resolves.toBeNull();
       expect(calls).toEqual(["storage_read_project_files"]);
     }
   });
@@ -1180,6 +1349,35 @@ describe("TauriStorage", () => {
     });
 
     const project = await storage.readProject("/repo/project-a/autos");
+    await expect(
+      storage.prepareLegacyProjectMigration(
+        project,
+        "stale-legacy-version",
+        "/repo/project-a/autos",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      storage.prepareLegacyProjectMigration(
+        { ...project, display_name: "Unrelated Project" },
+        "legacy-a-v1",
+        "/repo/project-a/autos",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      storage.deleteLegacyProjectFiles(
+        "legacy-a-v1",
+        "/repo/project-a/autos",
+        project.project_id,
+      ),
+    ).resolves.toBeNull();
+    expect(
+      calls.filter(
+        (call) =>
+          call.command === "storage_prepare_legacy_project_files" ||
+          call.command === "storage_delete_legacy_project_files",
+      ),
+    ).toHaveLength(0);
+
     const preparing = storage.prepareLegacyProjectMigration(
       project,
       "legacy-a-v1",
@@ -1198,6 +1396,23 @@ describe("TauriStorage", () => {
     await storage.deleteFieldAsset("/repo/project-a/autos", "legacy-asset");
 
     await storage.switchWorkspace("/repo/project-a/autos");
+    await expect(
+      storage.writeProject(project, "canonical-a-v2"),
+    ).rejects.toThrow("migration must finish");
+    await expect(
+      storage.deleteLegacyProjectFiles(
+        "legacy-a-v1",
+        "/repo/project-a/autos",
+        project.project_id,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      storage.deleteLegacyProjectFiles(
+        "canonical-a-v2",
+        "/repo/project-a/autos",
+        "unrelated-project-id",
+      ),
+    ).resolves.toBeNull();
     const cleaning = storage.deleteLegacyProjectFiles(
       "canonical-a-v2",
       "/repo/project-a/autos",

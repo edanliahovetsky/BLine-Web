@@ -230,6 +230,55 @@ describe("project store", () => {
     expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
   });
 
+  it("keeps dirty edits pending until legacy cleanup finishes", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    io.legacyPrepareResult = {
+      version: "prepared-v1",
+      updatedAt: "2026-04-23T15:44:00.000Z",
+    };
+    io.legacyMigrationResult = {
+      version: "clean-v2",
+      updatedAt: "2026-04-23T15:45:00.000Z",
+    };
+    io.deferWrites();
+    renameActivePath(store, "Edited During Migration");
+
+    const projectSessionId = requireProjectSessionId(store);
+    const migration = legacyMigration("project-a");
+    await store
+      .getState()
+      .prepareLegacyProjectMigration(projectSessionId, migration);
+
+    expect(store.getState()).toMatchObject({
+      version: "prepared-v1",
+      dirty: true,
+      status: "idle",
+    });
+    expect(io.writes).toHaveLength(0);
+    await expect(store.getState().saveWorkspace()).resolves.toBeNull();
+    expect(io.writes).toHaveLength(0);
+
+    await store
+      .getState()
+      .completeLegacyProjectMigration(projectSessionId, migration);
+
+    expect(store.getState()).toMatchObject({
+      version: "clean-v2",
+      dirty: true,
+      status: "saving",
+    });
+    expect(io.writes.at(-1)).toMatchObject({
+      pathName: "Edited During Migration",
+      expectedVersion: "clean-v2",
+    });
+
+    io.completeNextWrite();
+    await waitForSaveQueue();
+    expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
+  });
+
   it("does not adopt a delayed legacy prepare after switching Project sessions", async () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
@@ -1217,6 +1266,7 @@ class RecordingIo implements ProjectIoService {
   readonly exportedProjectNames: string[] = [];
   failExports = false;
   damage: ProjectFileDamage | null = null;
+  legacyPrepareResult: WriteResult | null = null;
   legacyMigrationResult: WriteResult | null = null;
 
   private workspace: Project | null;
@@ -1290,7 +1340,13 @@ class RecordingIo implements ProjectIoService {
   }
 
   async prepareLegacyProjectMigration(): Promise<WriteResult | null> {
-    return null;
+    const result = this.legacyPrepareResult;
+    if (result) {
+      this.version = result.version;
+      this.updatedAt = result.updatedAt;
+      this.legacyPrepareResult = null;
+    }
+    return result;
   }
 
   async completeLegacyProjectMigration(): Promise<WriteResult | null> {

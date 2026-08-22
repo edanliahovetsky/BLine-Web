@@ -43,6 +43,14 @@ export class TauriStorage implements ProjectFolderAdapter {
   private readonly damageByLocator = new Map<string, ProjectFileDamage>();
   private readonly legacyFilesByLocator = new Map<string, string[]>();
   private readonly canonicalLocators = new Set<string>();
+  private readonly legacyAttestationByLocator = new Map<
+    string,
+    { version: string; project: Project }
+  >();
+  private readonly cleanupProofByLocator = new Map<
+    string,
+    { version: string; stableProjectId: string }
+  >();
 
   constructor(options: TauriStorageOptions = {}) {
     this.invoke = options.invoke ?? invoke;
@@ -63,6 +71,8 @@ export class TauriStorage implements ProjectFolderAdapter {
       result.directoryLocator,
       (result.legacyFiles ?? []).map((file) => file.relativePath),
     );
+    this.legacyAttestationByLocator.delete(result.directoryLocator);
+    this.cleanupProofByLocator.delete(result.directoryLocator);
     if (result.files.some((file) => file.relativePath === "project.json")) {
       this.canonicalLocators.add(result.directoryLocator);
     } else {
@@ -77,6 +87,11 @@ export class TauriStorage implements ProjectFolderAdapter {
           fallbackDisplayName: displayName,
         })
       : await openLegacyOrRuntimeProject(result, displayName);
+    let attestedLegacyProject: Project | null =
+      !hasCanonicalMetadata && !damage && (result.legacyFiles?.length ?? 0) > 0
+        ? project
+        : null;
+    let canonicalMatchesLegacy = false;
     if (
       !damage &&
       hasCanonicalMetadata &&
@@ -94,8 +109,13 @@ export class TauriStorage implements ProjectFolderAdapter {
       if (legacy.damage) {
         damage = legacy.damage;
       } else {
+        attestedLegacyProject = legacy.project;
         const legacyField = structuredClone(legacy.project.config.gui.field);
-        if (!canonicalMatchesLegacyFolder(project, legacy.project)) {
+        canonicalMatchesLegacy = canonicalMatchesLegacyFolder(
+          project,
+          legacy.project,
+        );
+        if (!canonicalMatchesLegacy) {
           const metadata = result.files.find(
             (file) => file.relativePath === "project.json",
           );
@@ -122,6 +142,18 @@ export class TauriStorage implements ProjectFolderAdapter {
       this.damageByLocator.set(result.directoryLocator, damage);
     } else {
       this.damageByLocator.delete(result.directoryLocator);
+      if (attestedLegacyProject) {
+        this.legacyAttestationByLocator.set(result.directoryLocator, {
+          version: result.version,
+          project: structuredClone(attestedLegacyProject),
+        });
+        if (canonicalMatchesLegacy) {
+          this.cleanupProofByLocator.set(result.directoryLocator, {
+            version: result.version,
+            stableProjectId: project.project_id,
+          });
+        }
+      }
     }
     return project;
   }
@@ -133,6 +165,12 @@ export class TauriStorage implements ProjectFolderAdapter {
     const damage = this.getCurrentProjectDamage();
     if (damage) {
       throw new ProjectPersistenceDamageError(damage);
+    }
+    const locator = this.currentDirectoryLocator;
+    if (locator && (this.legacyFilesByLocator.get(locator)?.length ?? 0) > 0) {
+      throw new Error(
+        "Legacy Project migration must finish before saving Project changes",
+      );
     }
     return this.writeProjectFileSet(project, expectedVersion);
   }
@@ -171,6 +209,8 @@ export class TauriStorage implements ProjectFolderAdapter {
     );
     this.rememberFileSet(result);
     this.canonicalLocators.add(result.directoryLocator);
+    this.legacyAttestationByLocator.delete(result.directoryLocator);
+    this.cleanupProofByLocator.delete(result.directoryLocator);
     return { version: result.version, updatedAt: result.updatedAt };
   }
 
@@ -179,11 +219,14 @@ export class TauriStorage implements ProjectFolderAdapter {
     sourceStorageId: string,
     stableProjectId: string,
   ): Promise<WriteResult | null> {
-    void stableProjectId;
+    const cleanupProof = this.cleanupProofByLocator.get(sourceStorageId);
     if (
       this.damageByLocator.has(sourceStorageId) ||
       !this.canonicalLocators.has(sourceStorageId) ||
-      (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0
+      (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0 ||
+      !cleanupProof ||
+      cleanupProof.version !== expectedVersion ||
+      cleanupProof.stableProjectId !== stableProjectId
     ) {
       return null;
     }
@@ -196,6 +239,8 @@ export class TauriStorage implements ProjectFolderAdapter {
     );
     this.rememberFileSetWithoutStealingCurrentLocator(result, sourceStorageId);
     this.legacyFilesByLocator.delete(sourceStorageId);
+    this.legacyAttestationByLocator.delete(sourceStorageId);
+    this.cleanupProofByLocator.delete(sourceStorageId);
     return { version: result.version, updatedAt: result.updatedAt };
   }
 
@@ -211,10 +256,14 @@ export class TauriStorage implements ProjectFolderAdapter {
     expectedVersion: string,
     sourceStorageId: string,
   ): Promise<WriteResult | null> {
+    const attestation = this.legacyAttestationByLocator.get(sourceStorageId);
     if (
       this.damageByLocator.has(sourceStorageId) ||
       this.canonicalLocators.has(sourceStorageId) ||
-      (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0
+      (this.legacyFilesByLocator.get(sourceStorageId)?.length ?? 0) === 0 ||
+      !attestation ||
+      attestation.version !== expectedVersion ||
+      !projectsSemanticallyEqual(project, attestation.project)
     ) {
       return null;
     }
@@ -231,6 +280,15 @@ export class TauriStorage implements ProjectFolderAdapter {
     );
     this.rememberFileSetWithoutStealingCurrentLocator(result, sourceStorageId);
     this.canonicalLocators.add(result.directoryLocator);
+    if (
+      result.directoryLocator === sourceStorageId &&
+      this.legacyAttestationByLocator.get(sourceStorageId) === attestation
+    ) {
+      this.cleanupProofByLocator.set(sourceStorageId, {
+        version: result.version,
+        stableProjectId: project.project_id,
+      });
+    }
     return { version: result.version, updatedAt: result.updatedAt };
   }
 
@@ -478,6 +536,13 @@ function canonicalMatchesLegacyFolder(
   return serializedFileSetsEqual(
     serializeProjectFiles(canonical),
     serializeProjectFiles(normalizedLegacy),
+  );
+}
+
+function projectsSemanticallyEqual(left: Project, right: Project): boolean {
+  return serializedFileSetsEqual(
+    serializeProjectFiles(left),
+    serializeProjectFiles(right),
   );
 }
 

@@ -221,20 +221,26 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     const source = canonicalSource ?? legacySource?.record ?? null;
     assertExpectedVersion(source, expectedVersion);
 
-    const targetIsSource =
-      storageId === project.project_id && legacySource?.kind !== "project";
-    const canonicalTarget = targetIsSource
-      ? null
-      : (this.readRecord(project.project_id) ??
-        this.readLegacyWorkspaceRecord(project.project_id));
-    const targetRaw = targetIsSource
-      ? null
-      : this.storage.getItem(this.storageKey(project.project_id));
-    if (canonicalTarget || targetRaw) {
+    const sourceKey = legacySource
+      ? this.legacyMigrationSourceKey(legacySource)
+      : this.storageKey(storageId);
+    const workspaceTargetKey = this.storageKey(project.project_id);
+    const legacyProjectTargetKey = this.legacyProjectKey(project.project_id);
+    const workspaceTargetExists =
+      workspaceTargetKey !== sourceKey &&
+      this.storage.getItem(workspaceTargetKey) !== null;
+    const legacyProjectTargetExists =
+      legacyProjectTargetKey !== sourceKey &&
+      this.storage.getItem(legacyProjectTargetKey) !== null;
+    if (workspaceTargetExists || legacyProjectTargetExists) {
+      const target = workspaceTargetExists
+        ? (this.readRecord(project.project_id) ??
+          this.readLegacyWorkspaceRecord(project.project_id))
+        : this.readLegacyProjectRecord(project.project_id);
       throw new StorageConflictError(
         `A different Project already uses ID ${project.project_id}`,
         expectedVersion,
-        canonicalTarget?.version,
+        target?.version,
       );
     }
     const result = await this.writeProjectFilesRecord(
@@ -364,6 +370,17 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
 
     const targetKey = this.storageKey(project.project_id);
     const sourceKey = this.legacyMigrationSourceKey(legacy);
+    const legacyProjectTargetKey = this.legacyProjectKey(project.project_id);
+    if (
+      legacyProjectTargetKey !== sourceKey &&
+      this.storage.getItem(legacyProjectTargetKey) !== null
+    ) {
+      throw new StorageConflictError(
+        `A different Project already uses ID ${project.project_id}`,
+        expectedVersion,
+        this.readLegacyProjectRecord(project.project_id)?.version,
+      );
+    }
     if (sourceKey !== targetKey) {
       const preparedTarget = this.readRecord(project.project_id);
       const openedTarget = preparedTarget

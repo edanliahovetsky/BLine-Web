@@ -195,6 +195,7 @@ export function createProjectStore(
 ): ProjectStore {
   let nextProjectSessionId = 1;
   let savePromise: Promise<WriteResult> | null = null;
+  let legacyMigrationProjectSessionId: string | null = null;
   const createProjectSessionId = () =>
     `project-session-${nextProjectSessionId++}`;
 
@@ -446,6 +447,12 @@ export function createProjectStore(
       }
     },
     async saveWorkspace() {
+      if (
+        legacyMigrationProjectSessionId !== null &&
+        legacyMigrationProjectSessionId === get().projectSessionId
+      ) {
+        return null;
+      }
       if (savePromise) {
         set({ saveQueued: true });
         const result = await savePromise;
@@ -530,6 +537,7 @@ export function createProjectStore(
       if (current.projectSessionId !== projectSessionId) {
         return result;
       }
+      legacyMigrationProjectSessionId = null;
       set({
         version: result.version,
         lastSavedAt: result.updatedAt,
@@ -543,9 +551,9 @@ export function createProjectStore(
     },
     async prepareLegacyProjectMigration(expectedProjectSessionId, migration) {
       if (savePromise) {
-        // Browser legacy records deliberately reject ordinary saves until the
-        // canonical metadata envelope exists. Let the prepare write establish
-        // that boundary, then queue the still-dirty revision below.
+        // Legacy records deliberately reject ordinary saves while migration
+        // metadata remains. Let preparation establish the cleanup snapshot;
+        // dirty changes are saved only after cleanup confirms that snapshot.
         await savePromise.catch(() => undefined);
       }
       const before = get();
@@ -558,7 +566,16 @@ export function createProjectStore(
         return null;
       }
       const io = requireProjectIo(before.io);
-      const result = await io.prepareLegacyProjectMigration(migration);
+      legacyMigrationProjectSessionId = projectSessionId;
+      let result: WriteResult | null;
+      try {
+        result = await io.prepareLegacyProjectMigration(migration);
+      } catch (error) {
+        if (legacyMigrationProjectSessionId === projectSessionId) {
+          legacyMigrationProjectSessionId = null;
+        }
+        throw error;
+      }
       if (!result) {
         return null;
       }
@@ -570,11 +587,6 @@ export function createProjectStore(
         version: result.version,
         lastSavedAt: result.updatedAt,
       });
-      if (current.dirty) {
-        void get()
-          .saveWorkspace()
-          .catch(() => {});
-      }
       return result;
     },
     setActivePath(pathId) {
