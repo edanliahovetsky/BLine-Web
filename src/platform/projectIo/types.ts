@@ -1,5 +1,4 @@
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
-import type { ProjectWorkspaceDocument } from "../../core/io/projectSchema";
 import type { CustomFieldImage } from "../../core/field/fieldConfig";
 import type { Project } from "../../core/model/project";
 import type { ProjectWorkspaceSummary, WriteResult } from "../../storage";
@@ -30,41 +29,37 @@ export interface ProjectIoCapabilities {
 }
 
 export interface CreateWorkspaceInput {
-  workspace?: ProjectWorkspaceDocument;
+  project?: Project;
 }
 
 export interface ProjectIoService {
   readonly capabilities: ProjectIoCapabilities;
-  initialize(): Promise<ProjectWorkspaceDocument | null>;
-  getWorkspace(): Promise<ProjectWorkspaceDocument | null>;
+  initialize(): Promise<Project | null>;
+  getWorkspace(): Promise<Project | null>;
   /**
    * Re-read the current project from its backing store *without* adopting it or
    * changing the tracked version. Used to diff on-disk state against unsaved edits
    * when resolving a save conflict.
    */
-  peekWorkspace(): Promise<ProjectWorkspaceDocument | null>;
+  peekWorkspace(): Promise<Project | null>;
   getCurrentVersion(): string | undefined;
   getLastSavedAt(): string | null;
-  createWorkspace(
-    input?: CreateWorkspaceInput,
-  ): Promise<ProjectWorkspaceDocument>;
-  openWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null>;
-  deleteWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null>;
+  createWorkspace(input?: CreateWorkspaceInput): Promise<Project>;
+  openWorkspace(id?: string): Promise<Project | null>;
+  deleteWorkspace(id?: string): Promise<Project | null>;
   saveWorkspace(
-    workspace: ProjectWorkspaceDocument,
+    project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult>;
   listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
-  switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null>;
-  importPath(file: File): Promise<ProjectWorkspaceDocument>;
+  switchWorkspace(id: string): Promise<Project | null>;
+  importPath(file: File): Promise<Project>;
   exportPath(project: Project, pathId: string): Promise<Blob>;
-  importConfig(file: File): Promise<ProjectWorkspaceDocument>;
+  importConfig(file: File): Promise<Project>;
   exportConfig(project: Project): Promise<Blob>;
-  importProjectFolder(
-    files: readonly File[],
-  ): Promise<ProjectWorkspaceDocument>;
+  importProjectFolder(files: readonly File[]): Promise<Project>;
   exportProjectFolder(project: Project): Promise<ProjectFolderExport>;
-  importProjectArchive(file: File): Promise<ProjectWorkspaceDocument>;
+  importProjectArchive(file: File): Promise<Project>;
   exportProjectArchive(project: Project): Promise<Blob>;
   readLegacyFieldImageAsset(
     projectId: string,

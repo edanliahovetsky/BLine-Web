@@ -15,6 +15,7 @@ import {
   createTranslationTarget,
 } from "../../../src/core/model/path";
 import type { Project } from "../../../src/core/model/project";
+import { addPathToProject } from "../../../src/core/model/projectOperations";
 import {
   createAutosaveCoordinator,
   createProjectAutosaveCoordinator,
@@ -987,14 +988,14 @@ class RecordingIo implements ProjectIoService {
   readonly exportedProjectNames: string[] = [];
   failExports = false;
 
-  private workspace: ProjectWorkspaceDocument | null;
+  private workspace: Project | null;
   private version: string | undefined = this.initialVersion;
   private updatedAt: string | null = "2026-04-23T15:40:00.000Z";
   private armConflict = false;
   private externalCounter = 0;
   private writesDeferred = false;
   private readonly pendingWrites: Array<{
-    workspace: ProjectWorkspaceDocument;
+    workspace: Project;
     resolve: (result: WriteResult) => void;
   }> = [];
 
@@ -1003,7 +1004,7 @@ class RecordingIo implements ProjectIoService {
    * disk: the disk version advances but the caller still holds the stale one, so the
    * next version-checked save conflicts. Optionally swaps in modified disk content.
    */
-  simulateExternalEdit(modified?: ProjectWorkspaceDocument): void {
+  simulateExternalEdit(modified?: Project): void {
     this.externalCounter += 1;
     this.version = `external-v${this.externalCounter}`;
     this.updatedAt = `2026-04-23T16:0${this.externalCounter}:00.000Z`;
@@ -1029,15 +1030,15 @@ class RecordingIo implements ProjectIoService {
     this.workspace = workspace ? structuredClone(workspace) : null;
   }
 
-  async initialize(): Promise<ProjectWorkspaceDocument | null> {
+  async initialize(): Promise<Project | null> {
     return this.getWorkspace();
   }
 
-  async getWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+  async getWorkspace(): Promise<Project | null> {
     return this.workspace ? structuredClone(this.workspace) : null;
   }
 
-  async peekWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+  async peekWorkspace(): Promise<Project | null> {
     return this.workspace ? structuredClone(this.workspace) : null;
   }
 
@@ -1049,19 +1050,19 @@ class RecordingIo implements ProjectIoService {
     return this.updatedAt;
   }
 
-  async createWorkspace(input: { workspace?: ProjectWorkspaceDocument } = {}) {
-    if (!input.workspace) {
+  async createWorkspace(input: { project?: Project } = {}) {
+    if (!input.project) {
       throw new Error("Test createWorkspace requires a workspace");
     }
-    this.workspace = structuredClone(input.workspace);
-    return structuredClone(input.workspace);
+    this.workspace = structuredClone(input.project);
+    return structuredClone(input.project);
   }
 
-  async openWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+  async openWorkspace(): Promise<Project | null> {
     return this.getWorkspace();
   }
 
-  async deleteWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+  async deleteWorkspace(): Promise<Project | null> {
     this.workspace = null;
     this.version = undefined;
     this.updatedAt = null;
@@ -1069,7 +1070,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async saveWorkspace(
-    workspace: ProjectWorkspaceDocument,
+    workspace: Project,
     expectedVersion?: string,
   ): Promise<WriteResult> {
     if (
@@ -1100,7 +1101,7 @@ class RecordingIo implements ProjectIoService {
     return this.commitWrite(workspace);
   }
 
-  private commitWrite(workspace: ProjectWorkspaceDocument): WriteResult {
+  private commitWrite(workspace: Project): WriteResult {
     const version = `v${this.writes.length}`;
     const updatedAt = `2026-04-23T15:4${this.writes.length}:00.000Z`;
     this.workspace = structuredClone(workspace);
@@ -1123,11 +1124,11 @@ class RecordingIo implements ProjectIoService {
       : [];
   }
 
-  async switchWorkspace(): Promise<ProjectWorkspaceDocument | null> {
+  async switchWorkspace(): Promise<Project | null> {
     return this.getWorkspace();
   }
 
-  async importPath(file: File): Promise<ProjectWorkspaceDocument> {
+  async importPath(file: File): Promise<Project> {
     const parsed = JSON.parse(await file.text()) as {
       display_name?: unknown;
     };
@@ -1135,12 +1136,14 @@ class RecordingIo implements ProjectIoService {
       typeof parsed.display_name === "string"
         ? parsed.display_name
         : "Imported Path";
-    const nextWorkspace = addPathToWorkspace(this.requireWorkspace(), {
-      display_name: displayName,
-      file_name: file.name,
-      path: createPathModel(),
-      makeActive: true,
-    });
+    const { project: nextWorkspace } = addPathToProject(
+      this.requireWorkspace(),
+      {
+        display_name: displayName,
+        file_name: file.name,
+        path: createPathModel(),
+      },
+    );
     await this.saveWorkspace(nextWorkspace, this.version);
     return nextWorkspace;
   }
@@ -1149,7 +1152,7 @@ class RecordingIo implements ProjectIoService {
     return new Blob([]);
   }
 
-  async importConfig(): Promise<ProjectWorkspaceDocument> {
+  async importConfig(): Promise<Project> {
     return this.requireWorkspace();
   }
 
@@ -1157,7 +1160,7 @@ class RecordingIo implements ProjectIoService {
     return new Blob([]);
   }
 
-  async importProjectFolder(): Promise<ProjectWorkspaceDocument> {
+  async importProjectFolder(): Promise<Project> {
     return this.requireWorkspace();
   }
 
@@ -1172,7 +1175,7 @@ class RecordingIo implements ProjectIoService {
     };
   }
 
-  async importProjectArchive(): Promise<ProjectWorkspaceDocument> {
+  async importProjectArchive(): Promise<Project> {
     return this.requireWorkspace();
   }
 
@@ -1186,7 +1189,7 @@ class RecordingIo implements ProjectIoService {
 
   async deleteLegacyFieldImageAsset(): Promise<void> {}
 
-  private requireWorkspace(): ProjectWorkspaceDocument {
+  private requireWorkspace(): Project {
     if (!this.workspace) {
       throw new Error("No workspace");
     }

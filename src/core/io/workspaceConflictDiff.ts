@@ -1,7 +1,4 @@
-import type {
-  ProjectPathDocument,
-  ProjectWorkspaceDocument,
-} from "./projectSchema";
+import type { Project, ProjectPath } from "../model/project";
 
 /**
  * A human-readable summary of how the on-disk project differs from the user's
@@ -44,11 +41,11 @@ function sortKeysDeep(value: unknown): unknown {
   return value;
 }
 
-function pathKey(path: ProjectPathDocument): string {
+function pathKey(path: ProjectPath): string {
   return path.file_name || path.path_id;
 }
 
-function pathLabel(path: ProjectPathDocument): string {
+function pathLabel(path: ProjectPath): string {
   return path.display_name || path.file_name || path.path_id;
 }
 
@@ -57,8 +54,8 @@ function pathLabel(path: ProjectPathDocument): string {
  * (`theirs`) and describe the differences at path/config granularity.
  */
 export function diffWorkspaceConflict(
-  mine: ProjectWorkspaceDocument,
-  theirs: ProjectWorkspaceDocument | null,
+  mine: Project,
+  theirs: Project | null,
 ): WorkspaceConflictDiff {
   const empty: WorkspaceConflictDiff = {
     addedPaths: [],

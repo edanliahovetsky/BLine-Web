@@ -12,17 +12,18 @@ import {
   serializeBLineProjectFolder,
 } from "../../core/io/projectFolder";
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
-import type { ProjectWorkspaceDocument } from "../../core/io/projectSchema";
-import { legacyWorkspaceForPersistence } from "../../core/io/legacyWorkspace";
-import type { Project } from "../../core/model/project";
-import { deserializePath, serializePath } from "../../core/io/projectSerde";
 import {
-  activePathFromWorkspace,
-  addPathToWorkspace,
-  deserializeProjectWorkspaceDocument,
-  ensureJsonFileName,
-  ensureWorkspaceHasActivePath,
-} from "../../core/io/workspaceSerde";
+  legacyWorkspaceForPersistence,
+  openProjectFromLegacyWorkspace,
+} from "../../core/io/legacyWorkspace";
+import {
+  cloneProject,
+  createProject,
+  type Project,
+} from "../../core/model/project";
+import { addPathToProject } from "../../core/model/projectOperations";
+import { deserializePath, serializePath } from "../../core/io/projectSerde";
+import { ensureJsonFileName } from "../../core/io/workspaceSerde";
 import {
   decodeWorkspaceArchive,
   isCurrentWorkspaceAdapter,
@@ -40,7 +41,8 @@ import type {
 export class StorageProjectIoService implements ProjectIoService {
   readonly capabilities: ProjectIoCapabilities;
   private readonly storage: StorageAdapter;
-  private currentWorkspace: ProjectWorkspaceDocument | null = null;
+  private currentProject: Project | null = null;
+  private currentStorageId: string | null = null;
   private currentVersion: string | undefined;
   private lastSavedAt: string | null = null;
 
@@ -49,7 +51,7 @@ export class StorageProjectIoService implements ProjectIoService {
     this.capabilities = capabilities;
   }
 
-  async initialize(): Promise<ProjectWorkspaceDocument | null> {
+  async initialize(): Promise<Project | null> {
     await this.storage.initialize?.();
 
     if (isProjectFolderAdapter(this.storage)) {
@@ -78,20 +80,18 @@ export class StorageProjectIoService implements ProjectIoService {
     return summary ? this.readAndAdopt(summary.id) : null;
   }
 
-  async getWorkspace(): Promise<ProjectWorkspaceDocument | null> {
-    return this.currentWorkspace
-      ? structuredClone(this.currentWorkspace)
-      : null;
+  async getWorkspace(): Promise<Project | null> {
+    return this.currentProject ? cloneProject(this.currentProject) : null;
   }
 
-  async peekWorkspace(): Promise<ProjectWorkspaceDocument | null> {
-    if (!this.currentWorkspace) {
+  async peekWorkspace(): Promise<Project | null> {
+    if (!this.currentProject) {
       return null;
     }
     const onDisk = await this.storage.readWorkspace(
-      this.currentWorkspace.project_id,
+      this.currentStorageId ?? this.currentProject.project_id,
     );
-    return ensureWorkspaceHasActivePath(onDisk);
+    return openProjectFromLegacyWorkspace(onDisk).project;
   }
 
   getCurrentVersion(): string | undefined {
@@ -102,43 +102,36 @@ export class StorageProjectIoService implements ProjectIoService {
     return this.lastSavedAt;
   }
 
-  async createWorkspace(
-    input: CreateWorkspaceInput = {},
-  ): Promise<ProjectWorkspaceDocument> {
+  async createWorkspace(input: CreateWorkspaceInput = {}): Promise<Project> {
     if (isProjectFolderAdapter(this.storage)) {
       const summary = await this.storage.createWorkspace();
       if (!summary) {
         throw new Error("No desktop project folder was selected");
       }
+      this.currentStorageId = summary.id;
 
-      const workspace = input.workspace
-        ? {
-            ...input.workspace,
-            project_id: summary.id,
-            display_name: summary.displayName,
-          }
-        : await this.storage.readWorkspace(summary.id);
+      const project = input.project
+        ? cloneProject(input.project)
+        : openProjectFromLegacyWorkspace(
+            await this.storage.readWorkspace(summary.id),
+          ).project;
 
-      const normalized = ensureWorkspaceHasActivePath(workspace);
-      await this.saveWorkspace(normalized);
-      return normalized;
+      await this.saveWorkspace(project);
+      return cloneProject(project);
     }
 
-    const workspace = ensureWorkspaceHasActivePath(
-      input.workspace ??
-        deserializeProjectWorkspaceDocument({
-          schema_version: 1,
-          project_id: cryptoId("workspace"),
-          display_name: "Untitled Project",
-          config: undefined,
-          paths: [],
-        }),
-    );
-    await this.saveWorkspace(workspace);
-    return workspace;
+    const project =
+      input.project ??
+      createProject({
+        project_id: cryptoId("project"),
+        display_name: "Untitled Project",
+      });
+    this.currentStorageId = project.project_id;
+    await this.saveWorkspace(project);
+    return cloneProject(project);
   }
 
-  async openWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null> {
+  async openWorkspace(id?: string): Promise<Project | null> {
     if (isProjectFolderAdapter(this.storage)) {
       const summary = id
         ? await this.storage.switchWorkspace(id)
@@ -154,15 +147,19 @@ export class StorageProjectIoService implements ProjectIoService {
     return this.readAndAdopt(id);
   }
 
-  async deleteWorkspace(id?: string): Promise<ProjectWorkspaceDocument | null> {
+  async deleteWorkspace(id?: string): Promise<Project | null> {
     if (!this.storage.deleteWorkspace) {
       throw new Error(
         "Deleting projects is not supported by this storage adapter",
       );
     }
 
-    const targetId = id ?? this.requireWorkspace().project_id;
-    const deletingCurrent = this.currentWorkspace?.project_id === targetId;
+    const targetId =
+      id ?? this.currentStorageId ?? this.requireProject().project_id;
+    const deletingCurrent =
+      this.currentStorageId === targetId ||
+      (this.currentStorageId === null &&
+        this.currentProject?.project_id === targetId);
     await this.storage.deleteWorkspace(
       targetId,
       deletingCurrent ? this.currentVersion : undefined,
@@ -177,25 +174,23 @@ export class StorageProjectIoService implements ProjectIoService {
       return this.readAndAdopt(nextSummary.id);
     }
 
-    this.currentWorkspace = null;
+    this.currentProject = null;
+    this.currentStorageId = null;
     this.currentVersion = undefined;
     this.lastSavedAt = null;
     return null;
   }
 
   async saveWorkspace(
-    workspace: ProjectWorkspaceDocument,
+    project: Project,
     expectedVersion?: string,
   ): Promise<WriteResult> {
+    this.currentStorageId ??= project.project_id;
     const result = await this.storage.writeWorkspace(
-      {
-        ...structuredClone(workspace),
-        active_path_id: null,
-        active_path_group_id: null,
-      },
+      legacyWorkspaceForPersistence(project),
       expectedVersion,
     );
-    this.currentWorkspace = ensureWorkspaceHasActivePath(workspace);
+    this.currentProject = cloneProject(project);
     this.currentVersion = result.version;
     this.lastSavedAt = result.updatedAt;
     return result;
@@ -207,7 +202,7 @@ export class StorageProjectIoService implements ProjectIoService {
       : this.storage.listWorkspaces();
   }
 
-  async switchWorkspace(id: string): Promise<ProjectWorkspaceDocument | null> {
+  async switchWorkspace(id: string): Promise<Project | null> {
     if (isProjectFolderAdapter(this.storage)) {
       const summary = await this.storage.switchWorkspace(id);
       return summary ? this.readAndAdopt(summary.id) : null;
@@ -216,12 +211,12 @@ export class StorageProjectIoService implements ProjectIoService {
     return this.readAndAdopt(id);
   }
 
-  async importPath(file: File): Promise<ProjectWorkspaceDocument> {
-    const workspace = this.requireWorkspace();
+  async importPath(file: File): Promise<Project> {
+    const project = this.requireProject();
     const parsed = JSON.parse(await file.text()) as unknown;
     const parsedObject = isJsonObject(parsed) ? parsed : null;
     const lookupConfig = deserializeProjectConfig(
-      parsedObject?.config ?? workspace.config,
+      parsedObject?.config ?? project.config,
     );
     const path = deserializePath(
       parsedObject?.path ?? parsed,
@@ -238,14 +233,13 @@ export class StorageProjectIoService implements ProjectIoService {
         ? parsedObject.display_name
         : fileName.replace(/\.json$/i, "").replace(/[-_]+/g, " ");
 
-    const nextWorkspace = addPathToWorkspace(workspace, {
+    const { project: nextProject } = addPathToProject(project, {
       display_name: displayName,
       file_name: fileName,
       path,
-      makeActive: true,
     });
-    await this.saveWorkspace(nextWorkspace, this.currentVersion);
-    return nextWorkspace;
+    await this.saveWorkspace(nextProject, this.currentVersion);
+    return nextProject;
   }
 
   async exportPath(project: Project, pathId: string): Promise<Blob> {
@@ -259,37 +253,37 @@ export class StorageProjectIoService implements ProjectIoService {
     return jsonBlob(serializePath(path.path));
   }
 
-  async importConfig(file: File): Promise<ProjectWorkspaceDocument> {
+  async importConfig(file: File): Promise<Project> {
     const config = deserializeProjectConfig(
       JSON.parse(await file.text()) as unknown,
     );
-    const nextWorkspace = {
-      ...this.requireWorkspace(),
+    const nextProject = {
+      ...this.requireProject(),
       config,
     };
-    await this.saveWorkspace(nextWorkspace, this.currentVersion);
-    return nextWorkspace;
+    await this.saveWorkspace(nextProject, this.currentVersion);
+    return nextProject;
   }
 
   async exportConfig(project: Project): Promise<Blob> {
     return jsonBlob(serializeBLineRuntimeConfig(project.config));
   }
 
-  async importProjectFolder(
-    files: readonly File[],
-  ): Promise<ProjectWorkspaceDocument> {
-    const imported = await deserializeBLineProjectFolder(files);
+  async importProjectFolder(files: readonly File[]): Promise<Project> {
+    const imported = openProjectFromLegacyWorkspace(
+      await deserializeBLineProjectFolder(files),
+    ).project;
 
     if (this.capabilities.supportsProjectFolders) {
-      const current = this.requireWorkspace();
-      const nextWorkspace = {
+      const current = this.requireProject();
+      const nextProject = {
         ...imported,
         project_id: current.project_id,
         display_name: current.display_name,
       };
-      await this.saveWorkspace(nextWorkspace, this.currentVersion);
-      await this.importProjectFolderFieldAssets(files, nextWorkspace);
-      return nextWorkspace;
+      await this.saveWorkspace(nextProject, this.currentVersion);
+      await this.importProjectFolderFieldAssets(files, nextProject);
+      return nextProject;
     }
 
     await this.saveWorkspace(imported);
@@ -301,23 +295,25 @@ export class StorageProjectIoService implements ProjectIoService {
     return serializeBLineProjectFolder(project);
   }
 
-  async importProjectArchive(file: File): Promise<ProjectWorkspaceDocument> {
+  async importProjectArchive(file: File): Promise<Project> {
     const raw = await file.text();
     const parsed = JSON.parse(raw) as unknown;
-    const imported = await decodeWorkspaceArchive(
-      new Blob([raw], { type: file.type || "application/json" }),
-    );
+    const imported = openProjectFromLegacyWorkspace(
+      await decodeWorkspaceArchive(
+        new Blob([raw], { type: file.type || "application/json" }),
+      ),
+    ).project;
 
     if (this.capabilities.supportsProjectFolders) {
-      const current = this.requireWorkspace();
-      const nextWorkspace = {
+      const current = this.requireProject();
+      const nextProject = {
         ...imported,
         project_id: current.project_id,
         display_name: current.display_name,
       };
-      await this.saveWorkspace(nextWorkspace, this.currentVersion);
-      await this.importArchiveFieldAssets(parsed, nextWorkspace);
-      return nextWorkspace;
+      await this.saveWorkspace(nextProject, this.currentVersion);
+      await this.importArchiveFieldAssets(parsed, nextProject);
+      return nextProject;
     }
 
     await this.saveWorkspace(imported);
@@ -360,12 +356,13 @@ export class StorageProjectIoService implements ProjectIoService {
     await this.storage.deleteFieldAsset?.(projectId, field.asset_id);
   }
 
-  private async readAndAdopt(id: string): Promise<ProjectWorkspaceDocument> {
+  private async readAndAdopt(id: string): Promise<Project> {
     const storedWorkspace = await this.storage.readWorkspace(id);
-    const workspace = ensureWorkspaceHasActivePath(storedWorkspace);
-    this.currentWorkspace = structuredClone(workspace);
-    await this.syncVersion(workspace.project_id);
-    return workspace;
+    const project = openProjectFromLegacyWorkspace(storedWorkspace).project;
+    this.currentProject = cloneProject(project);
+    this.currentStorageId = id;
+    await this.syncVersion(id);
+    return project;
   }
 
   private async syncVersion(id: string): Promise<void> {
@@ -375,17 +372,17 @@ export class StorageProjectIoService implements ProjectIoService {
     this.lastSavedAt = summary?.updatedAt ?? null;
   }
 
-  private requireWorkspace(): ProjectWorkspaceDocument {
-    if (!this.currentWorkspace) {
+  private requireProject(): Project {
+    if (!this.currentProject) {
       throw new Error("No project workspace is open");
     }
 
-    return structuredClone(this.currentWorkspace);
+    return cloneProject(this.currentProject);
   }
 
   private async importArchiveFieldAssets(
     parsedArchive: unknown,
-    workspace: ProjectWorkspaceDocument,
+    project: Project,
   ): Promise<void> {
     if (!this.storage.writeFieldAsset) {
       return;
@@ -393,7 +390,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
     for (const asset of fieldAssetsFromBLineProjectArchive(parsedArchive)) {
       await this.storage.writeFieldAsset({
-        workspaceId: workspace.project_id,
+        workspaceId: project.project_id,
         assetId: asset.asset_id,
         fileName: asset.file_name,
         mimeType: asset.mime_type,
@@ -404,14 +401,14 @@ export class StorageProjectIoService implements ProjectIoService {
 
   private async importProjectFolderFieldAssets(
     files: readonly File[],
-    workspace: ProjectWorkspaceDocument,
+    project: Project,
   ): Promise<void> {
     if (!this.storage.writeFieldAsset) {
       return;
     }
 
     const assets = new Map(
-      workspace.config.gui.field.custom_fields.map((field) => [
+      project.config.gui.field.custom_fields.map((field) => [
         field.asset_id,
         field,
       ]),
@@ -424,7 +421,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
       const field = assets.get(assetId);
       await this.storage.writeFieldAsset({
-        workspaceId: workspace.project_id,
+        workspaceId: project.project_id,
         assetId,
         fileName: field?.file_name ?? file.name,
         mimeType:
@@ -473,9 +470,13 @@ export function createDesktopProjectIoCapabilities(): ProjectIoCapabilities {
 }
 
 export function activePathFileName(
-  workspace: ProjectWorkspaceDocument,
+  project: Project,
+  activePathId?: string | null,
 ): string {
-  const activePath = activePathFromWorkspace(workspace);
+  const activePath =
+    project.paths.find((path) => path.path_id === activePathId) ??
+    project.paths[0] ??
+    null;
   return activePath?.file_name ?? "path.json";
 }
 

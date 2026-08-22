@@ -1,10 +1,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { ProjectWorkspaceDocument } from "../core/io/projectSchema";
 import {
   activeProjectPath,
-  legacyWorkspaceForPersistence,
   normalizeEditorNavigation,
-  openProjectFromLegacyWorkspace,
   type EditorNavigation,
 } from "../core/io/legacyWorkspace";
 import {
@@ -213,7 +210,7 @@ export function createProjectStore(
 
     const service = requireProjectIo(state.io);
     savePromise = service.saveWorkspace(
-      legacyWorkspaceForPersistence(project),
+      project,
       force ? undefined : expectedVersion,
     );
 
@@ -274,14 +271,14 @@ export function createProjectStore(
       set({ status: "loading", error: null });
 
       try {
-        let workspace = await io.initialize();
-        if (!workspace && fallback) {
-          workspace = await io.createWorkspace({
-            workspace: legacyWorkspaceForPersistence(fallback),
+        let project = await io.initialize();
+        if (!project && fallback) {
+          project = await io.createWorkspace({
+            project: fallback,
           });
         }
 
-        if (!workspace) {
+        if (!project) {
           set({
             status: "idle",
             error: null,
@@ -293,7 +290,7 @@ export function createProjectStore(
           set,
           history,
           io,
-          workspace,
+          project,
           false,
           createProjectSessionId(),
         );
@@ -314,7 +311,7 @@ export function createProjectStore(
 
       try {
         const created = await io.createWorkspace({
-          workspace: legacyWorkspaceForPersistence(project),
+          project,
         });
         return adoptWorkspace(
           set,
@@ -793,15 +790,21 @@ export function createProjectStore(
       if (get().dirty) {
         await get().saveWorkspace();
       }
-      const workspace = await io.importPath(file);
-      const imported = openProjectFromLegacyWorkspace(workspace);
+      const imported = await io.importPath(file);
+      const createdPathId = createdPathIdFromTransition(
+        previousProject,
+        imported,
+      );
       applyProjectTransition(
         set,
         history,
         previousProject,
-        imported.project,
+        imported,
         previousNavigation,
-        imported.navigation,
+        normalizeEditorNavigation(imported, {
+          ...previousNavigation,
+          activePathId: createdPathId ?? previousNavigation.activePathId,
+        }),
         "Import path",
         false,
         {
@@ -809,10 +812,7 @@ export function createProjectStore(
           lastSavedAt: io.getLastSavedAt(),
         },
         {
-          createdPathId: createdPathIdFromTransition(
-            previousProject,
-            imported.project,
-          ),
+          createdPathId,
         },
       );
       return requireProject(get().project);
@@ -1150,21 +1150,19 @@ function adoptWorkspace(
   set: StoreApi<ProjectStoreState>["setState"],
   history: HistoryStore<Project>,
   io: ProjectIoService,
-  workspace: ProjectWorkspaceDocument,
+  project: Project,
   dirty: boolean,
   projectSessionId: string,
 ): Project {
   history.getState().clear();
-  const opened = openProjectFromLegacyWorkspace(workspace);
-  const navigation = normalizeEditorNavigation(opened.project, {
-    ...opened.navigation,
+  const navigation = normalizeEditorNavigation(project, {
     activePathId: locallyRememberedActivePath(
-      opened.project.project_id,
-      opened.navigation.activePathId,
+      project.project_id,
+      project.paths[0]?.path_id ?? null,
     ),
   });
   set({
-    project: cloneProject(opened.project),
+    project: cloneProject(project),
     activePathId: navigation.activePathId,
     activePathGroupId: navigation.activePathGroupId,
     dirty,
@@ -1174,7 +1172,7 @@ function adoptWorkspace(
     lastSavedAt: io.getLastSavedAt(),
     ...inactiveSaveState(projectSessionId),
   });
-  return cloneProject(opened.project);
+  return cloneProject(project);
 }
 
 function inactiveSaveState(projectSessionId: string | null = null) {

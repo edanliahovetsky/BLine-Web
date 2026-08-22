@@ -9,7 +9,6 @@ import {
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
-import { openProjectFromLegacyWorkspace } from "../../../src/core/io/legacyWorkspace";
 import { createProjectIoService } from "../../../src/platform/projectIo";
 import {
   browserWebCapabilities,
@@ -32,13 +31,8 @@ describe("ProjectIoService", () => {
       browser: { storage: memory },
     });
     const workspace = exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]);
-    const activePathId = workspace.paths[1]?.path_id;
-    if (!activePathId) {
-      throw new Error("Expected a second path in the test workspace");
-    }
-
     await service.createWorkspace({
-      workspace: { ...workspace, active_path_id: activePathId },
+      project: workspace,
     });
 
     const restoredService = createProjectIoService(browserWebCapabilities, {
@@ -54,7 +48,6 @@ describe("ProjectIoService", () => {
       "One",
       "Two",
     ]);
-    expect(restored?.active_path_id).toBe(workspace.paths[0]?.path_id);
   });
 
   it("exposes browser and desktop primary actions from capabilities", () => {
@@ -83,7 +76,7 @@ describe("ProjectIoService", () => {
       browser: { storage: new MemoryStorage() },
     });
     await service.createWorkspace({
-      workspace: exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]),
+      project: exampleWorkspace("workspace-a", "Alpha", ["One", "Two"]),
     });
 
     const folder = await service.exportProjectFolder(
@@ -114,7 +107,6 @@ describe("ProjectIoService", () => {
       "One.json",
       "Two.json",
     ]);
-    expect(imported.active_path_id).toBe("path-1");
   });
 
   it("excludes local Field Background metadata and bytes from exports", async () => {
@@ -123,7 +115,7 @@ describe("ProjectIoService", () => {
       storage: sourceStorage,
     });
     await sourceService.createWorkspace({
-      workspace: exampleWorkspace("workspace-a", "Alpha", ["One"]),
+      project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
     });
 
     const imageBytes = new Uint8Array([1, 2, 3, 4]);
@@ -211,10 +203,10 @@ describe("ProjectIoService", () => {
       browser: { storage: new MemoryStorage() },
     });
     await service.createWorkspace({
-      workspace: exampleWorkspace("workspace-a", "Alpha", ["One"]),
+      project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
     });
     await service.createWorkspace({
-      workspace: exampleWorkspace("workspace-b", "Beta", ["Two"]),
+      project: exampleWorkspace("workspace-b", "Beta", ["Two"]),
     });
 
     const next = await service.deleteWorkspace("workspace-b");
@@ -229,7 +221,7 @@ describe("ProjectIoService", () => {
       browser: { storage: new MemoryStorage() },
     });
     await service.createWorkspace({
-      workspace: exampleWorkspace("workspace-a", "Alpha", ["One"]),
+      project: exampleWorkspace("workspace-a", "Alpha", ["One"]),
     });
 
     const next = await service.deleteWorkspace("workspace-a");
@@ -246,7 +238,7 @@ async function currentProject(
   if (!workspace) {
     throw new Error("Expected an open Project");
   }
-  return openProjectFromLegacyWorkspace(workspace).project;
+  return workspace;
 }
 
 function exampleWorkspace(

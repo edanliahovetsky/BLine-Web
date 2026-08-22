@@ -31,7 +31,6 @@ import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { elementColors } from "../../canvas/elementStyle";
 import {
   activeProjectPath,
-  legacyWorkspaceForPersistence,
   openProjectFromLegacyWorkspace,
 } from "../../core/io/legacyWorkspace";
 import type {
@@ -886,9 +885,7 @@ export function AppShell() {
       setConflictDiffLoading(true);
       try {
         const currentProject = projectStore.getState().project;
-        const mine = currentProject
-          ? legacyWorkspaceForPersistence(currentProject)
-          : null;
+        const mine = currentProject;
         const theirs = await projectIo.peekWorkspace();
         if (cancelled || !mine) {
           return;
