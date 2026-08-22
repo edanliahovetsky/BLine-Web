@@ -94,6 +94,18 @@ export function verifyUserDataPersistence(): Promise<void> {
   return runtimeUserData.verifyDurableSnapshot();
 }
 
+export function migrateProjectViewIdentity(
+  legacyProjectId: string,
+  stableProjectId: string,
+  pathIdByLegacyReference: Readonly<Record<string, string>>,
+): Promise<void> {
+  return runtimeUserData.migrateProjectViewIdentity(
+    legacyProjectId,
+    stableProjectId,
+    pathIdByLegacyReference,
+  );
+}
+
 export function listFieldBackgrounds(): FieldBackgroundEntry[] {
   return structuredClone(readUserData().field_backgrounds);
 }

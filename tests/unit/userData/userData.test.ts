@@ -4,6 +4,7 @@ import {
   BROWSER_USER_DATA_KEY,
   BrowserUserDataAdapter,
   FieldBackgroundAssetVerificationError,
+  ProjectViewMigrationError,
   TauriUserDataAdapter,
   UserDataService,
   UserDataReadOnlyError,
@@ -303,6 +304,123 @@ describe("UserData", () => {
     });
   });
 
+  it("durably re-keys a legacy Project view and translates its active Path", async () => {
+    const adapter = new AssetMemoryAdapter({
+      ...defaultUserData,
+      project_views: {
+        "/autos/competition": {
+          active_path_id: "three-piece.json",
+          selected_field_background_id: "field-2026",
+        },
+      },
+    });
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    adapter.events.length = 0;
+
+    await service.migrateProjectViewIdentity(
+      "/autos/competition",
+      "project-stable",
+      { "three-piece.json": "path-stable" },
+    );
+
+    expect(adapter.events).toEqual([
+      "metadata-write",
+      "metadata-read",
+      "metadata-write",
+      "metadata-read",
+    ]);
+    expect(service.getSnapshot().project_views).toEqual({
+      "project-stable": {
+        active_path_id: "path-stable",
+        selected_field_background_id: "field-2026",
+      },
+    });
+    expect((adapter.persisted as UserData).project_views).toEqual(
+      service.getSnapshot().project_views,
+    );
+  });
+
+  it("keeps an existing stable Project view when retrying identity migration", async () => {
+    const adapter = new AssetMemoryAdapter({
+      ...defaultUserData,
+      project_views: {
+        legacy: {
+          active_path_id: "old.json",
+          selected_field_background_id: "field-old",
+        },
+        stable: {
+          active_path_id: "path-new",
+          selected_field_background_id: "field-new",
+        },
+      },
+    });
+    const service = new UserDataService(adapter);
+    await service.initialize();
+
+    await service.migrateProjectViewIdentity("legacy", "stable", {});
+
+    expect(service.getSnapshot().project_views).toEqual({
+      stable: {
+        active_path_id: "path-new",
+        selected_field_background_id: "field-new",
+      },
+    });
+  });
+
+  it("never deletes a legacy Project view before the stable copy verifies", async () => {
+    const adapter = new AssetMemoryAdapter({
+      ...defaultUserData,
+      project_views: {
+        legacy: { active_path_id: "old.json" },
+      },
+    });
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    adapter.failMetadataReadAt = 2;
+
+    await expect(
+      service.migrateProjectViewIdentity("legacy", "stable", {
+        "old.json": "path-stable",
+      }),
+    ).rejects.toThrow("metadata read failed");
+
+    expect((adapter.persisted as UserData).project_views).toEqual({
+      legacy: { active_path_id: "old.json" },
+      stable: { active_path_id: "path-stable" },
+    });
+    expect(service.getSnapshot().project_views).toEqual({
+      legacy: { active_path_id: "old.json" },
+    });
+
+    adapter.failMetadataReadAt = undefined;
+    await service.migrateProjectViewIdentity("legacy", "stable", {
+      "old.json": "path-stable",
+    });
+    expect(service.getSnapshot().project_views).toEqual({
+      stable: { active_path_id: "path-stable" },
+    });
+  });
+
+  it("retains an unmappable legacy active Path for a later migration", async () => {
+    const adapter = new AssetMemoryAdapter({
+      ...defaultUserData,
+      project_views: { legacy: { active_path_id: "missing.json" } },
+    });
+    const service = new UserDataService(adapter);
+    await service.initialize();
+
+    await expect(
+      service.migrateProjectViewIdentity("legacy", "stable", {}),
+    ).rejects.toBeInstanceOf(ProjectViewMigrationError);
+    expect(service.getSnapshot().project_views).toEqual({
+      legacy: { active_path_id: "missing.json" },
+    });
+    expect((adapter.persisted as UserData).project_views).toEqual(
+      service.getSnapshot().project_views,
+    );
+  });
+
   it("excludes transient and session-only fields from durable User Data", async () => {
     const storage = new MemoryStorage();
     const service = new UserDataService(
@@ -560,12 +678,19 @@ class AssetMemoryAdapter implements UserDataAdapter {
   failMetadataWrite = false;
   failAssetDelete = false;
   readbackOverride: Uint8Array | null | undefined;
+  metadataReadCount = 0;
+  failMetadataReadAt: number | undefined;
 
   constructor(persisted: unknown | null = null) {
     this.persisted = persisted;
   }
 
   async read(): Promise<unknown | null> {
+    this.events.push("metadata-read");
+    this.metadataReadCount += 1;
+    if (this.metadataReadCount === this.failMetadataReadAt) {
+      throw new Error("metadata read failed");
+    }
     return structuredClone(this.persisted);
   }
 

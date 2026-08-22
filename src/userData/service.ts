@@ -7,6 +7,7 @@ import {
   isUserDataRecord,
   migrateUserData,
   type FieldBackgroundEntry,
+  type ProjectViewPreferences,
   type UserData,
 } from "./model";
 import type { FieldGeometry } from "../core/field/fieldConfig";
@@ -48,6 +49,15 @@ export class UserDataVerificationError extends Error {
   constructor() {
     super("User Data did not round-trip exactly after it was written");
     this.name = "UserDataVerificationError";
+  }
+}
+
+export class ProjectViewMigrationError extends Error {
+  constructor(legacyPathReference: string) {
+    super(
+      `Could not map legacy active Path reference ${legacyPathReference} to a stable Path ID`,
+    );
+    this.name = "ProjectViewMigrationError";
   }
 }
 
@@ -128,6 +138,56 @@ export class UserDataService {
     if (!sameUserData(persisted, this.snapshot)) {
       throw new UserDataVerificationError();
     }
+  }
+
+  async migrateProjectViewIdentity(
+    legacyProjectId: string,
+    stableProjectId: string,
+    pathIdByLegacyReference: Readonly<Record<string, string>>,
+  ): Promise<void> {
+    if (
+      !legacyProjectId ||
+      !stableProjectId ||
+      legacyProjectId === stableProjectId
+    ) {
+      return;
+    }
+    this.assertWritable();
+    return this.enqueue(async () => {
+      const legacyView = this.snapshot.project_views[legacyProjectId];
+      if (!legacyView) {
+        return;
+      }
+
+      const stableView = this.snapshot.project_views[stableProjectId] ?? {};
+      const mergedView = mergeProjectViews(
+        legacyView,
+        stableView,
+        pathIdByLegacyReference,
+      );
+      const staged = migrateUserData({
+        ...this.snapshot,
+        project_views: {
+          ...this.snapshot.project_views,
+          [stableProjectId]: mergedView,
+        },
+      });
+
+      // First make the stable key durable without removing the legacy key.
+      // A crash or failed verification can therefore retry without losing the
+      // only copy of the user's last-open Path or Field Background selection.
+      await this.writeVerifiedSnapshot(staged);
+      this.snapshot = staged;
+
+      const projectViews = { ...staged.project_views };
+      delete projectViews[legacyProjectId];
+      const cleaned = migrateUserData({
+        ...staged,
+        project_views: projectViews,
+      });
+      await this.writeVerifiedSnapshot(cleaned);
+      this.snapshot = cleaned;
+    });
   }
 
   async createFieldBackgroundFromBytes(
@@ -312,6 +372,14 @@ export class UserDataService {
     }
   }
 
+  private async writeVerifiedSnapshot(snapshot: UserData): Promise<void> {
+    await this.adapter.write(snapshot);
+    const persisted = migrateUserData(await this.adapter.read());
+    if (!sameUserData(persisted, snapshot)) {
+      throw new UserDataVerificationError();
+    }
+  }
+
   private async tryWrite(snapshot: UserData): Promise<void> {
     try {
       await this.adapter.write(
@@ -390,6 +458,29 @@ export class UserDataService {
       // An unreferenced orphan is safer than exposing missing referenced bytes.
     }
   }
+}
+
+function mergeProjectViews(
+  legacyView: ProjectViewPreferences,
+  stableView: ProjectViewPreferences,
+  pathIdByLegacyReference: Readonly<Record<string, string>>,
+): ProjectViewPreferences {
+  const merged: ProjectViewPreferences = { ...stableView };
+  if (!merged.active_path_id && legacyView.active_path_id) {
+    const stablePathId = pathIdByLegacyReference[legacyView.active_path_id];
+    if (!stablePathId) {
+      throw new ProjectViewMigrationError(legacyView.active_path_id);
+    }
+    merged.active_path_id = stablePathId;
+  }
+  if (
+    !merged.selected_field_background_id &&
+    legacyView.selected_field_background_id
+  ) {
+    merged.selected_field_background_id =
+      legacyView.selected_field_background_id;
+  }
+  return merged;
 }
 
 function legacyFieldBackgroundId(legacyKey: string): string {
