@@ -503,16 +503,22 @@ describe("Project file-set codec", () => {
     }
   });
 
-  it("keeps generated ownership beside runtime values, not in project.json", () => {
+  it("round-trips generated ownership metadata through project.json", () => {
     const files = editorMetadataFiles();
     const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
-      paths: Array<{ editor_metadata?: Record<string, unknown> }>;
+      paths: Array<{
+        editor_metadata: {
+          ranged_constraints: Array<{
+            key: string;
+            auto_velocity?: { velocity_safety_factor: number };
+          }>;
+        };
+      }>;
     };
     const restored = deserializeProjectFiles(files);
 
-    expect(metadata.paths[0]!.editor_metadata).toBeUndefined();
     expect(
-      restored.paths[0]!.path.ranged_constraints.map(
+      metadata.paths[0]!.editor_metadata.ranged_constraints.map(
         (constraint) => constraint.key,
       ),
     ).toEqual([
@@ -521,51 +527,47 @@ describe("Project file-set codec", () => {
       "max_velocity_deg_per_sec",
     ]);
     expect(
-      restored.paths[0]!.path.ranged_constraints.every(
-        (constraint) =>
-          constraint.source === "auto_velocity" &&
-          constraint.auto_velocity === null,
-      ),
-    ).toBe(true);
+      metadata.paths[0]!.editor_metadata.ranged_constraints[0]?.auto_velocity,
+    ).toMatchObject({ velocity_safety_factor: 0.8 });
+    expect(
+      restored.paths[0]!.path.ranged_constraints[0]?.auto_velocity,
+    ).not.toBeNull();
     expect(serializeProjectFiles(restored)).toEqual(files);
   });
 
-  it("reads old detailed generation metadata but contracts it on write", () => {
-    const files = editorMetadataFiles();
-    const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
-      paths: Array<{ editor_metadata?: Record<string, unknown> }>;
-    };
-    metadata.paths[0]!.editor_metadata = {
-      ranged_constraints: [
-        {
-          key: "max_velocity_meters_per_sec",
-          value: 1.5,
-          start_ordinal: 1,
-          end_ordinal: 1,
-          source: "auto_velocity",
-          auto_velocity: {
-            velocity_safety_factor: 0.8,
-            acceleration_safety_factor: 0.7,
-            merge_tolerance_meters_per_sec: 0.2,
-          },
-        },
-      ],
-    };
-    const restored = deserializeProjectFiles(
-      replaceProjectMetadata(files, `${JSON.stringify(metadata, null, 2)}\n`),
-    );
-    expect(
-      restored.paths[0]!.path.ranged_constraints.find(
-        (constraint) =>
-          constraint.key === "max_velocity_meters_per_sec" &&
-          constraint.value === 1.5,
-      )?.auto_velocity,
-    ).toMatchObject({ velocity_safety_factor: 0.8 });
+  it("rejects generated metadata that cannot be applied losslessly", () => {
+    const cases: Array<(metadata: Record<string, unknown>) => void> = [
+      (metadata) => {
+        const ranged = metadata.ranged_constraints as Array<
+          Record<string, unknown>
+        >;
+        ranged[0]!.start_ordinal = 99;
+        ranged[0]!.end_ordinal = 99;
+      },
+      (metadata) => {
+        const ranged = metadata.ranged_constraints as Array<
+          Record<string, unknown>
+        >;
+        ranged[1] = structuredClone(ranged[0]!);
+      },
+      (metadata) => {
+        const ranged = metadata.ranged_constraints as unknown[];
+        metadata.ranged_constraints = [...ranged].reverse();
+      },
+    ];
 
-    const rewritten = JSON.parse(
-      requiredFile(serializeProjectFiles(restored), "project.json").text,
-    ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
-    expect(rewritten.paths[0]!.editor_metadata).toBeUndefined();
+    for (const mutate of cases) {
+      const files = editorMetadataFiles();
+      const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
+        paths: Array<{ editor_metadata: Record<string, unknown> }>;
+      };
+      mutate(metadata.paths[0]!.editor_metadata);
+
+      const opened = openProjectFiles(
+        replaceProjectMetadata(files, `${JSON.stringify(metadata, null, 2)}\n`),
+      );
+      expect(opened.damage?.sourcePath).toBe("project.json");
+    }
   });
 });
 

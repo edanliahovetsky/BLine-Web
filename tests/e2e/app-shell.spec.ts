@@ -2829,101 +2829,7 @@ test("migrates a legacy Project field image before deleting its old bytes", asyn
 }) => {
   await gotoSampleEditor(page);
   const imageBytes = [...tinyPngBuffer()];
-
-  const seeded = await page.evaluate(async (bytes) => {
-    const storageKey = Object.keys(window.localStorage).find((key) =>
-      key.startsWith("bline-web:workspace:"),
-    );
-    if (!storageKey) {
-      throw new Error("Expected a saved browser Project");
-    }
-    const record = JSON.parse(window.localStorage.getItem(storageKey) ?? "");
-    const projectMetadata = JSON.parse(
-      record.files.find(
-        (file: { relativePath: string }) =>
-          file.relativePath === "project.json",
-      ).text,
-    );
-    const projectId = String(projectMetadata.project_id);
-    const assetId = "legacy-practice.png";
-    const fieldId = "custom:legacy-practice";
-    const fieldConfig = {
-      selected_field_id: fieldId,
-      custom_fields: [
-        {
-          id: fieldId,
-          name: "Legacy Practice Field",
-          asset_id: assetId,
-          file_name: assetId,
-          mime_type: "image/png",
-          size_bytes: bytes.length,
-          created_at: "2026-08-21T12:00:00.000Z",
-          geometry: {
-            length_meters: 8,
-            width_meters: 4,
-            coordinate_offset_meters: 0,
-          },
-        },
-      ],
-    };
-    const paths = projectMetadata.paths.map(
-      (path: { path_id: string; display_name: string; file_name: string }) => ({
-        ...path,
-        path: JSON.parse(
-          record.files.find(
-            (file: { relativePath: string }) =>
-              file.relativePath === `paths/${path.file_name}`,
-          ).text,
-        ),
-      }),
-    );
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        document: {
-          schema_version: 1,
-          project_id: projectId,
-          display_name: projectMetadata.display_name,
-          config: { gui: { field: fieldConfig } },
-          paths,
-          path_groups: projectMetadata.path_groups,
-          ...(projectMetadata.linked_targets?.length
-            ? { linked_targets: projectMetadata.linked_targets }
-            : {}),
-          active_path_id: paths[0]?.path_id ?? null,
-          active_path_group_id: null,
-        },
-        version: record.version,
-        updatedAt: record.updatedAt,
-      }),
-    );
-    window.localStorage.removeItem("bline-web:user-data");
-
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("bline-web-field-assets", 1);
-      request.addEventListener("upgradeneeded", () => {
-        request.result.createObjectStore("field-assets", { keyPath: "key" });
-      });
-      request.addEventListener("success", () => resolve(request.result));
-      request.addEventListener("error", () => reject(request.error));
-    });
-    await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction("field-assets", "readwrite");
-      transaction.objectStore("field-assets").put({
-        key: `${encodeURIComponent(projectId)}:${encodeURIComponent(assetId)}`,
-        workspaceId: projectId,
-        assetId,
-        fileName: assetId,
-        mimeType: "image/png",
-        bytes: new Uint8Array(bytes).buffer,
-        updatedAt: new Date().toISOString(),
-      });
-      transaction.addEventListener("complete", () => resolve());
-      transaction.addEventListener("error", () => reject(transaction.error));
-    });
-    database.close();
-    return { assetId, projectId };
-  }, imageBytes);
+  const seeded = await seedLegacyFieldProject(page, imageBytes, true);
 
   await page.reload();
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
@@ -2959,6 +2865,78 @@ test("migrates a legacy Project field image before deleting its old bytes", asyn
   expect(migrated.entryCount).toBe(1);
   expect(migrated.selectedId).toMatch(/^legacy-field-/);
   expect(migrated.oldAssetPresent).toBe(false);
+});
+
+test("surfaces and retries a failed legacy Project field migration", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const imageBytes = [...tinyPngBuffer()];
+  const seeded = await seedLegacyFieldProject(page, imageBytes, false);
+
+  await page.reload();
+  await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
+  const saveStatus = page.getByTestId("save-status");
+  await expect(saveStatus).toHaveAttribute(
+    "title",
+    /Legacy Field Background image is missing/,
+  );
+  await expect(saveStatus).toContainText("Retry");
+
+  await page.getByTestId("path-element-row-1").click();
+  const xField = page.getByLabel("X (m)");
+  const originalX = Number(await xField.inputValue());
+  await page.keyboard.press("ArrowRight");
+  const editedX = Number(await xField.inputValue());
+  expect(editedX).toBeGreaterThan(originalX);
+
+  await putLegacyFieldAsset(page, seeded, imageBytes);
+  await saveStatus.click();
+
+  await expect.poll(() => activeFieldLabel(page)).toBe("Legacy Practice Field");
+  await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+  await expect(saveStatus).toContainText("Saved");
+  const cleanup = await page.evaluate(async ({ assetId, projectId }) => {
+    const storageKey = Object.keys(window.localStorage).find((key) =>
+      key.startsWith("bline-web:workspace:"),
+    );
+    const record = JSON.parse(
+      window.localStorage.getItem(storageKey ?? "") ?? "null",
+    );
+    const database = await openLegacyFieldDatabase();
+    const oldAsset = await new Promise<unknown>((resolve, reject) => {
+      const transaction = database.transaction("field-assets", "readonly");
+      const request = transaction
+        .objectStore("field-assets")
+        .get(`${encodeURIComponent(projectId)}:${encodeURIComponent(assetId)}`);
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    database.close();
+    return {
+      legacyDocumentPresent: record?.legacyDocument !== undefined,
+      oldAssetPresent: oldAsset !== undefined,
+    };
+
+    function openLegacyFieldDatabase(): Promise<IDBDatabase> {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open("bline-web-field-assets", 1);
+        request.addEventListener("success", () => resolve(request.result));
+        request.addEventListener("error", () => reject(request.error));
+      });
+    }
+  }, seeded);
+  expect(cleanup).toEqual({
+    legacyDocumentPresent: false,
+    oldAssetPresent: false,
+  });
+
+  await page.reload();
+  await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
+  await page.getByTestId("path-element-row-1").click();
+  await expect
+    .poll(async () => Number(await xField.inputValue()))
+    .toBe(editedX);
 });
 
 test("cancels project config edits with Escape", async ({ page }) => {
@@ -5722,6 +5700,175 @@ async function expectPathElementTypes(
   for (const [index, type] of expectedTypes.entries()) {
     await expect(rows.nth(index)).toContainText(`${index + 1}. ${type}`);
   }
+}
+
+interface LegacyFieldSeed {
+  assetId: string;
+  projectId: string;
+}
+
+async function seedLegacyFieldProject(
+  page: Page,
+  bytes: readonly number[],
+  includeAsset: boolean,
+): Promise<LegacyFieldSeed> {
+  const seeded = await page.evaluate(
+    async ({ bytes, includeAsset }) => {
+      const storageKey = Object.keys(window.localStorage).find((key) =>
+        key.startsWith("bline-web:workspace:"),
+      );
+      if (!storageKey) {
+        throw new Error("Expected a saved browser Project");
+      }
+      const record = JSON.parse(window.localStorage.getItem(storageKey) ?? "");
+      const projectMetadata = JSON.parse(
+        record.files.find(
+          (file: { relativePath: string }) =>
+            file.relativePath === "project.json",
+        ).text,
+      );
+      const projectId = String(projectMetadata.project_id);
+      const assetId = "legacy-practice.png";
+      const fieldId = "custom:legacy-practice";
+      const paths = projectMetadata.paths.map(
+        (path: {
+          path_id: string;
+          display_name: string;
+          file_name: string;
+        }) => ({
+          ...path,
+          path: JSON.parse(
+            record.files.find(
+              (file: { relativePath: string }) =>
+                file.relativePath === `paths/${path.file_name}`,
+            ).text,
+          ),
+        }),
+      );
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          document: {
+            schema_version: 1,
+            project_id: projectId,
+            display_name: projectMetadata.display_name,
+            config: {
+              gui: {
+                field: {
+                  selected_field_id: fieldId,
+                  custom_fields: [
+                    {
+                      id: fieldId,
+                      name: "Legacy Practice Field",
+                      asset_id: assetId,
+                      file_name: assetId,
+                      mime_type: "image/png",
+                      size_bytes: bytes.length,
+                      created_at: "2026-08-21T12:00:00.000Z",
+                      geometry: {
+                        length_meters: 8,
+                        width_meters: 4,
+                        coordinate_offset_meters: 0,
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            paths,
+            path_groups: projectMetadata.path_groups,
+            ...(projectMetadata.linked_targets?.length
+              ? { linked_targets: projectMetadata.linked_targets }
+              : {}),
+            active_path_id: paths[0]?.path_id ?? null,
+            active_path_group_id: null,
+          },
+          version: record.version,
+          updatedAt: record.updatedAt,
+        }),
+      );
+      window.localStorage.removeItem("bline-web:user-data");
+      if (includeAsset) {
+        await putAsset(projectId, assetId, bytes);
+      }
+      return { assetId, projectId };
+
+      async function putAsset(
+        workspaceId: string,
+        legacyAssetId: string,
+        assetBytes: readonly number[],
+      ): Promise<void> {
+        const database = await openDatabase();
+        await new Promise<void>((resolve, reject) => {
+          const transaction = database.transaction("field-assets", "readwrite");
+          transaction.objectStore("field-assets").put({
+            key: `${encodeURIComponent(workspaceId)}:${encodeURIComponent(legacyAssetId)}`,
+            workspaceId,
+            assetId: legacyAssetId,
+            fileName: legacyAssetId,
+            mimeType: "image/png",
+            bytes: new Uint8Array(assetBytes).buffer,
+            updatedAt: new Date().toISOString(),
+          });
+          transaction.addEventListener("complete", () => resolve());
+          transaction.addEventListener("error", () =>
+            reject(transaction.error),
+          );
+        });
+        database.close();
+      }
+
+      function openDatabase(): Promise<IDBDatabase> {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open("bline-web-field-assets", 1);
+          request.addEventListener("upgradeneeded", () => {
+            request.result.createObjectStore("field-assets", {
+              keyPath: "key",
+            });
+          });
+          request.addEventListener("success", () => resolve(request.result));
+          request.addEventListener("error", () => reject(request.error));
+        });
+      }
+    },
+    { bytes: [...bytes], includeAsset },
+  );
+  return seeded;
+}
+
+async function putLegacyFieldAsset(
+  page: Page,
+  seed: LegacyFieldSeed,
+  bytes: readonly number[],
+): Promise<void> {
+  await page.evaluate(
+    async ({ assetId, projectId, bytes }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("bline-web-field-assets", 1);
+        request.addEventListener("upgradeneeded", () => {
+          request.result.createObjectStore("field-assets", { keyPath: "key" });
+        });
+        request.addEventListener("success", () => resolve(request.result));
+        request.addEventListener("error", () => reject(request.error));
+      });
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction("field-assets", "readwrite");
+        transaction.objectStore("field-assets").put({
+          key: `${encodeURIComponent(projectId)}:${encodeURIComponent(assetId)}`,
+          workspaceId: projectId,
+          assetId,
+          fileName: assetId,
+          mimeType: "image/png",
+          bytes: new Uint8Array(bytes).buffer,
+          updatedAt: new Date().toISOString(),
+        });
+        transaction.addEventListener("complete", () => resolve());
+        transaction.addEventListener("error", () => reject(transaction.error));
+      });
+      database.close();
+    },
+    { ...seed, bytes: [...bytes] },
+  );
 }
 
 async function waitForSavedProject(page: Page): Promise<void> {

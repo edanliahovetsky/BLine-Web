@@ -32,7 +32,7 @@ import {
   type SerializedProjectWorkspaceDocument,
   type SerializedRangedConstraintMetadata,
 } from "./projectSchema";
-import { serializePathEditorMetadata } from "./blineProject";
+import { serializePathEditorMetadata } from "./pathEditorMetadata";
 import {
   deserializePath,
   deserializeProjectDocument,

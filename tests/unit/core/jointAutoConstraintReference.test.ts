@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import {
   solveJointAutoConstraints,
-  solveJointAutoConstraintsOracle,
+  solveJointAutoConstraintsReference,
 } from "../../../src/core/constraints/autoVelocityConstraints";
 import {
   createPathModel,
@@ -11,20 +11,20 @@ import {
   type PathModel,
 } from "../../../src/core/model/path";
 
-interface OracleCorpus {
+interface ReferenceCorpus {
   paths: Array<{ name: string; points: Array<[number, number]> }>;
 }
 
-function loadCorpus(): OracleCorpus {
+function loadCorpus(): ReferenceCorpus {
   return JSON.parse(
     readFileSync(
       new URL(
-        "../../fixtures/simulation/auto_joint_oracle_corpus.json",
+        "../../fixtures/simulation/auto_joint_reference_corpus.json",
         import.meta.url,
       ),
       "utf8",
     ),
-  ) as OracleCorpus;
+  ) as ReferenceCorpus;
 }
 
 function pathOf(points: Array<[number, number]>): PathModel {
@@ -61,7 +61,7 @@ function radiusAtOrdinal(path: PathModel, ordinal: number): number | null {
     : null;
 }
 
-describe("solveJointAutoConstraintsOracle", () => {
+describe("solveJointAutoConstraintsReference", () => {
   it("is deterministic and ignores the public seed option", () => {
     const path = pathOf([
       [0, 0],
@@ -69,7 +69,7 @@ describe("solveJointAutoConstraintsOracle", () => {
       [1.4, 1.1],
       [2.8, 1.1],
     ]);
-    const first = solveJointAutoConstraintsOracle(
+    const first = solveJointAutoConstraintsReference(
       path,
       {},
       {},
@@ -78,7 +78,7 @@ describe("solveJointAutoConstraintsOracle", () => {
         seed: 42,
       },
     );
-    const second = solveJointAutoConstraintsOracle(
+    const second = solveJointAutoConstraintsReference(
       path,
       {},
       {},
@@ -89,7 +89,7 @@ describe("solveJointAutoConstraintsOracle", () => {
     );
 
     expect(first).toEqual(second);
-    expect(first.stats.algorithm).toBe("oracle");
+    expect(first.stats.algorithm).toBe("global-search");
     expect(first.profile.diagnostics.reachedEnd).toBe(true);
   });
 
@@ -98,13 +98,13 @@ describe("solveJointAutoConstraintsOracle", () => {
     expect(pathTwo).toBeDefined();
     const geometric = pathOf(pathTwo!.points);
     const alternate = solveJointAutoConstraints(geometric, {}).path;
-    const first = solveJointAutoConstraintsOracle(
+    const first = solveJointAutoConstraintsReference(
       geometric,
       {},
       {},
       { maxEvaluations: 8_000, seed: 1 },
     );
-    const second = solveJointAutoConstraintsOracle(
+    const second = solveJointAutoConstraintsReference(
       alternate,
       {},
       {},
@@ -133,14 +133,14 @@ describe("solveJointAutoConstraintsOracle", () => {
     expect(second.stats.stabilityValidationPassed).toBe(true);
   });
 
-  it.runIf(process.env.BLINE_RUN_ORACLE_CORPUS === "1")(
+  it.runIf(process.env.BLINE_RUN_REFERENCE_CORPUS === "1")(
     "compares the five exported large paths",
     () => {
       const corpus = loadCorpus();
       const report = corpus.paths.map(({ name, points }, index) => {
         const path = pathOf(points);
         const interactive = solveJointAutoConstraints(path, {});
-        const oracle = solveJointAutoConstraintsOracle(
+        const reference = solveJointAutoConstraintsReference(
           path,
           {},
           {},
@@ -150,30 +150,32 @@ describe("solveJointAutoConstraintsOracle", () => {
           },
         );
         expect(interactive.stats.objectiveCost).toBeLessThanOrEqual(
-          oracle.stats.objectiveCost + 1e-6,
+          reference.stats.objectiveCost + 1e-6,
         );
         return {
           name,
           interactiveCost: Number(interactive.stats.objectiveCost.toFixed(3)),
-          oracleCost: Number(oracle.stats.objectiveCost.toFixed(3)),
+          referenceCost: Number(reference.stats.objectiveCost.toFixed(3)),
           costDelta: Number(
             (
-              oracle.stats.objectiveCost - interactive.stats.objectiveCost
+              reference.stats.objectiveCost - interactive.stats.objectiveCost
             ).toFixed(3),
           ),
           interactiveTimeS: Number(
             interactive.profile.diagnostics.totalTimeS.toFixed(2),
           ),
-          oracleTimeS: Number(oracle.profile.diagnostics.totalTimeS.toFixed(2)),
+          referenceTimeS: Number(
+            reference.profile.diagnostics.totalTimeS.toFixed(2),
+          ),
           interactiveRadii: generatedRadii(interactive.path),
-          oracleRadii: generatedRadii(oracle.path),
+          referenceRadii: generatedRadii(reference.path),
           interactiveStatus: interactive.status,
-          oracleStatus: oracle.status,
+          referenceStatus: reference.status,
           validation: {
             interactiveGeneric: interactive.stats.genericValidationPassed,
             interactiveStability: interactive.stats.stabilityValidationPassed,
-            oracleGeneric: oracle.stats.genericValidationPassed,
-            oracleStability: oracle.stats.stabilityValidationPassed,
+            referenceGeneric: reference.stats.genericValidationPassed,
+            referenceStability: reference.stats.stabilityValidationPassed,
           },
           smallHandoffs: interactive.profile.diagnostics.handoffs.flatMap(
             (handoff) => {
@@ -218,7 +220,7 @@ describe("solveJointAutoConstraintsOracle", () => {
           ),
         };
       });
-      console.log(`ORACLE_CORPUS_REPORT=${JSON.stringify(report)}`);
+      console.log(`REFERENCE_CORPUS_REPORT=${JSON.stringify(report)}`);
     },
     360_000,
   );

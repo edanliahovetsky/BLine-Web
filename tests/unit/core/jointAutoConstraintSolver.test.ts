@@ -216,7 +216,7 @@ describe("solveJointAutoConstraints", () => {
     const corpus = JSON.parse(
       readFileSync(
         new URL(
-          "../../fixtures/simulation/auto_joint_oracle_corpus.json",
+          "../../fixtures/simulation/auto_joint_reference_corpus.json",
           import.meta.url,
         ),
         "utf8",
@@ -234,7 +234,7 @@ describe("solveJointAutoConstraints", () => {
     const corpus = JSON.parse(
       readFileSync(
         new URL(
-          "../../fixtures/simulation/auto_joint_oracle_corpus.json",
+          "../../fixtures/simulation/auto_joint_reference_corpus.json",
           import.meta.url,
         ),
         "utf8",
@@ -269,7 +269,7 @@ describe("solveJointAutoConstraints", () => {
     const corpus = JSON.parse(
       readFileSync(
         new URL(
-          "../../fixtures/simulation/auto_joint_oracle_corpus.json",
+          "../../fixtures/simulation/auto_joint_reference_corpus.json",
           import.meta.url,
         ),
         "utf8",

@@ -5,10 +5,9 @@ import type {
   SerializedPathEditorMetadata,
   SerializedPathDocument,
 } from "./projectSchema";
-import { getPathElementLinkedTargetId } from "../linkedTargets";
-import type { PathModel } from "../model/path";
 import type { Project } from "../model/project";
 import { openProjectFromLegacyWorkspace } from "./legacyWorkspace";
+import { serializePathEditorMetadata } from "./pathEditorMetadata";
 import { serializePath } from "./projectSerde";
 import {
   deserializeProjectWorkspaceDocument,
@@ -233,18 +232,4 @@ function isSerializedProjectArchiveFieldAsset(
     typeof candidate.mime_type === "string" &&
     typeof candidate.data_base64 === "string"
   );
-}
-
-export function serializePathEditorMetadata(
-  path: PathModel,
-): SerializedPathEditorMetadata | undefined {
-  const linkedTargets = path.path_elements.flatMap((element, index) => {
-    const targetId = getPathElementLinkedTargetId(element);
-    return targetId ? [{ element_index: index, target_id: targetId }] : [];
-  });
-  if (linkedTargets.length === 0) {
-    return undefined;
-  }
-
-  return { linked_targets: linkedTargets };
 }

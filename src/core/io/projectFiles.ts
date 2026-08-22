@@ -12,11 +12,9 @@ import {
   isElementCompatibleWithLinkedTarget,
   syncLinkedTargetElementsInProject,
 } from "../linkedTargets";
-import {
-  serializeBLineRuntimeConfig,
-  serializePathEditorMetadata,
-} from "./blineProject";
+import { serializeBLineRuntimeConfig } from "./blineProject";
 import { stringifyBLineJson } from "./blineJson";
+import { serializePathEditorMetadata } from "./pathEditorMetadata";
 import type {
   ProjectConfig,
   SerializedPathEditorMetadata,
@@ -560,9 +558,17 @@ function assertPathEditorMetadataIsLossless(
   expected: SerializedPathEditorMetadata | undefined,
 ): void {
   const actual = serializePathEditorMetadata(path);
-  const durableExpected = expected?.linked_targets
-    ? { linked_targets: expected.linked_targets }
-    : undefined;
+  const durableExpected =
+    expected?.ranged_constraints || expected?.linked_targets
+      ? {
+          ...(expected.ranged_constraints
+            ? { ranged_constraints: expected.ranged_constraints }
+            : {}),
+          ...(expected.linked_targets
+            ? { linked_targets: expected.linked_targets }
+            : {}),
+        }
+      : undefined;
   if (!sameJsonValue(actual, durableExpected)) {
     throw new Error(
       `Path ${pathId} editor metadata cannot be applied without loss`,

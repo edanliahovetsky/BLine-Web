@@ -142,7 +142,7 @@ export type JointAutoConstraintSolveStatus =
   | "unsolvable";
 
 export interface JointAutoConstraintSolveStats {
-  algorithm: "interactive" | "interactive-global" | "oracle";
+  algorithm: "interactive" | "interactive-global" | "global-search";
   evaluations: number;
   evaluationBudget: number;
   searchableBlocks: number;
@@ -170,8 +170,8 @@ export interface JointAutoConstraintSolveResult {
   stats: JointAutoConstraintSolveStats;
 }
 
-export interface JointAutoConstraintOracleOptions {
-  /** Offline reference budget. The production solver never uses this value. */
+export interface JointAutoConstraintReferenceOptions {
+  /** Benchmark budget; production supplies separate budgets to the shared engine. */
   maxEvaluations?: number;
   /**
    * Retained for comparison-call compatibility. The reference solver covers
@@ -180,7 +180,7 @@ export interface JointAutoConstraintOracleOptions {
   seed?: number;
 }
 
-interface JointAutoConstraintOracleInternalOptions extends JointAutoConstraintOracleOptions {
+interface JointAutoConstraintGlobalSearchInternalOptions extends JointAutoConstraintReferenceOptions {
   restartIndices?: readonly number[];
   cmaBudgetFraction?: number;
 }
@@ -805,7 +805,7 @@ function isBetterJointCandidate(
   return candidate.signature < current.signature;
 }
 
-/** Oracle ranking must not depend on whichever candidate seeded the solve. */
+/** Global-search ranking must not depend on whichever candidate seeded the solve. */
 function isBetterJointOracleCandidate(
   candidate: JointCandidateEvaluation,
   current: JointCandidateEvaluation,
@@ -1200,7 +1200,7 @@ export function solveJointAutoConstraints(
 ): JointAutoConstraintSolveResult {
   const searchPlan = jointAutoConstraintSearchPlan(path, config, options);
   if (searchPlan.searchableBlocks <= 8) {
-    const result = solveJointAutoConstraintsOracleInternal(
+    const result = solveJointAutoConstraintsGlobalSearchInternal(
       path,
       config,
       options,
@@ -1292,7 +1292,7 @@ function refineJointAutoConstraintsForProduction(
   const alternateEvaluationBudget = jointParityAlternateEvaluationBudget(
     problem.searchableCoordinates.length,
   );
-  const alternate = solveJointAutoConstraintsOracleInternal(
+  const alternate = solveJointAutoConstraintsGlobalSearchInternal(
     canonicalPath,
     config,
     options,
@@ -1456,7 +1456,7 @@ function solveJointAutoConstraintsInternal(
     return interactiveResult;
   }
 
-  const globalResult = solveJointAutoConstraintsOracleInternal(
+  const globalResult = solveJointAutoConstraintsGlobalSearchInternal(
     canonicalPath,
     config,
     options,
@@ -1495,13 +1495,18 @@ function solveCompactJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions,
 ): JointAutoConstraintSolveResult {
-  const broad = solveJointAutoConstraintsOracleInternal(path, config, options, {
-    maxEvaluations: 4_096,
-    restartIndices: [2],
-    cmaBudgetFraction: 0.3,
-  });
+  const broad = solveJointAutoConstraintsGlobalSearchInternal(
+    path,
+    config,
+    options,
+    {
+      maxEvaluations: 4_096,
+      restartIndices: [2],
+      cmaBudgetFraction: 0.3,
+    },
+  );
   const alternateBudget = 2_688;
-  const alternate = solveJointAutoConstraintsOracleInternal(
+  const alternate = solveJointAutoConstraintsGlobalSearchInternal(
     path,
     config,
     options,
@@ -1589,29 +1594,29 @@ function radicalInverse(index: number, base: number): number {
 }
 
 /**
- * Deterministic, offline CMA-ES reference solver. It deliberately
- * spends far more evaluations than the interactive optimizer and searches the
- * complete persisted radius/cap domains. Production generation never calls it.
+ * Deterministic global-search reference entry point for quality benchmarks.
+ * Production reuses the same search engine for small problems and recovery,
+ * so comparisons against this entry point are not an independent oracle.
  */
-export function solveJointAutoConstraintsOracle(
+export function solveJointAutoConstraintsReference(
   path: PathModel,
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
-  oracleOptions: JointAutoConstraintOracleOptions = {},
+  referenceOptions: JointAutoConstraintReferenceOptions = {},
 ): JointAutoConstraintSolveResult {
-  return solveJointAutoConstraintsOracleInternal(
+  return solveJointAutoConstraintsGlobalSearchInternal(
     path,
     config,
     options,
-    oracleOptions,
+    referenceOptions,
   );
 }
 
-function solveJointAutoConstraintsOracleInternal(
+function solveJointAutoConstraintsGlobalSearchInternal(
   path: PathModel,
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions,
-  oracleOptions: JointAutoConstraintOracleInternalOptions,
+  globalSearchOptions: JointAutoConstraintGlobalSearchInternalOptions,
   suppliedProductionSeed?: JointAutoConstraintSolveResult,
 ): JointAutoConstraintSolveResult {
   const canonicalPath = seedHandoffRadii(path).path;
@@ -1623,7 +1628,8 @@ function solveJointAutoConstraintsOracleInternal(
   const evaluationBudget = Math.max(
     1,
     Math.floor(
-      oracleOptions.maxEvaluations ?? Math.max(8_000, variables.length * 300),
+      globalSearchOptions.maxEvaluations ??
+        Math.max(8_000, variables.length * 300),
     ),
   );
   const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
@@ -1650,7 +1656,9 @@ function solveJointAutoConstraintsOracleInternal(
     ),
   );
   if (!best) {
-    throw new Error("Joint oracle could not evaluate its canonical seed");
+    throw new Error(
+      "Joint global search could not evaluate its canonical seed",
+    );
   }
   if (
     productionEvaluation &&
@@ -1704,14 +1712,17 @@ function solveJointAutoConstraintsOracleInternal(
       (1 - 1 / (4 * dimension) + 1 / (21 * dimension * dimension));
     const restartVectors = jointOracleRestartVectors(variables);
     const restartSchedule = (
-      oracleOptions.restartIndices ?? restartVectors.map((_, index) => index)
+      globalSearchOptions.restartIndices ??
+      restartVectors.map((_, index) => index)
     ).flatMap((restartIndex) => {
       const vector = restartVectors[restartIndex];
       return vector ? [{ restartIndex, vector }] : [];
     });
     const cmaBudget = Math.max(
       evaluator.evaluations,
-      Math.floor(evaluationBudget * (oracleOptions.cmaBudgetFraction ?? 0.78)),
+      Math.floor(
+        evaluationBudget * (globalSearchOptions.cmaBudgetFraction ?? 0.78),
+      ),
     );
     const evaluationsPerRestart = Math.max(
       populationSize * 3,
@@ -1881,16 +1892,16 @@ function solveJointAutoConstraintsOracleInternal(
       ...evaluator.rankedCandidates(7, isBetterJointOracleCandidate),
     ].map((candidate) => [candidate.signature, candidate]),
   );
-  const oracleResult = finalizeJointCandidates(
+  const referenceResult = finalizeJointCandidates(
     canonicalPath,
     config,
     options,
     problem,
     [...finalistMap.values()],
     evaluator,
-    "oracle",
+    "global-search",
   );
-  return oracleResult;
+  return referenceResult;
 }
 
 function finalizeJointCandidates(

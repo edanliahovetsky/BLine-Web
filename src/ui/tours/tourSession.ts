@@ -3,7 +3,10 @@ import { activeProjectPath } from "../../core/model/editorNavigation";
 import { createProject, type Project } from "../../core/model/project";
 import type { HistoryStoreState } from "../../state/historyStore";
 import type { ProjectStore, ProjectStoreState } from "../../state/projectStore";
-import { projectStore } from "../../state/projectStore";
+import {
+  legacyProjectMigrationOwnsSession,
+  projectStore,
+} from "../../state/projectStore";
 import type {
   SelectionState,
   SelectionStore,
@@ -95,6 +98,7 @@ export function createTourSessionController<View>(
         tours.getState().activeTourId ||
         !definition ||
         state.activeSave ||
+        legacyProjectMigrationOwnsSession(state) ||
         state.status === "loading" ||
         state.status === "saving" ||
         state.status === "conflict" ||
@@ -152,6 +156,7 @@ export function createTourSessionController<View>(
         revision: 0,
         activeSave: null,
         saveQueued: false,
+        legacyMigrationProjectSessionId: null,
       });
       selections.getState().clearSelection();
       options.showPracticeView(practiceProject.project_id);

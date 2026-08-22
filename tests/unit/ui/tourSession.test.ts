@@ -290,6 +290,12 @@ describe("Tour session", () => {
     expect(controller.start(definition.id)).toBe(false);
     projects.setState({ status: "damaged" });
     expect(controller.start(definition.id)).toBe(false);
+    projects.setState({
+      status: "idle",
+      legacyMigrationProjectSessionId: "busy-session",
+    });
+    expect(controller.start(definition.id)).toBe(false);
+    projects.setState({ legacyMigrationProjectSessionId: null });
     expect(projects.getState().project).toBe(project);
     expect(tours.getState().activeTourId).toBeNull();
   });

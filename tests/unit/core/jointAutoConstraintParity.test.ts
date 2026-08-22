@@ -4,7 +4,7 @@ import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import {
   jointAutoConstraintSearchPlan,
   solveJointAutoConstraints,
-  solveJointAutoConstraintsOracle,
+  solveJointAutoConstraintsReference,
 } from "../../../src/core/constraints/autoVelocityConstraints";
 import {
   createPathModel,
@@ -253,9 +253,9 @@ describe("production joint optimizer parity", () => {
   );
 
   it.runIf(process.env.BLINE_RUN_JOINT_PARITY_CORPUS === "1")(
-    "matches or beats the 8,000-evaluation oracle across real and held-out cases",
+    "matches or beats the shared 8,000-evaluation global-search reference",
     () => {
-      const supplied = loadCorpus("auto_joint_oracle_corpus.json").paths;
+      const supplied = loadCorpus("auto_joint_reference_corpus.json").paths;
       const robot = loadCorpus(
         "auto_joint_robot_2026_corpus.json",
       ).paths.filter(({ points }) => points.length >= 3);
@@ -281,7 +281,7 @@ describe("production joint optimizer parity", () => {
           const startedAt = performance.now();
           const production = solveJointAutoConstraints(path, config);
           const productionMs = performance.now() - startedAt;
-          const oracle = solveJointAutoConstraintsOracle(
+          const reference = solveJointAutoConstraintsReference(
             path,
             config,
             {},
@@ -291,12 +291,12 @@ describe("production joint optimizer parity", () => {
           expect(
             production.stats.objectiveCost,
             `${name} at ${configName}`,
-          ).toBeLessThanOrEqual(oracle.stats.objectiveCost + 1e-6);
+          ).toBeLessThanOrEqual(reference.stats.objectiveCost + 1e-6);
           report.push({
             name,
             config: configName,
             productionCost: production.stats.objectiveCost,
-            oracleCost: oracle.stats.objectiveCost,
+            referenceCost: reference.stats.objectiveCost,
             productionMs,
             evaluations: production.stats.evaluations,
           });

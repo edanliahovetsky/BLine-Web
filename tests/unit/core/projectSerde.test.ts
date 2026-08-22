@@ -623,8 +623,48 @@ describe("project path serde", () => {
       active_path_group_id: null,
     };
     const valid = serializeProjectWorkspaceDocument(workspace);
+    const legacyGeneratedConstraint = {
+      ...valid,
+      paths: valid.paths.map((path) =>
+        path.path_id === "top"
+          ? {
+              ...path,
+              path: {
+                ...path.path,
+                constraints: {
+                  ...path.path.constraints,
+                  max_velocity_meters_per_sec: [
+                    { value: 1.4, start_ordinal: 0, end_ordinal: 0 },
+                  ],
+                },
+              },
+              editor_metadata: {
+                ...(path.editor_metadata ?? {}),
+                ranged_constraints: [
+                  {
+                    key: "max_velocity_meters_per_sec" as const,
+                    value: 1.4,
+                    start_ordinal: 1,
+                    end_ordinal: 1,
+                    source: "auto_velocity" as const,
+                    auto_velocity: {
+                      velocity_safety_factor: 0.8,
+                      acceleration_safety_factor: 0.7,
+                      merge_tolerance_meters_per_sec: 0.2,
+                      input_signature: "legacy-signature",
+                    },
+                  },
+                ],
+              },
+            }
+          : path,
+      ),
+    };
 
     expect(() => assertLegacyProjectWorkspaceDocument(valid)).not.toThrow();
+    expect(() =>
+      assertLegacyProjectWorkspaceDocument(legacyGeneratedConstraint),
+    ).not.toThrow();
     expect(() =>
       assertLegacyProjectWorkspaceDocument({
         ...valid,
@@ -1776,6 +1816,7 @@ describe("project document serde", () => {
         velocity_safety_factor: 0.9,
         acceleration_safety_factor: 0.8,
         merge_tolerance_meters_per_sec: 0.3,
+        input_signature: "signature-1",
       },
     };
     const project = createProjectDocument({
@@ -1815,12 +1856,33 @@ describe("project document serde", () => {
       files.find((file) => file.relativePath === "project.json")?.text ??
         "null",
     ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
-    expect(serialized.paths[0]?.editor_metadata).toBeUndefined();
+    expect(serialized.paths[0]?.editor_metadata).toEqual({
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 1.25,
+          start_ordinal: 2,
+          end_ordinal: 2,
+          source: "auto_velocity",
+          auto_velocity: {
+            velocity_safety_factor: 0.9,
+            acceleration_safety_factor: 0.8,
+            merge_tolerance_meters_per_sec: 0.3,
+            input_signature: "signature-1",
+          },
+        },
+      ],
+    });
 
     const restored = deserializeProjectFiles(files);
     expect(restored.paths[0]?.path.ranged_constraints[0]).toMatchObject({
       source: "auto_velocity",
-      auto_velocity: null,
+      auto_velocity: {
+        velocity_safety_factor: 0.9,
+        acceleration_safety_factor: 0.8,
+        merge_tolerance_meters_per_sec: 0.3,
+        input_signature: "signature-1",
+      },
     });
   });
 });

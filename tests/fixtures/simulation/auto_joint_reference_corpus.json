@@ -1,6 +1,6 @@
 {
   "source": "autos-4.zip",
-  "description": "Five user-exported large paths used to compare the interactive joint solver with the offline oracle.",
+  "description": "Five user-exported large paths used to compare the interactive joint solver with its shared deterministic global-search reference.",
   "paths": [
     {
       "name": "Path 1",

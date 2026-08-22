@@ -87,7 +87,10 @@ import {
   startAutomaticConstraintSync,
 } from "../../state/automaticConstraints";
 import { autoVelocitySettingsForPath } from "../../core/constraints/autoVelocityApply";
-import { projectStore } from "../../state/projectStore";
+import {
+  legacyProjectMigrationOwnsSession,
+  projectStore,
+} from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
 import {
@@ -343,6 +346,9 @@ export function AppShell() {
     useState<PendingToolbarAction>(null);
   const [initializing, setInitializing] = useState(true);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
+  const [legacyFieldMigrationAttempt, setLegacyFieldMigrationAttempt] =
+    useState<{ key: string; phase: "running" | "failed" } | null>(null);
+  const [legacyFieldMigrationRetry, setLegacyFieldMigrationRetry] = useState(0);
   const [canvasInteractionActive, setCanvasInteractionActive] = useState(false);
   const [curveToolSession, setCurveToolSession] =
     useState<CurveToolSession | null>(null);
@@ -603,11 +609,12 @@ export function AppShell() {
       : null;
 
   useEffect(() => {
-    if (!durableProject || !projectSessionId) {
+    const migrationProject = projectStore.getState().project;
+    if (!migrationProject || !projectSessionId) {
       return;
     }
 
-    const projectId = durableProject.project_id;
+    const projectId = migrationProject.project_id;
     const migrationSessionId = projectSessionId;
     const migration = projectIo?.getLegacyProjectViewMigration() ?? null;
 
@@ -621,6 +628,10 @@ export function AppShell() {
       return;
     }
     attemptedFieldMigrationKeysRef.current.add(legacyFieldMigrationKey);
+    setLegacyFieldMigrationAttempt({
+      key: legacyFieldMigrationKey,
+      phase: "running",
+    });
     let cancelled = false;
     let finished = false;
     const ownsMigrationSession = () => {
@@ -654,7 +665,7 @@ export function AppShell() {
         return;
       }
       const { errors } = await migrateLegacyProjectFieldBackgrounds(
-        durableProject,
+        migrationProject,
         projectIo,
         migration.legacyProjectId,
       );
@@ -662,11 +673,12 @@ export function AppShell() {
         abandonAttempt();
         return;
       }
-      if (errors.length === 0) {
-        await projectStore
-          .getState()
-          .completeLegacyProjectMigration(migrationSessionId, migration);
+      if (errors[0]) {
+        throw errors[0];
       }
+      await projectStore
+        .getState()
+        .completeLegacyProjectMigration(migrationSessionId, migration);
       if (!ownsMigrationSession()) {
         abandonAttempt();
         return;
@@ -679,9 +691,14 @@ export function AppShell() {
           defaultFieldId,
       });
       finished = true;
+      setLegacyFieldMigrationAttempt(null);
     })().catch((migrationError: unknown) => {
       abandonAttempt();
       if (ownsMigrationSession()) {
+        setLegacyFieldMigrationAttempt({
+          key: legacyFieldMigrationKey,
+          phase: "failed",
+        });
         projectStore.getState().markSaveError(migrationError);
       }
     });
@@ -692,7 +709,17 @@ export function AppShell() {
         abandonAttempt();
       }
     };
-  }, [durableProject, legacyFieldMigrationKey, projectIo, projectSessionId]);
+  }, [
+    legacyFieldMigrationKey,
+    legacyFieldMigrationRetry,
+    projectIo,
+    projectSessionId,
+  ]);
+
+  const legacyFieldMigrationPhase =
+    legacyFieldMigrationAttempt?.key === legacyFieldMigrationKey
+      ? legacyFieldMigrationAttempt.phase
+      : null;
 
   const selectedFieldId = durableProject
     ? fieldSelectionOverride?.projectId === durableProject.project_id
@@ -745,6 +772,7 @@ export function AppShell() {
       onStatusChange: setAutosaveStatus,
       shouldDefer: () =>
         canvasInteractionActiveRef.current ||
+        legacyProjectMigrationOwnsSession(projectStore.getState()) ||
         projectStore.getState().status === "conflict" ||
         projectStore.getState().status === "damaged",
     });
@@ -1113,13 +1141,21 @@ export function AppShell() {
     setShowOpenPanel(false);
     autosaveRef.current?.cancel();
 
+    if (legacyFieldMigrationPhase === "running") {
+      return;
+    }
+    if (legacyFieldMigrationPhase === "failed") {
+      setLegacyFieldMigrationRetry((generation) => generation + 1);
+      return;
+    }
+
     try {
       await projectStore.getState().saveWorkspace();
       await refreshWorkspaceSummaries();
     } catch {
       // The project store already records the error for the status bar.
     }
-  }, [refreshWorkspaceSummaries]);
+  }, [legacyFieldMigrationPhase, refreshWorkspaceSummaries]);
 
   const beginToolbarAction = useCallback(
     (action: Exclude<PendingToolbarAction, null>) => {
@@ -1771,6 +1807,7 @@ export function AppShell() {
       !projectAvailable ||
       !projectIoAvailable ||
       status === "saving" ||
+      legacyFieldMigrationPhase === "running" ||
       toolbarBusy,
     run: () => void handleSaveProject(),
   };

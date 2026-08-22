@@ -416,6 +416,146 @@ describe("project store", () => {
     expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
   });
 
+  it("blocks Project-changing operations while dirty migration edits are locked", async () => {
+    const operations: Array<{
+      name: string;
+      run(store: ProjectStore): Promise<unknown>;
+    }> = [
+      {
+        name: "createWorkspace",
+        run: (store) =>
+          store
+            .getState()
+            .createWorkspace(exampleWorkspace("project-b", "Beta", 1)),
+      },
+      {
+        name: "openWorkspace",
+        run: (store) => store.getState().openWorkspace("project-b"),
+      },
+      {
+        name: "deleteWorkspace",
+        run: (store) => store.getState().deleteWorkspace("project-a"),
+      },
+      {
+        name: "switchWorkspace",
+        run: (store) => store.getState().switchWorkspace("project-b"),
+      },
+      {
+        name: "importPath",
+        run: (store) =>
+          store
+            .getState()
+            .importPath(
+              new File(["{}"], "path.json", { type: "application/json" }),
+            ),
+      },
+      {
+        name: "importConfig",
+        run: (store) =>
+          store
+            .getState()
+            .importConfig(
+              new File(["{}"], "config.json", { type: "application/json" }),
+            ),
+      },
+      {
+        name: "importProjectFolder",
+        run: (store) => store.getState().importProjectFolder([]),
+      },
+      {
+        name: "importProjectArchive",
+        run: (store) =>
+          store
+            .getState()
+            .importProjectArchive(
+              new File(["{}"], "project.json", { type: "application/json" }),
+            ),
+      },
+    ];
+
+    for (const operation of operations) {
+      const { store, io } = await initializedProjectStore(
+        exampleWorkspace("project-a", "Alpha", 1),
+      );
+      const projectSessionId = requireProjectSessionId(store);
+      await store
+        .getState()
+        .prepareLegacyProjectMigration(
+          projectSessionId,
+          legacyMigration("project-a"),
+        );
+      renameActivePath(store, "Unsaved Migration Edit");
+      const before = store.getState();
+
+      await expect(operation.run(store), operation.name).rejects.toThrow(
+        /finishes migrating/,
+      );
+      expect(io.transitionCalls, operation.name).toEqual([]);
+      expect(io.writes, operation.name).toHaveLength(0);
+      expect(store.getState(), operation.name).toMatchObject({
+        projectSessionId: before.projectSessionId,
+        revision: before.revision,
+        dirty: true,
+        project: {
+          project_id: "project-a",
+          paths: [{ display_name: "Unsaved Migration Edit" }],
+        },
+      });
+      expect(
+        store.getState().history.getState().undoStack,
+        operation.name,
+      ).toHaveLength(1);
+    }
+  });
+
+  it("keeps a null cleanup retryable and flushes edits after confirmed cleanup", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 1),
+    );
+    const projectSessionId = requireProjectSessionId(store);
+    const migration = legacyMigration("project-a");
+    await store
+      .getState()
+      .prepareLegacyProjectMigration(projectSessionId, migration);
+    renameActivePath(store, "Edited During Retry");
+
+    await expect(
+      store
+        .getState()
+        .completeLegacyProjectMigration(projectSessionId, migration),
+    ).rejects.toThrow("cleanup could not be confirmed");
+    expect(store.getState()).toMatchObject({
+      dirty: true,
+      legacyMigrationProjectSessionId: projectSessionId,
+    });
+    await expect(store.getState().saveWorkspace()).resolves.toBeNull();
+    expect(io.writes).toHaveLength(0);
+
+    store.getState().markSaveError(new Error("migration failed"));
+    io.legacyMigrationResult = {
+      version: "clean-v1",
+      updatedAt: "2026-04-23T15:45:00.000Z",
+    };
+    io.deferWrites();
+    await store
+      .getState()
+      .completeLegacyProjectMigration(projectSessionId, migration);
+
+    expect(store.getState()).toMatchObject({
+      dirty: true,
+      status: "saving",
+      error: null,
+      legacyMigrationProjectSessionId: null,
+    });
+    expect(io.writes.at(-1)).toMatchObject({
+      pathName: "Edited During Retry",
+      expectedVersion: "clean-v1",
+    });
+    io.completeNextWrite();
+    await waitForSaveQueue();
+    expect(store.getState()).toMatchObject({ dirty: false, status: "idle" });
+  });
+
   it("does not adopt a delayed legacy prepare after switching Project sessions", async () => {
     const { store, io } = await initializedProjectStore(
       exampleWorkspace("project-a", "Alpha", 1),
@@ -1401,6 +1541,7 @@ class RecordingIo implements ProjectIoService {
     expectedVersion: string | undefined;
   }> = [];
   readonly exportedProjectNames: string[] = [];
+  readonly transitionCalls: string[] = [];
   failExports = false;
   damage: ProjectFileDamage | null = null;
   legacyPrepareResult: WriteResult | null = null;
@@ -1497,6 +1638,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async createWorkspace(input: { project?: Project } = {}) {
+    this.transitionCalls.push("createWorkspace");
     if (!input.project) {
       throw new Error("Test createWorkspace requires a workspace");
     }
@@ -1505,6 +1647,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async openWorkspace(): Promise<Project | null> {
+    this.transitionCalls.push("openWorkspace");
     return this.getWorkspace();
   }
 
@@ -1513,6 +1656,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async deleteWorkspace(): Promise<Project | null> {
+    this.transitionCalls.push("deleteWorkspace");
     this.workspace = null;
     this.version = undefined;
     this.updatedAt = null;
@@ -1586,10 +1730,12 @@ class RecordingIo implements ProjectIoService {
   }
 
   async switchWorkspace(): Promise<Project | null> {
+    this.transitionCalls.push("switchWorkspace");
     return this.getWorkspace();
   }
 
   async importPath(file: File): Promise<Project> {
+    this.transitionCalls.push("importPath");
     const parsed = JSON.parse(await file.text()) as {
       display_name?: unknown;
     };
@@ -1614,6 +1760,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async importConfig(): Promise<Project> {
+    this.transitionCalls.push("importConfig");
     return this.requireWorkspace();
   }
 
@@ -1622,6 +1769,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async importProjectFolder() {
+    this.transitionCalls.push("importProjectFolder");
     return emptyImportResult(this.requireWorkspace());
   }
 
@@ -1637,6 +1785,7 @@ class RecordingIo implements ProjectIoService {
   }
 
   async importProjectArchive() {
+    this.transitionCalls.push("importProjectArchive");
     return emptyImportResult(this.requireWorkspace());
   }
 
