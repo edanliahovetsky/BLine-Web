@@ -3,10 +3,6 @@ import {
   splitRangedConstraintInstance,
 } from "../../core/constraints/rangedConstraints";
 import {
-  applyAutoVelocityConstraintsToOrdinals,
-  refreshAutoVelocityConstraints,
-} from "../../core/constraints/autoVelocityApply";
-import {
   canGenerateAutoConstraints,
   clearGeneratedAutoConstraints,
   hasGeneratedAutoConstraints,
@@ -27,7 +23,6 @@ import {
   getElementHeadingRadians,
   getElementPosition,
 } from "../../canvas/geometry";
-import { remapRangedConstraints } from "../../core/constraints/rangedConstraints";
 import type { ProjectConfig } from "../../core/model/project";
 import {
   createEventTrigger,
@@ -35,7 +30,6 @@ import {
   createTranslationTarget,
   createWaypoint,
   countAnchorElements,
-  isAnchorElement,
   isEventTrigger,
   getHandoffRadiusSource,
   isRotationTarget,
@@ -51,7 +45,6 @@ import {
   type TranslationTarget,
   type Waypoint,
 } from "../../core/model/path";
-import { setPathElementLinkedTargetId } from "../../core/linkedTargets";
 import type { HistoryCommand } from "../../state/historyStore";
 
 export type AddableElementType = PathElement["type"];
@@ -86,56 +79,6 @@ export function getSwitchableElementTypes(
   }
 
   return ["translation", "waypoint", "rotation", "event_trigger"];
-}
-
-export function createInsertPathElementCommand(
-  index: number,
-  element: PathElement,
-): HistoryCommand<PathModel> {
-  let previousConstraints: RangedConstraint[] | null = null;
-
-  return {
-    description: `Insert ${element.type} element`,
-    apply: (path) => {
-      const nextPath = structuredClone(path);
-      const previousElements = nextPath.path_elements.slice();
-      previousConstraints ??= structuredClone(nextPath.ranged_constraints);
-      const insertionIndex = clampIndex(index, nextPath.path_elements.length);
-      nextPath.path_elements.splice(
-        insertionIndex,
-        0,
-        structuredClone(element),
-      );
-      remapRangedConstraints(nextPath, previousElements);
-      return nextPath;
-    },
-    revert: (path) => {
-      const nextPath = structuredClone(path);
-      const previousElements = nextPath.path_elements.slice();
-      const removalIndex = clampIndex(index, nextPath.path_elements.length - 1);
-      nextPath.path_elements.splice(removalIndex, 1);
-      if (previousConstraints) {
-        nextPath.ranged_constraints = structuredClone(previousConstraints);
-      } else {
-        remapRangedConstraints(nextPath, previousElements);
-      }
-      return nextPath;
-    },
-  };
-}
-
-export function createDuplicatePathElementCommand(
-  index: number,
-  element: PathElement,
-): HistoryCommand<PathModel> {
-  // A duplicate is an independent copy: drop any linked-target association so
-  // the two elements do not silently move together.
-  const clone = setPathElementLinkedTargetId(structuredClone(element), null);
-  const command = createInsertPathElementCommand(index + 1, clone);
-  return {
-    ...command,
-    description: `Duplicate ${element.type} element`,
-  };
 }
 
 /**
@@ -195,130 +138,6 @@ function pathCommand(
   };
 }
 
-export function createInsertPathElementsCommand(
-  config: ProjectConfig,
-  index: number,
-  elements: readonly PathElement[],
-  options: {
-    applyAutoVelocityToInsertedRange?: boolean;
-    refreshAutoVelocity?: boolean;
-  } = {},
-): HistoryCommand<PathModel> {
-  let previousConstraints: RangedConstraint[] | null = null;
-  const insertedElements = elements.map((element) => structuredClone(element));
-  const capturedConfig = structuredClone(config);
-
-  return {
-    description: `Insert ${insertedElements.length} path elements`,
-    apply: (path) => {
-      let nextPath = structuredClone(path);
-      const previousElements = nextPath.path_elements.slice();
-      previousConstraints ??= structuredClone(nextPath.ranged_constraints);
-      const insertionIndex = clampIndex(index, nextPath.path_elements.length);
-      nextPath.path_elements.splice(
-        insertionIndex,
-        0,
-        ...insertedElements.map((element) => structuredClone(element)),
-      );
-      remapRangedConstraints(nextPath, previousElements);
-      if (options.applyAutoVelocityToInsertedRange) {
-        nextPath = applyAutoVelocityConstraintsToOrdinals(
-          nextPath,
-          capturedConfig,
-          autoVelocityOrdinalsForInsertedRange(
-            nextPath.path_elements,
-            insertionIndex,
-            insertedElements.length,
-          ),
-        );
-      } else if (options.refreshAutoVelocity) {
-        nextPath = refreshAutoVelocityConstraints(nextPath, capturedConfig, {
-          whenPresentOnly: true,
-        });
-      }
-      return nextPath;
-    },
-    revert: (path) => {
-      const nextPath = structuredClone(path);
-      const removalIndex = clampIndex(index, nextPath.path_elements.length);
-      nextPath.path_elements.splice(removalIndex, insertedElements.length);
-      if (previousConstraints) {
-        nextPath.ranged_constraints = structuredClone(previousConstraints);
-      }
-      return nextPath;
-    },
-  };
-}
-
-function autoVelocityOrdinalsForInsertedRange(
-  elements: readonly PathElement[],
-  insertionIndex: number,
-  insertedLength: number,
-): number[] {
-  const insertedStart = clampIndex(insertionIndex, elements.length);
-  const insertedEnd = insertedStart + Math.max(0, Math.trunc(insertedLength));
-  const ordinals: number[] = [];
-  let anchorOrdinal = 0;
-  let foundInsertedAnchor = false;
-
-  for (let index = 0; index < elements.length; index += 1) {
-    if (!isAnchorElement(elements[index])) {
-      continue;
-    }
-
-    anchorOrdinal += 1;
-    if (index >= insertedStart && index < insertedEnd) {
-      ordinals.push(anchorOrdinal);
-      foundInsertedAnchor = true;
-      continue;
-    }
-
-    if (foundInsertedAnchor && index >= insertedEnd) {
-      ordinals.push(anchorOrdinal);
-      break;
-    }
-  }
-
-  return ordinals;
-}
-
-export function createRemovePathElementCommand(
-  index: number,
-  element: PathElement,
-): HistoryCommand<PathModel> {
-  let previousConstraints: RangedConstraint[] | null = null;
-
-  return {
-    description: `Remove ${element.type} element`,
-    apply: (path) => {
-      const nextPath = structuredClone(path);
-      if (index >= 0 && index < nextPath.path_elements.length) {
-        const previousElements = nextPath.path_elements.slice();
-        previousConstraints ??= structuredClone(nextPath.ranged_constraints);
-        nextPath.path_elements.splice(index, 1);
-        remapRangedConstraints(nextPath, previousElements);
-      }
-      return nextPath;
-    },
-    revert: (path) => {
-      const nextPath = structuredClone(path);
-      const previousElements = nextPath.path_elements.slice();
-      const insertionIndex = clampIndex(index, nextPath.path_elements.length);
-      nextPath.path_elements.splice(
-        insertionIndex,
-        0,
-        structuredClone(element),
-      );
-      if (previousConstraints) {
-        nextPath.ranged_constraints = structuredClone(previousConstraints);
-      } else {
-        remapRangedConstraints(nextPath, previousElements);
-      }
-      return nextPath;
-    },
-  };
-}
-
 export function createUpdatePathElementCommand(
   index: number,
   previousElement: PathElement,
@@ -328,51 +147,6 @@ export function createUpdatePathElementCommand(
     description: `Update element ${index + 1}`,
     apply: (path) => replaceElement(path, index, nextElement),
     revert: (path) => replaceElement(path, index, previousElement),
-  };
-}
-
-export function createChangePathElementTypeCommand(
-  index: number,
-  previousElement: PathElement,
-  nextElement: PathElement,
-): HistoryCommand<PathModel> {
-  let previousConstraints: RangedConstraint[] | null = null;
-
-  return {
-    description: `Change element ${index + 1} type`,
-    apply: (path) => {
-      previousConstraints ??= structuredClone(path.ranged_constraints);
-      return replaceElementAndRemap(path, index, nextElement);
-    },
-    revert: (path) => {
-      const nextPath = replaceElementAndRemap(path, index, previousElement);
-      if (previousConstraints) {
-        nextPath.ranged_constraints = structuredClone(previousConstraints);
-      }
-      return nextPath;
-    },
-  };
-}
-
-export function createMovePathElementCommand(
-  fromIndex: number,
-  toIndex: number,
-): HistoryCommand<PathModel> {
-  let previousConstraints: RangedConstraint[] | null = null;
-
-  return {
-    description: `Reorder element ${fromIndex + 1}`,
-    apply: (path) => {
-      previousConstraints ??= structuredClone(path.ranged_constraints);
-      return moveElement(path, fromIndex, toIndex);
-    },
-    revert: (path) => {
-      const nextPath = moveElement(path, toIndex, fromIndex);
-      if (previousConstraints) {
-        nextPath.ranged_constraints = structuredClone(previousConstraints);
-      }
-      return nextPath;
-    },
   };
 }
 
@@ -685,31 +459,6 @@ export function createConvertedElement(
   });
 }
 
-export function canMovePathElement(
-  path: PathModel,
-  fromIndex: number,
-  toIndex: number,
-): boolean {
-  if (fromIndex === toIndex) {
-    return false;
-  }
-
-  const elements = path.path_elements;
-  if (
-    fromIndex < 0 ||
-    fromIndex >= elements.length ||
-    toIndex < 0 ||
-    toIndex >= elements.length
-  ) {
-    return false;
-  }
-
-  const nextElements = elements.slice();
-  const [element] = nextElements.splice(fromIndex, 1);
-  nextElements.splice(toIndex, 0, element);
-  return isValidElementOrder(nextElements);
-}
-
 export function getInsertionIndex(
   path: PathModel,
   type: AddableElementType,
@@ -812,66 +561,6 @@ function replaceElement(
     nextPath.path_elements[index] = structuredClone(element);
   }
   return nextPath;
-}
-
-function replaceElementAndRemap(
-  path: PathModel,
-  index: number,
-  element: PathElement,
-): PathModel {
-  const nextPath = structuredClone(path);
-  if (index >= 0 && index < nextPath.path_elements.length) {
-    const previousElements = nextPath.path_elements.slice();
-    nextPath.path_elements[index] = structuredClone(element);
-    remapRangedConstraints(nextPath, previousElements);
-  }
-  return nextPath;
-}
-
-function moveElement(
-  path: PathModel,
-  fromIndex: number,
-  toIndex: number,
-): PathModel {
-  const nextPath = structuredClone(path);
-  const elements = nextPath.path_elements;
-  if (
-    fromIndex < 0 ||
-    fromIndex >= elements.length ||
-    toIndex < 0 ||
-    toIndex >= elements.length ||
-    fromIndex === toIndex
-  ) {
-    return nextPath;
-  }
-
-  const previousElements = elements.slice();
-  const [element] = elements.splice(fromIndex, 1);
-  elements.splice(toIndex, 0, element);
-
-  if (!isValidElementOrder(elements)) {
-    nextPath.path_elements = previousElements;
-    return nextPath;
-  }
-
-  remapRangedConstraints(nextPath, previousElements);
-  return nextPath;
-}
-
-function isValidElementOrder(elements: readonly PathElement[]): boolean {
-  if (elements.filter(isAnchorElement).length < 2) {
-    return elements.every(isAnchorElement);
-  }
-
-  return elements.every((element, index) => {
-    if (isAnchorElement(element)) {
-      return true;
-    }
-
-    const hasPreviousAnchor = elements.slice(0, index).some(isAnchorElement);
-    const hasNextAnchor = elements.slice(index + 1).some(isAnchorElement);
-    return hasPreviousAnchor && hasNextAnchor;
-  });
 }
 
 function getExistingHandoffRadius(element: PathElement): number | null {

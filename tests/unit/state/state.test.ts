@@ -83,6 +83,55 @@ describe("history store", () => {
 });
 
 describe("project store", () => {
+  it("records one atomic structural edit and skips rejected or no-op history", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const [firstPath, secondPath] = requireWorkspace(store).paths;
+    const beforeLength = firstPath.path.path_elements.length;
+
+    const applied = store.getState().applyPathStructureEdit(
+      {
+        kind: "insert",
+        index: 1,
+        element: createTranslationTarget({ x_meters: 2, y_meters: 2 }),
+      },
+      { pathId: firstPath.path_id, selectedElementIndex: 0 },
+    );
+
+    expect(applied.status).toBe("applied");
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
+    expect(store.getState().activePathId).toBe(firstPath.path_id);
+    expect(
+      requireWorkspace(store).paths.find(
+        (path) => path.path_id === firstPath.path_id,
+      )?.path.path_elements,
+    ).toHaveLength(beforeLength + 1);
+
+    const noop = store
+      .getState()
+      .applyPathStructureEdit(
+        { kind: "reorder", fromIndex: 0, toIndex: 0 },
+        { pathId: firstPath.path_id, selectedElementIndex: 0 },
+      );
+    const rejected = store
+      .getState()
+      .applyPathStructureEdit(
+        { kind: "remove", index: 99 },
+        { pathId: firstPath.path_id, selectedElementIndex: 0 },
+      );
+    expect(noop.status).toBe("noop");
+    expect(rejected.status).toBe("rejected");
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
+
+    store.getState().setActivePath(secondPath.path_id);
+    store.getState().undo();
+    expect(store.getState().activePathId).toBe(firstPath.path_id);
+    expect(
+      requireWorkspace(store).paths.find(
+        (path) => path.path_id === firstPath.path_id,
+      )?.path.path_elements,
+    ).toHaveLength(beforeLength);
+  });
+
   it("applies Path metadata edits and keeps undo/redo state", async () => {
     const store = createProjectStore();
     const workspace = exampleWorkspace("project-a", "Alpha", 1);

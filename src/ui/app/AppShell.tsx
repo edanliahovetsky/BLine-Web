@@ -120,8 +120,6 @@ import { Sidebar } from "../sidebar/Sidebar";
 import {
   canGenerateConstraints,
   createDefaultElement,
-  createInsertPathElementCommand,
-  createInsertPathElementsCommand,
 } from "../sidebar/sidebarCommands";
 import "./AppShell.css";
 import { createUpdateProjectConfigCommand } from "./configCommands";
@@ -388,20 +386,26 @@ export function AppShell() {
         return;
       }
 
-      projectStore.getState().applyPathCommand(
-        createInsertPathElementsCommand(
-          state.project.config,
-          insertionIndex,
-          targets,
-          {
-            applyAutoVelocityToInsertedRange: true,
-          },
-        ),
+      const result = projectStore.getState().applyPathStructureEdit(
+        {
+          kind: "insert-many",
+          index: insertionIndex,
+          elements: targets,
+          applyAutoVelocityToInsertedRange: true,
+        },
+        {
+          pathId: currentPath.path_id,
+          selectedElementIndex: selectionStore.getState().selectedElementIndex,
+        },
       );
+      if (result.status !== "applied") {
+        setCurveToolSession(null);
+        return;
+      }
       selectionStore
         .getState()
         .selectElement(
-          insertionIndex,
+          result.consequences.selectedElementIndex,
           activeProjectPath(
             projectStore.getState().project,
             projectStore.getState().activePathId,
@@ -913,15 +917,20 @@ export function AppShell() {
         element.t_ratio = placement.ratio;
       }
 
-      projectStore
-        .getState()
-        .applyPathCommand(
-          createInsertPathElementCommand(placement.insertionIndex, element),
-        );
+      const result = projectStore.getState().applyPathStructureEdit(
+        { kind: "insert", index: placement.insertionIndex, element },
+        {
+          pathId: currentPath.path_id,
+          selectedElementIndex: selectedIndex,
+        },
+      );
+      if (result.status !== "applied") {
+        return;
+      }
       selectionStore
         .getState()
         .selectElement(
-          placement.insertionIndex,
+          result.consequences.selectedElementIndex,
           activeProjectPath(
             projectStore.getState().project,
             projectStore.getState().activePathId,

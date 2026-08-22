@@ -23,6 +23,11 @@ import {
 } from "../core/model/projectOperations";
 import type { PathModel } from "../core/model/path";
 import {
+  applyPathStructureEdit,
+  type PathStructureEdit,
+  type PathStructureEditResult,
+} from "../core/model/projectPathEdits";
+import {
   addLinkedTargetToProject,
   createLinkedTargetId,
   deleteLinkedTargetFromProject,
@@ -172,6 +177,13 @@ export interface ProjectStoreState {
   importProjectArchive(file: File): Promise<ProjectImportResult>;
   exportProjectArchive(): Promise<Blob | null>;
   applyPathCommand(command: HistoryCommand<PathModel>, pathId?: string): void;
+  applyPathStructureEdit(
+    edit: PathStructureEdit,
+    options?: {
+      pathId?: string;
+      selectedElementIndex?: number | null;
+    },
+  ): PathStructureEditResult;
   applyConfigCommand(command: HistoryCommand<ProjectConfig>): void;
   /**
    * Applies a change that the editor derived from the document rather than one
@@ -1012,6 +1024,36 @@ export function createProjectStore(
         .execute(cloneProject(project), projectPathCommand(command, pathId));
 
       setProject(set, nextProject, currentNavigation(get()), true);
+    },
+    applyPathStructureEdit(edit, options) {
+      const state = get();
+      const project = requireProject(state.project);
+      const pathId = options?.pathId ?? requireActivePathId(state);
+      const navigation = currentNavigation(state);
+      const result = applyPathStructureEdit(project, pathId, edit, {
+        selectedElementIndex: options?.selectedElementIndex,
+      });
+      if (result.status !== "applied") {
+        return result;
+      }
+
+      const nextNavigation = {
+        ...navigation,
+        activePathId: result.consequences.focusPathId,
+      };
+      applyProjectTransition(
+        set,
+        history,
+        project,
+        result.project,
+        navigation,
+        nextNavigation,
+        result.description,
+        true,
+        {},
+        { focusPathId: result.consequences.focusPathId },
+      );
+      return result;
     },
     applyConfigCommand(command) {
       const project = requireProject(get().project);

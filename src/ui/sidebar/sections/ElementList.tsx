@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
 import type { PathModel } from "../../../core/model/path";
+import { canMovePathElement } from "../../../core/model/projectPathEdits";
 import { formatPointMeters } from "../../../canvas/modelSync";
 import {
   CopyIcon,
@@ -13,7 +14,6 @@ import { AddElementMenu } from "../../controls/AddElementMenu";
 import { SidebarIconButton } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
 import {
-  canMovePathElement,
   elementTypeLabel,
   elementTypeValue,
   getAddableElementTypes,

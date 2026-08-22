@@ -16,7 +16,6 @@ import {
   createTranslationTarget,
   createWaypoint,
   getHandoffRadiusSource,
-  isRotationTarget,
   isEventTrigger,
   isTranslationTarget,
   isWaypoint,
@@ -26,20 +25,19 @@ import {
   getPathElementLinkedTargetId,
   setPathElementLinkedTargetId,
 } from "../../../src/core/linkedTargets";
+import { createProject } from "../../../src/core/model/project";
+import {
+  applyPathStructureEdit,
+  canMovePathElement,
+  type PathStructureEdit,
+} from "../../../src/core/model/projectPathEdits";
 import {
   canClearGeneratedConstraints,
   canGenerateConstraints,
-  canMovePathElement,
-  createChangePathElementTypeCommand,
   createClearGeneratedConstraintsCommand,
   createConvertedElement,
   createDefaultElement,
-  createDuplicatePathElementCommand,
   createAddRangedConstraintCommand,
-  createInsertPathElementCommand,
-  createInsertPathElementsCommand,
-  createMovePathElementCommand,
-  createRemovePathElementCommand,
   createRemoveRangedConstraintCommand,
   createSetScalarConstraintCommand,
   createSplitRangedConstraintCommand,
@@ -52,8 +50,29 @@ import {
   updateWaypoint,
 } from "../../../src/ui/sidebar/sidebarCommands";
 
+function applyStructureToDocument(
+  document: ProjectDocument,
+  edit: PathStructureEdit,
+): ProjectDocument["path"] {
+  const project = createProject({
+    project_id: document.project_id,
+    display_name: document.display_name,
+    config: document.config,
+    paths: [
+      {
+        path_id: "test-path",
+        display_name: "Test Path",
+        file_name: "test-path.json",
+        path: document.path,
+      },
+    ],
+  });
+  return applyPathStructureEdit(project, "test-path", edit).project.paths[0]
+    .path;
+}
+
 describe("sidebar commands", () => {
-  it("inserts and removes elements through reversible project commands", () => {
+  it("inserts and removes elements through Project structural edits", () => {
     const project = exampleProject();
     const element = createDefaultElement(
       project.path,
@@ -61,24 +80,22 @@ describe("sidebar commands", () => {
       "event_trigger",
       0,
     );
-    const insert = createInsertPathElementCommand(1, element);
-
-    const inserted = insert.apply(project.path);
+    const inserted = applyStructureToDocument(project, {
+      kind: "insert",
+      index: 1,
+      element,
+    });
 
     expect(inserted.path_elements).toHaveLength(3);
     expect(isEventTrigger(inserted.path_elements[1])).toBe(true);
     expect(project.path.path_elements).toHaveLength(2);
 
-    const reverted = insert.revert(inserted);
-    expect(reverted.path_elements).toHaveLength(2);
-
-    const remove = createRemovePathElementCommand(0, reverted.path_elements[0]);
-    const removed = remove.apply(reverted);
-    expect(removed.path_elements).toHaveLength(1);
-
-    const restored = remove.revert(removed);
-    expect(restored.path_elements).toHaveLength(2);
-    expect(isTranslationTarget(restored.path_elements[0])).toBe(true);
+    const insertedDocument = { ...project, path: inserted };
+    const removed = applyStructureToDocument(insertedDocument, {
+      kind: "remove",
+      index: 1,
+    });
+    expect(removed.path_elements).toEqual(project.path.path_elements);
   });
 
   it("duplicates an element as an independent, unlinked copy", () => {
@@ -89,8 +106,10 @@ describe("sidebar commands", () => {
     );
     project.path.path_elements[0] = linked;
 
-    const command = createDuplicatePathElementCommand(0, linked);
-    const applied = command.apply(project.path);
+    const applied = applyStructureToDocument(project, {
+      kind: "duplicate",
+      index: 0,
+    });
 
     expect(applied.path_elements).toHaveLength(3);
     const original = applied.path_elements[0];
@@ -103,22 +122,21 @@ describe("sidebar commands", () => {
         original.y_meters,
       ]);
     }
-    // The original keeps its link; the copy is independent.
-    expect(getPathElementLinkedTargetId(original)).toBe("target-1");
+    // The dangling original link is cleaned up and the copy is independent.
+    expect(getPathElementLinkedTargetId(original)).toBeNull();
     expect(getPathElementLinkedTargetId(copy)).toBeNull();
-
-    const reverted = command.revert(applied);
-    expect(reverted.path_elements).toHaveLength(2);
   });
 
-  it("inserts generated curve elements as a single reversible command", () => {
+  it("inserts generated curve elements as one structural edit", () => {
     const project = exampleProject();
-    const command = createInsertPathElementsCommand(project.config, 1, [
-      createTranslationTarget({ x_meters: 2, y_meters: 1 }),
-      createTranslationTarget({ x_meters: 3, y_meters: 2 }),
-    ]);
-
-    const inserted = command.apply(project.path);
+    const inserted = applyStructureToDocument(project, {
+      kind: "insert-many",
+      index: 1,
+      elements: [
+        createTranslationTarget({ x_meters: 2, y_meters: 1 }),
+        createTranslationTarget({ x_meters: 3, y_meters: 2 }),
+      ],
+    });
 
     expect(inserted.path_elements).toHaveLength(4);
     expect(
@@ -131,24 +149,19 @@ describe("sidebar commands", () => {
       [3, 2],
       [4, 4],
     ]);
-
-    const reverted = command.revert(inserted);
-    expect(reverted.path_elements).toEqual(project.path.path_elements);
   });
 
   it("auto-constrains generated curve elements and their exit segment", () => {
     const project = exampleProject();
-    const command = createInsertPathElementsCommand(
-      project.config,
-      1,
-      [
+    const inserted = applyStructureToDocument(project, {
+      kind: "insert-many",
+      index: 1,
+      elements: [
         createTranslationTarget({ x_meters: 2, y_meters: 1 }),
         createTranslationTarget({ x_meters: 2.5, y_meters: 2 }),
       ],
-      { applyAutoVelocityToInsertedRange: true },
-    );
-
-    const inserted = command.apply(project.path);
+      applyAutoVelocityToInsertedRange: true,
+    });
     const autoVelocityConstraints = inserted.ranged_constraints.filter(
       (constraint) =>
         constraint.key === "max_velocity_meters_per_sec" &&
@@ -178,17 +191,15 @@ describe("sidebar commands", () => {
         ],
       }),
     });
-    const command = createInsertPathElementsCommand(
-      project.config,
-      1,
-      [
+    const inserted = applyStructureToDocument(project, {
+      kind: "insert-many",
+      index: 1,
+      elements: [
         createTranslationTarget({ x_meters: 2, y_meters: 1 }),
         createTranslationTarget({ x_meters: 2.5, y_meters: 2 }),
       ],
-      { applyAutoVelocityToInsertedRange: true },
-    );
-
-    const inserted = command.apply(project.path);
+      applyAutoVelocityToInsertedRange: true,
+    });
     const autoVelocityConstraints = inserted.ranged_constraints.filter(
       (constraint) =>
         constraint.key === "max_velocity_meters_per_sec" &&
@@ -430,9 +441,11 @@ describe("sidebar commands", () => {
       y_meters: 0,
     });
 
-    const inserted = createInsertPathElementCommand(0, insertedElement).apply(
-      project.path,
-    );
+    const inserted = applyStructureToDocument(project, {
+      kind: "insert",
+      index: 0,
+      element: insertedElement,
+    });
 
     expect(inserted.ranged_constraints).toEqual([
       {
@@ -443,10 +456,10 @@ describe("sidebar commands", () => {
       },
     ]);
 
-    const removed = createRemovePathElementCommand(
-      0,
-      inserted.path_elements[0],
-    ).apply(inserted);
+    const removed = applyStructureToDocument(
+      { ...project, path: inserted },
+      { kind: "remove", index: 0 },
+    );
 
     expect(removed.ranged_constraints).toEqual([
       {
@@ -480,8 +493,11 @@ describe("sidebar commands", () => {
     });
 
     expect(canMovePathElement(project.path, 2, 1)).toBe(true);
-    const command = createMovePathElementCommand(2, 1);
-    const moved = command.apply(project.path);
+    const moved = applyStructureToDocument(project, {
+      kind: "reorder",
+      fromIndex: 2,
+      toIndex: 1,
+    });
 
     expect(moved.path_elements.map((element) => element.type)).toEqual([
       "translation",
@@ -496,11 +512,6 @@ describe("sidebar commands", () => {
         end_ordinal: 3,
       },
     ]);
-
-    const reverted = command.revert(moved);
-    expect(reverted.ranged_constraints).toEqual(
-      project.path.ranged_constraints,
-    );
   });
 
   it("converts element types with explicit ordinal remapping", () => {
@@ -523,7 +534,6 @@ describe("sidebar commands", () => {
         ],
       }),
     });
-    const previous = project.path.path_elements[1];
     const converted = createConvertedElement(
       project.path,
       project.config,
@@ -537,16 +547,14 @@ describe("sidebar commands", () => {
     }
     expect(isEventTrigger(converted)).toBe(true);
 
-    const command = createChangePathElementTypeCommand(1, previous, converted);
-    const updated = command.apply(project.path);
-    const restored = command.revert(updated);
+    const updated = applyStructureToDocument(project, {
+      kind: "convert",
+      index: 1,
+      element: converted,
+    });
 
     expect(isEventTrigger(updated.path_elements[1])).toBe(true);
     expect(updated.ranged_constraints).toEqual([]);
-    expect(isRotationTarget(restored.path_elements[1])).toBe(true);
-    expect(restored.ranged_constraints).toEqual(
-      project.path.ranged_constraints,
-    );
   });
 
   it("edits scalar and ranged constraints through reversible commands", () => {

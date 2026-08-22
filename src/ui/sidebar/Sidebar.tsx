@@ -4,6 +4,7 @@ import type { LinkedTargetKind } from "../../core/io/projectSchema";
 import type { Project, ProjectPath } from "../../core/model/project";
 import type { FieldGeometry } from "../../core/field/fieldConfig";
 import type { PathElement } from "../../core/model/path";
+import { canMovePathElement } from "../../core/model/projectPathEdits";
 import {
   getElementHeadingRadians,
   getElementPosition,
@@ -21,14 +22,8 @@ import { ConstraintEditor } from "./sections/ConstraintEditor";
 import { ElementList } from "./sections/ElementList";
 import { PropertyEditor } from "./sections/PropertyEditor";
 import {
-  canMovePathElement,
-  createChangePathElementTypeCommand,
   createConvertedElement,
   createDefaultElement,
-  createDuplicatePathElementCommand,
-  createInsertPathElementCommand,
-  createMovePathElementCommand,
-  createRemovePathElementCommand,
   createUpdatePathElementCommand,
   getInsertionIndex,
   getSwitchableElementTypes,
@@ -106,15 +101,19 @@ export function Sidebar({
       selectedElementIndex,
       fieldGeometry,
     );
-    projectStore
+    const result = projectStore
       .getState()
-      .applyPathCommand(
-        createInsertPathElementCommand(insertionIndex, element),
+      .applyPathStructureEdit(
+        { kind: "insert", index: insertionIndex, element },
+        { selectedElementIndex },
       );
+    if (result.status !== "applied") {
+      return;
+    }
     selectionStore
       .getState()
       .selectElement(
-        insertionIndex,
+        result.consequences.selectedElementIndex,
         activePathForProjectStore(projectStore.getState())?.path,
       );
   };
@@ -134,18 +133,19 @@ export function Sidebar({
       return;
     }
 
-    const element = activePath.path.path_elements[index];
-    if (!element) {
+    const result = projectStore
+      .getState()
+      .applyPathStructureEdit(
+        { kind: "remove", index },
+        { selectedElementIndex },
+      );
+    if (result.status !== "applied") {
       return;
     }
-
-    projectStore
-      .getState()
-      .applyPathCommand(createRemovePathElementCommand(index, element));
     selectionStore
       .getState()
       .selectElement(
-        nextSelectionAfterRemoval(index, selectedElementIndex),
+        result.consequences.selectedElementIndex,
         activePathForProjectStore(projectStore.getState())?.path,
       );
   };
@@ -155,18 +155,19 @@ export function Sidebar({
       return;
     }
 
-    const element = activePath.path.path_elements[index];
-    if (!element) {
+    const result = projectStore
+      .getState()
+      .applyPathStructureEdit(
+        { kind: "duplicate", index },
+        { selectedElementIndex },
+      );
+    if (result.status !== "applied") {
       return;
     }
-
-    projectStore
-      .getState()
-      .applyPathCommand(createDuplicatePathElementCommand(index, element));
     selectionStore
       .getState()
       .selectElement(
-        index + 1,
+        result.consequences.selectedElementIndex,
         activePathForProjectStore(projectStore.getState())?.path,
       );
   };
@@ -179,18 +180,19 @@ export function Sidebar({
       return;
     }
 
-    const nextSelection = selectionAfterMove(
-      selectedElementIndex,
-      fromIndex,
-      toIndex,
-    );
-    projectStore
+    const result = projectStore
       .getState()
-      .applyPathCommand(createMovePathElementCommand(fromIndex, toIndex));
+      .applyPathStructureEdit(
+        { kind: "reorder", fromIndex, toIndex },
+        { selectedElementIndex },
+      );
+    if (result.status !== "applied") {
+      return;
+    }
     selectionStore
       .getState()
       .selectElement(
-        nextSelection,
+        result.consequences.selectedElementIndex,
         activePathForProjectStore(projectStore.getState())?.path,
       );
   };
@@ -216,19 +218,21 @@ export function Sidebar({
       return;
     }
 
-    projectStore
-      .getState()
-      .applyPathCommand(
-        createChangePathElementTypeCommand(
-          selectedElementIndex,
-          selectedElement,
-          convertedElement,
-        ),
-      );
+    const result = projectStore.getState().applyPathStructureEdit(
+      {
+        kind: "convert",
+        index: selectedElementIndex,
+        element: convertedElement,
+      },
+      { selectedElementIndex },
+    );
+    if (result.status !== "applied") {
+      return;
+    }
     selectionStore
       .getState()
       .selectElement(
-        selectedElementIndex,
+        result.consequences.selectedElementIndex,
         activePathForProjectStore(projectStore.getState())?.path,
       );
   };
@@ -481,43 +485,4 @@ export function Sidebar({
       )}
     </aside>
   );
-}
-
-function selectionAfterMove(
-  selectedElementIndex: number | null,
-  fromIndex: number,
-  toIndex: number,
-): number | null {
-  if (selectedElementIndex === null) {
-    return null;
-  }
-
-  if (selectedElementIndex === fromIndex) {
-    return toIndex;
-  }
-
-  if (fromIndex < selectedElementIndex && selectedElementIndex <= toIndex) {
-    return selectedElementIndex - 1;
-  }
-
-  if (toIndex <= selectedElementIndex && selectedElementIndex < fromIndex) {
-    return selectedElementIndex + 1;
-  }
-
-  return selectedElementIndex;
-}
-
-function nextSelectionAfterRemoval(
-  removedIndex: number,
-  selectedElementIndex: number | null,
-): number | null {
-  if (selectedElementIndex === null) {
-    return null;
-  }
-
-  if (selectedElementIndex > removedIndex) {
-    return selectedElementIndex - 1;
-  }
-
-  return selectedElementIndex;
 }

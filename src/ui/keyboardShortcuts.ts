@@ -4,18 +4,11 @@ import {
   defaultFieldGeometry,
   type FieldGeometry,
 } from "../core/field/fieldConfig";
-import {
-  isTranslationTarget,
-  isWaypoint,
-  type PathModel,
-} from "../core/model/path";
+import { isTranslationTarget, isWaypoint } from "../core/model/path";
+import { canMovePathElement } from "../core/model/projectPathEdits";
 import { activePathForProjectStore, projectStore } from "../state/projectStore";
 import { selectionStore } from "../state/selectionStore";
 import {
-  canMovePathElement,
-  createDuplicatePathElementCommand,
-  createMovePathElementCommand,
-  createRemovePathElementCommand,
   createRemoveRangedConstraintCommand,
   createUpdatePathElementCommand,
   updateTranslationTarget,
@@ -68,15 +61,19 @@ export function removeSelectedPathElement(): boolean {
     return false;
   }
 
-  projectStore
+  const result = projectStore
     .getState()
-    .applyPathCommand(
-      createRemovePathElementCommand(selectedElementIndex, element),
+    .applyPathStructureEdit(
+      { kind: "remove", index: selectedElementIndex },
+      { selectedElementIndex },
     );
+  if (result.status !== "applied") {
+    return false;
+  }
   selectionStore
     .getState()
     .selectElement(
-      nextSelectionAfterRemoval(path, selectedElementIndex),
+      result.consequences.selectedElementIndex,
       activePathForProjectStore(projectStore.getState())?.path,
     );
 
@@ -151,15 +148,19 @@ export function duplicateSelectedPathElement(): boolean {
     return false;
   }
 
-  projectStore
+  const result = projectStore
     .getState()
-    .applyPathCommand(
-      createDuplicatePathElementCommand(selectedElementIndex, element),
+    .applyPathStructureEdit(
+      { kind: "duplicate", index: selectedElementIndex },
+      { selectedElementIndex },
     );
+  if (result.status !== "applied") {
+    return false;
+  }
   selectionStore
     .getState()
     .selectElement(
-      selectedElementIndex + 1,
+      result.consequences.selectedElementIndex,
       activePathForProjectStore(projectStore.getState())?.path,
     );
 
@@ -179,15 +180,19 @@ export function moveSelectedPathElement(direction: -1 | 1): boolean {
     return false;
   }
 
-  projectStore
+  const result = projectStore
     .getState()
-    .applyPathCommand(
-      createMovePathElementCommand(selectedElementIndex, nextIndex),
+    .applyPathStructureEdit(
+      { kind: "reorder", fromIndex: selectedElementIndex, toIndex: nextIndex },
+      { selectedElementIndex },
     );
+  if (result.status !== "applied") {
+    return false;
+  }
   selectionStore
     .getState()
     .selectElement(
-      nextIndex,
+      result.consequences.selectedElementIndex,
       activePathForProjectStore(projectStore.getState())?.path,
     );
 
@@ -244,14 +249,6 @@ export function removeSelectedRangedConstraint(): boolean {
   selectionStore.getState().clearRangedConstraintSelection();
 
   return true;
-}
-
-function nextSelectionAfterRemoval(
-  path: PathModel,
-  removedIndex: number,
-): number | null {
-  const nextIndex = Math.min(removedIndex, path.path_elements.length - 2);
-  return nextIndex >= 0 ? nextIndex : null;
 }
 
 function isElementWithin(
