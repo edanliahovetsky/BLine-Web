@@ -1,5 +1,3 @@
-import { applyAutoVelocityConstraintsToOrdinals } from "../constraints/autoVelocityApply";
-import { clearGeneratedAutoConstraints } from "../constraints/autoConstraintGeneration";
 import { remapRangedConstraints } from "../constraints/rangedConstraints";
 import {
   getPathElementLinkedTargetId,
@@ -9,7 +7,7 @@ import {
   syncLinkedTargetElementsInProject,
   updateLinkedTargetInProject,
 } from "../linkedTargets";
-import type { Project, ProjectConfig } from "./project";
+import type { Project } from "./project";
 import {
   isAnchorElement,
   isEventTrigger,
@@ -55,7 +53,6 @@ export type PathStructureEdit =
       kind: "insert-many";
       index: number;
       elements: readonly PathElement[];
-      applyAutoVelocityToInsertedRange?: boolean;
     }
   | { kind: "remove"; index: number }
   | { kind: "duplicate"; index: number }
@@ -211,8 +208,8 @@ export function applyPathElementEdit(
 
 /**
  * The single semantic authority for structural Path edits. It updates the
- * canonical Project, repairs ordinal constraints, invalidates generated
- * output, and synchronizes linked targets as one atomic result.
+ * canonical Project, repairs ordinal constraints, preserves their ownership
+ * markers for asynchronous refresh, and synchronizes linked targets atomically.
  */
 export function applyPathStructureEdit(
   project: Project,
@@ -233,9 +230,7 @@ export function applyPathStructureEdit(
     return rejected(project, unchangedConsequences, "Path does not exist");
   }
 
-  // Invalidate generated output from the existing Path before the edit. New
-  // elements may intentionally arrive with generated defaults of their own.
-  const path = clearGeneratedAutoConstraints(structuredClone(projectPath.path));
+  const path = structuredClone(projectPath.path);
   const previousElements = path.path_elements.slice();
   let description: string;
   let nextSelection = selectedElementIndex;
@@ -369,9 +364,6 @@ export function applyPathStructureEdit(
 
   remapRangedConstraints(path, previousElements);
   const finalizedPath = path;
-  if (edit.kind === "insert-many") {
-    applyInsertedAutoVelocity(finalizedPath, project.config, edit);
-  }
 
   const nextProject = syncLinkedTargetElementsInProject({
     ...structuredClone(project),
@@ -412,51 +404,6 @@ export function canMovePathElement(
   const [element] = elements.splice(fromIndex, 1);
   elements.splice(toIndex, 0, element);
   return isValidPathElementOrder(elements);
-}
-
-function applyInsertedAutoVelocity(
-  path: PathModel,
-  config: ProjectConfig,
-  edit: Extract<PathStructureEdit, { kind: "insert-many" }>,
-): void {
-  let nextPath = path;
-  if (edit.applyAutoVelocityToInsertedRange) {
-    nextPath = applyAutoVelocityConstraintsToOrdinals(
-      path,
-      config,
-      autoVelocityOrdinalsForInsertedRange(
-        path.path_elements,
-        edit.index,
-        edit.elements.length,
-      ),
-    );
-  }
-  path.path_elements = nextPath.path_elements;
-  path.constraints = nextPath.constraints;
-  path.ranged_constraints = nextPath.ranged_constraints;
-}
-
-function autoVelocityOrdinalsForInsertedRange(
-  elements: readonly PathElement[],
-  insertionIndex: number,
-  insertedLength: number,
-): number[] {
-  const insertedEnd = insertionIndex + insertedLength;
-  const ordinals: number[] = [];
-  let anchorOrdinal = 0;
-  let foundInsertedAnchor = false;
-  for (let index = 0; index < elements.length; index += 1) {
-    if (!isAnchorElement(elements[index])) continue;
-    anchorOrdinal += 1;
-    if (index >= insertionIndex && index < insertedEnd) {
-      ordinals.push(anchorOrdinal);
-      foundInsertedAnchor = true;
-    } else if (foundInsertedAnchor && index >= insertedEnd) {
-      ordinals.push(anchorOrdinal);
-      break;
-    }
-  }
-  return ordinals;
 }
 
 function isValidPathElementOrder(elements: readonly PathElement[]): boolean {

@@ -4,7 +4,6 @@ import {
 } from "../../core/constraints/rangedConstraints";
 import {
   canGenerateAutoConstraints,
-  clearGeneratedAutoConstraints,
   hasGeneratedAutoConstraints,
 } from "../../core/constraints/autoConstraintGeneration";
 import {
@@ -94,16 +93,6 @@ export function canClearGeneratedConstraints(path: PathModel | null): boolean {
   return path !== null && hasGeneratedAutoConstraints(path);
 }
 
-/**
- * The inverse: generated caps go away and generated radii revert to unset.
- * Pinned values of either kind survive.
- */
-export function createClearGeneratedConstraintsCommand(): HistoryCommand<PathModel> {
-  return pathCommand("Clear generated constraints", (path) =>
-    clearGeneratedAutoConstraints(path),
-  );
-}
-
 export type HandoffRadiusChipState = AnchorRadiusState;
 export type HandoffRadiusChip = AnchorHandoffRadius;
 
@@ -115,27 +104,6 @@ export function handoffRadiusChipsForPath(
     path.path_elements,
     defaultHandoffRadiusMeters(config),
   );
-}
-
-function pathCommand(
-  description: string,
-  updatePath: (path: PathModel) => PathModel,
-): HistoryCommand<PathModel> {
-  let previousPath: PathModel | null = null;
-
-  return {
-    description,
-    apply: (path) => {
-      previousPath ??= structuredClone(path);
-      return updatePath(structuredClone(path));
-    },
-    revert: (path) => {
-      if (!previousPath) {
-        return path;
-      }
-      return structuredClone(previousPath);
-    },
-  };
 }
 
 export function createSetScalarConstraintCommand(

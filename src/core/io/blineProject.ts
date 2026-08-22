@@ -6,7 +6,7 @@ import type {
   SerializedPathDocument,
 } from "./projectSchema";
 import { getPathElementLinkedTargetId } from "../linkedTargets";
-import { getHandoffRadiusSource, type PathModel } from "../model/path";
+import type { PathModel } from "../model/path";
 import type { Project } from "../model/project";
 import { openProjectFromLegacyWorkspace } from "./legacyWorkspace";
 import { serializePath } from "./projectSerde";
@@ -242,42 +242,9 @@ export function serializePathEditorMetadata(
     const targetId = getPathElementLinkedTargetId(element);
     return targetId ? [{ element_index: index, target_id: targetId }] : [];
   });
-  const handoffRadiusSources = path.path_elements.flatMap((element, index) => {
-    const source = getHandoffRadiusSource(element);
-    return source ? [{ element_index: index, source }] : [];
-  });
-  const rangedConstraints = path.ranged_constraints.flatMap((constraint) =>
-    constraint.source === "auto_velocity"
-      ? [
-          {
-            key: constraint.key,
-            value: Number(constraint.value),
-            start_ordinal: Math.trunc(constraint.start_ordinal),
-            end_ordinal: Math.trunc(constraint.end_ordinal),
-            source: constraint.source,
-            ...(constraint.auto_velocity
-              ? { auto_velocity: structuredClone(constraint.auto_velocity) }
-              : {}),
-          },
-        ]
-      : [],
-  );
-
-  if (
-    rangedConstraints.length === 0 &&
-    linkedTargets.length === 0 &&
-    handoffRadiusSources.length === 0
-  ) {
+  if (linkedTargets.length === 0) {
     return undefined;
   }
 
-  return {
-    ...(rangedConstraints.length > 0
-      ? { ranged_constraints: rangedConstraints }
-      : {}),
-    ...(linkedTargets.length > 0 ? { linked_targets: linkedTargets } : {}),
-    ...(handoffRadiusSources.length > 0
-      ? { handoff_radius_sources: handoffRadiusSources }
-      : {}),
-  };
+  return { linked_targets: linkedTargets };
 }

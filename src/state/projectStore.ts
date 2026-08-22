@@ -96,6 +96,18 @@ export interface SaveOwnership {
   revision: number;
 }
 
+export interface ProjectMutationOwnership {
+  projectId: string;
+  projectSessionId: string;
+  revision: number;
+}
+
+export interface ProjectEditOwnership extends ProjectMutationOwnership {
+  historyEntry: HistoryCommand<Project>;
+}
+
+export type DerivedPathCommandResult = "applied" | "noop" | "stale";
+
 export interface ProjectStoreState {
   project: Project | null;
   activePathId: string | null;
@@ -192,15 +204,11 @@ export interface ProjectStoreState {
     },
   ): PathStructureEditResult;
   applyConfigCommand(command: HistoryCommand<ProjectConfig>): void;
-  /**
-   * Applies a change that the editor derived from the document rather than one
-   * the user made, so it never lands on the undo stack. Undo must step back
-   * through the edit that triggered the derivation, not the derivation itself.
-   */
   applyDerivedPathCommand(
     command: HistoryCommand<PathModel>,
+    ownership: ProjectEditOwnership,
     pathId?: string,
-  ): void;
+  ): DerivedPathCommandResult;
   undo(): void;
   redo(): void;
   markSaveError(error: unknown): void;
@@ -1106,21 +1114,56 @@ export function createProjectStore(
 
       setProject(set, nextProject, currentNavigation(get()), true);
     },
-    applyDerivedPathCommand(command, requestedPathId) {
-      const project = get().project;
-      if (!project) {
-        return;
+    applyDerivedPathCommand(command, ownership, requestedPathId) {
+      const state = get();
+      const project = state.project;
+      const pathId = requestedPathId ?? state.activePathId;
+      const historyState = history.getState();
+      if (
+        !project ||
+        !pathId ||
+        !projectMutationIsCurrent(state, ownership) ||
+        historyState.undoStack.at(-1) !== ownership.historyEntry
+      ) {
+        return "stale";
       }
 
-      const pathId = requestedPathId ?? get().activePathId;
-      if (!pathId) {
-        return;
-      }
       const nextProject = projectPathCommand(command, pathId).apply(
         cloneProject(project),
       );
+      if (JSON.stringify(nextProject) === JSON.stringify(project)) {
+        return "noop";
+      }
 
-      setProject(set, nextProject, currentNavigation(get()), true);
+      const previousCommand = ownership.historyEntry;
+      const navigation = currentNavigation(state);
+      const previousProject = isProjectSnapshotCommand(previousCommand)
+        ? previousCommand.previousSnapshot
+        : previousCommand.revert(cloneProject(project));
+      const amendedCommand = projectSnapshotCommand(
+        previousCommand.description,
+        previousProject,
+        nextProject,
+        isProjectSnapshotCommand(previousCommand)
+          ? previousCommand.previousNavigation
+          : navigation,
+        isProjectSnapshotCommand(previousCommand)
+          ? previousCommand.nextNavigation
+          : navigation,
+        historyMetadataForAmendedCommand(previousCommand),
+      );
+      const undoStack = [
+        ...historyState.undoStack.slice(0, -1),
+        amendedCommand,
+      ];
+      history.setState({
+        undoStack,
+        redoStack: [],
+        canUndo: true,
+        canRedo: false,
+      });
+      setProject(set, nextProject, navigation, true);
+      return "applied";
     },
     undo() {
       const project = get().project;
@@ -1210,6 +1253,40 @@ export function activePathForProjectStore(
   return activeProjectPath(state.project, state.activePathId);
 }
 
+export function captureProjectMutationOwnership(
+  state: Pick<ProjectStoreState, "project" | "projectSessionId" | "revision">,
+): ProjectMutationOwnership | null {
+  return state.project && state.projectSessionId
+    ? {
+        projectId: state.project.project_id,
+        projectSessionId: state.projectSessionId,
+        revision: state.revision,
+      }
+    : null;
+}
+
+export function captureProjectEditOwnership(
+  state: Pick<
+    ProjectStoreState,
+    "project" | "projectSessionId" | "revision" | "history"
+  >,
+): ProjectEditOwnership | null {
+  const mutation = captureProjectMutationOwnership(state);
+  const historyEntry = state.history.getState().undoStack.at(-1);
+  return mutation && historyEntry ? { ...mutation, historyEntry } : null;
+}
+
+export function projectMutationIsCurrent(
+  state: Pick<ProjectStoreState, "project" | "projectSessionId" | "revision">,
+  ownership: ProjectMutationOwnership,
+): boolean {
+  return (
+    state.project?.project_id === ownership.projectId &&
+    state.projectSessionId === ownership.projectSessionId &&
+    state.revision === ownership.revision
+  );
+}
+
 function setProject(
   set: StoreApi<ProjectStoreState>["setState"],
   project: Project,
@@ -1294,6 +1371,20 @@ function isProjectSnapshotCommand(
     Boolean(command) &&
     (command as ProjectSnapshotHistoryCommand).kind === "project-snapshot"
   );
+}
+
+function historyMetadataForAmendedCommand(
+  command: HistoryCommand<Project>,
+): WorkspaceHistoryMetadata {
+  if (isProjectSnapshotCommand(command)) {
+    return {
+      createdPathId: command.createdPathId,
+      focusPathId: command.focusPathId,
+    };
+  }
+  return (command as Partial<ProjectPathHistoryCommand>).kind === "path-command"
+    ? { focusPathId: (command as ProjectPathHistoryCommand).pathId }
+    : {};
 }
 
 function mergeCreatedPathMembershipTransition(

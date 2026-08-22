@@ -1753,19 +1753,14 @@ describe("project document serde", () => {
       files.find((file) => file.relativePath === "project.json")?.text ??
         "null",
     ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
-    expect(
-      serialized.paths[0]?.editor_metadata?.handoff_radius_sources,
-    ).toEqual([
-      { element_index: 1, source: "auto" },
-      { element_index: 2, source: "manual" },
-    ]);
+    expect(serialized.paths[0]?.editor_metadata).toBeUndefined();
 
     const restored = deserializeProjectFiles(files);
     const elements = restored.paths[0]?.path.path_elements ?? [];
     expect(elements[1]).toMatchObject({ handoff_radius_source: "auto" });
-    expect(elements[2]).toMatchObject({
-      translation_target: { handoff_radius_source: "manual" },
-    });
+    expect(elements[2]).not.toHaveProperty(
+      "translation_target.handoff_radius_source",
+    );
     expect("handoff_radius_source" in elements[0]).toBe(false);
     expect("handoff_radius_source" in elements[3]).toBe(false);
   });
@@ -1820,31 +1815,12 @@ describe("project document serde", () => {
       files.find((file) => file.relativePath === "project.json")?.text ??
         "null",
     ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
-    expect(serialized.paths[0]?.editor_metadata).toEqual({
-      ranged_constraints: [
-        {
-          key: "max_velocity_meters_per_sec",
-          value: 1.25,
-          start_ordinal: 2,
-          end_ordinal: 2,
-          source: "auto_velocity",
-          auto_velocity: {
-            velocity_safety_factor: 0.9,
-            acceleration_safety_factor: 0.8,
-            merge_tolerance_meters_per_sec: 0.3,
-          },
-        },
-      ],
-    });
+    expect(serialized.paths[0]?.editor_metadata).toBeUndefined();
 
     const restored = deserializeProjectFiles(files);
     expect(restored.paths[0]?.path.ranged_constraints[0]).toMatchObject({
       source: "auto_velocity",
-      auto_velocity: {
-        velocity_safety_factor: 0.9,
-        acceleration_safety_factor: 0.8,
-        merge_tolerance_meters_per_sec: 0.3,
-      },
+      auto_velocity: null,
     });
   });
 });

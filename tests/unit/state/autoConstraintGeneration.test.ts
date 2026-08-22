@@ -22,7 +22,7 @@ import {
   createWaypoint,
   getHandoffRadiusSource,
 } from "../../../src/core/model/path";
-import { generateAutoConstraintsInWorker } from "../../../src/state/autoConstraintGeneration";
+import { generateAutomaticConstraints } from "../../../src/state/automaticConstraints";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import {
   activePathForProjectStore,
@@ -32,7 +32,7 @@ import {
 afterEach(() => resetAutoVelocityRunner());
 
 describe("manual auto constraint generation", () => {
-  it("applies the cached worker result as one undoable command and records diagnostics", async () => {
+  it("applies the cached worker result as one undoable command", async () => {
     const project = testProject();
     const projects = projectStoreFor(project);
     const status = createAutoVelocityStore();
@@ -48,7 +48,7 @@ describe("manual auto constraint generation", () => {
       return run;
     };
 
-    await generateAutoConstraintsInWorker(settings, {
+    await generateAutomaticConstraints(settings, {
       projects,
       request,
       status,
@@ -56,13 +56,6 @@ describe("manual auto constraint generation", () => {
 
     expect(status.getState().phase).toBe("idle");
     expect(status.getState().runSource).toBeNull();
-    expect(status.getState().lastRun).toMatchObject({
-      status: "valid",
-      stats: {
-        evaluationBudget: 8_000,
-        searchableBlocks: 1,
-      },
-    });
     expect(
       activePathForProjectStore(
         projects.getState(),
@@ -91,11 +84,14 @@ describe("manual auto constraint generation", () => {
       ),
     ).toBe(workerProfile);
     expect(projects.getState().history.getState().undoStack).toHaveLength(1);
+    const generatedProject = structuredClone(projects.getState().project);
 
     projects.getState().undo();
     expect(activePathForProjectStore(projects.getState())?.path).toEqual(
       project.path,
     );
+    projects.getState().redo();
+    expect(projects.getState().project).toEqual(generatedProject);
   });
 
   it("discards a completed worker result when its path changed in flight", async () => {
@@ -123,7 +119,7 @@ describe("manual auto constraint generation", () => {
         }),
     );
 
-    const pending = generateAutoConstraintsInWorker(settings, {
+    const pending = generateAutomaticConstraints(settings, {
       projects,
       request,
       status,
@@ -139,10 +135,10 @@ describe("manual auto constraint generation", () => {
         ),
       },
     };
-    projects.setState({
-      project: openProjectFromLegacyWorkspace(
-        projectDocumentToWorkspaceDocument(moved),
-      ).project,
+    projects.getState().applyPathCommand({
+      description: "Move anchor",
+      apply: () => moved.path,
+      revert: (path) => path,
     });
     resolveRequest({
       radii: solved.radii,
@@ -157,8 +153,65 @@ describe("manual auto constraint generation", () => {
     expect(activePathForProjectStore(projects.getState())?.path).toEqual(
       moved.path,
     );
-    expect(projects.getState().history.getState().undoStack).toHaveLength(0);
+    expect(projects.getState().history.getState().undoStack).toHaveLength(1);
     expect(status.getState().phase).toBe("idle");
+  });
+
+  it("discards a completed worker result after a merge-tolerance edit", async () => {
+    const project = testProject();
+    const projects = projectStoreFor(project);
+    const status = createAutoVelocityStore();
+    const settings = autoVelocitySettingsForPath(project.path, project.config);
+    const solved = autoRadiiCapSolveInput(
+      project.path,
+      project.config,
+      settings,
+    );
+    let resolveRequest!: (run: {
+      radii: typeof solved.radii;
+      profile: typeof solved.profile;
+      stats: typeof solved.stats;
+      status: typeof solved.status;
+      elapsedMs: number;
+    }) => void;
+    const request = vi.fn(
+      () =>
+        new Promise<Parameters<typeof resolveRequest>[0]>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+
+    const pending = generateAutomaticConstraints(settings, {
+      projects,
+      request,
+      status,
+    });
+    const previousConfig = structuredClone(project.config);
+    projects.getState().applyConfigCommand({
+      description: "Change merge tolerance",
+      apply: (config) => ({
+        ...config,
+        kinematic_constraints: {
+          ...config.kinematic_constraints,
+          default_auto_velocity_merge_tolerance_meters_per_sec: 0.41,
+        },
+      }),
+      revert: () => previousConfig,
+    });
+    resolveRequest({
+      radii: solved.radii,
+      profile: solved.profile,
+      stats: solved.stats,
+      status: solved.status,
+      elapsedMs: 12,
+    });
+    await pending;
+
+    expect(
+      activePathForProjectStore(projects.getState())?.path.ranged_constraints,
+    ).toEqual([]);
+    expect(projects.getState().history.getState().undoStack).toHaveLength(1);
+    expect(status.getState().lastError).toBeNull();
   });
 });
 
@@ -192,6 +245,7 @@ function projectStoreFor(project: ReturnType<typeof testProject>) {
     project: opened.project,
     activePathId: opened.navigation.activePathId,
     activePathGroupId: opened.navigation.activePathGroupId,
+    projectSessionId: "manual-generation-test-session",
   });
   return projects;
 }

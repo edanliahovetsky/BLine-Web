@@ -560,7 +560,10 @@ function assertPathEditorMetadataIsLossless(
   expected: SerializedPathEditorMetadata | undefined,
 ): void {
   const actual = serializePathEditorMetadata(path);
-  if (!sameJsonValue(actual, expected)) {
+  const durableExpected = expected?.linked_targets
+    ? { linked_targets: expected.linked_targets }
+    : undefined;
+  if (!sameJsonValue(actual, durableExpected)) {
     throw new Error(
       `Path ${pathId} editor metadata cannot be applied without loss`,
     );

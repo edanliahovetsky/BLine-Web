@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
+import { clearGeneratedAutoConstraints } from "../../../src/core/constraints/autoConstraintGeneration";
 import {
   fieldCoordinateOffsetMeters,
   fieldLengthMeters,
@@ -34,7 +35,6 @@ import {
 import {
   canClearGeneratedConstraints,
   canGenerateConstraints,
-  createClearGeneratedConstraintsCommand,
   createConvertedElement,
   createDefaultElement,
   createAddRangedConstraintCommand,
@@ -146,84 +146,6 @@ describe("sidebar commands", () => {
       [2, 1],
       [3, 2],
       [4, 4],
-    ]);
-  });
-
-  it("auto-constrains generated curve elements and their exit segment", () => {
-    const project = exampleProject();
-    const inserted = applyStructureToDocument(project, {
-      kind: "insert-many",
-      index: 1,
-      elements: [
-        createTranslationTarget({ x_meters: 2, y_meters: 1 }),
-        createTranslationTarget({ x_meters: 2.5, y_meters: 2 }),
-      ],
-      applyAutoVelocityToInsertedRange: true,
-    });
-    const autoVelocityConstraints = inserted.ranged_constraints.filter(
-      (constraint) =>
-        constraint.key === "max_velocity_meters_per_sec" &&
-        constraint.source === "auto_velocity",
-    );
-
-    expect(autoVelocityConstraints).not.toHaveLength(0);
-    expect(expandedOrdinals(autoVelocityConstraints)).toEqual([2, 3, 4]);
-  });
-
-  it("keeps manual velocity constraints when auto-constraining generated curves", () => {
-    const project = createProjectDocument({
-      project_id: "project-a",
-      display_name: "Alpha",
-      path: createPathModel({
-        path_elements: [
-          createTranslationTarget({ x_meters: 1, y_meters: 1 }),
-          createTranslationTarget({ x_meters: 4, y_meters: 4 }),
-        ],
-        ranged_constraints: [
-          {
-            key: "max_velocity_meters_per_sec",
-            value: 1.2,
-            start_ordinal: 2,
-            end_ordinal: 2,
-          },
-        ],
-      }),
-    });
-    const inserted = applyStructureToDocument(project, {
-      kind: "insert-many",
-      index: 1,
-      elements: [
-        createTranslationTarget({ x_meters: 2, y_meters: 1 }),
-        createTranslationTarget({ x_meters: 2.5, y_meters: 2 }),
-      ],
-      applyAutoVelocityToInsertedRange: true,
-    });
-    const autoVelocityConstraints = inserted.ranged_constraints.filter(
-      (constraint) =>
-        constraint.key === "max_velocity_meters_per_sec" &&
-        constraint.source === "auto_velocity",
-    );
-    const manualVelocityConstraints = inserted.ranged_constraints.filter(
-      (constraint) =>
-        constraint.key === "max_velocity_meters_per_sec" &&
-        constraint.source !== "auto_velocity",
-    );
-
-    expect(expandedOrdinals(autoVelocityConstraints)).toEqual([2, 3]);
-    expect(
-      manualVelocityConstraints.map((constraint) => ({
-        key: constraint.key,
-        value: constraint.value,
-        start_ordinal: constraint.start_ordinal,
-        end_ordinal: constraint.end_ordinal,
-      })),
-    ).toEqual([
-      {
-        key: "max_velocity_meters_per_sec",
-        value: 1.2,
-        start_ordinal: 4,
-        end_ordinal: 4,
-      },
     ]);
   });
 
@@ -591,23 +513,6 @@ function exampleProject(): ProjectDocument {
   });
 }
 
-function expandedOrdinals(
-  constraints: readonly {
-    start_ordinal: number;
-    end_ordinal: number;
-  }[],
-): number[] {
-  return constraints
-    .flatMap((constraint) => {
-      const start = Math.min(constraint.start_ordinal, constraint.end_ordinal);
-      const end = Math.max(constraint.start_ordinal, constraint.end_ordinal);
-      return Array.from({ length: end - start + 1 }, (_, index) => {
-        return start + index;
-      });
-    })
-    .sort((left, right) => left - right);
-}
-
 describe("generated constraint commands", () => {
   const generatableProject = (): ProjectDocument =>
     createProjectDocument({
@@ -694,8 +599,7 @@ describe("generated constraint commands", () => {
     const generated = generatedProject();
     expect(canClearGeneratedConstraints(generated.path)).toBe(true);
 
-    const command = createClearGeneratedConstraintsCommand();
-    const cleared = command.apply(generated.path);
+    const cleared = clearGeneratedAutoConstraints(generated.path);
 
     const reverted = cleared.path_elements[1];
     expect(
@@ -717,8 +621,6 @@ describe("generated constraint commands", () => {
       ),
     ).toBe(false);
     expect(canClearGeneratedConstraints(cleared)).toBe(false);
-
-    expect(command.revert(cleared)).toEqual(generated.path);
   });
 });
 

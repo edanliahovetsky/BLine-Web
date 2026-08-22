@@ -503,19 +503,16 @@ describe("Project file-set codec", () => {
     }
   });
 
-  it("round-trips every accepted editor metadata entry", () => {
+  it("keeps generated ownership beside runtime values, not in project.json", () => {
     const files = editorMetadataFiles();
     const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
-      paths: Array<{
-        editor_metadata: {
-          ranged_constraints: Array<{ key: string }>;
-        };
-      }>;
+      paths: Array<{ editor_metadata?: Record<string, unknown> }>;
     };
     const restored = deserializeProjectFiles(files);
 
+    expect(metadata.paths[0]!.editor_metadata).toBeUndefined();
     expect(
-      metadata.paths[0]!.editor_metadata.ranged_constraints.map(
+      restored.paths[0]!.path.ranged_constraints.map(
         (constraint) => constraint.key,
       ),
     ).toEqual([
@@ -523,89 +520,52 @@ describe("Project file-set codec", () => {
       "max_velocity_meters_per_sec",
       "max_velocity_deg_per_sec",
     ]);
+    expect(
+      restored.paths[0]!.path.ranged_constraints.every(
+        (constraint) =>
+          constraint.source === "auto_velocity" &&
+          constraint.auto_velocity === null,
+      ),
+    ).toBe(true);
     expect(serializeProjectFiles(restored)).toEqual(files);
   });
 
-  it("rejects editor metadata that cannot be applied losslessly", () => {
-    const cases: Array<{
-      label: string;
-      mutate: (editorMetadata: Record<string, unknown>) => void;
-    }> = [
-      {
-        label: "out-of-range handoff element",
-        mutate: (editorMetadata) => {
-          editorMetadata.handoff_radius_sources = [
-            { element_index: 99, source: "auto" },
-          ];
+  it("reads old detailed generation metadata but contracts it on write", () => {
+    const files = editorMetadataFiles();
+    const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
+      paths: Array<{ editor_metadata?: Record<string, unknown> }>;
+    };
+    metadata.paths[0]!.editor_metadata = {
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec",
+          value: 1.5,
+          start_ordinal: 1,
+          end_ordinal: 1,
+          source: "auto_velocity",
+          auto_velocity: {
+            velocity_safety_factor: 0.8,
+            acceleration_safety_factor: 0.7,
+            merge_tolerance_meters_per_sec: 0.2,
+          },
         },
-      },
-      {
-        label: "incompatible handoff element",
-        mutate: (editorMetadata) => {
-          editorMetadata.handoff_radius_sources = [
-            { element_index: 2, source: "auto" },
-          ];
-        },
-      },
-      {
-        label: "unmatched ranged constraint",
-        mutate: (editorMetadata) => {
-          const ranged = editorMetadata.ranged_constraints as Array<
-            Record<string, unknown>
-          >;
-          ranged[0]!.start_ordinal = 99;
-          ranged[0]!.end_ordinal = 99;
-        },
-      },
-      {
-        label: "duplicate ranged constraint target",
-        mutate: (editorMetadata) => {
-          const ranged = editorMetadata.ranged_constraints as Array<
-            Record<string, unknown>
-          >;
-          ranged[1] = structuredClone(ranged[0]!);
-        },
-      },
-      {
-        label: "unsupported terminal-tolerance metadata",
-        mutate: (editorMetadata) => {
-          const ranged = editorMetadata.ranged_constraints as Array<
-            Record<string, unknown>
-          >;
-          ranged[0]!.key = "end_translation_tolerance_meters";
-        },
-      },
-      {
-        label: "manual ownership that canonical serialization omits",
-        mutate: (editorMetadata) => {
-          const ranged = editorMetadata.ranged_constraints as Array<
-            Record<string, unknown>
-          >;
-          ranged[0]!.source = "manual";
-          delete ranged[0]!.auto_velocity;
-        },
-      },
-      {
-        label: "metadata order that canonical serialization cannot retain",
-        mutate: (editorMetadata) => {
-          const ranged = editorMetadata.ranged_constraints as unknown[];
-          editorMetadata.ranged_constraints = [...ranged].reverse();
-        },
-      },
-    ];
+      ],
+    };
+    const restored = deserializeProjectFiles(
+      replaceProjectMetadata(files, `${JSON.stringify(metadata, null, 2)}\n`),
+    );
+    expect(
+      restored.paths[0]!.path.ranged_constraints.find(
+        (constraint) =>
+          constraint.key === "max_velocity_meters_per_sec" &&
+          constraint.value === 1.5,
+      )?.auto_velocity,
+    ).toMatchObject({ velocity_safety_factor: 0.8 });
 
-    for (const { label, mutate } of cases) {
-      const files = editorMetadataFiles();
-      const metadata = JSON.parse(requiredFile(files, "project.json").text) as {
-        paths: Array<{ editor_metadata: Record<string, unknown> }>;
-      };
-      mutate(metadata.paths[0]!.editor_metadata);
-      const opened = openProjectFiles(
-        replaceProjectMetadata(files, `${JSON.stringify(metadata, null, 2)}\n`),
-      );
-
-      expect(opened.damage?.sourcePath, label).toBe("project.json");
-    }
+    const rewritten = JSON.parse(
+      requiredFile(serializeProjectFiles(restored), "project.json").text,
+    ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
+    expect(rewritten.paths[0]!.editor_metadata).toBeUndefined();
   });
 });
 

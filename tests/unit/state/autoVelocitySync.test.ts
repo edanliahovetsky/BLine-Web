@@ -22,7 +22,7 @@ import {
 } from "../../../src/core/model/path";
 import { addPathToProject } from "../../../src/core/model/projectOperations";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
-import { startAutoVelocitySync } from "../../../src/state/autoVelocitySync";
+import { startAutomaticConstraintSync } from "../../../src/state/automaticConstraints";
 import {
   activePathForProjectStore,
   createProjectStore,
@@ -152,19 +152,129 @@ describe("auto velocity sync", () => {
     stop();
   });
 
-  it("keeps the regeneration off the undo stack", async () => {
+  it("regenerates a structural edit and folds it into that edit", async () => {
+    const { store, stop, status } = await startedSync();
+    const before = structuredClone(store.getState().project);
+
+    const result = store.getState().applyPathStructureEdit({
+      kind: "insert-many",
+      index: 1,
+      elements: [
+        createTranslationTarget({ x_meters: 1.2, y_meters: 0.2 }),
+        createTranslationTarget({ x_meters: 1.8, y_meters: 0.5 }),
+      ],
+    });
+    expect(result.status).toBe("applied");
+    expect(status.getState().phase).toBe("pending");
+    await waitForIdle(status);
+    const after = structuredClone(store.getState().project);
+
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
+    expect(activeDocument(store)?.path.path_elements).toHaveLength(6);
+    expect(generatedValues(store)).not.toEqual(staleValuesBeforeMove);
+    store.getState().undo();
+    expect(store.getState().project).toEqual(before);
+    store.getState().redo();
+    expect(store.getState().project).toEqual(after);
+    stop();
+  });
+
+  it("folds regeneration into the triggering edit for exact Undo and Redo", async () => {
     const { store, stop, status } = await startedSync();
     const history = store.getState().history;
     const depthBefore = history.getState().undoStack.length;
+    const before = structuredClone(store.getState().project);
 
     moveSecondAnchor(store, 3.6);
+    const editRevision = store.getState().revision;
     await waitForIdle(status);
+    const after = structuredClone(store.getState().project);
 
-    // The move is the only thing the user should have to undo.
     expect(history.getState().undoStack.length).toBe(depthBefore + 1);
     expect(history.getState().undoStack.at(-1)?.description).toBe(
       "Move anchor",
     );
+    expect(store.getState().revision).toBe(editRevision + 1);
+
+    store.getState().undo();
+    expect(store.getState().project).toEqual(before);
+    store.getState().redo();
+    expect(store.getState().project).toEqual(after);
+    stop();
+  });
+
+  it("discards an in-flight result after Undo", async () => {
+    const store = await initializedStore(exampleWorkspace(true));
+    const status = createAutoVelocityStore();
+    const controlled = gatedRequest();
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      delayMs: syncDelayMs,
+      request: controlled.request,
+    });
+    const before = structuredClone(store.getState().project);
+
+    moveSecondAnchor(store, 3.2);
+    await vi.waitFor(() => expect(status.getState().phase).toBe("running"));
+    store.getState().undo();
+    controlled.release();
+    await vi.waitFor(() => expect(status.getState().phase).toBe("idle"));
+
+    expect(store.getState().project).toEqual(before);
+    expect(store.getState().history.getState().undoStack).toHaveLength(0);
+    expect(status.getState().lastError).toBeNull();
+    stop();
+  });
+
+  it("discards an in-flight result when Keep in Sync is disabled", async () => {
+    const store = await initializedStore(exampleWorkspace(true));
+    const status = createAutoVelocityStore();
+    const controlled = gatedRequest();
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      delayMs: syncDelayMs,
+      request: controlled.request,
+    });
+
+    moveSecondAnchor(store, 3.2);
+    const edited = structuredClone(store.getState().project);
+    await vi.waitFor(() => expect(status.getState().phase).toBe("running"));
+    status.getState().setAutoSyncEnabled(false);
+    controlled.release();
+    await vi.waitFor(() => expect(status.getState().phase).toBe("idle"));
+
+    expect(store.getState().project).toEqual(edited);
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
+    expect(status.getState().lastError).toBeNull();
+    stop();
+  });
+
+  it("discards an in-flight result after reopening the same stable Project", async () => {
+    const workspace = exampleWorkspace(true);
+    const store = await initializedStore(workspace);
+    const reopenedBaseline = structuredClone(store.getState().project);
+    const status = createAutoVelocityStore();
+    const controlled = gatedRequest();
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      delayMs: syncDelayMs,
+      request: controlled.request,
+    });
+
+    moveSecondAnchor(store, 3.2);
+    await vi.waitFor(() => expect(status.getState().phase).toBe("running"));
+    const previousSession = store.getState().projectSessionId;
+    await store.getState().initializeWorkspace();
+    expect(store.getState().projectSessionId).not.toBe(previousSession);
+    controlled.release();
+    await vi.waitFor(() => expect(status.getState().phase).toBe("idle"));
+
+    expect(store.getState().project).toEqual(reopenedBaseline);
+    expect(store.getState().history.getState().undoStack).toHaveLength(0);
+    expect(status.getState().lastError).toBeNull();
     stop();
   });
 
@@ -240,7 +350,7 @@ describe("auto velocity sync", () => {
         return result;
       },
     );
-    const stop = startAutoVelocitySync({
+    const stop = startAutomaticConstraintSync({
       projects: store,
       status,
       delayMs: syncDelayMs,
@@ -266,11 +376,40 @@ describe("auto velocity sync", () => {
         .project!.paths.find((path) => path.path_id === firstPath.path_id)!.path
         .ranged_constraints,
     ).not.toEqual(firstWorkspace.paths[0].path.ranged_constraints);
+    const applied = structuredClone(store.getState().project);
+    store.getState().undo();
+    expect(store.getState().activePathId).toBe(firstPath.path_id);
+    expect(
+      store
+        .getState()
+        .project!.paths.find((path) => path.path_id === firstPath.path_id)!
+        .path,
+    ).toEqual(firstWorkspace.paths[0].path);
+    store.getState().redo();
+    expect(store.getState().activePathId).toBe(firstPath.path_id);
+    expect(store.getState().project).toEqual(applied);
     stop();
   });
 });
 
 let staleValuesBeforeMove: number[] = [];
+
+function gatedRequest() {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    request: vi.fn(
+      async (...args: Parameters<typeof requestAutoRadiiAndCaps>) => {
+        const result = await requestAutoRadiiAndCaps(...args);
+        await gate;
+        return result;
+      },
+    ),
+  };
+}
 
 async function startedSync(
   options: {
@@ -282,7 +421,7 @@ async function startedSync(
     options.workspace ?? exampleWorkspace(options.generated ?? true),
   );
   const status = createAutoVelocityStore();
-  const stop = startAutoVelocitySync({
+  const stop = startAutomaticConstraintSync({
     projects: store,
     status,
     delayMs: syncDelayMs,

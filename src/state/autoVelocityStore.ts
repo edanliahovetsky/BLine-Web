@@ -1,8 +1,4 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type {
-  JointAutoConstraintSolveStats,
-  JointAutoConstraintSolveStatus,
-} from "../core/constraints/autoVelocityConstraints";
 import { rememberAutomaticGenerationKeepInSync } from "../userData";
 
 /**
@@ -13,28 +9,18 @@ import { rememberAutomaticGenerationKeepInSync } from "../userData";
 export type AutoVelocityPhase = "idle" | "pending" | "running";
 export type AutoVelocityRunSource = "manual" | "sync";
 
-export interface AutoVelocityRunSummary {
-  elapsedMs: number;
-  inputSignature: string | null;
-  projectId: string;
-  stats: JointAutoConstraintSolveStats;
-  status: JointAutoConstraintSolveStatus;
-}
-
 export interface AutoVelocityState {
   phase: AutoVelocityPhase;
   runSource: AutoVelocityRunSource | null;
   /** False once the user turns off keeping generated constraints in sync. */
   autoSyncEnabled: boolean;
   lastError: string | null;
-  lastRun: AutoVelocityRunSummary | null;
   setPhase(
     phase: AutoVelocityPhase,
     source?: AutoVelocityRunSource | null,
   ): void;
   setAutoSyncEnabled(enabled: boolean): void;
   setLastError(message: string | null): void;
-  setLastRun(run: AutoVelocityRunSummary | null): void;
   reset(): void;
 }
 
@@ -56,7 +42,6 @@ export function createAutoVelocityStore(
     runSource: null,
     autoSyncEnabled: options.initialAutoSyncEnabled ?? true,
     lastError: null,
-    lastRun: null,
     setPhase(phase, source = null) {
       const runSource = phase === "idle" ? null : source;
       if (get().phase !== phase || get().runSource !== runSource) {
@@ -75,21 +60,16 @@ export function createAutoVelocityStore(
         set({ lastError: message });
       }
     },
-    setLastRun(run) {
-      set({ lastRun: run });
-    },
     reset() {
       if (
         get().phase !== "idle" ||
         get().runSource !== null ||
-        get().lastError !== null ||
-        get().lastRun !== null
+        get().lastError !== null
       ) {
         set({
           phase: "idle",
           runSource: null,
           lastError: null,
-          lastRun: null,
         });
       }
     },

@@ -80,8 +80,10 @@ import {
   type AutosaveStatus,
 } from "../../state/autosave";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
-import { generateAutoConstraintsInWorker } from "../../state/autoConstraintGeneration";
-import { startAutoVelocitySync } from "../../state/autoVelocitySync";
+import {
+  generateAutomaticConstraints,
+  startAutomaticConstraintSync,
+} from "../../state/automaticConstraints";
 import { autoVelocitySettingsForPath } from "../../core/constraints/autoVelocityApply";
 import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
@@ -392,7 +394,6 @@ export function AppShell() {
           kind: "insert-many",
           index: insertionIndex,
           elements: targets,
-          applyAutoVelocityToInsertedRange: true,
         },
         {
           pathId: currentPath.path_id,
@@ -590,7 +591,7 @@ export function AppShell() {
     (state) => state.autoSyncEnabled,
   );
 
-  useEffect(() => startAutoVelocitySync(), []);
+  useEffect(() => startAutomaticConstraintSync(), []);
 
   useEffect(() => {
     const mobileQuery = window.matchMedia(mobileSupportMediaQuery);
@@ -1979,7 +1980,7 @@ export function AppShell() {
         !canGenerateConstraints(activePath.path),
       run: () => {
         if (activePath && durableProject) {
-          void generateAutoConstraintsInWorker(
+          void generateAutomaticConstraints(
             autoVelocitySettingsForPath(activePath.path, durableProject.config),
           );
         }

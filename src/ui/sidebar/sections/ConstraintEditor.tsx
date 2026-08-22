@@ -55,7 +55,10 @@ import {
   type PathModel,
 } from "../../../core/model/path";
 import { autoVelocityStore } from "../../../state/autoVelocityStore";
-import { generateAutoConstraintsInWorker } from "../../../state/autoConstraintGeneration";
+import {
+  clearAutomaticConstraints,
+  generateAutomaticConstraints,
+} from "../../../state/automaticConstraints";
 import {
   activePathForProjectStore,
   projectStore,
@@ -89,7 +92,6 @@ import {
   canClearGeneratedConstraints,
   canGenerateConstraints,
   createAddRangedConstraintCommand,
-  createClearGeneratedConstraintsCommand,
   createInsertRangedConstraintCommand,
   createRemoveRangedConstraintCommand,
   createReplaceRangedConstraintsForKeyCommand,
@@ -311,7 +313,7 @@ export function ConstraintEditor({
     });
   };
   const generateAutoVelocity = () => {
-    void generateAutoConstraintsInWorker(autoSettings);
+    void generateAutomaticConstraints(autoSettings);
   };
   const selectedRangedConstraint = useStoreSelector(
     selectionStore,
@@ -3095,9 +3097,7 @@ function clearGeneratedConstraints(path: PathModel): void {
     return;
   }
 
-  projectStore
-    .getState()
-    .applyPathCommand(createClearGeneratedConstraintsCommand());
+  clearAutomaticConstraints();
   selectionStore.getState().clearRangedConstraintSelection();
 }
 

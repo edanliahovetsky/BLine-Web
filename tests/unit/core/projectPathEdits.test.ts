@@ -174,7 +174,7 @@ describe("project Path element edits", () => {
 });
 
 describe("project Path structural edits", () => {
-  it("atomically remaps ordinals, invalidates generated output, and repairs selection", () => {
+  it("atomically remaps ordinals, preserves ownership, and repairs selection", () => {
     const project = exampleProject();
     project.paths[0].path.ranged_constraints = [
       {
@@ -209,9 +209,17 @@ describe("project Path structural edits", () => {
         start_ordinal: 1,
         end_ordinal: 2,
       },
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 3,
+        start_ordinal: 1,
+        end_ordinal: 2,
+        source: "auto_velocity",
+      },
     ]);
     expect(result.project.paths[0].path.path_elements[0]).toMatchObject({
-      intermediate_handoff_radius_meters: null,
+      intermediate_handoff_radius_meters: 0.3,
+      handoff_radius_source: "auto",
     });
     expect(result.consequences).toEqual({
       focusPathId: "path-a",
@@ -250,7 +258,7 @@ describe("project Path structural edits", () => {
     expect(duplicate).toMatchObject({ x_meters: 1, y_meters: 2 });
   });
 
-  it("keeps an inserted element's generated default while clearing stale output", () => {
+  it("preserves existing and inserted generated ownership for refresh", () => {
     const project = exampleProject();
     const result = applyPathStructureEdit(project, "path-a", {
       kind: "insert",
@@ -265,7 +273,8 @@ describe("project Path structural edits", () => {
 
     expect(result.status).toBe("applied");
     expect(result.project.paths[0].path.path_elements[0]).toMatchObject({
-      intermediate_handoff_radius_meters: null,
+      intermediate_handoff_radius_meters: 0.3,
+      handoff_radius_source: "auto",
     });
     expect(result.project.paths[0].path.path_elements[1]).toMatchObject({
       intermediate_handoff_radius_meters: 0.45,
