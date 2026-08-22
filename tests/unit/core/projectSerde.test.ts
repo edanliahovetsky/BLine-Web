@@ -959,6 +959,28 @@ describe("project path serde", () => {
         .default_auto_velocity_velocity_safety_factor,
     ).toBe(0.8);
   });
+
+  it("blocks structurally empty legacy sidecars before destructive migration", async () => {
+    const runtimePath = textImportFile("autos/paths/auto.json", {
+      path_elements: [{ type: "translation", x_meters: 1, y_meters: 2 }],
+    });
+    for (const sourcePath of [
+      ".bline-web/state.json",
+      "pathgroups.json",
+      ".bline-web/path-metadata.json",
+    ]) {
+      await expect(
+        deserializeBLineProjectFolder(
+          [runtimePath, textImportFile(`autos/${sourcePath}`, {})],
+          { requireLosslessMigration: true },
+        ),
+      ).rejects.toMatchObject({
+        name: "ProjectFolderLosslessMigrationError",
+        sourcePath,
+        rawText: "{}",
+      } satisfies Partial<ProjectFolderLosslessMigrationError>);
+    }
+  });
 });
 
 function textImportFile(webkitRelativePath: string, value: unknown) {

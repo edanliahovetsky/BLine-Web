@@ -387,6 +387,25 @@ function attestLosslessFolderMigration({
   rawLegacyFieldAssets,
   rawLegacyFieldAssetsText,
 }: LosslessFolderMigrationInputs): void {
+  assertNonEmptyLegacySidecar(
+    autosEditorStatePath,
+    rawEditorStateText,
+    rawEditorState,
+    "desktop editor state",
+  );
+  assertNonEmptyLegacySidecar(
+    "pathgroups.json",
+    rawPathGroupsText,
+    rawPathGroups,
+    "desktop Path groups",
+  );
+  assertNonEmptyLegacySidecar(
+    ".bline-web/path-metadata.json",
+    rawLegacyPathMetadataText,
+    rawLegacyPathMetadata,
+    "desktop Path metadata",
+  );
+
   const runtimePaths = parsedPaths.map(({ input }) => ({
     ...input,
     display_name: displayNameFromFileName(input.file_name),
@@ -497,6 +516,22 @@ function attestLosslessFolderMigration({
     rawLegacyFieldAssets,
     rawLegacyFieldAssetsText,
   );
+}
+
+function assertNonEmptyLegacySidecar(
+  sourcePath: string,
+  rawText: string | undefined,
+  input: unknown,
+  label: string,
+): void {
+  if (rawText === undefined) return;
+  if (!isObject(input) || Object.keys(input).length === 0) {
+    throw new ProjectFolderLosslessMigrationError(
+      sourcePath,
+      rawText,
+      `${label} must contain a non-empty object`,
+    );
+  }
 }
 
 function deserializeProjectionWorkspace(input: {

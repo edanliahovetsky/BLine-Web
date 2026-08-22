@@ -924,15 +924,26 @@ describe("TauriStorage", () => {
         contents: file.text,
       }));
     const legacyDocuments = [
-      "{<<<<<<< HEAD\n",
-      JSON.stringify({
-        schema_version: 2,
-        editor_config: { gui: {}, kinematic_constraints: {} },
-        paths: {},
-      }),
+      {
+        relativePath: ".bline-web/state.json",
+        contents: "{<<<<<<< HEAD\n",
+      },
+      {
+        relativePath: ".bline-web/state.json",
+        contents: JSON.stringify({
+          schema_version: 2,
+          editor_config: { gui: {}, kinematic_constraints: {} },
+          paths: {},
+        }),
+      },
+      ...[
+        ".bline-web/state.json",
+        "pathgroups.json",
+        ".bline-web/path-metadata.json",
+      ].map((relativePath) => ({ relativePath, contents: "{}" })),
     ];
 
-    for (const contents of legacyDocuments) {
+    for (const { relativePath, contents } of legacyDocuments) {
       const calls: string[] = [];
       const storage = new TauriStorage({
         invoke: async <T>(command: string) => {
@@ -943,7 +954,7 @@ describe("TauriStorage", () => {
               files: runtimeFiles,
               legacyFiles: [
                 {
-                  relativePath: ".bline-web/state.json",
+                  relativePath,
                   contents,
                 },
               ],
@@ -958,7 +969,7 @@ describe("TauriStorage", () => {
       const recovered = await storage.readProject("/tmp/autos");
       expect(recovered.paths).toHaveLength(1);
       expect(storage.getCurrentProjectDamage()).toMatchObject({
-        sourcePath: ".bline-web/state.json",
+        sourcePath: relativePath,
         rawText: contents,
       });
       await expect(
