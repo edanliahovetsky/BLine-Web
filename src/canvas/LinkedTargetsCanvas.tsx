@@ -26,7 +26,7 @@ import {
   type PixiRenderInput,
 } from "./pixi/PixiPathRenderer";
 import { robotSizeFromConfig } from "./robotFootprint";
-import { projectStore } from "../state/projectStore";
+import { readFieldBackgroundImage } from "../userData";
 
 interface LinkedTargetsCanvasProps {
   compatibleTargetIds?: ReadonlySet<string> | null;
@@ -237,7 +237,7 @@ export function LinkedTargetsCanvas({
   );
 
   useEffect(() => {
-    if (!field.custom) {
+    if (!field.user_entry) {
       return undefined;
     }
 
@@ -245,13 +245,12 @@ export function LinkedTargetsCanvas({
     let objectUrl: string | null = null;
     const fieldId = field.id;
 
-    void projectStore
-      .getState()
-      .readFieldImageAsset(field.custom)
-      .then((blob) => {
-        if (disposed || !blob) {
+    void readFieldBackgroundImage(field.user_entry.id)
+      .then((bytes) => {
+        if (disposed || !bytes) {
           return;
         }
+        const blob = new Blob([bytes], { type: field.user_entry?.mime_type });
         objectUrl = URL.createObjectURL(blob);
         setCustomFieldImage({ fieldId, url: objectUrl });
       })
@@ -269,7 +268,7 @@ export function LinkedTargetsCanvas({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [field.custom, field.id]);
+  }, [field.id, field.user_entry]);
 
   const customFieldImageUrl =
     customFieldImage && customFieldImage.fieldId === field.id
@@ -277,7 +276,7 @@ export function LinkedTargetsCanvas({
       : null;
   const renderField = useMemo(
     () =>
-      field.custom && customFieldImageUrl
+      field.user_entry && customFieldImageUrl
         ? { ...field, image_src: customFieldImageUrl }
         : field,
     [customFieldImageUrl, field],

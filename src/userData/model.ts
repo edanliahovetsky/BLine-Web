@@ -1,4 +1,9 @@
-import type { FieldGeometry } from "../core/field/fieldConfig";
+import type {
+  FieldBackgroundEntry,
+  FieldGeometry,
+} from "../core/field/fieldConfig";
+
+export type { FieldBackgroundEntry } from "../core/field/fieldConfig";
 
 export const USER_DATA_SCHEMA_VERSION = 2 as const;
 
@@ -11,18 +16,6 @@ export interface EditorLayoutPreferences {
 export interface ProjectViewPreferences {
   active_path_id?: string;
   selected_field_background_id?: string;
-}
-
-/** Binary image data deliberately lives behind the asset adapter. */
-export interface FieldBackgroundEntry {
-  /** Also the global key used by the binary asset adapter. */
-  id: string;
-  name: string;
-  file_name: string;
-  mime_type: string;
-  size_bytes: number;
-  created_at: string;
-  geometry: FieldGeometry;
 }
 
 export interface UserData {

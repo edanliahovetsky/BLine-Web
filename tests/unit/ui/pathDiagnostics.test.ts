@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createSampleCanvasWorkspace } from "../../../src/ui/app/initialProject";
 import { derivePathDiagnostics } from "../../../src/ui/app/pathDiagnostics";
+import { defaultFieldGeometry } from "../../../src/core/field/fieldConfig";
 
 describe("path diagnostics", () => {
   it("reports incomplete paths", () => {
@@ -10,7 +11,7 @@ describe("path diagnostics", () => {
     expect(
       derivePathDiagnostics(
         workspace.paths[0].path,
-        workspace.config,
+        defaultFieldGeometry,
         workspace.linked_targets,
       ),
     ).toEqual(
@@ -34,7 +35,7 @@ describe("path diagnostics", () => {
     }
     const diagnostics = derivePathDiagnostics(
       workspace.paths[0].path,
-      workspace.config,
+      defaultFieldGeometry,
       workspace.linked_targets,
     );
 

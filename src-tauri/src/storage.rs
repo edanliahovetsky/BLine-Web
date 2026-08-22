@@ -426,16 +426,16 @@ pub fn storage_write_field_asset(
 
 #[tauri::command]
 pub fn storage_read_field_asset(
-    app: AppHandle,
+    workspace_id: String,
     asset_id: String,
 ) -> Result<Option<FieldAssetPayload>, String> {
-    let dir = require_current_project_dir(&app)?;
+    let dir = PathBuf::from(workspace_id);
     read_field_asset_from_project_dir(&dir, &asset_id)
 }
 
 #[tauri::command]
-pub fn storage_delete_field_asset(app: AppHandle, asset_id: String) -> Result<(), String> {
-    let dir = require_current_project_dir(&app)?;
+pub fn storage_delete_field_asset(workspace_id: String, asset_id: String) -> Result<(), String> {
+    let dir = PathBuf::from(workspace_id);
     delete_field_asset_from_project_dir(&dir, &asset_id)
 }
 

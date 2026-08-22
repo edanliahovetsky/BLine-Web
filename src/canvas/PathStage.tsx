@@ -31,7 +31,10 @@ import {
 import type { LinkedTarget, LinkedTargetKind } from "../core/io/projectSchema";
 import type { Project, ProjectConfig } from "../core/model/project";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
-import { resolveFieldDefinition } from "../core/field/fieldConfig";
+import {
+  resolveUserFieldDefinition,
+  type ResolvedFieldDefinition,
+} from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
 import { simulatePathWithTrace, type SimResult } from "../core/sim";
 import type { SimTraceResult } from "../core/sim/types";
@@ -95,6 +98,7 @@ import {
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
+import { readFieldBackgroundImage } from "../userData";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
@@ -102,6 +106,7 @@ const fallbackStageSize: CanvasSize = {
 };
 
 interface PathStageProps {
+  field?: ResolvedFieldDefinition;
   activeTool?: EditorTool;
   curveTool?: CurveToolSession | null;
   onToolChange?(tool: EditorTool): void;
@@ -157,6 +162,7 @@ interface ActiveCanvasContextMenu {
 }
 
 export function PathStage({
+  field = resolveUserFieldDefinition(null, []),
   activeTool = "select",
   curveTool = null,
   onToolChange,
@@ -237,12 +243,9 @@ export function PathStage({
     selectionStore,
     (state) => state.selectedRangedConstraint,
   );
-  const activeField = useMemo(
-    () => resolveFieldDefinition(durableProject?.config.gui.field),
-    [durableProject?.config.gui.field],
-  );
+  const activeField = field;
   useEffect(() => {
-    if (!activeField.custom) {
+    if (!activeField.user_entry) {
       return undefined;
     }
 
@@ -250,13 +253,14 @@ export function PathStage({
     let objectUrl: string | null = null;
     const fieldId = activeField.id;
 
-    void projectStore
-      .getState()
-      .readFieldImageAsset(activeField.custom)
-      .then((blob) => {
-        if (disposed || !blob) {
+    void readFieldBackgroundImage(activeField.user_entry.id)
+      .then((bytes) => {
+        if (disposed || !bytes) {
           return;
         }
+        const blob = new Blob([bytes], {
+          type: activeField.user_entry?.mime_type,
+        });
         objectUrl = URL.createObjectURL(blob);
         setCustomFieldImage({ fieldId, url: objectUrl });
       })
@@ -274,14 +278,14 @@ export function PathStage({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [activeField.custom, activeField.id]);
+  }, [activeField.id, activeField.user_entry]);
   const customFieldImageUrl =
     customFieldImage && customFieldImage.fieldId === activeField.id
       ? customFieldImage.url
       : null;
   const renderField = useMemo(
     () =>
-      activeField.custom && customFieldImageUrl
+      activeField.user_entry && customFieldImageUrl
         ? { ...activeField, image_src: customFieldImageUrl }
         : activeField,
     [activeField, customFieldImageUrl],
@@ -504,6 +508,26 @@ export function PathStage({
     }),
     [baseViewport, panOffset, viewScale],
   );
+  const boundedPositionPreview = useMemo<PositionOverrides>(() => {
+    const preview = new Map<number, PointMeters>();
+    const elements = activePath?.path.path_elements ?? [];
+    for (const { index, position } of getRenderableElementPositions(elements)) {
+      if (!isTranslationBearingElement(elements[index])) {
+        continue;
+      }
+      const bounded = clampModelPoint(position, activeField.geometry);
+      if (!pointsAlmostEqual(position, bounded)) {
+        preview.set(index, bounded);
+      }
+    }
+    return preview;
+  }, [activeField.geometry, activePath]);
+  const positionPreview = useMemo<PositionOverrides>(() => {
+    if (dragPreview.size === 0) {
+      return boundedPositionPreview;
+    }
+    return new Map([...boundedPositionPreview, ...dragPreview]);
+  }, [boundedPositionPreview, dragPreview]);
 
   const simulationResult: SimTraceResult | null = useMemo(() => {
     if (!activePath || !durableProject) {
@@ -725,7 +749,7 @@ export function PathStage({
       hoveredOverlayPathId,
       selectedElementIndex,
       selectedRangedConstraint,
-      positionPreview: dragPreview,
+      positionPreview,
       rotationPreview,
       selectedPulse: selectedPulseValue,
       simulationResult,
@@ -740,7 +764,7 @@ export function PathStage({
       renderField,
       activePath,
       curvePreview,
-      dragPreview,
+      positionPreview,
       durableProject,
       overlayPaths,
       hoveredOverlayPathId,
@@ -927,7 +951,7 @@ export function PathStage({
       activePath.path,
       selectedElementIndex,
       viewport,
-      dragPreview,
+      positionPreview,
       rotationPreview,
       pointer,
     );
@@ -959,7 +983,7 @@ export function PathStage({
       activePath.path,
       durableProject.config,
       viewport,
-      dragPreview,
+      positionPreview,
       pointer,
       selectedElementIndex,
     );
@@ -1352,7 +1376,7 @@ export function PathStage({
       activePath.path,
       durableProject.config,
       viewport,
-      dragPreview,
+      positionPreview,
       pointer,
       selectedElementIndex,
     );
@@ -2284,7 +2308,12 @@ function projectDragStagePoint(
   let ratio: number | null = null;
   const element = path.path_elements[index];
 
-  if (element && (isRotationTarget(element) || isEventTrigger(element))) {
+  if (element && isTranslationBearingElement(element)) {
+    position = clampModelPoint(position, viewport.field);
+  } else if (
+    element &&
+    (isRotationTarget(element) || isEventTrigger(element))
+  ) {
     ratio = element.t_ratio;
     const segment = getNeighborAnchorPositions(path.path_elements, index);
     if (segment) {

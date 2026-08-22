@@ -1,7 +1,7 @@
 import { getElementPosition } from "../../canvas/geometry";
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
-import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
-import type { LinkedTarget, ProjectConfig } from "../../core/model/project";
+import type { FieldGeometry } from "../../core/field/fieldConfig";
+import type { LinkedTarget } from "../../core/model/project";
 import {
   isAnchorElement,
   isEventTrigger,
@@ -19,10 +19,10 @@ export interface PathDiagnostic {
 
 export function derivePathDiagnostics(
   path: PathModel | null,
-  config: ProjectConfig | null,
+  geometry: FieldGeometry | null,
   linkedTargets: readonly LinkedTarget[],
 ): PathDiagnostic[] {
-  if (!path || !config) {
+  if (!path || !geometry) {
     return [];
   }
 
@@ -40,7 +40,6 @@ export function derivePathDiagnostics(
     });
   }
 
-  const geometry = fieldGeometryFromConfig(config.gui.field);
   elements.forEach((element, index) => {
     if (isEventTrigger(element) && !element.lib_key.trim()) {
       diagnostics.push({

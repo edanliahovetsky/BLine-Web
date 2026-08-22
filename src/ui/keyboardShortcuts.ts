@@ -1,7 +1,8 @@
 import {
   fieldCoordinateLengthMeters,
   fieldCoordinateWidthMeters,
-  fieldGeometryFromConfig,
+  defaultFieldGeometry,
+  type FieldGeometry,
 } from "../core/field/fieldConfig";
 import {
   isTranslationTarget,
@@ -85,6 +86,7 @@ export function removeSelectedPathElement(): boolean {
 export function nudgeSelectedPathElement(
   dxMeters: number,
   dyMeters: number,
+  field: FieldGeometry = defaultFieldGeometry,
 ): boolean {
   const state = projectStore.getState();
   const project = state.project;
@@ -100,7 +102,6 @@ export function nudgeSelectedPathElement(
     return false;
   }
 
-  const field = fieldGeometryFromConfig(project.config.gui.field);
   const maxX = fieldCoordinateLengthMeters(field);
   const maxY = fieldCoordinateWidthMeters(field);
   const clamp = (value: number, max: number) =>

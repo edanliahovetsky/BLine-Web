@@ -90,6 +90,10 @@ export function flushUserData(): Promise<void> {
   return runtimeUserData.flush();
 }
 
+export function verifyUserDataPersistence(): Promise<void> {
+  return runtimeUserData.verifyDurableSnapshot();
+}
+
 export function listFieldBackgrounds(): FieldBackgroundEntry[] {
   return structuredClone(readUserData().field_backgrounds);
 }
@@ -100,6 +104,16 @@ export function importFieldBackgroundFromBytes(
   return runtimeUserData.createFieldBackgroundFromBytes(input);
 }
 
+export function migrateLegacyFieldBackgroundFromBytes(
+  input: CreateFieldBackgroundInput,
+  legacyKey: string,
+): Promise<FieldBackgroundEntry> {
+  return runtimeUserData.migrateLegacyFieldBackgroundFromBytes(
+    input,
+    legacyKey,
+  );
+}
+
 export function updateFieldBackgroundMetadata(
   entryId: string,
   update: FieldBackgroundMetadataUpdate,
@@ -107,10 +121,11 @@ export function updateFieldBackgroundMetadata(
   return runtimeUserData.updateFieldBackgroundMetadata(entryId, update);
 }
 
-export function readFieldBackgroundImage(
+export async function readFieldBackgroundImage(
   entryId: string,
-): Promise<Uint8Array | null> {
-  return runtimeUserData.readFieldBackgroundImage(entryId);
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  const bytes = await runtimeUserData.readFieldBackgroundImage(entryId);
+  return bytes ? Uint8Array.from(bytes) : null;
 }
 
 export function deleteFieldBackground(entryId: string): Promise<void> {

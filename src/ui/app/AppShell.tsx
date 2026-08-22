@@ -49,9 +49,11 @@ import {
 import {
   fieldCoordinateLengthMeters,
   fieldCoordinateWidthMeters,
-  resolveFieldDefinition,
-  type CustomFieldImage,
+  defaultFieldId,
+  resolveUserFieldDefinition,
+  type FieldBackgroundEntry,
   type FieldGeometry,
+  type ResolvedFieldDefinition,
 } from "../../core/field/fieldConfig";
 import {
   type PathElement,
@@ -153,7 +155,19 @@ import {
 } from "../optimizerBeam";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
-import { initializeUserData } from "../../userData";
+import {
+  deleteFieldBackground,
+  flushUserData,
+  importFieldBackgroundFromBytes,
+  initializeUserData,
+  listFieldBackgrounds,
+  readFieldBackgroundImage,
+  rememberSelectedFieldBackground,
+  selectedFieldBackgroundForProject,
+  updateFieldBackgroundMetadata,
+} from "../../userData";
+import { migrateLegacyProjectFieldBackgrounds } from "../../userData/legacyFieldMigration";
+import { displayNameFromFileName } from "../../core/io/workspaceSerde";
 import {
   editorBasicsTour,
   findTour,
@@ -243,6 +257,13 @@ export function AppShell() {
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [fieldBackgrounds, setFieldBackgrounds] = useState<
+    FieldBackgroundEntry[]
+  >([]);
+  const [fieldSelectionOverride, setFieldSelectionOverride] = useState<{
+    projectId: string;
+    fieldId: string;
+  } | null>(null);
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [showNewPathDialog, setShowNewPathDialog] = useState(false);
   const [newPathGroupContextId, setNewPathGroupContextId] = useState<
@@ -296,6 +317,7 @@ export function AppShell() {
   const nextCurveToolSessionIdRef = useRef(1);
   const importHandlingRef = useRef(false);
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
+  const attemptedFieldMigrationKeysRef = useRef(new Set<string>());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
@@ -403,6 +425,7 @@ export function AppShell() {
           .getState()
           .setAutoSyncEnabled(userData.automatic_generation.keep_in_sync);
         tourStore.getState().hydrateCompleted(userData.completed_tour_ids);
+        setFieldBackgrounds(userData.field_backgrounds);
         await projectStore.getState().initializeWorkspace();
         if (!cancelled) {
           await refreshWorkspaceSummaries(service);
@@ -425,6 +448,56 @@ export function AppShell() {
       autosaveRef.current?.cancel();
     };
   }, [refreshWorkspaceSummaries]);
+
+  const legacyFieldMigrationKey = durableProject
+    ? JSON.stringify({
+        projectId: durableProject.project_id,
+        field: durableProject.config.gui.field,
+      })
+    : null;
+
+  useEffect(() => {
+    if (!durableProject) {
+      return;
+    }
+
+    const projectId = durableProject.project_id;
+
+    if (
+      !projectIo ||
+      !legacyFieldMigrationKey ||
+      attemptedFieldMigrationKeysRef.current.has(legacyFieldMigrationKey)
+    ) {
+      return;
+    }
+    attemptedFieldMigrationKeysRef.current.add(legacyFieldMigrationKey);
+
+    void migrateLegacyProjectFieldBackgrounds(durableProject, projectIo).then(
+      () => {
+        setFieldBackgrounds(listFieldBackgrounds());
+        setFieldSelectionOverride({
+          projectId,
+          fieldId:
+            selectedFieldBackgroundForProject(projectId, defaultFieldId) ??
+            defaultFieldId,
+        });
+      },
+    );
+  }, [durableProject, legacyFieldMigrationKey, projectIo]);
+
+  const selectedFieldId = durableProject
+    ? fieldSelectionOverride?.projectId === durableProject.project_id
+      ? fieldSelectionOverride.fieldId
+      : (selectedFieldBackgroundForProject(
+          durableProject.project_id,
+          defaultFieldId,
+        ) ?? defaultFieldId)
+    : defaultFieldId;
+
+  const activeField = useMemo(
+    () => resolveUserFieldDefinition(selectedFieldId, fieldBackgrounds),
+    [fieldBackgrounds, selectedFieldId],
+  );
 
   const optimizerPhase = useStoreSelector(
     autoVelocityStore,
@@ -628,56 +701,52 @@ export function AppShell() {
   }, [refreshWorkspaceSummaries]);
 
   // Tours run on a throwaway path so every step is safe to actually perform.
-  const startGuidedTour = useCallback((tourId: string) => {
-    const tourDefinition = findTour(tourId);
-    const state = projectStore.getState();
-    const currentProject = state.project;
-    if (!tourDefinition || !currentProject) {
-      return;
-    }
+  const startGuidedTour = useCallback(
+    (tourId: string) => {
+      const tourDefinition = findTour(tourId);
+      const state = projectStore.getState();
+      const currentProject = state.project;
+      if (!tourDefinition || !currentProject) {
+        return;
+      }
 
-    const existingPractice = currentProject.paths.find(
-      (path) => path.display_name === tourPracticePathName,
-    );
-    const currentPathId = state.activePathId;
-    tourReturnPathRef.current =
-      currentPathId && currentPathId !== existingPractice?.path_id
-        ? currentPathId
-        : null;
-
-    // Recreate the practice path from this lesson's seed so every lesson
-    // opens in the state its steps assume.
-    if (existingPractice) {
-      state.deletePaths([existingPractice.path_id]);
-    }
-    state.createPath({
-      displayName: tourPracticePathName,
-      path: tourDefinition.practicePath(),
-    });
-
-    // Lessons teach on the neutral blank grid; the user's field comes back
-    // as soon as the tour ends.
-    const latestState = projectStore.getState();
-    const latestProject = latestState.project;
-    if (
-      latestProject &&
-      latestProject.config.gui.field.selected_field_id !== "blank-grid"
-    ) {
-      tourReturnFieldRef.current =
-        latestProject.config.gui.field.selected_field_id;
-      const nextConfig = structuredClone(latestProject.config);
-      nextConfig.gui.field.selected_field_id = "blank-grid";
-      latestState.applyConfigCommand(
-        createUpdateProjectConfigCommand(latestProject.config, nextConfig),
+      const existingPractice = currentProject.paths.find(
+        (path) => path.display_name === tourPracticePathName,
       );
-    } else {
-      tourReturnFieldRef.current = null;
-    }
+      const currentPathId = state.activePathId;
+      tourReturnPathRef.current =
+        currentPathId && currentPathId !== existingPractice?.path_id
+          ? currentPathId
+          : null;
 
-    selectionStore.getState().clearSelection();
-    setInspectorOpen(true);
-    tourStore.getState().start(tourId);
-  }, []);
+      // Recreate the practice path from this lesson's seed so every lesson
+      // opens in the state its steps assume.
+      if (existingPractice) {
+        state.deletePaths([existingPractice.path_id]);
+      }
+      state.createPath({
+        displayName: tourPracticePathName,
+        path: tourDefinition.practicePath(),
+      });
+
+      // Lessons teach on the neutral blank grid; the user's field comes back
+      // as soon as the tour ends.
+      if (selectedFieldId !== "blank-grid") {
+        tourReturnFieldRef.current = selectedFieldId;
+        setFieldSelectionOverride({
+          projectId: currentProject.project_id,
+          fieldId: "blank-grid",
+        });
+      } else {
+        tourReturnFieldRef.current = null;
+      }
+
+      selectionStore.getState().clearSelection();
+      setInspectorOpen(true);
+      tourStore.getState().start(tourId);
+    },
+    [selectedFieldId],
+  );
 
   // Put the user back on the path and field they were editing once the tour
   // ends.
@@ -689,17 +758,12 @@ export function AppShell() {
     const returnFieldId = tourReturnFieldRef.current;
     if (returnFieldId) {
       tourReturnFieldRef.current = null;
-      const state = projectStore.getState();
-      const currentProject = state.project;
-      if (
-        currentProject &&
-        currentProject.config.gui.field.selected_field_id !== returnFieldId
-      ) {
-        const nextConfig = structuredClone(currentProject.config);
-        nextConfig.gui.field.selected_field_id = returnFieldId;
-        state.applyConfigCommand(
-          createUpdateProjectConfigCommand(currentProject.config, nextConfig),
-        );
+      const currentProject = projectStore.getState().project;
+      if (currentProject) {
+        setFieldSelectionOverride({
+          projectId: currentProject.project_id,
+          fieldId: returnFieldId,
+        });
       }
     }
 
@@ -772,6 +836,7 @@ export function AppShell() {
         state.project.config,
         placement.type,
         selectedIndex,
+        activeField.geometry,
       );
       if (element.type === "translation") {
         element.x_meters = placement.position.x_meters;
@@ -801,7 +866,7 @@ export function AppShell() {
           )?.path,
         );
     },
-    [],
+    [activeField.geometry],
   );
 
   const handleDismissMobileSupportWarning = useCallback(() => {
@@ -1124,7 +1189,7 @@ export function AppShell() {
             : event.key === "ArrowDown"
               ? -step
               : 0;
-        if (nudgeSelectedPathElement(dx, dy)) {
+        if (nudgeSelectedPathElement(dx, dy, activeField.geometry)) {
           event.preventDefault();
         }
         return;
@@ -1149,6 +1214,7 @@ export function AppShell() {
     showDeleteProjectDialog,
     showPathGroupsDialog,
     showShortcutHelp,
+    activeField.geometry,
     showLinkedTargetsDialog,
     showMobileSupportWarning,
     showOpenPanel,
@@ -1582,9 +1648,14 @@ export function AppShell() {
   );
 
   const handleSaveConfig = useCallback(
-    (
+    async (
       nextConfig: ProjectConfig,
-      options: { autoSyncEnabled: boolean; configChanged: boolean },
+      options: {
+        autoSyncEnabled: boolean;
+        configChanged: boolean;
+        selectedFieldId: string;
+        fieldBackgrounds: FieldBackgroundEntry[];
+      },
     ) => {
       const state = projectStore.getState();
       const currentProject = state.project;
@@ -1592,6 +1663,38 @@ export function AppShell() {
         return;
       }
 
+      const currentFields = listFieldBackgrounds();
+      const nextFieldIds = new Set(
+        options.fieldBackgrounds.map((field) => field.id),
+      );
+      for (const field of options.fieldBackgrounds) {
+        const current = currentFields.find((entry) => entry.id === field.id);
+        if (
+          current &&
+          (current.name !== field.name ||
+            JSON.stringify(current.geometry) !== JSON.stringify(field.geometry))
+        ) {
+          await updateFieldBackgroundMetadata(field.id, {
+            name: field.name,
+            geometry: field.geometry,
+          });
+        }
+      }
+      for (const field of currentFields) {
+        if (!nextFieldIds.has(field.id)) {
+          await deleteFieldBackground(field.id);
+        }
+      }
+      rememberSelectedFieldBackground(
+        currentProject.project_id,
+        options.selectedFieldId,
+      );
+      await flushUserData();
+      setFieldBackgrounds(listFieldBackgrounds());
+      setFieldSelectionOverride({
+        projectId: currentProject.project_id,
+        fieldId: options.selectedFieldId,
+      });
       if (options.configChanged) {
         projectStore
           .getState()
@@ -1606,14 +1709,25 @@ export function AppShell() {
   );
 
   const handleUploadFieldImage = useCallback(
-    (file: File, geometry: FieldGeometry) =>
-      projectStore.getState().writeFieldImageAsset({ file, geometry }),
+    async (file: File, geometry: FieldGeometry) => {
+      const entry = await importFieldBackgroundFromBytes({
+        name: displayNameFromFileName(file.name),
+        fileName: file.name,
+        mimeType: file.type || "image/png",
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        geometry,
+      });
+      setFieldBackgrounds(listFieldBackgrounds());
+      return entry;
+    },
     [],
   );
 
   const handleLoadFieldImage = useCallback(
-    (field: CustomFieldImage) =>
-      projectStore.getState().readFieldImageAsset(field),
+    async (field: FieldBackgroundEntry) => {
+      const bytes = await readFieldBackgroundImage(field.id);
+      return bytes ? new Blob([bytes], { type: field.mime_type }) : null;
+    },
     [],
   );
 
@@ -1680,10 +1794,10 @@ export function AppShell() {
     () =>
       derivePathDiagnostics(
         activePath?.path ?? null,
-        durableProject?.config ?? null,
+        durableProject ? activeField.geometry : null,
         durableProject?.linked_targets ?? [],
       ),
-    [activePath, durableProject?.config, durableProject?.linked_targets],
+    [activeField.geometry, activePath, durableProject],
   );
   // A broken reference should read as more urgent than a soft warning.
   const pathHealthSeverity = pathDiagnostics.some(
@@ -2389,6 +2503,7 @@ export function AppShell() {
           <>
             <section className="canvas-region" aria-label="Editor canvas">
               <PathStage
+                field={activeField}
                 activeTool={activeTool}
                 curveTool={curveToolSession}
                 onToolChange={handleToolChange}
@@ -2423,6 +2538,7 @@ export function AppShell() {
               project={durableProject}
               activePath={activePath}
               selectedElementIndex={selectedElementIndex}
+              fieldGeometry={activeField.geometry}
               open={inspectorOpen}
               inspectorWidth={inspectorWidth}
               curveToolActive={curveToolSession !== null}
@@ -2494,6 +2610,8 @@ export function AppShell() {
         <ProjectConfigDialog
           autoSyncEnabled={autoSyncEnabled}
           config={durableProject.config}
+          fieldBackgrounds={fieldBackgrounds}
+          selectedFieldId={selectedFieldId}
           onCancel={() => setShowConfigDialog(false)}
           onSave={handleSaveConfig}
           onUploadFieldImage={handleUploadFieldImage}
@@ -2559,6 +2677,7 @@ export function AppShell() {
         <LinkedTargetsDialog
           linkRequest={linkedTargetPickerRequest}
           project={durableProject}
+          field={activeField}
           onCancel={closeLinkedTargetsDialog}
         />
       ) : null}
@@ -4031,16 +4150,14 @@ function PathLibraryDialog({
 function LinkedTargetsDialog({
   linkRequest,
   project,
+  field,
   onCancel,
 }: {
   linkRequest?: LinkedTargetPickerRequest | null;
   project: Project;
+  field: ResolvedFieldDefinition;
   onCancel(): void;
 }) {
-  const field = useMemo(
-    () => resolveFieldDefinition(project.config.gui.field),
-    [project.config.gui.field],
-  );
   const [requestedTargetId, setSelectedTargetId] = useState<
     string | null | undefined
   >(undefined);

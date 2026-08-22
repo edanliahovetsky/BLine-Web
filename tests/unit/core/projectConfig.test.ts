@@ -9,7 +9,7 @@ import {
   blankGridFieldGeometry,
   builtInFieldDefinitions,
   defaultFieldId,
-  fieldGeometryFromConfig,
+  resolveUserFieldDefinition,
 } from "../../../src/core/field/fieldConfig";
 
 describe("project config", () => {
@@ -76,7 +76,12 @@ describe("project config", () => {
       asset_id: "field-practice.png",
       size_bytes: 128,
     });
-    expect(fieldGeometryFromConfig(config.gui.field)).toEqual({
+    expect(
+      resolveUserFieldDefinition(
+        config.gui.field.selected_field_id,
+        config.gui.field.custom_fields,
+      ).geometry,
+    ).toEqual({
       length_meters: 12,
       width_meters: 6,
       coordinate_offset_meters: 0.25,
@@ -170,7 +175,10 @@ describe("project config", () => {
         },
       },
     });
-    const geometry = fieldGeometryFromConfig(config.gui.field);
+    const geometry = resolveUserFieldDefinition(
+      config.gui.field.selected_field_id,
+      config.gui.field.custom_fields,
+    ).geometry;
 
     expect(geometry).toEqual(blankGridFieldGeometry);
     expect((geometry.length_meters * 2) % 1).toBe(0);

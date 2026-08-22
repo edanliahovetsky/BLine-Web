@@ -2692,8 +2692,8 @@ test("uploads and restores a custom field image from Settings", async ({
   });
   await expect(dialog.getByLabel("Field Name")).toBeEnabled();
   await dialog.getByLabel("Field Name").fill("Practice Field");
-  await dialog.getByLabel("Field Length (m)").fill("12");
-  await dialog.getByLabel("Field Width (m)").fill("6");
+  await dialog.getByLabel("Field Length (m)").fill("4");
+  await dialog.getByLabel("Field Width (m)").fill("2");
   await dialog.getByLabel("Field Padding X (m)").fill("0.25");
   await dialog.getByLabel("Field Padding Y (m)").fill("0.25");
   await saveButton.click();
@@ -2704,6 +2704,31 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect.poll(() => activeFieldLabel(page)).toBe("Practice Field");
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
 
+  // A smaller background changes the viewport, not the saved coordinates.
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
+  await expect(page.getByRole("button", { name: /^Path health/ })).toHaveClass(
+    /has-diagnostics--warning/,
+  );
+
+  // The off-field node is shown at the nearest edge. Its first drag commits
+  // the snap as one normal undoable Path edit.
+  const boundedNode = await canvasNodePosition(page, "path-element-node-0");
+  await page.mouse.move(boundedNode.x, boundedNode.y);
+  await page.mouse.down();
+  await page.mouse.move(boundedNode.x - 24, boundedNode.y + 24, { steps: 4 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => Number(await page.getByLabel("X (m)").inputValue()))
+    .toBeLessThanOrEqual(3.5);
+  await expect
+    .poll(async () => Number(await page.getByLabel("Y (m)").inputValue()))
+    .toBeLessThanOrEqual(1.5);
+  await runEditMenuAction(page, "Undo");
+  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
+
   await page.reload();
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
   await expect.poll(() => activeFieldLabel(page)).toBe("Practice Field");
@@ -2712,8 +2737,109 @@ test("uploads and restores a custom field image from Settings", async ({
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Field" }).click();
   await expect(page.getByLabel("Field Name")).toHaveValue("Practice Field");
-  await expect(page.getByLabel("Field Length (m)")).toHaveValue("12");
+  await expect(page.getByLabel("Field Length (m)")).toHaveValue("4");
   await page.getByRole("button", { name: "Close config" }).click();
+});
+
+test("migrates a legacy Project field image before deleting its old bytes", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const imageBytes = [...tinyPngBuffer()];
+
+  const seeded = await page.evaluate(async (bytes) => {
+    const storageKey = Object.keys(window.localStorage).find((key) =>
+      key.startsWith("bline-web:workspace:"),
+    );
+    if (!storageKey) {
+      throw new Error("Expected a saved browser Project");
+    }
+    const record = JSON.parse(window.localStorage.getItem(storageKey) ?? "");
+    const projectId = String(record.document.project_id);
+    const assetId = "legacy-practice.png";
+    const fieldId = "custom:legacy-practice";
+    record.document.config.gui.field = {
+      selected_field_id: fieldId,
+      custom_fields: [
+        {
+          id: fieldId,
+          name: "Legacy Practice Field",
+          asset_id: assetId,
+          file_name: assetId,
+          mime_type: "image/png",
+          size_bytes: bytes.length,
+          created_at: "2026-08-21T12:00:00.000Z",
+          geometry: {
+            length_meters: 8,
+            width_meters: 4,
+            coordinate_offset_meters: 0,
+          },
+        },
+      ],
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(record));
+    window.localStorage.removeItem("bline-web:user-data");
+
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("bline-web-field-assets", 1);
+      request.addEventListener("upgradeneeded", () => {
+        request.result.createObjectStore("field-assets", { keyPath: "key" });
+      });
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("field-assets", "readwrite");
+      transaction.objectStore("field-assets").put({
+        key: `${encodeURIComponent(projectId)}:${encodeURIComponent(assetId)}`,
+        workspaceId: projectId,
+        assetId,
+        fileName: assetId,
+        mimeType: "image/png",
+        bytes: new Uint8Array(bytes).buffer,
+        updatedAt: new Date().toISOString(),
+      });
+      transaction.addEventListener("complete", () => resolve());
+      transaction.addEventListener("error", () => reject(transaction.error));
+    });
+    database.close();
+    return { assetId, projectId };
+  }, imageBytes);
+
+  await page.reload();
+  await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
+  await expect.poll(() => activeFieldLabel(page)).toBe("Legacy Practice Field");
+  await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+
+  const migrated = await page.evaluate(async ({ assetId, projectId }) => {
+    const userData = JSON.parse(
+      window.localStorage.getItem("bline-web:user-data") ?? "{}",
+    );
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("bline-web-field-assets", 1);
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    const oldAsset = await new Promise<unknown>((resolve, reject) => {
+      const transaction = database.transaction("field-assets", "readonly");
+      const request = transaction
+        .objectStore("field-assets")
+        .get(`${encodeURIComponent(projectId)}:${encodeURIComponent(assetId)}`);
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    database.close();
+    return {
+      entryCount: userData.field_backgrounds?.length ?? 0,
+      selectedId:
+        userData.project_views?.[projectId]?.selected_field_background_id,
+      oldAssetPresent: oldAsset !== undefined,
+    };
+  }, seeded);
+
+  expect(migrated.entryCount).toBe(1);
+  expect(migrated.selectedId).toMatch(/^legacy-field-/);
+  expect(migrated.oldAssetPresent).toBe(false);
 });
 
 test("cancels project config edits with Escape", async ({ page }) => {

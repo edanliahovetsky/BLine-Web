@@ -896,8 +896,9 @@ describe("project document serde", () => {
           path_file_names: ["top_sweep.json", "bottom_sweep.json"],
         },
       ],
-      field_assets: {},
     });
+    expect(state).not.toHaveProperty("field_assets");
+    expect(state).not.toHaveProperty("editor_config.gui.field");
     expect(state.editor_config.gui.robot.length_meters).toBe(0.75);
     expect(state.editor_config.kinematic_constraints).toEqual({
       default_auto_velocity_velocity_safety_factor: 0.65,

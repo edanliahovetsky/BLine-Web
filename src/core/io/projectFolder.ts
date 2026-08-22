@@ -6,7 +6,9 @@ import type {
 } from "./projectSchema";
 import {
   deserializeProjectConfig,
+  projectConfigWithoutField,
   serializeBLineRuntimeConfig,
+  type ProjectConfigWithoutField,
 } from "./blineProject";
 import { stringifyBLineJson } from "./blineJson";
 import { serializePath } from "./projectSerde";
@@ -45,7 +47,6 @@ interface ImportRecord {
 
 export const autosEditorStateSchemaVersion = 1;
 export const autosEditorStatePath = ".bline-web/state.json";
-export const autosFieldAssetsPath = ".bline-web/assets/fields";
 
 type AutosEditorKinematicConstraints = Pick<
   ProjectConfig["kinematic_constraints"],
@@ -55,7 +56,9 @@ type AutosEditorKinematicConstraints = Pick<
 >;
 
 export interface AutosEditorConfigState {
-  gui: ProjectConfig["gui"];
+  gui: ProjectConfigWithoutField["gui"] & {
+    field?: ProjectConfig["gui"]["field"];
+  };
   kinematic_constraints: AutosEditorKinematicConstraints;
 }
 
@@ -77,7 +80,7 @@ export interface AutosEditorStateFile {
   path_groups: SerializedPathGroupFileEntry[];
   linked_targets: LinkedTarget[];
   paths: Record<string, AutosEditorPathState>;
-  field_assets: Record<string, AutosEditorFieldAssetState>;
+  field_assets?: Record<string, AutosEditorFieldAssetState>;
 }
 
 export function serializeBLineProjectFolder(
@@ -118,7 +121,7 @@ export function serializeAutosEditorState(
   return {
     schema_version: autosEditorStateSchemaVersion,
     editor_config: {
-      gui: structuredClone(workspace.config.gui),
+      gui: projectConfigWithoutField(workspace.config).gui,
       kinematic_constraints: {
         default_auto_velocity_velocity_safety_factor:
           workspace.config.kinematic_constraints
@@ -138,15 +141,6 @@ export function serializeAutosEditorState(
     path_groups: serializePathGroupsFile(workspace).groups,
     linked_targets: structuredClone(workspace.linked_targets),
     paths,
-    field_assets: Object.fromEntries(
-      workspace.config.gui.field.custom_fields.map((field) => [
-        field.asset_id,
-        {
-          file_name: field.file_name,
-          mime_type: field.mime_type,
-        },
-      ]),
-    ),
   };
 }
 

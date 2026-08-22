@@ -9,14 +9,8 @@ import {
   type ProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
 import { createProjectConfig } from "../../../src/core/config/projectConfig";
-import {
-  autosEditorStatePath,
-  autosFieldAssetsPath,
-} from "../../../src/core/io/projectFolder";
-import {
-  createProjectIoService,
-  type ProjectFolderExport,
-} from "../../../src/platform/projectIo";
+import { autosEditorStatePath } from "../../../src/core/io/projectFolder";
+import { createProjectIoService } from "../../../src/platform/projectIo";
 import {
   browserWebCapabilities,
   tauriCapabilities,
@@ -121,7 +115,7 @@ describe("ProjectIoService", () => {
     expect(imported.active_path_id).toBe("One.json");
   });
 
-  it("round-trips custom field images through archive and folder exports", async () => {
+  it("excludes local Field Background metadata and bytes from exports", async () => {
     const sourceStorage = new FieldAssetMemoryAdapter();
     const sourceService = createProjectIoService(browserWebCapabilities, {
       storage: sourceStorage,
@@ -131,15 +125,26 @@ describe("ProjectIoService", () => {
     });
 
     const imageBytes = new Uint8Array([1, 2, 3, 4]);
-    const customField = await sourceService.writeFieldImageAsset({
-      file: new File([imageBytes], "practice-field.png", {
-        type: "image/png",
-      }),
+    const customField = {
+      id: "custom:practice-field",
+      name: "Practice Field",
+      asset_id: "practice-field.png",
+      file_name: "practice-field.png",
+      mime_type: "image/png",
+      size_bytes: imageBytes.byteLength,
+      created_at: "2026-08-21T12:00:00.000Z",
       geometry: {
         length_meters: 12,
         width_meters: 6,
         coordinate_offset_meters: 0.25,
       },
+    };
+    await sourceStorage.writeFieldAsset({
+      workspaceId: "workspace-a",
+      assetId: customField.asset_id,
+      fileName: customField.file_name,
+      mimeType: customField.mime_type,
+      bytes: imageBytes,
     });
     const workspace = await sourceService.getWorkspace();
     if (!workspace) {
@@ -162,57 +167,14 @@ describe("ProjectIoService", () => {
     const archiveText = await (
       await sourceService.exportProjectArchive()
     ).text();
-    const archive = JSON.parse(archiveText) as {
-      config: {
-        gui: {
-          field: {
-            selected_field_id: string;
-            custom_fields: Array<{ asset_id: string }>;
-          };
-        };
-      };
-      field_assets: Array<{
-        asset_id: string;
-        file_name: string;
-        mime_type: string;
-        data_base64: string;
-      }>;
-    };
-
-    expect(archive.config.gui.field.selected_field_id).toBe(customField.id);
-    expect(JSON.stringify(archive.config.gui.field)).not.toContain("AQIDBA");
-    expect(archive.field_assets).toEqual([
-      {
-        asset_id: customField.asset_id,
-        file_name: "practice-field.png",
-        mime_type: "image/png",
-        data_base64: "AQIDBA==",
-      },
-    ]);
-
-    const archiveTarget = createProjectIoService(browserWebCapabilities, {
-      storage: new FieldAssetMemoryAdapter(),
-    });
-    const archiveImported = await archiveTarget.importProjectArchive(
-      new File([archiveText], "alpha.bline.json", {
-        type: "application/json",
-      }),
-    );
-
-    expect(archiveImported.config.gui.field.selected_field_id).toBe(
-      customField.id,
-    );
-    await expect(
-      imageBlobBytes(
-        await archiveTarget.readFieldImageAsset(
-          archiveImported.config.gui.field.custom_fields[0],
-        ),
-      ),
-    ).resolves.toEqual([...imageBytes]);
+    const archive = JSON.parse(archiveText) as Record<string, unknown>;
+    expect(archive).not.toHaveProperty("field_assets");
+    expect(archive).not.toHaveProperty("config.gui.field");
+    expect(archiveText).not.toContain("AQIDBA");
 
     const folder = await sourceService.exportProjectFolder();
-    expect(folder.files.map((file) => file.relativePath)).toContain(
-      `${autosFieldAssetsPath}/${customField.asset_id}`,
+    expect(folder.files.map((file) => file.relativePath)).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("assets/fields")]),
     );
     const configFile = folder.files.find(
       (file) => file.relativePath === "config.json",
@@ -229,31 +191,13 @@ describe("ProjectIoService", () => {
     const folderConfig = JSON.parse(await configFile.blob.text()) as {
       gui?: unknown;
     };
-    const folderState = JSON.parse(await stateFile.blob.text()) as {
-      editor_config: { gui: { field: unknown } };
-    };
+    const folderState = JSON.parse(await stateFile.blob.text()) as Record<
+      string,
+      unknown
+    >;
     expect(folderConfig.gui).toBeUndefined();
-    expect(JSON.stringify(folderState.editor_config.gui.field)).not.toContain(
-      "AQIDBA",
-    );
-
-    const folderTarget = createProjectIoService(browserWebCapabilities, {
-      storage: new FieldAssetMemoryAdapter(),
-    });
-    const folderImported = await folderTarget.importProjectFolder(
-      await importFilesFromProjectFolder(folder),
-    );
-
-    expect(folderImported.config.gui.field.selected_field_id).toBe(
-      customField.id,
-    );
-    await expect(
-      imageBlobBytes(
-        await folderTarget.readFieldImageAsset(
-          folderImported.config.gui.field.custom_fields[0],
-        ),
-      ),
-    ).resolves.toEqual([...imageBytes]);
+    expect(folderState).not.toHaveProperty("editor_config.gui.field");
+    expect(folderState).not.toHaveProperty("field_assets");
   });
 
   it("deletes the current browser project and opens the next available workspace", async () => {
@@ -417,31 +361,6 @@ class FieldAssetMemoryAdapter implements StorageAdapter {
   async deleteFieldAsset(workspaceId: string, assetId: string): Promise<void> {
     this.assets.delete(assetKey(workspaceId, assetId));
   }
-}
-
-async function importFilesFromProjectFolder(
-  folder: ProjectFolderExport,
-): Promise<File[]> {
-  return Promise.all(
-    folder.files.map(async (file) => {
-      const name = file.relativePath.split("/").at(-1) ?? file.relativePath;
-      const input = new File([await file.blob.arrayBuffer()], name, {
-        type: file.blob.type,
-      });
-      Object.defineProperty(input, "webkitRelativePath", {
-        value: `autos/${file.relativePath}`,
-      });
-      return input;
-    }),
-  );
-}
-
-async function imageBlobBytes(blob: Blob | null): Promise<number[]> {
-  if (!blob) {
-    throw new Error("Expected field image asset to be readable");
-  }
-
-  return [...new Uint8Array(await blob.arrayBuffer())];
 }
 
 function assetKey(workspaceId: string, assetId: string): string {

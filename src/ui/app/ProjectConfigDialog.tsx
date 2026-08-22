@@ -15,8 +15,8 @@ import {
   defaultFieldId,
   fieldCoordinateOffsetXMeters,
   fieldCoordinateOffsetYMeters,
-  resolveFieldDefinition,
-  type CustomFieldImage,
+  resolveUserFieldDefinition,
+  type FieldBackgroundEntry,
   type FieldGeometry,
   type ResolvedFieldDefinition,
 } from "../../core/field/fieldConfig";
@@ -44,29 +44,53 @@ type ConfigSectionId = (typeof configSections)[number]["id"];
 interface ProjectConfigDialogProps {
   config: ProjectConfig;
   autoSyncEnabled: boolean;
+  fieldBackgrounds: readonly FieldBackgroundEntry[];
+  selectedFieldId: string;
   onCancel(): void;
   onSave(
     config: ProjectConfig,
-    options: { autoSyncEnabled: boolean; configChanged: boolean },
-  ): void;
+    options: {
+      autoSyncEnabled: boolean;
+      configChanged: boolean;
+      selectedFieldId: string;
+      fieldBackgrounds: FieldBackgroundEntry[];
+    },
+  ): void | Promise<void>;
   onUploadFieldImage(
     file: File,
     geometry: FieldGeometry,
-  ): Promise<CustomFieldImage>;
-  onLoadFieldImage(field: CustomFieldImage): Promise<Blob | null>;
+  ): Promise<FieldBackgroundEntry>;
+  onLoadFieldImage(field: FieldBackgroundEntry): Promise<Blob | null>;
+}
+
+interface FieldDraft {
+  selectedFieldId: string;
+  fieldBackgrounds: FieldBackgroundEntry[];
 }
 
 export function ProjectConfigDialog({
   config,
   autoSyncEnabled,
+  fieldBackgrounds,
+  selectedFieldId,
   onCancel,
   onSave,
   onUploadFieldImage,
   onLoadFieldImage,
 }: ProjectConfigDialogProps) {
   const initialConfig = useMemo(() => createProjectConfig(config), [config]);
+  const initialFieldDraft = useMemo<FieldDraft>(
+    () => ({
+      selectedFieldId,
+      fieldBackgrounds: structuredClone([...fieldBackgrounds]),
+    }),
+    [fieldBackgrounds, selectedFieldId],
+  );
   const [draft, setDraft] = useState<ProjectConfig>(() =>
     createProjectConfig(config),
+  );
+  const [fieldDraft, setFieldDraft] = useState<FieldDraft>(() =>
+    structuredClone(initialFieldDraft),
   );
   const [draftAutoSyncEnabled, setDraftAutoSyncEnabled] =
     useState(autoSyncEnabled);
@@ -78,24 +102,48 @@ export function ProjectConfigDialog({
   } | null>(null);
   const [fieldUploadError, setFieldUploadError] = useState<string | null>(null);
   const [fieldUploading, setFieldUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
   const configChanged = !configsEqual(initialConfig, normalizedDraft);
-  const isDirty = configChanged || draftAutoSyncEnabled !== autoSyncEnabled;
+  const fieldChanged = !fieldDraftsEqual(initialFieldDraft, fieldDraft);
+  const isDirty =
+    configChanged || fieldChanged || draftAutoSyncEnabled !== autoSyncEnabled;
   const selectedField = useMemo(
-    () => resolveFieldDefinition(draft.gui.field),
-    [draft.gui.field],
+    () =>
+      resolveUserFieldDefinition(
+        fieldDraft.selectedFieldId,
+        fieldDraft.fieldBackgrounds,
+      ),
+    [fieldDraft],
   );
-  const selectedCustomField = selectedField.custom ?? null;
+  const selectedCustomField = useMemo(
+    () =>
+      fieldDraft.fieldBackgrounds.find(
+        (field) => field.id === fieldDraft.selectedFieldId,
+      ) ?? null,
+    [fieldDraft],
+  );
   const protrusionsEnabled = draft.gui.protrusions.enabled;
   const protrusionDefaultStateOptions = protrusionsEnabled
     ? ["shown", "hidden"]
     : [""];
 
   const saveDraft = () => {
-    if (isDirty) {
-      onSave(normalizedDraft, {
-        autoSyncEnabled: draftAutoSyncEnabled,
-        configChanged,
+    if (isDirty && !saving) {
+      setSaving(true);
+      setFieldUploadError(null);
+      void Promise.resolve(
+        onSave(normalizedDraft, {
+          autoSyncEnabled: draftAutoSyncEnabled,
+          configChanged,
+          selectedFieldId: fieldDraft.selectedFieldId,
+          fieldBackgrounds: structuredClone(fieldDraft.fieldBackgrounds),
+        }),
+      ).catch((error: unknown) => {
+        setSaving(false);
+        setFieldUploadError(
+          error instanceof Error ? error.message : String(error),
+        );
       });
     }
   };
@@ -175,14 +223,14 @@ export function ProjectConfigDialog({
           <div className="config-dialog__content">
             {activeSection === "field" ? (
               <FieldSettingsSection
-                draft={draft}
+                fieldDraft={fieldDraft}
                 fieldInputRef={fieldInputRef}
                 fieldPreviewUrl={fieldPreviewUrl}
                 fieldUploadError={fieldUploadError}
                 fieldUploading={fieldUploading}
                 selectedCustomField={selectedCustomField}
                 selectedField={selectedField}
-                setDraft={setDraft}
+                setFieldDraft={setFieldDraft}
                 setFieldUploadError={setFieldUploadError}
                 setFieldUploading={setFieldUploading}
                 onUploadFieldImage={onUploadFieldImage}
@@ -220,10 +268,10 @@ export function ProjectConfigDialog({
           <button
             type="button"
             className="primary-action"
-            disabled={!isDirty}
+            disabled={!isDirty || saving}
             onClick={saveDraft}
           >
-            Save
+            {saving ? "Saving…" : "Save"}
           </button>
         </footer>
       </form>
@@ -292,32 +340,32 @@ function ConfigSubsection({
 }
 
 function FieldSettingsSection({
-  draft,
+  fieldDraft,
   fieldInputRef,
   fieldPreviewUrl,
   fieldUploadError,
   fieldUploading,
   selectedCustomField,
   selectedField,
-  setDraft,
+  setFieldDraft,
   setFieldUploadError,
   setFieldUploading,
   onUploadFieldImage,
 }: {
-  draft: ProjectConfig;
+  fieldDraft: FieldDraft;
   fieldInputRef: RefObject<HTMLInputElement | null>;
   fieldPreviewUrl: string | null;
   fieldUploadError: string | null;
   fieldUploading: boolean;
-  selectedCustomField: CustomFieldImage | null;
+  selectedCustomField: FieldBackgroundEntry | null;
   selectedField: ResolvedFieldDefinition;
-  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+  setFieldDraft: Dispatch<SetStateAction<FieldDraft>>;
   setFieldUploadError(value: string | null): void;
   setFieldUploading(value: boolean): void;
   onUploadFieldImage(
     file: File,
     geometry: FieldGeometry,
-  ): Promise<CustomFieldImage>;
+  ): Promise<FieldBackgroundEntry>;
 }) {
   return (
     <ConfigSection title="Field">
@@ -337,9 +385,9 @@ function FieldSettingsSection({
 
         <div className="config-dialog__section-body">
           <FieldSelectRow
-            value={draft.gui.field.selected_field_id}
-            customFields={draft.gui.field.custom_fields}
-            onChange={(value) => updateFieldSelection(setDraft, value)}
+            value={fieldDraft.selectedFieldId}
+            customFields={fieldDraft.fieldBackgrounds}
+            onChange={(value) => updateFieldSelection(setFieldDraft, value)}
           />
           <div className="config-dialog__button-row">
             <button
@@ -352,7 +400,7 @@ function FieldSettingsSection({
             {selectedCustomField ? (
               <button
                 type="button"
-                onClick={() => removeSelectedCustomField(setDraft)}
+                onClick={() => removeSelectedCustomField(setFieldDraft)}
               >
                 Remove Custom Field
               </button>
@@ -370,9 +418,9 @@ function FieldSettingsSection({
               if (file) {
                 void uploadCustomFieldImage({
                   file,
-                  draft,
+                  fieldDraft,
                   selectedCustomField,
-                  setDraft,
+                  setFieldDraft,
                   setFieldUploading,
                   setFieldUploadError,
                   onUploadFieldImage,
@@ -385,7 +433,7 @@ function FieldSettingsSection({
             value={selectedCustomField?.name ?? selectedField.label}
             disabled={!selectedCustomField}
             onChange={(value) =>
-              updateSelectedCustomField(setDraft, { name: value })
+              updateSelectedCustomField(setFieldDraft, { name: value })
             }
           />
           <NumberRow
@@ -396,7 +444,7 @@ function FieldSettingsSection({
             step={0.01}
             disabled={!selectedCustomField}
             onChange={(value) =>
-              updateSelectedCustomFieldDimensions(setDraft, {
+              updateSelectedCustomFieldDimensions(setFieldDraft, {
                 length_meters: value,
               })
             }
@@ -409,7 +457,7 @@ function FieldSettingsSection({
             step={0.01}
             disabled={!selectedCustomField}
             onChange={(value) =>
-              updateSelectedCustomFieldDimensions(setDraft, {
+              updateSelectedCustomFieldDimensions(setFieldDraft, {
                 width_meters: value,
               })
             }
@@ -423,7 +471,7 @@ function FieldSettingsSection({
             disabled={!selectedCustomField}
             onChange={(value) =>
               updateSelectedCustomFieldGeometry(
-                setDraft,
+                setFieldDraft,
                 selectedField.geometry,
                 "x",
                 value,
@@ -439,7 +487,7 @@ function FieldSettingsSection({
             disabled={!selectedCustomField}
             onChange={(value) =>
               updateSelectedCustomFieldGeometry(
-                setDraft,
+                setFieldDraft,
                 selectedField.geometry,
                 "y",
                 value,
@@ -723,7 +771,7 @@ function FieldSelectRow({
   onChange,
 }: {
   value: string;
-  customFields: readonly CustomFieldImage[];
+  customFields: readonly FieldBackgroundEntry[];
   onChange(value: string): void;
 }) {
   return (
@@ -915,43 +963,32 @@ function updateProtrusions(
 }
 
 function updateFieldSelection(
-  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  setFieldDraft: Dispatch<SetStateAction<FieldDraft>>,
   selectedFieldId: string,
 ): void {
-  setDraft((current) => ({
+  setFieldDraft((current) => ({
     ...current,
-    gui: {
-      ...current.gui,
-      field: {
-        ...current.gui.field,
-        selected_field_id: selectedFieldId,
-      },
-    },
+    selectedFieldId,
   }));
 }
 
 function removeSelectedCustomField(
-  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  setFieldDraft: Dispatch<SetStateAction<FieldDraft>>,
 ): void {
-  setDraft((current) => {
-    const selectedId = current.gui.field.selected_field_id;
+  setFieldDraft((current) => {
+    const selectedId = current.selectedFieldId;
     return {
       ...current,
-      gui: {
-        ...current.gui,
-        field: {
-          selected_field_id: defaultFieldId,
-          custom_fields: current.gui.field.custom_fields.filter(
-            (field) => field.id !== selectedId,
-          ),
-        },
-      },
+      selectedFieldId: defaultFieldId,
+      fieldBackgrounds: current.fieldBackgrounds.filter(
+        (field) => field.id !== selectedId,
+      ),
     };
   });
 }
 
 function updateSelectedCustomFieldGeometry(
-  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  setFieldDraft: Dispatch<SetStateAction<FieldDraft>>,
   currentGeometry: FieldGeometry,
   axis: "x" | "y",
   value: number,
@@ -960,7 +997,7 @@ function updateSelectedCustomFieldGeometry(
     axis === "x" ? value : fieldCoordinateOffsetXMeters(currentGeometry);
   const offsetY =
     axis === "y" ? value : fieldCoordinateOffsetYMeters(currentGeometry);
-  updateSelectedCustomField(setDraft, {
+  updateSelectedCustomField(setFieldDraft, {
     geometry: {
       coordinate_offset_meters:
         offsetX === offsetY
@@ -973,90 +1010,80 @@ function updateSelectedCustomFieldGeometry(
 }
 
 function updateSelectedCustomFieldDimensions(
-  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
+  setFieldDraft: Dispatch<SetStateAction<FieldDraft>>,
   geometry: Partial<Pick<FieldGeometry, "length_meters" | "width_meters">>,
 ): void {
-  updateSelectedCustomField(setDraft, { geometry });
+  updateSelectedCustomField(setFieldDraft, { geometry });
 }
 
 function updateSelectedCustomField(
-  setDraft: Dispatch<SetStateAction<ProjectConfig>>,
-  update: Partial<Pick<CustomFieldImage, "name">> & {
+  setFieldDraft: Dispatch<SetStateAction<FieldDraft>>,
+  update: Partial<Pick<FieldBackgroundEntry, "name">> & {
     geometry?: Partial<FieldGeometry>;
   },
 ): void {
-  setDraft((current) => {
-    const selectedId = current.gui.field.selected_field_id;
+  setFieldDraft((current) => {
+    const selectedId = current.selectedFieldId;
     return {
       ...current,
-      gui: {
-        ...current.gui,
-        field: {
-          ...current.gui.field,
-          custom_fields: current.gui.field.custom_fields.map((field) =>
-            field.id === selectedId
-              ? {
-                  ...field,
-                  ...("name" in update
-                    ? { name: update.name ?? field.name }
-                    : {}),
-                  geometry: update.geometry
-                    ? {
-                        ...field.geometry,
-                        ...update.geometry,
-                      }
-                    : field.geometry,
-                }
-              : field,
-          ),
-        },
-      },
+      fieldBackgrounds: current.fieldBackgrounds.map((field) =>
+        field.id === selectedId
+          ? {
+              ...field,
+              ...("name" in update ? { name: update.name ?? field.name } : {}),
+              geometry: update.geometry
+                ? {
+                    ...field.geometry,
+                    ...update.geometry,
+                  }
+                : field.geometry,
+            }
+          : field,
+      ),
     };
   });
 }
 
 async function uploadCustomFieldImage({
   file,
-  draft,
+  fieldDraft,
   selectedCustomField,
-  setDraft,
+  setFieldDraft,
   setFieldUploading,
   setFieldUploadError,
   onUploadFieldImage,
 }: {
   file: File;
-  draft: ProjectConfig;
-  selectedCustomField: CustomFieldImage | null;
-  setDraft: Dispatch<SetStateAction<ProjectConfig>>;
+  fieldDraft: FieldDraft;
+  selectedCustomField: FieldBackgroundEntry | null;
+  setFieldDraft: Dispatch<SetStateAction<FieldDraft>>;
   setFieldUploading(value: boolean): void;
   setFieldUploadError(value: string | null): void;
   onUploadFieldImage(
     file: File,
     geometry: FieldGeometry,
-  ): Promise<CustomFieldImage>;
+  ): Promise<FieldBackgroundEntry>;
 }): Promise<void> {
   setFieldUploading(true);
   setFieldUploadError(null);
   try {
     const fallbackGeometry =
       selectedCustomField?.geometry ??
-      resolveFieldDefinition(draft.gui.field).geometry;
+      resolveUserFieldDefinition(
+        fieldDraft.selectedFieldId,
+        fieldDraft.fieldBackgrounds,
+      ).geometry;
     const geometry = await inferCustomFieldGeometry(file, fallbackGeometry);
     const uploaded = await onUploadFieldImage(file, geometry);
-    setDraft((current) => ({
+    setFieldDraft((current) => ({
       ...current,
-      gui: {
-        ...current.gui,
-        field: {
-          selected_field_id: uploaded.id,
-          custom_fields: [
-            ...current.gui.field.custom_fields.filter(
-              (field) => field.id !== selectedCustomField?.id,
-            ),
-            uploaded,
-          ],
-        },
-      },
+      selectedFieldId: uploaded.id,
+      fieldBackgrounds: [
+        ...current.fieldBackgrounds.filter(
+          (field) => field.id !== selectedCustomField?.id,
+        ),
+        uploaded,
+      ],
     }));
   } catch (error) {
     setFieldUploadError(error instanceof Error ? error.message : String(error));
@@ -1142,5 +1169,9 @@ function parseKeyList(value: string): string[] {
 }
 
 function configsEqual(left: ProjectConfig, right: ProjectConfig): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function fieldDraftsEqual(left: FieldDraft, right: FieldDraft): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }

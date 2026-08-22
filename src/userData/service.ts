@@ -44,6 +44,13 @@ export class FieldBackgroundAssetVerificationError extends Error {
   }
 }
 
+export class UserDataVerificationError extends Error {
+  constructor() {
+    super("User Data did not round-trip exactly after it was written");
+    this.name = "UserDataVerificationError";
+  }
+}
+
 export class UserDataService {
   private snapshot = cloneUserData(defaultUserData);
   private pendingWrite: Promise<void> = Promise.resolve();
@@ -115,49 +122,51 @@ export class UserDataService {
     await this.pendingWrite;
   }
 
-  /**
-   * The optional explicit ID is reserved for deterministic internal migration.
-   * Ordinary imports must omit it so every call receives a fresh global ID.
-   */
+  async verifyDurableSnapshot(): Promise<void> {
+    await this.flush();
+    const persisted = migrateUserData(await this.adapter.read());
+    if (!sameUserData(persisted, this.snapshot)) {
+      throw new UserDataVerificationError();
+    }
+  }
+
   async createFieldBackgroundFromBytes(
     input: CreateFieldBackgroundInput,
-    explicitEntryId?: string,
   ): Promise<FieldBackgroundEntry> {
     this.assertWritable();
-    const entryId = this.allocateEntryId(explicitEntryId);
+    const entryId = this.allocateEntryId();
+    const bytes = new Uint8Array(input.bytes);
+    return this.enqueue(() => this.commitNewField(entryId, input, bytes));
+  }
+
+  async migrateLegacyFieldBackgroundFromBytes(
+    input: CreateFieldBackgroundInput,
+    legacyKey: string,
+  ): Promise<FieldBackgroundEntry> {
+    this.assertWritable();
+    const entryId = legacyFieldBackgroundId(legacyKey);
     const bytes = new Uint8Array(input.bytes);
     return this.enqueue(async () => {
-      const entry = this.normalizedEntry({
-        id: entryId,
-        name: input.name,
-        file_name: input.fileName,
-        mime_type: input.mimeType,
-        size_bytes: bytes.byteLength,
-        created_at: this.now().toISOString(),
-        geometry: structuredClone(input.geometry),
-      });
-      let metadataCommitted = false;
-      try {
-        await this.adapter.writeFieldAsset(entryId, bytes);
+      const existing = this.snapshot.field_backgrounds.find(
+        (entry) => entry.id === entryId,
+      );
+      if (existing) {
         const readback = await this.adapter.readFieldAsset(entryId);
-        if (!readback || !bytesEqual(bytes, readback)) {
+        if (readback && !bytesEqual(bytes, readback)) {
           throw new FieldBackgroundAssetVerificationError(entryId);
         }
-        const next = this.withFieldEntries([
-          ...this.snapshot.field_backgrounds,
-          entry,
-        ]);
-        await this.adapter.write(next);
-        this.snapshot = next;
-        metadataCommitted = true;
-        return structuredClone(entry);
-      } catch (error) {
-        if (!metadataCommitted) {
-          await this.deleteAssetBestEffort(entryId);
-          this.issuedEntryIds.delete(entryId);
+        if (!readback) {
+          await this.writeVerifiedAsset(entryId, bytes);
         }
-        throw error;
+        await this.verifyDurableEntry(existing);
+        return structuredClone(existing);
       }
+
+      if (this.issuedEntryIds.has(entryId)) {
+        throw new Error("Duplicate legacy Field Background ID");
+      }
+      this.issuedEntryIds.add(entryId);
+      return this.commitNewField(entryId, input, bytes);
     });
   }
 
@@ -247,6 +256,62 @@ export class UserDataService {
     );
   }
 
+  private async commitNewField(
+    entryId: string,
+    input: CreateFieldBackgroundInput,
+    bytes: Uint8Array,
+  ): Promise<FieldBackgroundEntry> {
+    const entry = this.normalizedEntry({
+      id: entryId,
+      name: input.name,
+      file_name: input.fileName,
+      mime_type: input.mimeType,
+      size_bytes: bytes.byteLength,
+      created_at: this.now().toISOString(),
+      geometry: structuredClone(input.geometry),
+    });
+    let metadataCommitted = false;
+    try {
+      await this.writeVerifiedAsset(entryId, bytes);
+      const next = this.withFieldEntries([
+        ...this.snapshot.field_backgrounds,
+        entry,
+      ]);
+      await this.adapter.write(next);
+      this.snapshot = next;
+      metadataCommitted = true;
+      await this.verifyDurableEntry(entry);
+      return structuredClone(entry);
+    } catch (error) {
+      if (!metadataCommitted) {
+        await this.deleteAssetBestEffort(entryId);
+        this.issuedEntryIds.delete(entryId);
+      }
+      throw error;
+    }
+  }
+
+  private async writeVerifiedAsset(
+    entryId: string,
+    bytes: Uint8Array,
+  ): Promise<void> {
+    await this.adapter.writeFieldAsset(entryId, bytes);
+    const readback = await this.adapter.readFieldAsset(entryId);
+    if (!readback || !bytesEqual(bytes, readback)) {
+      throw new FieldBackgroundAssetVerificationError(entryId);
+    }
+  }
+
+  private async verifyDurableEntry(entry: FieldBackgroundEntry): Promise<void> {
+    const persisted = migrateUserData(await this.adapter.read());
+    const durableEntry = persisted.field_backgrounds.find(
+      (candidate) => candidate.id === entry.id,
+    );
+    if (!durableEntry || !sameUserData(durableEntry, entry)) {
+      throw new UserDataVerificationError();
+    }
+  }
+
   private async tryWrite(snapshot: UserData): Promise<void> {
     try {
       await this.adapter.write(
@@ -277,18 +342,7 @@ export class UserDataService {
     }
   }
 
-  private allocateEntryId(explicitEntryId?: string): string {
-    if (explicitEntryId !== undefined) {
-      if (
-        !isSafeFieldBackgroundId(explicitEntryId) ||
-        this.issuedEntryIds.has(explicitEntryId)
-      ) {
-        throw new Error(`Unsafe or duplicate Field Background ID`);
-      }
-      this.issuedEntryIds.add(explicitEntryId);
-      return explicitEntryId;
-    }
-
+  private allocateEntryId(): string {
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const candidate = this.makeId();
       if (
@@ -338,9 +392,22 @@ export class UserDataService {
   }
 }
 
+function legacyFieldBackgroundId(legacyKey: string): string {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(legacyKey)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `legacy-field-${(hash >>> 0).toString(36)}`;
+}
+
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return (
     left.byteLength === right.byteLength &&
     left.every((value, index) => value === right[index])
   );
+}
+
+function sameUserData(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

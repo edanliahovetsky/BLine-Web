@@ -45,6 +45,17 @@ export interface CustomFieldImage {
   geometry: FieldGeometry;
 }
 
+/** A user-owned Field Background. Image bytes are stored separately by ID. */
+export interface FieldBackgroundEntry {
+  id: string;
+  name: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+  geometry: FieldGeometry;
+}
+
 export interface ProjectFieldConfig {
   selected_field_id: string;
   custom_fields: CustomFieldImage[];
@@ -56,7 +67,7 @@ export interface ResolvedFieldDefinition {
   kind: FieldImageKind;
   geometry: FieldGeometry;
   image_src?: string;
-  custom?: CustomFieldImage;
+  user_entry?: FieldBackgroundEntry;
   attribution?: string;
 }
 
@@ -204,12 +215,12 @@ export function createProjectFieldConfig(input?: unknown): ProjectFieldConfig {
   return config;
 }
 
-export function resolveFieldDefinition(
-  config: ProjectFieldConfig | null | undefined,
+export function resolveUserFieldDefinition(
+  selectedFieldId: string | null | undefined,
+  fieldBackgrounds: readonly FieldBackgroundEntry[],
 ): ResolvedFieldDefinition {
-  const normalized = config ?? defaultProjectFieldConfig;
   const builtIn = builtInFieldDefinitions.find(
-    (field) => field.id === normalized.selected_field_id,
+    (field) => field.id === selectedFieldId,
   );
   if (builtIn) {
     return {
@@ -222,26 +233,18 @@ export function resolveFieldDefinition(
     };
   }
 
-  const custom = normalized.custom_fields.find(
-    (field) => field.id === normalized.selected_field_id,
-  );
-  if (custom) {
+  const entry = fieldBackgrounds.find((field) => field.id === selectedFieldId);
+  if (entry) {
     return {
-      id: custom.id,
-      label: custom.name,
+      id: entry.id,
+      label: entry.name,
       kind: "image",
-      geometry: cloneGeometry(custom.geometry),
-      custom,
+      geometry: cloneGeometry(entry.geometry),
+      user_entry: entry,
     };
   }
 
-  return resolveFieldDefinition(defaultProjectFieldConfig);
-}
-
-export function fieldGeometryFromConfig(
-  config: ProjectFieldConfig | null | undefined,
-): FieldGeometry {
-  return resolveFieldDefinition(config).geometry;
+  return resolveUserFieldDefinition(defaultFieldId, fieldBackgrounds);
 }
 
 export function fieldCoordinateOffsetXMeters(field: FieldGeometry): number {
@@ -278,28 +281,6 @@ export function createPathPlannerFieldGeometry(input: {
     pixels_per_meter: input.pixelsPerMeter,
     margin_meters: input.marginMeters ?? 0,
   });
-}
-
-export function createCustomFieldImage(input: {
-  id: string;
-  name: string;
-  assetId: string;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  createdAt: string;
-  geometry?: Partial<FieldGeometry>;
-}): CustomFieldImage {
-  return {
-    id: input.id,
-    name: input.name.trim() || "Custom Field",
-    asset_id: input.assetId,
-    file_name: input.fileName,
-    mime_type: input.mimeType,
-    size_bytes: Math.max(0, Math.trunc(input.sizeBytes)),
-    created_at: input.createdAt,
-    geometry: normalizeGeometry(input.geometry, defaultFieldGeometry),
-  };
 }
 
 function normalizeCustomField(input: unknown): CustomFieldImage | null {

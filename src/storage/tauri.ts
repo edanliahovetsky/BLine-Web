@@ -91,14 +91,14 @@ export class TauriStorage implements ProjectFolderAdapter {
   }
 
   async readFieldAsset(
-    _workspaceId: string,
+    workspaceId: string,
     assetId: string,
   ): Promise<FieldAssetPayload | null> {
     const payload = await this.invoke<{
       fileName: string;
       mimeType: string;
       bytes: number[];
-    } | null>("storage_read_field_asset", { assetId });
+    } | null>("storage_read_field_asset", { workspaceId, assetId });
 
     return payload
       ? {
@@ -109,8 +109,8 @@ export class TauriStorage implements ProjectFolderAdapter {
       : null;
   }
 
-  async deleteFieldAsset(_workspaceId: string, assetId: string): Promise<void> {
-    await this.invoke("storage_delete_field_asset", { assetId });
+  async deleteFieldAsset(workspaceId: string, assetId: string): Promise<void> {
+    await this.invoke("storage_delete_field_asset", { workspaceId, assetId });
   }
 
   async getCurrentWorkspace(): Promise<ProjectWorkspaceSummary | null> {

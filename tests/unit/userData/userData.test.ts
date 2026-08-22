@@ -362,28 +362,6 @@ describe("UserData", () => {
     expect(service.getSnapshot().field_backgrounds).toHaveLength(2);
   });
 
-  it("accepts an explicit safe ID only for the service migration operation", async () => {
-    const adapter = new AssetMemoryAdapter();
-    const service = new UserDataService(adapter);
-    await service.initialize();
-
-    const entry = await service.createFieldBackgroundFromBytes(
-      fieldInput(),
-      "legacy-project-field",
-    );
-
-    expect(entry.id).toBe("legacy-project-field");
-    await expect(
-      service.createFieldBackgroundFromBytes(
-        fieldInput(),
-        "legacy-project-field",
-      ),
-    ).rejects.toThrow("Unsafe or duplicate");
-    await expect(
-      service.createFieldBackgroundFromBytes(fieldInput(), "../unsafe"),
-    ).rejects.toThrow("Unsafe or duplicate");
-  });
-
   it.each(["asset-write", "readback", "metadata-write"] as const)(
     "%s failure leaves no Field Background metadata exposed",
     async (failure) => {
@@ -416,16 +394,40 @@ describe("UserData", () => {
     adapter.readbackOverride = new Uint8Array([9]);
 
     await expect(
-      service.createFieldBackgroundFromBytes(fieldInput(), "legacy-field"),
+      service.migrateLegacyFieldBackgroundFromBytes(fieldInput(), "source-a"),
     ).rejects.toBeInstanceOf(FieldBackgroundAssetVerificationError);
 
     adapter.readbackOverride = undefined;
-    const entry = await service.createFieldBackgroundFromBytes(
+    const entry = await service.migrateLegacyFieldBackgroundFromBytes(
       fieldInput(),
-      "legacy-field",
+      "source-a",
+    );
+    const retried = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "source-a",
     );
 
-    expect(entry.id).toBe("legacy-field");
+    expect(retried).toEqual(entry);
+    expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
+  });
+
+  it("repairs missing migrated bytes without creating another entry", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+    const entry = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "source-a",
+    );
+    adapter.assets.delete(entry.id);
+
+    const repaired = await service.migrateLegacyFieldBackgroundFromBytes(
+      fieldInput(),
+      "source-a",
+    );
+
+    expect(repaired).toEqual(entry);
+    expect(adapter.assets.get(entry.id)).toEqual(new Uint8Array([1, 2, 3, 4]));
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
   });
 

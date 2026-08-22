@@ -18,9 +18,9 @@ import {
   type AnchorRadiusState,
 } from "../../core/model/handoffRadii";
 import {
+  defaultFieldGeometry,
   fieldCoordinateLengthMeters,
   fieldCoordinateWidthMeters,
-  fieldGeometryFromConfig,
   type FieldGeometry,
 } from "../../core/field/fieldConfig";
 import {
@@ -577,11 +577,12 @@ export function createDefaultElement(
   config: ProjectConfig,
   type: AddableElementType,
   selectedIndex: number | null,
+  field: FieldGeometry = defaultFieldGeometry,
 ): PathElement {
   const resolvedType = getAddableElementTypes(path).includes(type)
     ? type
     : "translation";
-  const position = defaultPosition(path, config, selectedIndex);
+  const position = defaultPosition(path, field, selectedIndex);
   const headingRadians =
     selectedIndex === null
       ? 0
@@ -626,9 +627,10 @@ export function createDefaultElement(
 
 export function createConvertedElement(
   path: PathModel,
-  config: ProjectConfig,
+  _config: ProjectConfig,
   index: number,
   nextType: AddableElementType,
+  field: FieldGeometry = defaultFieldGeometry,
 ): PathElement | null {
   const element = path.path_elements[index];
   if (!element || element.type === nextType) {
@@ -647,7 +649,6 @@ export function createConvertedElement(
   const ratio = getExistingRatio(element);
 
   if (nextType === "translation") {
-    const field = fieldGeometryFromConfig(config.gui.field);
     return createTranslationTarget({
       x_meters: position?.x_meters ?? field.length_meters / 2,
       y_meters: position?.y_meters ?? field.width_meters / 2,
@@ -657,7 +658,6 @@ export function createConvertedElement(
   }
 
   if (nextType === "waypoint") {
-    const field = fieldGeometryFromConfig(config.gui.field);
     return createWaypoint({
       translation_target: createTranslationTarget({
         x_meters: position?.x_meters ?? field.length_meters / 2,
@@ -958,10 +958,9 @@ function sameRangedConstraint(
 
 function defaultPosition(
   path: PathModel,
-  config: ProjectConfig,
+  field: FieldGeometry,
   selectedIndex: number | null,
 ): { x_meters: number; y_meters: number } {
-  const field = fieldGeometryFromConfig(config.gui.field);
   const selectedPosition =
     selectedIndex === null
       ? null

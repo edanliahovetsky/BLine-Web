@@ -1033,15 +1033,11 @@ class RecordingIo implements ProjectIoService {
     return new Blob([]);
   }
 
-  async writeFieldImageAsset(): Promise<never> {
-    throw new Error("Field image assets are not configured for this test");
-  }
-
-  async readFieldImageAsset(): Promise<Blob | null> {
+  async readLegacyFieldImageAsset(): Promise<Blob | null> {
     return null;
   }
 
-  async deleteFieldImageAsset(): Promise<void> {}
+  async deleteLegacyFieldImageAsset(): Promise<void> {}
 
   private requireWorkspace(): ProjectWorkspaceDocument {
     if (!this.workspace) {

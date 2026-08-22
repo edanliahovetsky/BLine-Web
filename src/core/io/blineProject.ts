@@ -27,12 +27,16 @@ export interface SerializedProjectArchivePath {
 export interface SerializedProjectArchive {
   bline_project_schema_version: typeof blineProjectArchiveSchemaVersion;
   exported_at: string;
-  config: ProjectConfig;
+  config: ProjectConfigWithoutField;
   paths: SerializedProjectArchivePath[];
   path_groups?: ReturnType<typeof serializePathGroupsFile>["groups"];
   linked_targets?: LinkedTarget[];
   field_assets?: SerializedProjectArchiveFieldAsset[];
 }
+
+export type ProjectConfigWithoutField = Omit<ProjectConfig, "gui"> & {
+  gui: Omit<ProjectConfig["gui"], "field">;
+};
 
 export interface SerializedProjectArchiveFieldAsset {
   asset_id: string;
@@ -95,7 +99,6 @@ export function deserializeProjectConfig(input: unknown): ProjectConfig {
 export function createBLineProjectArchive(
   source: ArchiveSource,
   exportedAt: string,
-  fieldAssets: SerializedProjectArchiveFieldAsset[] = [],
 ): SerializedProjectArchive {
   const workspace = workspaceFromArchiveSource(source);
   const serializedWorkspace = serializeProjectWorkspaceDocument(workspace);
@@ -103,7 +106,7 @@ export function createBLineProjectArchive(
   const archive: SerializedProjectArchive = {
     bline_project_schema_version: blineProjectArchiveSchemaVersion,
     exported_at: exportedAt,
-    config: serializeProjectConfig(workspace.config),
+    config: projectConfigWithoutField(workspace.config),
     paths: serializedWorkspace.paths.map((path, index) => ({
       file_name: ensureJsonFileName(path.file_name || `path-${index + 1}.json`),
       display_name: path.display_name,
@@ -114,30 +117,28 @@ export function createBLineProjectArchive(
     linked_targets: serializedWorkspace.linked_targets,
   };
 
-  if (fieldAssets.length > 0) {
-    archive.field_assets = fieldAssets;
-  }
-
   return archive;
 }
 
 export function serializeBLineProjectArchive(
   source: ArchiveSource,
   exportedAt: string,
-  fieldAssets: SerializedProjectArchiveFieldAsset[] = [],
 ): Blob {
   return new Blob(
-    [
-      JSON.stringify(
-        createBLineProjectArchive(source, exportedAt, fieldAssets),
-        null,
-        2,
-      ),
-    ],
+    [JSON.stringify(createBLineProjectArchive(source, exportedAt), null, 2)],
     {
       type: "application/json",
     },
   );
+}
+
+export function projectConfigWithoutField(
+  config: ProjectConfig,
+): ProjectConfigWithoutField {
+  const canonical = serializeProjectConfig(config);
+  const { field, ...gui } = canonical.gui;
+  void field;
+  return { ...canonical, gui };
 }
 
 export function fieldAssetsFromBLineProjectArchive(

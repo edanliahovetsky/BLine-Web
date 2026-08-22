@@ -2,7 +2,7 @@ import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import { X } from "lucide-react";
 import type { LinkedTargetKind } from "../../core/io/projectSchema";
 import type { Project, ProjectPath } from "../../core/model/project";
-import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
+import type { FieldGeometry } from "../../core/field/fieldConfig";
 import type { PathElement } from "../../core/model/path";
 import {
   getElementHeadingRadians,
@@ -47,6 +47,7 @@ interface SidebarProps {
   project: Project | null;
   activePath: ProjectPath | null;
   selectedElementIndex: number | null;
+  fieldGeometry?: FieldGeometry;
   open?: boolean;
   inspectorWidth: number;
   curveToolActive?: boolean;
@@ -60,6 +61,7 @@ export function Sidebar({
   project,
   activePath,
   selectedElementIndex,
+  fieldGeometry,
   open = false,
   inspectorWidth,
   curveToolActive = false,
@@ -83,10 +85,6 @@ export function Sidebar({
     activePath && selectedElementIndex !== null
       ? (activePath.path.path_elements[selectedElementIndex] ?? null)
       : null;
-  const fieldGeometry = project
-    ? fieldGeometryFromConfig(project.config.gui.field)
-    : undefined;
-
   const handleSelectElement = (index: number) => {
     selectionStore.getState().selectElement(index, activePath?.path);
   };
@@ -106,6 +104,7 @@ export function Sidebar({
       project.config,
       type,
       selectedElementIndex,
+      fieldGeometry,
     );
     projectStore
       .getState()
@@ -211,6 +210,7 @@ export function Sidebar({
       project.config,
       selectedElementIndex,
       type,
+      fieldGeometry,
     );
     if (!convertedElement) {
       return;

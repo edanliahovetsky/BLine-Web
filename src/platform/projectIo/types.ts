@@ -1,9 +1,6 @@
 import type { ProjectFolderExport } from "../../core/io/projectFolder";
 import type { ProjectWorkspaceDocument } from "../../core/io/projectSchema";
-import type {
-  CustomFieldImage,
-  FieldGeometry,
-} from "../../core/field/fieldConfig";
+import type { CustomFieldImage } from "../../core/field/fieldConfig";
 import type { ProjectWorkspaceSummary, WriteResult } from "../../storage";
 
 export type { ProjectFolderExport } from "../../core/io/projectFolder";
@@ -33,12 +30,6 @@ export interface ProjectIoCapabilities {
 
 export interface CreateWorkspaceInput {
   workspace?: ProjectWorkspaceDocument;
-}
-
-export interface CreateFieldImageAssetInput {
-  file: File;
-  name?: string;
-  geometry?: Partial<FieldGeometry>;
 }
 
 export interface ProjectIoService {
@@ -74,9 +65,12 @@ export interface ProjectIoService {
   exportProjectFolder(): Promise<ProjectFolderExport>;
   importProjectArchive(file: File): Promise<ProjectWorkspaceDocument>;
   exportProjectArchive(): Promise<Blob>;
-  writeFieldImageAsset(
-    input: CreateFieldImageAssetInput,
-  ): Promise<CustomFieldImage>;
-  readFieldImageAsset(field: CustomFieldImage): Promise<Blob | null>;
-  deleteFieldImageAsset(field: CustomFieldImage): Promise<void>;
+  readLegacyFieldImageAsset(
+    projectId: string,
+    field: CustomFieldImage,
+  ): Promise<Blob | null>;
+  deleteLegacyFieldImageAsset(
+    projectId: string,
+    field: CustomFieldImage,
+  ): Promise<void>;
 }

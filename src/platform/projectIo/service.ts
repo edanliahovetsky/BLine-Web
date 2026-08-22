@@ -1,8 +1,5 @@
 import { projectConfigDefaultLookup } from "../../core/config/projectConfig";
-import {
-  createCustomFieldImage,
-  type CustomFieldImage,
-} from "../../core/field/fieldConfig";
+import type { CustomFieldImage } from "../../core/field/fieldConfig";
 import {
   createBLineProjectArchive,
   deserializeProjectConfig,
@@ -11,7 +8,6 @@ import {
 } from "../../core/io/blineProject";
 import { stringifyBLineJson } from "../../core/io/blineJson";
 import {
-  autosFieldAssetsPath,
   deserializeBLineProjectFolder,
   serializeBLineProjectFolder,
 } from "../../core/io/projectFolder";
@@ -22,7 +18,6 @@ import {
   activePathFromWorkspace,
   addPathToWorkspace,
   deserializeProjectWorkspaceDocument,
-  displayNameFromFileName,
   ensureJsonFileName,
   ensureWorkspaceHasActivePath,
 } from "../../core/io/workspaceSerde";
@@ -35,7 +30,6 @@ import {
   type WriteResult,
 } from "../../storage";
 import type {
-  CreateFieldImageAssetInput,
   CreateWorkspaceInput,
   ProjectIoCapabilities,
   ProjectIoService,
@@ -304,15 +298,7 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async exportProjectFolder(): Promise<ProjectFolderExport> {
-    const workspace = this.requireWorkspace();
-    const folder = serializeBLineProjectFolder(workspace);
-    return {
-      ...folder,
-      files: [
-        ...folder.files,
-        ...(await this.exportProjectFolderFieldAssets(workspace)),
-      ],
-    };
+    return serializeBLineProjectFolder(this.requireWorkspace());
   }
 
   async importProjectArchive(file: File): Promise<ProjectWorkspaceDocument> {
@@ -340,55 +326,24 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async exportProjectArchive(): Promise<Blob> {
-    const workspace = this.requireWorkspace();
     return jsonBlob(
       createBLineProjectArchive(
-        workspace,
+        this.requireWorkspace(),
         new Date().toISOString(),
-        await this.exportArchiveFieldAssets(workspace),
       ),
     );
   }
 
-  async writeFieldImageAsset(
-    input: CreateFieldImageAssetInput,
-  ): Promise<CustomFieldImage> {
-    const workspace = this.requireWorkspace();
-    if (!this.storage.writeFieldAsset) {
-      throw new Error("Custom field image storage is not supported");
-    }
-
-    const bytes = new Uint8Array(await input.file.arrayBuffer());
-    const assetId = createFieldAssetId(input.file.name);
-    const mimeType = input.file.type || mimeTypeFromFileName(input.file.name);
-    await this.storage.writeFieldAsset({
-      workspaceId: workspace.project_id,
-      assetId,
-      fileName: input.file.name || assetId,
-      mimeType,
-      bytes,
-    });
-
-    return createCustomFieldImage({
-      id: `custom:${assetId}`,
-      name: input.name ?? displayNameFromFileName(input.file.name || assetId),
-      assetId,
-      fileName: input.file.name || assetId,
-      mimeType,
-      sizeBytes: bytes.byteLength,
-      createdAt: new Date().toISOString(),
-      geometry: input.geometry,
-    });
-  }
-
-  async readFieldImageAsset(field: CustomFieldImage): Promise<Blob | null> {
-    const workspace = this.requireWorkspace();
+  async readLegacyFieldImageAsset(
+    projectId: string,
+    field: CustomFieldImage,
+  ): Promise<Blob | null> {
     if (!this.storage.readFieldAsset) {
       return null;
     }
 
     const payload = await this.storage.readFieldAsset(
-      workspace.project_id,
+      projectId,
       field.asset_id,
     );
     return payload
@@ -398,9 +353,11 @@ export class StorageProjectIoService implements ProjectIoService {
       : null;
   }
 
-  async deleteFieldImageAsset(field: CustomFieldImage): Promise<void> {
-    const workspace = this.requireWorkspace();
-    await this.storage.deleteFieldAsset?.(workspace.project_id, field.asset_id);
+  async deleteLegacyFieldImageAsset(
+    projectId: string,
+    field: CustomFieldImage,
+  ): Promise<void> {
+    await this.storage.deleteFieldAsset?.(projectId, field.asset_id);
   }
 
   private async readAndAdopt(id: string): Promise<ProjectWorkspaceDocument> {
@@ -424,66 +381,6 @@ export class StorageProjectIoService implements ProjectIoService {
     }
 
     return structuredClone(this.currentWorkspace);
-  }
-
-  private async exportArchiveFieldAssets(workspace: ProjectWorkspaceDocument) {
-    const assets = await this.readWorkspaceCustomFieldAssets(workspace);
-    return assets.map((asset) => ({
-      asset_id: asset.assetId,
-      file_name: asset.fileName,
-      mime_type: asset.mimeType,
-      data_base64: bytesToBase64(asset.bytes),
-    }));
-  }
-
-  private async exportProjectFolderFieldAssets(
-    workspace: ProjectWorkspaceDocument,
-  ): Promise<ProjectFolderExport["files"]> {
-    const assets = await this.readWorkspaceCustomFieldAssets(workspace);
-    return assets.map((asset) => ({
-      relativePath: `${autosFieldAssetsPath}/${asset.assetId}`,
-      blob: new Blob([bytesToArrayBuffer(asset.bytes)], {
-        type: asset.mimeType,
-      }),
-    }));
-  }
-
-  private async readWorkspaceCustomFieldAssets(
-    workspace: ProjectWorkspaceDocument,
-  ): Promise<
-    Array<{
-      assetId: string;
-      fileName: string;
-      mimeType: string;
-      bytes: Uint8Array;
-    }>
-  > {
-    if (!this.storage.readFieldAsset) {
-      return [];
-    }
-
-    const uniqueFields = new Map(
-      workspace.config.gui.field.custom_fields.map((field) => [
-        field.asset_id,
-        field,
-      ]),
-    );
-    const assets = [];
-    for (const field of uniqueFields.values()) {
-      const payload = await this.storage.readFieldAsset(
-        workspace.project_id,
-        field.asset_id,
-      );
-      if (payload) {
-        assets.push({
-          assetId: field.asset_id,
-          fileName: payload.fileName || field.file_name,
-          mimeType: payload.mimeType || field.mime_type,
-          bytes: payload.bytes,
-        });
-      }
-    }
-    return assets;
   }
 
   private async importArchiveFieldAssets(
@@ -599,14 +496,6 @@ function cryptoId(prefix: string): string {
   return `${prefix}-${random}`;
 }
 
-function createFieldAssetId(fileName: string): string {
-  const extension = safeImageExtension(fileName);
-  const random =
-    globalThis.crypto?.randomUUID?.() ??
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  return `field-${random.replace(/[^a-zA-Z0-9_-]/g, "")}.${extension}`;
-}
-
 function safeImageExtension(fileName: string): string {
   const extension = fileName.split(".").pop()?.trim().toLowerCase();
   return extension === "jpg" ||
@@ -629,15 +518,6 @@ function mimeTypeFromFileName(fileName: string): string {
     default:
       return "image/png";
   }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
-  }
-  return btoa(binary);
 }
 
 function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {

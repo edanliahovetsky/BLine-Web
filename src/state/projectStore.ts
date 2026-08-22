@@ -1,8 +1,4 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type {
-  CustomFieldImage,
-  FieldGeometry,
-} from "../core/field/fieldConfig";
 import type { ProjectWorkspaceDocument } from "../core/io/projectSchema";
 import {
   activeProjectPath,
@@ -154,13 +150,6 @@ export interface ProjectStoreState {
   exportProjectFolder(): Promise<ProjectFolderExport | null>;
   importProjectArchive(file: File): Promise<Project>;
   exportProjectArchive(): Promise<Blob | null>;
-  writeFieldImageAsset(input: {
-    file: File;
-    name?: string;
-    geometry?: Partial<FieldGeometry>;
-  }): Promise<CustomFieldImage>;
-  readFieldImageAsset(field: CustomFieldImage): Promise<Blob | null>;
-  deleteFieldImageAsset(field: CustomFieldImage): Promise<void>;
   applyPathCommand(command: HistoryCommand<PathModel>, pathId?: string): void;
   applyConfigCommand(command: HistoryCommand<ProjectConfig>): void;
   /**
@@ -775,18 +764,6 @@ export function createProjectStore(
         await get().saveWorkspace();
       }
       return io.exportProjectArchive();
-    },
-    async writeFieldImageAsset(input) {
-      const io = requireProjectIo(get().io);
-      return io.writeFieldImageAsset(input);
-    },
-    async readFieldImageAsset(field) {
-      const io = requireProjectIo(get().io);
-      return io.readFieldImageAsset(field);
-    },
-    async deleteFieldImageAsset(field) {
-      const io = requireProjectIo(get().io);
-      await io.deleteFieldImageAsset(field);
     },
     applyPathCommand(command, requestedPathId) {
       const project = requireProject(get().project);
