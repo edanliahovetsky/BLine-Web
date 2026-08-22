@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
-import type { ProjectDocument } from "../../../core/io/projectSchema";
+import type { PathModel } from "../../../core/model/path";
 import { formatPointMeters } from "../../../canvas/modelSync";
 import {
   CopyIcon,
@@ -21,7 +21,7 @@ import {
 } from "../sidebarCommands";
 
 interface ElementListProps {
-  project: ProjectDocument | null;
+  path: PathModel | null;
   selectedElementIndex: number | null;
   curveToolActive?: boolean;
   open: boolean;
@@ -35,7 +35,7 @@ interface ElementListProps {
 }
 
 export function ElementList({
-  project,
+  path,
   selectedElementIndex,
   curveToolActive = false,
   open,
@@ -47,13 +47,13 @@ export function ElementList({
   onMoveElement,
   onToggleSection,
 }: ElementListProps) {
-  const elements = project?.path.path_elements ?? [];
+  const elements = path?.path_elements ?? [];
   const listRef = useRef<HTMLOListElement | null>(null);
   const selectedRowRef = useRef<HTMLLIElement | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const suppressClickRef = useRef(false);
-  const addableTypes = project ? getAddableElementTypes(project) : [];
+  const addableTypes = path ? getAddableElementTypes(path) : [];
 
   useEffect(() => {
     if (!open) {
@@ -74,7 +74,7 @@ export function ElementList({
     event: MouseEvent<HTMLButtonElement>,
     index: number,
   ) => {
-    if (!project || event.button !== 0) {
+    if (!path || event.button !== 0) {
       return;
     }
 
@@ -103,8 +103,7 @@ export function ElementList({
         moveEvent.clientY,
       );
       currentDropIndex =
-        nextDropIndex !== null &&
-        canMovePathElement(project.path, index, nextDropIndex)
+        nextDropIndex !== null && canMovePathElement(path, index, nextDropIndex)
           ? nextDropIndex
           : null;
       setDragOverIndex(currentDropIndex);
@@ -122,7 +121,7 @@ export function ElementList({
       if (
         !active ||
         currentDropIndex === null ||
-        !canMovePathElement(project.path, index, currentDropIndex)
+        !canMovePathElement(path, index, currentDropIndex)
       ) {
         return;
       }
@@ -141,7 +140,7 @@ export function ElementList({
         <>
           <SidebarIconButton
             className="sidebar-icon-button--add"
-            disabled={!project || curveToolActive}
+            disabled={!path || curveToolActive}
             aria-label="Add curve"
             title="Add curve"
             onClick={onAddCurve}
@@ -149,7 +148,7 @@ export function ElementList({
             <CurveIcon />
           </SidebarIconButton>
           <AddElementMenu
-            disabled={!project || curveToolActive}
+            disabled={!path || curveToolActive}
             options={addableTypes}
             onAdd={onAddElement}
           />

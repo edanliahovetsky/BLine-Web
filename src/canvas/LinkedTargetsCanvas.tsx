@@ -422,7 +422,7 @@ export function LinkedTargetsCanvas({
       stageSize,
       viewport,
       field: renderField,
-      project: null,
+      path: null,
       simulationTrace: null,
       trajectoryMaxSpeedMps: 0,
       overlayPaths: [],

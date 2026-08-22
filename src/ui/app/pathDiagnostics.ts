@@ -1,11 +1,12 @@
 import { getElementPosition } from "../../canvas/geometry";
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
-import type {
-  ProjectDocument,
-  ProjectWorkspaceDocument,
-} from "../../core/io/projectSchema";
 import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
-import { isAnchorElement, isEventTrigger } from "../../core/model/path";
+import type { LinkedTarget, ProjectConfig } from "../../core/model/project";
+import {
+  isAnchorElement,
+  isEventTrigger,
+  type PathModel,
+} from "../../core/model/path";
 
 export type PathDiagnosticSeverity = "error" | "warning" | "info";
 
@@ -17,15 +18,16 @@ export interface PathDiagnostic {
 }
 
 export function derivePathDiagnostics(
-  project: ProjectDocument | null,
-  workspace: ProjectWorkspaceDocument | null,
+  path: PathModel | null,
+  config: ProjectConfig | null,
+  linkedTargets: readonly LinkedTarget[],
 ): PathDiagnostic[] {
-  if (!project) {
+  if (!path || !config) {
     return [];
   }
 
   const diagnostics: PathDiagnostic[] = [];
-  const elements = project.path.path_elements;
+  const elements = path.path_elements;
   const anchorCount = elements.filter(isAnchorElement).length;
   if (anchorCount < 2) {
     diagnostics.push({
@@ -38,7 +40,7 @@ export function derivePathDiagnostics(
     });
   }
 
-  const geometry = fieldGeometryFromConfig(project.config.gui.field);
+  const geometry = fieldGeometryFromConfig(config.gui.field);
   elements.forEach((element, index) => {
     if (isEventTrigger(element) && !element.lib_key.trim()) {
       diagnostics.push({
@@ -68,9 +70,7 @@ export function derivePathDiagnostics(
     const linkedTargetId = getPathElementLinkedTargetId(element);
     if (
       linkedTargetId &&
-      !workspace?.linked_targets.some(
-        (target) => target.target_id === linkedTargetId,
-      )
+      !linkedTargets.some((target) => target.target_id === linkedTargetId)
     ) {
       diagnostics.push({
         id: `broken-link-${index}`,

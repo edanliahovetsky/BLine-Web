@@ -9,7 +9,6 @@ import {
 import type {
   LinkedTargetKind,
   ProjectConfig,
-  ProjectDocument,
 } from "../../core/io/projectSchema";
 import type {
   FieldImageKind,
@@ -78,7 +77,7 @@ export interface PixiRenderInput {
   stageSize: CanvasSize;
   viewport: FieldViewport;
   field: ResolvedFieldDefinition;
-  project: ProjectDocument | null;
+  path: PathModel | null;
   overlayPaths: PixiPathOverlay[];
   hoveredOverlayPathId: string | null;
   selectedElementIndex: number | null;
@@ -367,7 +366,7 @@ export class PixiPathRenderer {
 
   private drawPath(input: PixiRenderInput): void {
     const graphics = this.pathGraphics.clear();
-    const elements = input.project?.path.path_elements;
+    const elements = input.path?.path_elements;
     if (!elements) {
       return;
     }
@@ -426,7 +425,7 @@ export class PixiPathRenderer {
     const graphics = this.trajectoryGraphics.clear();
     const trace = input.simulationTrace;
 
-    if (trace && trace.length >= 2 && input.project) {
+    if (trace && trace.length >= 2 && input.path) {
       const maxSpeed = Math.max(0.1, input.trajectoryMaxSpeedMps);
       const points: Array<{ x: number; y: number; bucket: number }> = [];
       let lastPoint: StagePoint | null = null;
@@ -549,13 +548,13 @@ export class PixiPathRenderer {
 
   private drawConstraintHighlights(input: PixiRenderInput): void {
     const graphics = this.constraintGraphics.clear();
-    const { project, selectedRangedConstraint } = input;
-    if (!project || !selectedRangedConstraint) {
+    const { config, path, selectedRangedConstraint } = input;
+    if (!path || !config || !selectedRangedConstraint) {
       return;
     }
 
     const selectedConstraint =
-      project.path.ranged_constraints[selectedRangedConstraint.index];
+      path.ranged_constraints[selectedRangedConstraint.index];
     if (
       !selectedConstraint ||
       selectedConstraint.key !== selectedRangedConstraint.key
@@ -568,7 +567,7 @@ export class PixiPathRenderer {
       start_ordinal: selectedRangedConstraint.startOrdinal,
       end_ordinal: selectedRangedConstraint.endOrdinal,
     };
-    const elements = project.path.path_elements;
+    const elements = path.path_elements;
     const covered = pathIndexesForConstraintRange(elements, constraint).flatMap(
       (index) => {
         const position = getElementPosition(
@@ -603,7 +602,7 @@ export class PixiPathRenderer {
     const element = elements[firstDomainIndex];
     const point = modelToStagePoint(firstPosition, input.viewport);
     const headingRadians = getElementHeadingRadians(elements, firstDomainIndex);
-    const robotSize = robotSizeFromConfig(project.config);
+    const robotSize = robotSizeFromConfig(config);
     drawConstraintStartHighlight(
       graphics,
       element,
@@ -616,23 +615,22 @@ export class PixiPathRenderer {
 
   private drawNodes(input: PixiRenderInput): void {
     const graphics = this.nodeGraphics.clear();
-    const { project } = input;
-    if (!project) {
+    const { config, path } = input;
+    if (!path || !config) {
       return;
     }
 
-    const elements = project.path.path_elements;
+    const elements = path.path_elements;
     const handoffRadiusByElementIndex = new Map(
-      anchorHandoffRadii(
-        elements,
-        defaultHandoffRadiusMeters(project.config),
-      ).map((radius) => [radius.elementIndex, radius]),
+      anchorHandoffRadii(elements, defaultHandoffRadiusMeters(config)).map(
+        (radius) => [radius.elementIndex, radius],
+      ),
     );
-    const robotSize = robotSizeFromConfig(project.config);
-    const protrusions = project.config.gui.protrusions;
+    const robotSize = robotSizeFromConfig(config);
+    const protrusions = config.gui.protrusions;
     const protrusionVisibilityByIndex = buildElementProtrusionVisibilityByIndex(
       elements,
-      project.config,
+      config,
       input.positionPreview,
     );
     const renderedNodes = elements.flatMap((element, index) => {
@@ -756,12 +754,12 @@ export class PixiPathRenderer {
     graphics: Graphics,
     input: PixiRenderInput,
   ): boolean {
-    const { project, selectedElementIndex } = input;
-    if (!project || selectedElementIndex === null) {
+    const { path, selectedElementIndex } = input;
+    if (!path || selectedElementIndex === null) {
       return false;
     }
 
-    const elements = project.path.path_elements;
+    const elements = path.path_elements;
     const element = elements[selectedElementIndex];
     if (!element || (!isWaypoint(element) && !isRotationTarget(element))) {
       return false;

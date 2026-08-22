@@ -25,7 +25,7 @@ import {
 import { generateAutoConstraintsInWorker } from "../../../src/state/autoConstraintGeneration";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import {
-  activePathDocumentForProjectStore,
+  activePathForProjectStore,
   createProjectStore,
 } from "../../../src/state/projectStore";
 
@@ -64,15 +64,13 @@ describe("manual auto constraint generation", () => {
       },
     });
     expect(
-      activePathDocumentForProjectStore(
+      activePathForProjectStore(
         projects.getState(),
       )?.path.ranged_constraints.some(
         (constraint) => constraint.source === "auto_velocity",
       ),
     ).toBe(true);
-    const generatedPath = activePathDocumentForProjectStore(
-      projects.getState(),
-    )?.path;
+    const generatedPath = activePathForProjectStore(projects.getState())?.path;
     expect(generatedPath).toBeDefined();
     expect(getHandoffRadiusSource(generatedPath!.path_elements[1])).toBe(
       "auto",
@@ -95,9 +93,9 @@ describe("manual auto constraint generation", () => {
     expect(projects.getState().history.getState().undoStack).toHaveLength(1);
 
     projects.getState().undo();
-    expect(
-      activePathDocumentForProjectStore(projects.getState())?.path,
-    ).toEqual(project.path);
+    expect(activePathForProjectStore(projects.getState())?.path).toEqual(
+      project.path,
+    );
   });
 
   it("discards a completed worker result when its path changed in flight", async () => {
@@ -156,9 +154,9 @@ describe("manual auto constraint generation", () => {
     await pending;
 
     expect(request).toHaveBeenCalledOnce();
-    expect(
-      activePathDocumentForProjectStore(projects.getState())?.path,
-    ).toEqual(moved.path);
+    expect(activePathForProjectStore(projects.getState())?.path).toEqual(
+      moved.path,
+    );
     expect(projects.getState().history.getState().undoStack).toHaveLength(0);
     expect(status.getState().phase).toBe("idle");
   });

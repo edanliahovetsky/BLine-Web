@@ -25,15 +25,11 @@ import {
   isTranslationTarget,
   isWaypoint,
   type PathElement,
+  type PathModel,
   type TranslationTarget,
 } from "../core/model/path";
-import type {
-  LinkedTarget,
-  LinkedTargetKind,
-  ProjectDocument,
-} from "../core/io/projectSchema";
-import { legacyWorkspaceFromOpenProject } from "../core/io/legacyWorkspace";
-import { activeProjectFromWorkspace } from "../core/io/workspaceSerde";
+import type { LinkedTarget, LinkedTargetKind } from "../core/io/projectSchema";
+import type { Project, ProjectConfig } from "../core/model/project";
 import { getDefaultOptionalConfigValue } from "../core/config/projectConfig";
 import { resolveFieldDefinition } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
@@ -46,8 +42,6 @@ import {
   getPathElementLinkedTargetId,
   isElementCompatibleWithLinkedTarget,
   linkedTargetControlsElementRotation,
-  linkedTargetForPathElement,
-  nextLinkedTargetName,
 } from "../core/linkedTargets";
 import {
   CurveIcon,
@@ -223,19 +217,11 @@ export function PathStage({
     projectStore,
     (state) => state.activePathGroupId,
   );
-  const workspace = useMemo(
+  const activePath = useMemo(
     () =>
-      durableProject
-        ? legacyWorkspaceFromOpenProject(durableProject, {
-            activePathId,
-            activePathGroupId,
-          })
-        : null,
-    [activePathGroupId, activePathId, durableProject],
-  );
-  const project = useMemo(
-    () => activeProjectFromWorkspace(workspace),
-    [workspace],
+      durableProject?.paths.find((path) => path.path_id === activePathId) ??
+      null,
+    [activePathId, durableProject],
   );
   const selectedElementIndex = useStoreSelector(
     selectionStore,
@@ -246,8 +232,8 @@ export function PathStage({
     (state) => state.selectedRangedConstraint,
   );
   const activeField = useMemo(
-    () => resolveFieldDefinition(project?.config.gui.field),
-    [project?.config.gui.field],
+    () => resolveFieldDefinition(durableProject?.config.gui.field),
+    [durableProject?.config.gui.field],
   );
   useEffect(() => {
     if (!activeField.custom) {
@@ -305,8 +291,8 @@ export function PathStage({
   }, [renderField]);
 
   useEffect(() => {
-    selectionStore.getState().reconcilePath(project?.path ?? null);
-  }, [project]);
+    selectionStore.getState().reconcilePath(activePath?.path ?? null);
+  }, [activePath]);
 
   const flushPanOffset = useCallback(() => {
     panFrameRef.current = null;
@@ -514,34 +500,34 @@ export function PathStage({
   );
 
   const simulationResult: SimTraceResult | null = useMemo(() => {
-    if (!project) {
+    if (!activePath || !durableProject) {
       return null;
     }
 
     try {
-      return simulatePathWithTrace(project.path, project.config, {
+      return simulatePathWithTrace(activePath.path, durableProject.config, {
         dt_s: 0.02,
       });
     } catch {
       return null;
     }
-  }, [project]);
+  }, [activePath, durableProject]);
 
   const trajectoryMaxSpeedMps = useMemo(() => {
     const fromPath = Number(
-      project?.path.constraints.max_velocity_meters_per_sec,
+      activePath?.path.constraints.max_velocity_meters_per_sec,
     );
     if (Number.isFinite(fromPath) && fromPath > 0) {
       return fromPath;
     }
-    const fromConfig = project
+    const fromConfig = durableProject
       ? getDefaultOptionalConfigValue(
-          project.config,
+          durableProject.config,
           "max_velocity_meters_per_sec",
         )
       : null;
     return fromConfig !== null && fromConfig > 0 ? fromConfig : 3;
-  }, [project]);
+  }, [activePath, durableProject]);
 
   const canvasInteractionActive =
     isPanning ||
@@ -576,22 +562,22 @@ export function PathStage({
     [activeCurveDraft],
   );
   const overlayPaths = useMemo<PixiPathOverlay[]>(() => {
-    if (!showGhostPaths || !workspace?.active_path_group_id) {
+    if (!showGhostPaths || !durableProject || !activePathGroupId) {
       return [];
     }
 
-    const group = workspace.path_groups.find(
-      (candidate) => candidate.group_id === workspace.active_path_group_id,
+    const group = durableProject.path_groups.find(
+      (candidate) => candidate.group_id === activePathGroupId,
     );
     if (!group) {
       return [];
     }
 
     return group.path_ids.flatMap((pathId) => {
-      if (pathId === workspace.active_path_id) {
+      if (pathId === activePathId) {
         return [];
       }
-      const path = workspace.paths.find(
+      const path = durableProject.paths.find(
         (candidate) => candidate.path_id === pathId,
       );
       return path
@@ -604,7 +590,7 @@ export function PathStage({
           ]
         : [];
     });
-  }, [showGhostPaths, workspace]);
+  }, [activePathGroupId, activePathId, durableProject, showGhostPaths]);
   const hoveredOverlayPath =
     overlayPaths.find((overlay) => overlay.pathId === hoveredOverlayPathId) ??
     null;
@@ -728,7 +714,7 @@ export function PathStage({
       stageSize,
       viewport,
       field: renderField,
-      project,
+      path: activePath?.path ?? null,
       overlayPaths,
       hoveredOverlayPathId,
       selectedElementIndex,
@@ -741,14 +727,15 @@ export function PathStage({
       trajectoryMaxSpeedMps,
       simulationTimeS: simulationTime,
       simulationPlaying,
-      config: project?.config ?? null,
+      config: durableProject?.config ?? null,
       curvePreview,
     }),
     [
       renderField,
+      activePath,
       curvePreview,
       dragPreview,
-      project,
+      durableProject,
       overlayPaths,
       hoveredOverlayPathId,
       rotationPreview,
@@ -890,7 +877,7 @@ export function PathStage({
     if (event.button !== 0) {
       return;
     }
-    if (!project) {
+    if (!activePath || !durableProject) {
       return;
     }
 
@@ -907,7 +894,8 @@ export function PathStage({
         insertionIndex: curveTool.insertionIndex,
         samples: [sample],
         targetPoints: curveTargetPointsForSamples(
-          project,
+          activePath.path,
+          durableProject.config,
           curveTool.insertionIndex,
           [sample],
         ),
@@ -917,7 +905,7 @@ export function PathStage({
 
     if (isPlacementTool(activeTool)) {
       const placement = placementForPointer(
-        project,
+        activePath.path,
         activeTool,
         pointer,
         viewport,
@@ -930,7 +918,7 @@ export function PathStage({
     }
 
     const rotationHit = hitTestRotationHandle(
-      project,
+      activePath.path,
       selectedElementIndex,
       viewport,
       dragPreview,
@@ -938,10 +926,8 @@ export function PathStage({
       pointer,
     );
     if (rotationHit !== null) {
-      const element = project.path.path_elements[rotationHit];
-      const linkedTarget = workspace
-        ? linkedTargetForPathElement(workspace, element)
-        : null;
+      const element = activePath.path.path_elements[rotationHit];
+      const linkedTarget = linkedTargetForElement(durableProject, element);
       const linkedTargetId =
         element &&
         linkedTarget &&
@@ -952,7 +938,8 @@ export function PathStage({
         return;
       }
       const startRadians =
-        getElementHeadingRadians(project.path.path_elements, rotationHit) ?? 0;
+        getElementHeadingRadians(activePath.path.path_elements, rotationHit) ??
+        0;
       setActiveRotationDrag({
         index: rotationHit,
         startRadians,
@@ -963,22 +950,21 @@ export function PathStage({
     }
 
     const nodeHit = hitTestPathElement(
-      project,
+      activePath.path,
+      durableProject.config,
       viewport,
       dragPreview,
       pointer,
       selectedElementIndex,
     );
     if (nodeHit !== null) {
-      selectionStore.getState().selectElement(nodeHit, project.path);
-      const element = project.path.path_elements[nodeHit];
-      const start = getElementPosition(project.path.path_elements, nodeHit);
+      selectionStore.getState().selectElement(nodeHit, activePath.path);
+      const element = activePath.path.path_elements[nodeHit];
+      const start = getElementPosition(activePath.path.path_elements, nodeHit);
       if (!element || !start || !isDragEnabled(element)) {
         return;
       }
-      const linkedTarget = workspace
-        ? linkedTargetForPathElement(workspace, element)
-        : null;
+      const linkedTarget = linkedTargetForElement(durableProject, element);
       if (linkedTarget?.locked) {
         return;
       }
@@ -1023,14 +1009,19 @@ export function PathStage({
 
     const pointer = stagePointFromEvent(event);
     if (
-      project &&
+      activePath &&
       isPlacementTool(activeTool) &&
       !activeDragRef.current &&
       !activeRotationDragRef.current
     ) {
       setPlacementPreview({
         point: pointer,
-        placement: placementForPointer(project, activeTool, pointer, viewport),
+        placement: placementForPointer(
+          activePath.path,
+          activeTool,
+          pointer,
+          viewport,
+        ),
       });
       setHoveredOverlayPathId(null);
       setHoveredOverlayPoint(null);
@@ -1038,7 +1029,12 @@ export function PathStage({
     }
 
     const curveDraft = activeCurveDraftRef.current;
-    if (curveDraft && project && curveDraft.pointerId === event.pointerId) {
+    if (
+      curveDraft &&
+      activePath &&
+      durableProject &&
+      curveDraft.pointerId === event.pointerId
+    ) {
       event.preventDefault();
       const sample = stageToModelPoint(pointer, viewport);
       const samples = appendCurveSample(curveDraft.samples, sample);
@@ -1046,7 +1042,8 @@ export function PathStage({
         ...curveDraft,
         samples,
         targetPoints: curveTargetPointsForSamples(
-          project,
+          activePath.path,
+          durableProject.config,
           curveDraft.insertionIndex,
           samples,
         ),
@@ -1055,10 +1052,10 @@ export function PathStage({
     }
 
     const drag = activeDragRef.current;
-    if (drag && project) {
+    if (drag && activePath) {
       event.preventDefault();
       const projected = projectDragStagePoint(
-        project,
+        activePath.path,
         viewport,
         drag.index,
         pointer,
@@ -1075,10 +1072,10 @@ export function PathStage({
     }
 
     const rotationDrag = activeRotationDragRef.current;
-    if (rotationDrag && project) {
+    if (rotationDrag && activePath) {
       event.preventDefault();
       const nextRadians = rotationFromStagePoint(
-        project,
+        activePath.path,
         rotationDrag.index,
         viewport,
         pointer,
@@ -1099,7 +1096,7 @@ export function PathStage({
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
       const overlayHit =
-        project && !canvasInteractionActive
+        activePath && !canvasInteractionActive
           ? hitTestOverlayPath(overlayPaths, viewport, pointer)
           : null;
       setHoveredOverlayPathId(overlayHit?.pathId ?? null);
@@ -1156,18 +1153,18 @@ export function PathStage({
 
   const finishActiveDrag = () => {
     const drag = activeDragRef.current;
-    if (!drag || !project) {
+    if (!drag || !activePath) {
       setActiveDrag(null);
       return;
     }
 
     let nextPosition = drag.current;
     let nextRatio = drag.currentRatio;
-    const element = project.path.path_elements[drag.index];
+    const element = activePath.path.path_elements[drag.index];
 
     if (element && (isRotationTarget(element) || isEventTrigger(element))) {
       const segment = getNeighborAnchorPositions(
-        project.path.path_elements,
+        activePath.path.path_elements,
         drag.index,
       );
       if (segment) {
@@ -1244,14 +1241,18 @@ export function PathStage({
 
   const finishActiveRotation = (pointer: StagePoint) => {
     const rotationDrag = activeRotationDragRef.current;
-    if (!rotationDrag || !project) {
+    if (!rotationDrag || !activePath) {
       setActiveRotationDrag(null);
       return;
     }
 
     const nextRadians =
-      rotationFromStagePoint(project, rotationDrag.index, viewport, pointer) ??
-      rotationDrag.currentRadians;
+      rotationFromStagePoint(
+        activePath.path,
+        rotationDrag.index,
+        viewport,
+        pointer,
+      ) ?? rotationDrag.currentRadians;
     setActiveRotationDrag(null);
 
     if (
@@ -1296,7 +1297,9 @@ export function PathStage({
       return;
     }
 
-    selectionStore.getState().selectElement(rotationDrag.index, project.path);
+    selectionStore
+      .getState()
+      .selectElement(rotationDrag.index, activePath.path);
   };
 
   const finishPanDrag = () => {
@@ -1309,13 +1312,14 @@ export function PathStage({
 
   const finishActiveCurve = () => {
     const draft = activeCurveDraftRef.current;
-    if (!draft || !project) {
+    if (!draft || !activePath || !durableProject) {
       setActiveCurveDraft(null);
       return;
     }
 
     const targets = curveTargetsForSamples(
-      project,
+      activePath.path,
+      durableProject.config,
       draft.insertionIndex,
       draft.samples,
     );
@@ -1333,13 +1337,14 @@ export function PathStage({
       return;
     }
     event.preventDefault();
-    if (!project) {
+    if (!activePath || !durableProject) {
       return;
     }
 
     const pointer = stagePointFromEvent(event);
     const elementIndex = hitTestPathElement(
-      project,
+      activePath.path,
+      durableProject.config,
       viewport,
       dragPreview,
       pointer,
@@ -1353,12 +1358,12 @@ export function PathStage({
   };
 
   const createLinkedTranslationAtContext = () => {
-    if (!workspace || !contextMenu) {
+    if (!durableProject || !contextMenu) {
       return;
     }
 
     projectStore.getState().createLinkedTarget({
-      display_name: nextLinkedTargetName(workspace, "translation"),
+      display_name: nextLinkedTargetName(durableProject, "translation"),
       kind: "translation",
       x_meters: contextMenu.fieldPoint.x_meters,
       y_meters: contextMenu.fieldPoint.y_meters,
@@ -1369,8 +1374,8 @@ export function PathStage({
 
   const createLinkedTargetFromContextElement = (kind: LinkedTargetKind) => {
     if (
-      !workspace ||
-      !project ||
+      !durableProject ||
+      !activePath ||
       !contextMenu ||
       contextMenu.elementIndex === null
     ) {
@@ -1379,7 +1384,7 @@ export function PathStage({
 
     const elementIndex = contextMenu.elementIndex;
     const position = getElementPosition(
-      project.path.path_elements,
+      activePath.path.path_elements,
       elementIndex,
     );
     if (!position) {
@@ -1387,19 +1392,19 @@ export function PathStage({
     }
 
     projectStore.getState().createLinkedTarget({
-      display_name: nextLinkedTargetName(workspace, kind),
+      display_name: nextLinkedTargetName(durableProject, kind),
       kind,
       x_meters: position.x_meters,
       y_meters: position.y_meters,
       rotation_radians:
         kind === "waypoint"
           ? (getElementHeadingRadians(
-              project.path.path_elements,
+              activePath.path.path_elements,
               elementIndex,
             ) ?? 0)
           : null,
       link: {
-        pathId: project.project_id,
+        pathId: activePath.path_id,
         elementIndex,
       },
     });
@@ -1413,14 +1418,14 @@ export function PathStage({
   };
 
   const linkContextElementToTarget = (targetId: string) => {
-    if (!project || !contextMenu || contextMenu.elementIndex === null) {
+    if (!activePath || !contextMenu || contextMenu.elementIndex === null) {
       return;
     }
 
     projectStore
       .getState()
       .linkPathElementToTarget(
-        project.project_id,
+        activePath.path_id,
         contextMenu.elementIndex,
         targetId,
       );
@@ -1434,13 +1439,13 @@ export function PathStage({
   };
 
   const unlinkContextElement = () => {
-    if (!project || !contextMenu || contextMenu.elementIndex === null) {
+    if (!activePath || !contextMenu || contextMenu.elementIndex === null) {
       return;
     }
 
     projectStore
       .getState()
-      .unlinkPathElement(project.project_id, contextMenu.elementIndex);
+      .unlinkPathElement(activePath.path_id, contextMenu.elementIndex);
     selectionStore
       .getState()
       .selectElement(
@@ -1451,12 +1456,12 @@ export function PathStage({
   };
 
   const contextElement =
-    project && contextMenu?.elementIndex !== null && contextMenu
-      ? (project.path.path_elements[contextMenu.elementIndex] ?? null)
+    activePath && contextMenu?.elementIndex !== null && contextMenu
+      ? (activePath.path.path_elements[contextMenu.elementIndex] ?? null)
       : null;
   const contextCompatibleTargets =
-    workspace && contextElement
-      ? workspace.linked_targets.filter((target) =>
+    durableProject && contextElement
+      ? durableProject.linked_targets.filter((target) =>
           isElementCompatibleWithLinkedTarget(contextElement, target),
         )
       : [];
@@ -1497,7 +1502,7 @@ export function PathStage({
       >
         <CanvasToolRail
           activeTool={activeTool}
-          project={project}
+          path={activePath?.path ?? null}
           onToolChange={(tool) => {
             setPlacementPreview(null);
             onToolChange?.(tool);
@@ -1584,15 +1589,14 @@ export function PathStage({
 
 function CanvasToolRail({
   activeTool,
-  project,
+  path,
   onToolChange,
 }: {
   activeTool: EditorTool;
-  project: ProjectDocument | null;
+  path: PathModel | null;
   onToolChange(tool: EditorTool): void;
 }) {
-  const anchorCount =
-    project?.path.path_elements.filter(isAnchorElement).length ?? 0;
+  const anchorCount = path?.path_elements.filter(isAnchorElement).length ?? 0;
   const tools: Array<{
     tool: EditorTool;
     label: string;
@@ -1639,7 +1643,7 @@ function CanvasToolRail({
                 ? "tool-translation"
                 : undefined
           }
-          disabled={!project || disabled}
+          disabled={!path || disabled}
           title={
             disabled
               ? `${label} needs two path elements`
@@ -1746,7 +1750,7 @@ function placementToolElementType(
 }
 
 function placementForPointer(
-  project: ProjectDocument,
+  path: PathModel,
   tool: "waypoint" | "translation" | "rotation" | "event",
   pointer: StagePoint,
   viewport: FieldViewport,
@@ -1755,7 +1759,7 @@ function placementForPointer(
     stageToModelPoint(pointer, viewport),
     viewport.field,
   );
-  const elements = project.path.path_elements;
+  const elements = path.path_elements;
 
   if (tool === "waypoint" || tool === "translation") {
     const selectedIndex = selectionStore.getState().selectedElementIndex;
@@ -2004,11 +2008,12 @@ function CanvasContextMenu({
 }
 
 function curveTargetPointsForSamples(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   insertionIndex: number,
   samples: readonly PointMeters[],
 ): PointMeters[] {
-  return curveTargetsForSamples(project, insertionIndex, samples).map(
+  return curveTargetsForSamples(path, config, insertionIndex, samples).map(
     (target) => ({
       x_meters: target.x_meters,
       y_meters: target.y_meters,
@@ -2017,12 +2022,13 @@ function curveTargetPointsForSamples(
 }
 
 function curveTargetsForSamples(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   insertionIndex: number,
   samples: readonly PointMeters[],
 ): TranslationTarget[] {
   const { previousAnchor, nextAnchor } = curveEndpointContext(
-    project.path.path_elements,
+    path.path_elements,
     insertionIndex,
   );
 
@@ -2035,7 +2041,7 @@ function curveTargetsForSamples(
     endpointSnapToleranceMeters: curveEndpointSnapToleranceMeters,
     handoffRadiusMeters:
       getDefaultOptionalConfigValue(
-        project.config,
+        config,
         "intermediate_handoff_radius_meters",
       ) ?? curveDefaultHandoffRadiusMeters,
   });
@@ -2092,7 +2098,7 @@ function modelPointDistance(first: PointMeters, second: PointMeters): number {
 }
 
 function hitTestRotationHandle(
-  project: ProjectDocument,
+  path: PathModel,
   selectedElementIndex: number | null,
   viewport: FieldViewport,
   positionPreview: PositionOverrides,
@@ -2103,7 +2109,7 @@ function hitTestRotationHandle(
     return null;
   }
 
-  const elements = project.path.path_elements;
+  const elements = path.path_elements;
   const element = elements[selectedElementIndex];
   if (!element || (!isRotationTarget(element) && !isWaypoint(element))) {
     return null;
@@ -2131,13 +2137,14 @@ function hitTestRotationHandle(
 }
 
 function hitTestPathElement(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   viewport: FieldViewport,
   positionPreview: PositionOverrides,
   pointer: StagePoint,
   selectedElementIndex: number | null,
 ): number | null {
-  const elements = project.path.path_elements;
+  const elements = path.path_elements;
   const renderedNodes = elements.flatMap((element, index) => {
     const position = getElementPosition(elements, index, positionPreview);
     return position
@@ -2155,7 +2162,7 @@ function hitTestPathElement(
             ({ index }) => index === selectedElementIndex,
           ),
         ];
-  const robotSizeMeters = robotSizeFromConfig(project.config);
+  const robotSizeMeters = robotSizeFromConfig(config);
 
   for (
     let nodeIndex = orderedNodes.length - 1;
@@ -2253,21 +2260,18 @@ function hitTestElementShape(
 }
 
 function projectDragStagePoint(
-  project: ProjectDocument,
+  path: PathModel,
   viewport: FieldViewport,
   index: number,
   stagePoint: StagePoint,
 ): { position: PointMeters; ratio: number | null; stagePoint: StagePoint } {
   let position = stageToModelPoint(stagePoint, viewport);
   let ratio: number | null = null;
-  const element = project.path.path_elements[index];
+  const element = path.path_elements[index];
 
   if (element && (isRotationTarget(element) || isEventTrigger(element))) {
     ratio = element.t_ratio;
-    const segment = getNeighborAnchorPositions(
-      project.path.path_elements,
-      index,
-    );
+    const segment = getNeighborAnchorPositions(path.path_elements, index);
     if (segment) {
       ratio = projectPointToSegmentRatio(
         position,
@@ -2297,6 +2301,41 @@ function isDragEnabled(element: PathElement): boolean {
   );
 }
 
+function linkedTargetForElement(
+  project: Project,
+  element: PathElement | undefined,
+): LinkedTarget | null {
+  const targetId = getPathElementLinkedTargetId(element);
+  if (!element || !targetId) {
+    return null;
+  }
+
+  const target =
+    project.linked_targets.find(
+      (candidate) => candidate.target_id === targetId,
+    ) ?? null;
+  return target && isElementCompatibleWithLinkedTarget(element, target)
+    ? target
+    : null;
+}
+
+function nextLinkedTargetName(
+  project: Project,
+  kind: LinkedTargetKind,
+): string {
+  const base = kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
+  const existing = new Set(
+    project.linked_targets.map((target) => target.display_name),
+  );
+  for (let index = 1; index < 10_000; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base} ${project.linked_targets.length + 1}`;
+}
+
 function stagePointFromEvent(
   event:
     | MouseEvent<HTMLDivElement>
@@ -2322,12 +2361,12 @@ function isCanvasChromeEventTarget(target: EventTarget): boolean {
 }
 
 function rotationFromStagePoint(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
   viewport: FieldViewport,
   point: StagePoint,
 ): number | null {
-  const position = getElementPosition(project.path.path_elements, index);
+  const position = getElementPosition(path.path_elements, index);
   if (!position) {
     return null;
   }

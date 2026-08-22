@@ -1,10 +1,7 @@
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import { X } from "lucide-react";
-import type {
-  LinkedTargetKind,
-  ProjectDocument,
-  ProjectWorkspaceDocument,
-} from "../../core/io/projectSchema";
+import type { LinkedTargetKind } from "../../core/io/projectSchema";
+import type { Project, ProjectPath } from "../../core/model/project";
 import { fieldGeometryFromConfig } from "../../core/field/fieldConfig";
 import type { PathElement } from "../../core/model/path";
 import {
@@ -47,8 +44,8 @@ import {
 import { IconButton } from "../controls";
 
 interface SidebarProps {
-  project: ProjectDocument | null;
-  workspace: ProjectWorkspaceDocument | null;
+  project: Project | null;
+  activePath: ProjectPath | null;
   selectedElementIndex: number | null;
   open?: boolean;
   inspectorWidth: number;
@@ -61,7 +58,7 @@ interface SidebarProps {
 
 export function Sidebar({
   project,
-  workspace,
+  activePath,
   selectedElementIndex,
   open = false,
   inspectorWidth,
@@ -83,28 +80,33 @@ export function Sidebar({
     (state) => state.lastError,
   );
   const selectedElement =
-    project && selectedElementIndex !== null
-      ? (project.path.path_elements[selectedElementIndex] ?? null)
+    activePath && selectedElementIndex !== null
+      ? (activePath.path.path_elements[selectedElementIndex] ?? null)
       : null;
   const fieldGeometry = project
     ? fieldGeometryFromConfig(project.config.gui.field)
     : undefined;
 
   const handleSelectElement = (index: number) => {
-    selectionStore.getState().selectElement(index, project?.path);
+    selectionStore.getState().selectElement(index, activePath?.path);
   };
 
   const handleAddElement = (type: AddableElementType) => {
-    if (!project) {
+    if (!project || !activePath) {
       return;
     }
 
     const insertionIndex = getInsertionIndex(
-      project,
+      activePath.path,
       type,
       selectedElementIndex,
     );
-    const element = createDefaultElement(project, type, selectedElementIndex);
+    const element = createDefaultElement(
+      activePath.path,
+      project.config,
+      type,
+      selectedElementIndex,
+    );
     projectStore
       .getState()
       .applyPathCommand(
@@ -119,21 +121,21 @@ export function Sidebar({
   };
 
   const handleAddCurve = () => {
-    if (!project || !onStartCurve || curveToolActive) {
+    if (!activePath || !onStartCurve || curveToolActive) {
       return;
     }
 
     onStartCurve(
-      getInsertionIndex(project, "translation", selectedElementIndex),
+      getInsertionIndex(activePath.path, "translation", selectedElementIndex),
     );
   };
 
   const handleRemoveElement = (index: number) => {
-    if (!project) {
+    if (!activePath) {
       return;
     }
 
-    const element = project.path.path_elements[index];
+    const element = activePath.path.path_elements[index];
     if (!element) {
       return;
     }
@@ -150,11 +152,11 @@ export function Sidebar({
   };
 
   const handleDuplicateElement = (index: number) => {
-    if (!project) {
+    if (!activePath) {
       return;
     }
 
-    const element = project.path.path_elements[index];
+    const element = activePath.path.path_elements[index];
     if (!element) {
       return;
     }
@@ -171,7 +173,10 @@ export function Sidebar({
   };
 
   const handleMoveElement = (fromIndex: number, toIndex: number) => {
-    if (!project || !canMovePathElement(project.path, fromIndex, toIndex)) {
+    if (
+      !activePath ||
+      !canMovePathElement(activePath.path, fromIndex, toIndex)
+    ) {
       return;
     }
 
@@ -192,12 +197,18 @@ export function Sidebar({
   };
 
   const handleChangeElementType = (type: AddableElementType) => {
-    if (!project || selectedElementIndex === null || !selectedElement) {
+    if (
+      !project ||
+      !activePath ||
+      selectedElementIndex === null ||
+      !selectedElement
+    ) {
       return;
     }
 
     const convertedElement = createConvertedElement(
-      project,
+      activePath.path,
+      project.config,
       selectedElementIndex,
       type,
     );
@@ -223,7 +234,7 @@ export function Sidebar({
   };
 
   const handleUpdateElement = (nextElement: PathElement) => {
-    if (!project || selectedElementIndex === null || !selectedElement) {
+    if (!activePath || selectedElementIndex === null || !selectedElement) {
       return;
     }
 
@@ -245,13 +256,13 @@ export function Sidebar({
   };
 
   const handleUnlinkTarget = () => {
-    if (!project || selectedElementIndex === null) {
+    if (!activePath || selectedElementIndex === null) {
       return;
     }
 
     projectStore
       .getState()
-      .unlinkPathElement(project.project_id, selectedElementIndex);
+      .unlinkPathElement(activePath.path_id, selectedElementIndex);
     selectionStore
       .getState()
       .selectElement(
@@ -264,12 +275,12 @@ export function Sidebar({
     kind: LinkedTargetKind,
     displayName: string,
   ) => {
-    if (!project || !workspace || selectedElementIndex === null) {
+    if (!project || !activePath || selectedElementIndex === null) {
       return;
     }
 
     const position = getElementPosition(
-      project.path.path_elements,
+      activePath.path.path_elements,
       selectedElementIndex,
     );
     if (!position) {
@@ -277,19 +288,19 @@ export function Sidebar({
     }
 
     projectStore.getState().createLinkedTarget({
-      display_name: displayName.trim() || nextLinkedTargetName(workspace, kind),
+      display_name: displayName.trim() || nextLinkedTargetName(project, kind),
       kind,
       x_meters: position.x_meters,
       y_meters: position.y_meters,
       rotation_radians:
         kind === "waypoint"
           ? (getElementHeadingRadians(
-              project.path.path_elements,
+              activePath.path.path_elements,
               selectedElementIndex,
             ) ?? 0)
           : null,
       link: {
-        pathId: project.project_id,
+        pathId: activePath.path_id,
         elementIndex: selectedElementIndex,
       },
     });
@@ -427,7 +438,7 @@ export function Sidebar({
           role="tabpanel"
         >
           <ElementList
-            project={project}
+            path={activePath?.path ?? null}
             selectedElementIndex={selectedElementIndex}
             curveToolActive={curveToolActive}
             open
@@ -440,12 +451,15 @@ export function Sidebar({
           />
           <PropertyEditor
             element={selectedElement}
-            workspace={workspace}
+            project={project}
             selectedElementIndex={selectedElementIndex}
             open
             typeOptions={
-              project && selectedElementIndex !== null
-                ? getSwitchableElementTypes(project, selectedElementIndex)
+              activePath && selectedElementIndex !== null
+                ? getSwitchableElementTypes(
+                    activePath.path,
+                    selectedElementIndex,
+                  )
                 : []
             }
             fieldGeometry={fieldGeometry}
@@ -458,7 +472,11 @@ export function Sidebar({
         </div>
       ) : (
         <div className="inspector-sidebar__panel" role="tabpanel">
-          <ConstraintEditor project={project} open />
+          <ConstraintEditor
+            path={activePath?.path ?? null}
+            config={project?.config ?? null}
+            open
+          />
         </div>
       )}
     </aside>

@@ -28,7 +28,7 @@ import {
   getElementPosition,
 } from "../../canvas/geometry";
 import { remapRangedConstraints } from "../../core/constraints/rangedConstraints";
-import type { ProjectDocument } from "../../core/io/projectSchema";
+import type { ProjectConfig } from "../../core/model/project";
 import {
   createEventTrigger,
   createRotationTarget,
@@ -63,10 +63,8 @@ export const addableElementTypes: readonly AddableElementType[] = [
   "event_trigger",
 ];
 
-export function getAddableElementTypes(
-  project: ProjectDocument,
-): AddableElementType[] {
-  const anchorCount = countAnchorElements(project.path.path_elements);
+export function getAddableElementTypes(path: PathModel): AddableElementType[] {
+  const anchorCount = countAnchorElements(path.path_elements);
   if (anchorCount < 2) {
     return ["waypoint", "translation"];
   }
@@ -75,15 +73,14 @@ export function getAddableElementTypes(
 }
 
 export function getSwitchableElementTypes(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
 ): AddableElementType[] {
-  if (index < 0 || index >= project.path.path_elements.length) {
+  if (index < 0 || index >= path.path_elements.length) {
     return [];
   }
 
-  const isEndpoint =
-    index === 0 || index === project.path.path_elements.length - 1;
+  const isEndpoint = index === 0 || index === path.path_elements.length - 1;
   if (isEndpoint) {
     return ["translation", "waypoint"];
   }
@@ -145,17 +142,13 @@ export function createDuplicatePathElementCommand(
  * True when Generate would change something: an unpinned cap ordinal or an
  * unpinned interior-anchor radius for the optimizer to own.
  */
-export function canGenerateConstraints(
-  project: ProjectDocument | null,
-): boolean {
-  return project !== null && canGenerateAutoConstraints(project.path);
+export function canGenerateConstraints(path: PathModel | null): boolean {
+  return path !== null && canGenerateAutoConstraints(path);
 }
 
 /** True when there is optimizer output of either kind to drop. */
-export function canClearGeneratedConstraints(
-  project: ProjectDocument | null,
-): boolean {
-  return project !== null && hasGeneratedAutoConstraints(project.path);
+export function canClearGeneratedConstraints(path: PathModel | null): boolean {
+  return path !== null && hasGeneratedAutoConstraints(path);
 }
 
 /**
@@ -172,11 +165,12 @@ export type HandoffRadiusChipState = AnchorRadiusState;
 export type HandoffRadiusChip = AnchorHandoffRadius;
 
 export function handoffRadiusChipsForPath(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
 ): HandoffRadiusChip[] {
   return anchorHandoffRadii(
-    project.path.path_elements,
-    defaultHandoffRadiusMeters(project.config),
+    path.path_elements,
+    defaultHandoffRadiusMeters(config),
   );
 }
 
@@ -202,7 +196,7 @@ function pathCommand(
 }
 
 export function createInsertPathElementsCommand(
-  project: ProjectDocument,
+  config: ProjectConfig,
   index: number,
   elements: readonly PathElement[],
   options: {
@@ -212,7 +206,7 @@ export function createInsertPathElementsCommand(
 ): HistoryCommand<PathModel> {
   let previousConstraints: RangedConstraint[] | null = null;
   const insertedElements = elements.map((element) => structuredClone(element));
-  const config = structuredClone(project.config);
+  const capturedConfig = structuredClone(config);
 
   return {
     description: `Insert ${insertedElements.length} path elements`,
@@ -230,7 +224,7 @@ export function createInsertPathElementsCommand(
       if (options.applyAutoVelocityToInsertedRange) {
         nextPath = applyAutoVelocityConstraintsToOrdinals(
           nextPath,
-          config,
+          capturedConfig,
           autoVelocityOrdinalsForInsertedRange(
             nextPath.path_elements,
             insertionIndex,
@@ -238,7 +232,7 @@ export function createInsertPathElementsCommand(
           ),
         );
       } else if (options.refreshAutoVelocity) {
-        nextPath = refreshAutoVelocityConstraints(nextPath, config, {
+        nextPath = refreshAutoVelocityConstraints(nextPath, capturedConfig, {
           whenPresentOnly: true,
         });
       }
@@ -579,27 +573,25 @@ export function createSplitRangedConstraintCommand(
 }
 
 export function createDefaultElement(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   type: AddableElementType,
   selectedIndex: number | null,
 ): PathElement {
-  const resolvedType = getAddableElementTypes(project).includes(type)
+  const resolvedType = getAddableElementTypes(path).includes(type)
     ? type
     : "translation";
-  const position = defaultPosition(project, selectedIndex);
+  const position = defaultPosition(path, config, selectedIndex);
   const headingRadians =
     selectedIndex === null
       ? 0
-      : (getElementHeadingRadians(project.path.path_elements, selectedIndex) ??
-        0);
+      : (getElementHeadingRadians(path.path_elements, selectedIndex) ?? 0);
 
   if (resolvedType === "translation") {
     return createTranslationTarget({
       x_meters: position.x_meters,
       y_meters: position.y_meters,
-      intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(
-        project.config,
-      ),
+      intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(config),
       handoff_radius_source: "auto",
     });
   }
@@ -609,9 +601,7 @@ export function createDefaultElement(
       translation_target: createTranslationTarget({
         x_meters: position.x_meters,
         y_meters: position.y_meters,
-        intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(
-          project.config,
-        ),
+        intermediate_handoff_radius_meters: defaultHandoffRadiusMeters(config),
         handoff_radius_source: "auto",
       }),
       rotation_target: createRotationTarget({
@@ -635,28 +625,29 @@ export function createDefaultElement(
 }
 
 export function createConvertedElement(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   index: number,
   nextType: AddableElementType,
 ): PathElement | null {
-  const element = project.path.path_elements[index];
+  const element = path.path_elements[index];
   if (!element || element.type === nextType) {
     return null;
   }
 
-  if (!getSwitchableElementTypes(project, index).includes(nextType)) {
+  if (!getSwitchableElementTypes(path, index).includes(nextType)) {
     return null;
   }
 
-  const position = getElementPosition(project.path.path_elements, index);
+  const position = getElementPosition(path.path_elements, index);
   const headingRadians =
-    getElementHeadingRadians(project.path.path_elements, index) ?? 0;
+    getElementHeadingRadians(path.path_elements, index) ?? 0;
   const handoffRadius = getExistingHandoffRadius(element);
   const handoffRadiusSource = getHandoffRadiusSource(element) ?? undefined;
   const ratio = getExistingRatio(element);
 
   if (nextType === "translation") {
-    const field = fieldGeometryFromConfig(project.config.gui.field);
+    const field = fieldGeometryFromConfig(config.gui.field);
     return createTranslationTarget({
       x_meters: position?.x_meters ?? field.length_meters / 2,
       y_meters: position?.y_meters ?? field.width_meters / 2,
@@ -666,7 +657,7 @@ export function createConvertedElement(
   }
 
   if (nextType === "waypoint") {
-    const field = fieldGeometryFromConfig(project.config.gui.field);
+    const field = fieldGeometryFromConfig(config.gui.field);
     return createWaypoint({
       translation_target: createTranslationTarget({
         x_meters: position?.x_meters ?? field.length_meters / 2,
@@ -720,11 +711,11 @@ export function canMovePathElement(
 }
 
 export function getInsertionIndex(
-  project: ProjectDocument,
+  path: PathModel,
   type: AddableElementType,
   selectedIndex: number | null,
 ): number {
-  const length = project.path.path_elements.length;
+  const length = path.path_elements.length;
   const baseIndex = selectedIndex === null ? length : selectedIndex + 1;
 
   if (type === "rotation" || type === "event_trigger") {
@@ -966,19 +957,20 @@ function sameRangedConstraint(
 }
 
 function defaultPosition(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   selectedIndex: number | null,
 ): { x_meters: number; y_meters: number } {
-  const field = fieldGeometryFromConfig(project.config.gui.field);
+  const field = fieldGeometryFromConfig(config.gui.field);
   const selectedPosition =
     selectedIndex === null
       ? null
-      : getElementPosition(project.path.path_elements, selectedIndex);
+      : getElementPosition(path.path_elements, selectedIndex);
   const fallbackPosition =
     selectedPosition ??
     getElementPosition(
-      project.path.path_elements,
-      Math.max(0, project.path.path_elements.length - 1),
+      path.path_elements,
+      Math.max(0, path.path_elements.length - 1),
     );
 
   return clampFieldPosition(

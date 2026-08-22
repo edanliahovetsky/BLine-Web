@@ -3,6 +3,7 @@ import type {
   LinkedTargetKind,
   ProjectWorkspaceDocument,
 } from "./io/projectSchema";
+import type { Project } from "./model/project";
 import {
   isTranslationTarget,
   isWaypoint,
@@ -35,6 +36,8 @@ export interface UpdateLinkedTargetInput {
   locked?: boolean;
 }
 
+type LinkedTargetContainer = Pick<Project, "paths" | "linked_targets">;
+
 interface LinkedTargetInputLike {
   target_id?: unknown;
   display_name?: unknown;
@@ -50,12 +53,12 @@ export function createLinkedTargetId(): string {
 }
 
 export function nextLinkedTargetName(
-  workspace: ProjectWorkspaceDocument,
+  project: Pick<Project, "linked_targets">,
   kind: LinkedTargetKind,
 ): string {
   const base = kind === "waypoint" ? "Linked Waypoint" : "Linked Translation";
   const existing = new Set(
-    workspace.linked_targets.map((target) => target.display_name),
+    project.linked_targets.map((target) => target.display_name),
   );
   for (let index = 1; index < 10_000; index += 1) {
     const candidate = `${base} ${index}`;
@@ -63,7 +66,7 @@ export function nextLinkedTargetName(
       return candidate;
     }
   }
-  return `${base} ${workspace.linked_targets.length + 1}`;
+  return `${base} ${project.linked_targets.length + 1}`;
 }
 
 export function getPathElementLinkedTargetId(
@@ -109,7 +112,7 @@ export function isElementCompatibleWithLinkedTarget(
 }
 
 export function linkedTargetForPathElement(
-  workspace: ProjectWorkspaceDocument,
+  project: Pick<Project, "linked_targets">,
   element: PathElement | undefined,
 ): LinkedTarget | null {
   const targetId = getPathElementLinkedTargetId(element);
@@ -118,7 +121,7 @@ export function linkedTargetForPathElement(
   }
 
   const target =
-    workspace.linked_targets.find(
+    project.linked_targets.find(
       (candidate) => candidate.target_id === targetId,
     ) ?? null;
   if (!target || !isElementCompatibleWithLinkedTarget(element, target)) {
@@ -138,12 +141,22 @@ export function linkedTargetControlsElementRotation(
 export function syncLinkedTargetElements(
   workspace: ProjectWorkspaceDocument,
 ): ProjectWorkspaceDocument {
-  const targetsById = new Map(
-    workspace.linked_targets.map((target) => [target.target_id, target]),
-  );
-  const nextWorkspace = structuredClone(workspace);
+  return syncLinkedTargetElementsIn(workspace);
+}
 
-  for (const path of nextWorkspace.paths) {
+export function syncLinkedTargetElementsInProject(project: Project): Project {
+  return syncLinkedTargetElementsIn(project);
+}
+
+function syncLinkedTargetElementsIn<T extends LinkedTargetContainer>(
+  container: T,
+): T {
+  const targetsById = new Map(
+    container.linked_targets.map((target) => [target.target_id, target]),
+  );
+  const nextContainer = structuredClone(container);
+
+  for (const path of nextContainer.paths) {
     path.path.path_elements = path.path.path_elements.map((element) => {
       const targetId = getPathElementLinkedTargetId(element);
       if (!targetId) {
@@ -159,13 +172,27 @@ export function syncLinkedTargetElements(
     });
   }
 
-  return nextWorkspace;
+  return nextContainer;
 }
 
 export function addLinkedTargetToWorkspace(
   workspace: ProjectWorkspaceDocument,
   input: CreateLinkedTargetInput,
 ): ProjectWorkspaceDocument {
+  return addLinkedTarget(workspace, input);
+}
+
+export function addLinkedTargetToProject(
+  project: Project,
+  input: CreateLinkedTargetInput,
+): Project {
+  return addLinkedTarget(project, input);
+}
+
+function addLinkedTarget<T extends LinkedTargetContainer>(
+  container: T,
+  input: CreateLinkedTargetInput,
+): T {
   const target: LinkedTarget = normalizeLinkedTarget({
     target_id: input.target_id ?? createLinkedTargetId(),
     display_name: input.display_name,
@@ -175,21 +202,21 @@ export function addLinkedTargetToWorkspace(
     rotation_radians: input.rotation_radians,
     locked: input.locked,
   });
-  const nextWorkspace: ProjectWorkspaceDocument = {
-    ...structuredClone(workspace),
-    linked_targets: [...workspace.linked_targets, target],
+  const nextContainer: T = {
+    ...structuredClone(container),
+    linked_targets: [...container.linked_targets, target],
   };
 
   if (input.link) {
-    return linkPathElementToTargetInWorkspace(
-      nextWorkspace,
+    return linkPathElementToTarget(
+      nextContainer,
       input.link.pathId,
       input.link.elementIndex,
       target.target_id,
     );
   }
 
-  return syncLinkedTargetElements(nextWorkspace);
+  return syncLinkedTargetElementsIn(nextContainer);
 }
 
 export function updateLinkedTargetInWorkspace(
@@ -197,29 +224,59 @@ export function updateLinkedTargetInWorkspace(
   targetId: string,
   update: UpdateLinkedTargetInput,
 ): ProjectWorkspaceDocument {
-  const nextWorkspace: ProjectWorkspaceDocument = {
-    ...structuredClone(workspace),
-    linked_targets: workspace.linked_targets.map((target) =>
+  return updateLinkedTarget(workspace, targetId, update);
+}
+
+export function updateLinkedTargetInProject(
+  project: Project,
+  targetId: string,
+  update: UpdateLinkedTargetInput,
+): Project {
+  return updateLinkedTarget(project, targetId, update);
+}
+
+function updateLinkedTarget<T extends LinkedTargetContainer>(
+  container: T,
+  targetId: string,
+  update: UpdateLinkedTargetInput,
+): T {
+  const nextContainer: T = {
+    ...structuredClone(container),
+    linked_targets: container.linked_targets.map((target) =>
       target.target_id === targetId
         ? normalizeLinkedTarget({ ...target, ...update })
         : structuredClone(target),
     ),
   };
-  return syncLinkedTargetElements(nextWorkspace);
+  return syncLinkedTargetElementsIn(nextContainer);
 }
 
 export function deleteLinkedTargetFromWorkspace(
   workspace: ProjectWorkspaceDocument,
   targetId: string,
 ): ProjectWorkspaceDocument {
-  const nextWorkspace: ProjectWorkspaceDocument = {
-    ...structuredClone(workspace),
-    linked_targets: workspace.linked_targets.filter(
+  return deleteLinkedTarget(workspace, targetId);
+}
+
+export function deleteLinkedTargetFromProject(
+  project: Project,
+  targetId: string,
+): Project {
+  return deleteLinkedTarget(project, targetId);
+}
+
+function deleteLinkedTarget<T extends LinkedTargetContainer>(
+  container: T,
+  targetId: string,
+): T {
+  const nextContainer: T = {
+    ...structuredClone(container),
+    linked_targets: container.linked_targets.filter(
       (target) => target.target_id !== targetId,
     ),
   };
 
-  for (const path of nextWorkspace.paths) {
+  for (const path of nextContainer.paths) {
     path.path.path_elements = path.path.path_elements.map((element) =>
       getPathElementLinkedTargetId(element) === targetId
         ? setPathElementLinkedTargetId(element, null)
@@ -227,7 +284,7 @@ export function deleteLinkedTargetFromWorkspace(
     );
   }
 
-  return nextWorkspace;
+  return nextContainer;
 }
 
 export function linkPathElementToTargetInWorkspace(
@@ -236,15 +293,33 @@ export function linkPathElementToTargetInWorkspace(
   elementIndex: number,
   targetId: string,
 ): ProjectWorkspaceDocument {
-  const target = workspace.linked_targets.find(
+  return linkPathElementToTarget(workspace, pathId, elementIndex, targetId);
+}
+
+export function linkPathElementToTargetInProject(
+  project: Project,
+  pathId: string,
+  elementIndex: number,
+  targetId: string,
+): Project {
+  return linkPathElementToTarget(project, pathId, elementIndex, targetId);
+}
+
+function linkPathElementToTarget<T extends LinkedTargetContainer>(
+  container: T,
+  pathId: string,
+  elementIndex: number,
+  targetId: string,
+): T {
+  const target = container.linked_targets.find(
     (candidate) => candidate.target_id === targetId,
   );
   if (!target) {
-    return workspace;
+    return container;
   }
 
-  const nextWorkspace = structuredClone(workspace);
-  const path = nextWorkspace.paths.find(
+  const nextContainer = structuredClone(container);
+  const path = nextContainer.paths.find(
     (candidate) => candidate.path_id === pathId,
   );
   const element = path?.path.path_elements[elementIndex];
@@ -253,14 +328,14 @@ export function linkPathElementToTargetInWorkspace(
     !element ||
     !isElementCompatibleWithLinkedTarget(element, target)
   ) {
-    return workspace;
+    return container;
   }
 
   path.path.path_elements[elementIndex] = applyLinkedTargetToElement(
     setPathElementLinkedTargetId(element, target.target_id),
     target,
   );
-  return syncLinkedTargetElements(nextWorkspace);
+  return syncLinkedTargetElementsIn(nextContainer);
 }
 
 export function unlinkPathElementInWorkspace(
@@ -268,27 +343,43 @@ export function unlinkPathElementInWorkspace(
   pathId: string,
   elementIndex: number,
 ): ProjectWorkspaceDocument {
-  const nextWorkspace = structuredClone(workspace);
-  const path = nextWorkspace.paths.find(
+  return unlinkPathElement(workspace, pathId, elementIndex);
+}
+
+export function unlinkPathElementInProject(
+  project: Project,
+  pathId: string,
+  elementIndex: number,
+): Project {
+  return unlinkPathElement(project, pathId, elementIndex);
+}
+
+function unlinkPathElement<T extends LinkedTargetContainer>(
+  container: T,
+  pathId: string,
+  elementIndex: number,
+): T {
+  const nextContainer = structuredClone(container);
+  const path = nextContainer.paths.find(
     (candidate) => candidate.path_id === pathId,
   );
   const element = path?.path.path_elements[elementIndex];
   if (!path || !element) {
-    return workspace;
+    return container;
   }
 
   path.path.path_elements[elementIndex] = setPathElementLinkedTargetId(
     element,
     null,
   );
-  return nextWorkspace;
+  return nextContainer;
 }
 
 export function linkedTargetUseCount(
-  workspace: ProjectWorkspaceDocument,
+  project: Pick<Project, "paths">,
   targetId: string,
 ): number {
-  return workspace.paths.reduce(
+  return project.paths.reduce(
     (total, path) =>
       total +
       path.path.path_elements.filter(

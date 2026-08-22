@@ -29,18 +29,19 @@ import { LinkedTargetsCanvas } from "../../canvas/LinkedTargetsCanvas";
 import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { elementColors } from "../../canvas/elementStyle";
+import {
+  activeProjectPath,
+  legacyWorkspaceForPersistence,
+  openProjectFromLegacyWorkspace,
+} from "../../core/io/legacyWorkspace";
 import type {
   LinkedTarget,
   LinkedTargetKind,
-  ProjectPathGroupDocument,
-  ProjectPathDocument,
-  ProjectWorkspaceDocument,
-} from "../../core/io/projectSchema";
-import {
-  legacyWorkspaceFromOpenProject,
-  openProjectFromLegacyWorkspace,
-} from "../../core/io/legacyWorkspace";
-import { activeProjectFromWorkspace } from "../../core/io/workspaceSerde";
+  Project,
+  ProjectConfig,
+  ProjectPath,
+  ProjectPathGroup,
+} from "../../core/model/project";
 import {
   diffWorkspaceConflict,
   type WorkspaceConflictDiff,
@@ -83,11 +84,7 @@ import { autoVelocityStore } from "../../state/autoVelocityStore";
 import { generateAutoConstraintsInWorker } from "../../state/autoConstraintGeneration";
 import { startAutoVelocitySync } from "../../state/autoVelocitySync";
 import { autoVelocitySettingsForPath } from "../../core/constraints/autoVelocityApply";
-import {
-  activePathDocumentForProjectStore,
-  legacyWorkspaceForProjectStore,
-  projectStore,
-} from "../../state/projectStore";
+import { projectStore } from "../../state/projectStore";
 import { useStoreSelector } from "../../state/react";
 import { selectionStore } from "../../state/selectionStore";
 import {
@@ -201,19 +198,9 @@ export function AppShell() {
     projectStore,
     (state) => state.activePathGroupId,
   );
-  const workspace = useMemo(
-    () =>
-      durableProject
-        ? legacyWorkspaceFromOpenProject(durableProject, {
-            activePathId,
-            activePathGroupId,
-          })
-        : null,
-    [activePathGroupId, activePathId, durableProject],
-  );
-  const project = useMemo(
-    () => activeProjectFromWorkspace(workspace),
-    [workspace],
+  const activePath = useMemo(
+    () => activeProjectPath(durableProject, activePathId),
+    [activePathId, durableProject],
   );
   const projectIo = useStoreSelector(projectStore, (state) => state.io);
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
@@ -363,17 +350,16 @@ export function AppShell() {
 
   const handleCommitCurveTool = useCallback(
     (insertionIndex: number, targets: readonly TranslationTarget[]) => {
-      const activeProject = activePathDocumentForProjectStore(
-        projectStore.getState(),
-      );
-      if (!activeProject || targets.length === 0) {
+      const state = projectStore.getState();
+      const currentPath = activeProjectPath(state.project, state.activePathId);
+      if (!state.project || !currentPath || targets.length === 0) {
         setCurveToolSession(null);
         return;
       }
 
       projectStore.getState().applyPathCommand(
         createInsertPathElementsCommand(
-          activeProject,
+          state.project.config,
           insertionIndex,
           targets,
           {
@@ -385,7 +371,10 @@ export function AppShell() {
         .getState()
         .selectElement(
           insertionIndex,
-          activePathDocumentForProjectStore(projectStore.getState())?.path,
+          activeProjectPath(
+            projectStore.getState().project,
+            projectStore.getState().activePathId,
+          )?.path,
         );
       setCurveToolSession(null);
       setActiveTool("select");
@@ -631,15 +620,15 @@ export function AppShell() {
   const startGuidedTour = useCallback((tourId: string) => {
     const tourDefinition = findTour(tourId);
     const state = projectStore.getState();
-    const currentWorkspace = legacyWorkspaceForProjectStore(state);
-    if (!tourDefinition || !currentWorkspace) {
+    const currentProject = state.project;
+    if (!tourDefinition || !currentProject) {
       return;
     }
 
-    const existingPractice = currentWorkspace.paths.find(
+    const existingPractice = currentProject.paths.find(
       (path) => path.display_name === tourPracticePathName,
     );
-    const currentPathId = currentWorkspace.active_path_id;
+    const currentPathId = state.activePathId;
     tourReturnPathRef.current =
       currentPathId && currentPathId !== existingPractice?.path_id
         ? currentPathId
@@ -658,17 +647,17 @@ export function AppShell() {
     // Lessons teach on the neutral blank grid; the user's field comes back
     // as soon as the tour ends.
     const latestState = projectStore.getState();
-    const activeProject = activePathDocumentForProjectStore(latestState);
+    const latestProject = latestState.project;
     if (
-      activeProject &&
-      activeProject.config.gui.field.selected_field_id !== "blank-grid"
+      latestProject &&
+      latestProject.config.gui.field.selected_field_id !== "blank-grid"
     ) {
       tourReturnFieldRef.current =
-        activeProject.config.gui.field.selected_field_id;
-      const nextConfig = structuredClone(activeProject.config);
+        latestProject.config.gui.field.selected_field_id;
+      const nextConfig = structuredClone(latestProject.config);
       nextConfig.gui.field.selected_field_id = "blank-grid";
       latestState.applyConfigCommand(
-        createUpdateProjectConfigCommand(activeProject.config, nextConfig),
+        createUpdateProjectConfigCommand(latestProject.config, nextConfig),
       );
     } else {
       tourReturnFieldRef.current = null;
@@ -690,15 +679,15 @@ export function AppShell() {
     if (returnFieldId) {
       tourReturnFieldRef.current = null;
       const state = projectStore.getState();
-      const activeProject = activePathDocumentForProjectStore(state);
+      const currentProject = state.project;
       if (
-        activeProject &&
-        activeProject.config.gui.field.selected_field_id !== returnFieldId
+        currentProject &&
+        currentProject.config.gui.field.selected_field_id !== returnFieldId
       ) {
-        const nextConfig = structuredClone(activeProject.config);
+        const nextConfig = structuredClone(currentProject.config);
         nextConfig.gui.field.selected_field_id = returnFieldId;
         state.applyConfigCommand(
-          createUpdateProjectConfigCommand(activeProject.config, nextConfig),
+          createUpdateProjectConfigCommand(currentProject.config, nextConfig),
         );
       }
     }
@@ -709,10 +698,8 @@ export function AppShell() {
     }
 
     tourReturnPathRef.current = null;
-    const currentWorkspace = legacyWorkspaceForProjectStore(
-      projectStore.getState(),
-    );
-    if (currentWorkspace?.paths.some((path) => path.path_id === returnPathId)) {
+    const currentProject = projectStore.getState().project;
+    if (currentProject?.paths.some((path) => path.path_id === returnPathId)) {
       projectStore.getState().setActivePath(returnPathId);
     }
   }, [activeTourId]);
@@ -721,11 +708,13 @@ export function AppShell() {
     (tool: EditorTool) => {
       setActiveTool(tool);
       if (tool === "curve") {
-        const activeProject = activePathDocumentForProjectStore(
-          projectStore.getState(),
+        const state = projectStore.getState();
+        const currentPath = activeProjectPath(
+          state.project,
+          state.activePathId,
         );
-        if (activeProject) {
-          handleStartCurveTool(activeProject.path.path_elements.length);
+        if (currentPath) {
+          handleStartCurveTool(currentPath.path.path_elements.length);
         }
       } else if (curveToolSession) {
         setCurveToolSession(null);
@@ -760,16 +749,16 @@ export function AppShell() {
 
   const handlePlaceCanvasElement = useCallback(
     (placement: CanvasElementPlacement) => {
-      const activeProject = activePathDocumentForProjectStore(
-        projectStore.getState(),
-      );
-      if (!activeProject) {
+      const state = projectStore.getState();
+      const currentPath = activeProjectPath(state.project, state.activePathId);
+      if (!currentPath || !state.project) {
         return;
       }
 
       const selectedIndex = selectionStore.getState().selectedElementIndex;
       const element = createDefaultElement(
-        activeProject,
+        currentPath.path,
+        state.project.config,
         placement.type,
         selectedIndex,
       );
@@ -795,7 +784,10 @@ export function AppShell() {
         .getState()
         .selectElement(
           placement.insertionIndex,
-          activePathDocumentForProjectStore(projectStore.getState())?.path,
+          activeProjectPath(
+            projectStore.getState().project,
+            projectStore.getState().activePathId,
+          )?.path,
         );
     },
     [],
@@ -821,7 +813,10 @@ export function AppShell() {
       setConflictDiff(null);
       setConflictDiffLoading(true);
       try {
-        const mine = legacyWorkspaceForProjectStore(projectStore.getState());
+        const currentProject = projectStore.getState().project;
+        const mine = currentProject
+          ? legacyWorkspaceForPersistence(currentProject)
+          : null;
         const theirs = await projectIo.peekWorkspace();
         if (cancelled || !mine) {
           return;
@@ -888,11 +883,11 @@ export function AppShell() {
   }, []);
 
   const handleOpenLinkedTargetPicker = useCallback(() => {
-    if (!project || selectedElementIndex === null) {
+    if (!activePath || selectedElementIndex === null) {
       return;
     }
 
-    const element = project.path.path_elements[selectedElementIndex];
+    const element = activePath.path.path_elements[selectedElementIndex];
     if (!element) {
       return;
     }
@@ -900,12 +895,12 @@ export function AppShell() {
     setShowOpenPanel(false);
     setOpenTopMenu(null);
     setLinkedTargetPickerRequest({
-      pathId: project.project_id,
+      pathId: activePath.path_id,
       elementIndex: selectedElementIndex,
       element,
     });
     setShowLinkedTargetsDialog(true);
-  }, [project, selectedElementIndex]);
+  }, [activePath, selectedElementIndex]);
 
   const closeLinkedTargetsDialog = useCallback(() => {
     setShowLinkedTargetsDialog(false);
@@ -920,13 +915,10 @@ export function AppShell() {
       addToCurrentGroup: boolean;
       displayName: string;
     }) => {
-      const workspaceSnapshot = legacyWorkspaceForProjectStore(
-        projectStore.getState(),
-      );
       const activeGroupId =
         newPathGroupContextId !== undefined
           ? newPathGroupContextId
-          : (workspaceSnapshot?.active_path_group_id ?? null);
+          : projectStore.getState().activePathGroupId;
       projectStore.getState().createPath({
         displayName,
         fileName: ensureJsonFileName(displayName),
@@ -1065,9 +1057,10 @@ export function AppShell() {
       }
 
       const toolShortcut = toolForShortcut(event.key);
+      const state = projectStore.getState();
       if (
         toolShortcut &&
-        activePathDocumentForProjectStore(projectStore.getState())
+        activeProjectPath(state.project, state.activePathId)
       ) {
         event.preventDefault();
         handleToolChange(toolShortcut);
@@ -1252,8 +1245,7 @@ export function AppShell() {
 
       try {
         const currentProjectId =
-          legacyWorkspaceForProjectStore(projectStore.getState())?.project_id ??
-          null;
+          projectStore.getState().project?.project_id ?? null;
         const orderedIds = [
           ...ids.filter((id) => id !== currentProjectId),
           ...ids.filter((id) => id === currentProjectId),
@@ -1297,10 +1289,8 @@ export function AppShell() {
       return;
     }
 
-    const activeWorkspace = legacyWorkspaceForProjectStore(
-      projectStore.getState(),
-    );
-    if (!activeWorkspace) {
+    const currentProject = projectStore.getState().project;
+    if (!currentProject) {
       endToolbarAction("export");
       return;
     }
@@ -1310,7 +1300,7 @@ export function AppShell() {
       if (bundle) {
         downloadBlob(
           bundle,
-          `${safeDownloadName(activeWorkspace.display_name)}.bline-project.json`,
+          `${safeDownloadName(currentProject.display_name)}.bline-project.json`,
         );
       }
     } catch (caughtError) {
@@ -1344,19 +1334,19 @@ export function AppShell() {
       return;
     }
 
-    const activeWorkspace = legacyWorkspaceForProjectStore(
-      projectStore.getState(),
-    );
-    const activePath = activePathDocument(activeWorkspace);
-    if (!activePath) {
+    const state = projectStore.getState();
+    const currentPath = activeProjectPath(state.project, state.activePathId);
+    if (!currentPath) {
       endToolbarAction("export");
       return;
     }
 
     try {
-      const blob = await projectStore.getState().exportPath(activePath.path_id);
+      const blob = await projectStore
+        .getState()
+        .exportPath(currentPath.path_id);
       if (blob) {
-        await saveBlobAs(blob, activePath.file_name, {
+        await saveBlobAs(blob, currentPath.file_name, {
           title: "Export BLine Path",
           useNativeSaveDialog: Boolean(
             projectStore.getState().io?.capabilities.directFileAutosave,
@@ -1436,37 +1426,33 @@ export function AppShell() {
   }, [beginToolbarAction, endToolbarAction]);
 
   const handleSavePathAs = useCallback(() => {
-    const activeWorkspace = legacyWorkspaceForProjectStore(
-      projectStore.getState(),
-    );
-    const activePath = activePathDocument(activeWorkspace);
-    if (!activePath) {
+    const state = projectStore.getState();
+    const currentPath = activeProjectPath(state.project, state.activePathId);
+    if (!currentPath) {
       return;
     }
 
     pathMenuButtonRef.current?.focus();
     setPathNameAction({
       kind: "duplicate",
-      pathId: activePath.path_id,
-      initialName: activePath.display_name,
+      pathId: currentPath.path_id,
+      initialName: currentPath.display_name,
     });
     setOpenTopMenu(null);
   }, []);
 
   const handleRenamePath = useCallback(() => {
-    const activeWorkspace = legacyWorkspaceForProjectStore(
-      projectStore.getState(),
-    );
-    const activePath = activePathDocument(activeWorkspace);
-    if (!activePath) {
+    const state = projectStore.getState();
+    const currentPath = activeProjectPath(state.project, state.activePathId);
+    if (!currentPath) {
       return;
     }
 
     pathMenuButtonRef.current?.focus();
     setPathNameAction({
       kind: "rename",
-      pathId: activePath.path_id,
-      initialName: activePath.display_name,
+      pathId: currentPath.path_id,
+      initialName: currentPath.display_name,
     });
     setOpenTopMenu(null);
   }, []);
@@ -1586,13 +1572,12 @@ export function AppShell() {
 
   const handleSaveConfig = useCallback(
     (
-      nextConfig: NonNullable<typeof project>["config"],
+      nextConfig: ProjectConfig,
       options: { autoSyncEnabled: boolean; configChanged: boolean },
     ) => {
-      const activeProject = activePathDocumentForProjectStore(
-        projectStore.getState(),
-      );
-      if (!activeProject) {
+      const state = projectStore.getState();
+      const currentProject = state.project;
+      if (!currentProject) {
         return;
       }
 
@@ -1600,7 +1585,7 @@ export function AppShell() {
         projectStore
           .getState()
           .applyConfigCommand(
-            createUpdateProjectConfigCommand(activeProject.config, nextConfig),
+            createUpdateProjectConfigCommand(currentProject.config, nextConfig),
           );
       }
       autoVelocityStore.getState().setAutoSyncEnabled(options.autoSyncEnabled);
@@ -1622,12 +1607,12 @@ export function AppShell() {
   );
 
   const selectedElement =
-    project && selectedElementIndex !== null
-      ? project.path.path_elements[selectedElementIndex]
+    activePath && selectedElementIndex !== null
+      ? activePath.path.path_elements[selectedElementIndex]
       : null;
   const selectedPosition =
-    project && selectedElementIndex !== null
-      ? getElementPosition(project.path.path_elements, selectedElementIndex)
+    activePath && selectedElementIndex !== null
+      ? getElementPosition(activePath.path.path_elements, selectedElementIndex)
       : null;
   const selectedSummary =
     selectedElement && selectedElementIndex !== null
@@ -1637,11 +1622,10 @@ export function AppShell() {
   const supportsProjectFolders = Boolean(
     ioCapabilities?.supportsProjectFolders,
   );
-  const activePath = activePathDocument(workspace);
-  const pathDocuments = workspace?.paths ?? [];
+  const pathDocuments = durableProject?.paths ?? [];
   const activePathGroup =
-    workspace?.path_groups.find(
-      (group) => group.group_id === workspace.active_path_group_id,
+    durableProject?.path_groups.find(
+      (group) => group.group_id === activePathGroupId,
     ) ?? null;
   const visiblePathDocuments = activePathGroup
     ? activePathGroup.path_ids.flatMap((pathId) => {
@@ -1653,18 +1637,18 @@ export function AppShell() {
     : pathDocuments;
   const projectSummaries = ensureCurrentWorkspaceSummary(
     workspaceSummaries,
-    workspace,
+    durableProject,
     currentVersion,
     lastSavedAt,
   );
   const toolbarBusy = pendingToolbarAction !== null;
-  const projectLabel = workspace?.display_name ?? "No project";
+  const projectLabel = durableProject?.display_name ?? "No project";
   const pathLabel = activePath?.display_name ?? "No path";
   const currentProjectSummary = `Project: ${projectLabel}`;
   const currentPathSummary = activePathGroup
     ? `Current Path: ${activePathGroup.display_name} / ${pathLabel}`
     : `Current Path: ${pathLabel}`;
-  const storageLabel = formatStorageLabel(workspace, ioCapabilities);
+  const storageLabel = formatStorageLabel(durableProject, ioCapabilities);
   const saveStatus = formatSaveStatus({
     autosaveStatus,
     dirty,
@@ -1682,8 +1666,13 @@ export function AppShell() {
     status,
   });
   const pathDiagnostics = useMemo(
-    () => derivePathDiagnostics(project, workspace),
-    [project, workspace],
+    () =>
+      derivePathDiagnostics(
+        activePath?.path ?? null,
+        durableProject?.config ?? null,
+        durableProject?.linked_targets ?? [],
+      ),
+    [activePath, durableProject?.config, durableProject?.linked_targets],
   );
   // A broken reference should read as more urgent than a soft warning.
   const pathHealthSeverity = pathDiagnostics.some(
@@ -1708,7 +1697,7 @@ export function AppShell() {
       label: "Open project navigator",
       category: "Project",
       keywords: ["paths", "collections", "library"],
-      disabled: !workspace,
+      disabled: !durableProject,
       run: handleShowPathLibrary,
     },
     {
@@ -1716,14 +1705,14 @@ export function AppShell() {
       label: "Create new path",
       category: "Project",
       keywords: ["add"],
-      disabled: !workspace,
+      disabled: !durableProject,
       run: () => void handleCreateNewPath(),
     },
     {
       id: "project.settings",
       label: "Open project settings",
       category: "Project",
-      disabled: !project,
+      disabled: !durableProject,
       run: () => setShowConfigDialog(true),
     },
     {
@@ -1731,7 +1720,7 @@ export function AppShell() {
       label: "Save now",
       category: "Project",
       shortcut: { key: "s", metaOrCtrl: true },
-      disabled: !workspace || !projectIo,
+      disabled: !durableProject || !projectIo,
       run: () => void handleSaveProject(),
     },
     {
@@ -1756,13 +1745,13 @@ export function AppShell() {
       category: "Path",
       keywords: ["corner", "handoff", "radius", "seed", "optimize", "velocity"],
       disabled:
-        !project ||
+        !activePath ||
         optimizerPhase === "running" ||
-        !canGenerateConstraints(project),
+        !canGenerateConstraints(activePath.path),
       run: () => {
-        if (project) {
+        if (activePath && durableProject) {
           void generateAutoConstraintsInWorker(
-            autoVelocitySettingsForPath(project.path, project.config),
+            autoVelocitySettingsForPath(activePath.path, durableProject.config),
           );
         }
       },
@@ -1783,7 +1772,7 @@ export function AppShell() {
       label: "Toggle inspector",
       category: "View",
       shortcut: { key: "b", metaOrCtrl: true },
-      disabled: !project,
+      disabled: !activePath,
       run: () => setInspectorOpen((current) => !current),
     },
     {
@@ -1798,7 +1787,7 @@ export function AppShell() {
       label: "Select tool",
       category: "Canvas tools",
       shortcut: { key: "v" },
-      disabled: !project,
+      disabled: !activePath,
       run: handleSelectTool,
     },
     {
@@ -1806,7 +1795,7 @@ export function AppShell() {
       label: "Waypoint tool",
       category: "Canvas tools",
       shortcut: { key: "1" },
-      disabled: !project,
+      disabled: !activePath,
       run: handleWaypointTool,
     },
     {
@@ -1814,7 +1803,7 @@ export function AppShell() {
       label: "Translation tool",
       category: "Canvas tools",
       shortcut: { key: "2" },
-      disabled: !project,
+      disabled: !activePath,
       run: handleTranslationTool,
     },
     {
@@ -1822,7 +1811,7 @@ export function AppShell() {
       label: "Rotation tool",
       category: "Canvas tools",
       shortcut: { key: "3" },
-      disabled: !project,
+      disabled: !activePath,
       run: handleRotationTool,
     },
     {
@@ -1830,7 +1819,7 @@ export function AppShell() {
       label: "Event tool",
       category: "Canvas tools",
       shortcut: { key: "4" },
-      disabled: !project,
+      disabled: !activePath,
       run: handleEventTool,
     },
     {
@@ -1838,7 +1827,7 @@ export function AppShell() {
       label: "Curve tool",
       category: "Canvas tools",
       shortcut: { key: "c" },
-      disabled: !project,
+      disabled: !activePath,
       run: handleCurveTool,
     },
     ...pathDocuments.map((path) => ({
@@ -1858,7 +1847,7 @@ export function AppShell() {
             className="app-toolbar__navigator-button"
             aria-label="Open project navigator"
             title="Open project navigator"
-            disabled={!workspace}
+            disabled={!durableProject}
             onClick={handleShowPathLibrary}
           >
             <FolderTree aria-hidden="true" size={17} />
@@ -1903,7 +1892,7 @@ export function AppShell() {
                   />
                   <MenuAction
                     label="Delete Projects..."
-                    disabled={!workspace || !projectIo}
+                    disabled={!durableProject || !projectIo}
                     onAction={handleShowDeleteProjects}
                   />
                 </MenuSubmenu>
@@ -1922,7 +1911,7 @@ export function AppShell() {
                   />
                   <MenuAction
                     label="Export Autos Folder..."
-                    disabled={!workspace || !projectIo}
+                    disabled={!durableProject || !projectIo}
                     onAction={() => void handleExportProjectFolder()}
                   />
                   <div className="top-menu__separator" role="separator" />
@@ -1935,7 +1924,7 @@ export function AppShell() {
               />
               <MenuAction
                 label="Export Project Archive..."
-                disabled={!workspace || !projectIo}
+                disabled={!durableProject || !projectIo}
                 onAction={() => {
                   setOpenTopMenu(null);
                   void handleExportProjectArchive();
@@ -1945,12 +1934,12 @@ export function AppShell() {
             <MenuSubmenu label="Config" testId="top-menu-project-config">
               <MenuAction
                 label="Import Config..."
-                disabled={!workspace || !projectIo}
+                disabled={!durableProject || !projectIo}
                 onAction={() => queueFileImport("config")}
               />
               <MenuAction
                 label="Export Config..."
-                disabled={!workspace || !projectIo}
+                disabled={!durableProject || !projectIo}
                 onAction={() => void handleExportConfig()}
               />
             </MenuSubmenu>
@@ -1992,13 +1981,13 @@ export function AppShell() {
             <div className="top-menu__separator" role="separator" />
             <MenuAction
               label="Linked Elements..."
-              disabled={!workspace}
+              disabled={!durableProject}
               onAction={handleShowLinkedTargets}
             />
             <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
               <MenuAction
                 label="Create New Path"
-                disabled={!workspace || !projectIo}
+                disabled={!durableProject || !projectIo}
                 onAction={() => void handleCreateNewPath()}
               />
               <MenuAction
@@ -2013,7 +2002,7 @@ export function AppShell() {
               />
               <MenuAction
                 label="Delete Paths..."
-                disabled={!workspace || pathDocuments.length === 0}
+                disabled={!durableProject || pathDocuments.length === 0}
                 onAction={handleShowDeletePaths}
               />
             </MenuSubmenu>
@@ -2023,7 +2012,7 @@ export function AppShell() {
             >
               <MenuAction
                 label="Import Path..."
-                disabled={!workspace || !projectIo}
+                disabled={!durableProject || !projectIo}
                 onAction={() => queueFileImport("path")}
               />
               <MenuAction
@@ -2037,7 +2026,7 @@ export function AppShell() {
         <nav className="toolbar-actions" aria-label="Project actions">
           <div className="toolbar-actions__quick">
             <ToolbarPathNavigator
-              workspace={workspace}
+              project={durableProject}
               activeGroup={activePathGroup}
               activePath={activePath}
               visiblePaths={visiblePathDocuments}
@@ -2104,7 +2093,7 @@ export function AppShell() {
                 />
                 <MenuAction
                   label="Import Path..."
-                  disabled={!workspace || !projectIo || toolbarBusy}
+                  disabled={!durableProject || !projectIo || toolbarBusy}
                   onAction={() => queueFileImport("path")}
                 />
                 <MenuAction
@@ -2124,14 +2113,17 @@ export function AppShell() {
               <div className="top-menu__separator" role="separator" />
               <MenuAction
                 label="Project Navigator..."
-                disabled={!workspace}
+                disabled={!durableProject}
                 onAction={handleShowPathLibrary}
               />
               <div className="top-menu__separator" role="separator" />
               <MenuAction
                 label="Save"
                 disabled={
-                  !workspace || !projectIo || status === "saving" || toolbarBusy
+                  !durableProject ||
+                  !projectIo ||
+                  status === "saving" ||
+                  toolbarBusy
                 }
                 onAction={() => {
                   setOpenTopMenu(null);
@@ -2193,7 +2185,7 @@ export function AppShell() {
                       } to review`
                     : "Path health — editor checks for this path"
                 }
-                disabled={!project}
+                disabled={!activePath}
                 onClick={() => {
                   setShowHelpHub(false);
                   setShowPathHealth((current) => !current);
@@ -2212,7 +2204,10 @@ export function AppShell() {
                     if (diagnostic.elementIndex !== undefined) {
                       selectionStore
                         .getState()
-                        .selectElement(diagnostic.elementIndex, project?.path);
+                        .selectElement(
+                          diagnostic.elementIndex,
+                          activePath?.path,
+                        );
                       setInspectorOpen(true);
                     }
                     setShowPathHealth(false);
@@ -2234,7 +2229,7 @@ export function AppShell() {
               </IconButton>
               {showHelpHub ? (
                 <HelpHubPopover
-                  tourAvailable={Boolean(project) && toursSupported}
+                  tourAvailable={Boolean(activePath) && toursSupported}
                   tourUnavailableReason={
                     toursSupported
                       ? "Open a path first"
@@ -2263,7 +2258,7 @@ export function AppShell() {
             <IconButton
               aria-label="Settings"
               title="Project settings"
-              disabled={!project}
+              disabled={!durableProject}
               onClick={() => setShowConfigDialog(true)}
             >
               <Settings aria-hidden="true" size={16} />
@@ -2288,7 +2283,7 @@ export function AppShell() {
                       "Toggle inspector (⌘B)",
                     )
               }
-              disabled={!project}
+              disabled={!activePath}
               onClick={() => setInspectorOpen((current) => !current)}
             >
               <PanelRight aria-hidden="true" size={16} />
@@ -2337,7 +2332,7 @@ export function AppShell() {
       <div
         className={[
           "workspace",
-          workspace && !inspectorOpen ? "is-inspector-collapsed" : "",
+          durableProject && !inspectorOpen ? "is-inspector-collapsed" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -2347,7 +2342,7 @@ export function AppShell() {
           } as CSSProperties
         }
       >
-        {!workspace ? (
+        {!durableProject ? (
           <StartCenter
             initializing={initializing}
             recentWorkspaces={projectSummaries}
@@ -2391,7 +2386,7 @@ export function AppShell() {
                 onCurveToolCommit={handleCommitCurveTool}
                 onCurveToolCancel={handleCancelCurveTool}
               />
-              {project?.path.path_elements.length === 0 ? (
+              {activePath?.path.path_elements.length === 0 ? (
                 <div className="canvas-empty-guide">
                   <strong>Place your first waypoint</strong>
                   <span>Choose Waypoint or press 1, then click the field.</span>
@@ -2414,8 +2409,8 @@ export function AppShell() {
               />
             ) : null}
             <Sidebar
-              project={project}
-              workspace={workspace}
+              project={durableProject}
+              activePath={activePath}
               selectedElementIndex={selectedElementIndex}
               open={inspectorOpen}
               inspectorWidth={inspectorWidth}
@@ -2439,12 +2434,14 @@ export function AppShell() {
         >
           {selectedElement && selectedElementIndex !== null
             ? `${getElementLabel(selectedElement)} ${selectedElementIndex + 1} · ${formatPointMeters(selectedPosition)}`
-            : workspace
+            : durableProject
               ? "Nothing selected"
               : "Ready"}
         </span>
         <span className="status-bar__hint">
-          {workspace ? toolHint(activeTool, curveToolSession !== null) : ""}
+          {durableProject
+            ? toolHint(activeTool, curveToolSession !== null)
+            : ""}
         </span>
         <div className="status-bar__system">
           {pathDiagnostics.length > 0 ? (
@@ -2482,10 +2479,10 @@ export function AppShell() {
         </div>
       </footer>
 
-      {project && showConfigDialog ? (
+      {durableProject && showConfigDialog ? (
         <ProjectConfigDialog
           autoSyncEnabled={autoSyncEnabled}
-          config={project.config}
+          config={durableProject.config}
           onCancel={() => setShowConfigDialog(false)}
           onSave={handleSaveConfig}
           onUploadFieldImage={handleUploadFieldImage}
@@ -2500,15 +2497,17 @@ export function AppShell() {
       ) : null}
       {showDeleteProjectDialog ? (
         <DeleteProjectsDialog
-          activeWorkspaceId={workspace?.project_id ?? null}
+          activeWorkspaceId={durableProject?.project_id ?? null}
           workspaces={projectSummaries}
           onCancel={() => setShowDeleteProjectDialog(false)}
           onDelete={(ids) => void handleDeleteProjects(ids)}
         />
       ) : null}
-      {workspace && showPathGroupsDialog ? (
+      {durableProject && showPathGroupsDialog ? (
         <PathLibraryDialog
-          workspace={workspace}
+          project={durableProject}
+          activePathId={activePathId}
+          activePathGroupId={activePathGroupId}
           onCancel={() => setShowPathGroupsDialog(false)}
           onCreatePath={(groupId) => {
             setShowOpenPanel(false);
@@ -2545,22 +2544,22 @@ export function AppShell() {
           onSubmit={handleConfirmPathNameAction}
         />
       ) : null}
-      {workspace && showLinkedTargetsDialog ? (
+      {durableProject && showLinkedTargetsDialog ? (
         <LinkedTargetsDialog
           linkRequest={linkedTargetPickerRequest}
-          workspace={workspace}
+          project={durableProject}
           onCancel={closeLinkedTargetsDialog}
         />
       ) : null}
-      {workspace && showNewPathDialog ? (
+      {durableProject && showNewPathDialog ? (
         <NewPathDialog
           activeGroup={
-            workspace.path_groups.find(
+            durableProject.path_groups.find(
               (group) =>
                 group.group_id ===
                 (newPathGroupContextId !== undefined
                   ? newPathGroupContextId
-                  : workspace.active_path_group_id),
+                  : activePathGroupId),
             ) ?? null
           }
           onCancel={() => {
@@ -2572,7 +2571,7 @@ export function AppShell() {
       ) : null}
       {showDeletePathDialog ? (
         <DeletePathsDialog
-          activePathId={workspace?.active_path_id ?? null}
+          activePathId={activePathId}
           paths={pathDocuments}
           onCancel={() => setShowDeletePathDialog(false)}
           onDelete={(ids) => void handleDeletePaths(ids)}
@@ -2622,12 +2621,12 @@ export function AppShell() {
             handleToolChange("select");
           }
           if (preparation.selectElement !== undefined) {
+            const state = projectStore.getState();
             selectionStore
               .getState()
               .selectElement(
                 preparation.selectElement,
-                activePathDocumentForProjectStore(projectStore.getState())
-                  ?.path,
+                activeProjectPath(state.project, state.activePathId)?.path,
               );
           }
         }}
@@ -2952,17 +2951,17 @@ function SaveConflictDiffSummary({
 }
 
 function ToolbarPathNavigator({
-  workspace,
+  project,
   activeGroup,
   activePath,
   visiblePaths,
   onSelectGroup,
   onSelectPath,
 }: {
-  workspace: ProjectWorkspaceDocument | null;
-  activeGroup: ProjectPathGroupDocument | null;
-  activePath: ProjectPathDocument | null;
-  visiblePaths: ProjectPathDocument[];
+  project: Project | null;
+  activeGroup: ProjectPathGroup | null;
+  activePath: ProjectPath | null;
+  visiblePaths: ProjectPath[];
   onSelectGroup(groupId: string | null): void;
   onSelectPath(pathId: string): void;
 }) {
@@ -2970,7 +2969,7 @@ function ToolbarPathNavigator({
   const collectionLabel = activeGroup?.display_name ?? "All Paths";
   const collectionOptions = [
     { label: "All Paths", value: "__all_paths__" },
-    ...(workspace?.path_groups.map((group) => ({
+    ...(project?.path_groups.map((group) => ({
       label: group.display_name,
       value: group.group_id,
     })) ?? []),
@@ -2998,7 +2997,7 @@ function ToolbarPathNavigator({
         <ToolbarSelectControl
           ariaLabel="Toolbar collection"
           value={collectionValue}
-          disabled={!workspace}
+          disabled={!project}
           options={collectionOptions}
           onChange={(value) =>
             onSelectGroup(value === "__all_paths__" ? null : value)
@@ -3254,7 +3253,7 @@ function NewPathDialog({
   onCancel,
   onCreate,
 }: {
-  activeGroup: ProjectPathGroupDocument | null;
+  activeGroup: ProjectPathGroup | null;
   onCancel(): void;
   onCreate(input: { displayName: string; addToCurrentGroup: boolean }): void;
 }) {
@@ -3416,14 +3415,18 @@ function NameEntryDialog({
 }
 
 function PathLibraryDialog({
-  workspace,
+  project,
+  activePathId,
+  activePathGroupId,
   onCancel,
   onCreatePath,
   onDeletePaths,
   onExportPath,
   onImportPath,
 }: {
-  workspace: ProjectWorkspaceDocument;
+  project: Project;
+  activePathId: string | null;
+  activePathGroupId: string | null;
   onCancel(): void;
   onCreatePath(groupId: string | null): void;
   onDeletePaths(): void;
@@ -3433,16 +3436,17 @@ function PathLibraryDialog({
   const dialogRef = useDialogFocusTrap<HTMLElement>();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
-    workspace.active_path_group_id ?? null,
+    activePathGroupId,
   );
   const [selectedPathId, setSelectedPathId] = useState<string | null>(
-    workspace.active_path_id ?? workspace.paths[0]?.path_id ?? null,
+    activePathId ?? project.paths[0]?.path_id ?? null,
   );
   const [query, setQuery] = useState("");
   const [showCreateCollectionDialog, setShowCreateCollectionDialog] =
     useState(false);
-  const [deletingGroup, setDeletingGroup] =
-    useState<ProjectPathGroupDocument | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<ProjectPathGroup | null>(
+    null,
+  );
   const [nameAction, setNameAction] = useState<LibraryNameAction | null>(null);
 
   useEffect(() => {
@@ -3484,10 +3488,10 @@ function PathLibraryDialog({
   }, [deletingGroup, nameAction, showCreateCollectionDialog]);
 
   const selectedGroup =
-    workspace.path_groups.find((group) => group.group_id === selectedGroupId) ??
+    project.path_groups.find((group) => group.group_id === selectedGroupId) ??
     null;
   const selectedCollectionPaths = visiblePathsForGroup(
-    workspace.paths,
+    project.paths,
     selectedGroup,
   ).filter((path) => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -3498,7 +3502,7 @@ function PathLibraryDialog({
     );
   });
   const selectedPathFromState =
-    workspace.paths.find((path) => path.path_id === selectedPathId) ?? null;
+    project.paths.find((path) => path.path_id === selectedPathId) ?? null;
   const selectedPath =
     selectedPathFromState &&
     selectedCollectionPaths.some(
@@ -3506,15 +3510,15 @@ function PathLibraryDialog({
     )
       ? selectedPathFromState
       : (selectedCollectionPaths.find(
-          (path) => path.path_id === workspace.active_path_id,
+          (path) => path.path_id === activePathId,
         ) ??
         selectedCollectionPaths[0] ??
         null);
   const effectiveSelectedPathId = selectedPath?.path_id ?? null;
   const handleSelectLibraryGroup = (groupId: string | null) => {
     const nextGroup =
-      workspace.path_groups.find((group) => group.group_id === groupId) ?? null;
-    const nextPaths = visiblePathsForGroup(workspace.paths, nextGroup);
+      project.path_groups.find((group) => group.group_id === groupId) ?? null;
+    const nextPaths = visiblePathsForGroup(project.paths, nextGroup);
 
     setSelectedGroupId(groupId);
     setSelectedPathId((current) =>
@@ -3540,9 +3544,7 @@ function PathLibraryDialog({
       makeActive: true,
     });
 
-    const createdGroupId =
-      legacyWorkspaceForProjectStore(projectStore.getState())
-        ?.active_path_group_id ?? null;
+    const createdGroupId = projectStore.getState().activePathGroupId;
     selectionStore.getState().clearSelection();
     setSelectedGroupId(createdGroupId);
     setSelectedPathId(pathId);
@@ -3624,9 +3626,7 @@ function PathLibraryDialog({
         projectStore.getState().duplicatePath(nameAction.pathId, displayName, {
           addToGroupId: nameAction.addToGroupId,
         });
-        const nextPathId =
-          legacyWorkspaceForProjectStore(projectStore.getState())
-            ?.active_path_id ?? null;
+        const nextPathId = projectStore.getState().activePathId;
         selectionStore.getState().clearSelection();
         setSelectedPathId(nextPathId);
       } else {
@@ -3676,7 +3676,7 @@ function PathLibraryDialog({
         <header className="config-dialog__header">
           <div>
             <strong>Project Navigator</strong>
-            <span>{workspace.display_name}</span>
+            <span>{project.display_name}</span>
           </div>
           <CloseButton ariaLabel="Close project navigator" onClick={onCancel} />
         </header>
@@ -3776,10 +3776,10 @@ function PathLibraryDialog({
               >
                 <span>All Paths</span>
                 <small>
-                  Permanent collection / {workspace.paths.length} paths
+                  Permanent collection / {project.paths.length} paths
                 </small>
               </button>
-              {workspace.path_groups.map((group) => (
+              {project.path_groups.map((group) => (
                 <button
                   key={group.group_id}
                   type="button"
@@ -3796,9 +3796,7 @@ function PathLibraryDialog({
                   <small>
                     {group.path_ids.length}{" "}
                     {group.path_ids.length === 1 ? "path" : "paths"}
-                    {workspace.active_path_group_id === group.group_id
-                      ? " / active"
-                      : ""}
+                    {activePathGroupId === group.group_id ? " / active" : ""}
                   </small>
                 </button>
               ))}
@@ -3869,9 +3867,7 @@ function PathLibraryDialog({
                       path.path_id === effectiveSelectedPathId
                         ? "is-selected"
                         : "",
-                      path.path_id === workspace.active_path_id
-                        ? "is-current"
-                        : "",
+                      path.path_id === activePathId ? "is-current" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
@@ -3882,9 +3878,7 @@ function PathLibraryDialog({
                     <span>{path.display_name}</span>
                     <small>
                       {path.file_name}
-                      {path.path_id === workspace.active_path_id
-                        ? " / open"
-                        : ""}
+                      {path.path_id === activePathId ? " / open" : ""}
                     </small>
                   </button>
                 ))
@@ -3911,7 +3905,7 @@ function PathLibraryDialog({
                 <section className="path-library-dialog__membership">
                   <div className="path-library-dialog__subhead">
                     <strong>{selectedPath.file_name}</strong>
-                    <span>{workspace.path_groups.length + 1} collections</span>
+                    <span>{project.path_groups.length + 1} collections</span>
                   </div>
                   <div className="path-library-dialog__membership-list">
                     <label className="path-library-dialog__membership-row is-permanent">
@@ -3919,7 +3913,7 @@ function PathLibraryDialog({
                       <span>All Paths</span>
                       <small>Permanent</small>
                     </label>
-                    {workspace.path_groups.map((group) => (
+                    {project.path_groups.map((group) => (
                       <label
                         key={group.group_id}
                         className={
@@ -3968,7 +3962,7 @@ function PathLibraryDialog({
       {deletingGroup ? (
         <DeletePathGroupDialog
           group={deletingGroup}
-          memberPaths={visiblePathsForGroup(workspace.paths, deletingGroup)}
+          memberPaths={visiblePathsForGroup(project.paths, deletingGroup)}
           onCancel={() => setDeletingGroup(null)}
           onDelete={(deleteMemberPaths) => {
             projectStore
@@ -4025,26 +4019,26 @@ function PathLibraryDialog({
 
 function LinkedTargetsDialog({
   linkRequest,
-  workspace,
+  project,
   onCancel,
 }: {
   linkRequest?: LinkedTargetPickerRequest | null;
-  workspace: ProjectWorkspaceDocument;
+  project: Project;
   onCancel(): void;
 }) {
   const field = useMemo(
-    () => resolveFieldDefinition(workspace.config.gui.field),
-    [workspace.config.gui.field],
+    () => resolveFieldDefinition(project.config.gui.field),
+    [project.config.gui.field],
   );
   const [requestedTargetId, setSelectedTargetId] = useState<
     string | null | undefined
   >(undefined);
   const pickerElement = linkRequest?.element ?? null;
   const pickerCompatibleTargets = pickerElement
-    ? workspace.linked_targets.filter((target) =>
+    ? project.linked_targets.filter((target) =>
         isElementCompatibleWithLinkedTarget(pickerElement, target),
       )
-    : workspace.linked_targets;
+    : project.linked_targets;
   const currentPickerTargetId = pickerElement
     ? getPathElementLinkedTargetId(pickerElement)
     : null;
@@ -4052,21 +4046,21 @@ function LinkedTargetsDialog({
     linkRequest && currentPickerTargetId
       ? currentPickerTargetId
       : (pickerCompatibleTargets[0]?.target_id ??
-        workspace.linked_targets[0]?.target_id ??
+        project.linked_targets[0]?.target_id ??
         null);
 
   const selectedTargetId =
     requestedTargetId === undefined
       ? fallbackTargetId
       : requestedTargetId &&
-          workspace.linked_targets.some(
+          project.linked_targets.some(
             (target) => target.target_id === requestedTargetId,
           )
         ? requestedTargetId
         : null;
 
   const selectedTarget =
-    workspace.linked_targets.find(
+    project.linked_targets.find(
       (target) => target.target_id === selectedTargetId,
     ) ?? null;
   const selectedTargetCompatible =
@@ -4082,14 +4076,14 @@ function LinkedTargetsDialog({
     [pickerElement, pickerCompatibleTargets],
   );
   const activeUseCount = selectedTarget
-    ? linkedTargetUseCount(workspace, selectedTarget.target_id)
+    ? linkedTargetUseCount(project, selectedTarget.target_id)
     : 0;
   const coordinateLength = fieldCoordinateLengthMeters(field.geometry);
   const coordinateWidth = fieldCoordinateWidthMeters(field.geometry);
 
   const createTarget = (kind: LinkedTargetKind) => {
     const targetId = projectStore.getState().createLinkedTarget({
-      display_name: nextLinkedTargetName(workspace, kind),
+      display_name: nextLinkedTargetName(project, kind),
       kind,
       x_meters: coordinateLength / 2,
       y_meters: coordinateWidth / 2,
@@ -4132,7 +4126,10 @@ function LinkedTargetsDialog({
       .getState()
       .selectElement(
         linkRequest.elementIndex,
-        activePathDocumentForProjectStore(projectStore.getState())?.path,
+        activeProjectPath(
+          projectStore.getState().project,
+          projectStore.getState().activePathId,
+        )?.path,
       );
     onCancel();
   };
@@ -4162,11 +4159,9 @@ function LinkedTargetsDialog({
             </strong>
             <span>
               {linkRequest
-                ? `${pickerCompatibleTargets.length} compatible / ${workspace.linked_targets.length} total`
-                : `${workspace.linked_targets.length} ${
-                    workspace.linked_targets.length === 1
-                      ? "element"
-                      : "elements"
+                ? `${pickerCompatibleTargets.length} compatible / ${project.linked_targets.length} total`
+                : `${project.linked_targets.length} ${
+                    project.linked_targets.length === 1 ? "element" : "elements"
                   } / ${activeUseCount} ${
                     activeUseCount === 1 ? "use" : "uses"
                   }`}
@@ -4201,7 +4196,7 @@ function LinkedTargetsDialog({
           <aside className="linked-targets-dialog__list" aria-label="Elements">
             <div className="path-library-dialog__column-header">
               <strong>Elements</strong>
-              <span>{workspace.linked_targets.length}</span>
+              <span>{project.linked_targets.length}</span>
             </div>
             <div
               className="path-library-dialog__path-list"
@@ -4212,14 +4207,14 @@ function LinkedTargetsDialog({
                 }
               }}
             >
-              {workspace.linked_targets.length > 0 ? (
-                workspace.linked_targets.map((target) => {
+              {project.linked_targets.length > 0 ? (
+                project.linked_targets.map((target) => {
                   const selected = target.target_id === selectedTargetId;
                   const compatible =
                     !pickerElement ||
                     isElementCompatibleWithLinkedTarget(pickerElement, target);
                   const useCount = linkedTargetUseCount(
-                    workspace,
+                    project,
                     target.target_id,
                   );
                   return (
@@ -4276,10 +4271,10 @@ function LinkedTargetsDialog({
             >
               <LinkedTargetsCanvas
                 compatibleTargetIds={compatibleTargetIds}
-                config={workspace.config}
+                config={project.config}
                 field={field}
                 selectedTargetId={selectedTargetId}
-                targets={workspace.linked_targets}
+                targets={project.linked_targets}
                 onSelectTarget={setSelectedTargetId}
                 onMoveTarget={(targetId, position) =>
                   projectStore.getState().updateLinkedTarget(targetId, {
@@ -4397,7 +4392,7 @@ function LinkedTargetsDialog({
                     className="linked-targets-dialog__danger"
                     onClick={() => {
                       const nextSelection =
-                        workspace.linked_targets.find(
+                        project.linked_targets.find(
                           (target) =>
                             target.target_id !== selectedTarget.target_id,
                         )?.target_id ?? null;
@@ -5499,7 +5494,7 @@ function DeletePathsDialog({
   onDelete,
 }: {
   activePathId: string | null;
-  paths: ProjectPathDocument[];
+  paths: ProjectPath[];
   onCancel(): void;
   onDelete(ids: string[]): void;
 }) {
@@ -5604,8 +5599,8 @@ function DeletePathGroupDialog({
   onCancel,
   onDelete,
 }: {
-  group: ProjectPathGroupDocument;
-  memberPaths: ProjectPathDocument[];
+  group: ProjectPathGroup;
+  memberPaths: ProjectPath[];
   onCancel(): void;
   onDelete(deleteMemberPaths: boolean): void;
 }) {
@@ -5672,9 +5667,9 @@ function DeletePathGroupDialog({
 }
 
 function visiblePathsForGroup(
-  paths: readonly ProjectPathDocument[],
-  group: ProjectPathGroupDocument | null,
-): ProjectPathDocument[] {
+  paths: readonly ProjectPath[],
+  group: ProjectPathGroup | null,
+): ProjectPath[] {
   if (!group) {
     return [...paths];
   }
@@ -5783,37 +5778,23 @@ function ensureJsonFileName(value: string): string {
   return `${base}.json`;
 }
 
-function activePathDocument(
-  workspace: ProjectWorkspaceDocument | null,
-): ProjectPathDocument | null {
-  if (!workspace) {
-    return null;
-  }
-
-  return (
-    workspace.paths.find((path) => path.path_id === workspace.active_path_id) ??
-    workspace.paths[0] ??
-    null
-  );
-}
-
 function ensureCurrentWorkspaceSummary(
   summaries: ProjectWorkspaceSummary[],
-  workspace: ProjectWorkspaceDocument | null,
+  project: Project | null,
   version: string | undefined,
   lastSavedAt: string | null,
 ): ProjectWorkspaceSummary[] {
   if (
-    !workspace ||
-    summaries.some((summary) => summary.id === workspace.project_id)
+    !project ||
+    summaries.some((summary) => summary.id === project.project_id)
   ) {
     return summaries;
   }
 
   return [
     {
-      id: workspace.project_id,
-      displayName: workspace.display_name,
+      id: project.project_id,
+      displayName: project.display_name,
       updatedAt: lastSavedAt ?? new Date().toISOString(),
       version: version ?? "",
     },
@@ -5822,7 +5803,7 @@ function ensureCurrentWorkspaceSummary(
 }
 
 function formatStorageLabel(
-  workspace: ProjectWorkspaceDocument | null,
+  project: Project | null,
   capabilities: ProjectIoCapabilities | undefined,
 ): string {
   if (!capabilities) {
@@ -5830,7 +5811,7 @@ function formatStorageLabel(
   }
 
   if (capabilities.directFileAutosave) {
-    return `Autosave: ${workspace?.project_id ?? "No folder"}`;
+    return `Autosave: ${project?.project_id ?? "No folder"}`;
   }
 
   return `Autosave: ${capabilities.autosaveTargetLabel}`;

@@ -43,7 +43,7 @@ import {
   domainForKey,
   ordinalsForConstraint,
 } from "../../../core/constraints/rangedConstraints";
-import type { ProjectDocument } from "../../../core/io/projectSchema";
+import type { ProjectConfig } from "../../../core/model/project";
 import {
   constraintKeys,
   rangedConstraintKeys,
@@ -270,10 +270,12 @@ const defaultAutoVelocitySettings: AutoVelocitySettings = {
 };
 
 export function ConstraintEditor({
-  project,
+  path,
+  config,
   open,
 }: {
-  project: ProjectDocument | null;
+  path: PathModel | null;
+  config: ProjectConfig | null;
   open: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -292,9 +294,10 @@ export function ConstraintEditor({
   // The background sync and the Generate button drive the same optimizer, so
   // the card locks for either.
   const autoVelocityRunning = manualRunActive || syncPhase === "running";
-  const autoSettings = project
-    ? autoVelocitySettingsForPath(project.path, project.config)
-    : defaultAutoVelocitySettings;
+  const autoSettings =
+    path && config
+      ? autoVelocitySettingsForPath(path, config)
+      : defaultAutoVelocitySettings;
   const runAutoVelocityTask: AutoVelocityTaskRunner = (task) => {
     if (autoVelocityRunningRef.current) {
       return;
@@ -315,8 +318,8 @@ export function ConstraintEditor({
     (state) => state.selectedRangedConstraint,
   );
   const availableSections = useMemo(
-    () => (project ? buildConstraintMenuSections(project) : []),
-    [project],
+    () => (path ? buildConstraintMenuSections(path) : []),
+    [path],
   );
   const availableItemCount = availableSections.reduce(
     (total, section) => total + section.items.length,
@@ -403,7 +406,7 @@ export function ConstraintEditor({
   const setSelectedForKey = (key: RangedConstraintKey, index: number) => {
     setSelectedByKey((selected) => ({ ...selected, [key]: index }));
     const latestPath =
-      activePathForProjectStore(projectStore.getState())?.path ?? project?.path;
+      activePathForProjectStore(projectStore.getState())?.path ?? path;
     if (latestPath) {
       selectRangedConstraint(latestPath, key, index);
     }
@@ -464,10 +467,11 @@ export function ConstraintEditor({
   }, [selectedRangedConstraint]);
 
   const popoutOverlay =
-    popoutKey && project
+    popoutKey && path && config
       ? createPortal(
           <ConstraintPopout
-            project={project}
+            path={path}
+            config={config}
             constraintKey={popoutKey}
             selectedByKey={selectedByKey}
             autoSettings={autoSettings}
@@ -491,13 +495,14 @@ export function ConstraintEditor({
         title="Constraints"
       >
         <div className="constraint-list">
-          {project ? (
+          {path && config ? (
             <>
               {rangedConstraintKeys.map((key) =>
                 key === autoVelocityKey ? (
                   <AutoConstraintLedgerCard
-                    key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
-                    project={project}
+                    key={`${key}-${projectConfigSignature(config)}`}
+                    path={path}
+                    config={config}
                     selectedIndex={selectedByKey[key] ?? null}
                     autoSettings={autoSettings}
                     autoVelocityRunning={autoVelocityRunning}
@@ -508,8 +513,9 @@ export function ConstraintEditor({
                   />
                 ) : (
                   <RangedConstraintCard
-                    key={`${project.project_id}-${key}-${projectConfigSignature(project)}`}
-                    project={project}
+                    key={`${key}-${projectConfigSignature(config)}`}
+                    path={path}
+                    config={config}
                     constraintKey={key}
                     selectedIndex={selectedByKey[key] ?? null}
                     onSelect={(index) => setSelectedForKey(key, index)}
@@ -520,18 +526,19 @@ export function ConstraintEditor({
 
               <div className="constraint-terminal-group">
                 {terminalToleranceKeys.map((key) =>
-                  project.path.constraints[key] !== null ? (
+                  path.constraints[key] !== null ? (
                     <ScalarConstraintRow
                       key={key}
-                      project={project}
+                      path={path}
+                      config={config}
                       constraintKey={key}
                     />
                   ) : null,
                 )}
               </div>
 
-              {!hasAnyConstraint(project) &&
-              domainLabelsForKey(project, autoVelocityKey).length === 0 ? (
+              {!hasAnyConstraint(path) &&
+              domainLabelsForKey(path, autoVelocityKey).length === 0 ? (
                 <p className="constraint-empty-state">No path limits added.</p>
               ) : null}
             </>
@@ -552,7 +559,7 @@ export function ConstraintEditor({
               <summary
                 ref={menuSummaryRef}
                 className={
-                  project
+                  path && config
                     ? "add-element-button"
                     : "add-element-button is-disabled"
                 }
@@ -560,7 +567,7 @@ export function ConstraintEditor({
                 aria-label="Add constraint"
                 onClick={(event) => {
                   event.preventDefault();
-                  if (!project) {
+                  if (!path || !config) {
                     return;
                   }
                   setMenuOpen((open) => !open);
@@ -608,10 +615,14 @@ export function ConstraintEditor({
                             className="add-element-menu__item"
                             role="menuitem"
                             onClick={() => {
-                              if (!project) {
+                              if (!path || !config) {
                                 return;
                               }
-                              const added = addConstraint(project, item.key);
+                              const added = addConstraint(
+                                path,
+                                config,
+                                item.key,
+                              );
                               if (added) {
                                 setSelectedForKey(added.key, added.index);
                               }
@@ -645,7 +656,8 @@ export function ConstraintEditor({
  * selection and editing stay type-specific.
  */
 function AutoConstraintLedgerCard({
-  project,
+  path,
+  config,
   selectedIndex,
   autoSettings,
   autoVelocityRunning,
@@ -654,7 +666,8 @@ function AutoConstraintLedgerCard({
   onSelect,
   onOpenPopout,
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   selectedIndex: number | null;
   autoSettings: AutoVelocitySettings;
   autoVelocityRunning: boolean;
@@ -665,17 +678,20 @@ function AutoConstraintLedgerCard({
 }) {
   const constraintKey = autoVelocityKey;
   const meta = rangedMeta[constraintKey];
-  const entries = getRangedEntries(project, constraintKey);
+  const entries = getRangedEntries(path, constraintKey);
   const labels = useMemo(
-    () => domainLabelsForKey(project, constraintKey),
-    [constraintKey, project],
+    () => domainLabelsForKey(path, constraintKey),
+    [constraintKey, path],
   );
-  const chips = useMemo(() => handoffRadiusChipsForPath(project), [project]);
+  const chips = useMemo(
+    () => handoffRadiusChipsForPath(path, config),
+    [config, path],
+  );
   const autoStatus = useMemo(
-    () => autoVelocityStatusForProject(project, autoSettings),
-    [autoSettings, project],
+    () => autoVelocityStatusForProject(path, config, autoSettings),
+    [autoSettings, config, path],
   );
-  const canGenerate = useMemo(() => canGenerateConstraints(project), [project]);
+  const canGenerate = useMemo(() => canGenerateConstraints(path), [path]);
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
   const initialSelectedElementIndex =
     selectionStore.getState().selectedElementIndex;
@@ -795,7 +811,7 @@ function AutoConstraintLedgerCard({
       return;
     }
     const latestPath =
-      activePathForProjectStore(projectStore.getState())?.path ?? project.path;
+      activePathForProjectStore(projectStore.getState())?.path ?? path;
     selectionStore
       .getState()
       .selectElement(nextSelection.focusIndex, latestPath);
@@ -827,9 +843,9 @@ function AutoConstraintLedgerCard({
             Generate
           </SidebarActionButton>
           <SidebarActionButton
-            onClick={() => clearGeneratedConstraints(project)}
+            onClick={() => clearGeneratedConstraints(path)}
             disabled={
-              autoVelocityRunning || !canClearGeneratedConstraints(project)
+              autoVelocityRunning || !canClearGeneratedConstraints(path)
             }
             aria-label="Clear generated constraints"
             title="Clear generated handoff radii and velocity constraints"
@@ -850,7 +866,11 @@ function AutoConstraintLedgerCard({
         </p>
       ) : null}
 
-      <AutoVelocityWorkloadWarning project={project} settings={autoSettings} />
+      <AutoVelocityWorkloadWarning
+        path={path}
+        config={config}
+        settings={autoSettings}
+      />
 
       <div className="auto-constraint-ledger__legend" aria-label="Value modes">
         <span>
@@ -868,7 +888,8 @@ function AutoConstraintLedgerCard({
         data-testid="auto-constraint-ledger"
       >
         <ConstraintSegmentBar
-          project={project}
+          path={path}
+          config={config}
           constraintKey={constraintKey}
           entries={entries}
           labels={labels}
@@ -883,16 +904,14 @@ function AutoConstraintLedgerCard({
           onPreview={(index, constraint) => {
             previewRangedConstraint(constraintKey, index, constraint);
           }}
-          onRangesChange={(updates) =>
-            updateRangedConstraints(project, updates)
-          }
+          onRangesChange={(updates) => updateRangedConstraints(path, updates)}
           onGapDoubleClick={(start, end) => {
             const insertedIndex = insertRangedConstraint(
-              project,
+              path,
               constraintKey,
               start,
               end,
-              defaultFor(project, constraintKey, meta.defaultValue),
+              defaultFor(path, config, constraintKey, meta.defaultValue),
             );
             if (insertedIndex !== null) {
               selectVelocityEntry(insertedIndex);
@@ -951,7 +970,8 @@ function AutoConstraintLedgerCard({
       ) : activeType === "velocity" ? (
         selectedEntries.length > 1 ? (
           <BulkRangedConstraintControls
-            project={project}
+            path={path}
+            config={config}
             constraintKey={constraintKey}
             entries={selectedEntries}
             allEntries={entries}
@@ -970,7 +990,8 @@ function AutoConstraintLedgerCard({
           />
         ) : (
           <RangedConstraintControls
-            project={project}
+            path={path}
+            config={config}
             constraintKey={constraintKey}
             entry={selectedEntry}
             segmentNumber={selectedSegmentNumber}
@@ -992,23 +1013,25 @@ function AutoConstraintLedgerCard({
 }
 
 function RangedConstraintCard({
-  project,
+  path,
+  config,
   constraintKey,
   selectedIndex,
   onSelect,
   onOpenPopout,
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   constraintKey: NonAutoRangedConstraintKey;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
   onOpenPopout(trigger: HTMLButtonElement): void;
 }) {
   const meta = rangedMeta[constraintKey];
-  const entries = getRangedEntries(project, constraintKey);
+  const entries = getRangedEntries(path, constraintKey);
   const labels = useMemo(
-    () => domainLabelsForKey(project, constraintKey),
-    [project, constraintKey],
+    () => domainLabelsForKey(path, constraintKey),
+    [path, constraintKey],
   );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
   const [localSelectedIndexes, setLocalSelectedIndexes] = useState<number[]>(
@@ -1070,7 +1093,8 @@ function RangedConstraintCard({
       </div>
 
       <ConstraintSegmentBar
-        project={project}
+        path={path}
+        config={config}
         constraintKey={constraintKey}
         entries={entries}
         labels={labels}
@@ -1081,14 +1105,14 @@ function RangedConstraintCard({
         onPreview={(index, constraint) => {
           previewRangedConstraint(constraintKey, index, constraint);
         }}
-        onRangesChange={(updates) => updateRangedConstraints(project, updates)}
+        onRangesChange={(updates) => updateRangedConstraints(path, updates)}
         onGapDoubleClick={(start, end) => {
           const insertedIndex = insertRangedConstraint(
-            project,
+            path,
             constraintKey,
             start,
             end,
-            defaultFor(project, constraintKey, meta.defaultValue),
+            defaultFor(path, config, constraintKey, meta.defaultValue),
           );
           if (insertedIndex !== null) {
             selectEntry(insertedIndex);
@@ -1103,7 +1127,8 @@ function RangedConstraintCard({
 
       {selectedEntries.length > 1 ? (
         <BulkRangedConstraintControls
-          project={project}
+          path={path}
+          config={config}
           constraintKey={constraintKey}
           entries={selectedEntries}
           allEntries={entries}
@@ -1114,7 +1139,8 @@ function RangedConstraintCard({
         />
       ) : (
         <RangedConstraintControls
-          project={project}
+          path={path}
+          config={config}
           constraintKey={constraintKey}
           entry={selectedEntry}
           segmentNumber={selectedSegmentNumber}
@@ -1296,7 +1322,8 @@ function HandoffRadiusControls({
 }
 
 function ConstraintPopout({
-  project,
+  path,
+  config,
   constraintKey,
   selectedByKey,
   autoSettings,
@@ -1306,7 +1333,8 @@ function ConstraintPopout({
   onSelect,
   onClose,
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   constraintKey: RangedConstraintKey;
   selectedByKey: Partial<Record<RangedConstraintKey, number>>;
   autoSettings: AutoVelocitySettings;
@@ -1447,7 +1475,8 @@ function ConstraintPopout({
 
         <div className="constraint-popout__content">
           <PopoutConstraintPanel
-            project={project}
+            path={path}
+            config={config}
             constraintKey={constraintKey}
             selectedIndex={selectedByKey[constraintKey] ?? null}
             autoSettings={autoSettings}
@@ -1463,7 +1492,8 @@ function ConstraintPopout({
 }
 
 function PopoutConstraintPanel({
-  project,
+  path,
+  config,
   constraintKey,
   selectedIndex,
   autoSettings,
@@ -1472,7 +1502,8 @@ function PopoutConstraintPanel({
   onGenerateAutoVelocity,
   onSelect,
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   constraintKey: RangedConstraintKey;
   selectedIndex: number | null;
   autoSettings: AutoVelocitySettings;
@@ -1482,10 +1513,10 @@ function PopoutConstraintPanel({
   onSelect: (index: number) => void;
 }) {
   const meta = rangedMeta[constraintKey];
-  const entries = getRangedEntries(project, constraintKey);
+  const entries = getRangedEntries(path, constraintKey);
   const labels = useMemo(
-    () => domainLabelsForKey(project, constraintKey),
-    [project, constraintKey],
+    () => domainLabelsForKey(path, constraintKey),
+    [path, constraintKey],
   );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
   const selectedLocalIndex = selectedEntry
@@ -1496,13 +1527,13 @@ function PopoutConstraintPanel({
   const autoStatus = useMemo(
     () =>
       isAutoVelocityPanel
-        ? autoVelocityStatusForProject(project, autoSettings)
+        ? autoVelocityStatusForProject(path, config, autoSettings)
         : null,
-    [autoSettings, isAutoVelocityPanel, project],
+    [autoSettings, config, isAutoVelocityPanel, path],
   );
   const canGenerate = useMemo(
-    () => (isAutoVelocityPanel ? canGenerateConstraints(project) : false),
-    [isAutoVelocityPanel, project],
+    () => (isAutoVelocityPanel ? canGenerateConstraints(path) : false),
+    [isAutoVelocityPanel, path],
   );
 
   return (
@@ -1545,9 +1576,9 @@ function PopoutConstraintPanel({
                 Generate
               </SidebarActionButton>
               <SidebarActionButton
-                onClick={() => clearGeneratedConstraints(project)}
+                onClick={() => clearGeneratedConstraints(path)}
                 disabled={
-                  autoVelocityRunning || !canClearGeneratedConstraints(project)
+                  autoVelocityRunning || !canClearGeneratedConstraints(path)
                 }
                 aria-label="Clear generated constraints"
                 title="Clear generated handoff radii and velocity constraints"
@@ -1569,13 +1600,15 @@ function PopoutConstraintPanel({
 
       {isAutoVelocityPanel && autoStatus ? (
         <AutoVelocityWorkloadWarning
-          project={project}
+          path={path}
+          config={config}
           settings={autoSettings}
         />
       ) : null}
 
       <ConstraintSegmentBar
-        project={project}
+        path={path}
+        config={config}
         constraintKey={constraintKey}
         entries={entries}
         labels={labels}
@@ -1586,14 +1619,14 @@ function PopoutConstraintPanel({
         onPreview={(index, constraint) => {
           previewRangedConstraint(constraintKey, index, constraint);
         }}
-        onRangesChange={(updates) => updateRangedConstraints(project, updates)}
+        onRangesChange={(updates) => updateRangedConstraints(path, updates)}
         onGapDoubleClick={(start, end) => {
           const insertedIndex = insertRangedConstraint(
-            project,
+            path,
             constraintKey,
             start,
             end,
-            defaultFor(project, constraintKey, meta.defaultValue),
+            defaultFor(path, config, constraintKey, meta.defaultValue),
           );
           if (insertedIndex !== null) {
             onSelect(insertedIndex);
@@ -1603,7 +1636,8 @@ function PopoutConstraintPanel({
       />
 
       <RangedConstraintControls
-        project={project}
+        path={path}
+        config={config}
         constraintKey={constraintKey}
         entry={selectedEntry}
         segmentNumber={segmentNumber}
@@ -1735,7 +1769,8 @@ function MinimumConstraintTooltip() {
 }
 
 function ConstraintSegmentBar({
-  project,
+  path,
+  config,
   constraintKey,
   entries,
   labels,
@@ -1750,7 +1785,8 @@ function ConstraintSegmentBar({
   density = "sidebar",
   orientation = "horizontal",
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   constraintKey: RangedConstraintKey;
   entries: RangedEntry[];
   labels: string[];
@@ -2081,7 +2117,8 @@ function ConstraintSegmentBar({
         const segmentNumber =
           entries.findIndex((candidate) => candidate.index === entry.index) + 1;
         const constraintState = rangedConstraintStateForConstraint(
-          project,
+          path,
+          config,
           constraint,
           autoStatus,
         );
@@ -2280,7 +2317,8 @@ function manualizeChangedAutoVelocityEntries(
 }
 
 type BulkRangedConstraintControlsProps = {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   entries: readonly RangedEntry[];
   allEntries: readonly RangedEntry[];
   onClearSelection(): void;
@@ -2302,7 +2340,7 @@ type BulkRangedConstraintControlsProps = {
 function BulkRangedConstraintControls(
   props: BulkRangedConstraintControlsProps,
 ) {
-  const { project, constraintKey, entries, allEntries, onClearSelection } =
+  const { path, config, constraintKey, entries, allEntries, onClearSelection } =
     props;
   const meta = rangedMeta[constraintKey];
   const isAutoVelocity = constraintKey === autoVelocityKey;
@@ -2342,7 +2380,8 @@ function BulkRangedConstraintControls(
             onModeChange={(nextMode) => {
               props.runAutoVelocityTask(() => {
                 applyVelocityModes(
-                  project,
+                  path,
+                  config,
                   entries,
                   nextMode,
                   props.autoSettings,
@@ -2397,7 +2436,8 @@ function BulkRangedConstraintControls(
 }
 
 function RangedConstraintControls({
-  project,
+  path,
+  config,
   constraintKey,
   entry,
   segmentNumber,
@@ -2409,7 +2449,8 @@ function RangedConstraintControls({
   onOpenPopout,
   compact = true,
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   constraintKey: RangedConstraintKey;
   entry: RangedEntry | null;
   segmentNumber: number;
@@ -2438,7 +2479,8 @@ function RangedConstraintControls({
   const showAutoVelocityMode = constraintKey === autoVelocityKey;
   const constraintState = constraint
     ? rangedConstraintStateForConstraint(
-        project,
+        path,
+        config,
         constraint,
         autoStatus ?? null,
       )
@@ -2478,7 +2520,8 @@ function RangedConstraintControls({
                   }
                   runAutoVelocityTask(() =>
                     applyVelocityMode(
-                      project,
+                      path,
+                      config,
                       entry,
                       mode,
                       autoSettings,
@@ -2506,7 +2549,7 @@ function RangedConstraintControls({
                       return;
                     }
 
-                    updateRangedConstraint(project, entry.index, {
+                    updateRangedConstraint(path, entry.index, {
                       ...constraint,
                       value: value ?? constraint.value,
                       source:
@@ -2554,13 +2597,13 @@ function RangedConstraintControls({
         <SidebarIconButton
           className="sidebar-icon-button--add"
           onClick={() => {
-            const addedIndex = addRangedConstraint(project, constraintKey);
+            const addedIndex = addRangedConstraint(path, config, constraintKey);
             if (addedIndex !== null) {
               onSelect(addedIndex);
             }
           }}
           disabled={
-            !canAddMoreRanged(project, constraintKey) ||
+            !canAddMoreRanged(path, constraintKey) ||
             (showAutoVelocityMode && autoVelocityRunning)
           }
           aria-label={`Add ${meta.label} segment`}
@@ -2572,7 +2615,7 @@ function RangedConstraintControls({
           className="sidebar-icon-button--remove"
           onClick={() => {
             if (entry) {
-              deleteRangedConstraint(project, entry.index);
+              deleteRangedConstraint(path, entry.index);
             }
           }}
           disabled={!entry || (showAutoVelocityMode && autoVelocityRunning)}
@@ -2613,15 +2656,17 @@ function RangedConstraintControls({
 }
 
 function AutoVelocityWorkloadWarning({
-  project,
+  path,
+  config,
   settings,
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   settings: AutoVelocitySettings;
 }) {
   const searchPlan = useMemo(
-    () => autoRadiiCapSearchPlan(project.path, project.config, settings),
-    [project, settings],
+    () => autoRadiiCapSearchPlan(path, config, settings),
+    [config, path, settings],
   );
   const largePath =
     searchPlan.evaluationBudget > autoConstraintLargePathWarningBudget;
@@ -2718,16 +2763,18 @@ function AutoVelocityModeControl({
 }
 
 function ScalarConstraintRow({
-  project,
+  path,
+  config,
   constraintKey,
 }: {
-  project: ProjectDocument;
+  path: PathModel;
+  config: ProjectConfig;
   constraintKey: (typeof terminalToleranceKeys)[number];
 }) {
   const meta = scalarMeta[constraintKey];
-  const currentValue = project.path.constraints[constraintKey];
+  const currentValue = path.constraints[constraintKey];
   const value =
-    currentValue ?? defaultFor(project, constraintKey, meta.defaultValue);
+    currentValue ?? defaultFor(path, config, constraintKey, meta.defaultValue);
 
   return (
     <div className="scalar-constraint-row">
@@ -2778,11 +2825,11 @@ function ScalarConstraintRow({
 }
 
 function buildConstraintMenuSections(
-  project: ProjectDocument,
+  path: PathModel,
 ): Array<{ id: string; label: string; items: AddConstraintMenuItem[] }> {
   return addConstraintMenuSections.flatMap((section) => {
     const items = section.keys.flatMap((key) =>
-      buildConstraintMenuItem(project, key),
+      buildConstraintMenuItem(path, key),
     );
 
     return items.length > 0 ? [{ ...section, items }] : [];
@@ -2790,39 +2837,39 @@ function buildConstraintMenuSections(
 }
 
 function buildConstraintMenuItem(
-  project: ProjectDocument,
+  path: PathModel,
   key: ConstraintKey,
 ): AddConstraintMenuItem[] {
   if (isRangedKey(key)) {
-    const active = getRangedEntries(project, key).length > 0;
+    const active = getRangedEntries(path, key).length > 0;
 
     if (!active) {
       return [{ key, label: rangedMeta[key].label }];
     }
 
-    return canAddMoreRanged(project, key)
+    return canAddMoreRanged(path, key)
       ? [{ key, label: `${rangedMeta[key].label} (+)` }]
       : [];
   }
 
-  if (project.path.constraints[key] !== null) {
+  if (path.constraints[key] !== null) {
     return [];
   }
 
   return [{ key, label: scalarMeta[key].label }];
 }
 
-function hasAnyConstraint(project: ProjectDocument): boolean {
+function hasAnyConstraint(path: PathModel): boolean {
   return (
-    project.path.ranged_constraints.length > 0 ||
+    path.ranged_constraints.length > 0 ||
     constraintKeys.some(
-      (key) => !isRangedKey(key) && project.path.constraints[key] !== null,
+      (key) => !isRangedKey(key) && path.constraints[key] !== null,
     )
   );
 }
 
-function projectConfigSignature(project: ProjectDocument): string {
-  const constraints = project.config.kinematic_constraints;
+function projectConfigSignature(config: ProjectConfig): string {
+  const constraints = config.kinematic_constraints;
   return [
     constraints.default_auto_velocity_velocity_safety_factor,
     constraints.default_auto_velocity_acceleration_safety_factor,
@@ -2831,11 +2878,12 @@ function projectConfigSignature(project: ProjectDocument): string {
 }
 
 function addConstraint(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   key: ConstraintKey,
 ): AddedRangedConstraintSelection | null {
   if (isRangedKey(key)) {
-    const index = addRangedConstraint(project, key);
+    const index = addRangedConstraint(path, config, key);
     return index === null ? null : { key, index };
   }
 
@@ -2844,39 +2892,40 @@ function addConstraint(
     .applyPathCommand(
       createSetScalarConstraintCommand(
         key,
-        project.path.constraints[key],
-        defaultFor(project, key, scalarMeta[key].defaultValue),
+        path.constraints[key],
+        defaultFor(path, config, key, scalarMeta[key].defaultValue),
       ),
     );
   return null;
 }
 
 function addRangedConstraint(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   key: RangedConstraintKey,
 ): number | null {
   if (key === autoVelocityKey) {
-    const total = domainLabelsForKey(project, key).length;
-    const ordinal = firstOpenVelocityOrdinal(project, total);
+    const total = domainLabelsForKey(path, key).length;
+    const ordinal = firstOpenVelocityOrdinal(path, total);
     return ordinal === null
       ? null
       : insertRangedConstraint(
-          project,
+          path,
           key,
           ordinal,
           ordinal,
-          defaultFor(project, key, rangedMeta[key].defaultValue),
+          defaultFor(path, config, key, rangedMeta[key].defaultValue),
         );
   }
 
-  const previousConstraints = project.path.ranged_constraints;
+  const previousConstraints = path.ranged_constraints;
   projectStore
     .getState()
     .applyPathCommand(
       createAddRangedConstraintCommand(
         key,
-        defaultFor(project, key, rangedMeta[key].defaultValue),
-        domainLabelsForKey(project, key).length,
+        defaultFor(path, config, key, rangedMeta[key].defaultValue),
+        domainLabelsForKey(path, key).length,
       ),
     );
 
@@ -2931,16 +2980,16 @@ function previewRangedConstraint(
 }
 
 function insertRangedConstraint(
-  project: ProjectDocument,
+  path: PathModel,
   key: RangedConstraintKey,
   startOrdinal: number,
   endOrdinal: number,
   value: number,
 ): number | null {
-  const total = domainLabelsForKey(project, key).length;
+  const total = domainLabelsForKey(path, key).length;
   const start = clampOrdinal(startOrdinal, total);
   const end = clampOrdinal(endOrdinal, total);
-  const previousLength = project.path.ranged_constraints.length;
+  const previousLength = path.ranged_constraints.length;
 
   projectStore.getState().applyPathCommand(
     createInsertRangedConstraintCommand({
@@ -2958,12 +3007,12 @@ function insertRangedConstraint(
 }
 
 function updateRangedConstraint(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
   next: RangedConstraint,
 ): void {
-  const total = domainLabelsForKey(project, next.key).length;
-  const previous = project.path.ranged_constraints[index];
+  const total = domainLabelsForKey(path, next.key).length;
+  const previous = path.ranged_constraints[index];
   if (!previous) {
     return;
   }
@@ -2974,22 +3023,22 @@ function updateRangedConstraint(
       createUpdateRangedConstraintCommand(
         index,
         previous,
-        normalizeRangedConstraint(project, index, next, previous, total),
+        normalizeRangedConstraint(path, index, next, previous, total),
       ),
     );
 }
 
 function updateRangedConstraints(
-  project: ProjectDocument,
+  path: PathModel,
   updates: RangeUpdate[],
 ): void {
   const commandUpdates = updates.flatMap((update) => {
-    const previous = project.path.ranged_constraints[update.index];
+    const previous = path.ranged_constraints[update.index];
     if (!previous) {
       return [];
     }
 
-    const total = domainLabelsForKey(project, update.next.key).length;
+    const total = domainLabelsForKey(path, update.next.key).length;
     return [
       {
         index: update.index,
@@ -3006,8 +3055,8 @@ function updateRangedConstraints(
   }
 }
 
-function deleteRangedConstraint(project: ProjectDocument, index: number): void {
-  const constraint = project.path.ranged_constraints[index];
+function deleteRangedConstraint(path: PathModel, index: number): void {
+  const constraint = path.ranged_constraints[index];
   if (constraint) {
     projectStore
       .getState()
@@ -3041,8 +3090,8 @@ function runAfterBrowserPaint(task: () => void, onComplete: () => void): void {
   });
 }
 
-function clearGeneratedConstraints(project: ProjectDocument): void {
-  if (!canClearGeneratedConstraints(project)) {
+function clearGeneratedConstraints(path: PathModel): void {
+  if (!canClearGeneratedConstraints(path)) {
     return;
   }
 
@@ -3147,17 +3196,19 @@ function handoffRadiusChipTitle(chip: HandoffRadiusChip): string {
 }
 
 function applyVelocityMode(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   entry: RangedEntry,
   mode: "auto" | "manual",
   settings: AutoVelocitySettings,
   onSelect: (index: number) => void,
 ): void {
-  applyVelocityModes(project, [entry], mode, settings, onSelect);
+  applyVelocityModes(path, config, [entry], mode, settings, onSelect);
 }
 
 function applyVelocityModes(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   entries: readonly RangedEntry[],
   mode: "auto" | "manual",
   settings: AutoVelocitySettings,
@@ -3167,9 +3218,9 @@ function applyVelocityModes(
     return;
   }
 
-  const total = domainLabelsForKey(project, autoVelocityKey).length;
+  const total = domainLabelsForKey(path, autoVelocityKey).length;
   const existing = autoVelocityConstraintsByOrdinal(
-    project.path.ranged_constraints,
+    path.ranged_constraints,
     total,
   );
   const ordinalsByEntry = entries.map((entry) => ({
@@ -3180,11 +3231,11 @@ function applyVelocityModes(
     ordinalsByEntry.flatMap(({ ordinals }) => ordinals),
   );
   const profile = generateAutoVelocityProfile(
-    project.path,
-    project.config,
+    path,
+    config,
     autoVelocityOptionsFromSettings(settings),
   );
-  const metadata = autoVelocityMetadataFromSettings(project, settings);
+  const metadata = autoVelocityMetadataFromSettings(path, config, settings);
   const capsByOrdinal = new Map(
     profile.segmentCaps.map((cap) => [cap.targetOrdinal, cap]),
   );
@@ -3207,7 +3258,7 @@ function applyVelocityModes(
       }
     }
     replaceVelocityConstraints(
-      project,
+      path,
       autoVelocityConstraintsFromOrdinalMap(
         existing,
         total,
@@ -3233,7 +3284,7 @@ function applyVelocityModes(
     }
   }
   replaceVelocityConstraints(
-    project,
+    path,
     autoVelocityConstraintsFromOrdinalMap(
       existing,
       total,
@@ -3313,14 +3364,14 @@ function refreshExistingAutoVelocityCaps(
 }
 
 function replaceVelocityConstraints(
-  project: ProjectDocument,
+  path: PathModel,
   nextVelocityConstraints: readonly RangedConstraint[],
   description: string,
 ): void {
   projectStore.getState().applyPathCommand(
     createReplaceRangedConstraintsForKeyCommand(
       autoVelocityKey,
-      project.path.ranged_constraints.filter(
+      path.ranged_constraints.filter(
         (constraint) => constraint.key === autoVelocityKey,
       ),
       nextVelocityConstraints,
@@ -3360,16 +3411,21 @@ function autoVelocityOptionsFromSettings(settings: AutoVelocitySettings) {
 }
 
 function autoVelocityStatusForProject(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   settings: AutoVelocitySettings,
 ): AutoVelocityStatus {
   const currentSignature = autoVelocityInputSignature(
-    project.path,
-    project.config,
+    path,
+    config,
     autoVelocityOptionsFromSettings(settings),
   );
-  const expectedMetadata = autoVelocityMetadataFromSettings(project, settings);
-  const autoConstraints = project.path.ranged_constraints.filter(
+  const expectedMetadata = autoVelocityMetadataFromSettings(
+    path,
+    config,
+    settings,
+  );
+  const autoConstraints = path.ranged_constraints.filter(
     (constraint) =>
       constraint.key === autoVelocityKey &&
       constraint.source === "auto_velocity",
@@ -3417,7 +3473,8 @@ function autoVelocityStatusTooltip(
 }
 
 function autoVelocityMetadataFromSettings(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   settings: AutoVelocitySettings,
 ): AutoVelocityConstraintMetadata {
   return {
@@ -3426,8 +3483,8 @@ function autoVelocityMetadataFromSettings(
     merge_tolerance_meters_per_sec: settings.mergeToleranceMps,
     input_signature:
       autoVelocityInputSignature(
-        project.path,
-        project.config,
+        path,
+        config,
         autoVelocityOptionsFromSettings(settings),
       ) ?? undefined,
   };
@@ -3484,7 +3541,8 @@ function nearlyEqual(left: number, right: number): boolean {
 }
 
 function rangedConstraintStateForConstraint(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   constraint: RangedConstraint,
   autoStatus: AutoVelocityStatus | null | undefined,
 ): {
@@ -3494,11 +3552,15 @@ function rangedConstraintStateForConstraint(
   minMaxWarning: boolean;
 } {
   const autoState = autoVelocityStateForConstraint(constraint, autoStatus);
-  const globalLimit = globalLimitForRangedConstraint(project, constraint.key);
+  const globalLimit = globalLimitForRangedConstraint(
+    path,
+    config,
+    constraint.key,
+  );
   const globalWarning =
     globalLimit !== null &&
     constraint.value > globalLimit + constraintWarningTolerance(constraint.key);
-  const minMaxWarning = minimumExceedsPairedMaximum(project, constraint);
+  const minMaxWarning = minimumExceedsPairedMaximum(path, config, constraint);
 
   return {
     stale: autoState.stale,
@@ -3529,14 +3591,15 @@ function warningTitleForConstraintState(state: {
 }
 
 function globalLimitForRangedConstraint(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   key: RangedConstraintKey,
 ): number | null {
   if (isMinimumVelocityConstraintKey(key)) {
     return null;
   }
 
-  const pathValue = project.path.constraints[key];
+  const pathValue = path.constraints[key];
   if (
     typeof pathValue === "number" &&
     Number.isFinite(pathValue) &&
@@ -3545,7 +3608,7 @@ function globalLimitForRangedConstraint(
     return pathValue;
   }
 
-  const configured = getDefaultOptionalConfigValue(project.config, key);
+  const configured = getDefaultOptionalConfigValue(config, key);
   if (
     typeof configured === "number" &&
     Number.isFinite(configured) &&
@@ -3563,7 +3626,8 @@ function constraintWarningTolerance(key: RangedConstraintKey): number {
 }
 
 function minimumExceedsPairedMaximum(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   constraint: RangedConstraint,
 ): boolean {
   const maxKey = maximumKeyForMinimumKey(constraint.key);
@@ -3576,9 +3640,9 @@ function minimumExceedsPairedMaximum(
     return false;
   }
 
-  const total = domainLabelsForKey(project, constraint.key).length;
+  const total = domainLabelsForKey(path, constraint.key).length;
   for (const ordinal of ordinalsForConstraint(constraint, total)) {
-    const maxValue = pairedMaximumForOrdinal(project, maxKey, ordinal);
+    const maxValue = pairedMaximumForOrdinal(path, config, maxKey, ordinal);
     if (
       maxValue !== null &&
       minValue > maxValue + constraintWarningTolerance(constraint.key)
@@ -3591,23 +3655,24 @@ function minimumExceedsPairedMaximum(
 }
 
 function pairedMaximumForOrdinal(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   maxKey: RangedConstraintKey,
   ordinal: number,
 ): number | null {
-  const rangedValue = getRangedEntries(project, maxKey).find(({ constraint }) =>
+  const rangedValue = getRangedEntries(path, maxKey).find(({ constraint }) =>
     ordinalInRange(ordinal, constraint),
   )?.constraint.value;
   if (typeof rangedValue === "number" && Number.isFinite(rangedValue)) {
     return rangedValue;
   }
 
-  const pathValue = project.path.constraints[maxKey];
+  const pathValue = path.constraints[maxKey];
   if (typeof pathValue === "number" && Number.isFinite(pathValue)) {
     return pathValue;
   }
 
-  const configured = getDefaultOptionalConfigValue(project.config, maxKey);
+  const configured = getDefaultOptionalConfigValue(config, maxKey);
   if (typeof configured === "number" && Number.isFinite(configured)) {
     return configured;
   }
@@ -3635,10 +3700,10 @@ function sameAutoVelocityMetadata(
 }
 
 function getRangedEntries(
-  project: ProjectDocument,
+  path: PathModel,
   key: RangedConstraintKey,
 ): RangedEntry[] {
-  return project.path.ranged_constraints
+  return path.ranged_constraints
     .map((constraint, index) => ({ constraint, index }))
     .filter(({ constraint }) => constraint.key === key)
     .sort(
@@ -3724,10 +3789,10 @@ function describeDomainLabel(label: string): string {
 }
 
 function domainLabelsForKey(
-  project: ProjectDocument,
+  path: PathModel,
   key: RangedConstraintKey,
 ): string[] {
-  const domainElements = domainForKey(key, project.path.path_elements);
+  const domainElements = domainForKey(key, path.path_elements);
   const counts: Record<string, number> = {
     translation: 0,
     waypoint: 0,
@@ -3751,17 +3816,14 @@ function domainLabelsForKey(
   });
 }
 
-function canAddMoreRanged(
-  project: ProjectDocument,
-  key: RangedConstraintKey,
-): boolean {
-  const total = domainLabelsForKey(project, key).length;
+function canAddMoreRanged(path: PathModel, key: RangedConstraintKey): boolean {
+  const total = domainLabelsForKey(path, key).length;
 
   if (total <= 0) {
     return false;
   }
 
-  const entries = getRangedEntries(project, key);
+  const entries = getRangedEntries(path, key);
   const covered = new Set<number>();
 
   for (const { constraint } of entries) {
@@ -3784,10 +3846,10 @@ function canAddMoreRanged(
 }
 
 function firstOpenVelocityOrdinal(
-  project: ProjectDocument,
+  path: PathModel,
   total: number,
 ): number | null {
-  const entries = getRangedEntries(project, autoVelocityKey);
+  const entries = getRangedEntries(path, autoVelocityKey);
   for (let ordinal = 1; ordinal <= total; ordinal += 1) {
     if (
       !entries.some(({ constraint }) => ordinalInRange(ordinal, constraint))
@@ -3867,7 +3929,7 @@ function canSplit(constraint: RangedConstraint): boolean {
 }
 
 function normalizeRangedConstraint(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
   constraint: RangedConstraint,
   previous: RangedConstraint,
@@ -3876,7 +3938,7 @@ function normalizeRangedConstraint(
   const start = clampOrdinal(constraint.start_ordinal, total);
   const end = clampOrdinal(constraint.end_ordinal, total);
   const [lowerBound, upperBound] = editableRangeBounds(
-    project,
+    path,
     index,
     previous,
     total,
@@ -3905,7 +3967,7 @@ function normalizeRangedConstraintBounds(
 }
 
 function editableRangeBounds(
-  project: ProjectDocument,
+  path: PathModel,
   index: number,
   previous: RangedConstraint,
   total: number,
@@ -3914,7 +3976,7 @@ function editableRangeBounds(
   let upperBound = Math.max(1, total);
 
   for (const { constraint, index: siblingIndex } of getRangedEntries(
-    project,
+    path,
     previous.key,
   )) {
     if (siblingIndex === index) {
@@ -3950,16 +4012,17 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function defaultFor(
-  project: ProjectDocument,
+  path: PathModel,
+  config: ProjectConfig,
   key: ConstraintKey,
   fallback: number,
 ): number {
-  const pathValue = project.path.constraints[key];
+  const pathValue = path.constraints[key];
   if (typeof pathValue === "number" && Number.isFinite(pathValue)) {
     return pathValue;
   }
 
-  const configured = getDefaultOptionalConfigValue(project.config, key);
+  const configured = getDefaultOptionalConfigValue(config, key);
   return typeof configured === "number" ? configured : fallback;
 }
 

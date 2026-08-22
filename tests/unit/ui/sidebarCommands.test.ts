@@ -55,7 +55,12 @@ import {
 describe("sidebar commands", () => {
   it("inserts and removes elements through reversible project commands", () => {
     const project = exampleProject();
-    const element = createDefaultElement(project, "event_trigger", 0);
+    const element = createDefaultElement(
+      project.path,
+      project.config,
+      "event_trigger",
+      0,
+    );
     const insert = createInsertPathElementCommand(1, element);
 
     const inserted = insert.apply(project.path);
@@ -108,7 +113,7 @@ describe("sidebar commands", () => {
 
   it("inserts generated curve elements as a single reversible command", () => {
     const project = exampleProject();
-    const command = createInsertPathElementsCommand(project, 1, [
+    const command = createInsertPathElementsCommand(project.config, 1, [
       createTranslationTarget({ x_meters: 2, y_meters: 1 }),
       createTranslationTarget({ x_meters: 3, y_meters: 2 }),
     ]);
@@ -134,7 +139,7 @@ describe("sidebar commands", () => {
   it("auto-constrains generated curve elements and their exit segment", () => {
     const project = exampleProject();
     const command = createInsertPathElementsCommand(
-      project,
+      project.config,
       1,
       [
         createTranslationTarget({ x_meters: 2, y_meters: 1 }),
@@ -174,7 +179,7 @@ describe("sidebar commands", () => {
       }),
     });
     const command = createInsertPathElementsCommand(
-      project,
+      project.config,
       1,
       [
         createTranslationTarget({ x_meters: 2, y_meters: 1 }),
@@ -257,15 +262,15 @@ describe("sidebar commands", () => {
   it("keeps rotation-domain insertions between translation anchors", () => {
     const project = exampleProject();
 
-    expect(getAddableElementTypes(project)).toEqual([
+    expect(getAddableElementTypes(project.path)).toEqual([
       "waypoint",
       "translation",
       "rotation",
       "event_trigger",
     ]);
-    expect(getInsertionIndex(project, "rotation", null)).toBe(1);
-    expect(getInsertionIndex(project, "event_trigger", 1)).toBe(1);
-    expect(getInsertionIndex(project, "waypoint", 1)).toBe(2);
+    expect(getInsertionIndex(project.path, "rotation", null)).toBe(1);
+    expect(getInsertionIndex(project.path, "event_trigger", 1)).toBe(1);
+    expect(getInsertionIndex(project.path, "waypoint", 1)).toBe(2);
   });
 
   it("hides rotation-domain additions until two anchors exist", () => {
@@ -277,13 +282,14 @@ describe("sidebar commands", () => {
       }),
     });
 
-    expect(getAddableElementTypes(project)).toEqual([
+    expect(getAddableElementTypes(project.path)).toEqual([
       "waypoint",
       "translation",
     ]);
-    expect(createDefaultElement(project, "event_trigger", 0).type).toBe(
-      "translation",
-    );
+    expect(
+      createDefaultElement(project.path, project.config, "event_trigger", 0)
+        .type,
+    ).toBe("translation");
   });
 
   it("uses the project handoff default for new anchor elements", () => {
@@ -300,8 +306,18 @@ describe("sidebar commands", () => {
       }),
     });
 
-    const translation = createDefaultElement(project, "translation", 0);
-    const waypoint = createDefaultElement(project, "waypoint", 0);
+    const translation = createDefaultElement(
+      project.path,
+      project.config,
+      "translation",
+      0,
+    );
+    const waypoint = createDefaultElement(
+      project.path,
+      project.config,
+      "waypoint",
+      0,
+    );
 
     expect(isTranslationTarget(translation)).toBe(true);
     if (isTranslationTarget(translation)) {
@@ -339,7 +355,12 @@ describe("sidebar commands", () => {
       }),
     });
 
-    const translation = createDefaultElement(project, "translation", 0);
+    const translation = createDefaultElement(
+      project.path,
+      project.config,
+      "translation",
+      0,
+    );
 
     expect(isTranslationTarget(translation)).toBe(true);
     if (isTranslationTarget(translation)) {
@@ -370,17 +391,19 @@ describe("sidebar commands", () => {
       }),
     });
 
-    expect(getSwitchableElementTypes(project, 0)).toEqual([
+    expect(getSwitchableElementTypes(project.path, 0)).toEqual([
       "translation",
       "waypoint",
     ]);
-    expect(getSwitchableElementTypes(project, 1)).toEqual([
+    expect(getSwitchableElementTypes(project.path, 1)).toEqual([
       "translation",
       "waypoint",
       "rotation",
       "event_trigger",
     ]);
-    expect(createConvertedElement(project, 0, "rotation")).toBeNull();
+    expect(
+      createConvertedElement(project.path, project.config, 0, "rotation"),
+    ).toBeNull();
   });
 
   it("remaps ranged constraints when path structure changes", () => {
@@ -501,7 +524,12 @@ describe("sidebar commands", () => {
       }),
     });
     const previous = project.path.path_elements[1];
-    const converted = createConvertedElement(project, 1, "event_trigger");
+    const converted = createConvertedElement(
+      project.path,
+      project.config,
+      1,
+      "event_trigger",
+    );
 
     expect(converted).not.toBeNull();
     if (!converted) {
@@ -693,13 +721,13 @@ describe("generated constraint commands", () => {
   };
 
   it("reports a fully pinned path as nothing to generate", () => {
-    expect(canGenerateConstraints(generatableProject())).toBe(true);
-    expect(canGenerateConstraints(pinnedProject())).toBe(false);
+    expect(canGenerateConstraints(generatableProject().path)).toBe(true);
+    expect(canGenerateConstraints(pinnedProject().path)).toBe(false);
   });
 
   it("clears generated values and keeps pinned ones", () => {
     const generated = generatedProject();
-    expect(canClearGeneratedConstraints(generated)).toBe(true);
+    expect(canClearGeneratedConstraints(generated.path)).toBe(true);
 
     const command = createClearGeneratedConstraintsCommand();
     const cleared = command.apply(generated.path);
@@ -723,9 +751,7 @@ describe("generated constraint commands", () => {
         (constraint) => constraint.source === "auto_velocity",
       ),
     ).toBe(false);
-    expect(canClearGeneratedConstraints({ ...generated, path: cleared })).toBe(
-      false,
-    );
+    expect(canClearGeneratedConstraints(cleared)).toBe(false);
 
     expect(command.revert(cleared)).toEqual(generated.path);
   });
@@ -747,8 +773,11 @@ describe("handoffRadiusChipsForPath", () => {
       path: createPathModel({ path_elements: elements }),
     });
 
+  const chipsForProject = (project: ProjectDocument) =>
+    handoffRadiusChipsForPath(project.path, project.config);
+
   it("numbers anchors in path order and skips everything else", () => {
-    const chips = handoffRadiusChipsForPath(
+    const chips = chipsForProject(
       chipProject([
         createTranslationTarget({ x_meters: 1, y_meters: 1 }),
         createRotationTarget({ t_ratio: 0.5 }),
@@ -771,7 +800,7 @@ describe("handoffRadiusChipsForPath", () => {
   });
 
   it("marks both endpoint anchors inert and leaves the interior live", () => {
-    const chips = handoffRadiusChipsForPath(
+    const chips = chipsForProject(
       chipProject([
         createTranslationTarget({ x_meters: 1, y_meters: 1 }),
         createTranslationTarget({ x_meters: 4, y_meters: 1 }),
@@ -784,7 +813,7 @@ describe("handoffRadiusChipsForPath", () => {
   });
 
   it("classifies generated, pinned and unset radii", () => {
-    const chips = handoffRadiusChipsForPath(
+    const chips = chipsForProject(
       chipProject([
         setHandoffRadiusSource(
           createTranslationTarget({
@@ -835,7 +864,7 @@ describe("handoffRadiusChipsForPath", () => {
   });
 
   it("falls back to the configured default for unset radii", () => {
-    const chips = handoffRadiusChipsForPath(
+    const chips = chipsForProject(
       chipProject(
         [
           createTranslationTarget({

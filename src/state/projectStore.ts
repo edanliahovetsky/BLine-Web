@@ -3,14 +3,10 @@ import type {
   CustomFieldImage,
   FieldGeometry,
 } from "../core/field/fieldConfig";
-import type {
-  ProjectDocument,
-  ProjectWorkspaceDocument,
-} from "../core/io/projectSchema";
+import type { ProjectWorkspaceDocument } from "../core/io/projectSchema";
 import {
   activeProjectPath,
   legacyWorkspaceForPersistence,
-  legacyWorkspaceFromOpenProject,
   normalizeEditorNavigation,
   openProjectFromLegacyWorkspace,
   type EditorNavigation,
@@ -21,31 +17,28 @@ import {
   type ProjectConfig,
   type ProjectPath,
 } from "../core/model/project";
+import {
+  addPathsToGroupInProject,
+  addPathToProject,
+  createPathGroupInProject,
+  deletePathGroupFromProject,
+  deletePathsFromProject,
+  duplicatePathInProject,
+  removePathsFromGroupInProject,
+  renamePathGroupInProject,
+  renamePathInProject,
+} from "../core/model/projectOperations";
 import type { PathModel } from "../core/model/path";
 import {
-  addLinkedTargetToWorkspace,
+  addLinkedTargetToProject,
   createLinkedTargetId,
-  deleteLinkedTargetFromWorkspace,
-  linkPathElementToTargetInWorkspace,
-  unlinkPathElementInWorkspace,
-  updateLinkedTargetInWorkspace,
+  deleteLinkedTargetFromProject,
+  linkPathElementToTargetInProject,
+  unlinkPathElementInProject,
+  updateLinkedTargetInProject,
   type CreateLinkedTargetInput,
   type UpdateLinkedTargetInput,
 } from "../core/linkedTargets";
-import {
-  activeProjectFromWorkspace,
-  addPathsToGroupInWorkspace,
-  addPathToWorkspace,
-  createPathGroupInWorkspace,
-  deletePathGroupFromWorkspace,
-  deletePathsFromWorkspace,
-  duplicatePathInWorkspace,
-  ensureWorkspaceHasActivePath,
-  renamePathInWorkspace,
-  removePathsFromGroupInWorkspace,
-  renamePathGroupInWorkspace,
-  setActivePathGroupInWorkspace,
-} from "../core/io/workspaceSerde";
 import type {
   ProjectFolderExport,
   ProjectIoService,
@@ -390,43 +383,44 @@ export function createProjectStore(
       set({ activePathId: navigation.activePathId });
     },
     setActivePathGroup(groupId) {
-      const workspace = sessionWorkspace(get());
-      const nextWorkspace = setActivePathGroupInWorkspace(workspace, groupId);
-      const { navigation } = openProjectFromLegacyWorkspace(nextWorkspace);
-      set({
-        activePathId: navigation.activePathId,
-        activePathGroupId: navigation.activePathGroupId,
-      });
+      const state = get();
+      const project = requireProject(state.project);
+      set(navigationForActiveGroup(project, currentNavigation(state), groupId));
     },
     createPath(input) {
-      const workspace = sessionWorkspace(get());
-      const nextWorkspace = addPathToWorkspace(workspace, {
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      const added = addPathToProject(project, {
         display_name: input.displayName,
         file_name: input.fileName,
         path: input.path,
-        makeActive: true,
         addToGroupId: input.addToGroupId,
       });
-      applyWorkspaceTransition(
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        nextWorkspace,
+        project,
+        added.project,
+        navigation,
+        { ...navigation, activePathId: added.createdPathId },
         "Create path",
         true,
         {},
-        {
-          createdPathId: createdPathIdFromTransition(workspace, nextWorkspace),
-        },
+        { createdPathId: added.createdPathId },
       );
     },
     renamePath(pathId, name) {
-      const workspace = sessionWorkspace(get());
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        renamePathInWorkspace(workspace, pathId, name),
+        project,
+        renamePathInProject(project, pathId, name),
+        navigation,
+        navigation,
         "Rename path",
         true,
         {},
@@ -434,136 +428,165 @@ export function createProjectStore(
       );
     },
     duplicatePath(pathId, name, options) {
-      const workspace = sessionWorkspace(get());
-      const duplicatedWorkspace = duplicatePathInWorkspace(
-        workspace,
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      const duplicated = duplicatePathInProject(
+        project,
         pathId,
         name,
+        options?.addToGroupId,
       );
-      const nextPathId = duplicatedWorkspace.active_path_id;
-      const nextWorkspace =
-        options?.addToGroupId && nextPathId
-          ? addPathsToGroupInWorkspace(
-              duplicatedWorkspace,
-              options.addToGroupId,
-              [nextPathId],
-            )
-          : duplicatedWorkspace;
-      applyWorkspaceTransition(
+      const nextNavigation = duplicated.createdPathId
+        ? { ...navigation, activePathId: duplicated.createdPathId }
+        : navigation;
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        nextWorkspace,
+        project,
+        duplicated.project,
+        navigation,
+        nextNavigation,
         "Duplicate path",
         true,
         {},
-        {
-          createdPathId: createdPathIdFromTransition(workspace, nextWorkspace),
-        },
+        { createdPathId: duplicated.createdPathId ?? undefined },
       );
     },
     createPathGroup(input) {
-      const workspace = sessionWorkspace(get());
-      const groupedWorkspace = createPathGroupInWorkspace(workspace, {
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      const grouped = createPathGroupInProject(project, {
         display_name: input.displayName,
         path_ids: input.pathIds,
-        makeActive: input.makeActive,
       });
-      const activeGroup =
-        groupedWorkspace.path_groups.find(
-          (group) => group.group_id === groupedWorkspace.active_path_group_id,
-        ) ?? null;
-      const nextWorkspace =
+      const activePathGroupId =
+        input.makeActive === false
+          ? navigation.activePathGroupId
+          : grouped.createdGroupId;
+      const activeGroup = grouped.project.path_groups.find(
+        (group) => group.group_id === activePathGroupId,
+      );
+      const activePathId =
         input.activePathId &&
-        groupedWorkspace.paths.some(
+        grouped.project.paths.some(
           (path) => path.path_id === input.activePathId,
         ) &&
         (!activeGroup || activeGroup.path_ids.includes(input.activePathId))
-          ? ensureWorkspaceHasActivePath({
-              ...groupedWorkspace,
-              active_path_id: input.activePathId,
-            })
-          : groupedWorkspace;
-      applyWorkspaceTransition(
+          ? input.activePathId
+          : navigation.activePathId;
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        nextWorkspace,
+        project,
+        grouped.project,
+        navigation,
+        { activePathId, activePathGroupId },
         "Create path collection",
       );
     },
     renamePathGroup(groupId, name) {
-      const workspace = sessionWorkspace(get());
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        renamePathGroupInWorkspace(workspace, groupId, name),
+        project,
+        renamePathGroupInProject(project, groupId, name),
+        navigation,
+        navigation,
         "Rename path collection",
       );
     },
     deletePathGroup(groupId, options) {
-      const workspace = sessionWorkspace(get());
-      const nextWorkspace = deletePathGroupFromWorkspace(
-        workspace,
-        groupId,
-        options,
-      );
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      const nextProject = deletePathGroupFromProject(project, groupId, options);
+      const nextNavigation = normalizeEditorNavigation(nextProject, {
+        activePathId: navigation.activePathId,
+        activePathGroupId:
+          navigation.activePathGroupId === groupId
+            ? null
+            : navigation.activePathGroupId,
+      });
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        nextWorkspace,
+        project,
+        nextProject,
+        navigation,
+        nextNavigation,
         "Delete path collection",
       );
     },
     addPathsToGroup(groupId, pathIds) {
-      const workspace = sessionWorkspace(get());
-      const nextWorkspace = addPathsToGroupInWorkspace(
-        workspace,
-        groupId,
-        pathIds,
-      );
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      const nextProject = addPathsToGroupInProject(project, groupId, pathIds);
       if (
         mergeCreatedPathMembershipTransition(
           set,
           history,
-          nextWorkspace,
+          nextProject,
+          navigation,
           pathIds,
         )
       ) {
         return;
       }
 
-      applyWorkspaceTransition(
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        nextWorkspace,
+        project,
+        nextProject,
+        navigation,
+        navigation,
         "Add paths to collection",
       );
     },
     removePathsFromGroup(groupId, pathIds) {
-      const workspace = sessionWorkspace(get());
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      const nextProject = removePathsFromGroupInProject(
+        project,
+        groupId,
+        pathIds,
+      );
+      const nextNavigation =
+        navigation.activePathGroupId === groupId
+          ? navigationForActiveGroup(nextProject, navigation, groupId)
+          : navigation;
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        removePathsFromGroupInWorkspace(workspace, groupId, pathIds),
+        project,
+        nextProject,
+        navigation,
+        nextNavigation,
         "Remove paths from collection",
       );
     },
     createLinkedTarget(input) {
-      const workspace = sessionWorkspace(get());
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
       const targetId = input.target_id ?? createLinkedTargetId();
-      applyWorkspaceTransition(
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        addLinkedTargetToWorkspace(workspace, {
+        project,
+        addLinkedTargetToProject(project, {
           ...input,
           target_id: targetId,
         }),
+        navigation,
+        navigation,
         `Create linked ${
           input.kind === "waypoint" ? "waypoint" : "translation"
         }`,
@@ -571,37 +594,49 @@ export function createProjectStore(
       return targetId;
     },
     updateLinkedTarget(targetId, update) {
-      const workspace = sessionWorkspace(get());
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        updateLinkedTargetInWorkspace(workspace, targetId, update),
+        project,
+        updateLinkedTargetInProject(project, targetId, update),
+        navigation,
+        navigation,
         "Update linked element",
       );
     },
     deleteLinkedTarget(targetId) {
-      const workspace = sessionWorkspace(get());
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        deleteLinkedTargetFromWorkspace(workspace, targetId),
+        project,
+        deleteLinkedTargetFromProject(project, targetId),
+        navigation,
+        navigation,
         "Delete linked element",
       );
     },
     linkPathElementToTarget(pathId, elementIndex, targetId) {
-      const workspace = sessionWorkspace(get());
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        linkPathElementToTargetInWorkspace(
-          workspace,
+        project,
+        linkPathElementToTargetInProject(
+          project,
           pathId,
           elementIndex,
           targetId,
         ),
+        navigation,
+        navigation,
         "Link path element",
         true,
         {},
@@ -609,12 +644,16 @@ export function createProjectStore(
       );
     },
     unlinkPathElement(pathId, elementIndex) {
-      const workspace = sessionWorkspace(get());
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        unlinkPathElementInWorkspace(workspace, pathId, elementIndex),
+        project,
+        unlinkPathElementInProject(project, pathId, elementIndex),
+        navigation,
+        navigation,
         "Unlink path element",
         true,
         {},
@@ -622,28 +661,37 @@ export function createProjectStore(
       );
     },
     deletePaths(pathIds) {
-      const workspace = sessionWorkspace(get());
-      const nextWorkspace = deletePathsFromWorkspace(workspace, pathIds);
-      applyWorkspaceTransition(
+      const state = get();
+      const project = requireProject(state.project);
+      const navigation = currentNavigation(state);
+      const nextProject = deletePathsFromProject(project, pathIds);
+      const nextNavigation = normalizeEditorNavigation(nextProject, navigation);
+      applyProjectTransition(
         set,
         history,
-        workspace,
-        nextWorkspace,
+        project,
+        nextProject,
+        navigation,
+        nextNavigation,
         "Delete paths",
       );
     },
     async importPath(file) {
       const io = requireProjectIo(get().io);
-      const previousWorkspace = sessionWorkspace(get());
+      const previousProject = requireProject(get().project);
+      const previousNavigation = currentNavigation(get());
       if (get().dirty) {
         await get().saveWorkspace();
       }
       const workspace = await io.importPath(file);
-      applyWorkspaceTransition(
+      const imported = openProjectFromLegacyWorkspace(workspace);
+      applyProjectTransition(
         set,
         history,
-        previousWorkspace,
-        workspace,
+        previousProject,
+        imported.project,
+        previousNavigation,
+        imported.navigation,
         "Import path",
         false,
         {
@@ -652,8 +700,8 @@ export function createProjectStore(
         },
         {
           createdPathId: createdPathIdFromTransition(
-            previousWorkspace,
-            workspace,
+            previousProject,
+            imported.project,
           ),
         },
       );
@@ -860,25 +908,6 @@ export function activePathForProjectStore(
   return activeProjectPath(state.project, state.activePathId);
 }
 
-export function activePathDocumentForProjectStore(
-  state: Pick<
-    ProjectStoreState,
-    "project" | "activePathId" | "activePathGroupId"
-  >,
-): ProjectDocument | null {
-  return state.project
-    ? activeProjectFromWorkspace(
-        legacyWorkspaceFromOpenProject(state.project, currentNavigation(state)),
-      )
-    : null;
-}
-
-export function legacyWorkspaceForProjectStore(
-  state: ProjectStoreState,
-): ProjectWorkspaceDocument | null {
-  return state.project ? sessionWorkspace(state) : null;
-}
-
 function setProject(
   set: StoreApi<ProjectStoreState>["setState"],
   project: Project,
@@ -898,31 +927,31 @@ function setProject(
   });
 }
 
-function applyWorkspaceTransition(
+function applyProjectTransition(
   set: StoreApi<ProjectStoreState>["setState"],
   history: HistoryStore<Project>,
-  previousWorkspace: ProjectWorkspaceDocument,
-  nextWorkspace: ProjectWorkspaceDocument,
+  previousProject: Project,
+  nextProject: Project,
+  previousNavigation: EditorNavigation,
+  nextNavigation: EditorNavigation,
   description: string,
   dirty = true,
   metadata: Partial<Pick<ProjectStoreState, "lastSavedAt" | "version">> = {},
   historyMetadata: WorkspaceHistoryMetadata = {},
 ): void {
-  const previous = openProjectFromLegacyWorkspace(previousWorkspace);
-  const next = openProjectFromLegacyWorkspace(nextWorkspace);
   const command = projectSnapshotCommand(
     description,
-    previous.project,
-    next.project,
-    previous.navigation,
-    next.navigation,
+    previousProject,
+    nextProject,
+    previousNavigation,
+    nextNavigation,
     historyMetadata,
   );
   const appliedProject = history
     .getState()
-    .execute(cloneProject(previous.project), command);
+    .execute(cloneProject(previousProject), command);
 
-  setProject(set, appliedProject, next.navigation, dirty, metadata);
+  setProject(set, appliedProject, nextNavigation, dirty, metadata);
 }
 
 function projectSnapshotCommand(
@@ -962,7 +991,8 @@ function isProjectSnapshotCommand(
 function mergeCreatedPathMembershipTransition(
   set: StoreApi<ProjectStoreState>["setState"],
   history: HistoryStore<Project>,
-  nextWorkspace: ProjectWorkspaceDocument,
+  nextProject: Project,
+  nextNavigation: EditorNavigation,
   pathIds: readonly string[],
 ): boolean {
   if (pathIds.length !== 1) {
@@ -978,13 +1008,12 @@ function mergeCreatedPathMembershipTransition(
     return false;
   }
 
-  const next = openProjectFromLegacyWorkspace(nextWorkspace);
   const mergedCommand = projectSnapshotCommand(
     previousCommand.description,
     previousCommand.previousSnapshot,
-    next.project,
+    nextProject,
     previousCommand.previousNavigation,
-    next.navigation,
+    nextNavigation,
     { createdPathId: previousCommand.createdPathId },
   );
   const undoStack = [...state.undoStack.slice(0, -1), mergedCommand];
@@ -995,18 +1024,18 @@ function mergeCreatedPathMembershipTransition(
     canUndo: undoStack.length > 0,
     canRedo: false,
   });
-  setProject(set, next.project, next.navigation, true);
+  setProject(set, nextProject, nextNavigation, true);
   return true;
 }
 
 function createdPathIdFromTransition(
-  previousWorkspace: ProjectWorkspaceDocument,
-  nextWorkspace: ProjectWorkspaceDocument,
+  previousProject: Project,
+  nextProject: Project,
 ): string | undefined {
   const previousPathIds = new Set(
-    previousWorkspace.paths.map((path) => path.path_id),
+    previousProject.paths.map((path) => path.path_id),
   );
-  const createdPathIds = nextWorkspace.paths
+  const createdPathIds = nextProject.paths
     .map((path) => path.path_id)
     .filter((pathId) => !previousPathIds.has(pathId));
 
@@ -1112,6 +1141,29 @@ function currentNavigation(
   };
 }
 
+function navigationForActiveGroup(
+  project: Project,
+  navigation: EditorNavigation,
+  requestedGroupId: string | null,
+): EditorNavigation {
+  const group = requestedGroupId
+    ? (project.path_groups.find(
+        (candidate) => candidate.group_id === requestedGroupId,
+      ) ?? null)
+    : null;
+  const activePathId =
+    group && !group.path_ids.includes(navigation.activePathId ?? "")
+      ? (group.path_ids.find((pathId) =>
+          project.paths.some((path) => path.path_id === pathId),
+        ) ?? navigation.activePathId)
+      : navigation.activePathId;
+
+  return normalizeEditorNavigation(project, {
+    activePathId,
+    activePathGroupId: group?.group_id ?? null,
+  });
+}
+
 function requireActivePathId(
   state: Pick<ProjectStoreState, "activePathId">,
 ): string {
@@ -1134,13 +1186,6 @@ function requireProject(project: Project | null): Project {
     throw new Error("No active Project");
   }
   return project;
-}
-
-function sessionWorkspace(state: ProjectStoreState): ProjectWorkspaceDocument {
-  return legacyWorkspaceFromOpenProject(
-    requireProject(state.project),
-    currentNavigation(state),
-  );
 }
 
 function errorMessage(error: unknown): string {

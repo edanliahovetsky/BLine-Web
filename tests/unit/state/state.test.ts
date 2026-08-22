@@ -23,10 +23,9 @@ import {
   type HistoryCommand,
 } from "../../../src/state/historyStore";
 import {
-  activePathDocumentForProjectStore,
+  activePathForProjectStore,
   createProjectStore,
   isStorageConflict,
-  legacyWorkspaceForProjectStore,
   type ProjectStore,
 } from "../../../src/state/projectStore";
 import { StorageConflictError } from "../../../src/storage";
@@ -89,25 +88,25 @@ describe("project store", () => {
     await store.getState().initializeWorkspace();
     renameActivePath(store, "Beta");
 
-    expect(
-      activePathDocumentForProjectStore(store.getState())?.display_name,
-    ).toBe("Beta");
+    expect(activePathForProjectStore(store.getState())?.display_name).toBe(
+      "Beta",
+    );
     expect(store.getState().project?.paths[0].display_name).toBe("Beta");
     expect(store.getState().dirty).toBe(true);
     expect(store.getState().history.getState().canUndo).toBe(true);
 
     store.getState().undo();
 
-    expect(
-      activePathDocumentForProjectStore(store.getState())?.display_name,
-    ).toBe("Alpha");
+    expect(activePathForProjectStore(store.getState())?.display_name).toBe(
+      "Alpha",
+    );
     expect(store.getState().history.getState().canRedo).toBe(true);
 
     store.getState().redo();
 
-    expect(
-      activePathDocumentForProjectStore(store.getState())?.display_name,
-    ).toBe("Beta");
+    expect(activePathForProjectStore(store.getState())?.display_name).toBe(
+      "Beta",
+    );
   });
 
   it("loads and saves through the configured IO service", async () => {
@@ -637,7 +636,7 @@ describe("save conflict recovery", () => {
     expect(state.status).toBe("conflict");
     // The unsaved edits are preserved — nothing is lost, the user gets to choose.
     expect(state.dirty).toBe(true);
-    expect(activePathDocumentForProjectStore(state)?.display_name).toBe("Beta");
+    expect(activePathForProjectStore(state)?.display_name).toBe("Beta");
   });
 
   it("does not wedge: autosave defers instead of erroring in a loop", async () => {
@@ -684,7 +683,7 @@ describe("save conflict recovery", () => {
     expect(state.dirty).toBe(false);
     expect(state.version).toBe(result?.version);
     // The forced write carried the user's in-memory rename to disk.
-    expect(activePathDocumentForProjectStore(state)?.display_name).toBe("Beta");
+    expect(activePathForProjectStore(state)?.display_name).toBe("Beta");
   });
 
   it("reloadFromDisk drops in-memory edits and adopts the on-disk version", async () => {
@@ -838,11 +837,15 @@ async function initializedProjectStore(
 }
 
 function requireWorkspace(store: ProjectStore): ProjectWorkspaceDocument {
-  const workspace = legacyWorkspaceForProjectStore(store.getState());
-  if (!workspace) {
+  const state = store.getState();
+  if (!state.project) {
     throw new Error("Expected project store to have an active workspace");
   }
-  return workspace;
+  return {
+    ...structuredClone(state.project),
+    active_path_id: state.activePathId,
+    active_path_group_id: state.activePathGroupId,
+  };
 }
 
 function renameActivePath(store: ProjectStore, nextName: string): void {

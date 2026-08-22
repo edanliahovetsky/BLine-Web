@@ -26,7 +26,7 @@ import {
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import { startAutoVelocitySync } from "../../../src/state/autoVelocitySync";
 import {
-  activePathDocumentForProjectStore,
+  activePathForProjectStore,
   createProjectStore,
   type ProjectStore,
 } from "../../../src/state/projectStore";
@@ -360,7 +360,18 @@ function refreshedStore(store: ProjectStore): ProjectStore {
 }
 
 function activeDocument(store: ProjectStore): ProjectDocument | null {
-  return activePathDocumentForProjectStore(store.getState());
+  const state = store.getState();
+  const path = activePathForProjectStore(state);
+  return state.project && path
+    ? {
+        schema_version: state.project.schema_version,
+        project_id: path.path_id,
+        display_name: path.display_name,
+        path_file_name: path.file_name,
+        config: state.project.config,
+        path: path.path,
+      }
+    : null;
 }
 
 async function initializedStore(

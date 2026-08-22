@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { activeProjectFromWorkspace } from "../../../src/core/io/workspaceSerde";
 import { createSampleCanvasWorkspace } from "../../../src/ui/app/initialProject";
 import { derivePathDiagnostics } from "../../../src/ui/app/pathDiagnostics";
 
@@ -8,9 +7,13 @@ describe("path diagnostics", () => {
     const workspace = createSampleCanvasWorkspace();
     workspace.paths[0].path.path_elements =
       workspace.paths[0].path.path_elements.slice(0, 1);
-    const project = activeProjectFromWorkspace(workspace);
-
-    expect(derivePathDiagnostics(project, workspace)).toEqual(
+    expect(
+      derivePathDiagnostics(
+        workspace.paths[0].path,
+        workspace.config,
+        workspace.linked_targets,
+      ),
+    ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "anchor-count", severity: "warning" }),
       ]),
@@ -29,8 +32,11 @@ describe("path diagnostics", () => {
     if (first?.type === "waypoint") {
       first.translation_target.x_meters = -1;
     }
-    const project = activeProjectFromWorkspace(workspace);
-    const diagnostics = derivePathDiagnostics(project, workspace);
+    const diagnostics = derivePathDiagnostics(
+      workspace.paths[0].path,
+      workspace.config,
+      workspace.linked_targets,
+    );
 
     expect(diagnostics.some((item) => item.id.startsWith("event-key-"))).toBe(
       true,

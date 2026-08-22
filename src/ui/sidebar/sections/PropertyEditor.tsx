@@ -4,10 +4,8 @@ import {
   defaultFieldGeometry,
   type FieldGeometry,
 } from "../../../core/field/fieldConfig";
-import type {
-  LinkedTargetKind,
-  ProjectWorkspaceDocument,
-} from "../../../core/io/projectSchema";
+import type { LinkedTargetKind } from "../../../core/io/projectSchema";
+import type { Project } from "../../../core/model/project";
 import {
   getPathElementLinkedTargetId,
   isElementCompatibleWithLinkedTarget,
@@ -38,7 +36,7 @@ import {
 
 interface PropertyEditorProps {
   element: PathElement | null;
-  workspace: ProjectWorkspaceDocument | null;
+  project: Pick<Project, "linked_targets"> | null;
   selectedElementIndex: number | null;
   open: boolean;
   typeOptions: readonly AddableElementType[];
@@ -53,7 +51,7 @@ interface PropertyEditorProps {
 
 export function PropertyEditor({
   element,
-  workspace,
+  project,
   selectedElementIndex,
   open,
   typeOptions,
@@ -76,7 +74,7 @@ export function PropertyEditor({
         <LinkedTargetMenu
           key={`element-${selectedElementIndex ?? "none"}-${element.type}`}
           element={element}
-          workspace={workspace}
+          project={project}
           onCreateLinkedTarget={onCreateLinkedTarget}
           onOpenLinkedTargetPicker={onOpenLinkedTargetPicker}
           onUnlinkTarget={onUnlinkTarget}
@@ -161,13 +159,13 @@ function TypeField({
 
 function LinkedTargetMenu({
   element,
-  workspace,
+  project,
   onCreateLinkedTarget,
   onOpenLinkedTargetPicker,
   onUnlinkTarget,
 }: {
   element: PathElement;
-  workspace: ProjectWorkspaceDocument | null;
+  project: Pick<Project, "linked_targets"> | null;
   onCreateLinkedTarget(kind: LinkedTargetKind, displayName: string): void;
   onOpenLinkedTargetPicker(): void;
   onUnlinkTarget(): void;
@@ -176,15 +174,15 @@ function LinkedTargetMenu({
   const [draftName, setDraftName] = useState("");
   const draftNameInputRef = useRef<HTMLInputElement | null>(null);
   const canLinkElement =
-    workspace !== null && (isTranslationTarget(element) || isWaypoint(element));
+    project !== null && (isTranslationTarget(element) || isWaypoint(element));
   const currentTargetId = getPathElementLinkedTargetId(element);
-  const currentTarget = workspace
-    ? (workspace.linked_targets.find(
+  const currentTarget = project
+    ? (project.linked_targets.find(
         (target) => target.target_id === currentTargetId,
       ) ?? null)
     : null;
-  const compatibleTargets = workspace
-    ? workspace.linked_targets.filter((target) =>
+  const compatibleTargets = project
+    ? project.linked_targets.filter((target) =>
         isElementCompatibleWithLinkedTarget(element, target),
       )
     : [];
@@ -193,7 +191,7 @@ function LinkedTargetMenu({
     : ["translation"];
   const trimmedDraftName = draftName.trim();
   const draftNameExists =
-    workspace?.linked_targets.some(
+    project?.linked_targets.some(
       (target) => target.display_name === trimmedDraftName,
     ) ?? false;
   const draftNameIsValid = trimmedDraftName.length > 0 && !draftNameExists;
@@ -206,13 +204,13 @@ function LinkedTargetMenu({
     draftNameInputRef.current?.select();
   }, [draftKind]);
 
-  if (!canLinkElement || !workspace) {
+  if (!canLinkElement || !project) {
     return null;
   }
 
   const startCreate = (kind: LinkedTargetKind) => {
     setDraftKind(kind);
-    setDraftName(nextLinkedTargetName(workspace, kind));
+    setDraftName(nextLinkedTargetName(project, kind));
   };
 
   const cancelCreate = () => {
@@ -231,7 +229,7 @@ function LinkedTargetMenu({
   };
 
   const currentTargetName =
-    workspace.linked_targets.find(
+    project.linked_targets.find(
       (target) => target.target_id === currentTargetId,
     )?.display_name ?? null;
 
