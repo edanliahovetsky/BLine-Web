@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
-import { refreshAutoVelocityConstraints } from "../../../src/core/constraints/autoVelocityApply";
+import {
+  autoVelocityRefreshRequest,
+  refreshAutoVelocityConstraints,
+} from "../../../src/core/constraints/autoVelocityApply";
 import {
   requestAutoRadiiAndCaps,
   resetAutoVelocityRunner,
@@ -139,7 +142,14 @@ describe("auto velocity sync", () => {
             : element,
         ),
       }),
-      revert: (path) => path,
+      revert: (path) => ({
+        ...path,
+        path_elements: path.path_elements.map((element, index) =>
+          index === 1 && isTranslationTarget(element)
+            ? { ...element, x_meters: 1, y_meters: 0 }
+            : element,
+        ),
+      }),
     });
     await waitForIdle(status);
 
@@ -172,6 +182,142 @@ describe("auto velocity sync", () => {
     expect(store.getState().history.getState().undoStack).toHaveLength(1);
     expect(activeDocument(store)?.path.path_elements).toHaveLength(6);
     expect(generatedValues(store)).not.toEqual(staleValuesBeforeMove);
+    store.getState().undo();
+    expect(store.getState().project).toEqual(before);
+    store.getState().redo();
+    expect(store.getState().project).toEqual(after);
+    stop();
+  });
+
+  it("does not attach a source-only baseline refresh to an unrelated edit", async () => {
+    const workspace: ProjectWorkspaceDocument = {
+      ...exampleWorkspace(true),
+      paths: exampleWorkspace(true).paths.map((path) => ({
+        ...path,
+        path: {
+          ...path.path,
+          ranged_constraints: path.path.ranged_constraints.map(
+            (constraint) => ({ ...constraint, auto_velocity: null }),
+          ),
+        },
+      })),
+    };
+    const store = await initializedStore(workspace);
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      delayMs: syncDelayMs,
+      request,
+    });
+    const pathId = store.getState().activePathId!;
+
+    store.getState().renamePath(pathId, "Renamed only");
+    await new Promise((resolve) => setTimeout(resolve, syncDelayMs * 3));
+
+    expect(request).not.toHaveBeenCalled();
+    expect(status.getState().phase).toBe("idle");
+    expect(
+      store
+        .getState()
+        .project!.paths[0].path.ranged_constraints.every(
+          (constraint) => constraint.auto_velocity === null,
+        ),
+    ).toBe(true);
+    stop();
+  });
+
+  it("regenerates the edited Path even while another Path is active", async () => {
+    const firstWorkspace = exampleWorkspace(true);
+    const workspace: ProjectWorkspaceDocument = {
+      ...addPathToProject(firstWorkspace, {
+        display_name: "Second",
+        file_name: "second.json",
+        path: structuredClone(firstWorkspace.paths[0].path),
+      }).project,
+      active_path_id: firstWorkspace.active_path_id,
+      active_path_group_id: firstWorkspace.active_path_group_id,
+    };
+    const store = await initializedStore(workspace);
+    const status = createAutoVelocityStore();
+    const [firstPath, secondPath] = store.getState().project!.paths;
+    const firstBefore = structuredClone(firstPath.path);
+    const secondBefore = structuredClone(secondPath.path.ranged_constraints);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      delayMs: syncDelayMs,
+    });
+
+    store.getState().applyPathCommand(
+      {
+        description: "Move inactive anchor",
+        apply: (path) => withSecondAnchorX(path, 3.2),
+        revert: (path) => withSecondAnchorX(path, 2.4),
+      },
+      secondPath.path_id,
+    );
+    await waitForIdle(status);
+
+    expect(store.getState().activePathId).toBe(firstPath.path_id);
+    expect(store.getState().project!.paths[0].path).toEqual(firstBefore);
+    expect(
+      store.getState().project!.paths[1].path.ranged_constraints,
+    ).not.toEqual(secondBefore);
+    stop();
+  });
+
+  it("regenerates every affected Path into one config history entry", async () => {
+    const firstWorkspace = exampleWorkspace(true);
+    const workspace: ProjectWorkspaceDocument = {
+      ...addPathToProject(firstWorkspace, {
+        display_name: "Second",
+        file_name: "second.json",
+        path: structuredClone(firstWorkspace.paths[0].path),
+      }).project,
+      active_path_id: firstWorkspace.active_path_id,
+      active_path_group_id: firstWorkspace.active_path_group_id,
+    };
+    const store = await initializedStore(workspace);
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      delayMs: syncDelayMs,
+      request,
+    });
+    const before = structuredClone(store.getState().project);
+    const previousConfig = structuredClone(store.getState().project!.config);
+
+    store.getState().applyConfigCommand({
+      description: "Change merge tolerance",
+      apply: (config) => ({
+        ...config,
+        kinematic_constraints: {
+          ...config.kinematic_constraints,
+          default_auto_velocity_merge_tolerance_meters_per_sec: 0.31,
+        },
+      }),
+      revert: () => previousConfig,
+    });
+    await waitForIdle(status);
+    const after = structuredClone(store.getState().project);
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(
+      store
+        .getState()
+        .project!.paths.every(
+          (path) =>
+            autoVelocityRefreshRequest(
+              path.path,
+              store.getState().project!.config,
+            )?.stale === false,
+        ),
+    ).toBe(true);
+    expect(store.getState().history.getState().undoStack).toHaveLength(1);
     store.getState().undo();
     expect(store.getState().project).toEqual(before);
     store.getState().redo();

@@ -5,6 +5,7 @@ import {
   hasGeneratedAutoConstraints,
 } from "../core/constraints/autoConstraintGeneration";
 import {
+  autoVelocityInputsChanged,
   autoVelocityRefreshRequest,
   refreshAutoVelocityConstraints,
   type AutoVelocitySettings,
@@ -167,7 +168,7 @@ export function startAutomaticConstraintSync(
   let nextToken = 1;
   let currentToken = 0;
   let disposed = false;
-  let lastAppliedUnstampedToken: string | null = null;
+  const lastAppliedUnstampedTokens = new Map<string, string>();
   let considered = captureProjectMutationOwnership(projects.getState());
 
   const cancelTimer = () => {
@@ -199,6 +200,7 @@ export function startAutomaticConstraintSync(
 
     status.getState().setLastError(null);
     status.getState().setPhase("running", "sync");
+    let continueSync = false;
     request(candidate.path, candidate.config, candidate.refresh.settings)
       .then((result) => {
         if (
@@ -225,8 +227,12 @@ export function startAutomaticConstraintSync(
           outcome !== "stale" &&
           !candidate.refresh.hasGeneratedVelocityCaps
         ) {
-          lastAppliedUnstampedToken = unstampedRefreshToken(candidate);
+          lastAppliedUnstampedTokens.set(
+            candidate.pathId,
+            unstampedRefreshToken(candidate),
+          );
         }
+        continueSync = outcome !== "stale";
       })
       .catch((error: unknown) => {
         if (
@@ -244,6 +250,7 @@ export function startAutomaticConstraintSync(
       .finally(() => {
         if (candidate.token === currentToken) {
           settle();
+          if (continueSync) evaluate(true);
         }
       });
   };
@@ -266,30 +273,50 @@ export function startAutomaticConstraintSync(
     invalidate();
 
     const ownership = captureProjectEditOwnership(state);
-    const path = state.project?.paths.find(
-      (candidate) => candidate.path_id === state.activePathId,
-    );
-    const refresh =
-      state.project && path
-        ? autoVelocityRefreshRequest(path.path, state.project.config)
-        : null;
-    if (
-      !ownership ||
-      !path ||
-      !state.project ||
-      !refresh ||
-      !refresh.stale ||
-      refresh.signature === null ||
-      (!refresh.hasGeneratedVelocityCaps &&
-        unstampedRefreshToken({
-          ownership,
-          pathId: path.path_id,
-          refresh,
-        }) === lastAppliedUnstampedToken)
-    ) {
+    if (!ownership || !state.project) {
       settle();
       return;
     }
+
+    let selected: {
+      path: (typeof state.project.paths)[number];
+      refresh: NonNullable<ReturnType<typeof autoVelocityRefreshRequest>>;
+    } | null = null;
+    for (const candidate of state.project.paths) {
+      const previousPath = ownership.previousProject.paths.find(
+        (previous) => previous.path_id === candidate.path_id,
+      );
+      const candidateRefresh = autoVelocityRefreshRequest(
+        candidate.path,
+        state.project.config,
+      );
+      if (
+        previousPath &&
+        candidateRefresh?.stale &&
+        candidateRefresh.signature !== null &&
+        autoVelocityInputsChanged(
+          previousPath.path,
+          ownership.previousProject.config,
+          candidate.path,
+          state.project.config,
+        ) &&
+        (candidateRefresh.hasGeneratedVelocityCaps ||
+          lastAppliedUnstampedTokens.get(candidate.path_id) !==
+            unstampedRefreshToken({
+              ownership,
+              pathId: candidate.path_id,
+              refresh: candidateRefresh,
+            }))
+      ) {
+        selected = { path: candidate, refresh: candidateRefresh };
+        break;
+      }
+    }
+    if (!selected) {
+      settle();
+      return;
+    }
+    const { path, refresh } = selected;
 
     const candidate: SyncCandidate = {
       token: nextToken++,
@@ -311,7 +338,7 @@ export function startAutomaticConstraintSync(
   const unsubscribeProject = projects.subscribe((state) => {
     if (state.projectSessionId !== session) {
       session = state.projectSessionId;
-      lastAppliedUnstampedToken = null;
+      lastAppliedUnstampedTokens.clear();
       status.getState().reset();
     }
     evaluate();

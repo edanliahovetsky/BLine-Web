@@ -303,6 +303,25 @@ export function autoVelocityRefreshRequest(
   };
 }
 
+export function autoVelocityInputsChanged(
+  previousPath: PathModel,
+  previousConfig: SimulationConfig,
+  path: PathModel,
+  config: SimulationConfig,
+): boolean {
+  const previousSettings = autoVelocitySettings(previousConfig);
+  const settings = autoVelocitySettings(config);
+  return (
+    autoVelocityInputSignature(
+      previousPath,
+      previousConfig,
+      autoVelocityOptions(previousSettings),
+    ) !==
+      autoVelocityInputSignature(path, config, autoVelocityOptions(settings)) ||
+    previousSettings.mergeToleranceMps !== settings.mergeToleranceMps
+  );
+}
+
 export function autoVelocityStatusForPath(
   path: PathModel,
   config: SimulationConfig,

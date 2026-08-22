@@ -104,6 +104,7 @@ export interface ProjectMutationOwnership {
 
 export interface ProjectEditOwnership extends ProjectMutationOwnership {
   historyEntry: HistoryCommand<Project>;
+  previousProject: Project;
 }
 
 export type DerivedPathCommandResult = "applied" | "noop" | "stale";
@@ -1273,7 +1274,13 @@ export function captureProjectEditOwnership(
 ): ProjectEditOwnership | null {
   const mutation = captureProjectMutationOwnership(state);
   const historyEntry = state.history.getState().undoStack.at(-1);
-  return mutation && historyEntry ? { ...mutation, historyEntry } : null;
+  return mutation && historyEntry && state.project
+    ? {
+        ...mutation,
+        historyEntry,
+        previousProject: historyEntry.revert(cloneProject(state.project)),
+      }
+    : null;
 }
 
 export function projectMutationIsCurrent(
