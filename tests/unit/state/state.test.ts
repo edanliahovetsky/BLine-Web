@@ -1140,7 +1140,7 @@ function addPathForTest(
   return {
     ...added,
     active_path_id: input.makeActive
-      ? added.paths.at(-1)?.path_id ?? project.active_path_id
+      ? (added.paths.at(-1)?.path_id ?? project.active_path_id)
       : project.active_path_id,
     active_path_group_id: project.active_path_group_id,
   };

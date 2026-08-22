@@ -209,16 +209,28 @@ pub fn storage_write_project_files(
     write_project_text_file_set(&dir, &files, expected.as_deref())
 }
 
+/// Write the canonical snapshot used to migrate one explicitly identified legacy
+/// Project. Unlike a normal save, this command must not change the desktop shell's
+/// remembered current or recent Project while an asynchronous migration finishes.
+#[tauri::command]
+pub fn storage_prepare_legacy_project_files(
+    directory_locator: String,
+    files: Vec<ProjectTextFile>,
+    expected: String,
+) -> Result<ProjectTextFileWriteResult, String> {
+    let dir = resolve_explicit_project_directory(&directory_locator)?;
+    write_project_text_file_set(&dir, &files, Some(&expected))
+}
+
 /// Remove only the obsolete editor metadata that TypeScript has already migrated
 /// into a successfully written canonical Project. Field assets and every other file
 /// are outside this command's ownership boundary.
 #[tauri::command]
 pub fn storage_delete_legacy_project_files(
-    app: AppHandle,
     directory_locator: String,
     expected: String,
 ) -> Result<ProjectTextFileWriteResult, String> {
-    let dir = resolve_project_directory(&app, Some(&directory_locator))?;
+    let dir = resolve_explicit_project_directory(&directory_locator)?;
     delete_legacy_project_files(&dir, &expected)
 }
 
@@ -340,15 +352,19 @@ fn resolve_project_directory(
     directory_locator: Option<&str>,
 ) -> Result<PathBuf, String> {
     if let Some(locator) = directory_locator {
-        if locator.trim().is_empty() {
-            return Err("Desktop project directory locator is empty".to_owned());
-        }
-        let dir = effective_project_dir(Path::new(locator));
+        let dir = resolve_explicit_project_directory(locator)?;
         remember_workspace_dir(app, &dir)?;
         return Ok(dir);
     }
 
     require_current_project_dir(app)
+}
+
+fn resolve_explicit_project_directory(directory_locator: &str) -> Result<PathBuf, String> {
+    if directory_locator.trim().is_empty() {
+        return Err("Desktop project directory locator is empty".to_owned());
+    }
+    Ok(effective_project_dir(Path::new(directory_locator)))
 }
 
 fn read_project_text_file_set(project_dir: &Path) -> Result<ProjectTextFileSet, String> {
@@ -415,6 +431,11 @@ fn write_project_text_file_set(
             return Err("storage-conflict: project file set changed while saving".to_owned());
         }
         write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_PREPARED)?;
+
+        // The prepared marker only protects recovery once the transaction
+        // directory entry itself is durable in its parent. Flush that entry before
+        // installation removes any live Project files.
+        sync_directory(project_dir)?;
 
         install_project_snapshot(project_dir, &new_dir)?;
         write_transaction_marker(&transaction_dir, PROJECT_SAVE_TRANSACTION_COMMITTED)?;

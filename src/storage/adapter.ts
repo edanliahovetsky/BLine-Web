@@ -158,7 +158,10 @@ export async function createBLineWorkspaceArchive(
   id: string,
   exportedAt: string,
 ): Promise<Blob> {
-  return serializeBLineProjectArchive(await adapter.readProject(id), exportedAt);
+  return serializeBLineProjectArchive(
+    await adapter.readProject(id),
+    exportedAt,
+  );
 }
 
 export async function importWorkspaceArchive(
@@ -174,9 +177,7 @@ export async function importWorkspaceArchive(
   };
 }
 
-export async function decodeWorkspaceArchive(
-  archive: Blob,
-): Promise<Project> {
+export async function decodeWorkspaceArchive(archive: Blob): Promise<Project> {
   const parsed = JSON.parse(await archive.text()) as unknown;
 
   if (isBLineProjectArchive(parsed)) {
@@ -267,9 +268,7 @@ export function createStoredProjectRecord(
   };
 }
 
-function legacyProjectBundleToWorkspace(
-  bundle: ProjectBundle,
-): Project {
+function legacyProjectBundleToWorkspace(bundle: ProjectBundle): Project {
   const projects = bundle.projects.map((project) =>
     deserializeProjectDocument(project),
   );

@@ -118,11 +118,7 @@ export class StorageProjectIoService implements ProjectIoService {
     const legacyProjectId = isLegacyProjectMetadataAdapter(this.storage)
       ? this.storage.getLegacyProjectMigrationSourceId()
       : this.currentStorageId;
-    if (
-      this.getPersistenceDamage() ||
-      !project ||
-      !legacyProjectId
-    ) {
+    if (this.getPersistenceDamage() || !project || !legacyProjectId) {
       return null;
     }
     return {
@@ -463,10 +459,7 @@ export class StorageProjectIoService implements ProjectIoService {
 
   async exportProjectArchive(project: Project): Promise<Blob> {
     return jsonBlob(
-      createBLineProjectArchive(
-        project,
-        new Date().toISOString(),
-      ),
+      createBLineProjectArchive(project, new Date().toISOString()),
     );
   }
 

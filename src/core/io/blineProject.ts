@@ -109,9 +109,7 @@ export function createBLineProjectArchive(
     exported_at: exportedAt,
     config: projectConfigWithoutField(project.config),
     paths: project.paths.map((path, index) => ({
-      file_name: ensureJsonFileName(
-        path.file_name || `path-${index + 1}.json`,
-      ),
+      file_name: ensureJsonFileName(path.file_name || `path-${index + 1}.json`),
       display_name: path.display_name,
       path: serializePath(path.path),
       editor_metadata: serializePathEditorMetadata(path.path),

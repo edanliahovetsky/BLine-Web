@@ -359,7 +359,7 @@ describe("ProjectIoService", () => {
         if (command === "storage_list_recent_workspaces") {
           return [summary] as T;
         }
-        if (command === "storage_write_project_files") {
+        if (command === "storage_prepare_legacy_project_files") {
           return {
             directoryLocator: "/repo/autos",
             version: "canonical-v2",
@@ -399,7 +399,7 @@ describe("ProjectIoService", () => {
     expect(completed).toMatchObject({ version: "clean-v3" });
     expect(service.getCurrentVersion()).toBe("clean-v3");
     const write = calls.find(
-      (call) => call.command === "storage_write_project_files",
+      (call) => call.command === "storage_prepare_legacy_project_files",
     );
     const cleanup = calls.find(
       (call) => call.command === "storage_delete_legacy_project_files",

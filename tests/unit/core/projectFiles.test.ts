@@ -398,9 +398,33 @@ describe("Project file-set codec", () => {
       relativePath: "paths/AUTO.json",
       text: requiredFile(files, "paths/auto.json").text,
     };
-    expect(openProjectFiles([...files, duplicate]).damage?.message).toContain(
-      "case-colliding runtime path file",
+    expect(() => deserializeProjectFiles([...files, duplicate])).toThrow(
+      "case-colliding managed Project file",
     );
+  });
+
+  it("rejects duplicate normalized envelope files before indexing them", () => {
+    const files = canonicalFiles();
+    const cases: ProjectTextFile[] = [
+      {
+        relativePath: "./CONFIG.JSON",
+        text: "{}\n",
+      },
+      {
+        relativePath: "PROJECT.JSON",
+        text: "{}\n",
+      },
+      {
+        relativePath: "paths\\AUTO.json",
+        text: "{}\n",
+      },
+    ];
+
+    for (const duplicate of cases) {
+      expect(() => deserializeProjectFiles([...files, duplicate])).toThrow(
+        `Duplicate or case-colliding managed Project file ${normalizeTestPath(duplicate.relativePath)}`,
+      );
+    }
   });
 
   it("strictly validates the canonical project.json whitelist", () => {
@@ -697,6 +721,10 @@ function replaceProjectMetadata(
   return files.map((file) =>
     file.relativePath === "project.json" ? { ...file, text } : file,
   );
+}
+
+function normalizeTestPath(relativePath: string): string {
+  return relativePath.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
 function requiredFile(

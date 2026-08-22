@@ -178,10 +178,7 @@ describe("BrowserStorage", () => {
       version: "legacy-version",
       updatedAt: "2026-04-23T15:38:00.000Z",
     });
-    memory.setItem(
-      "bline-web:workspace:legacy-locator",
-      legacyJson,
-    );
+    memory.setItem("bline-web:workspace:legacy-locator", legacyJson);
     const storage = new BrowserStorage({ storage: memory });
 
     await storage.initialize();
@@ -236,6 +233,28 @@ describe("BrowserStorage", () => {
       ),
     ).resolves.toEqual(prepared);
     expect(memory.getItem("bline-web:workspace:legacy-locator")).toBeNull();
+
+    const changedLegacyJson = JSON.stringify({
+      document: { ...workspace, display_name: "Changed after prepare" },
+      version: "newer-legacy-version",
+      updatedAt: "2026-04-23T15:39:00.000Z",
+    });
+    memory.setItem("bline-web:workspace:legacy-locator", changedLegacyJson);
+    memory.setItem("bline-web:current-workspace", "legacy-locator");
+    const changedSource = new BrowserStorage({ storage: memory });
+    const changedProject = await changedSource.readProject("legacy-locator");
+    await expect(
+      changedSource.prepareLegacyProjectMigration(
+        changedProject,
+        "newer-legacy-version",
+        "legacy-locator",
+      ),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(memory.getItem("bline-web:workspace:legacy-locator")).toBe(
+      changedLegacyJson,
+    );
+    memory.removeItem("bline-web:workspace:legacy-locator");
+    memory.setItem("bline-web:current-workspace", "workspace-a");
 
     const restarted = new BrowserStorage({ storage: memory });
     const resumed = await restarted.readProject("workspace-a");
@@ -562,7 +581,7 @@ describe("TauriStorage", () => {
             updatedAt: "2026-08-21T12:01:00.000Z",
           } as T;
         }
-        if (command === "storage_write_project_files") {
+        if (command === "storage_prepare_legacy_project_files") {
           return new Promise<T>((resolve) => {
             resolvePrepare = (payload) => resolve(payload as T);
           });
@@ -621,8 +640,9 @@ describe("TauriStorage", () => {
       "/repo/project-b/autos",
     );
     expect(
-      calls.find((call) => call.command === "storage_write_project_files")
-        ?.args,
+      calls.find(
+        (call) => call.command === "storage_prepare_legacy_project_files",
+      )?.args,
     ).toMatchObject({
       directoryLocator: "/repo/project-a/autos",
       expected: "legacy-a-v1",

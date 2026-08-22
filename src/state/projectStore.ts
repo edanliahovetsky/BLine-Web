@@ -508,10 +508,7 @@ export function createProjectStore(
       }
       return executeOwnedSave(set, get, project, version, false, true);
     },
-    async completeLegacyProjectMigration(
-      expectedProjectSessionId,
-      migration,
-    ) {
+    async completeLegacyProjectMigration(expectedProjectSessionId, migration) {
       if (savePromise) {
         await savePromise;
       }

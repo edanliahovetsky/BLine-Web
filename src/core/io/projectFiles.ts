@@ -112,6 +112,7 @@ export function deserializeProjectFiles(
   files: readonly ProjectTextFile[],
   options: DeserializeProjectFilesOptions = {},
 ): Project {
+  assertUniqueManagedProjectFilePaths(files);
   const fileIndex = new Map(
     files.map((file) => [normalizeRelativePath(file.relativePath), file.text]),
   );
@@ -715,11 +716,6 @@ function validateCanonicalProjectFileSet(
   for (const [relativePath, text] of runtimeEntries) {
     const fileName = relativePath.slice(relativePath.indexOf("/") + 1);
     const key = fileName.toLowerCase();
-    if (runtimeFiles.has(key)) {
-      throw new Error(
-        `Duplicate or case-colliding runtime path file ${fileName}`,
-      );
-    }
     runtimeFiles.set(key, text);
   }
 
@@ -789,6 +785,27 @@ function assertUniqueCaseInsensitive(
     const key = value.toLowerCase();
     if (seen.has(key)) {
       throw new Error(`Duplicate or case-colliding ${label}: ${value}`);
+    }
+    seen.add(key);
+  }
+}
+
+function assertUniqueManagedProjectFilePaths(
+  files: readonly ProjectTextFile[],
+): void {
+  const seen = new Set<string>();
+  for (const file of files) {
+    const relativePath = normalizeRelativePath(file.relativePath);
+    const key = relativePath.toLowerCase();
+    const managed =
+      key === "config.json" ||
+      key === "project.json" ||
+      /^paths\/[^/]+\.json$/.test(key);
+    if (!managed) continue;
+    if (seen.has(key)) {
+      throw new Error(
+        `Duplicate or case-colliding managed Project file ${relativePath}`,
+      );
     }
     seen.add(key);
   }

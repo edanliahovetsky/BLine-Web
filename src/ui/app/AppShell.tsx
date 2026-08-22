@@ -457,12 +457,14 @@ export function AppShell() {
     };
   }, [refreshWorkspaceSummaries]);
 
-  const legacyFieldMigrationKey = durableProject
-    ? JSON.stringify({
-        projectId: durableProject.project_id,
-        field: durableProject.config.gui.field,
-      })
-    : null;
+  const legacyFieldMigrationKey =
+    durableProject && projectSessionId
+      ? JSON.stringify({
+          projectSessionId,
+          projectId: durableProject.project_id,
+          field: durableProject.config.gui.field,
+        })
+      : null;
 
   useEffect(() => {
     if (!durableProject || !projectSessionId) {

@@ -271,6 +271,12 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       if (
         preparedTarget?.legacyDocument &&
         preparedTarget.legacySourceStorageId === sourceStorageId &&
+        preparedTarget.legacySourceVersion === legacy.version &&
+        sameProjectFiles(
+          preparedTarget.files,
+          serializeProjectFiles(project),
+        ) &&
+        sameJsonDocument(preparedTarget.legacyDocument, legacy.document) &&
         !openedTarget?.damage &&
         openedTarget?.project.project_id === project.project_id
       ) {
@@ -306,6 +312,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       updatedAt,
       legacyDocument: structuredClone(legacy.document),
       legacySourceStorageId: sourceStorageId,
+      legacySourceVersion: legacy.version,
     };
     this.storage.setItem(
       this.storageKey(project.project_id),
@@ -348,7 +355,6 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     workspaceId: string,
     assetId: string,
   ): Promise<FieldAssetPayload | null> {
-    workspaceId = this.legacyAssetWorkspaceId(workspaceId);
     const db = await this.openFieldAssetDb();
     const record =
       await runFieldAssetTransaction<BrowserFieldAssetRecord | null>(
@@ -368,7 +374,6 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
   }
 
   async deleteFieldAsset(workspaceId: string, assetId: string): Promise<void> {
-    workspaceId = this.legacyAssetWorkspaceId(workspaceId);
     const db = await this.openFieldAssetDb();
     await runFieldAssetTransaction(db, "readwrite", (store) =>
       store.delete(fieldAssetKey(workspaceId, assetId)),
@@ -542,17 +547,6 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     return `${this.keyPrefix}${encodeURIComponent(id)}`;
   }
 
-  private legacyAssetWorkspaceId(requestedWorkspaceId: string): string {
-    const currentStorageId = this.storage.getItem(this.currentWorkspaceKey);
-    if (!currentStorageId) {
-      return requestedWorkspaceId;
-    }
-    const record = this.readRecord(currentStorageId);
-    return record?.legacyDocument
-      ? (record.legacySourceStorageId ?? requestedWorkspaceId)
-      : requestedWorkspaceId;
-  }
-
   private openFieldAssetDb(): Promise<IDBDatabase> {
     if (!("indexedDB" in globalThis)) {
       throw new Error("Custom field image storage is unavailable");
@@ -594,6 +588,7 @@ interface StoredProjectFilesRecord {
     | LegacyStoredWorkspaceRecord["document"]
     | StoredProjectRecord["document"];
   legacySourceStorageId?: string;
+  legacySourceVersion?: string;
 }
 
 interface ParsedProjectFilesRecord extends StoredProjectFilesRecord {
@@ -709,8 +704,28 @@ function isStoredProjectFilesRecord(
       (typeof candidate.legacyDocument === "object" &&
         candidate.legacyDocument !== null)) &&
     (candidate.legacySourceStorageId === undefined ||
-      typeof candidate.legacySourceStorageId === "string")
+      typeof candidate.legacySourceStorageId === "string") &&
+    (candidate.legacySourceVersion === undefined ||
+      typeof candidate.legacySourceVersion === "string")
   );
+}
+
+function sameProjectFiles(
+  left: readonly ProjectTextFile[],
+  right: readonly ProjectTextFile[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (file, index) =>
+        file.relativePath === right[index]?.relativePath &&
+        file.text === right[index]?.text,
+    )
+  );
+}
+
+function sameJsonDocument(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function isStoredProjectRecord(input: unknown): input is StoredProjectRecord {

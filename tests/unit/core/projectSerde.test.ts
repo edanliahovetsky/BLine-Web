@@ -1292,7 +1292,6 @@ describe("project document serde", () => {
       { group_id: "avoid", display_name: "Avoid", path_ids: ["top"] },
     ]);
     expect(workspace.active_path_group_id).toBe("score");
-
   });
 
   it("stores only automatic handoff ownership beside its runtime target", () => {
@@ -1344,7 +1343,8 @@ describe("project document serde", () => {
       projectDocumentToWorkspaceDocument(project),
     );
     const serialized = JSON.parse(
-      files.find((file) => file.relativePath === "project.json")?.text ?? "null",
+      files.find((file) => file.relativePath === "project.json")?.text ??
+        "null",
     ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
     expect(
       serialized.paths[0]?.editor_metadata?.handoff_radius_sources,
@@ -1410,7 +1410,8 @@ describe("project document serde", () => {
       projectDocumentToWorkspaceDocument(project),
     );
     const serialized = JSON.parse(
-      files.find((file) => file.relativePath === "project.json")?.text ?? "null",
+      files.find((file) => file.relativePath === "project.json")?.text ??
+        "null",
     ) as { paths: Array<{ editor_metadata?: Record<string, unknown> }> };
     expect(serialized.paths[0]?.editor_metadata).toEqual({
       ranged_constraints: [

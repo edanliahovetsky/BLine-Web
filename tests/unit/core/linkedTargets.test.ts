@@ -3,9 +3,7 @@ import {
   createProjectPathDocument,
   createProjectWorkspaceDocument,
 } from "../../../src/core/io/projectSchema";
-import {
-  deserializeProjectWorkspaceDocument,
-} from "../../../src/core/io/workspaceSerde";
+import { deserializeProjectWorkspaceDocument } from "../../../src/core/io/workspaceSerde";
 import {
   deserializeProjectFiles,
   serializeProjectFiles,
@@ -86,7 +84,8 @@ describe("linked targets", () => {
 
     const files = serializeProjectFiles(workspace);
     const metadata = JSON.parse(
-      files.find((file) => file.relativePath === "project.json")?.text ?? "null",
+      files.find((file) => file.relativePath === "project.json")?.text ??
+        "null",
     ) as {
       linked_targets: unknown[];
       paths: Array<{ editor_metadata?: { linked_targets?: unknown[] } }>;

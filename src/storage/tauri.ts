@@ -74,7 +74,11 @@ export class TauriStorage implements ProjectFolderAdapter {
           fallbackDisplayName: displayName,
         })
       : await openLegacyOrRuntimeProject(result, displayName);
-    if (!damage && hasCanonicalMetadata && (result.legacyFiles?.length ?? 0) > 0) {
+    if (
+      !damage &&
+      hasCanonicalMetadata &&
+      (result.legacyFiles?.length ?? 0) > 0
+    ) {
       const legacy = await openLegacyOrRuntimeProject(
         {
           ...result,
@@ -192,7 +196,7 @@ export class TauriStorage implements ProjectFolderAdapter {
       return null;
     }
     const result = await this.invoke<ProjectFileSetWritePayload>(
-      "storage_write_project_files",
+      "storage_prepare_legacy_project_files",
       {
         directoryLocator: sourceStorageId,
         files: serializeProjectFiles(project).map((file) => ({
