@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Search } from "lucide-react";
+import { Eye, EyeOff, Search } from "lucide-react";
 import type {
   Project,
   ProjectPath,
@@ -20,7 +20,7 @@ import {
   UploadIcon,
 } from "../icons";
 import { CloseButton, IconButton } from "../controls";
-import { DeletePathGroupDialog, NameEntryDialog } from "./ProjectDialogs";
+import { NameEntryDialog } from "./ProjectDialogs";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import "./LibraryDialog.css";
 import "./ProjectLibraryDialogs.css";
@@ -38,30 +38,36 @@ type LibraryNameAction =
       addToGroupId: string | null;
     };
 
+const unlabeledFilterId = "__unlabeled_paths__";
+
 export function PathLibraryDialog({
   project,
   activePathId,
   activePathGroupId,
+  showGhostPaths,
   onCancel,
   onCreatePath,
   onDeletePaths,
   onExportPath,
   onImportPath,
+  onShowGhostPathsChange,
 }: {
   project: Project;
   activePathId: string | null;
   activePathGroupId: string | null;
+  showGhostPaths: boolean;
   onCancel(): void;
   onCreatePath(groupId: string | null): void;
   onDeletePaths(): void;
   onExportPath(): void;
   onImportPath(): void;
+  onShowGhostPathsChange(show: boolean): void;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
-    activePathGroupId,
-  );
+  const [selectedGroupId, setSelectedGroupId] = useState<
+    string | null | typeof unlabeledFilterId
+  >(activePathGroupId);
   const [selectedPathId, setSelectedPathId] = useState<string | null>(
     activePathId ?? project.paths[0]?.path_id ?? null,
   );
@@ -114,10 +120,15 @@ export function PathLibraryDialog({
   const selectedGroup =
     project.path_groups.find((group) => group.group_id === selectedGroupId) ??
     null;
-  const selectedCollectionPaths = visiblePathsForGroup(
-    project.paths,
-    selectedGroup,
-  ).filter((path) => {
+  const pathsForSelectedFilter =
+    selectedGroupId === unlabeledFilterId
+      ? project.paths.filter((path) =>
+          project.path_groups.every(
+            (group) => !group.path_ids.includes(path.path_id),
+          ),
+        )
+      : visiblePathsForGroup(project.paths, selectedGroup);
+  const selectedCollectionPaths = pathsForSelectedFilter.filter((path) => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     return (
       !normalizedQuery ||
@@ -139,12 +150,23 @@ export function PathLibraryDialog({
         selectedCollectionPaths[0] ??
         null);
   const effectiveSelectedPathId = selectedPath?.path_id ?? null;
-  const handleSelectLibraryGroup = (groupId: string | null) => {
+  const handleSelectLibraryGroup = (
+    groupId: string | null | typeof unlabeledFilterId,
+  ) => {
     const nextGroup =
       project.path_groups.find((group) => group.group_id === groupId) ?? null;
-    const nextPaths = visiblePathsForGroup(project.paths, nextGroup);
+    const nextPaths =
+      groupId === unlabeledFilterId
+        ? project.paths.filter((path) =>
+            project.path_groups.every(
+              (group) => !group.path_ids.includes(path.path_id),
+            ),
+          )
+        : visiblePathsForGroup(project.paths, nextGroup);
 
     setSelectedGroupId(groupId);
+    projectStore.getState().setActivePathGroup(nextGroup?.group_id ?? null);
+    selectionStore.getState().clearSelection();
     setSelectedPathId((current) =>
       current && nextPaths.some((path) => path.path_id === current)
         ? current
@@ -274,12 +296,33 @@ export function PathLibraryDialog({
   };
 
   const handleDeleteSelectedPath = () => {
+    if (!selectedPath) {
+      return;
+    }
+
+    projectStore.getState().setActivePath(selectedPath.path_id);
     selectionStore.getState().clearSelection();
     onDeletePaths();
   };
+  const selectedFilterLabel =
+    selectedGroup?.display_name ??
+    (selectedGroupId === unlabeledFilterId ? "Unlabeled" : "All Paths");
+  const comparisonPaths = selectedGroup
+    ? visiblePathsForGroup(project.paths, selectedGroup).filter(
+        (path) => path.path_id !== activePathId,
+      )
+    : [];
 
   return (
-    <div className="project-navigator-backdrop" role="presentation">
+    <div
+      className="project-navigator-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onCancel();
+        }
+      }}
+    >
       <section
         ref={dialogRef}
         className="library-dialog path-library-dialog project-navigator"
@@ -299,20 +342,13 @@ export function PathLibraryDialog({
       >
         <header className="config-dialog__header">
           <div>
-            <strong>Project Navigator</strong>
-            <span>{project.display_name}</span>
+            <strong>Paths</strong>
+            <span>{project.display_name} · organize with labels</span>
           </div>
-          <CloseButton ariaLabel="Close project navigator" onClick={onCancel} />
+          <CloseButton ariaLabel="Close paths panel" onClick={onCancel} />
         </header>
 
-        <div className="library-dialog__utility-bar path-library-dialog__utility-bar">
-          <div className="library-dialog__selection-summary path-library-dialog__selection-summary">
-            <strong>{selectedGroup?.display_name ?? "All Paths"}</strong>
-            <span>
-              {selectedCollectionPaths.length}{" "}
-              {selectedCollectionPaths.length === 1 ? "path" : "paths"} visible
-            </span>
-          </div>
+        <div className="path-library-panel__body">
           <label className="project-navigator__search">
             <Search aria-hidden="true" size={15} />
             <input
@@ -324,50 +360,35 @@ export function PathLibraryDialog({
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
           </label>
-          <div className="path-library-dialog__utility-actions">
-            <button
-              type="button"
-              className="library-dialog__utility-button path-library-dialog__utility-button"
-              onClick={onImportPath}
-            >
-              <UploadIcon size={17} />
-              <span>Import Path</span>
-            </button>
-            <button
-              type="button"
-              className="library-dialog__utility-button path-library-dialog__utility-button"
-              disabled={!selectedPath}
-              onClick={handleExportSelectedPath}
-            >
-              <DownloadIcon size={17} />
-              <span>Export Path</span>
-            </button>
-          </div>
-        </div>
 
-        <div className="path-library-dialog__body">
-          <aside
-            className="library-dialog__column path-library-dialog__groups"
-            aria-label="Collections"
+          <section
+            className="path-library-panel__section path-library-dialog__groups"
+            aria-label="Labels"
           >
-            <div className="library-dialog__column-header path-library-dialog__column-header path-library-dialog__column-header--action">
-              <strong>Collections</strong>
+            <header className="path-library-panel__section-header">
+              <div>
+                <strong>Labels</strong>
+                <span>{selectedFilterLabel}</span>
+              </div>
               <div className="path-library-dialog__header-actions">
-                <PathLibraryHeaderButton
-                  label="Create collection"
+                <button
+                  type="button"
+                  className="path-library-panel__add-button"
+                  aria-label="Create label"
                   onClick={() => setShowCreateCollectionDialog(true)}
                 >
-                  <PlusIcon size={17} />
-                </PathLibraryHeaderButton>
+                  <PlusIcon size={14} />
+                  Add label
+                </button>
                 <PathLibraryHeaderButton
-                  label="Rename collection"
+                  label="Rename label"
                   disabled={!selectedGroup}
                   onClick={handleRenameGroup}
                 >
-                  <PencilIcon size={16} />
+                  <PencilIcon size={15} />
                 </PathLibraryHeaderButton>
                 <PathLibraryHeaderButton
-                  label="Delete collection"
+                  label="Delete label"
                   tone="danger"
                   disabled={!selectedGroup}
                   onClick={() => {
@@ -376,32 +397,51 @@ export function PathLibraryDialog({
                     }
                   }}
                 >
-                  <TrashIcon size={16} />
+                  <TrashIcon size={15} />
                 </PathLibraryHeaderButton>
               </div>
-            </div>
+            </header>
             <div
-              className="library-dialog__item-list path-library-dialog__group-list"
+              className="path-library-dialog__group-list"
               role="listbox"
-              aria-label="Collection list"
+              aria-label="Label filters"
             >
               <button
                 type="button"
-                className={[
-                  "path-library-dialog__group",
-                  "library-dialog__item",
-                  "is-permanent",
-                  !selectedGroup ? "is-selected" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
+                className={
+                  !selectedGroup && selectedGroupId !== unlabeledFilterId
+                    ? "path-library-dialog__group is-permanent is-selected"
+                    : "path-library-dialog__group is-permanent"
+                }
                 role="option"
-                aria-selected={!selectedGroup}
+                aria-selected={
+                  !selectedGroup && selectedGroupId !== unlabeledFilterId
+                }
                 onClick={() => handleSelectLibraryGroup(null)}
               >
-                <span>All Paths</span>
+                <span>All</span>
+                <small>{project.paths.length}</small>
+              </button>
+              <button
+                type="button"
+                className={
+                  selectedGroupId === unlabeledFilterId
+                    ? "path-library-dialog__group is-selected"
+                    : "path-library-dialog__group"
+                }
+                role="option"
+                aria-selected={selectedGroupId === unlabeledFilterId}
+                onClick={() => handleSelectLibraryGroup(unlabeledFilterId)}
+              >
+                <span>Unlabeled</span>
                 <small>
-                  Permanent collection / {project.paths.length} paths
+                  {
+                    project.paths.filter((path) =>
+                      project.path_groups.every(
+                        (group) => !group.path_ids.includes(path.path_id),
+                      ),
+                    ).length
+                  }
                 </small>
               </button>
               {project.path_groups.map((group) => (
@@ -410,175 +450,267 @@ export function PathLibraryDialog({
                   type="button"
                   className={
                     selectedGroup?.group_id === group.group_id
-                      ? "library-dialog__item path-library-dialog__group is-selected"
-                      : "library-dialog__item path-library-dialog__group"
+                      ? "path-library-dialog__group is-selected"
+                      : "path-library-dialog__group"
                   }
                   role="option"
                   aria-selected={selectedGroup?.group_id === group.group_id}
                   onClick={() => handleSelectLibraryGroup(group.group_id)}
                 >
                   <span>{group.display_name}</span>
-                  <small>
-                    {group.path_ids.length}{" "}
-                    {group.path_ids.length === 1 ? "path" : "paths"}
-                    {activePathGroupId === group.group_id ? " / active" : ""}
-                  </small>
+                  <small>{group.path_ids.length}</small>
                 </button>
               ))}
             </div>
-          </aside>
+          </section>
 
           <section
-            className="library-dialog__column path-library-dialog__paths"
-            aria-label="Paths in selected collection"
+            className="path-library-panel__section path-library-dialog__paths"
+            aria-label="Paths"
           >
-            <div className="library-dialog__column-header path-library-dialog__column-header path-library-dialog__column-header--action">
-              <strong>Paths</strong>
-              <div className="path-library-dialog__header-actions">
-                <PathLibraryHeaderButton
-                  label="Open path"
-                  disabled={!selectedPath}
-                  onClick={() => {
-                    if (selectedPath) {
-                      handleUsePath(selectedPath.path_id);
-                    }
-                  }}
-                >
-                  <OpenIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Save path as"
-                  disabled={!selectedPath}
-                  onClick={handleDuplicateSelectedPath}
-                >
-                  <CopyIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Create new path"
-                  onClick={handleCreatePathInSelectedCollection}
-                >
-                  <FilePlusIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Rename path"
-                  disabled={!selectedPath}
-                  onClick={handleRenameSelectedPath}
-                >
-                  <PencilIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Delete path"
-                  tone="danger"
-                  disabled={!selectedPath}
-                  onClick={handleDeleteSelectedPath}
-                >
-                  <TrashIcon size={16} />
-                </PathLibraryHeaderButton>
+            <header className="path-library-panel__section-header">
+              <div>
+                <strong>Paths</strong>
+                <span>
+                  {selectedCollectionPaths.length}{" "}
+                  {selectedCollectionPaths.length === 1 ? "result" : "results"}
+                </span>
               </div>
-            </div>
+              <button
+                type="button"
+                className="path-library-panel__add-button"
+                aria-label="Create new path"
+                onClick={handleCreatePathInSelectedCollection}
+              >
+                <FilePlusIcon size={14} />
+                Add path
+              </button>
+            </header>
             <div
-              className="library-dialog__item-list path-library-dialog__path-list"
+              className="path-library-dialog__path-list"
               role="listbox"
-              aria-label="Path list"
+              aria-label={`Paths filtered by ${selectedFilterLabel}`}
             >
               {selectedCollectionPaths.length > 0 ? (
-                selectedCollectionPaths.map((path) => (
-                  <button
-                    key={path.path_id}
-                    type="button"
-                    role="option"
-                    className={[
-                      "path-library-dialog__path",
-                      "library-dialog__item",
-                      path.path_id === effectiveSelectedPathId
-                        ? "is-selected"
-                        : "",
-                      path.path_id === activePathId ? "is-current" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    aria-selected={path.path_id === effectiveSelectedPathId}
-                    onClick={() => setSelectedPathId(path.path_id)}
-                    onDoubleClick={() => handleUsePath(path.path_id)}
-                  >
-                    <span>{path.display_name}</span>
-                    <small>
-                      {path.file_name}
-                      {path.path_id === activePathId ? " / open" : ""}
-                    </small>
-                  </button>
-                ))
+                selectedCollectionPaths.map((path) => {
+                  const pathLabels = project.path_groups.filter((group) =>
+                    group.path_ids.includes(path.path_id),
+                  );
+                  return (
+                    <button
+                      key={path.path_id}
+                      type="button"
+                      role="option"
+                      className={[
+                        "path-library-dialog__path",
+                        path.path_id === effectiveSelectedPathId
+                          ? "is-selected"
+                          : "",
+                        path.path_id === activePathId ? "is-current" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      aria-selected={path.path_id === effectiveSelectedPathId}
+                      onClick={() => setSelectedPathId(path.path_id)}
+                      onDoubleClick={() => handleUsePath(path.path_id)}
+                    >
+                      <span className="path-library-dialog__path-copy">
+                        <strong>{path.display_name}</strong>
+                        <small>{path.file_name}</small>
+                      </span>
+                      <span className="path-library-dialog__path-labels">
+                        {pathLabels.length > 0 ? (
+                          pathLabels.map((label) => (
+                            <small key={label.group_id}>
+                              {label.display_name}
+                            </small>
+                          ))
+                        ) : (
+                          <small className="is-muted">Unlabeled</small>
+                        )}
+                      </span>
+                      {path.path_id === activePathId ? (
+                        <span className="path-library-dialog__open-marker">
+                          Open
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
               ) : (
                 <div className="library-dialog__empty path-library-dialog__empty">
-                  No paths are in this collection yet.
+                  No Paths match this label and search.
                 </div>
               )}
+            </div>
+            <div className="path-library-dialog__path-actions">
+              <PathLibraryTextAction
+                label="Open"
+                disabled={!selectedPath}
+                onClick={() => {
+                  if (selectedPath) {
+                    handleUsePath(selectedPath.path_id);
+                  }
+                }}
+              >
+                <OpenIcon size={15} />
+              </PathLibraryTextAction>
+              <PathLibraryTextAction
+                label="Duplicate"
+                disabled={!selectedPath}
+                onClick={handleDuplicateSelectedPath}
+              >
+                <CopyIcon size={15} />
+              </PathLibraryTextAction>
+              <PathLibraryTextAction
+                label="Rename"
+                disabled={!selectedPath}
+                onClick={handleRenameSelectedPath}
+              >
+                <PencilIcon size={15} />
+              </PathLibraryTextAction>
+              <PathLibraryTextAction
+                label="Delete"
+                tone="danger"
+                disabled={!selectedPath}
+                onClick={handleDeleteSelectedPath}
+              >
+                <TrashIcon size={15} />
+              </PathLibraryTextAction>
             </div>
           </section>
 
           <section
-            className="library-dialog__column path-library-dialog__details"
-            aria-label="Collection membership"
+            className="path-library-panel__section path-library-dialog__compare"
+            aria-label="Compare Paths"
           >
-            <div className="library-dialog__column-header path-library-dialog__column-header">
-              <strong>Membership</strong>
-              <span>
-                {selectedPath ? selectedPath.display_name : "No path"}
-              </span>
-            </div>
-            <div className="library-dialog__details-scroll path-library-dialog__details-scroll">
-              {selectedPath ? (
-                <section className="path-library-dialog__membership">
-                  <div className="path-library-dialog__subhead">
-                    <strong>{selectedPath.file_name}</strong>
-                    <span>{project.path_groups.length + 1} collections</span>
-                  </div>
-                  <div className="path-library-dialog__membership-list">
-                    <label className="path-library-dialog__membership-row is-permanent">
-                      <input type="checkbox" checked disabled />
-                      <span>All Paths</span>
-                      <small>Permanent</small>
-                    </label>
-                    {project.path_groups.map((group) => (
-                      <label
-                        key={group.group_id}
-                        className={
-                          group.group_id === selectedGroup?.group_id
-                            ? "path-library-dialog__membership-row is-current"
-                            : "path-library-dialog__membership-row"
+            <header className="path-library-panel__section-header">
+              <div>
+                <strong>Compare Paths</strong>
+                <span>
+                  {selectedGroup
+                    ? `${comparisonPaths.length} other ${comparisonPaths.length === 1 ? "Path" : "Paths"} with ${selectedGroup.display_name}`
+                    : "Choose a label to define the overlay set"}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={
+                  showGhostPaths
+                    ? "path-library-dialog__overlay-toggle is-active"
+                    : "path-library-dialog__overlay-toggle"
+                }
+                aria-pressed={showGhostPaths}
+                disabled={!selectedGroup}
+                onClick={() => onShowGhostPathsChange(!showGhostPaths)}
+              >
+                {showGhostPaths ? (
+                  <Eye aria-hidden="true" size={15} />
+                ) : (
+                  <EyeOff aria-hidden="true" size={15} />
+                )}
+                {showGhostPaths ? "Shown" : "Hidden"}
+              </button>
+            </header>
+            {selectedGroup ? (
+              <div className="path-library-dialog__compare-list">
+                {comparisonPaths.length > 0 ? (
+                  comparisonPaths.map((path) => (
+                    <button
+                      type="button"
+                      key={path.path_id}
+                      onClick={() => handleUsePath(path.path_id)}
+                    >
+                      <span aria-hidden="true" />
+                      <strong>{path.display_name}</strong>
+                      <small>Open</small>
+                    </button>
+                  ))
+                ) : (
+                  <p>Add another Path to this label to compare it.</p>
+                )}
+              </div>
+            ) : null}
+          </section>
+
+          <section
+            className="path-library-panel__section path-library-dialog__details"
+            aria-label="Label membership"
+          >
+            <header className="path-library-panel__section-header">
+              <div>
+                <strong>Labels on Path</strong>
+                <span>{selectedPath?.display_name ?? "Select a Path"}</span>
+              </div>
+            </header>
+            {selectedPath ? (
+              <div className="path-library-dialog__membership-list">
+                {project.path_groups.length > 0 ? (
+                  project.path_groups.map((group) => (
+                    <label
+                      key={group.group_id}
+                      className={
+                        group.group_id === selectedGroup?.group_id
+                          ? "path-library-dialog__membership-row is-current"
+                          : "path-library-dialog__membership-row"
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={group.path_ids.includes(selectedPath.path_id)}
+                        onChange={(event) =>
+                          handleToggleSelectedPathMembership(
+                            group.group_id,
+                            event.currentTarget.checked,
+                          )
                         }
-                      >
-                        <input
-                          type="checkbox"
-                          checked={group.path_ids.includes(
-                            selectedPath.path_id,
-                          )}
-                          onChange={(event) =>
-                            handleToggleSelectedPathMembership(
-                              group.group_id,
-                              event.currentTarget.checked,
-                            )
-                          }
-                        />
-                        <span>{group.display_name}</span>
-                        <small>
-                          {group.path_ids.length}{" "}
-                          {group.path_ids.length === 1 ? "path" : "paths"}
-                        </small>
-                      </label>
-                    ))}
-                  </div>
-                </section>
-              ) : (
-                <div className="library-dialog__empty path-library-dialog__empty">
-                  Select a path to manage collection membership.
-                </div>
-              )}
-            </div>
+                      />
+                      <span>{group.display_name}</span>
+                      <small>
+                        {group.path_ids.includes(selectedPath.path_id)
+                          ? "Assigned"
+                          : "Add"}
+                      </small>
+                    </label>
+                  ))
+                ) : (
+                  <button
+                    type="button"
+                    className="path-library-dialog__empty-label-action"
+                    onClick={() => setShowCreateCollectionDialog(true)}
+                  >
+                    Create the first label
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="library-dialog__empty path-library-dialog__empty">
+                Select a Path to add or remove labels.
+              </div>
+            )}
           </section>
         </div>
 
-        <footer className="config-dialog__footer library-dialog__footer path-library-dialog__footer">
+        <footer className="path-library-panel__footer">
+          <div>
+            <button
+              type="button"
+              className="path-library-panel__secondary-action"
+              onClick={onImportPath}
+            >
+              <UploadIcon size={14} />
+              Import
+            </button>
+            <button
+              type="button"
+              className="path-library-panel__secondary-action"
+              disabled={!selectedPath}
+              onClick={handleExportSelectedPath}
+            >
+              <DownloadIcon size={14} />
+              Export
+            </button>
+          </div>
           <button type="button" onClick={onCancel}>
             Close
           </button>
@@ -586,21 +718,19 @@ export function PathLibraryDialog({
       </section>
 
       {deletingGroup ? (
-        <DeletePathGroupDialog
+        <DeleteLabelDialog
           group={deletingGroup}
-          memberPaths={visiblePathsForGroup(project.paths, deletingGroup)}
           onCancel={() => setDeletingGroup(null)}
-          onDelete={(deleteMemberPaths) => {
-            projectStore
-              .getState()
-              .deletePathGroup(deletingGroup.group_id, { deleteMemberPaths });
+          onDelete={() => {
+            projectStore.getState().deletePathGroup(deletingGroup.group_id);
             selectionStore.getState().clearSelection();
+            setSelectedGroupId(null);
             setDeletingGroup(null);
           }}
         />
       ) : null}
       {showCreateCollectionDialog ? (
-        <CreateCollectionDialog
+        <CreateLabelDialog
           onCancel={() => setShowCreateCollectionDialog(false)}
           onCreate={handleCreateGroup}
         />
@@ -609,27 +739,27 @@ export function PathLibraryDialog({
         <NameEntryDialog
           ariaLabel={
             nameAction.kind === "rename-group"
-              ? "Rename Collection"
+              ? "Rename Label"
               : nameAction.kind === "duplicate-path"
                 ? "Save Path As"
                 : "Rename Path"
           }
           title={
             nameAction.kind === "rename-group"
-              ? "Rename Collection"
+              ? "Rename Label"
               : nameAction.kind === "duplicate-path"
                 ? "Save Path As"
                 : "Rename Path"
           }
           description={
             nameAction.kind === "rename-group"
-              ? "Update this collection name without changing its paths."
+              ? "Update this label name without changing its Paths."
               : nameAction.kind === "duplicate-path"
                 ? "Create a separate editable copy of this path."
                 : "Update the path name everywhere it appears in this project."
           }
           fieldLabel={
-            nameAction.kind === "rename-group" ? "Collection name" : "Path name"
+            nameAction.kind === "rename-group" ? "Label name" : "Path name"
           }
           initialValue={nameAction.initialName}
           submitLabel={
@@ -670,7 +800,89 @@ function PathLibraryHeaderButton({
   );
 }
 
-function CreateCollectionDialog({
+function PathLibraryTextAction({
+  children,
+  disabled = false,
+  label,
+  onClick,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  label: string;
+  onClick(): void;
+  tone?: "danger" | "neutral";
+}) {
+  return (
+    <button
+      type="button"
+      className={`path-library-dialog__text-action path-library-dialog__text-action--${tone}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+      {label}
+    </button>
+  );
+}
+
+function DeleteLabelDialog({
+  group,
+  onCancel,
+  onDelete,
+}: {
+  group: ProjectPathGroup;
+  onCancel(): void;
+  onDelete(): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLFormElement>();
+
+  return (
+    <div className="path-library-modal-backdrop" role="presentation">
+      <form
+        ref={dialogRef}
+        className="path-library-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Delete Label"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          }
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onDelete();
+        }}
+      >
+        <header>
+          <div>
+            <strong>Delete Label</strong>
+            <span>{group.display_name}</span>
+          </div>
+          <CloseButton ariaLabel="Close delete label" onClick={onCancel} />
+        </header>
+        <p>
+          This removes the label from {group.path_ids.length}{" "}
+          {group.path_ids.length === 1 ? "Path" : "Paths"}. The Paths themselves
+          will stay in the project.
+        </p>
+        <footer>
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="danger-dialog-action">
+            Delete Label
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function CreateLabelDialog({
   onCancel,
   onCreate,
 }: {
@@ -689,21 +901,28 @@ function CreateCollectionDialog({
       className="path-library-create-dialog"
       role="dialog"
       aria-modal="true"
-      aria-label="Create collection"
+      aria-label="Create label"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+        }
+      }}
       onSubmit={(event) => {
         event.preventDefault();
-        onCreate(displayName.trim() || "New Collection");
+        onCreate(displayName.trim() || "New Label");
       }}
     >
       <header>
-        <strong>Create Collection</strong>
-        <CloseButton ariaLabel="Close create collection" onClick={onCancel} />
+        <strong>Create Label</strong>
+        <CloseButton ariaLabel="Close create label" onClick={onCancel} />
       </header>
       <label className="dialog-field">
-        <span>Collection name</span>
+        <span>Label name</span>
         <input
           ref={inputRef}
-          aria-label="Collection name"
+          aria-label="Label name"
           data-testid="path-collection-new-name"
           type="text"
           value={displayName}

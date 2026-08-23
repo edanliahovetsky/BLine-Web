@@ -1526,6 +1526,13 @@ export function AppShell() {
     },
     [],
   );
+  const handleShowGhostPathsChange = useCallback((show: boolean) => {
+    setShowGhostPaths(show);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      showGhostPaths: show,
+    });
+  }, []);
   const projectAvailable = Boolean(durableProject);
   const pathAvailable = Boolean(activePath);
   const projectIoAvailable = Boolean(projectIo);
@@ -1999,13 +2006,7 @@ export function AppShell() {
                 field={activeField}
                 activeTool={activeTool}
                 showGhostPaths={showGhostPaths}
-                onShowGhostPathsChange={(show) => {
-                  setShowGhostPaths(show);
-                  writeEditorUiPreferences({
-                    ...readEditorUiPreferences(),
-                    showGhostPaths: show,
-                  });
-                }}
+                onShowGhostPathsChange={handleShowGhostPathsChange}
                 curveTool={curveToolSession}
                 onToolChange={handleToolChange}
                 onPlaceElement={handlePlaceCanvasElement}
@@ -2140,6 +2141,7 @@ export function AppShell() {
           project={durableProject}
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
+          showGhostPaths={showGhostPaths}
           onCancel={() => setShowPathGroupsDialog(false)}
           onCreatePath={(groupId) => {
             setShowOpenPanel(false);
@@ -2152,6 +2154,7 @@ export function AppShell() {
           }}
           onExportPath={() => void handleExportPath()}
           onImportPath={() => queueFileImport("path")}
+          onShowGhostPathsChange={handleShowGhostPathsChange}
         />
       ) : null}
       {pathNameAction ? (
