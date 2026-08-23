@@ -128,6 +128,13 @@ class UserDataWriteOutcomeUnknownError extends Error {
   }
 }
 
+class FieldAssetStagingLeaseLostError extends Error {
+  constructor() {
+    super("Field asset staging ownership expired or was lost");
+    this.name = "FieldAssetStagingLeaseLostError";
+  }
+}
+
 export class ProjectViewMigrationError extends Error {
   constructor(legacyPathReference: string) {
     super(
@@ -581,15 +588,15 @@ export class UserDataService {
       let desiredEntries = input.fieldBackgrounds.map((entry) =>
         this.normalizedEntry(structuredClone(entry)),
       );
-      const desiredIds = new Set(desiredEntries.map((entry) => entry.id));
-      if (desiredIds.size !== desiredEntries.length) {
+      const requestedIds = new Set(desiredEntries.map((entry) => entry.id));
+      if (requestedIds.size !== desiredEntries.length) {
         throw new Error("Field Background IDs must be unique");
       }
 
       const imageUpdates = new Map<string, Uint8Array>();
       for (const update of input.imageUpdates) {
         if (
-          !desiredIds.has(update.entryId) ||
+          !requestedIds.has(update.entryId) ||
           imageUpdates.has(update.entryId)
         ) {
           throw new Error(
@@ -614,6 +621,20 @@ export class UserDataService {
       }
       await this.stageFieldAssets(writtenAssetIds);
       const stagedBase = this.getSnapshot();
+      desiredEntries = mergeFieldBackgrounds(
+        before.field_backgrounds,
+        desiredEntries,
+        stagedBase.field_backgrounds,
+      );
+      const desiredIds = new Set(desiredEntries.map((entry) => entry.id));
+      if (
+        [...imageUpdates.keys()].some((entryId) => !desiredIds.has(entryId)) ||
+        (input.selectedFieldId !== null &&
+          !desiredIds.has(input.selectedFieldId))
+      ) {
+        await this.discardStagedAssetsBestEffort(writtenAssetIds);
+        throw new UserDataVerificationError();
+      }
       try {
         for (const [entryId, bytes] of imageUpdates) {
           const previousEntry = beforeById.get(entryId);
@@ -637,7 +658,7 @@ export class UserDataService {
       }
 
       const removedIds = new Set(
-        before.field_backgrounds
+        stagedBase.field_backgrounds
           .map((entry) => entry.id)
           .filter((entryId) => !desiredIds.has(entryId)),
       );
@@ -670,7 +691,9 @@ export class UserDataService {
 
       let durable: UserData;
       try {
-        durable = await this.persistWithRetry(next);
+        durable = await this.persistWithRetry(next, (current) =>
+          this.assertOwnedFieldAssetStaging(current, writtenAssetIds),
+        );
       } catch (error) {
         if (!(error instanceof UserDataWriteOutcomeUnknownError)) {
           await this.discardStagedAssetsBestEffort(writtenAssetIds);
@@ -839,7 +862,9 @@ export class UserDataService {
     const writtenRevision = this.snapshotRevision;
     let durable: UserData;
     try {
-      durable = await this.persistWithRetry(next);
+      durable = await this.persistWithRetry(next, (current) =>
+        this.assertOwnedFieldAssetStaging(current, [assetId]),
+      );
     } catch (error) {
       if (!(error instanceof UserDataWriteOutcomeUnknownError)) {
         try {
@@ -927,13 +952,17 @@ export class UserDataService {
     return this.persistWithRetry(migrateUserData(snapshot));
   }
 
-  private async persistWithRetry(initial: UserData): Promise<UserData> {
+  private async persistWithRetry(
+    initial: UserData,
+    durableGuard?: (current: UserData) => void,
+  ): Promise<UserData> {
     let base = this.durableSnapshot;
     let desired = migrateUserData(initial);
     let expectedRevision = this.storageRevision;
     let lastError: unknown;
 
     for (let attempt = 0; attempt < 8; attempt += 1) {
+      durableGuard?.(base);
       try {
         const result = await this.adapter.compareAndSwap(
           expectedRevision,
@@ -945,6 +974,7 @@ export class UserDataService {
           return desired;
         }
         const remote = migrateUserData(result.document.data);
+        durableGuard?.(remote);
         expectedRevision = result.document.revision;
         desired = mergeConcurrentUserData(base, desired, remote);
         base = remote;
@@ -961,6 +991,7 @@ export class UserDataService {
           throw error;
         }
         const remote = migrateUserData(document.data);
+        durableGuard?.(remote);
         if (
           sameUserData(mergeConcurrentUserData(base, desired, remote), remote)
         ) {
@@ -974,6 +1005,27 @@ export class UserDataService {
       }
     }
     throw lastError ?? new UserDataVerificationError();
+  }
+
+  private assertOwnedFieldAssetStaging(
+    current: UserData,
+    assetIds: readonly string[],
+  ): void {
+    const now = this.now().getTime();
+    if (
+      assetIds.some((assetId) => {
+        const staging = current.field_asset_staging.find(
+          (entry) => entry.asset_id === assetId,
+        );
+        return (
+          !staging ||
+          staging.owner_id !== this.sessionId ||
+          staging.expires_at_ms <= now
+        );
+      })
+    ) {
+      throw new FieldAssetStagingLeaseLostError();
+    }
   }
 
   private acceptDurableSnapshot(desired: UserData, durable: UserData): void {
@@ -1587,23 +1639,16 @@ function mergeFieldBackgroundEntry(
   local: FieldBackgroundEntry,
   remote: FieldBackgroundEntry,
 ): FieldBackgroundEntry {
-  if (!sameUserData(base.asset_id, local.asset_id)) {
-    return structuredClone(local);
-  }
-  if (!sameUserData(base.asset_id, remote.asset_id)) {
-    return structuredClone(remote);
-  }
+  const localReplaced = !sameUserData(base.asset_id, local.asset_id);
+  const remoteReplaced = !sameUserData(base.asset_id, remote.asset_id);
+  const replacement = localReplaced ? local : remoteReplaced ? remote : base;
   return {
     id: base.id,
-    asset_id: base.asset_id,
+    asset_id: replacement.asset_id,
     name: mergeValue(base.name, local.name, remote.name),
-    file_name: mergeValue(base.file_name, local.file_name, remote.file_name),
-    mime_type: mergeValue(base.mime_type, local.mime_type, remote.mime_type),
-    size_bytes: mergeValue(
-      base.size_bytes,
-      local.size_bytes,
-      remote.size_bytes,
-    ),
+    file_name: replacement.file_name,
+    mime_type: replacement.mime_type,
+    size_bytes: replacement.size_bytes,
     created_at: mergeValue(
       base.created_at,
       local.created_at,

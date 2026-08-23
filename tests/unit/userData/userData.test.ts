@@ -1332,10 +1332,115 @@ describe("UserData", () => {
         size_bytes: 3,
       },
     ]);
+    expect(durable.field_backgrounds[0]?.geometry.width_meters).toBe(7.25);
     expect(adapter.assets.get("asset-replacement-concurrent")).toEqual(
       new Uint8Array([7, 8, 9]),
     );
     expect(adapter.assets.has(original.asset_id)).toBe(false);
+  });
+
+  it("does not resurrect a Field deleted while replacement staging rebases", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const assetIds = ["asset-replace-source", "asset-delete-source"];
+    const creator = new UserDataService(adapter, {
+      idFactory: () =>
+        assetIds.length === 2 ? "field-replace" : "field-delete",
+      assetIdFactory: () => assetIds.shift()!,
+    });
+    await creator.initialize();
+    const replacingEntry =
+      await creator.createFieldBackgroundFromBytes(fieldInput());
+    const deletedEntry = await creator.createFieldBackgroundFromBytes({
+      ...fieldInput(),
+      name: "Delete Me",
+    });
+    const replacer = new UserDataService(adapter, {
+      assetIdFactory: () => "asset-replacement-after-delete",
+    });
+    const deleter = new UserDataService(adapter);
+    await Promise.all([replacer.initialize(), deleter.initialize()]);
+    const blockedStage = adapter.pauseMetadataWriteAt(
+      adapter.metadataWriteCount + 1,
+    );
+
+    const replacing = replacer.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: replacingEntry.id,
+      fieldBackgrounds: [
+        {
+          ...replacingEntry,
+          file_name: "replacement.png",
+          size_bytes: 3,
+        },
+        deletedEntry,
+      ],
+      imageUpdates: [
+        {
+          entryId: replacingEntry.id,
+          bytes: new Uint8Array([7, 8, 9]),
+        },
+      ],
+    });
+    await blockedStage.started;
+    await deleter.deleteFieldBackground(deletedEntry.id);
+    blockedStage.release();
+    await replacing;
+
+    const durable = adapter.persisted as UserData;
+    expect(durable.field_backgrounds.map((entry) => entry.id)).toEqual([
+      replacingEntry.id,
+    ]);
+    expect(adapter.assets.has(deletedEntry.asset_id)).toBe(false);
+    expect(
+      await replacer.readFieldBackgroundImage(replacingEntry.id),
+    ).toEqual(new Uint8Array([7, 8, 9]));
+  });
+
+  it("fences a publisher whose expired asset staging lease was reaped", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const assetIds = ["asset-lease-original", "asset-lease-replacement"];
+    let now = new Date("2026-08-22T12:00:00.000Z");
+    const owner = new UserDataService(adapter, {
+      idFactory: () => "field-lease",
+      assetIdFactory: () => assetIds.shift()!,
+      sessionId: "session-lease-owner",
+      stagingLeaseMs: 1_000,
+      clock: () => now,
+    });
+    await owner.initialize();
+    const original = await owner.createFieldBackgroundFromBytes(fieldInput());
+    const blockedPublish = adapter.pauseMetadataWriteAt(
+      adapter.metadataWriteCount + 2,
+    );
+    const replacing = owner.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: original.id,
+      fieldBackgrounds: [
+        {
+          ...original,
+          file_name: "replacement.png",
+          size_bytes: 3,
+        },
+      ],
+      imageUpdates: [
+        { entryId: original.id, bytes: new Uint8Array([7, 8, 9]) },
+      ],
+    });
+    await blockedPublish.started;
+    now = new Date(now.getTime() + 1_001);
+    const reaper = new UserDataService(adapter, { clock: () => now });
+    await reaper.initialize();
+    expect(adapter.assets.has("asset-lease-replacement")).toBe(false);
+
+    blockedPublish.release();
+    await expect(replacing).rejects.toThrow(
+      "Field asset staging ownership expired or was lost",
+    );
+    const durable = adapter.persisted as UserData;
+    expect(durable.field_backgrounds).toEqual([original]);
+    expect(adapter.assets.get(original.asset_id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
   });
 
   it.each([
