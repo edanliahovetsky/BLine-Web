@@ -4282,6 +4282,13 @@ select {
   font-size: 0.72rem;
 }
 
+.tour-picker__header .tour-picker__course-progress {
+  display: block;
+  margin-top: 5px;
+  color: var(--bline-accent);
+  font-weight: 680;
+}
+
 .tour-picker__list {
   display: grid;
   gap: 7px;

@@ -94,7 +94,7 @@ import {
   selectedFieldBackgroundForProject,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { editorBasicsTour, tours } from "../tours/tours";
+import { tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -1995,7 +1995,7 @@ export function AppShell() {
             }}
             onOpenSample={() => void handleOpenSample()}
             tourSupported={toursSupported}
-            onStartTour={() => startGuidedTour(editorBasicsTour.id)}
+            onStartTour={() => setShowTourPicker(true)}
             onRetryInitialization={retryInitialization}
           />
         ) : (
@@ -2269,6 +2269,7 @@ export function AppShell() {
         />
       ) : null}
       <TourOverlay
+        onFinish={() => setShowTourPicker(true)}
         onPrepare={(preparation) => {
           if (preparation.inspector === "open") {
             setInspectorOpen(true);
@@ -2309,6 +2310,12 @@ function TourPickerDialog({
     tourStore,
     (state) => state.completedTourIds,
   );
+  const completedCount = tours.filter((tour) =>
+    completedTourIds.includes(tour.id),
+  ).length;
+  const recommendedTourId = tours.find(
+    (tour) => !completedTourIds.includes(tour.id),
+  )?.id;
 
   return (
     <div
@@ -2339,13 +2346,22 @@ function TourPickerDialog({
             <strong>
               <span aria-hidden="true">🧭</span> Guided tours
             </strong>
-            <span>Practice one skill at a time. Leave any time.</span>
+            <span>Build one skill at a time. Leave any time.</span>
+            <span
+              className="tour-picker__course-progress"
+              data-testid="tour-picker-progress"
+            >
+              {completedCount === tours.length
+                ? "Course complete. Replay any lesson."
+                : `${completedCount} of ${tours.length} lessons complete`}
+            </span>
           </div>
           <CloseButton ariaLabel="Close guided tours" onClick={onClose} />
         </header>
         <div className="tour-picker__list">
           {tours.map((tour, index) => {
             const done = completedTourIds.includes(tour.id);
+            const recommended = tour.id === recommendedTourId;
             return (
               <button
                 key={tour.id}
@@ -2359,9 +2375,11 @@ function TourPickerDialog({
                 </span>
                 <span className="tour-picker__copy">
                   <strong>{tour.title}</strong>
-                  {index === 0 ? (
+                  {recommended ? (
                     <span className="tour-picker__recommended">
-                      Recommended first
+                      {completedCount === 0
+                        ? "Recommended first"
+                        : "Recommended next"}
                     </span>
                   ) : null}
                   <small>{tour.summary}</small>

@@ -238,6 +238,14 @@ test("starts the guided tour from the start center", async ({ page }) => {
 
   await page.getByTestId("start-center-guided-tour").click();
 
+  const picker = page.getByTestId("tour-picker");
+  await expect(picker).toBeVisible();
+  await expect(picker.getByText("Quick Start")).toBeVisible();
+  await expect(picker.getByText("Shape a Path")).toBeVisible();
+  await expect(picker.getByText("Set Speed")).toBeVisible();
+  await expect(picker.getByText("Check a Run")).toBeVisible();
+  await page.getByTestId("tour-picker-editor-basics").click();
+
   await expect(page.getByTestId("tour-card")).toBeVisible();
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 6");
 
@@ -311,12 +319,19 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
 
   await card.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Help and tutorials" }).click();
-  await page.getByTestId("start-guided-tour").click();
+  await expect(page.getByTestId("tour-picker")).toBeVisible();
+  await expect(page.getByTestId("tour-picker-progress")).toHaveText(
+    "1 of 4 lessons complete",
+  );
   await expect(
     page.getByTestId("tour-picker-shape-paths").locator(".tour-picker__badge"),
   ).toHaveText("✓");
+  await expect(
+    page
+      .getByTestId("tour-picker-editor-basics")
+      .getByText("Recommended next"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close guided tours" }).click();
 });
 
 test("advances lessons when the user performs the taught action", async ({

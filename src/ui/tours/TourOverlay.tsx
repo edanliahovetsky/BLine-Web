@@ -13,9 +13,11 @@ const fallbackCardHeight = 200;
 export interface TourOverlayProps {
   /** Applies any editor state a step needs before it can be shown. */
   onPrepare(preparation: TourStepPreparation): void;
+  /** Returns the learner to the course menu after a completed lesson. */
+  onFinish(): void;
 }
 
-export function TourOverlay({ onPrepare }: TourOverlayProps) {
+export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const activeTourId = useStoreSelector(
     tourStore,
     (state) => state.activeTourId,
@@ -230,6 +232,14 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
 
   const isLastStep = stepIndex === stepCount - 1;
   const actionGated = Boolean(step.completeWhen);
+  const handleNext = () => {
+    if (isLastStep) {
+      tourStore.getState().finish();
+      onFinish();
+      return;
+    }
+    tourStore.getState().next(stepCount);
+  };
 
   // Everything outside the step's allowed controls is shielded from clicks;
   // the gaps between these regions are the only spots where pointer events
@@ -342,7 +352,7 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
             <button
               type="button"
               className="is-primary"
-              onClick={() => tourStore.getState().next(stepCount)}
+              onClick={handleNext}
             >
               {isLastStep ? "Finish" : "Next"}
             </button>
