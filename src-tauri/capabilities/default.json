@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default desktop permissions for BLine Web.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-destroy"]
 }

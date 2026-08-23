@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { canvasNodePosition } from "./support/app-shell-canvas";
 import { runEditMenuAction } from "./support/app-shell-commands";
 import {
@@ -247,6 +247,76 @@ test("uploads and restores a custom field image from Settings", async ({
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
+test("keeps uploaded and replacement Field images as drafts until Settings is saved", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  expect(await userFieldStorageCounts(page)).toEqual({ entries: 0, assets: 0 });
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  let dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field" }).click();
+  await dialog.getByLabel("Upload field image").setInputFiles({
+    name: "cancelled-field.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer(),
+  });
+  await expect(dialog.getByLabel("Field Name")).toHaveValue(
+    "cancelled field.png",
+  );
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  expect(await userFieldStorageCounts(page)).toEqual({ entries: 0, assets: 0 });
+  await page.getByRole("button", { name: "Settings" }).click();
+  dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field" }).click();
+  await expect(
+    dialog.getByLabel("Field Image", { exact: true }).getByRole("option", {
+      name: "cancelled field.png",
+    }),
+  ).toHaveCount(0);
+
+  await dialog.getByLabel("Upload field image").setInputFiles({
+    name: "saved-field.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer(),
+  });
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await expect
+    .poll(() => userFieldStorageCounts(page))
+    .toEqual({ entries: 1, assets: 1 });
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field" }).click();
+  await dialog.getByLabel("Upload field image").setInputFiles({
+    name: "cancelled-replacement.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer(),
+  });
+  await expect(dialog.getByLabel("Field Name")).toHaveValue(
+    "cancelled replacement.png",
+  );
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  expect(await userFieldStorageCounts(page)).toEqual({ entries: 1, assets: 1 });
+  await page.getByRole("button", { name: "Settings" }).click();
+  dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field" }).click();
+  await expect(dialog.getByLabel("Field Name")).toHaveValue(
+    "saved field.png",
+  );
+  await expect(
+    dialog.getByLabel("Field Image", { exact: true }).getByRole("option", {
+      name: "cancelled replacement.png",
+    }),
+  ).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+});
+
 test("migrates a legacy Project field image before deleting its old bytes", async ({
   page,
 }) => {
@@ -409,3 +479,51 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.8");
   await page.getByRole("button", { name: "Close config" }).click();
 });
+
+async function userFieldStorageCounts(
+  page: Page,
+): Promise<{ entries: number; assets: number }> {
+  return page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("bline-web-user-field-assets", 2);
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    const transaction = database.transaction(
+      ["user-data", "user-field-assets"],
+      "readonly",
+    );
+    const userData = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const request = transaction.objectStore("user-data").get("global");
+        request.addEventListener("success", () => {
+          const record = request.result as
+            | { data?: Record<string, unknown> }
+            | undefined;
+          resolve(record?.data ?? {});
+        });
+        request.addEventListener("error", () => reject(request.error));
+      },
+    );
+    const assets = await new Promise<number>((resolve, reject) => {
+      const request = transaction.objectStore("user-field-assets").count();
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    await new Promise<void>((resolve, reject) => {
+      transaction.addEventListener("complete", () => resolve());
+      transaction.addEventListener("abort", () => reject(transaction.error));
+      transaction.addEventListener("error", () => reject(transaction.error));
+    });
+    database.close();
+    return {
+      entries:
+        (
+          userData.field_backgrounds as
+            | Array<Record<string, unknown>>
+            | undefined
+        )?.length ?? 0,
+      assets,
+    };
+  });
+}

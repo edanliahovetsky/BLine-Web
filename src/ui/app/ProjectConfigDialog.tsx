@@ -27,6 +27,7 @@ import {
   type ProtrusionSide,
   type ProtrusionState,
 } from "../../core/config/projectConfig";
+import { pathDisplayNameFromFileName } from "../../core/model/projectIdentity";
 import {
   CloseButton,
   NumberStepperControl,
@@ -56,12 +57,9 @@ interface ProjectConfigDialogProps {
       configChanged: boolean;
       selectedFieldId: string;
       fieldBackgrounds: FieldBackgroundEntry[];
+      fieldImageDrafts: Array<{ fieldId: string; file: File }>;
     },
   ): void | Promise<void>;
-  onUploadFieldImage(
-    file: File,
-    geometry: FieldGeometry,
-  ): Promise<FieldBackgroundEntry>;
   onLoadFieldImage(field: FieldBackgroundEntry): Promise<Blob | null>;
 }
 
@@ -77,7 +75,6 @@ export function ProjectConfigDialog({
   selectedFieldId,
   onCancel,
   onSave,
-  onUploadFieldImage,
   onLoadFieldImage,
 }: ProjectConfigDialogProps) {
   const initialConfig = useMemo(() => createProjectConfig(config), [config]);
@@ -104,6 +101,9 @@ export function ProjectConfigDialog({
   } | null>(null);
   const [fieldUploadError, setFieldUploadError] = useState<string | null>(null);
   const [fieldUploading, setFieldUploading] = useState(false);
+  const [fieldImageDrafts, setFieldImageDrafts] = useState<
+    Record<string, File>
+  >({});
   const [saving, setSaving] = useState(false);
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
   const configChanged = !configsEqual(initialConfig, normalizedDraft);
@@ -140,6 +140,11 @@ export function ProjectConfigDialog({
           configChanged,
           selectedFieldId: fieldDraft.selectedFieldId,
           fieldBackgrounds: structuredClone(fieldDraft.fieldBackgrounds),
+          fieldImageDrafts: Object.entries(fieldImageDrafts)
+            .filter(([fieldId]) =>
+              fieldDraft.fieldBackgrounds.some((field) => field.id === fieldId),
+            )
+            .map(([fieldId, file]) => ({ fieldId, file })),
         }),
       ).catch((error: unknown) => {
         setSaving(false);
@@ -159,7 +164,12 @@ export function ProjectConfigDialog({
     let objectUrl: string | null = null;
     const fieldId = selectedCustomField.id;
 
-    void onLoadFieldImage(selectedCustomField)
+    const draftFile = fieldImageDrafts[selectedCustomField.id];
+    const loadPreview = draftFile
+      ? Promise.resolve(draftFile as Blob)
+      : onLoadFieldImage(selectedCustomField);
+
+    void loadPreview
       .then((blob) => {
         if (disposed || !blob) {
           return;
@@ -181,7 +191,7 @@ export function ProjectConfigDialog({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [onLoadFieldImage, selectedCustomField]);
+  }, [fieldImageDrafts, onLoadFieldImage, selectedCustomField]);
   const fieldPreviewUrl =
     fieldPreview && fieldPreview.fieldId === selectedCustomField?.id
       ? fieldPreview.url
@@ -233,9 +243,9 @@ export function ProjectConfigDialog({
                 selectedCustomField={selectedCustomField}
                 selectedField={selectedField}
                 setFieldDraft={setFieldDraft}
+                setFieldImageDrafts={setFieldImageDrafts}
                 setFieldUploadError={setFieldUploadError}
                 setFieldUploading={setFieldUploading}
-                onUploadFieldImage={onUploadFieldImage}
               />
             ) : null}
 
@@ -350,9 +360,9 @@ function FieldSettingsSection({
   selectedCustomField,
   selectedField,
   setFieldDraft,
+  setFieldImageDrafts,
   setFieldUploadError,
   setFieldUploading,
-  onUploadFieldImage,
 }: {
   fieldDraft: FieldDraft;
   fieldInputRef: RefObject<HTMLInputElement | null>;
@@ -362,12 +372,9 @@ function FieldSettingsSection({
   selectedCustomField: FieldBackgroundEntry | null;
   selectedField: ResolvedFieldDefinition;
   setFieldDraft: Dispatch<SetStateAction<FieldDraft>>;
+  setFieldImageDrafts: Dispatch<SetStateAction<Record<string, File>>>;
   setFieldUploadError(value: string | null): void;
   setFieldUploading(value: boolean): void;
-  onUploadFieldImage(
-    file: File,
-    geometry: FieldGeometry,
-  ): Promise<FieldBackgroundEntry>;
 }) {
   return (
     <ConfigSection title="Field">
@@ -423,9 +430,9 @@ function FieldSettingsSection({
                   fieldDraft,
                   selectedCustomField,
                   setFieldDraft,
+                  setFieldImageDrafts,
                   setFieldUploading,
                   setFieldUploadError,
-                  onUploadFieldImage,
                 });
               }
             }}
@@ -1055,20 +1062,17 @@ async function uploadCustomFieldImage({
   fieldDraft,
   selectedCustomField,
   setFieldDraft,
+  setFieldImageDrafts,
   setFieldUploading,
   setFieldUploadError,
-  onUploadFieldImage,
 }: {
   file: File;
   fieldDraft: FieldDraft;
   selectedCustomField: FieldBackgroundEntry | null;
   setFieldDraft: Dispatch<SetStateAction<FieldDraft>>;
+  setFieldImageDrafts: Dispatch<SetStateAction<Record<string, File>>>;
   setFieldUploading(value: boolean): void;
   setFieldUploadError(value: string | null): void;
-  onUploadFieldImage(
-    file: File,
-    geometry: FieldGeometry,
-  ): Promise<FieldBackgroundEntry>;
 }): Promise<void> {
   setFieldUploading(true);
   setFieldUploadError(null);
@@ -1080,7 +1084,19 @@ async function uploadCustomFieldImage({
         fieldDraft.fieldBackgrounds,
       ).geometry;
     const geometry = await inferCustomFieldGeometry(file, fallbackGeometry);
-    const uploaded = await onUploadFieldImage(file, geometry);
+    const uploaded: FieldBackgroundEntry = {
+      id: createFieldImageDraftId(),
+      name: pathDisplayNameFromFileName(file.name),
+      file_name: file.name,
+      mime_type: file.type || "image/png",
+      size_bytes: file.size,
+      created_at: new Date().toISOString(),
+      geometry,
+    };
+    setFieldImageDrafts((current) => ({
+      ...current,
+      [uploaded.id]: file,
+    }));
     setFieldDraft((current) => ({
       ...current,
       selectedFieldId: uploaded.id,
@@ -1096,6 +1112,13 @@ async function uploadCustomFieldImage({
   } finally {
     setFieldUploading(false);
   }
+}
+
+function createFieldImageDraftId(): string {
+  const random =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `field-draft-${random}`;
 }
 
 async function inferCustomFieldGeometry(

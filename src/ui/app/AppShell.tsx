@@ -19,7 +19,6 @@ import {
   defaultFieldId,
   resolveUserFieldDefinition,
   type FieldBackgroundEntry,
-  type FieldGeometry,
 } from "../../core/field/fieldConfig";
 import type { TranslationTarget } from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
@@ -98,7 +97,6 @@ import {
   updateFieldBackgroundMetadata,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { pathDisplayNameFromFileName } from "../../core/model/projectIdentity";
 import { editorBasicsTour, tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
@@ -1359,6 +1357,7 @@ export function AppShell() {
         configChanged: boolean;
         selectedFieldId: string;
         fieldBackgrounds: FieldBackgroundEntry[];
+        fieldImageDrafts: Array<{ fieldId: string; file: File }>;
       },
     ) => {
       const state = projectStore.getState();
@@ -1368,10 +1367,31 @@ export function AppShell() {
       }
 
       const currentFields = listFieldBackgrounds();
+      let selectedFieldId = options.selectedFieldId;
+      let nextFields = structuredClone(options.fieldBackgrounds);
+      for (const draft of options.fieldImageDrafts) {
+        const metadata = nextFields.find((field) => field.id === draft.fieldId);
+        if (!metadata) {
+          continue;
+        }
+        const uploaded = await importFieldBackgroundFromBytes({
+          name: metadata.name,
+          fileName: draft.file.name,
+          mimeType: draft.file.type || metadata.mime_type,
+          bytes: new Uint8Array(await draft.file.arrayBuffer()),
+          geometry: metadata.geometry,
+        });
+        nextFields = nextFields.map((field) =>
+          field.id === draft.fieldId ? uploaded : field,
+        );
+        if (selectedFieldId === draft.fieldId) {
+          selectedFieldId = uploaded.id;
+        }
+      }
       const nextFieldIds = new Set(
-        options.fieldBackgrounds.map((field) => field.id),
+        nextFields.map((field) => field.id),
       );
-      for (const field of options.fieldBackgrounds) {
+      for (const field of nextFields) {
         const current = currentFields.find((entry) => entry.id === field.id);
         if (
           current &&
@@ -1391,13 +1411,13 @@ export function AppShell() {
       }
       rememberSelectedFieldBackground(
         currentProject.project_id,
-        options.selectedFieldId,
+        selectedFieldId,
       );
       await flushUserData();
       setFieldBackgrounds(listFieldBackgrounds());
       setFieldSelectionOverride({
         projectId: currentProject.project_id,
-        fieldId: options.selectedFieldId,
+        fieldId: selectedFieldId,
       });
       if (options.configChanged) {
         projectStore
@@ -1408,21 +1428,6 @@ export function AppShell() {
       }
       autoVelocityStore.getState().setAutoSyncEnabled(options.autoSyncEnabled);
       setShowConfigDialog(false);
-    },
-    [setFieldBackgrounds],
-  );
-
-  const handleUploadFieldImage = useCallback(
-    async (file: File, geometry: FieldGeometry) => {
-      const entry = await importFieldBackgroundFromBytes({
-        name: pathDisplayNameFromFileName(file.name),
-        fileName: file.name,
-        mimeType: file.type || "image/png",
-        bytes: new Uint8Array(await file.arrayBuffer()),
-        geometry,
-      });
-      setFieldBackgrounds(listFieldBackgrounds());
-      return entry;
     },
     [setFieldBackgrounds],
   );
@@ -2121,7 +2126,6 @@ export function AppShell() {
           selectedFieldId={selectedFieldId}
           onCancel={() => setShowConfigDialog(false)}
           onSave={handleSaveConfig}
-          onUploadFieldImage={handleUploadFieldImage}
           onLoadFieldImage={handleLoadFieldImage}
         />
       ) : null}
@@ -2608,7 +2612,7 @@ function SaveConflictDiffSummary({
       label: "Only on disk (will be removed if you overwrite)",
       items: diff.removedPaths,
     },
-    { label: "Changed on both sides", items: diff.changedPaths },
+    { label: "Different contents", items: diff.changedPaths },
   ];
 
   return (

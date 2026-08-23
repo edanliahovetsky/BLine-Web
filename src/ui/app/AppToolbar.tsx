@@ -31,6 +31,7 @@ import {
   type EditorCommand,
 } from "./editorCommands";
 import type { PathDiagnostic } from "./pathDiagnostics";
+import { parseProjectTimestamp } from "./projectTimestamp";
 import {
   MenuAction,
   MenuLabel,
@@ -844,7 +845,11 @@ function pathHealthSeverity(diagnostics: readonly PathDiagnostic[]) {
 }
 
 function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleString([], {
+  const timestamp = parseProjectTimestamp(value);
+  if (timestamp === null) {
+    return "Saved project";
+  }
+  return timestamp.toLocaleString([], {
     dateStyle: "medium",
     timeStyle: "short",
   });

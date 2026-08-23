@@ -683,6 +683,8 @@ test("surfaces the save-conflict dialog when the stored version drifts", async (
   const dialog = page.getByTestId("save-conflict-dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("changed on disk");
+  await expect(dialog).toContainText("Different contents");
+  await expect(dialog).not.toContainText("Changed on both sides");
   await expect(page.getByTestId("save-status")).toHaveAttribute(
     "title",
     /Project changed on disk/,
