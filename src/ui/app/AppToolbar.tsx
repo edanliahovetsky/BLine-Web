@@ -45,7 +45,6 @@ interface ToolbarModel {
   project: Project | null;
   activeGroup: ProjectPathGroup | null;
   activePath: ProjectPath | null;
-  visiblePaths: ProjectPath[];
   projectSummaries: ProjectWorkspaceSummary[];
   supportsProjectFolders: boolean;
   projectIoAvailable: boolean;
@@ -115,7 +114,6 @@ interface ToolbarActions {
   savePathAs(): void | Promise<void>;
   renamePath(): void;
   showDeletePaths(): void;
-  selectGroup(groupId: string | null): void;
   selectPath(pathId: string): void;
   openWorkspaceById(id: string): void | Promise<void>;
   openSample(): void | Promise<void>;
@@ -142,7 +140,6 @@ export function AppToolbar({
     project,
     activeGroup,
     activePath,
-    visiblePaths,
     projectSummaries,
     supportsProjectFolders,
     projectIoAvailable,
@@ -284,7 +281,7 @@ export function AppToolbar({
         >
           <MenuLabel>Current: {pathLabel}</MenuLabel>
           <MenuLabel>
-            Collection: {activeGroup?.display_name ?? "All Paths"}
+            Label: {activeGroup?.display_name ?? "All Paths"}
           </MenuLabel>
           <div className="top-menu__separator" role="separator" />
           <MenuAction
@@ -332,10 +329,7 @@ export function AppToolbar({
         <div className="toolbar-actions__quick">
           <ToolbarPathNavigator
             project={project}
-            activeGroup={activeGroup}
             activePath={activePath}
-            visiblePaths={visiblePaths}
-            onSelectGroup={actions.selectGroup}
             onSelectPath={actions.selectPath}
           />
         </div>

@@ -164,18 +164,18 @@ test("starts new users in a focused start center", async ({ page }) => {
   await expect(fitView).toContainText("100%");
   await pathStage.press(`${interfaceZoomModifier}+0`);
 
-  const hideCollectionPaths = page.getByRole("button", {
-    name: "Hide collection paths",
+  const hideLabelOverlays = page.getByRole("button", {
+    name: "Hide label overlays",
   });
-  await expect(hideCollectionPaths).toHaveAttribute("aria-pressed", "true");
-  await hideCollectionPaths.click();
-  const showCollectionPaths = page.getByRole("button", {
-    name: "Show collection paths",
+  await expect(hideLabelOverlays).toHaveAttribute("aria-pressed", "true");
+  await hideLabelOverlays.click();
+  const showLabelOverlays = page.getByRole("button", {
+    name: "Show label overlays",
   });
-  await expect(showCollectionPaths).toHaveAttribute("aria-pressed", "false");
-  await showCollectionPaths.click();
+  await expect(showLabelOverlays).toHaveAttribute("aria-pressed", "false");
+  await showLabelOverlays.click();
   await expect(
-    page.getByRole("button", { name: "Hide collection paths" }),
+    page.getByRole("button", { name: "Hide label overlays" }),
   ).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();

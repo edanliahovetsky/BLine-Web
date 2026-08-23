@@ -72,7 +72,7 @@ export function CreateProjectDialog({
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => setPathName(event.currentTarget.value)}
             />
-            <small>You can add collections and more paths later.</small>
+            <small>You can add labels and more Paths later.</small>
           </label>
         </section>
         <footer className="config-dialog__footer">
@@ -503,79 +503,6 @@ export function DeletePathsDialog({
             disabled={selectedCount === 0}
           >
             Delete Selected
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
-export function DeletePathGroupDialog({
-  group,
-  memberPaths,
-  onCancel,
-  onDelete,
-}: {
-  group: ProjectPathGroup;
-  memberPaths: ProjectPath[];
-  onCancel(): void;
-  onDelete(deleteMemberPaths: boolean): void;
-}) {
-  const [deleteMemberPaths, setDeleteMemberPaths] = useState(false);
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        className="delete-path-group-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Delete Collection"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onDelete(deleteMemberPaths);
-        }}
-      >
-        <header className="config-dialog__header">
-          <strong>Delete Collection</strong>
-          <CloseButton ariaLabel="Close delete collection" onClick={onCancel} />
-        </header>
-        <section className="delete-path-group-dialog__body">
-          <strong>{group.display_name}</strong>
-          <p>
-            Deleting the collection normally keeps every path in All Paths. Only
-            use the checkbox below if you want to delete the member paths too.
-          </p>
-          <label className="delete-path-group-dialog__option">
-            <input
-              type="checkbox"
-              checked={deleteMemberPaths}
-              onChange={(event) =>
-                setDeleteMemberPaths(event.currentTarget.checked)
-              }
-            />
-            <span>
-              Also delete {memberPaths.length} member{" "}
-              {memberPaths.length === 1 ? "path" : "paths"} from All Paths
-            </span>
-          </label>
-          {deleteMemberPaths ? (
-            <div className="delete-path-group-dialog__warning">
-              This removes the selected paths from the project, not just from
-              this collection.
-            </div>
-          ) : null}
-        </section>
-        <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className={deleteMemberPaths ? "danger-action" : undefined}
-          >
-            {deleteMemberPaths
-              ? "Delete Collection and Paths"
-              : "Delete Collection Only"}
           </button>
         </footer>
       </form>

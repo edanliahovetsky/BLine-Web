@@ -1457,14 +1457,6 @@ export function AppShell() {
     durableProject?.path_groups.find(
       (group) => group.group_id === activePathGroupId,
     ) ?? null;
-  const visiblePathDocuments = activePathGroup
-    ? activePathGroup.path_ids.flatMap((pathId) => {
-        const path = pathDocuments.find(
-          (candidate) => candidate.path_id === pathId,
-        );
-        return path ? [path] : [];
-      })
-    : pathDocuments;
   const projectSummaries = ensureCurrentWorkspaceSummary(
     workspaceSummaries,
     durableProject,
@@ -1516,16 +1508,6 @@ export function AppShell() {
     projectStore.getState().setActivePath(pathId);
     selectionStore.getState().clearSelection();
   }, []);
-  const handleSelectCollectionFromToolbar = useCallback(
-    (groupId: string | null) => {
-      if (projectStore.getState().projectTransitionInProgress) {
-        return;
-      }
-      projectStore.getState().setActivePathGroup(groupId);
-      selectionStore.getState().clearSelection();
-    },
-    [],
-  );
   const handleShowGhostPathsChange = useCallback((show: boolean) => {
     setShowGhostPaths(show);
     writeEditorUiPreferences({
@@ -1871,7 +1853,6 @@ export function AppShell() {
           project: durableProject,
           activeGroup: activePathGroup,
           activePath,
-          visiblePaths: visiblePathDocuments,
           projectSummaries,
           supportsProjectFolders,
           projectIoAvailable,
@@ -1950,7 +1931,6 @@ export function AppShell() {
           savePathAs: handleSavePathAs,
           renamePath: handleRenamePath,
           showDeletePaths: handleShowDeletePaths,
-          selectGroup: handleSelectCollectionFromToolbar,
           selectPath: handleSelectPathFromToolbar,
           openWorkspaceById: handleOpenWorkspaceById,
           openSample: handleOpenSample,

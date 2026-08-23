@@ -72,8 +72,7 @@ export function PathLibraryDialog({
     activePathId ?? project.paths[0]?.path_id ?? null,
   );
   const [query, setQuery] = useState("");
-  const [showCreateCollectionDialog, setShowCreateCollectionDialog] =
-    useState(false);
+  const [showCreateLabelDialog, setShowCreateLabelDialog] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState<ProjectPathGroup | null>(
     null,
   );
@@ -88,7 +87,7 @@ export function PathLibraryDialog({
       if (
         event.defaultPrevented ||
         deletingGroup ||
-        showCreateCollectionDialog ||
+        showCreateLabelDialog ||
         nameAction
       ) {
         return;
@@ -115,7 +114,7 @@ export function PathLibraryDialog({
 
     window.addEventListener("keydown", handleHistoryShortcut);
     return () => window.removeEventListener("keydown", handleHistoryShortcut);
-  }, [deletingGroup, nameAction, showCreateCollectionDialog]);
+  }, [deletingGroup, nameAction, showCreateLabelDialog]);
 
   const selectedGroup =
     project.path_groups.find((group) => group.group_id === selectedGroupId) ??
@@ -128,7 +127,7 @@ export function PathLibraryDialog({
           ),
         )
       : visiblePathsForGroup(project.paths, selectedGroup);
-  const selectedCollectionPaths = pathsForSelectedFilter.filter((path) => {
+  const filteredPaths = pathsForSelectedFilter.filter((path) => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     return (
       !normalizedQuery ||
@@ -140,14 +139,10 @@ export function PathLibraryDialog({
     project.paths.find((path) => path.path_id === selectedPathId) ?? null;
   const selectedPath =
     selectedPathFromState &&
-    selectedCollectionPaths.some(
-      (path) => path.path_id === selectedPathFromState.path_id,
-    )
+    filteredPaths.some((path) => path.path_id === selectedPathFromState.path_id)
       ? selectedPathFromState
-      : (selectedCollectionPaths.find(
-          (path) => path.path_id === activePathId,
-        ) ??
-        selectedCollectionPaths[0] ??
+      : (filteredPaths.find((path) => path.path_id === activePathId) ??
+        filteredPaths[0] ??
         null);
   const effectiveSelectedPathId = selectedPath?.path_id ?? null;
   const handleSelectLibraryGroup = (
@@ -194,7 +189,7 @@ export function PathLibraryDialog({
     selectionStore.getState().clearSelection();
     setSelectedGroupId(createdGroupId);
     setSelectedPathId(pathId);
-    setShowCreateCollectionDialog(false);
+    setShowCreateLabelDialog(false);
   };
 
   const handleRenameGroup = () => {
@@ -227,7 +222,7 @@ export function PathLibraryDialog({
     selectionStore.getState().clearSelection();
   };
 
-  const handleCreatePathInSelectedCollection = () => {
+  const handleCreatePathInSelectedLabel = () => {
     selectionStore.getState().clearSelection();
     onCreatePath(selectedGroup?.group_id ?? null);
   };
@@ -375,7 +370,7 @@ export function PathLibraryDialog({
                   type="button"
                   className="path-library-panel__add-button"
                   aria-label="Create label"
-                  onClick={() => setShowCreateCollectionDialog(true)}
+                  onClick={() => setShowCreateLabelDialog(true)}
                 >
                   <PlusIcon size={14} />
                   Add label
@@ -419,7 +414,7 @@ export function PathLibraryDialog({
                 }
                 onClick={() => handleSelectLibraryGroup(null)}
               >
-                <span>All</span>
+                <span>All Paths</span>
                 <small>{project.paths.length}</small>
               </button>
               <button
@@ -472,15 +467,15 @@ export function PathLibraryDialog({
               <div>
                 <strong>Paths</strong>
                 <span>
-                  {selectedCollectionPaths.length}{" "}
-                  {selectedCollectionPaths.length === 1 ? "result" : "results"}
+                  {filteredPaths.length}{" "}
+                  {filteredPaths.length === 1 ? "result" : "results"}
                 </span>
               </div>
               <button
                 type="button"
                 className="path-library-panel__add-button"
                 aria-label="Create new path"
-                onClick={handleCreatePathInSelectedCollection}
+                onClick={handleCreatePathInSelectedLabel}
               >
                 <FilePlusIcon size={14} />
                 Add path
@@ -491,8 +486,8 @@ export function PathLibraryDialog({
               role="listbox"
               aria-label={`Paths filtered by ${selectedFilterLabel}`}
             >
-              {selectedCollectionPaths.length > 0 ? (
-                selectedCollectionPaths.map((path) => {
+              {filteredPaths.length > 0 ? (
+                filteredPaths.map((path) => {
                   const pathLabels = project.path_groups.filter((group) =>
                     group.path_ids.includes(path.path_id),
                   );
@@ -546,6 +541,7 @@ export function PathLibraryDialog({
             <div className="path-library-dialog__path-actions">
               <PathLibraryTextAction
                 label="Open"
+                ariaLabel="Open path"
                 disabled={!selectedPath}
                 onClick={() => {
                   if (selectedPath) {
@@ -557,6 +553,7 @@ export function PathLibraryDialog({
               </PathLibraryTextAction>
               <PathLibraryTextAction
                 label="Duplicate"
+                ariaLabel="Duplicate path"
                 disabled={!selectedPath}
                 onClick={handleDuplicateSelectedPath}
               >
@@ -564,6 +561,7 @@ export function PathLibraryDialog({
               </PathLibraryTextAction>
               <PathLibraryTextAction
                 label="Rename"
+                ariaLabel="Rename path"
                 disabled={!selectedPath}
                 onClick={handleRenameSelectedPath}
               >
@@ -571,6 +569,7 @@ export function PathLibraryDialog({
               </PathLibraryTextAction>
               <PathLibraryTextAction
                 label="Delete"
+                ariaLabel="Delete path"
                 tone="danger"
                 disabled={!selectedPath}
                 onClick={handleDeleteSelectedPath}
@@ -677,7 +676,7 @@ export function PathLibraryDialog({
                   <button
                     type="button"
                     className="path-library-dialog__empty-label-action"
-                    onClick={() => setShowCreateCollectionDialog(true)}
+                    onClick={() => setShowCreateLabelDialog(true)}
                   >
                     Create the first label
                   </button>
@@ -696,6 +695,7 @@ export function PathLibraryDialog({
             <button
               type="button"
               className="path-library-panel__secondary-action"
+              aria-label="Import Path"
               onClick={onImportPath}
             >
               <UploadIcon size={14} />
@@ -704,6 +704,7 @@ export function PathLibraryDialog({
             <button
               type="button"
               className="path-library-panel__secondary-action"
+              aria-label="Export Path"
               disabled={!selectedPath}
               onClick={handleExportSelectedPath}
             >
@@ -729,9 +730,9 @@ export function PathLibraryDialog({
           }}
         />
       ) : null}
-      {showCreateCollectionDialog ? (
+      {showCreateLabelDialog ? (
         <CreateLabelDialog
-          onCancel={() => setShowCreateCollectionDialog(false)}
+          onCancel={() => setShowCreateLabelDialog(false)}
           onCreate={handleCreateGroup}
         />
       ) : null}
@@ -801,12 +802,14 @@ function PathLibraryHeaderButton({
 }
 
 function PathLibraryTextAction({
+  ariaLabel,
   children,
   disabled = false,
   label,
   onClick,
   tone = "neutral",
 }: {
+  ariaLabel?: string;
   children: ReactNode;
   disabled?: boolean;
   label: string;
@@ -817,6 +820,7 @@ function PathLibraryTextAction({
     <button
       type="button"
       className={`path-library-dialog__text-action path-library-dialog__text-action--${tone}`}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={onClick}
     >
