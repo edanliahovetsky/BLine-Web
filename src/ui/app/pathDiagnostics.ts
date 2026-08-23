@@ -6,6 +6,14 @@ import {
 } from "../../core/field/fieldConfig";
 import type { LinkedTarget } from "../../core/model/project";
 import {
+  buildGlobalRotationTargets,
+  buildSegments,
+  evaluateRotationTargets,
+  radiansToDegrees,
+  simulatePathWithTrace,
+  type SimulationConfig,
+} from "../../core/sim";
+import {
   isAnchorElement,
   isEventTrigger,
   type PathModel,
@@ -24,6 +32,7 @@ export function derivePathDiagnostics(
   path: PathModel | null,
   geometry: FieldGeometry | null,
   linkedTargets: readonly LinkedTarget[],
+  config: SimulationConfig = {},
 ): PathDiagnostic[] {
   if (!path || !geometry) {
     return [];
@@ -76,6 +85,43 @@ export function derivePathDiagnostics(
       });
     }
   });
+
+  if (anchorCount >= 2) {
+    const { anchors, cumulativeLengths } = buildSegments(path);
+    const rotationTargets = buildGlobalRotationTargets(
+      path,
+      anchors,
+      cumulativeLengths,
+    );
+    if (rotationTargets.length > 0) {
+      try {
+        const result = simulatePathWithTrace(path, config, { dt_s: 0.02 });
+        for (const target of evaluateRotationTargets(
+          rotationTargets,
+          result.trace,
+        )) {
+          if (target.passed) {
+            continue;
+          }
+          const missDegrees = Number.isFinite(target.error_rad)
+            ? `${radiansToDegrees(target.error_rad).toFixed(1)}°`
+            : "an unknown amount";
+          diagnostics.push({
+            id: `rotation-target-${target.event_ordinal_1b}`,
+            severity: "warning",
+            summary: `Rotation ${target.event_ordinal_1b} misses its target by ${missDegrees} on arrival.`,
+            elementIndex: target.path_element_index,
+          });
+        }
+      } catch {
+        diagnostics.push({
+          id: "rotation-evaluation",
+          severity: "warning",
+          summary: "Rotation targets could not be evaluated by the simulator.",
+        });
+      }
+    }
+  }
 
   return diagnostics;
 }

@@ -1506,6 +1506,7 @@ export function AppShell() {
         activePath?.path ?? null,
         durableProject ? activeField.geometry : null,
         durableProject?.linked_targets ?? [],
+        durableProject?.config ?? {},
       ),
     [activeField.geometry, activePath, durableProject],
   );

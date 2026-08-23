@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { createSampleProject } from "../../../src/ui/app/initialProject";
 import { derivePathDiagnostics } from "../../../src/ui/app/pathDiagnostics";
 import { defaultFieldGeometry } from "../../../src/core/field/fieldConfig";
+import {
+  createPathModel,
+  createRotationTarget,
+  createTranslationTarget,
+} from "../../../src/core/model/path";
 
 describe("path diagnostics", () => {
   it("reports incomplete paths", () => {
@@ -77,5 +82,31 @@ describe("path diagnostics", () => {
         workspace.linked_targets,
       ).some((item) => item.id === "off-field-0"),
     ).toBe(false);
+  });
+
+  it("warns when a manual path cannot reach a fixed rotation target", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createRotationTarget({
+          t_ratio: 0.5,
+          rotation_radians: Math.PI,
+          profiled_rotation: true,
+        }),
+        createTranslationTarget({ x_meters: 5, y_meters: 1 }),
+      ],
+      constraints: {
+        ...createPathModel().constraints,
+        max_velocity_meters_per_sec: 4,
+        max_velocity_deg_per_sec: 20,
+        max_acceleration_deg_per_sec2: 40,
+      },
+    });
+
+    expect(
+      derivePathDiagnostics(path, defaultFieldGeometry, [], {}).find(
+        (diagnostic) => diagnostic.id === "rotation-target-1",
+      ),
+    ).toMatchObject({ severity: "warning", elementIndex: 1 });
   });
 });
