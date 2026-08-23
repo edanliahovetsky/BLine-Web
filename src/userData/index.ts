@@ -18,6 +18,7 @@ import {
   type CreateFieldBackgroundInput,
   type FieldBackgroundMetadataUpdate,
   type LegacyFieldBackgroundMigration,
+  type SaveFieldBackgroundSettingsInput,
   type UserDataStatus,
 } from "./service";
 
@@ -171,6 +172,12 @@ export async function readFieldBackgroundImage(
 
 export function deleteFieldBackground(entryId: string): Promise<void> {
   return runtimeUserData.deleteFieldBackground(entryId);
+}
+
+export function saveFieldBackgroundSettings(
+  input: SaveFieldBackgroundSettingsInput,
+): Promise<FieldBackgroundEntry[]> {
+  return runtimeUserData.saveFieldBackgroundSettings(input);
 }
 
 export function rollbackImportedFieldBackgrounds(

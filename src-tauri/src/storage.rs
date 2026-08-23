@@ -297,9 +297,15 @@ pub fn storage_delete_legacy_project_files(
     app: AppHandle,
     directory_locator: String,
     expected: String,
+    expected_legacy_files: Vec<ProjectTextFile>,
 ) -> Result<ProjectTextFileWriteResult, String> {
     let dir = resolve_explicit_project_directory(&directory_locator)?;
-    delete_legacy_project_files_with_lock(&dir, &expected, &project_storage_lock_path(&app)?)
+    delete_legacy_project_files_with_lock(
+        &dir,
+        &expected,
+        &expected_legacy_files,
+        &project_storage_lock_path(&app)?,
+    )
 }
 
 #[tauri::command]
@@ -595,6 +601,7 @@ fn write_project_text_file_set_locked(
 fn delete_legacy_project_files_with_lock(
     project_dir: &Path,
     expected: &str,
+    expected_legacy_files: &[ProjectTextFile],
     lock_path: &Path,
 ) -> Result<ProjectTextFileWriteResult, String> {
     if !project_dir.is_dir() {
@@ -604,13 +611,14 @@ fn delete_legacy_project_files_with_lock(
         ));
     }
     with_exclusive_project_lock(lock_path, || {
-        delete_legacy_project_files_locked(project_dir, expected)
+        delete_legacy_project_files_locked(project_dir, expected, expected_legacy_files)
     })
 }
 
 fn delete_legacy_project_files_locked(
     project_dir: &Path,
     expected: &str,
+    expected_legacy_files: &[ProjectTextFile],
 ) -> Result<ProjectTextFileWriteResult, String> {
     if expected.trim().is_empty() {
         return Err("Legacy metadata cleanup requires an expected version".to_owned());
@@ -624,6 +632,11 @@ fn delete_legacy_project_files_locked(
         "Legacy metadata cleanup requires a complete canonical Project save".to_owned()
     })?;
     let legacy_files = read_legacy_project_files(project_dir)?;
+    if !same_project_text_files(&legacy_files, expected_legacy_files) {
+        return Err(
+            "storage-conflict: legacy metadata changed before cleanup was prepared".to_owned(),
+        );
+    }
     if project_source_file_set_version(&canonical_files, &legacy_files) != expected {
         return Err("storage-conflict: project file set changed before legacy cleanup".to_owned());
     }
@@ -1220,6 +1233,14 @@ fn project_source_file_set_version(
         }
     }
     format!("{hash:016x}")
+}
+
+fn same_project_text_files(left: &[ProjectTextFile], right: &[ProjectTextFile]) -> bool {
+    let mut left = left.to_vec();
+    let mut right = right.to_vec();
+    left.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    right.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    left == right
 }
 
 fn project_source_file_set_updated_at(
@@ -1819,9 +1840,11 @@ mod tests {
         project_dir: &Path,
         expected: &str,
     ) -> Result<ProjectTextFileWriteResult, String> {
+        let expected_legacy_files = read_legacy_project_files(project_dir)?;
         delete_legacy_project_files_with_lock(
             project_dir,
             expected,
+            &expected_legacy_files,
             &test_project_storage_lock_path(project_dir),
         )
     }
@@ -2087,6 +2110,40 @@ mod tests {
         assert_eq!(
             fs::read(dir.join(".bline-web/assets/fields/field.png")).unwrap(),
             [1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn legacy_cleanup_rejects_bytes_changed_since_the_callers_attestation() {
+        let dir = temp_project_dir("legacy-cleanup-stale-attestation");
+        install_files(
+            &dir,
+            &[
+                project_file("config.json", "config"),
+                project_file("project.json", "metadata"),
+            ],
+        );
+        fs::create_dir_all(dir.join(".bline-web")).unwrap();
+        fs::write(dir.join(".bline-web/state.json"), "damaged-a").unwrap();
+        let attested = read_legacy_project_files(&dir).unwrap();
+        fs::write(dir.join(".bline-web/state.json"), "damaged-b").unwrap();
+        let current = read_project_text_file_set(&dir).unwrap().version;
+
+        let error = delete_legacy_project_files_with_lock(
+            &dir,
+            &current,
+            &attested,
+            &test_project_storage_lock_path(&dir),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            "storage-conflict: legacy metadata changed before cleanup was prepared"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join(".bline-web/state.json")).unwrap(),
+            "damaged-b"
         );
     }
 

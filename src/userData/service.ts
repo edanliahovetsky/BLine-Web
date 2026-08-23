@@ -38,6 +38,13 @@ export interface FieldBackgroundMetadataUpdate {
   geometry?: FieldGeometry;
 }
 
+export interface SaveFieldBackgroundSettingsInput {
+  projectId: string;
+  selectedFieldId: string | null;
+  fieldBackgrounds: readonly FieldBackgroundEntry[];
+  imageUpdates: readonly { entryId: string; bytes: Uint8Array }[];
+}
+
 export interface LegacyFieldBackgroundMigration {
   entry: FieldBackgroundEntry;
   created: boolean;
@@ -246,23 +253,17 @@ export class UserDataService {
   }
 
   async flush(): Promise<void> {
-    if (this.snapshotRevision <= this.durableRevision) {
-      return;
-    }
-    this.assertWritable();
     while (true) {
       const pendingWrite = this.pendingWrite;
-      const targetRevision = this.snapshotRevision;
       await pendingWrite;
-      if (
-        pendingWrite !== this.pendingWrite ||
-        targetRevision !== this.snapshotRevision
-      ) {
+      if (pendingWrite !== this.pendingWrite) {
         continue;
       }
+      const targetRevision = this.snapshotRevision;
       if (this.durableRevision >= targetRevision) {
         return;
       }
+      this.assertWritable();
       const failure = [...this.writeFailures.entries()]
         .filter(
           ([revision]) =>
@@ -500,6 +501,104 @@ export class UserDataService {
       this.recordDurableWrite(writtenRevision);
       this.issuedEntryIds.delete(entryId);
       await this.adapter.deleteFieldAsset(entryId);
+    });
+  }
+
+  async saveFieldBackgroundSettings(
+    input: SaveFieldBackgroundSettingsInput,
+  ): Promise<FieldBackgroundEntry[]> {
+    this.assertWritable();
+    return this.enqueue(async () => {
+      const desiredEntries = input.fieldBackgrounds.map((entry) =>
+        this.normalizedEntry(structuredClone(entry)),
+      );
+      const desiredIds = new Set(desiredEntries.map((entry) => entry.id));
+      if (desiredIds.size !== desiredEntries.length) {
+        throw new Error("Field Background IDs must be unique");
+      }
+
+      const imageUpdates = new Map<string, Uint8Array>();
+      for (const update of input.imageUpdates) {
+        if (
+          !desiredIds.has(update.entryId) ||
+          imageUpdates.has(update.entryId)
+        ) {
+          throw new Error(
+            `Invalid Field Background image update ${update.entryId}`,
+          );
+        }
+        imageUpdates.set(update.entryId, new Uint8Array(update.bytes));
+      }
+
+      const before = this.getSnapshot();
+      const beforeIds = new Set(
+        before.field_backgrounds.map((entry) => entry.id),
+      );
+      const previousBytes = new Map<string, Uint8Array | null>();
+      const writtenAssetIds: string[] = [];
+      try {
+        for (const [entryId, bytes] of imageUpdates) {
+          const previous = await this.adapter.readFieldAsset(entryId);
+          if (beforeIds.has(entryId) && !previous) {
+            throw new FieldBackgroundAssetVerificationError(entryId);
+          }
+          previousBytes.set(
+            entryId,
+            previous ? new Uint8Array(previous) : null,
+          );
+          await this.writeVerifiedAsset(entryId, bytes);
+          writtenAssetIds.push(entryId);
+        }
+      } catch (error) {
+        await this.restoreFieldAssetsBestEffort(writtenAssetIds, previousBytes);
+        throw error;
+      }
+
+      const removedIds = new Set(
+        before.field_backgrounds
+          .map((entry) => entry.id)
+          .filter((entryId) => !desiredIds.has(entryId)),
+      );
+      const writtenRevision = this.snapshotRevision;
+      let next = removeFieldEntries(before, removedIds);
+      next = migrateUserData({
+        ...next,
+        field_backgrounds: desiredEntries,
+        project_views: withSelectedFieldBackground(
+          next.project_views,
+          input.projectId,
+          input.selectedFieldId,
+        ),
+      });
+
+      let durable: UserData;
+      try {
+        durable = await this.persistWithRetry(next);
+      } catch (error) {
+        if (!(error instanceof UserDataWriteOutcomeUnknownError)) {
+          await this.restoreFieldAssetsBestEffort(
+            writtenAssetIds,
+            previousBytes,
+          );
+        }
+        throw error;
+      }
+
+      const volatileSnapshot = this.getSnapshot();
+      this.acceptDurableSnapshot(next, durable);
+      this.snapshot = mergeConcurrentUserData(
+        before,
+        mergeConcurrentUserData(before, next, volatileSnapshot),
+        durable,
+      );
+      this.recordDurableWrite(writtenRevision);
+      for (const entryId of removedIds) {
+        if (!durable.field_backgrounds.some((entry) => entry.id === entryId)) {
+          this.issuedEntryIds.delete(entryId);
+          await this.deleteAssetBestEffort(entryId);
+        }
+      }
+      return structuredClone(durable.field_backgrounds);
     });
   }
 
@@ -824,6 +923,46 @@ export class UserDataService {
       // An unreferenced orphan is safer than exposing missing referenced bytes.
     }
   }
+
+  private async restoreFieldAssetsBestEffort(
+    entryIds: readonly string[],
+    previousBytes: ReadonlyMap<string, Uint8Array | null>,
+  ): Promise<void> {
+    for (const entryId of [...entryIds].reverse()) {
+      const previous = previousBytes.get(entryId) ?? null;
+      try {
+        if (previous) {
+          await this.writeVerifiedAsset(entryId, previous);
+        } else {
+          await this.adapter.deleteFieldAsset(entryId);
+          this.issuedEntryIds.delete(entryId);
+        }
+      } catch {
+        // Keep the original failure. A preserved orphan is safer than deleting
+        // bytes that a metadata write with an unknown outcome may reference.
+      }
+    }
+  }
+}
+
+function withSelectedFieldBackground(
+  projectViews: UserData["project_views"],
+  projectId: string,
+  selectedFieldId: string | null,
+): UserData["project_views"] {
+  const nextViews = structuredClone(projectViews);
+  const nextView: ProjectViewPreferences = { ...(nextViews[projectId] ?? {}) };
+  if (selectedFieldId) {
+    nextView.selected_field_background_id = selectedFieldId;
+  } else {
+    delete nextView.selected_field_background_id;
+  }
+  if (Object.keys(nextView).length > 0) {
+    nextViews[projectId] = nextView;
+  } else {
+    delete nextViews[projectId];
+  }
+  return nextViews;
 }
 
 function migrateProjectViewSnapshot(

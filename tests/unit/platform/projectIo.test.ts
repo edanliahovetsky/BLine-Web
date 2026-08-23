@@ -1641,6 +1641,12 @@ describe("ProjectIoService", () => {
     expect(cleanup?.args).toEqual({
       directoryLocator: "/repo/autos",
       expected: "canonical-v2",
+      expectedLegacyFiles: [
+        {
+          relativePath: "pathgroups.json",
+          contents: '{"schema_version":1,"groups":[]}',
+        },
+      ],
     });
   });
 

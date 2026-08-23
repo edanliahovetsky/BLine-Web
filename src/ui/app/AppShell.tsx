@@ -87,14 +87,11 @@ import {
   type TourSessionController,
 } from "../tours/tourSession";
 import {
-  deleteFieldBackground,
   flushUserData,
-  importFieldBackgroundFromBytes,
   listFieldBackgrounds,
   readFieldBackgroundImage,
-  rememberSelectedFieldBackground,
+  saveFieldBackgroundSettings,
   selectedFieldBackgroundForProject,
-  updateFieldBackgroundMetadata,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
 import { editorBasicsTour, tours } from "../tours/tours";
@@ -279,6 +276,7 @@ export function AppShell() {
     snapshot: TourEditorViewSnapshot;
   } | null>(null);
   const tourSessionRef = useRef<TourSessionController | null>(null);
+  const configSaveInProgressRef = useRef(false);
   const {
     autosaveStatus,
     cancelAutosave,
@@ -297,6 +295,7 @@ export function AppShell() {
     dirty,
     durableProject,
     lastSavedAt,
+    isPersistenceBlocked: () => configSaveInProgressRef.current,
     prepareClose: () => tourSessionRef.current?.restore(),
     projectIo,
     onEditorLayoutLoaded: ({ inspectorWidth, showGhostPaths }) => {
@@ -1362,72 +1361,65 @@ export function AppShell() {
     ) => {
       const state = projectStore.getState();
       const currentProject = state.project;
-      if (!currentProject) {
+      const ownedProjectSessionId = state.projectSessionId;
+      if (!currentProject || !ownedProjectSessionId) {
         return;
       }
-
-      const currentFields = listFieldBackgrounds();
-      let selectedFieldId = options.selectedFieldId;
-      let nextFields = structuredClone(options.fieldBackgrounds);
-      for (const draft of options.fieldImageDrafts) {
-        const metadata = nextFields.find((field) => field.id === draft.fieldId);
-        if (!metadata) {
-          continue;
-        }
-        const uploaded = await importFieldBackgroundFromBytes({
-          name: metadata.name,
-          fileName: draft.file.name,
-          mimeType: draft.file.type || metadata.mime_type,
-          bytes: new Uint8Array(await draft.file.arrayBuffer()),
-          geometry: metadata.geometry,
-        });
-        nextFields = nextFields.map((field) =>
-          field.id === draft.fieldId ? uploaded : field,
+      if (configSaveInProgressRef.current) {
+        throw new Error("Settings are already being saved");
+      }
+      configSaveInProgressRef.current = true;
+      try {
+        const imageUpdates = await Promise.all(
+          options.fieldImageDrafts.map(async (draft) => ({
+            entryId: draft.fieldId,
+            bytes: new Uint8Array(await draft.file.arrayBuffer()),
+          })),
         );
-        if (selectedFieldId === draft.fieldId) {
-          selectedFieldId = uploaded.id;
-        }
-      }
-      const nextFieldIds = new Set(
-        nextFields.map((field) => field.id),
-      );
-      for (const field of nextFields) {
-        const current = currentFields.find((entry) => entry.id === field.id);
         if (
-          current &&
-          (current.name !== field.name ||
-            JSON.stringify(current.geometry) !== JSON.stringify(field.geometry))
+          projectStore.getState().projectSessionId !== ownedProjectSessionId
         ) {
-          await updateFieldBackgroundMetadata(field.id, {
-            name: field.name,
-            geometry: field.geometry,
-          });
+          throw new Error(
+            "The active Project changed while Settings were saving",
+          );
         }
-      }
-      for (const field of currentFields) {
-        if (!nextFieldIds.has(field.id)) {
-          await deleteFieldBackground(field.id);
+        await saveFieldBackgroundSettings({
+          projectId: currentProject.project_id,
+          selectedFieldId: options.selectedFieldId,
+          fieldBackgrounds: options.fieldBackgrounds,
+          imageUpdates,
+        });
+        const latest = projectStore.getState();
+        if (latest.projectSessionId !== ownedProjectSessionId) {
+          throw new Error(
+            "The active Project changed while Settings were saving",
+          );
         }
-      }
-      rememberSelectedFieldBackground(
-        currentProject.project_id,
-        selectedFieldId,
-      );
-      await flushUserData();
-      setFieldBackgrounds(listFieldBackgrounds());
-      setFieldSelectionOverride({
-        projectId: currentProject.project_id,
-        fieldId: selectedFieldId,
-      });
-      if (options.configChanged) {
-        projectStore
+        autoVelocityStore
           .getState()
-          .applyConfigCommand(
+          .setAutoSyncEnabled(options.autoSyncEnabled);
+        await flushUserData();
+        if (
+          projectStore.getState().projectSessionId !== ownedProjectSessionId
+        ) {
+          throw new Error(
+            "The active Project changed while Settings were saving",
+          );
+        }
+        if (options.configChanged) {
+          latest.applyConfigCommand(
             createUpdateProjectConfigCommand(currentProject.config, nextConfig),
           );
+        }
+        setFieldBackgrounds(listFieldBackgrounds());
+        setFieldSelectionOverride({
+          projectId: currentProject.project_id,
+          fieldId: options.selectedFieldId,
+        });
+        setShowConfigDialog(false);
+      } finally {
+        configSaveInProgressRef.current = false;
       }
-      autoVelocityStore.getState().setAutoSyncEnabled(options.autoSyncEnabled);
-      setShowConfigDialog(false);
     },
     [setFieldBackgrounds],
   );

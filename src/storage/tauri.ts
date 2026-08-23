@@ -41,7 +41,10 @@ export class TauriStorage implements ProjectFolderAdapter {
     Pick<ProjectWorkspaceSummary, "version" | "updatedAt">
   >();
   private readonly damageByLocator = new Map<string, ProjectFileDamage>();
-  private readonly legacyFilesByLocator = new Map<string, string[]>();
+  private readonly legacyFilesByLocator = new Map<
+    string,
+    Array<{ relativePath: string; contents: string }>
+  >();
   private readonly canonicalLocators = new Set<string>();
   private readonly legacyAttestationByLocator = new Map<
     string,
@@ -99,7 +102,7 @@ export class TauriStorage implements ProjectFolderAdapter {
     }
     this.legacyFilesByLocator.set(
       result.directoryLocator,
-      (result.legacyFiles ?? []).map((file) => file.relativePath),
+      structuredClone(result.legacyFiles ?? []),
     );
     this.legacyAttestationByLocator.delete(result.directoryLocator);
     this.cleanupProofByLocator.delete(result.directoryLocator);
@@ -234,6 +237,17 @@ export class TauriStorage implements ProjectFolderAdapter {
     expectedVersion?: string,
     storageId = this.currentDirectoryLocator ?? undefined,
   ): Promise<WriteResult> {
+    let expectedLegacyFiles = storageId
+      ? structuredClone(this.legacyFilesByLocator.get(storageId) ?? [])
+      : [];
+    if (storageId && expectedVersion === undefined) {
+      const current = await this.invoke<ProjectFileSetPayload>(
+        "storage_read_project_files",
+        { directoryLocator: storageId },
+      );
+      expectedLegacyFiles = structuredClone(current.legacyFiles ?? []);
+      this.legacyFilesByLocator.set(storageId, expectedLegacyFiles);
+    }
     let result = await this.writeProjectFileSet(
       project,
       expectedVersion,
@@ -248,6 +262,7 @@ export class TauriStorage implements ProjectFolderAdapter {
         {
           directoryLocator: storageId,
           expected: result.version,
+          expectedLegacyFiles,
         },
       );
       this.rememberFileSetWithoutStealingCurrentLocator(cleanup, storageId);
@@ -310,6 +325,9 @@ export class TauriStorage implements ProjectFolderAdapter {
       {
         directoryLocator: sourceStorageId,
         expected: expectedVersion,
+        expectedLegacyFiles: structuredClone(
+          this.legacyFilesByLocator.get(sourceStorageId) ?? [],
+        ),
       },
     );
     this.rememberFileSetWithoutStealingCurrentLocator(result, sourceStorageId);

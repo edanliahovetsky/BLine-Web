@@ -1068,6 +1068,114 @@ describe("UserData", () => {
     expect(adapter.events.at(-1)).toBe("metadata-read");
   });
 
+  it("commits Field settings, image replacement, and Project selection as one durable snapshot", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-shared",
+    });
+    await service.initialize();
+    const original = await service.createFieldBackgroundFromBytes(fieldInput());
+    service.update((current) => ({
+      ...current,
+      project_views: {
+        "project-a": { selected_field_background_id: original.id },
+        "project-b": { selected_field_background_id: original.id },
+      },
+    }));
+    await service.flush();
+    const replacement = {
+      ...original,
+      name: "Replacement Field",
+      file_name: "replacement.png",
+      size_bytes: 3,
+    };
+
+    await service.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: original.id,
+      fieldBackgrounds: [replacement],
+      imageUpdates: [
+        { entryId: original.id, bytes: new Uint8Array([7, 8, 9]) },
+      ],
+    });
+
+    expect(service.getSnapshot()).toMatchObject({
+      field_backgrounds: [replacement],
+      project_views: {
+        "project-a": { selected_field_background_id: original.id },
+        "project-b": { selected_field_background_id: original.id },
+      },
+    });
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+    expect(adapter.assets.get(original.id)).toEqual(new Uint8Array([7, 8, 9]));
+  });
+
+  it("rolls back staged Field bytes when the Settings metadata commit fails", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-existing",
+    });
+    await service.initialize();
+    const original = await service.createFieldBackgroundFromBytes(fieldInput());
+    const draft = {
+      ...original,
+      id: "field-draft-new",
+      name: "New Field",
+      file_name: "new.png",
+      size_bytes: 2,
+    };
+    adapter.failMetadataWrite = true;
+
+    await expect(
+      service.saveFieldBackgroundSettings({
+        projectId: "project-a",
+        selectedFieldId: draft.id,
+        fieldBackgrounds: [
+          { ...original, name: "Changed Existing", size_bytes: 2 },
+          draft,
+        ],
+        imageUpdates: [
+          { entryId: original.id, bytes: new Uint8Array([5, 6]) },
+          { entryId: draft.id, bytes: new Uint8Array([7, 8]) },
+        ],
+      }),
+    ).rejects.toThrow("metadata write failed");
+
+    expect(service.getSnapshot().field_backgrounds).toEqual([original]);
+    expect(adapter.assets.get(original.id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+    expect(adapter.assets.has(draft.id)).toBe(false);
+  });
+
+  it("flush waits for an already queued Field Settings operation", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-queued",
+    });
+    await service.initialize();
+    const original = await service.createFieldBackgroundFromBytes(fieldInput());
+    const blocked = adapter.pauseNextMetadataWrite();
+    const saving = service.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: original.id,
+      fieldBackgrounds: [{ ...original, name: "Queued Replacement" }],
+      imageUpdates: [],
+    });
+    await blocked.started;
+    let flushed = false;
+    const flushing = service.flush().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+
+    blocked.release();
+    await Promise.all([saving, flushing]);
+    expect(flushed).toBe(true);
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+  });
+
   it("preserves ambiguous Field Background bytes and permits deterministic recovery", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter);

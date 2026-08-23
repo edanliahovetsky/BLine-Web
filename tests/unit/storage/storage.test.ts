@@ -1292,7 +1292,8 @@ describe("TauriStorage", () => {
         relativePath: file.relativePath,
         contents: file.text,
       }));
-    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> =
+      [];
     const storage = new TauriStorage({
       invoke: async <T>(command: string, args?: Record<string, unknown>) => {
         calls.push({ command, args });
@@ -1345,7 +1346,77 @@ describe("TauriStorage", () => {
     expect(calls[2]?.args).toMatchObject({
       directoryLocator: "/tmp/autos",
       expected: "canonical-v2",
+      expectedLegacyFiles: [
+        {
+          relativePath: ".bline-web/state.json",
+          contents: "{<<<<<<< HEAD\n",
+        },
+      ],
     });
+  });
+
+  it("refreshes damaged legacy attestation at force-retry time", async () => {
+    const project = exampleWorkspace("recovered-project", "Autos", ["One"]);
+    const runtimeFiles = serializeProjectFiles(project)
+      .filter((file) => file.relativePath !== "project.json")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        contents: file.text,
+      }));
+    let readCount = 0;
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> =
+      [];
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "storage_read_project_files") {
+          readCount += 1;
+          return {
+            directoryLocator: "/tmp/autos",
+            files: runtimeFiles,
+            legacyFiles: [
+              {
+                relativePath: ".bline-web/state.json",
+                contents: readCount === 1 ? "{damaged-a" : "{damaged-b",
+              },
+            ],
+            version: readCount === 1 ? "damaged-v1" : "damaged-v2",
+            updatedAt: "2026-04-23T15:40:00.000Z",
+          } as T;
+        }
+        if (command === "storage_write_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            version: "canonical-v3",
+            updatedAt: "2026-04-23T15:41:00.000Z",
+          } as T;
+        }
+        if (command === "storage_delete_legacy_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            version: "clean-v4",
+            updatedAt: "2026-04-23T15:42:00.000Z",
+          } as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+
+    const recovered = await storage.readProject("/tmp/autos");
+    await storage.replaceDamagedProject(recovered, undefined, "/tmp/autos");
+
+    expect(calls.map((call) => call.command)).toEqual([
+      "storage_read_project_files",
+      "storage_read_project_files",
+      "storage_write_project_files",
+      "storage_delete_legacy_project_files",
+    ]);
+    expect(calls[3]?.args?.expectedLegacyFiles).toEqual([
+      {
+        relativePath: ".bline-web/state.json",
+        contents: "{damaged-b",
+      },
+    ]);
   });
 
   it("resumes legacy Field Background migration after a canonical desktop save", async () => {
@@ -1655,6 +1726,12 @@ describe("TauriStorage", () => {
     ).toEqual({
       directoryLocator: "/repo/project-a/autos",
       expected: "canonical-a-v2",
+      expectedLegacyFiles: [
+        {
+          relativePath: "pathgroups.json",
+          contents: '{"schema_version":1,"groups":[]}',
+        },
+      ],
     });
     expect(
       calls

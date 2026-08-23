@@ -41,6 +41,7 @@ interface UseProjectLifecycleOptions {
   dirty: boolean;
   durableProject: Project | null;
   lastSavedAt: string | null;
+  isPersistenceBlocked(): boolean;
   prepareClose(): void;
   projectIo: ProjectIoService | null;
   onEditorLayoutLoaded(layout: {
@@ -55,6 +56,7 @@ export function useProjectLifecycle({
   dirty,
   durableProject,
   lastSavedAt,
+  isPersistenceBlocked,
   prepareClose,
   projectIo,
   onEditorLayoutLoaded,
@@ -85,6 +87,7 @@ export function useProjectLifecycle({
   );
   const applyEditorLayout = useEffectEvent(onEditorLayoutLoaded);
   const prepareProjectClose = useEffectEvent(prepareClose);
+  const additionalPersistenceBlocked = useEffectEvent(isPersistenceBlocked);
 
   const refreshWorkspaceSummaries = useCallback(
     async (service = projectStore.getState().io) => {
@@ -244,6 +247,7 @@ export function useProjectLifecycle({
               dirty: state.dirty,
               activeSave: state.activeSave,
               blocked:
+                additionalPersistenceBlocked() ||
                 state.projectTransitionInProgress ||
                 legacyProjectMigrationOwnsSession(state) ||
                 state.status === "conflict" ||

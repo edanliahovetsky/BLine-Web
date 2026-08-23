@@ -288,6 +288,8 @@ test("keeps uploaded and replacement Field images as drafts until Settings is sa
   await expect
     .poll(() => userFieldStorageCounts(page))
     .toEqual({ entries: 1, assets: 1 });
+  const [savedFieldId] = await userFieldStorageIds(page);
+  expect(savedFieldId).toBeTruthy();
 
   await page.getByRole("button", { name: "Settings" }).click();
   dialog = page.getByRole("dialog", { name: "Edit Config" });
@@ -306,15 +308,111 @@ test("keeps uploaded and replacement Field images as drafts until Settings is sa
   await page.getByRole("button", { name: "Settings" }).click();
   dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
+  await expect(dialog.getByLabel("Field Name")).toHaveValue("saved field.png");
+  await dialog.getByLabel("Upload field image").setInputFiles({
+    name: "saved-replacement.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer(),
+  });
   await expect(dialog.getByLabel("Field Name")).toHaveValue(
-    "saved field.png",
+    "saved replacement.png",
   );
-  await expect(
-    dialog.getByLabel("Field Image", { exact: true }).getByRole("option", {
-      name: "cancelled replacement.png",
-    }),
-  ).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+
+  expect(await userFieldStorageCounts(page)).toEqual({ entries: 1, assets: 1 });
+  expect(await userFieldStorageIds(page)).toEqual([savedFieldId]);
+});
+
+test("does not save an earlier Settings snapshot while a Field upload is decoding", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await page.getByLabel("Robot Length (m)").fill("0.825");
+  await dialog.getByRole("button", { name: "Field" }).click();
+  await page.evaluate(() => {
+    class NeverLoadingImage {
+      naturalWidth = 0;
+      naturalHeight = 0;
+      width = 0;
+      height = 0;
+      addEventListener() {}
+      set src(_value: string) {}
+    }
+    Object.defineProperty(window, "Image", {
+      configurable: true,
+      value: NeverLoadingImage,
+    });
+  });
+
+  await dialog.getByLabel("Upload field image").setInputFiles({
+    name: "slow-field_100.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer(),
+  });
+
+  await expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeEnabled();
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  expect(await userFieldStorageCounts(page)).toEqual({ entries: 0, assets: 0 });
+});
+
+test("keeps Settings modal and immutable until its Field save finishes", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field" }).click();
+  await dialog.getByLabel("Upload field image").setInputFiles({
+    name: "deferred-field.png",
+    mimeType: "image/png",
+    buffer: tinyPngBuffer(),
+  });
+  await expect(dialog.getByLabel("Field Name")).toHaveValue(
+    "deferred field.png",
+  );
+  await page.evaluate(() => {
+    const originalArrayBuffer = File.prototype.arrayBuffer;
+    let release: (() => void) | null = null;
+    File.prototype.arrayBuffer = function deferredArrayBuffer() {
+      return new Promise<ArrayBuffer>((resolve, reject) => {
+        release = () => {
+          void originalArrayBuffer.call(this).then(resolve, reject);
+        };
+      });
+    };
+    Object.assign(window, {
+      __releaseDeferredFieldSave: () => release?.(),
+    });
+  });
+
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Close config" }),
+  ).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await expect(dialog.locator(".config-dialog__body")).toHaveAttribute(
+    "inert",
+    "",
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+
+  await page.evaluate(() => {
+    (
+      window as typeof window & {
+        __releaseDeferredFieldSave?: () => void;
+      }
+    ).__releaseDeferredFieldSave?.();
+  });
+  await expect(dialog).toBeHidden();
+  await expect
+    .poll(() => userFieldStorageCounts(page))
+    .toEqual({ entries: 1, assets: 1 });
 });
 
 test("migrates a legacy Project field image before deleting its old bytes", async ({
@@ -525,5 +623,32 @@ async function userFieldStorageCounts(
         )?.length ?? 0,
       assets,
     };
+  });
+}
+
+async function userFieldStorageIds(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("bline-web-user-field-assets", 2);
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () => reject(request.error));
+    });
+    const transaction = database.transaction("user-data", "readonly");
+    const userData = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const request = transaction.objectStore("user-data").get("global");
+        request.addEventListener("success", () => {
+          const record = request.result as
+            | { data?: Record<string, unknown> }
+            | undefined;
+          resolve(record?.data ?? {});
+        });
+        request.addEventListener("error", () => reject(request.error));
+      },
+    );
+    database.close();
+    return (
+      (userData.field_backgrounds as Array<{ id?: string }> | undefined) ?? []
+    ).flatMap((field) => (field.id ? [field.id] : []));
   });
 }

@@ -199,7 +199,7 @@ export function ProjectConfigDialog({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !saving) {
         event.preventDefault();
         onCancel();
       }
@@ -207,7 +207,7 @@ export function ProjectConfigDialog({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
+  }, [onCancel, saving]);
 
   return (
     <div className="config-dialog-backdrop" role="presentation">
@@ -223,10 +223,14 @@ export function ProjectConfigDialog({
       >
         <header className="config-dialog__header">
           <strong>Settings</strong>
-          <CloseButton ariaLabel="Close config" onClick={onCancel} />
+          <CloseButton
+            ariaLabel="Close config"
+            disabled={saving}
+            onClick={onCancel}
+          />
         </header>
 
-        <div className="config-dialog__body">
+        <div className="config-dialog__body" inert={saving}>
           <SettingsNav
             activeSection={activeSection}
             onSectionChange={setActiveSection}
@@ -274,13 +278,13 @@ export function ProjectConfigDialog({
         </div>
 
         <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
+          <button type="button" disabled={saving} onClick={onCancel}>
             Cancel
           </button>
           <button
             type="button"
             className="primary-action"
-            disabled={!isDirty || saving}
+            disabled={!isDirty || fieldUploading || saving}
             onClick={saveDraft}
           >
             {saving ? "Saving…" : "Save"}
@@ -1085,12 +1089,12 @@ async function uploadCustomFieldImage({
       ).geometry;
     const geometry = await inferCustomFieldGeometry(file, fallbackGeometry);
     const uploaded: FieldBackgroundEntry = {
-      id: createFieldImageDraftId(),
+      id: selectedCustomField?.id ?? createFieldImageId(),
       name: pathDisplayNameFromFileName(file.name),
       file_name: file.name,
       mime_type: file.type || "image/png",
       size_bytes: file.size,
-      created_at: new Date().toISOString(),
+      created_at: selectedCustomField?.created_at ?? new Date().toISOString(),
       geometry,
     };
     setFieldImageDrafts((current) => ({
@@ -1100,12 +1104,11 @@ async function uploadCustomFieldImage({
     setFieldDraft((current) => ({
       ...current,
       selectedFieldId: uploaded.id,
-      fieldBackgrounds: [
-        ...current.fieldBackgrounds.filter(
-          (field) => field.id !== selectedCustomField?.id,
-        ),
-        uploaded,
-      ],
+      fieldBackgrounds: selectedCustomField
+        ? current.fieldBackgrounds.map((field) =>
+            field.id === selectedCustomField.id ? uploaded : field,
+          )
+        : [...current.fieldBackgrounds, uploaded],
     }));
   } catch (error) {
     setFieldUploadError(error instanceof Error ? error.message : String(error));
@@ -1114,11 +1117,11 @@ async function uploadCustomFieldImage({
   }
 }
 
-function createFieldImageDraftId(): string {
+function createFieldImageId(): string {
   const random =
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `field-draft-${random}`;
+  return `field-${random}`;
 }
 
 async function inferCustomFieldGeometry(
