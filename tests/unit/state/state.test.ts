@@ -1950,6 +1950,41 @@ describe("damaged Project metadata recovery", () => {
       status: "idle",
     });
   });
+
+  it("keeps damaged replacement semantics when Keep my changes retries a conflict", async () => {
+    const io = new RecordingIo(exampleWorkspace("project-a", "Alpha", 1));
+    io.damage = {
+      sourcePath: ".bline-web/state.json",
+      message: "Invalid legacy metadata",
+      rawText: "{<<<<<<< HEAD\n",
+    };
+    const store = createProjectStore();
+    store.getState().setProjectIoService(io);
+    await store.getState().initializeWorkspace();
+
+    renameActivePath(store, "Recovered Auto");
+    io.simulateExternalEdit();
+    await expect(store.getState().replaceDamagedProject()).rejects.toBeInstanceOf(
+      StorageConflictError,
+    );
+    expect(store.getState()).toMatchObject({
+      status: "conflict",
+      dirty: true,
+      persistenceDamage: { sourcePath: ".bline-web/state.json" },
+    });
+
+    await expect(store.getState().overwriteConflict()).resolves.not.toBeNull();
+    expect(io.replacementCalls).toBe(2);
+    expect(io.damage).toBeNull();
+    expect(store.getState()).toMatchObject({
+      status: "idle",
+      dirty: false,
+      persistenceDamage: null,
+    });
+    expect(activePathForProjectStore(store.getState())?.display_name).toBe(
+      "Recovered Auto",
+    );
+  });
 });
 
 describe("workspace conflict diff", () => {
@@ -2158,6 +2193,7 @@ class RecordingIo implements ProjectIoService {
   readonly transitionCalls: string[] = [];
   failExports = false;
   damage: ProjectFileDamage | null = null;
+  replacementCalls = 0;
   legacyPrepareResult: WriteResult | null = null;
   legacyPrepareRejected = false;
   legacyMigrationResult: WriteResult | null = null;
@@ -2335,8 +2371,15 @@ class RecordingIo implements ProjectIoService {
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome> {
+    this.replacementCalls += 1;
+    const damage = this.damage;
     this.damage = null;
-    return this.saveWorkspace(current, project, expectedVersion);
+    try {
+      return await this.saveWorkspace(current, project, expectedVersion);
+    } catch (error) {
+      this.damage = damage;
+      throw error;
+    }
   }
 
   private commitWrite(workspace: Project): WriteResult {

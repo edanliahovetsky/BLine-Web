@@ -234,11 +234,28 @@ export class TauriStorage implements ProjectFolderAdapter {
     expectedVersion?: string,
     storageId = this.currentDirectoryLocator ?? undefined,
   ): Promise<WriteResult> {
-    const result = await this.writeProjectFileSet(
+    let result = await this.writeProjectFileSet(
       project,
       expectedVersion,
       storageId ?? null,
     );
+    if (
+      storageId &&
+      (this.legacyFilesByLocator.get(storageId)?.length ?? 0) > 0
+    ) {
+      const cleanup = await this.invoke<ProjectFileSetWritePayload>(
+        "storage_delete_legacy_project_files",
+        {
+          directoryLocator: storageId,
+          expected: result.version,
+        },
+      );
+      this.rememberFileSetWithoutStealingCurrentLocator(cleanup, storageId);
+      this.legacyFilesByLocator.delete(storageId);
+      this.legacyAttestationByLocator.delete(storageId);
+      this.cleanupProofByLocator.delete(storageId);
+      result = { version: cleanup.version, updatedAt: cleanup.updatedAt };
+    }
     if (storageId) {
       this.damageByLocator.delete(storageId);
     }

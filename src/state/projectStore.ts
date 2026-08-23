@@ -685,11 +685,18 @@ export function createProjectStore(
       if (savePromise) {
         await savePromise;
       }
-      const { project, projectSessionId } = get();
+      const { persistenceDamage, project, projectSessionId } = get();
       if (!project || !projectSessionId) {
         return null;
       }
-      return executeOwnedSave(set, get, project, undefined, true);
+      return executeOwnedSave(
+        set,
+        get,
+        project,
+        undefined,
+        true,
+        persistenceDamage !== null,
+      );
     },
     async replaceDamagedProject() {
       if (savePromise) {

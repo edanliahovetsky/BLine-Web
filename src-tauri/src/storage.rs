@@ -727,8 +727,15 @@ fn finish_legacy_cleanup_transaction(
         }
     }
 
-    let legacy_dir = project_dir.join(".bline-web");
-    if legacy_dir.is_dir() {
+    for relative_dir in [
+        ".bline-web/assets/fields",
+        ".bline-web/assets",
+        ".bline-web",
+    ] {
+        let legacy_dir = project_dir.join(relative_dir);
+        if !legacy_dir.is_dir() {
+            continue;
+        }
         if fs::read_dir(&legacy_dir)
             .map_err(error_string)?
             .next()
@@ -2081,6 +2088,27 @@ mod tests {
             fs::read(dir.join(".bline-web/assets/fields/field.png")).unwrap(),
             [1, 2, 3]
         );
+    }
+
+    #[test]
+    fn legacy_cleanup_removes_only_now_empty_known_directories() {
+        let dir = temp_project_dir("legacy-cleanup-empty-directories");
+        install_files(
+            &dir,
+            &[
+                project_file("config.json", "config"),
+                project_file("project.json", "metadata"),
+            ],
+        );
+        fs::create_dir_all(dir.join(".bline-web/assets/fields")).unwrap();
+        fs::write(dir.join(".bline-web/state.json"), "state").unwrap();
+        let current = read_project_text_file_set(&dir).unwrap().version;
+
+        delete_legacy_project_files(&dir, &current).unwrap();
+
+        assert!(!dir.join(".bline-web/assets/fields").exists());
+        assert!(!dir.join(".bline-web/assets").exists());
+        assert!(!dir.join(".bline-web").exists());
     }
 
     #[test]
