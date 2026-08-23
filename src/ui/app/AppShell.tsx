@@ -247,6 +247,9 @@ export function AppShell() {
   const [inspectorWidth, setInspectorWidth] = useState(
     () => readEditorUiPreferences().inspectorWidth,
   );
+  const [inspectorTab, setInspectorTab] = useState<
+    EditorUiPreferencesV1["inspectorTab"]
+  >(() => readEditorUiPreferences().inspectorTab);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [showGhostPaths, setShowGhostPaths] = useState(
     () => readEditorUiPreferences().showGhostPaths,
@@ -298,7 +301,8 @@ export function AppShell() {
     isPersistenceBlocked: () => configSaveInProgressRef.current,
     prepareClose: () => tourSessionRef.current?.restore(),
     projectIo,
-    onEditorLayoutLoaded: ({ inspectorWidth, showGhostPaths }) => {
+    onEditorLayoutLoaded: ({ inspectorTab, inspectorWidth, showGhostPaths }) => {
+      setInspectorTab(inspectorTab);
       setInspectorWidth(inspectorWidth);
       setShowGhostPaths(showGhostPaths);
     },
@@ -384,12 +388,14 @@ export function AppShell() {
       showPracticeView: (projectId) => {
         setFieldSelectionOverride({ projectId, fieldId: "blank-grid" });
         setInspectorOpen(true);
+        setInspectorTab("elements");
         setActiveTool("select");
       },
       restoreView: (view) => {
         writeEditorUiPreferences(view.editorPreferences);
         setFieldSelectionOverride(view.fieldSelectionOverride);
         setInspectorOpen(view.inspectorOpen);
+        setInspectorTab(view.editorPreferences.inspectorTab);
         setInspectorWidth(view.inspectorWidth);
         setActiveTool(view.activeTool);
         setAutosaveStatus(view.autosaveStatus);
@@ -2042,9 +2048,17 @@ export function AppShell() {
               selectedElementIndex={selectedElementIndex}
               fieldGeometry={activeField.geometry}
               open={inspectorOpen}
+              activeTab={inspectorTab}
               inspectorWidth={inspectorWidth}
               curveToolActive={curveToolSession !== null}
               onClose={() => setInspectorOpen(false)}
+              onSelectTab={(tab) => {
+                setInspectorTab(tab);
+                writeEditorUiPreferences({
+                  ...readEditorUiPreferences(),
+                  inspectorTab: tab,
+                });
+              }}
               onInspectorResize={(width) =>
                 setInspectorWidth(clampInspectorWidth(width))
               }
@@ -2259,8 +2273,14 @@ export function AppShell() {
           if (preparation.inspector === "open") {
             setInspectorOpen(true);
           }
+          if (preparation.inspectorTab) {
+            setInspectorTab(preparation.inspectorTab);
+          }
           if (preparation.tool === "select") {
             handleToolChange("select");
+          }
+          if (preparation.clearSelection) {
+            selectionStore.getState().clearSelection();
           }
           if (preparation.selectElement !== undefined) {
             const state = projectStore.getState();
@@ -2319,7 +2339,7 @@ function TourPickerDialog({
             <strong>
               <span aria-hidden="true">🧭</span> Guided tours
             </strong>
-            <span>Short lessons on a practice path. Leave any time.</span>
+            <span>Practice one skill at a time. Leave any time.</span>
           </div>
           <CloseButton ariaLabel="Close guided tours" onClick={onClose} />
         </header>
@@ -2339,9 +2359,15 @@ function TourPickerDialog({
                 </span>
                 <span className="tour-picker__copy">
                   <strong>{tour.title}</strong>
-                  <small>
-                    {tour.summary} · {tour.steps.length} steps
-                  </small>
+                  {index === 0 ? (
+                    <span className="tour-picker__recommended">
+                      Recommended first
+                    </span>
+                  ) : null}
+                  <small>{tour.summary}</small>
+                </span>
+                <span className="tour-picker__duration">
+                  {tour.durationMinutes} min
                 </span>
               </button>
             );

@@ -1,17 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStoreSelector } from "../../state/react";
-import { captureElementCount, findTour } from "./tours";
+import { captureTourStepState, findTour } from "./tours";
+import { paddedViewportRect, type TourRect } from "./tourGeometry";
 import { tourStore, type TourStepPreparation } from "./tourStore";
 
-interface SpotlightRect {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-}
-
-const spotlightPadding = 6;
 const cardWidth = 272;
 const cardGap = 14;
 const viewportMargin = 12;
@@ -34,17 +27,24 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
   const stepTarget = step?.target ?? null;
   const stepPlacement = step?.placement ?? "below";
   const wantsInspector = step?.prepare?.inspector ?? null;
+  const wantsInspectorTab = step?.prepare?.inspectorTab ?? null;
   const wantsTool = step?.prepare?.tool ?? null;
+  const wantsClearSelection = step?.prepare?.clearSelection ?? false;
   const wantsSelectElement = step?.prepare?.selectElement ?? null;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
-  const [rect, setRect] = useState<SpotlightRect | null>(null);
-  const [holes, setHoles] = useState<SpotlightRect[]>([]);
+  const [rect, setRect] = useState<TourRect | null>(null);
+  const [holes, setHoles] = useState<TourRect[]>([]);
   const [cardHeight, setCardHeight] = useState(fallbackCardHeight);
+  const [completedActionToken, setCompletedActionToken] = useState<
+    string | null
+  >(null);
   const interactToken = step?.interact?.join("|") ?? "";
+  const stepToken = activeTourId ? `${activeTourId}:${stepIndex}` : null;
+  const actionComplete = completedActionToken === stepToken;
 
-  // Put the editor into the state this step needs — once per step, so the
+  // Put the editor into the state this step needs once per step, so the
   // baseline for action-driven steps is not reset on every render.
   useEffect(() => {
     if (!activeTourId) {
@@ -58,26 +58,36 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
     }
 
     preparedStepRef.current = token;
-    if (wantsInspector === "open" || wantsTool || wantsSelectElement !== null) {
+    if (
+      wantsInspector === "open" ||
+      wantsInspectorTab ||
+      wantsTool ||
+      wantsClearSelection ||
+      wantsSelectElement !== null
+    ) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
+        inspectorTab: wantsInspectorTab ?? undefined,
         tool: wantsTool ?? undefined,
+        clearSelection: wantsClearSelection || undefined,
         selectElement: wantsSelectElement ?? undefined,
       });
     }
-    captureElementCount();
+    captureTourStepState();
   }, [
     activeTourId,
     onPrepare,
     stepIndex,
     wantsInspector,
+    wantsInspectorTab,
+    wantsClearSelection,
     wantsSelectElement,
     wantsTool,
   ]);
 
   // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {
-    const measureTour = (id: string): SpotlightRect | null => {
+    const measureTour = (id: string): TourRect | null => {
       const element = document.querySelector<HTMLElement>(
         `[data-tour="${id}"]`,
       );
@@ -85,13 +95,11 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
         return null;
       }
 
-      const box = element.getBoundingClientRect();
-      return {
-        top: box.top - spotlightPadding,
-        left: box.left - spotlightPadding,
-        width: box.width + spotlightPadding * 2,
-        height: box.height + spotlightPadding * 2,
-      };
+      return paddedViewportRect(
+        element.getBoundingClientRect(),
+        window.innerWidth,
+        window.innerHeight,
+      );
     };
 
     const measure = () => {
@@ -102,18 +110,27 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
           ? interactToken
               .split("|")
               .map(measureTour)
-              .filter((hole): hole is SpotlightRect => hole !== null)
+              .filter((hole): hole is TourRect => hole !== null)
           : [],
       );
     };
 
     const frame = window.requestAnimationFrame(measure);
+    const settleTimer = window.setTimeout(measure, 320);
+    const resizeObserver = new ResizeObserver(measure);
+    document
+      .querySelectorAll<HTMLElement>("[data-tour]")
+      .forEach((element) => resizeObserver.observe(element));
     window.addEventListener("resize", measure);
     window.addEventListener("scroll", measure, true);
+    document.addEventListener("transitionend", measure, true);
     return () => {
       window.cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
+      resizeObserver.disconnect();
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
+      document.removeEventListener("transitionend", measure, true);
     };
   }, [interactToken, stepTarget]);
 
@@ -122,7 +139,7 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
     if (measured && measured !== cardHeight) {
       setCardHeight(measured);
     }
-  }, [cardHeight, stepIndex, activeTourId]);
+  }, [actionComplete, cardHeight, stepIndex, activeTourId]);
 
   // Action-driven steps advance as soon as the user does the thing.
   useEffect(() => {
@@ -136,12 +153,24 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
       return;
     }
 
+    let advanceTimer: number | null = null;
     const interval = window.setInterval(() => {
       if (completeWhen()) {
-        tourStore.getState().next(currentTour?.steps.length ?? 0);
+        window.clearInterval(interval);
+        setCompletedActionToken(`${activeTourId}:${stepIndex}`);
+        if (stepIndex < (currentTour?.steps.length ?? 0) - 1) {
+          advanceTimer = window.setTimeout(() => {
+            tourStore.getState().next(currentTour?.steps.length ?? 0);
+          }, 450);
+        }
       }
     }, 250);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      if (advanceTimer !== null) {
+        window.clearTimeout(advanceTimer);
+      }
+    };
   }, [activeTourId, stepIndex]);
 
   useEffect(() => {
@@ -259,6 +288,26 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
         </div>
         <h4>{step.title}</h4>
         <p>{step.body}</p>
+        {step.task ? (
+          <div className="tour-card__task">
+            <span>Task</span>
+            <strong>{step.task}</strong>
+          </div>
+        ) : null}
+        {actionGated ? (
+          <div
+            className={`tour-card__action-status ${
+              actionComplete ? "is-complete" : ""
+            }`}
+            role="status"
+          >
+            <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
+            {actionComplete ? "Done" : "Waiting for this action"}
+          </div>
+        ) : null}
+        {isLastStep && (!actionGated || actionComplete) ? (
+          <p className="tour-card__completion">{tour.completionMessage}</p>
+        ) : null}
         {step.keys && step.keys.length > 0 ? (
           <div className="tour-card__keys">
             {step.keys.map((key) => (
@@ -289,19 +338,15 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
           >
             Back
           </button>
-          <button
-            type="button"
-            className="is-primary"
-            disabled={actionGated}
-            title={
-              actionGated
-                ? "Complete the highlighted action to continue"
-                : undefined
-            }
-            onClick={() => tourStore.getState().next(stepCount)}
-          >
-            {actionGated ? "Try it" : isLastStep ? "Finish" : "Next"}
-          </button>
+          {!actionGated || (isLastStep && actionComplete) ? (
+            <button
+              type="button"
+              className="is-primary"
+              onClick={() => tourStore.getState().next(stepCount)}
+            >
+              {isLastStep ? "Finish" : "Next"}
+            </button>
+          ) : null}
         </div>
       </section>
     </div>,
@@ -315,10 +360,10 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
  * not occupied by a hole become shield regions.
  */
 function computeShieldRegions(
-  holes: readonly SpotlightRect[],
+  holes: readonly TourRect[],
   viewportWidth: number,
   viewportHeight: number,
-): SpotlightRect[] {
+): TourRect[] {
   if (holes.length === 0) {
     return [{ top: 0, left: 0, width: viewportWidth, height: viewportHeight }];
   }
@@ -334,7 +379,7 @@ function computeShieldRegions(
     ]),
   ].sort((a, b) => a - b);
 
-  const regions: SpotlightRect[] = [];
+  const regions: TourRect[] = [];
   for (let band = 0; band < yEdges.length - 1; band += 1) {
     const top = yEdges[band];
     const bottom = yEdges[band + 1];

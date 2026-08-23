@@ -64,8 +64,8 @@ function createConstraintsPracticePath(): PathModel {
 }
 
 /**
- * Lesson 4: a complete little auto — corner, mid-segment rotation, and an
- * event — so the simulation has something worth watching.
+ * Lesson 4: a complete little auto with a corner, mid-segment rotation, and
+ * an event, so the simulation has something worth watching.
  */
 function createSimulatePracticePath(): PathModel {
   return createPathModel({
@@ -84,11 +84,12 @@ function createSimulatePracticePath(): PathModel {
  * that the user actually added something.
  */
 let elementCountAtStepStart = 0;
+let pathAtStepStart = "";
 
-export function captureElementCount(): void {
-  elementCountAtStepStart =
-    activePathForProjectStore(projectStore.getState())?.path.path_elements
-      .length ?? 0;
+export function captureTourStepState(): void {
+  const path = activePathForProjectStore(projectStore.getState())?.path ?? null;
+  elementCountAtStepStart = path?.path_elements.length ?? 0;
+  pathAtStepStart = path ? JSON.stringify(path.path_elements) : "";
 }
 
 function elementWasAdded(): boolean {
@@ -98,6 +99,11 @@ function elementWasAdded(): boolean {
   return current > elementCountAtStepStart;
 }
 
+function pathGeometryChanged(): boolean {
+  const path = activePathForProjectStore(projectStore.getState())?.path ?? null;
+  return path !== null && JSON.stringify(path.path_elements) !== pathAtStepStart;
+}
+
 function simulationIsPlaying(): boolean {
   return document.querySelector('[aria-label="Pause simulation"]') !== null;
 }
@@ -105,9 +111,13 @@ function simulationIsPlaying(): boolean {
 function constraintsTabIsOpen(): boolean {
   return (
     document.querySelector(
-      '[data-testid="constraint-card-max_velocity_meters_per_sec"]',
+      '[data-tour="inspector-constraints"][aria-selected="true"]',
     ) !== null
   );
+}
+
+function pathHealthIsOpen(): boolean {
+  return document.querySelector('[role="dialog"][aria-label="Path health"]') !== null;
 }
 
 function velocityPlanGenerated(): boolean {
@@ -137,22 +147,36 @@ function velocitySegmentSelected(): boolean {
   );
 }
 
+function selectedVelocityCapIsManual(): boolean {
+  const path = activePathForProjectStore(projectStore.getState())?.path;
+  const selection = selectionStore.getState().selectedRangedConstraint;
+  if (!path || selection?.key !== "max_velocity_meters_per_sec") {
+    return false;
+  }
+
+  return path.ranged_constraints[selection.index]?.source !== "auto_velocity";
+}
+
 export const editorBasicsTour: TourDefinition = {
   id: editorBasicsTourId,
-  title: "Editor basics",
-  summary: "Place, shape, constrain, and simulate a path",
+  title: "Quick Start",
+  summary: "Edit a path and run the simulation",
+  durationMinutes: 3,
+  completionMessage:
+    "You edited the route, generated velocity caps, and ran the simulation.",
   practicePath: createTourPracticePath,
   steps: [
     {
       target: "path-breadcrumb",
-      title: "You are on a practice path",
-      body: `Every edit applies to the path named here. The tour moved you to “${tourPracticePathName}”, so try anything — your real autos are untouched.`,
+      title: "Practice path",
+      body: `This lesson uses “${tourPracticePathName}.” Your project will be restored when you finish or exit.`,
       placement: "below",
     },
     {
       target: "tool-waypoint",
-      title: "Place a waypoint",
-      body: "Click the highlighted Waypoint tool, then click anywhere on the field to drop one. Each tool has a number key.",
+      title: "Add a waypoint",
+      body: "Select Waypoint, then click the field.",
+      task: "Add one waypoint",
       keys: ["1"],
       placement: "right",
       interact: ["tool-waypoint", "path-canvas"],
@@ -160,71 +184,72 @@ export const editorBasicsTour: TourDefinition = {
     },
     {
       target: "path-canvas",
-      title: "Shape the path",
-      body: "You are back on the Select tool. Drag any element to move it — with one selected, arrow keys nudge it 5 cm, and Shift takes bigger steps.",
+      title: "Move the waypoint",
+      body: "Drag the new waypoint to change the route. Arrow keys move a selected element in small steps.",
+      task: "Move one path element",
       keys: ["←", "↑", "↓", "→", "Shift"],
       placement: "right",
       interact: ["path-canvas"],
       prepare: { tool: "select" },
-    },
-    {
-      target: "inspector-panel",
-      title: "Every element, in order",
-      body: "The inspector lists the path from start to finish. Select a row to type exact coordinates or duplicate it.",
-      keys: ["⌘D", "[", "]"],
-      placement: "left",
-      interact: ["inspector-panel"],
-      prepare: { inspector: "open" },
+      completeWhen: pathGeometryChanged,
     },
     {
       target: "inspector-constraints",
-      title: "Open the Constraints tab",
-      body: "Click the highlighted Constraints tab. Geometry says where the robot drives; constraints say how fast.",
+      title: "Open Constraints",
+      body: "Elements define the route. Constraints set limits on the robot's motion.",
+      task: "Select the Constraints tab",
       placement: "left",
       interact: ["inspector-constraints"],
-      prepare: { inspector: "open" },
+      prepare: { inspector: "open", inspectorTab: "elements" },
       completeWhen: constraintsTabIsOpen,
     },
     {
       target: "max-velocity-card",
-      title: "Generate a velocity plan",
-      body: "Click Generate to let the optimizer propose max-velocity caps from the path's shape. The simulation drives with these caps, so generate before you play — and review what it proposes.",
+      title: "Generate velocity caps",
+      body: "Select Generate. BLine will add velocity caps based on the route.",
+      task: "Generate velocity caps",
       placement: "left",
       interact: ["max-velocity-card"],
+      prepare: { inspector: "open", inspectorTab: "constraints" },
       completeWhen: velocityPlanGenerated,
     },
     {
       target: "transport-play",
-      title: "Watch the run",
-      body: "Play the simulation to see the robot follow your path under those caps, then keep refining. That is the whole loop.",
+      title: "Run the simulation",
+      body: "Select Play and watch the robot follow the path.",
+      task: "Play the simulation",
       keys: ["Space", "J", "K", "L"],
       placement: "above",
       interact: ["simulation-transport"],
+      completeWhen: simulationIsPlaying,
     },
   ],
 };
 
 export const shapePathsTour: TourDefinition = {
   id: "shape-paths",
-  title: "Draw better paths",
-  summary: "Path elements, segments, and handoffs — the polyline model",
+  title: "Shape a Path",
+  summary: "Add and adjust path elements",
+  durationMinutes: 4,
+  completionMessage: "You added, selected, and moved a path element.",
   practicePath: createShapePracticePath,
   steps: [
     {
-      title: "BLine drives point to point",
-      body: "A path is an ordered list of path elements, and the robot drives point to point — from one element to the next in straight segments. Extra elements approximate a curve; there is no spline underneath.",
+      title: "Elements define the route",
+      body: "BLine connects path elements with straight segments. Add intermediate elements only where the route needs to change direction.",
     },
     {
       target: "tool-rail",
-      title: "Two kinds of path elements",
-      body: "Waypoints carry a position and a heading; translation targets carry only a position. Use a waypoint where heading matters — usually the start and end — and translation targets to shape the route between.",
+      title: "Choose an element",
+      body: "Waypoints store position and heading. Translation targets store position and shape the route between waypoints.",
       keys: ["1", "2"],
       placement: "right",
     },
     {
       target: "tool-translation",
-      title: "Bend the route",
-      body: "This path is a straight line. Click the highlighted Translation tool (or press 2), then click above or below the line to bend the route through a new intermediate element.",
+      title: "Add a translation target",
+      body: "Select Translation, then click above or below the line.",
+      task: "Add one translation target",
       keys: ["2"],
       placement: "right",
       interact: ["tool-translation", "path-canvas"],
@@ -233,122 +258,143 @@ export const shapePathsTour: TourDefinition = {
     },
     {
       target: "inspector-panel",
-      title: "Rotation targets control, event triggers trigger",
-      body: "Between elements, a rotation target controls the robot's heading along the segment, and an event trigger starts robot behavior. Both are placed by t-ratio — 0 is the segment start, 1 is the end — and neither bends the route.",
+      title: "Find the new element",
+      body: "The Elements tab lists the route from start to finish. Select the translation target you added.",
+      task: "Select the translation target",
       placement: "left",
       interact: ["inspector-panel"],
-      prepare: { inspector: "open", tool: "select" },
-    },
-    {
-      title: "Intermediate elements are pass-through, not stops",
-      body: "Each intermediate element has a handoff radius — a circle around it. The moment the robot enters that circle, BLine steers for the next element, so the route flows through instead of stopping.",
-    },
-    {
-      target: "path-canvas",
-      title: "Select your new element",
-      body: "Click the translation target you just added and note its dashed circle — that is its handoff radius. Its properties, including Handoff Radius, appear in the inspector.",
-      placement: "right",
-      interact: ["path-canvas", "inspector-panel"],
-      prepare: { tool: "select" },
+      prepare: {
+        inspector: "open",
+        inspectorTab: "elements",
+        tool: "select",
+        clearSelection: true,
+      },
       completeWhen: intermediateElementSelected,
     },
     {
-      title: "Bigger circle, earlier turn",
-      body: "The radius is a speed–precision trade-off. A larger handoff radius starts the turn earlier, so the robot can carry a higher max velocity through a sharp corner. A smaller radius visits the point precisely — but demands a lower cap into it.",
+      target: "path-canvas",
+      title: "Move the element",
+      body: "Drag the selected element and watch the route update.",
+      task: "Move the translation target",
+      placement: "right",
+      interact: ["path-canvas", "inspector-panel"],
+      prepare: { tool: "select" },
+      completeWhen: pathGeometryChanged,
     },
     {
-      title: "Fewer elements, better paths",
-      body: "Every added intermediate element creates another handoff and another place where the speed plan needs review. Use the fewest elements that describe the route clearly.",
+      target: "path-canvas",
+      title: "Review the handoff",
+      body: "The dashed circle is the handoff radius. It shows when BLine begins steering toward the next element. Use the fewest elements that describe the route clearly.",
+      placement: "right",
     },
   ],
 };
 
 export const constraintsTour: TourDefinition = {
   id: "constrain-optimize",
-  title: "Constrain and optimize",
-  summary: "Velocity caps, the optimizer, and who owns the plan",
+  title: "Set Speed",
+  summary: "Generate and edit velocity constraints",
+  durationMinutes: 5,
+  completionMessage: "You generated a velocity cap and set it to Manual.",
   practicePath: createConstraintsPracticePath,
   steps: [
     {
-      title: "Geometry says where. Constraints say how fast.",
-      body: "A polyline has no time schedule. Max translation velocity is the control you will use most: it caps how aggressively BLine approaches corners, clearances, and the final pose. This practice path has a sharp corner on purpose.",
+      title: "Constraints limit motion",
+      body: "This practice path has a sharp corner. Velocity constraints control how quickly the robot approaches each part of the route.",
     },
     {
       target: "inspector-constraints",
-      title: "Open the Constraints tab",
-      body: "Click Constraints to see the velocity cards for this path.",
+      title: "Open Constraints",
+      body: "Select Constraints to view the motion limits for this path.",
+      task: "Select the Constraints tab",
       placement: "left",
       interact: ["inspector-constraints"],
-      prepare: { inspector: "open" },
+      prepare: { inspector: "open", inspectorTab: "elements" },
       completeWhen: constraintsTabIsOpen,
     },
     {
       target: "max-velocity-card",
       title: "Read the segment bar",
-      body: "The bar maps the stretches between path elements (W1, T2, …). Open stretches drive at the global max; a cap on a stretch slows just that part of the route.",
+      body: "Each section represents part of the route. Open sections use the global maximum. Capped sections use the displayed velocity limit.",
       placement: "left",
+      prepare: { inspector: "open", inspectorTab: "constraints" },
     },
     {
       target: "max-velocity-card",
-      title: "Generate caps for the corner",
-      body: "Click Generate. The optimizer proposes max-velocity caps from the geometry with a safety factor — watch it place a lower cap where the route turns sharply.",
+      title: "Generate velocity caps",
+      body: "Select Generate. Review the lower cap BLine adds near the corner.",
+      task: "Generate velocity caps",
       placement: "left",
       interact: ["max-velocity-card"],
       completeWhen: velocityPlanGenerated,
     },
     {
       target: "max-velocity-card",
-      title: "Select a cap and make it yours",
-      body: "Click a generated stretch in the bar to select it. Edit its value and it becomes Manual — manual caps survive optimizer reruns, and caps go stale when you move elements. You own the plan.",
+      title: "Select a velocity cap",
+      body: "Select a generated section in the bar to open its controls.",
+      task: "Select one generated cap",
       placement: "left",
       interact: ["max-velocity-card"],
       completeWhen: velocitySegmentSelected,
     },
     {
-      title: "The recipe: fast straight, slow turn",
-      body: "Leave open straights at the global max and cap the elements around each tight turn. If the robot overshoots a handoff, lower the cap into it first — or, for a corner you plan to take fast, start the turn earlier with a bigger handoff radius and a cap the robot can hold.",
+      target: "max-velocity-card",
+      title: "Set the cap to Manual",
+      body: "Select Manual. Manual caps remain unchanged when you generate constraints again.",
+      task: "Change the selected cap to Manual",
+      placement: "left",
+      interact: ["max-velocity-card"],
+      completeWhen: selectedVelocityCapIsManual,
     },
   ],
 };
 
 export const simulateTour: TourDefinition = {
   id: "simulate-verify",
-  title: "Simulate and verify",
-  summary: "What the preview proves — and what it cannot",
+  title: "Check a Run",
+  summary: "Simulate and prepare for robot testing",
+  durationMinutes: 4,
+  completionMessage:
+    "You checked the simulation and prepared for robot testing.",
   practicePath: createSimulatePracticePath,
   steps: [
     {
-      title: "A complete little auto",
-      body: "This practice path has a corner, a mid-segment rotation target, and an event trigger — the pieces a real auto is made of. Watch how each shows up in the preview.",
+      title: "Review the sample path",
+      body: "This path includes a corner, a rotation target, and an event trigger. The simulation shows when each part becomes active.",
     },
     {
       target: "transport-play",
-      title: "Watch the run",
-      body: "Press the highlighted play button (or Space), then scrub the timeline. Watch the robot turn during the second segment and the event marker fire as its progress passes the trigger.",
+      title: "Run the simulation",
+      body: "Select Play and watch the robot move through the route.",
+      task: "Play the simulation",
       keys: ["Space", "J", "K", "L"],
       placement: "above",
       interact: ["simulation-transport"],
       completeWhen: simulationIsPlaying,
     },
     {
-      title: "An idealized preview — not a robot sim",
-      body: "The preview follows your elements, constraints, and handoffs with ideal kinematics. It does not model PID controllers, wheel slip, battery sag, or collisions — a clean preview checks structure, it is not a robot validation.",
+      target: "simulation-transport",
+      title: "Scrub the timeline",
+      body: "Drag the timeline to inspect the route at a specific time. Rotation targets and event triggers appear as the simulation reaches them.",
+      placement: "above",
+      interact: ["simulation-transport"],
     },
     {
       target: "path-health",
-      title: "Check path health",
-      body: "The pulse icon runs the editor's structural checks — too few path elements, off-field elements, empty event keys. After the tour, open it any time and clear every issue before heading to the robot.",
+      title: "Open Path Health",
+      body: "Path Health checks for structural issues such as missing elements, off-field positions, and empty event keys.",
+      task: "Open Path Health",
       placement: "below",
+      interact: ["path-health"],
+      completeWhen: pathHealthIsOpen,
     },
     {
-      title: "Close the loop on the robot",
-      body: "The full loop is geometry → velocity plan → optimizer → simulate → robot test. Change one thing at a time, and let observed robot behavior refine your caps.",
+      title: "Know the limits",
+      body: "The simulation does not model wheel slip, battery voltage, controller tuning, or collisions. It checks the path structure and timing.",
     },
     {
-      target: "help-hub",
-      title: "Keep going",
-      body: "The documentation covers every concept here in depth. Find it any time under this menu, next to the keyboard reference and these lessons.",
-      placement: "below",
+      title: "Test on the robot",
+      body: "Verify the path on the robot before competition. Change one setting at a time and use the result to refine the constraints.",
     },
   ],
 };

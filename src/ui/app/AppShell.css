@@ -4289,7 +4289,8 @@ select {
 }
 
 .tour-picker__list > button {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: flex-start;
   gap: 11px;
   padding: 10px 11px;
@@ -4326,7 +4327,7 @@ select {
 
 .tour-picker__copy {
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .tour-picker__copy strong {
@@ -4337,6 +4338,22 @@ select {
 .tour-picker__copy small {
   color: var(--bline-text-muted);
   font-size: 0.71rem;
+}
+
+.tour-picker__duration {
+  flex: none;
+  padding-top: 2px;
+  color: var(--bline-text-muted);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.tour-picker__recommended {
+  color: var(--bline-accent);
+  font-size: 0.66rem;
+  font-weight: 720;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .tour-layer {
@@ -4362,8 +4379,8 @@ select {
   border-radius: 10px;
   box-shadow:
     0 0 0 9999px rgba(4, 8, 11, 0.66),
-    0 0 0 2px var(--bline-accent),
-    0 0 24px rgba(88, 166, 255, 0.5);
+    inset 0 0 0 2px var(--bline-accent),
+    inset 0 0 20px rgba(88, 166, 255, 0.42);
   transition:
     top 260ms ease-out,
     left 260ms ease-out,
@@ -4414,6 +4431,55 @@ select {
   color: var(--bline-text-secondary);
   font-size: 0.76rem;
   line-height: 1.5;
+}
+
+.tour-card__task {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+  padding: 8px 9px;
+  border: 1px solid rgba(88, 166, 255, 0.24);
+  border-radius: 7px;
+  background: rgba(88, 166, 255, 0.07);
+}
+
+.tour-card__task span {
+  color: var(--bline-text-muted);
+  font-size: 0.6rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tour-card__task strong {
+  color: var(--bline-text-primary);
+  font-size: 0.73rem;
+  font-weight: 650;
+}
+
+.tour-card__action-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--bline-text-muted);
+  font-size: 0.68rem;
+}
+
+.tour-card__action-status span {
+  color: var(--bline-accent);
+  font-size: 0.8rem;
+}
+
+.tour-card__action-status.is-complete,
+.tour-card__action-status.is-complete span {
+  color: var(--bline-success);
+}
+
+.tour-card p.tour-card__completion {
+  margin-top: 9px;
+  color: var(--bline-success);
+  font-weight: 640;
 }
 
 .tour-card__keys {

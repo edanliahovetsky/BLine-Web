@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import { activeFieldLabel } from "./support/app-shell-fields";
 import { openPathLibraryDialog } from "./support/app-shell-project-library";
@@ -81,7 +81,7 @@ test("runs the guided tour in an isolated practice session", async ({
   await pathStage.click({
     position: { x: canvas.width / 2, y: canvas.height / 2 },
   });
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 7");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 6");
   await ghostPathsToggle.click();
   await expect(ghostPathsToggle).not.toHaveAttribute(
     "aria-pressed",
@@ -162,6 +162,38 @@ test("restores editor navigation, history, selection, inspector, and tool after 
   );
 });
 
+test("starts inspector lessons on Elements and restores the previous tab", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-constrain-optimize").click();
+
+  const card = page.getByTestId("tour-card");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(card).toContainText("Open Constraints");
+  await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  // The lesson must wait for a fresh click instead of treating the user's
+  // pre-tour Constraints preference as completion.
+  await page.waitForTimeout(600);
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 2 of 6");
+  await page.getByRole("tab", { name: "Constraints" }).click();
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 6");
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tab", { name: "Constraints" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
 test("does not start a Tour across an active inspector dialog", async ({
   page,
 }) => {
@@ -207,7 +239,7 @@ test("starts the guided tour from the start center", async ({ page }) => {
   await page.getByTestId("start-center-guided-tour").click();
 
   await expect(page.getByTestId("tour-card")).toBeVisible();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 7");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 6");
 
   await page.keyboard.press("Escape");
   await expect(
@@ -224,20 +256,22 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
 
-  // The picker lists every lesson with its step count.
+  // The picker lists every outcome with an estimated duration.
   const picker = page.getByTestId("tour-picker");
   await expect(picker).toBeVisible();
-  await expect(picker.getByText("Editor basics")).toBeVisible();
-  await expect(picker.getByText("Draw better paths")).toBeVisible();
-  await expect(picker.getByText("Constrain and optimize")).toBeVisible();
-  await expect(picker.getByText("Simulate and verify")).toBeVisible();
+  await expect(picker.getByText("Quick Start")).toBeVisible();
+  await expect(picker.getByText("Shape a Path")).toBeVisible();
+  await expect(picker.getByText("Set Speed")).toBeVisible();
+  await expect(picker.getByText("Check a Run")).toBeVisible();
+  await expect(picker.getByText("Recommended first")).toBeVisible();
+  await expect(picker.getByText("3 min")).toBeVisible();
 
   await page.getByTestId("tour-picker-shape-paths").click();
   const card = page.getByTestId("tour-card");
   await expect(card).toBeVisible();
 
   // Lesson two opens with a concept card: dimmed editor, no spotlight.
-  await expect(card).toContainText("BLine drives point to point");
+  await expect(card).toContainText("Elements define the route");
   await expect(page.locator(".tour-scrim")).toBeVisible();
   await expect(page.locator(".tour-spotlight")).toHaveCount(0);
 
@@ -245,36 +279,36 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.locator(".tour-spotlight")).toBeVisible();
 
-  // The bend-the-route step locks Next until the element is really added.
+  // The add step shows a live task instead of a disabled action button.
   await card.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(card).toContainText("Bend the route");
+  await expect(card).toContainText("Add a translation target");
+  await expect(card).toContainText("Waiting for this action");
   await expect(
-    card.getByRole("button", { name: "Try it", exact: true }),
-  ).toBeDisabled();
+    card.getByRole("button", { name: "Next", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Translation tool" }).click();
   const canvas = await requiredBox(page.getByTestId("path-stage"));
   await page.mouse.click(
     canvas.x + canvas.width / 2,
     canvas.y + canvas.height / 2,
   );
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 8");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 6");
 
-  // Two informational steps, then the handoff step waits for a real
-  // selection of the element the learner just added.
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(card).toContainText("Select your new element");
-  await expect(
-    card.getByRole("button", { name: "Try it", exact: true }),
-  ).toBeDisabled();
-  await page.mouse.click(
-    canvas.x + canvas.width / 2,
-    canvas.y + canvas.height / 2,
+  // The lesson clears the automatic placement selection and asks the learner
+  // to find the new element in the Elements tab.
+  await expect(card).toContainText("Find the new element");
+  await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
+    "aria-selected",
+    "true",
   );
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 7 of 8");
-  await expect(card).toContainText("Bigger circle, earlier turn");
+  await page.getByTestId("path-element-row-1").click();
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 5 of 6");
+  await expect(card).toContainText("Move the element");
 
-  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 6");
+  await expect(card).toContainText("Review the handoff");
+
   await card.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 
@@ -290,31 +324,43 @@ test("advances lessons when the user performs the taught action", async ({
 }) => {
   await gotoSampleEditor(page);
 
-  // Constrain and optimize: clicking the Constraints tab advances the step.
+  // Set Speed: clicking the Constraints tab advances the step.
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId("tour-picker-constrain-optimize").click();
   const card = page.getByTestId("tour-card");
-  await expect(card).toContainText("Geometry says where");
+  await expect(card).toContainText("Constraints limit motion");
   await card.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(card).toContainText("Open the Constraints tab");
+  await expect(card).toContainText("Open Constraints");
   await page.getByRole("tab", { name: /Constraints/ }).click();
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 6");
   await expect(page.locator(".tour-spotlight")).toBeVisible();
-  await page.keyboard.press("Escape");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Generate constraints" }).click();
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 5 of 6");
+  await page
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    .click();
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 6");
+  await page
+    .getByRole("group", { name: "Velocity constraint mode" })
+    .getByRole("button", { name: "Manual" })
+    .click();
+  await expect(card).toContainText("You generated a velocity cap");
+  await card.getByRole("button", { name: "Finish", exact: true }).click();
 
-  // Simulate and verify: pressing play advances the first step.
+  // Check a Run: pressing play advances the first action step.
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId("tour-picker-simulate-verify").click();
-  await expect(card).toContainText("A complete little auto");
+  await expect(card).toContainText("Review the sample path");
   await card.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(card).toContainText("Watch the run");
+  await expect(card).toContainText("Run the simulation");
   await page.getByRole("button", { name: "Play simulation" }).click();
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 6");
-  await expect(card).toContainText("not a robot sim");
+  await expect(card).toContainText("Scrub the timeline");
   await card.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(card).toContainText("Check path health");
+  await expect(card).toContainText("Open Path Health");
   await expect(page.locator(".tour-spotlight")).toBeVisible();
   await page.keyboard.press("Escape");
 });
@@ -353,7 +399,6 @@ test("walks the guided tour with a spotlight on every step", async ({
   await page.getByTestId("tour-picker-editor-basics").click();
 
   const card = page.getByTestId("tour-card");
-  const spotlight = page.locator(".tour-spotlight");
   await expect(card).toBeVisible();
 
   // While a step allows no interaction, stray clicks are shielded: clicking
@@ -366,50 +411,39 @@ test("walks the guided tour with a spotlight on every step", async ({
   );
   await expect(waypointTool).toHaveAttribute("aria-pressed", "false");
 
-  // Every step must anchor to something real and on screen.
-  for (let step = 1; step <= 7; step += 1) {
-    await expect(page.getByTestId("tour-step-count")).toHaveText(
-      `Step ${step} of 7`,
-    );
-    await expect(spotlight).toBeVisible();
-    const box = await spotlight.boundingBox();
-    expect(box?.width ?? 0).toBeGreaterThan(0);
-    expect(box?.height ?? 0).toBeGreaterThan(0);
+  await expectTourSpotlightInViewport(page, 1, 6);
+  await card.getByRole("button", { name: "Next", exact: true }).click();
 
-    if (step === 3) {
-      // The placement step hands back the Select tool so a stray canvas
-      // click cannot drop another waypoint.
-      await expect(
-        page.getByRole("button", { name: "Select tool" }),
-      ).toHaveAttribute("aria-pressed", "true");
-    }
+  await expectTourSpotlightInViewport(page, 2, 6);
+  await expect(card).toContainText("Waiting for this action");
+  await waypointTool.click();
+  await expect(waypointTool).toHaveAttribute("aria-pressed", "true");
+  const pathStage = page.getByTestId("path-stage");
+  const canvas = await requiredBox(pathStage);
+  await pathStage.click({
+    position: { x: canvas.width / 2, y: canvas.height / 2 },
+  });
 
-    if (step === 2) {
-      // Action step: Next stays locked until the waypoint is really placed.
-      await expect(
-        card.getByRole("button", { name: "Try it", exact: true }),
-      ).toBeDisabled();
-      await waypointTool.click();
-      await expect(waypointTool).toHaveAttribute("aria-pressed", "true");
-      const pathStage = page.getByTestId("path-stage");
-      const canvas = await requiredBox(pathStage);
-      // Locator clicking waits until the tour's interaction hole exposes the
-      // canvas. A raw coordinate click can race that layout frame under load
-      // and land on the temporary shield instead.
-      await pathStage.click({
-        position: { x: canvas.width / 2, y: canvas.height / 2 },
-      });
-    } else if (step === 5) {
-      // Gated: the lesson waits for the Constraints tab itself.
-      await page.getByRole("tab", { name: /Constraints/ }).click();
-    } else if (step === 6) {
-      // Gated: generate the velocity plan before the simulation step.
-      await page.getByRole("button", { name: "Generate constraints" }).click();
-    } else if (step < 7) {
-      await card.getByRole("button", { name: "Next", exact: true }).click();
-    }
-  }
+  await expectTourSpotlightInViewport(page, 3, 6);
+  await expect(page.getByRole("button", { name: "Select tool" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.keyboard.press("ArrowRight");
 
+  await expectTourSpotlightInViewport(page, 4, 6);
+  await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.getByRole("tab", { name: "Constraints" }).click();
+
+  await expectTourSpotlightInViewport(page, 5, 6);
+  await page.getByRole("button", { name: "Generate constraints" }).click();
+
+  await expectTourSpotlightInViewport(page, 6, 6);
+  await page.getByRole("button", { name: "Play simulation" }).click();
+  await expect(card).toContainText("You edited the route");
   await card.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 
@@ -421,3 +455,22 @@ test("walks the guided tour with a spotlight on every step", async ({
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 });
+
+async function expectTourSpotlightInViewport(
+  page: Page,
+  step: number,
+  total: number,
+): Promise<void> {
+  await expect(page.getByTestId("tour-step-count")).toHaveText(
+    `Step ${step} of ${total}`,
+  );
+  const spotlight = page.locator(".tour-spotlight");
+  await expect(spotlight).toBeVisible();
+  const box = await requiredBox(spotlight);
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport?.width ?? 0);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport?.height ?? 0);
+}

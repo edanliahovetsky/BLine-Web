@@ -45,6 +45,7 @@ interface UseProjectLifecycleOptions {
   prepareClose(): void;
   projectIo: ProjectIoService | null;
   onEditorLayoutLoaded(layout: {
+    inspectorTab: "elements" | "constraints";
     inspectorWidth: number;
     showGhostPaths: boolean;
   }): void;
@@ -124,6 +125,7 @@ export function useProjectLifecycle({
           return;
         }
         applyEditorLayout({
+          inspectorTab: userData.editor_layout.inspector_tab,
           inspectorWidth: userData.editor_layout.inspector_width,
           showGhostPaths: userData.editor_layout.show_ghost_paths,
         });

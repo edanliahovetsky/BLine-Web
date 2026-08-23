@@ -30,6 +30,8 @@ const definition: TourDefinition = {
   id: "test-tour",
   title: "Test Tour",
   summary: "Exercises the isolated practice session",
+  durationMinutes: 1,
+  completionMessage: "Tour complete",
   practicePath: () =>
     createPathModel({
       path_elements: [

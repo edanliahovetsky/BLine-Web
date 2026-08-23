@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type MouseEvent } from "react";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { X } from "lucide-react";
 import type { LinkedTargetKind } from "../../core/io/projectSchema";
 import type { Project, ProjectPath } from "../../core/model/project";
@@ -43,9 +43,11 @@ interface SidebarProps {
   selectedElementIndex: number | null;
   fieldGeometry?: FieldGeometry;
   open?: boolean;
+  activeTab: "elements" | "constraints";
   inspectorWidth: number;
   curveToolActive?: boolean;
   onClose?(): void;
+  onSelectTab?(tab: "elements" | "constraints"): void;
   onInspectorResize?(width: number): void;
   onStartCurve?(insertionIndex: number): void;
   onOpenLinkedTargetPicker?(): void;
@@ -58,17 +60,16 @@ export function Sidebar({
   selectedElementIndex,
   fieldGeometry,
   open = false,
+  activeTab,
   inspectorWidth,
   curveToolActive = false,
   onClose,
+  onSelectTab,
   onInspectorResize,
   onStartCurve,
   onOpenLinkedTargetPicker,
   onDialogOpenChange,
 }: SidebarProps) {
-  const [activeTab, setActiveTab] = useState<"elements" | "constraints">(
-    () => readEditorUiPreferences().inspectorTab,
-  );
   const optimizerPhase = useStoreSelector(
     autoVelocityStore,
     (state) => state.phase,
@@ -314,11 +315,7 @@ export function Sidebar({
   };
 
   const handleSelectTab = (tab: "elements" | "constraints") => {
-    setActiveTab(tab);
-    writeEditorUiPreferences({
-      ...readEditorUiPreferences(),
-      inspectorTab: tab,
-    });
+    onSelectTab?.(tab);
   };
 
   const commitInspectorWidth = (width: number) => {

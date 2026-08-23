@@ -13,6 +13,8 @@ export interface TourStep {
   target?: string;
   title: string;
   body: string;
+  /** Short action shown as a task when the step waits for editor input. */
+  task?: string;
   /** Keys worth showing as caps beneath the body. */
   keys?: readonly string[];
   placement?: TourPlacement;
@@ -36,8 +38,11 @@ export interface TourStep {
 
 export interface TourStepPreparation {
   inspector?: "open";
+  inspectorTab?: "elements" | "constraints";
   /** Reset to the Select tool, e.g. right after a placement step. */
   tool?: "select";
+  /** Clear an existing selection before asking the learner to choose one. */
+  clearSelection?: true;
   /**
    * Select the path element at this index first. Canvas placement inserts
    * after the selection, so a bend step selects the first waypoint to make
@@ -50,6 +55,8 @@ export interface TourDefinition {
   id: string;
   title: string;
   summary: string;
+  durationMinutes: number;
+  completionMessage: string;
   /**
    * The geometry this lesson starts from. The practice path is recreated
    * from this seed on every start so each lesson opens in the state its
