@@ -15,12 +15,7 @@ export type PathDiagnosticSeverity = "error" | "warning" | "info";
 
 export type PathDiagnosticFix =
   | { kind: "add-anchors"; count: number; label: string }
-  | {
-      kind: "set-event-key";
-      elementIndex: number;
-      value: string;
-      label: string;
-    }
+  | { kind: "focus-event-key"; elementIndex: number; label: string }
   | { kind: "move-inside-field"; elementIndex: number; label: string }
   | { kind: "remove-missing-link"; elementIndex: number; label: string };
 
@@ -70,10 +65,9 @@ export function derivePathDiagnostics(
         summary: `Event ${index + 1} needs a command key.`,
         elementIndex: index,
         fix: {
-          kind: "set-event-key",
+          kind: "focus-event-key",
           elementIndex: index,
-          value: "event",
-          label: 'Set key to "event"',
+          label: "Enter command key",
         },
       });
     }

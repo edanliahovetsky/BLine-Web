@@ -744,7 +744,11 @@ export function PathHealthPopover({
           >
             <span>{diagnostic.summary}</span>
             {diagnostic.fix ? (
-              <small>Fix · {diagnostic.fix.label}</small>
+              <small>
+                {diagnostic.fix.kind === "focus-event-key" ? "Edit" : "Fix"}
+                {" · "}
+                {diagnostic.fix.label}
+              </small>
             ) : diagnostic.elementIndex !== undefined ? (
               <small>Show element {diagnostic.elementIndex + 1}</small>
             ) : (

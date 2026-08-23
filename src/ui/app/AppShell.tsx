@@ -22,10 +22,7 @@ import {
   resolveUserFieldDefinition,
   type FieldBackgroundEntry,
 } from "../../core/field/fieldConfig";
-import {
-  isEventTrigger,
-  type TranslationTarget,
-} from "../../core/model/path";
+import type { TranslationTarget } from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import {
@@ -1583,19 +1580,14 @@ export function AppShell() {
         if (result.status === "applied") {
           focusIndex = insertionIndex + elements.length - 1;
         }
-      } else if (fix?.kind === "set-event-key") {
-        const element = currentPath.path.path_elements[fix.elementIndex];
-        if (element && isEventTrigger(element)) {
-          projectStore.getState().applyPathElementEdit(
-            {
-              kind: "replace",
-              index: fix.elementIndex,
-              element: { ...element, lib_key: fix.value },
-              description: "Set default event command key",
-            },
-            { pathId: currentPath.path_id },
-          );
-        }
+      } else if (fix?.kind === "focus-event-key") {
+        window.requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLInputElement>(
+              '[data-testid="property-editor"] input[aria-label="Lib Key"]',
+            )
+            ?.focus();
+        });
       } else if (fix?.kind === "move-inside-field") {
         const position = getElementPosition(
           currentPath.path.path_elements,

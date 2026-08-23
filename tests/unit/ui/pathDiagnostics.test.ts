@@ -49,7 +49,7 @@ describe("path diagnostics", () => {
     expect(diagnostics.some((item) => item.id === "off-field-0")).toBe(true);
     expect(
       diagnostics.find((item) => item.id.startsWith("event-key-"))?.fix,
-    ).toMatchObject({ kind: "set-event-key", value: "event" });
+    ).toMatchObject({ kind: "focus-event-key", elementIndex: 4 });
     expect(
       diagnostics.find((item) => item.id === "off-field-0")?.fix,
     ).toMatchObject({ kind: "move-inside-field", elementIndex: 0 });

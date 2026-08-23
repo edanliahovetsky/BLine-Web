@@ -333,7 +333,7 @@ test("creates every path element type from the inspector menu", async ({
     "Waypoint",
   ]);
   await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.5");
-  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
 test("places every path element type with the canvas tools", async ({
@@ -406,7 +406,7 @@ test("places every path element type with the canvas tools", async ({
     "Translation",
   ]);
   await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.75");
-  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
 test("draws curves at the requested insertion point and cancels safely", async ({
@@ -898,7 +898,6 @@ test("highlights, dismisses, and resolves path health issues", async ({
   // An event trigger with no command key is a warning-level issue.
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await page.getByLabel("Lib Key").fill("");
 
   const health = page.getByRole("button", { name: "Path health: 1 issue" });
   await expect(health).toHaveClass(/status-bar__diagnostics--warning/);
@@ -918,8 +917,11 @@ test("highlights, dismisses, and resolves path health issues", async ({
     .getByRole("button")
     .filter({ hasText: "needs a command key" })
     .click();
-  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
+  await expect(page.getByLabel("Lib Key")).toBeFocused();
   await expect(dialog).toHaveCount(0);
+  await expect(health).toHaveAttribute("aria-expanded", "false");
+  await page.getByLabel("Lib Key").fill("intake");
   await expect(
     page.getByRole("button", { name: /^Path health/ }),
   ).toHaveCount(0);
