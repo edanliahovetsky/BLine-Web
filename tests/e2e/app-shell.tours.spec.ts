@@ -11,10 +11,9 @@ import {
 test("opens help and tutorials from the toolbar", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  // Path health keeps its own diagnostic identity, separate from help.
   await expect(
-    page.getByRole("button", { name: /^Path health/ }),
-  ).toHaveAttribute("title", "Path health — editor checks for this path");
+    page.getByRole("button", { name: "Search commands and paths" }),
+  ).toHaveCount(0);
 
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   const hub = page.getByTestId("help-hub");
@@ -53,10 +52,10 @@ test("runs the guided tour in an isolated practice session", async ({
   );
 
   // The practice path is seeded with a valid two-waypoint run, so the
-  // path-health check has nothing to flag.
+  // Path health stays out of the status bar when there is nothing to flag.
   await expect(
     page.getByRole("button", { name: "Path health: 0 issues" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   // Leaving the tour puts them back on the path they were editing.
   await page.keyboard.press("Escape");
@@ -159,41 +158,6 @@ test("restores editor navigation, history, selection, inspector, and tool after 
   await expect(page.getByRole("tab", { name: "Constraints" })).toHaveAttribute(
     "aria-selected",
     "true",
-  );
-});
-
-test("does not start a Tour across an active inspector dialog", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  await openConstraintsTab(page);
-  await page
-    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
-    .click();
-  await page
-    .getByRole("button", { name: "Expand Max Velocity editor" })
-    .click();
-  const dialog = page.getByRole("dialog", {
-    name: "Max Velocity expanded editor",
-  });
-  await expect(dialog).toBeVisible();
-
-  await page.getByRole("button", { name: "Help and tutorials" }).click();
-  // The popout deliberately overlays most underlying surfaces. Force the
-  // otherwise-hidden entry controls to exercise the start guard itself.
-  await page
-    .getByTestId("start-guided-tour")
-    .evaluate((button: HTMLButtonElement) => button.click());
-  await expect(page.getByTestId("tour-picker")).toBeAttached();
-  await page
-    .getByTestId("tour-picker-editor-basics")
-    .evaluate((button: HTMLButtonElement) => button.click());
-
-  await expect(page.getByTestId("tour-card")).toHaveCount(0);
-  await expect(page.getByTestId("tour-picker")).toBeAttached();
-  await expect(dialog).toBeVisible();
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    "Phase 1 Canvas Draft",
   );
 });
 
@@ -315,7 +279,7 @@ test("advances lessons when the user performs the taught action", async ({
   await expect(card).toContainText("not a robot sim");
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(card).toContainText("Check path health");
-  await expect(page.locator(".tour-spotlight")).toBeVisible();
+  await expect(page.locator(".tour-spotlight")).toHaveCount(0);
   await page.keyboard.press("Escape");
 });
 

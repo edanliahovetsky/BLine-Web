@@ -335,10 +335,8 @@ export const simulateTour: TourDefinition = {
       body: "The preview follows your elements, constraints, and handoffs with ideal kinematics. It does not model PID controllers, wheel slip, battery sag, or collisions — a clean preview checks structure, it is not a robot validation.",
     },
     {
-      target: "path-health",
       title: "Check path health",
-      body: "The pulse icon runs the editor's structural checks — too few path elements, off-field elements, empty event keys. After the tour, open it any time and clear every issue before heading to the robot.",
-      placement: "below",
+      body: "The status bar surfaces structural checks when the editor finds them — too few path elements, off-field elements, or empty event keys. Open the issue count and clear every issue before heading to the robot.",
     },
     {
       title: "Close the loop on the robot",

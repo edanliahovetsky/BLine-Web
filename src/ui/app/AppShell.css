@@ -4097,28 +4097,6 @@ select {
   background: #1b3856;
 }
 
-.command-search-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 0 7px 0 9px;
-  border: 1px solid var(--bline-border-subtle);
-  border-radius: 6px;
-  color: var(--bline-text-secondary);
-  background: var(--bline-surface-base);
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-
-.command-search-button:hover,
-.command-search-button:focus-visible {
-  border-color: #466583;
-  color: var(--bline-text-primary);
-  background: var(--bline-surface-raised);
-}
-
-.command-search-button kbd,
 .command-palette kbd,
 .shortcut-help-dialog kbd,
 .canvas-tool-rail kbd {
@@ -4132,10 +4110,6 @@ select {
   font-size: 0.67rem;
   font-weight: 720;
   line-height: 1;
-}
-
-.path-health-control {
-  position: relative;
 }
 
 .help-hub-control {
@@ -4571,40 +4545,6 @@ select {
   padding: 1px 5px;
   border: 1px solid var(--bline-border-strong);
   border-radius: 4px;
-}
-
-.path-health-control .has-diagnostics {
-  position: relative;
-  color: var(--bline-warning);
-  border-color: rgba(241, 193, 93, 0.45);
-  background: rgba(241, 193, 93, 0.12);
-}
-
-.path-health-control .has-diagnostics--error {
-  color: var(--bline-danger);
-  border-color: rgba(255, 107, 107, 0.5);
-  background: rgba(255, 107, 107, 0.14);
-}
-
-.path-health-control .has-diagnostics--error > span {
-  color: #2a0f0f;
-  background: var(--bline-danger);
-}
-
-.path-health-control .has-diagnostics > span {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border: 2px solid #11161a;
-  border-radius: 999px;
-  color: #17130a;
-  background: var(--bline-warning);
-  font-size: 0.62rem;
-  font-weight: 800;
-  line-height: 12px;
 }
 
 .path-health-popover {
@@ -5152,6 +5092,16 @@ body.is-resizing-inspector * {
   margin: 0;
 }
 
+.status-bar__diagnostics-control {
+  position: relative;
+}
+
+.status-bar__diagnostics-control .path-health-popover {
+  top: auto;
+  right: 0;
+  bottom: calc(100% + 8px);
+}
+
 .status-bar__diagnostics,
 .status-bar__save {
   display: inline-flex;
@@ -5169,6 +5119,10 @@ body.is-resizing-inspector * {
 
 .status-bar__diagnostics {
   color: #e6c87d;
+}
+
+.status-bar__diagnostics--error {
+  color: var(--bline-danger);
 }
 
 .status-bar__save:hover,
@@ -5647,10 +5601,6 @@ body.is-resizing-inspector * {
     transform: translate(-50%, -50%);
   }
 
-  .command-search-button span,
-  .command-search-button kbd {
-    display: none;
-  }
 }
 
 @media (max-width: 1120px) {
@@ -5761,16 +5711,11 @@ body.is-resizing-inspector * {
     display: none;
   }
 
-  .toolbar-actions__buttons .path-health-control {
-    display: none;
-  }
-
   .status-bar {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .status-bar__hint,
-  .status-bar__diagnostics {
+  .status-bar__hint {
     display: none;
   }
 

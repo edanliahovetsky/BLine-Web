@@ -79,7 +79,10 @@ import {
   type EditorTool,
   type EditorUiPreferencesV1,
 } from "./editorCommands";
-import { derivePathDiagnostics } from "./pathDiagnostics";
+import {
+  derivePathDiagnostics,
+  type PathDiagnostic,
+} from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
 import {
@@ -115,7 +118,7 @@ import {
 } from "./LinkedTargetsDialog";
 import { PathLibraryDialog } from "./PathLibraryDialog";
 import type { TopMenuId } from "./ToolbarMenus";
-import { AppToolbar } from "./AppToolbar";
+import { AppToolbar, PathHealthPopover } from "./AppToolbar";
 
 interface PathNameAction {
   kind: "duplicate" | "rename";
@@ -1871,8 +1874,6 @@ export function AppShell() {
           toolbarBusy,
           undoLabel,
           redoLabel,
-          pathDiagnostics,
-          saveError: error,
           toursSupported,
         }}
         commands={{
@@ -1893,25 +1894,10 @@ export function AppShell() {
         }}
         panels={{
           showOpenPanel,
-          showPathHealth,
           showHelpHub,
           inspectorOpen,
           openCommandPalette: () => setShowCommandPalette(true),
           closeOpenPanel: () => setShowOpenPanel(false),
-          togglePathHealth: () => {
-            setShowHelpHub(false);
-            setShowPathHealth((current) => !current);
-          },
-          closePathHealth: () => setShowPathHealth(false),
-          selectDiagnostic: (diagnostic) => {
-            if (diagnostic.elementIndex !== undefined) {
-              selectionStore
-                .getState()
-                .selectElement(diagnostic.elementIndex, activePath?.path);
-              setInspectorOpen(true);
-            }
-            setShowPathHealth(false);
-          },
           toggleHelpHub: () => {
             setShowPathHealth(false);
             setShowHelpHub((current) => !current);
@@ -2074,15 +2060,42 @@ export function AppShell() {
             : ""}
         </span>
         <div className="status-bar__system">
-          {pathDiagnostics.length > 0 ? (
-            <button
-              type="button"
-              className="status-bar__diagnostics"
-              onClick={() => setShowPathHealth(true)}
+          {pathDiagnostics.length > 0 || showPathHealth ? (
+            <div
+              className="status-bar__diagnostics-control"
+              data-tour="path-health"
             >
-              {pathDiagnostics.length}{" "}
-              {pathDiagnostics.length === 1 ? "issue" : "issues"}
-            </button>
+              <button
+                type="button"
+                className={`status-bar__diagnostics status-bar__diagnostics--${pathHealthSeverity(pathDiagnostics)}`}
+                aria-label={`Path health: ${pathDiagnostics.length} ${
+                  pathDiagnostics.length === 1 ? "issue" : "issues"
+                }`}
+                aria-expanded={showPathHealth}
+                onClick={() => setShowPathHealth((current) => !current)}
+              >
+                {pathDiagnostics.length}{" "}
+                {pathDiagnostics.length === 1 ? "issue" : "issues"}
+              </button>
+              {showPathHealth ? (
+                <PathHealthPopover
+                  diagnostics={pathDiagnostics}
+                  saveError={null}
+                  onSelect={(diagnostic) => {
+                    if (diagnostic.elementIndex !== undefined) {
+                      selectionStore
+                        .getState()
+                        .selectElement(
+                          diagnostic.elementIndex,
+                          activePath?.path,
+                        );
+                      setInspectorOpen(true);
+                    }
+                    setShowPathHealth(false);
+                  }}
+                />
+              ) : null}
+            </div>
           ) : null}
           <span className="sr-only" data-testid="current-path-status">
             {currentPathSummary}
@@ -2835,6 +2848,12 @@ function formatTimestamp(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function pathHealthSeverity(diagnostics: readonly PathDiagnostic[]) {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error")
+    ? "error"
+    : "warning";
 }
 
 function safeDownloadName(value: string): string {

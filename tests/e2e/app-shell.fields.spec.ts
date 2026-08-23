@@ -133,7 +133,7 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
   await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
   await expect(page.getByRole("button", { name: /^Path health/ })).toHaveClass(
-    /has-diagnostics--warning/,
+    /status-bar__diagnostics--warning/,
   );
 
   // Numeric edits can recover preserved overflow gradually, but cannot move

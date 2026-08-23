@@ -4,7 +4,7 @@ import { openConstraintsTab } from "./support/app-shell-constraints";
 import { openPathMenu } from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
-test("opens a polished expanded editor for an individual constraint", async ({
+test("keeps the expanded constraint editor out of the current UI", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -13,46 +13,13 @@ test("opens a polished expanded editor for an individual constraint", async ({
   await page
     .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
     .click();
-  const expandButton = page.getByRole("button", {
-    name: "Expand Max Velocity editor",
-  });
-  await expandButton.click();
-
-  const dialog = page.getByRole("dialog", {
-    name: "Max Velocity expanded editor",
-  });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toBeFocused();
-  await expect(dialog).not.toContainText(
-    "Changes apply immediately to the path and stay synchronized with the inspector.",
-  );
-  await expect(dialog).not.toContainText("Drag to move");
-  await expect(expandButton).toHaveText("");
   await expect(
-    dialog.getByRole("listbox", { name: "Max Velocity segments" }),
+    page.getByRole("button", { name: "Expand Max Velocity editor" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("listbox", { name: "Max Velocity segments" }),
   ).toBeVisible();
-
-  const dragHandle = dialog.getByTestId("constraint-popout-drag-handle");
-  const beforeDrag = await requiredBox(dialog);
-  const dragBox = await requiredBox(dragHandle);
-  await page.mouse.move(
-    dragBox.x + dragBox.width / 2,
-    dragBox.y + dragBox.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    dragBox.x + dragBox.width / 2 - 80,
-    dragBox.y + dragBox.height / 2 + 36,
-    { steps: 4 },
-  );
-  await page.mouse.up();
-  const afterDrag = await requiredBox(dialog);
-  expect(afterDrag.x).toBeLessThan(beforeDrag.x - 40);
-  expect(afterDrag.y).toBeGreaterThan(beforeDrag.y + 20);
-
-  await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
-  await expect(expandButton).toBeFocused();
+  await expect(page.getByTestId("constraint-popout-window")).toHaveCount(0);
 });
 
 test("adds edits and deletes ranged constraints", async ({ page }) => {

@@ -891,20 +891,21 @@ test("escalates path health styling for errors and names the count", async ({
 }) => {
   await gotoSampleEditor(page);
 
-  const health = page.getByRole("button", { name: /^Path health/ });
-  await expect(health).toHaveAttribute(
-    "title",
-    "Path health — editor checks for this path",
-  );
-  await expect(health).not.toHaveClass(/has-diagnostics/);
+  await expect(
+    page.getByRole("button", { name: /^Path health/ }),
+  ).toHaveCount(0);
 
   // An event trigger with no command key is a warning-level issue.
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
   await page.getByLabel("Lib Key").fill("");
 
-  await expect(health).toHaveClass(/has-diagnostics--warning/);
-  await expect(health).toHaveAttribute("title", /issue/);
+  const health = page.getByRole("button", { name: "Path health: 1 issue" });
+  await expect(health).toHaveClass(/status-bar__diagnostics--warning/);
+  await health.click();
+  await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
+    "needs a command key",
+  );
 });
 
 test("keeps the element properties card tight to its content", async ({

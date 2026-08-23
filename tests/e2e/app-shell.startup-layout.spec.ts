@@ -386,7 +386,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
       denseConstraintCard.locator(
         ".ranged-constraint-controls__actions button",
       ),
-    ).toHaveCount(4);
+    ).toHaveCount(3);
     await expect(page.getByTestId("auto-velocity-controls")).toHaveCount(0);
     // Select the segment last (clicking elsewhere clears the selection) so its
     // value control renders for the overflow measurement below.
@@ -424,7 +424,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         !denseCard ||
         !valueControl ||
         !valueInput ||
-        actionButtons.length !== 4
+        actionButtons.length !== 3
       ) {
         throw new Error("Expected dense sidebar ranged controls to be present");
       }
