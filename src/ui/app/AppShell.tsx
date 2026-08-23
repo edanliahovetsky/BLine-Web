@@ -7,7 +7,11 @@ import {
   useState,
 } from "react";
 import type { ChangeEvent, CSSProperties } from "react";
-import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
+import {
+  PathStage,
+  type CanvasElementPlacement,
+  type SimulationSeekRequest,
+} from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { activeProjectPath } from "../../core/model/editorNavigation";
 import type { ProjectConfig } from "../../core/model/project";
@@ -241,6 +245,12 @@ export function AppShell() {
       !window.matchMedia(mobileSupportMediaQuery).matches,
   );
   const [showTourPicker, setShowTourPicker] = useState(false);
+  const activeTourId = useStoreSelector(
+    tourStore,
+    (state) => state.activeTourId,
+  );
+  const [tourSimulationSeekRequest, setTourSimulationSeekRequest] =
+    useState<SimulationSeekRequest | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
   );
@@ -268,6 +278,7 @@ export function AppShell() {
   const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false);
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
+  const nextTourSimulationSeekIdRef = useRef(1);
   const importHandlingRef = useRef(false);
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -301,7 +312,11 @@ export function AppShell() {
     isPersistenceBlocked: () => configSaveInProgressRef.current,
     prepareClose: () => tourSessionRef.current?.restore(),
     projectIo,
-    onEditorLayoutLoaded: ({ inspectorTab, inspectorWidth, showGhostPaths }) => {
+    onEditorLayoutLoaded: ({
+      inspectorTab,
+      inspectorWidth,
+      showGhostPaths,
+    }) => {
       setInspectorTab(inspectorTab);
       setInspectorWidth(inspectorWidth);
       setShowGhostPaths(showGhostPaths);
@@ -665,6 +680,17 @@ export function AppShell() {
     [],
   );
 
+  const seekTourSimulation = useCallback(
+    (position: SimulationSeekRequest["position"]) => {
+      setTourSimulationSeekRequest({
+        id: nextTourSimulationSeekIdRef.current,
+        position,
+      });
+      nextTourSimulationSeekIdRef.current += 1;
+    },
+    [],
+  );
+
   const handleToolChange = useCallback(
     (tool: EditorTool) => {
       setActiveTool(tool);
@@ -734,8 +760,11 @@ export function AppShell() {
             projectStore.getState().activePathId,
           )?.path,
         );
+      if (tourStore.getState().activeTourId) {
+        seekTourSimulation("end");
+      }
     },
-    [activeField.geometry],
+    [activeField.geometry, seekTourSimulation],
   );
 
   const handleDismissMobileSupportWarning = useCallback(() => {
@@ -2013,6 +2042,9 @@ export function AppShell() {
                   });
                 }}
                 curveTool={curveToolSession}
+                simulationSeekRequest={
+                  activeTourId ? tourSimulationSeekRequest : null
+                }
                 onToolChange={handleToolChange}
                 onPlaceElement={handlePlaceCanvasElement}
                 onInteractionStateChange={handleCanvasInteractionStateChange}
@@ -2269,7 +2301,10 @@ export function AppShell() {
         />
       ) : null}
       <TourOverlay
-        onFinish={() => setShowTourPicker(true)}
+        onFinish={() => {
+          setShowPathHealth(false);
+          setShowTourPicker(true);
+        }}
         onPrepare={(preparation) => {
           if (preparation.inspector === "open") {
             setInspectorOpen(true);
@@ -2291,6 +2326,9 @@ export function AppShell() {
                 preparation.selectElement,
                 activeProjectPath(state.project, state.activePathId)?.path,
               );
+          }
+          if (preparation.simulation) {
+            seekTourSimulation(preparation.simulation);
           }
         }}
       />

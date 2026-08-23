@@ -33,6 +33,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const wantsTool = step?.prepare?.tool ?? null;
   const wantsClearSelection = step?.prepare?.clearSelection ?? false;
   const wantsSelectElement = step?.prepare?.selectElement ?? null;
+  const wantsSimulation = step?.prepare?.simulation ?? null;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
@@ -65,7 +66,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       wantsInspectorTab ||
       wantsTool ||
       wantsClearSelection ||
-      wantsSelectElement !== null
+      wantsSelectElement !== null ||
+      wantsSimulation
     ) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
@@ -73,6 +75,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
         tool: wantsTool ?? undefined,
         clearSelection: wantsClearSelection || undefined,
         selectElement: wantsSelectElement ?? undefined,
+        simulation: wantsSimulation ?? undefined,
       });
     }
     captureTourStepState();
@@ -84,6 +87,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     wantsInspectorTab,
     wantsClearSelection,
     wantsSelectElement,
+    wantsSimulation,
     wantsTool,
   ]);
 
@@ -143,14 +147,17 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     }
   }, [actionComplete, cardHeight, stepIndex, activeTourId]);
 
-  // Action-driven steps advance as soon as the user does the thing.
+  // Verify action-driven steps against live editor state. Some advance right
+  // away; practice-heavy steps leave the control open until the learner is
+  // ready to continue.
   useEffect(() => {
     if (!activeTourId) {
       return;
     }
 
     const currentTour = findTour(activeTourId);
-    const completeWhen = currentTour?.steps[stepIndex]?.completeWhen;
+    const currentStep = currentTour?.steps[stepIndex];
+    const completeWhen = currentStep?.completeWhen;
     if (!completeWhen) {
       return;
     }
@@ -160,7 +167,10 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       if (completeWhen()) {
         window.clearInterval(interval);
         setCompletedActionToken(`${activeTourId}:${stepIndex}`);
-        if (stepIndex < (currentTour?.steps.length ?? 0) - 1) {
+        if (
+          currentStep?.advance !== "manual" &&
+          stepIndex < (currentTour?.steps.length ?? 0) - 1
+        ) {
           advanceTimer = window.setTimeout(() => {
             tourStore.getState().next(currentTour?.steps.length ?? 0);
           }, 450);
@@ -312,7 +322,11 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
             role="status"
           >
             <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
-            {actionComplete ? "Done" : "Waiting for this action"}
+            {actionComplete
+              ? step.advance === "manual"
+                ? "Done. Keep experimenting or continue."
+                : "Done"
+              : "Waiting for this action"}
           </div>
         ) : null}
         {isLastStep && (!actionGated || actionComplete) ? (
@@ -348,12 +362,9 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           >
             Back
           </button>
-          {!actionGated || (isLastStep && actionComplete) ? (
-            <button
-              type="button"
-              className="is-primary"
-              onClick={handleNext}
-            >
+          {!actionGated ||
+          (actionComplete && (isLastStep || step.advance === "manual")) ? (
+            <button type="button" className="is-primary" onClick={handleNext}>
               {isLastStep ? "Finish" : "Next"}
             </button>
           ) : null}

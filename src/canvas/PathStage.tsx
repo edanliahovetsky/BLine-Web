@@ -102,6 +102,7 @@ interface PathStageProps {
   activeTool?: EditorTool;
   showGhostPaths?: boolean;
   curveTool?: CurveToolSession | null;
+  simulationSeekRequest?: SimulationSeekRequest | null;
   onToolChange?(tool: EditorTool): void;
   onShowGhostPathsChange?(show: boolean): void;
   onPlaceElement?(placement: CanvasElementPlacement): void;
@@ -111,6 +112,11 @@ interface PathStageProps {
     targets: readonly TranslationTarget[],
   ): void;
   onCurveToolCancel?(): void;
+}
+
+export interface SimulationSeekRequest {
+  id: number;
+  position: "start" | "end";
 }
 
 export interface CanvasElementPlacement {
@@ -164,6 +170,7 @@ export function PathStage({
   activeTool = "select",
   showGhostPaths = true,
   curveTool = null,
+  simulationSeekRequest = null,
   onToolChange,
   onShowGhostPathsChange,
   onPlaceElement,
@@ -195,6 +202,7 @@ export function PathStage({
   const [isPanning, setIsPanning] = useState(false);
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
+  const [simulationSeekCount, setSimulationSeekCount] = useState(0);
   const [hoveredOverlayPathId, setHoveredOverlayPathId] = useState<
     string | null
   >(null);
@@ -699,6 +707,22 @@ export function PathStage({
     setSimulationPlaying(false);
     setSimulationTime(simulationResult.total_time_s);
   }, [simulationResult]);
+
+  useEffect(() => {
+    if (!simulationSeekRequest || !simulationResult) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      setSimulationPlaying(false);
+      setSimulationTime(
+        simulationSeekRequest.position === "end"
+          ? simulationResult.total_time_s
+          : 0,
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [simulationResult, simulationSeekRequest]);
 
   useEffect(() => {
     const handleSimulationShortcut = (event: globalThis.KeyboardEvent) => {
@@ -1611,12 +1635,14 @@ export function PathStage({
           result={simulationResult}
           currentTimeS={simulationTime}
           playing={simulationPlaying}
+          seekCount={simulationSeekCount}
           onReset={resetSimulation}
           onTogglePlaying={toggleSimulationPlaying}
           onFinish={finishSimulation}
           onSeek={(time) => {
             setSimulationTime(time);
             setSimulationPlaying(false);
+            setSimulationSeekCount((count) => count + 1);
           }}
         />
       </div>
@@ -1870,6 +1896,7 @@ function SimulationTransport({
   result,
   currentTimeS,
   playing,
+  seekCount,
   onReset,
   onTogglePlaying,
   onFinish,
@@ -1878,6 +1905,7 @@ function SimulationTransport({
   result: SimResult | null;
   currentTimeS: number;
   playing: boolean;
+  seekCount: number;
   onReset(): void;
   onTogglePlaying(): void;
   onFinish(): void;
@@ -1896,6 +1924,7 @@ function SimulationTransport({
       className="simulation-transport"
       data-testid="simulation-transport"
       data-tour="simulation-transport"
+      data-tour-seek-count={seekCount}
     >
       <div className="transport-primary-controls">
         <button

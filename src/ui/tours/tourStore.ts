@@ -30,10 +30,15 @@ export interface TourStep {
    */
   prepare?: TourStepPreparation;
   /**
-   * When present the step advances on its own as soon as this returns true,
-   * letting the user learn by doing instead of reading.
+   * When present the step waits for real editor state instead of accepting a
+   * button click. Automatic steps move on; manual steps unlock Next.
    */
   completeWhen?(): boolean;
+  /**
+   * Manual action steps unlock Next instead of taking the learner away from
+   * the live control. Use them when another drag or scrub helps build feel.
+   */
+  advance?: "automatic" | "manual";
 }
 
 export interface TourStepPreparation {
@@ -49,6 +54,8 @@ export interface TourStepPreparation {
    * the new element land between the existing ones.
    */
   selectElement?: number;
+  /** Move the simulated robot before the step begins. */
+  simulation?: "start" | "end";
 }
 
 export interface TourDefinition {

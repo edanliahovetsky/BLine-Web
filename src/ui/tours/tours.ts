@@ -35,46 +35,59 @@ function waypoint(
   });
 }
 
-/** Lesson 1: a plain two-waypoint run the learner extends and simulates. */
+/** Lesson 1: the first half of a scoring run the learner finishes. */
 export function createTourPracticePath(): PathModel {
   return createPathModel({
-    path_elements: [waypoint(3, 3), waypoint(6.5, 4.5)],
+    path_elements: [
+      waypoint(2, 2, 0),
+      createTranslationTarget({ x_meters: 4.8, y_meters: 2.6 }),
+      waypoint(7.2, 4.7, Math.PI / 3),
+    ],
   });
 }
 
-/** Lesson 2: a straight line begging to be bent through the middle. */
+/** Lesson 2: a long lane the learner turns into a two-bend route. */
 function createShapePracticePath(): PathModel {
   return createPathModel({
-    path_elements: [waypoint(2.5, 4), waypoint(9, 4)],
+    path_elements: [waypoint(2, 1.8), waypoint(13.5, 6.1, Math.PI)],
   });
 }
 
 /**
- * Lesson 3: a sharp right-angle corner, so the optimizer visibly proposes a
- * lower cap where the route turns.
+ * Lesson 3: a two-corner scoring run, so generated caps have more than one
+ * decision to explain.
  */
 function createConstraintsPracticePath(): PathModel {
   return createPathModel({
     path_elements: [
-      waypoint(2.5, 2.5),
-      createTranslationTarget({ x_meters: 8, y_meters: 2.5 }),
-      waypoint(8, 6),
+      waypoint(1.8, 2),
+      createTranslationTarget({ x_meters: 5.4, y_meters: 2.1 }),
+      waypoint(7, 4.6, Math.PI / 2),
+      createTranslationTarget({ x_meters: 9.6, y_meters: 6.5 }),
+      waypoint(13.4, 5.2, Math.PI),
     ],
   });
 }
 
 /**
- * Lesson 4: a complete little auto with a corner, mid-segment rotation, and
- * an event, so the simulation has something worth watching.
+ * Lesson 4: a complete three-stop auto with two turns, two headings, and two
+ * mechanism events, so the timeline has a real sequence to inspect.
  */
 function createSimulatePracticePath(): PathModel {
   return createPathModel({
     path_elements: [
-      waypoint(2.5, 2.5),
-      createTranslationTarget({ x_meters: 8, y_meters: 2.5 }),
-      createRotationTarget({ rotation_radians: Math.PI / 2, t_ratio: 0.5 }),
-      createEventTrigger({ t_ratio: 0.7, lib_key: "demoEvent" }),
-      waypoint(8, 6, Math.PI / 2),
+      waypoint(1.8, 1.7),
+      createTranslationTarget({ x_meters: 4.2, y_meters: 2.2 }),
+      createRotationTarget({
+        rotation_radians: Math.PI / 3,
+        t_ratio: 0.45,
+      }),
+      createEventTrigger({ t_ratio: 0.62, lib_key: "startIntake" }),
+      waypoint(7, 4.8, Math.PI / 2),
+      createTranslationTarget({ x_meters: 10.2, y_meters: 6.2 }),
+      createRotationTarget({ rotation_radians: Math.PI, t_ratio: 0.45 }),
+      createEventTrigger({ t_ratio: 0.7, lib_key: "scorePiece" }),
+      waypoint(13.4, 4.4, Math.PI),
     ],
   });
 }
@@ -85,27 +98,45 @@ function createSimulatePracticePath(): PathModel {
  */
 let elementCountAtStepStart = 0;
 let pathAtStepStart = "";
+let simulationSeekCountAtStepStart = 0;
+let lastPlacedElementIndex: number | null = null;
 
 export function captureTourStepState(): void {
   const path = activePathForProjectStore(projectStore.getState())?.path ?? null;
   elementCountAtStepStart = path?.path_elements.length ?? 0;
   pathAtStepStart = path ? JSON.stringify(path.path_elements) : "";
+  simulationSeekCountAtStepStart = readSimulationSeekCount();
 }
 
 function elementWasAdded(): boolean {
-  const current =
-    activePathForProjectStore(projectStore.getState())?.path.path_elements
-      .length ?? 0;
-  return current > elementCountAtStepStart;
+  const path = activePathForProjectStore(projectStore.getState())?.path;
+  if (!path || path.path_elements.length <= elementCountAtStepStart) {
+    return false;
+  }
+  lastPlacedElementIndex = selectionStore.getState().selectedElementIndex;
+  return true;
 }
 
 function pathGeometryChanged(): boolean {
   const path = activePathForProjectStore(projectStore.getState())?.path ?? null;
-  return path !== null && JSON.stringify(path.path_elements) !== pathAtStepStart;
+  return (
+    path !== null && JSON.stringify(path.path_elements) !== pathAtStepStart
+  );
 }
 
 function simulationIsPlaying(): boolean {
   return document.querySelector('[aria-label="Pause simulation"]') !== null;
+}
+
+function readSimulationSeekCount(): number {
+  const value = document
+    .querySelector('[data-tour="simulation-transport"]')
+    ?.getAttribute("data-tour-seek-count");
+  return Number(value ?? 0);
+}
+
+function simulationWasScrubbed(): boolean {
+  return readSimulationSeekCount() > simulationSeekCountAtStepStart;
 }
 
 function constraintsTabIsOpen(): boolean {
@@ -117,7 +148,9 @@ function constraintsTabIsOpen(): boolean {
 }
 
 function pathHealthIsOpen(): boolean {
-  return document.querySelector('[role="dialog"][aria-label="Path health"]') !== null;
+  return (
+    document.querySelector('[role="dialog"][aria-label="Path health"]') !== null
+  );
 }
 
 function velocityPlanGenerated(): boolean {
@@ -128,16 +161,25 @@ function velocityPlanGenerated(): boolean {
   );
 }
 
-function intermediateElementSelected(): boolean {
+function lastPlacedTranslationSelected(): boolean {
   const path = activePathForProjectStore(projectStore.getState())?.path;
   const index = selectionStore.getState().selectedElementIndex;
-  if (!path || index === null) {
-    return false;
-  }
-  if (index <= 0 || index >= path.path_elements.length - 1) {
-    return false;
-  }
-  return path.path_elements[index]?.type === "translation";
+  return (
+    path !== undefined &&
+    index !== null &&
+    index === lastPlacedElementIndex &&
+    path.path_elements[index]?.type === "translation"
+  );
+}
+
+function eventElementSelected(): boolean {
+  const path = activePathForProjectStore(projectStore.getState())?.path;
+  const index = selectionStore.getState().selectedElementIndex;
+  return (
+    path !== undefined &&
+    index !== null &&
+    path.path_elements[index]?.type === "event_trigger"
+  );
 }
 
 function velocitySegmentSelected(): boolean {
@@ -160,23 +202,23 @@ function selectedVelocityCapIsManual(): boolean {
 export const editorBasicsTour: TourDefinition = {
   id: editorBasicsTourId,
   title: "Quick Start",
-  summary: "Edit a path and run the simulation",
-  durationMinutes: 3,
+  summary: "Build, refine, and replay a scoring route",
+  durationMinutes: 4,
   completionMessage:
-    "You edited the route, generated velocity caps, and ran the simulation.",
+    "You built a scoring route, checked its timing, and prepared it for motion.",
   practicePath: createTourPracticePath,
   steps: [
     {
       target: "path-breadcrumb",
-      title: "Practice path",
-      body: `This lesson uses “${tourPracticePathName}.” Your project will be restored when you finish or exit.`,
+      title: "Your training field",
+      body: `This is “${tourPracticePathName},” a safe copy for learning. Your real project returns when you finish or exit.`,
       placement: "below",
     },
     {
       target: "tool-waypoint",
-      title: "Add a waypoint",
-      body: "Select Waypoint, then click the field.",
-      task: "Add one waypoint",
+      title: "Finish the scoring run",
+      body: "The robot already leaves its start and crosses one lane. Select Waypoint, then place the final scoring pose in open space.",
+      task: "Place the final waypoint",
       keys: ["1"],
       placement: "right",
       interact: ["tool-waypoint", "path-canvas"],
@@ -184,19 +226,32 @@ export const editorBasicsTour: TourDefinition = {
     },
     {
       target: "path-canvas",
-      title: "Move the waypoint",
-      body: "Drag the new waypoint to change the route. Arrow keys move a selected element in small steps.",
-      task: "Move one path element",
+      title: "Tune the final pose",
+      body: "Drag the selected waypoint until the approach looks clean. Arrow keys make small adjustments. Keep refining after the task is done.",
+      task: "Move the final waypoint",
       keys: ["←", "↑", "↓", "→", "Shift"],
       placement: "right",
       interact: ["path-canvas"],
       prepare: { tool: "select" },
       completeWhen: pathGeometryChanged,
+      advance: "manual",
+    },
+    {
+      target: "simulation-transport",
+      title: "Replay your edit",
+      body: "The robot is parked at the new endpoint. Drag the timeline back through the turn, then scrub anywhere you want to inspect.",
+      task: "Drag the simulation timeline",
+      keys: ["J", "K", "L"],
+      placement: "above",
+      interact: ["simulation-transport"],
+      prepare: { simulation: "end" },
+      completeWhen: simulationWasScrubbed,
+      advance: "manual",
     },
     {
       target: "inspector-constraints",
       title: "Open Constraints",
-      body: "Elements define the route. Constraints set limits on the robot's motion.",
+      body: "The route now has a shape. Constraints decide how hard the robot may drive through it.",
       task: "Select the Constraints tab",
       placement: "left",
       interact: ["inspector-constraints"],
@@ -206,7 +261,7 @@ export const editorBasicsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Generate velocity caps",
-      body: "Select Generate. BLine will add velocity caps based on the route.",
+      body: "Select Generate. BLine will propose lower speed caps where this route asks the robot to turn harder.",
       task: "Generate velocity caps",
       placement: "left",
       interact: ["max-velocity-card"],
@@ -216,7 +271,7 @@ export const editorBasicsTour: TourDefinition = {
     {
       target: "transport-play",
       title: "Run the simulation",
-      body: "Select Play and watch the robot follow the path.",
+      body: "Select Play. Watch the full run once before you trust the timing.",
       task: "Play the simulation",
       keys: ["Space", "J", "K", "L"],
       placement: "above",
@@ -229,27 +284,21 @@ export const editorBasicsTour: TourDefinition = {
 export const shapePathsTour: TourDefinition = {
   id: "shape-paths",
   title: "Shape a Path",
-  summary: "Add and adjust path elements",
-  durationMinutes: 4,
-  completionMessage: "You added, selected, and moved a path element.",
+  summary: "Build and tune a two-bend pickup lane",
+  durationMinutes: 7,
+  completionMessage:
+    "You built a two-bend route and used the robot trace to refine it.",
   practicePath: createShapePracticePath,
   steps: [
     {
-      title: "Elements define the route",
-      body: "BLine connects path elements with straight segments. Add intermediate elements only where the route needs to change direction.",
-    },
-    {
-      target: "tool-rail",
-      title: "Choose an element",
-      body: "Waypoints store position and heading. Translation targets store position and shape the route between waypoints.",
-      keys: ["1", "2"],
-      placement: "right",
+      title: "Build a pickup lane",
+      body: "The start and finish are set. Your job is to shape a two-bend lane around traffic, then replay it like a robot programmer reviewing an auto.",
     },
     {
       target: "tool-translation",
-      title: "Add a translation target",
-      body: "Select Translation, then click above or below the line.",
-      task: "Add one translation target",
+      title: "Place the first bend",
+      body: "Translation targets shape the route without adding another stop. Select Translation and place one away from the straight line.",
+      task: "Add the first translation target",
       keys: ["2"],
       placement: "right",
       interact: ["tool-translation", "path-canvas"],
@@ -257,10 +306,44 @@ export const shapePathsTour: TourDefinition = {
       completeWhen: elementWasAdded,
     },
     {
+      target: "path-canvas",
+      title: "Shape the first bend",
+      body: "Drag the selected target. Try a broad bend, then a tighter one, and watch how much route each move changes.",
+      task: "Move the first bend",
+      keys: ["←", "↑", "↓", "→", "Shift"],
+      placement: "right",
+      interact: ["path-canvas", "inspector-panel"],
+      prepare: { tool: "select" },
+      completeWhen: pathGeometryChanged,
+      advance: "manual",
+    },
+    {
+      target: "simulation-transport",
+      title: "Drive through the bend",
+      body: "The robot is at the endpoint. Drag the timeline back and forth to see where it commits to your new line.",
+      task: "Scrub through the first bend",
+      placement: "above",
+      interact: ["simulation-transport"],
+      prepare: { simulation: "end" },
+      completeWhen: simulationWasScrubbed,
+      advance: "manual",
+    },
+    {
+      target: "tool-translation",
+      title: "Add a second bend",
+      body: "Real autos rarely get one clean lane. Add another Translation target in the second half to make an S route.",
+      task: "Add a second translation target",
+      keys: ["2"],
+      placement: "right",
+      interact: ["tool-translation", "path-canvas"],
+      prepare: { selectElement: 1 },
+      completeWhen: elementWasAdded,
+    },
+    {
       target: "inspector-panel",
-      title: "Find the new element",
-      body: "The Elements tab lists the route from start to finish. Select the translation target you added.",
-      task: "Select the translation target",
+      title: "Find the new bend",
+      body: "The Elements tab is the route in order. Select the Translation row you just added before you tune it.",
+      task: "Select the newest translation target",
       placement: "left",
       interact: ["inspector-panel"],
       prepare: {
@@ -269,22 +352,34 @@ export const shapePathsTour: TourDefinition = {
         tool: "select",
         clearSelection: true,
       },
-      completeWhen: intermediateElementSelected,
+      completeWhen: lastPlacedTranslationSelected,
     },
     {
       target: "path-canvas",
-      title: "Move the element",
-      body: "Drag the selected element and watch the route update.",
-      task: "Move the translation target",
+      title: "Balance the S route",
+      body: "Drag the selected bend until both turns feel deliberate. You can keep moving it after Done appears.",
+      task: "Move the second bend",
       placement: "right",
       interact: ["path-canvas", "inspector-panel"],
       prepare: { tool: "select" },
       completeWhen: pathGeometryChanged,
+      advance: "manual",
+    },
+    {
+      target: "simulation-transport",
+      title: "Compare the whole route",
+      body: "BLine moved the robot to the new endpoint after your edit. Scrub across both bends and compare where each handoff begins.",
+      task: "Scrub across both bends",
+      placement: "above",
+      interact: ["simulation-transport"],
+      prepare: { simulation: "end" },
+      completeWhen: simulationWasScrubbed,
+      advance: "manual",
     },
     {
       target: "path-canvas",
-      title: "Review the handoff",
-      body: "The dashed circle is the handoff radius. It shows when BLine begins steering toward the next element. Use the fewest elements that describe the route clearly.",
+      title: "Leave room for the robot",
+      body: "Dashed circles show when BLine begins steering toward the next element. Favor a few clear targets and leave real clearance for bumpers, defenders, and error.",
       placement: "right",
     },
   ],
@@ -293,14 +388,15 @@ export const shapePathsTour: TourDefinition = {
 export const constraintsTour: TourDefinition = {
   id: "constrain-optimize",
   title: "Set Speed",
-  summary: "Generate and edit velocity constraints",
-  durationMinutes: 5,
-  completionMessage: "You generated a velocity cap and set it to Manual.",
+  summary: "Protect a fast two-corner auto",
+  durationMinutes: 6,
+  completionMessage:
+    "You protected a generated cap and checked where the robot needs it.",
   practicePath: createConstraintsPracticePath,
   steps: [
     {
-      title: "Constraints limit motion",
-      body: "This practice path has a sharp corner. Velocity constraints control how quickly the robot approaches each part of the route.",
+      title: "Fast is not one number",
+      body: "This scoring run has two different corners. A useful speed plan stays quick on open ground and gives the robot room where direction changes.",
     },
     {
       target: "inspector-constraints",
@@ -315,14 +411,14 @@ export const constraintsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Read the segment bar",
-      body: "Each section represents part of the route. Open sections use the global maximum. Capped sections use the displayed velocity limit.",
+      body: "Each section maps to part of the route. Open sections use the global maximum. Capped sections carry their own limit.",
       placement: "left",
       prepare: { inspector: "open", inspectorTab: "constraints" },
     },
     {
       target: "max-velocity-card",
       title: "Generate velocity caps",
-      body: "Select Generate. Review the lower cap BLine adds near the corner.",
+      body: "Select Generate. Compare the caps BLine proposes for the two corners instead of treating the whole auto the same.",
       task: "Generate velocity caps",
       placement: "left",
       interact: ["max-velocity-card"],
@@ -340,11 +436,23 @@ export const constraintsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Set the cap to Manual",
-      body: "Select Manual. Manual caps remain unchanged when you generate constraints again.",
-      task: "Change the selected cap to Manual",
+      body: "Select Manual to protect this decision from the next generation pass. You can also try a lower value before continuing.",
+      task: "Protect the selected cap as Manual",
       placement: "left",
       interact: ["max-velocity-card"],
       completeWhen: selectedVelocityCapIsManual,
+      advance: "manual",
+    },
+    {
+      target: "simulation-transport",
+      title: "Find the slow corner",
+      body: "The robot is at the endpoint. Scrub backward and connect the lower speed section to the turn it protects.",
+      task: "Scrub through a constrained corner",
+      placement: "above",
+      interact: ["simulation-transport"],
+      prepare: { simulation: "end" },
+      completeWhen: simulationWasScrubbed,
+      advance: "manual",
     },
   ],
 };
@@ -352,20 +460,20 @@ export const constraintsTour: TourDefinition = {
 export const simulateTour: TourDefinition = {
   id: "simulate-verify",
   title: "Check a Run",
-  summary: "Simulate and prepare for robot testing",
-  durationMinutes: 4,
+  summary: "Review a full auto before robot testing",
+  durationMinutes: 6,
   completionMessage:
-    "You checked the simulation and prepared for robot testing.",
+    "You traced a full auto, checked its events, and prepared a safer robot test.",
   practicePath: createSimulatePracticePath,
   steps: [
     {
-      title: "Review the sample path",
-      body: "This path includes a corner, a rotation target, and an event trigger. The simulation shows when each part becomes active.",
+      title: "Read the whole auto",
+      body: "This route has three stops, two heading changes, and mechanism events for intake and scoring. Treat the timeline like a quick preflight review.",
     },
     {
       target: "transport-play",
       title: "Run the simulation",
-      body: "Select Play and watch the robot move through the route.",
+      body: "Select Play and watch the robot's position and heading through the full sequence.",
       task: "Play the simulation",
       keys: ["Space", "J", "K", "L"],
       placement: "above",
@@ -374,27 +482,45 @@ export const simulateTour: TourDefinition = {
     },
     {
       target: "simulation-transport",
-      title: "Scrub the timeline",
-      body: "Drag the timeline to inspect the route at a specific time. Rotation targets and event triggers appear as the simulation reaches them.",
+      title: "Scrub with intent",
+      body: "The robot is now at the finish. Drag back through the run and pause near a heading change or event marker.",
+      task: "Drag the simulation timeline",
       placement: "above",
       interact: ["simulation-transport"],
+      prepare: { simulation: "end" },
+      completeWhen: simulationWasScrubbed,
+      advance: "manual",
+    },
+    {
+      target: "inspector-panel",
+      title: "Inspect an event",
+      body: "Open the Elements list and select either Event Trigger. Confirm that mechanism actions live at a specific point in the route.",
+      task: "Select an event trigger",
+      placement: "left",
+      interact: ["inspector-panel"],
+      prepare: {
+        inspector: "open",
+        inspectorTab: "elements",
+        clearSelection: true,
+      },
+      completeWhen: eventElementSelected,
+    },
+    {
+      title: "Know the limits",
+      body: "This preview does not model wheel slip, battery sag, controller tuning, contact, or a defender. It checks route structure, timing, and intent.",
+    },
+    {
+      title: "Plan the first robot run",
+      body: "Start with clear space and an easy stop. Watch one risky corner, change one thing, then run again. Good autos are tuned from evidence.",
     },
     {
       target: "path-health",
-      title: "Open Path Health",
-      body: "Path Health checks for structural issues such as missing elements, off-field positions, and empty event keys.",
+      title: "Run the preflight check",
+      body: "Path Health catches structural problems such as missing elements, off-field positions, and empty event keys before the robot sees the file.",
       task: "Open Path Health",
       placement: "below",
       interact: ["path-health"],
       completeWhen: pathHealthIsOpen,
-    },
-    {
-      title: "Know the limits",
-      body: "The simulation does not model wheel slip, battery voltage, controller tuning, or collisions. It checks the path structure and timing.",
-    },
-    {
-      title: "Test on the robot",
-      body: "Verify the path on the robot before competition. Change one setting at a time and use the result to refine the constraints.",
     },
   ],
 };
