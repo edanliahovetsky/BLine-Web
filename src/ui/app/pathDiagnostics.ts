@@ -13,11 +13,23 @@ import {
 
 export type PathDiagnosticSeverity = "error" | "warning" | "info";
 
+export type PathDiagnosticFix =
+  | { kind: "add-anchors"; count: number; label: string }
+  | {
+      kind: "set-event-key";
+      elementIndex: number;
+      value: string;
+      label: string;
+    }
+  | { kind: "move-inside-field"; elementIndex: number; label: string }
+  | { kind: "remove-missing-link"; elementIndex: number; label: string };
+
 export interface PathDiagnostic {
   id: string;
   severity: PathDiagnosticSeverity;
   summary: string;
   elementIndex?: number;
+  fix?: PathDiagnosticFix;
 }
 
 export function derivePathDiagnostics(
@@ -33,6 +45,7 @@ export function derivePathDiagnostics(
   const elements = path.path_elements;
   const anchorCount = elements.filter(isAnchorElement).length;
   if (anchorCount < 2) {
+    const missingAnchorCount = 2 - anchorCount;
     diagnostics.push({
       id: "anchor-count",
       severity: "warning",
@@ -40,6 +53,12 @@ export function derivePathDiagnostics(
         anchorCount === 0
           ? "Add two waypoints or translation targets to simulate this path."
           : "Add one more waypoint or translation target to simulate this path.",
+      fix: {
+        kind: "add-anchors",
+        count: missingAnchorCount,
+        label:
+          missingAnchorCount === 1 ? "Add a waypoint" : "Add two waypoints",
+      },
     });
   }
 
@@ -50,29 +69,52 @@ export function derivePathDiagnostics(
         severity: "warning",
         summary: `Event ${index + 1} needs a command key.`,
         elementIndex: index,
+        fix: {
+          kind: "set-event-key",
+          elementIndex: index,
+          value: "event",
+          label: 'Set key to "event"',
+        },
       });
     }
 
     const position = getElementPosition(elements, index);
+    const linkedTargetId = getPathElementLinkedTargetId(element);
+    const linkedTarget = linkedTargetId
+      ? linkedTargets.find((target) => target.target_id === linkedTargetId)
+      : undefined;
     if (position && !isPointWithinFieldCoordinates(position, geometry)) {
       diagnostics.push({
         id: `off-field-${index}`,
         severity: "warning",
         summary: `Element ${index + 1} is outside the configured field.`,
         elementIndex: index,
+        ...(isAnchorElement(element) && !linkedTarget?.locked
+          ? {
+              fix: {
+                kind: "move-inside-field" as const,
+                elementIndex: index,
+                label: "Move element onto field",
+              },
+            }
+          : {}),
       });
     }
 
-    const linkedTargetId = getPathElementLinkedTargetId(element);
     if (
       linkedTargetId &&
-      !linkedTargets.some((target) => target.target_id === linkedTargetId)
+      !linkedTarget
     ) {
       diagnostics.push({
         id: `broken-link-${index}`,
         severity: "error",
         summary: `Element ${index + 1} references a missing linked element.`,
         elementIndex: index,
+        fix: {
+          kind: "remove-missing-link",
+          elementIndex: index,
+          label: "Remove missing link",
+        },
       });
     }
   });

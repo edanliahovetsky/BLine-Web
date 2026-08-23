@@ -136,6 +136,19 @@ test("uploads and restores a custom field image from Settings", async ({
     /status-bar__diagnostics--warning/,
   );
 
+  // A repairable warning moves its waypoint to the nearest valid coordinate.
+  await page.getByRole("button", { name: /^Path health/ }).click();
+  const healthDialog = page.getByRole("dialog", { name: "Path health" });
+  await healthDialog
+    .getByRole("button")
+    .filter({ hasText: "Element 1 is outside" })
+    .click();
+  await expect(page.getByLabel("X (m)")).toHaveValue("3.5");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("1.5");
+  await runEditMenuAction(page, "Undo");
+  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
+
   // Numeric edits can recover preserved overflow gradually, but cannot move
   // farther away from the active field's effective coordinate bounds.
   const properties = page.getByTestId("property-editor");

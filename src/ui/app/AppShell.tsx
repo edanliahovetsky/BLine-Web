@@ -18,10 +18,14 @@ import {
 } from "../../core/io/workspaceConflictDiff";
 import {
   defaultFieldId,
+  fieldCoordinateBounds,
   resolveUserFieldDefinition,
   type FieldBackgroundEntry,
 } from "../../core/field/fieldConfig";
-import type { TranslationTarget } from "../../core/model/path";
+import {
+  isEventTrigger,
+  type TranslationTarget,
+} from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import {
@@ -1537,6 +1541,110 @@ export function AppShell() {
       ),
     [activeField.geometry, activePath, durableProject],
   );
+  const handleResolvePathDiagnostic = useCallback(
+    (diagnostic: PathDiagnostic) => {
+      const state = projectStore.getState();
+      if (state.projectTransitionInProgress) {
+        return;
+      }
+
+      const project = state.project;
+      const currentPath = activeProjectPath(project, state.activePathId);
+      if (!project || !currentPath) {
+        return;
+      }
+
+      const fix = diagnostic.fix;
+      let focusIndex = diagnostic.elementIndex ?? null;
+
+      if (fix?.kind === "add-anchors") {
+        const insertionIndex = currentPath.path.path_elements.length;
+        const workingPath = structuredClone(currentPath.path);
+        const elements = Array.from({ length: fix.count }, () => {
+          const previousIndex = workingPath.path_elements.length - 1;
+          const element = createDefaultElement(
+            workingPath,
+            project.config,
+            "waypoint",
+            previousIndex >= 0 ? previousIndex : null,
+            activeField.geometry,
+          );
+          workingPath.path_elements.push(element);
+          return element;
+        });
+        const result = projectStore.getState().applyPathStructureEdit(
+          { kind: "insert-many", index: insertionIndex, elements },
+          {
+            pathId: currentPath.path_id,
+            selectedElementIndex:
+              selectionStore.getState().selectedElementIndex,
+          },
+        );
+        if (result.status === "applied") {
+          focusIndex = insertionIndex + elements.length - 1;
+        }
+      } else if (fix?.kind === "set-event-key") {
+        const element = currentPath.path.path_elements[fix.elementIndex];
+        if (element && isEventTrigger(element)) {
+          projectStore.getState().applyPathElementEdit(
+            {
+              kind: "replace",
+              index: fix.elementIndex,
+              element: { ...element, lib_key: fix.value },
+              description: "Set default event command key",
+            },
+            { pathId: currentPath.path_id },
+          );
+        }
+      } else if (fix?.kind === "move-inside-field") {
+        const position = getElementPosition(
+          currentPath.path.path_elements,
+          fix.elementIndex,
+        );
+        if (position) {
+          const bounds = fieldCoordinateBounds(activeField.geometry);
+          projectStore.getState().applyPathElementEdit(
+            {
+              kind: "position",
+              index: fix.elementIndex,
+              position: {
+                x_meters: clampCoordinateToBounds(
+                  position.x_meters,
+                  bounds.minX,
+                  bounds.maxX,
+                ),
+                y_meters: clampCoordinateToBounds(
+                  position.y_meters,
+                  bounds.minY,
+                  bounds.maxY,
+                ),
+              },
+            },
+            { pathId: currentPath.path_id },
+          );
+        }
+      } else if (fix?.kind === "remove-missing-link") {
+        projectStore
+          .getState()
+          .unlinkPathElement(currentPath.path_id, fix.elementIndex);
+      }
+
+      if (focusIndex !== null) {
+        selectionStore
+          .getState()
+          .selectElement(
+            focusIndex,
+            activeProjectPath(
+              projectStore.getState().project,
+              projectStore.getState().activePathId,
+            )?.path,
+          );
+        setInspectorOpen(true);
+      }
+      setShowPathHealth(false);
+    },
+    [activeField.geometry],
+  );
   const handleSelectPathFromToolbar = useCallback((pathId: string) => {
     if (projectStore.getState().projectTransitionInProgress) {
       return;
@@ -2119,18 +2227,7 @@ export function AppShell() {
                 <PathHealthPopover
                   diagnostics={pathDiagnostics}
                   saveError={null}
-                  onSelect={(diagnostic) => {
-                    if (diagnostic.elementIndex !== undefined) {
-                      selectionStore
-                        .getState()
-                        .selectElement(
-                          diagnostic.elementIndex,
-                          activePath?.path,
-                        );
-                      setInspectorOpen(true);
-                    }
-                    setShowPathHealth(false);
-                  }}
+                  onSelect={handleResolvePathDiagnostic}
                 />
               ) : null}
             </div>
@@ -2892,6 +2989,16 @@ function pathHealthSeverity(diagnostics: readonly PathDiagnostic[]) {
   return diagnostics.some((diagnostic) => diagnostic.severity === "error")
     ? "error"
     : "warning";
+}
+
+function clampCoordinateToBounds(
+  value: number,
+  minimum: number,
+  maximum: number,
+): number {
+  return Number.isFinite(value)
+    ? Math.min(Math.max(value, minimum), maximum)
+    : (minimum + maximum) / 2;
 }
 
 function safeDownloadName(value: string): string {

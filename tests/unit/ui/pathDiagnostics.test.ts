@@ -16,7 +16,11 @@ describe("path diagnostics", () => {
       ),
     ).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "anchor-count", severity: "warning" }),
+        expect.objectContaining({
+          id: "anchor-count",
+          severity: "warning",
+          fix: expect.objectContaining({ kind: "add-anchors", count: 1 }),
+        }),
       ]),
     );
   });
@@ -43,6 +47,12 @@ describe("path diagnostics", () => {
       true,
     );
     expect(diagnostics.some((item) => item.id === "off-field-0")).toBe(true);
+    expect(
+      diagnostics.find((item) => item.id.startsWith("event-key-"))?.fix,
+    ).toMatchObject({ kind: "set-event-key", value: "event" });
+    expect(
+      diagnostics.find((item) => item.id === "off-field-0")?.fix,
+    ).toMatchObject({ kind: "move-inside-field", elementIndex: 0 });
   });
 
   it("treats image padding as outside the effective coordinate bounds", () => {
@@ -77,5 +87,22 @@ describe("path diagnostics", () => {
         workspace.linked_targets,
       ).some((item) => item.id === "off-field-0"),
     ).toBe(false);
+  });
+
+  it("offers to remove a reference to a missing linked target", () => {
+    const workspace = createSampleProject();
+    const first = workspace.paths[0].path.path_elements[0];
+    if (first?.type !== "waypoint") {
+      throw new Error("Expected the sample Path to begin with a waypoint");
+    }
+    first.linked_target_id = "missing-target";
+
+    expect(
+      derivePathDiagnostics(
+        workspace.paths[0].path,
+        defaultFieldGeometry,
+        workspace.linked_targets,
+      ).find((item) => item.id === "broken-link-0")?.fix,
+    ).toMatchObject({ kind: "remove-missing-link", elementIndex: 0 });
   });
 });

@@ -886,7 +886,7 @@ test("marks the start and end of the path in the element list", async ({
   await expect(page.locator(".path-element-row__role")).toHaveCount(2);
 });
 
-test("escalates path health styling for errors and names the count", async ({
+test("highlights, dismisses, and resolves path health issues", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -911,6 +911,48 @@ test("escalates path health styling for errors and names the count", async ({
     0,
   );
   await expect(health).toHaveAttribute("aria-expanded", "false");
+
+  await health.click();
+  const dialog = page.getByRole("dialog", { name: "Path health" });
+  await dialog
+    .getByRole("button")
+    .filter({ hasText: "needs a command key" })
+    .click();
+  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /^Path health/ }),
+  ).toHaveCount(0);
+});
+
+test("adds missing waypoints from path health as one undoable fix", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewProject(page);
+
+  const rows = page.locator('[data-testid^="path-element-row-"]');
+  await expect(rows).toHaveCount(0);
+
+  const health = page.getByRole("button", { name: "Path health: 1 issue" });
+  await health.click();
+  const dialog = page.getByRole("dialog", { name: "Path health" });
+  await expect(dialog).toContainText("Add two waypoints");
+  await dialog
+    .getByRole("button")
+    .filter({ hasText: "Add two waypoints" })
+    .click();
+
+  await expect(rows).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: /^Path health/ }),
+  ).toHaveCount(0);
+
+  await runEditMenuAction(page, "Undo");
+  await expect(rows).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
 });
 
 test("keeps the element properties card tight to its content", async ({

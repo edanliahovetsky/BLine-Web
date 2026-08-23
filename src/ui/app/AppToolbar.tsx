@@ -743,7 +743,9 @@ export function PathHealthPopover({
             onClick={() => onSelect(diagnostic)}
           >
             <span>{diagnostic.summary}</span>
-            {diagnostic.elementIndex !== undefined ? (
+            {diagnostic.fix ? (
+              <small>Fix · {diagnostic.fix.label}</small>
+            ) : diagnostic.elementIndex !== undefined ? (
               <small>Show element {diagnostic.elementIndex + 1}</small>
             ) : (
               <small>Path guidance</small>
