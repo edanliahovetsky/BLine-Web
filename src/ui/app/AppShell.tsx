@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { ChangeEvent, CSSProperties } from "react";
+import { CircleAlert } from "lucide-react";
 import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { activeProjectPath } from "../../core/model/editorNavigation";
@@ -237,6 +238,7 @@ export function AppShell() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
+  const pathHealthControlRef = useRef<HTMLDivElement | null>(null);
   const [showHelpHub, setShowHelpHub] = useState(false);
   const [toursSupported, setToursSupported] = useState(
     () =>
@@ -306,6 +308,29 @@ export function AppShell() {
       setShowGhostPaths(showGhostPaths);
     },
   });
+
+  useEffect(() => {
+    if (!showPathHealth) {
+      return;
+    }
+
+    const closePathHealthOutside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !pathHealthControlRef.current?.contains(event.target)
+      ) {
+        setShowPathHealth(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closePathHealthOutside, true);
+    return () =>
+      document.removeEventListener(
+        "pointerdown",
+        closePathHealthOutside,
+        true,
+      );
+  }, [showPathHealth]);
 
   useEffect(() => {
     tourViewRef.current = {
@@ -2062,6 +2087,7 @@ export function AppShell() {
         <div className="status-bar__system">
           {pathDiagnostics.length > 0 || showPathHealth ? (
             <div
+              ref={pathHealthControlRef}
               className="status-bar__diagnostics-control"
               data-tour="path-health"
             >
@@ -2078,7 +2104,11 @@ export function AppShell() {
                   className="status-bar__diagnostics-icon"
                   aria-hidden="true"
                 >
-                  !
+                  <CircleAlert
+                    aria-hidden="true"
+                    size={16}
+                    strokeWidth={2.4}
+                  />
                 </span>
                 <span>
                   {pathDiagnostics.length}{" "}

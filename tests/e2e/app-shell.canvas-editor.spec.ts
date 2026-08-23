@@ -906,6 +906,11 @@ test("escalates path health styling for errors and names the count", async ({
   await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
     "needs a command key",
   );
+  await page.locator(".status-bar__hint").click();
+  await expect(page.getByRole("dialog", { name: "Path health" })).toHaveCount(
+    0,
+  );
+  await expect(health).toHaveAttribute("aria-expanded", "false");
 });
 
 test("keeps the element properties card tight to its content", async ({

@@ -5130,16 +5130,18 @@ body.is-resizing-inspector * {
 }
 
 .status-bar__diagnostics-icon {
-  display: inline-grid;
+  display: inline-flex;
   width: 16px;
   height: 16px;
-  place-items: center;
-  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
   color: #211a08;
-  background: var(--bline-warning);
-  font-size: 0.68rem;
-  font-weight: 900;
-  line-height: 1;
+}
+
+.status-bar__diagnostics-icon svg {
+  display: block;
+  fill: var(--bline-warning);
+  stroke: currentColor;
 }
 
 .status-bar__diagnostics--error {
@@ -5149,9 +5151,8 @@ body.is-resizing-inspector * {
   animation-name: path-health-attention-error;
 }
 
-.status-bar__diagnostics--error .status-bar__diagnostics-icon {
-  color: #2a0f0f;
-  background: var(--bline-danger);
+.status-bar__diagnostics--error .status-bar__diagnostics-icon svg {
+  fill: var(--bline-danger);
 }
 
 .status-bar__diagnostics[aria-expanded="true"] {
