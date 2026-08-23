@@ -253,6 +253,9 @@ export class TauriStorage implements ProjectFolderAdapter {
     expectedVersion?: string,
     storageId = this.currentDirectoryLocator ?? undefined,
   ): Promise<WriteResult> {
+    const hasRecoveryAttestation = storageId
+      ? this.damagedLegacyFilesByLocator.has(storageId)
+      : false;
     const expectedLegacyFiles = storageId
       ? structuredClone(this.damagedLegacyFilesByLocator.get(storageId) ?? [])
       : [];
@@ -272,7 +275,7 @@ export class TauriStorage implements ProjectFolderAdapter {
     );
     if (
       storageId &&
-      expectedLegacyFiles.length > 0
+      hasRecoveryAttestation
     ) {
       const cleanup = await this.invoke<ProjectFileSetWritePayload>(
         "storage_delete_legacy_project_files",

@@ -1481,6 +1481,70 @@ describe("TauriStorage", () => {
     ]);
   });
 
+  it("verifies an adopted empty legacy set before damaged replacement", async () => {
+    const project = exampleWorkspace("recovered-project", "Autos", ["One"]);
+    const damagedFiles = [
+      { relativePath: "project.json", contents: "{damaged-canonical" },
+      ...serializeProjectFiles(project)
+        .filter((file) => file.relativePath !== "project.json")
+        .map((file) => ({
+          relativePath: file.relativePath,
+          contents: file.text,
+        })),
+    ];
+    let readCount = 0;
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> =
+      [];
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "storage_read_project_files") {
+          readCount += 1;
+          return {
+            directoryLocator: "/tmp/autos",
+            files: damagedFiles,
+            legacyFiles:
+              readCount === 1
+                ? []
+                : [
+                    {
+                      relativePath: ".bline-web/state.json",
+                      contents: "{new-legacy-file",
+                    },
+                  ],
+            version: readCount === 1 ? "damaged-v1" : "damaged-v2",
+            updatedAt: "2026-04-23T15:40:00.000Z",
+          } as T;
+        }
+        if (command === "storage_write_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            version: "canonical-v3",
+            updatedAt: "2026-04-23T15:41:00.000Z",
+          } as T;
+        }
+        if (command === "storage_delete_legacy_project_files") {
+          throw new Error(
+            "storage-conflict: legacy metadata changed before cleanup was prepared",
+          );
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+
+    const recovered = await storage.readProject("/tmp/autos");
+    await storage.readProjectSnapshot("/tmp/autos", {
+      establishRecoveryOwnership: false,
+    });
+    await expect(
+      storage.replaceDamagedProject(recovered, undefined, "/tmp/autos"),
+    ).rejects.toBeInstanceOf(StorageConflictError);
+    expect(calls.at(-1)).toMatchObject({
+      command: "storage_delete_legacy_project_files",
+      args: { expectedLegacyFiles: [] },
+    });
+  });
+
   it("resumes legacy Field Background migration after a canonical desktop save", async () => {
     const project = exampleWorkspace("stable-project", "Autos", ["One"]);
     const canonicalFiles = serializeProjectFiles(project).map((file) => ({

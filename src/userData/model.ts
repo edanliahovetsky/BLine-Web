@@ -26,6 +26,8 @@ export interface UserData {
   automatic_generation: { keep_in_sync: boolean };
   project_views: Record<string, ProjectViewPreferences>;
   field_backgrounds: FieldBackgroundEntry[];
+  /** Durable ownership for unreferenced Field assets awaiting verified deletion. */
+  field_asset_cleanup_ids: string[];
 }
 
 export interface LegacyUserDataStorage {
@@ -43,6 +45,7 @@ export const defaultUserData: UserData = {
   automatic_generation: { keep_in_sync: true },
   project_views: {},
   field_backgrounds: [],
+  field_asset_cleanup_ids: [],
 };
 
 export class UnsupportedUserDataVersionError extends Error {
@@ -94,6 +97,8 @@ export function migrateUserData(
   const persistedLayout = objectValue(root?.editor_layout);
   const automaticGeneration = objectValue(root?.automatic_generation);
 
+  const fieldBackgrounds = fieldBackgroundEntries(root?.field_backgrounds);
+  const fieldIds = new Set(fieldBackgrounds.map((entry) => entry.id));
   return {
     schema_version: USER_DATA_SCHEMA_VERSION,
     editor_layout: {
@@ -129,7 +134,10 @@ export function migrateUserData(
       root?.project_views,
       legacyEditor?.activePathByProjectId,
     ),
-    field_backgrounds: fieldBackgroundEntries(root?.field_backgrounds),
+    field_backgrounds: fieldBackgrounds,
+    field_asset_cleanup_ids: fieldAssetCleanupIds(
+      root?.field_asset_cleanup_ids,
+    ).filter((entryId) => !fieldIds.has(entryId)),
   };
 }
 
@@ -152,6 +160,7 @@ function isCurrentUserDataRecord(
   const completedTourIds = root.completed_tour_ids;
   const views = objectValue(root.project_views);
   const fields = root.field_backgrounds;
+  const cleanupIds = root.field_asset_cleanup_ids;
   if (
     !layout ||
     !inspectorTab(layout.inspector_tab) ||
@@ -164,7 +173,8 @@ function isCurrentUserDataRecord(
     new Set(completedTourIds).size !== completedTourIds.length ||
     !views ||
     !validCurrentProjectViews(views) ||
-    !Array.isArray(fields)
+    !Array.isArray(fields) ||
+    (cleanupIds !== undefined && !validFieldAssetCleanupIds(cleanupIds))
   ) {
     return false;
   }
@@ -177,7 +187,38 @@ function isCurrentUserDataRecord(
     }
     fieldIds.add(normalized.id);
   }
+  if (
+    Array.isArray(cleanupIds) &&
+    cleanupIds.some((entryId) => fieldIds.has(entryId))
+  ) {
+    return false;
+  }
   return true;
+}
+
+function validFieldAssetCleanupIds(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entryId) =>
+        typeof entryId === "string" && isSafeFieldBackgroundId(entryId),
+    ) &&
+    new Set(value).size === value.length
+  );
+}
+
+function fieldAssetCleanupIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [
+    ...new Set(
+      value.filter(
+        (entryId): entryId is string =>
+          typeof entryId === "string" && isSafeFieldBackgroundId(entryId),
+      ),
+    ),
+  ];
 }
 
 function validCurrentProjectViews(views: Record<string, unknown>): boolean {

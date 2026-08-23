@@ -1222,11 +1222,12 @@ describe("UserData", () => {
       }),
     ).rejects.toThrow("asset delete failed after mutation");
 
-    expect(service.getSnapshot().field_backgrounds).toEqual([original]);
+    expect(service.getSnapshot().field_backgrounds).toEqual([]);
+    expect(service.getSnapshot().field_asset_cleanup_ids).toEqual([
+      original.id,
+    ]);
     expect(adapter.persisted).toEqual(service.getSnapshot());
-    expect(adapter.assets.get(original.id)).toEqual(
-      new Uint8Array([1, 2, 3, 4]),
-    );
+    expect(adapter.assets.has(original.id)).toBe(false);
 
     await service.saveFieldBackgroundSettings({
       projectId: "project-a",
@@ -1236,6 +1237,44 @@ describe("UserData", () => {
     });
     expect(service.getSnapshot().field_backgrounds).toEqual([]);
     expect(adapter.assets.has(original.id)).toBe(false);
+  });
+
+  it("recovers durable Field cleanup after interruption before asset deletion", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const firstService = new UserDataService(adapter, {
+      idFactory: () => "field-interrupted-cleanup",
+    });
+    await firstService.initialize();
+    const original =
+      await firstService.createFieldBackgroundFromBytes(fieldInput());
+    const blocked = adapter.pauseNextAssetDelete();
+
+    const interruptedSave = firstService.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: null,
+      fieldBackgrounds: [],
+      imageUpdates: [],
+    });
+    await blocked.started;
+
+    expect((adapter.persisted as UserData).field_backgrounds).toEqual([]);
+    expect((adapter.persisted as UserData).field_asset_cleanup_ids).toEqual([
+      original.id,
+    ]);
+    expect(adapter.assets.get(original.id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+
+    const relaunchedService = new UserDataService(adapter);
+    await relaunchedService.initialize();
+    expect(relaunchedService.getSnapshot().field_asset_cleanup_ids).toEqual(
+      [],
+    );
+    expect(adapter.assets.has(original.id)).toBe(false);
+
+    blocked.release();
+    await interruptedSave;
+    expect(firstService.getSnapshot().field_asset_cleanup_ids).toEqual([]);
   });
 
   it("flush waits for an already queued Field Settings operation", async () => {
@@ -1450,7 +1489,7 @@ describe("UserData", () => {
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
   });
 
-  it("keeps metadata and bytes retryable until deletion succeeds", async () => {
+  it("keeps failed asset deletion durably owned until retry succeeds", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter);
     await service.initialize();
@@ -1476,14 +1515,11 @@ describe("UserData", () => {
       "asset delete failed",
     );
 
-    expect(adapter.events).not.toContain("metadata-write");
-    expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
+    expect(adapter.events).toEqual(["metadata-write", "asset-delete"]);
+    expect(service.getSnapshot().field_backgrounds).toEqual([]);
+    expect(service.getSnapshot().field_asset_cleanup_ids).toEqual([entry.id]);
     expect(service.getSnapshot().project_views).toEqual({
-      "project-a": {
-        active_path_id: "path-a",
-        selected_field_background_id: entry.id,
-      },
-      "project-b": { selected_field_background_id: entry.id },
+      "project-a": { active_path_id: "path-a" },
     });
     expect(adapter.assets.has(entry.id)).toBe(true);
 
@@ -1529,15 +1565,7 @@ describe("UserData", () => {
       "metadata write failed",
     );
 
-    expect(adapter.events).toEqual([
-      "asset-read",
-      "asset-delete",
-      "asset-read",
-      "metadata-write",
-      "metadata-read",
-      "asset-write",
-      "asset-read",
-    ]);
+    expect(adapter.events).toEqual(["metadata-write", "metadata-read"]);
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
     expect(adapter.assets.has(entry.id)).toBe(true);
   });
@@ -1943,6 +1971,10 @@ class AssetMemoryAdapter implements UserDataAdapter {
     started: Deferred<void>;
     release: Deferred<void>;
   } | null = null;
+  private assetDeletePause: {
+    started: Deferred<void>;
+    release: Deferred<void>;
+  } | null = null;
   private mismatchedAssetReadbackPending = false;
 
   constructor(persisted: unknown | null = null) {
@@ -2009,6 +2041,16 @@ class AssetMemoryAdapter implements UserDataAdapter {
     };
   }
 
+  pauseNextAssetDelete(): { started: Promise<void>; release(): void } {
+    const started = deferred<void>();
+    const release = deferred<void>();
+    this.assetDeletePause = { started, release };
+    return {
+      started: started.promise,
+      release: () => release.resolve(),
+    };
+  }
+
   async writeFieldAsset(entryId: string, bytes: Uint8Array): Promise<void> {
     this.events.push("asset-write");
     if (this.failAssetWrite) {
@@ -2042,6 +2084,12 @@ class AssetMemoryAdapter implements UserDataAdapter {
 
   async deleteFieldAsset(entryId: string): Promise<void> {
     this.events.push("asset-delete");
+    const pause = this.assetDeletePause;
+    if (pause) {
+      this.assetDeletePause = null;
+      pause.started.resolve();
+      await pause.release.promise;
+    }
     if (this.failAssetDelete) {
       throw new Error("asset delete failed");
     }
