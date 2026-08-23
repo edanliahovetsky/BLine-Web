@@ -905,12 +905,20 @@ test("highlights, dismisses, and resolves path health issues", async ({
   await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
     "needs a command key",
   );
+  await expect(
+    page.getByRole("dialog", { name: "Path health" }),
+  ).not.toContainText("Fix these before heading to the robot");
   await page.locator(".status-bar__hint").click();
   await expect(page.getByRole("dialog", { name: "Path health" })).toHaveCount(
     0,
   );
   await expect(health).toHaveAttribute("aria-expanded", "false");
 
+  await openConstraintsTab(page);
+  await expect(page.getByRole("tab", { name: /Constraints/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await health.click();
   const dialog = page.getByRole("dialog", { name: "Path health" });
   await dialog
@@ -919,6 +927,10 @@ test("highlights, dismisses, and resolves path health issues", async ({
     .click();
   await expect(page.getByLabel("Lib Key")).toHaveValue("");
   await expect(page.getByLabel("Lib Key")).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await expect(dialog).toHaveCount(0);
   await expect(health).toHaveAttribute("aria-expanded", "false");
   await page.getByLabel("Lib Key").fill("intake");

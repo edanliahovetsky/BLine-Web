@@ -719,14 +719,7 @@ export function PathHealthPopover({
       aria-label="Path health"
     >
       <header>
-        <div>
-          <strong>Path health</strong>
-          <span>
-            {diagnostics.length === 0 && !saveError
-              ? "No editor issues found"
-              : "Fix these before heading to the robot"}
-          </span>
-        </div>
+        <strong>Path health</strong>
       </header>
       <div className="path-health-popover__list">
         {saveError ? (

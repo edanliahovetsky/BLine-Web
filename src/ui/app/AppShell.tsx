@@ -250,6 +250,9 @@ export function AppShell() {
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
   );
+  const [inspectorTab, setInspectorTab] = useState<
+    "elements" | "constraints"
+  >(() => readEditorUiPreferences().inspectorTab);
   const [inspectorWidth, setInspectorWidth] = useState(
     () => readEditorUiPreferences().inspectorWidth,
   );
@@ -304,7 +307,8 @@ export function AppShell() {
     isPersistenceBlocked: () => configSaveInProgressRef.current,
     prepareClose: () => tourSessionRef.current?.restore(),
     projectIo,
-    onEditorLayoutLoaded: ({ inspectorWidth, showGhostPaths }) => {
+    onEditorLayoutLoaded: ({ inspectorTab, inspectorWidth, showGhostPaths }) => {
+      setInspectorTab(inspectorTab);
       setInspectorWidth(inspectorWidth);
       setShowGhostPaths(showGhostPaths);
     },
@@ -419,6 +423,7 @@ export function AppShell() {
         writeEditorUiPreferences(view.editorPreferences);
         setFieldSelectionOverride(view.fieldSelectionOverride);
         setInspectorOpen(view.inspectorOpen);
+        setInspectorTab(view.editorPreferences.inspectorTab);
         setInspectorWidth(view.inspectorWidth);
         setActiveTool(view.activeTool);
         setAutosaveStatus(view.autosaveStatus);
@@ -1581,6 +1586,11 @@ export function AppShell() {
           focusIndex = insertionIndex + elements.length - 1;
         }
       } else if (fix?.kind === "focus-event-key") {
+        setInspectorTab("elements");
+        writeEditorUiPreferences({
+          ...readEditorUiPreferences(),
+          inspectorTab: "elements",
+        });
         window.requestAnimationFrame(() => {
           document
             .querySelector<HTMLInputElement>(
@@ -2153,9 +2163,11 @@ export function AppShell() {
               selectedElementIndex={selectedElementIndex}
               fieldGeometry={activeField.geometry}
               open={inspectorOpen}
+              activeTab={inspectorTab}
               inspectorWidth={inspectorWidth}
               curveToolActive={curveToolSession !== null}
               onClose={() => setInspectorOpen(false)}
+              onActiveTabChange={setInspectorTab}
               onInspectorResize={(width) =>
                 setInspectorWidth(clampInspectorWidth(width))
               }
