@@ -4817,6 +4817,50 @@ button.path-health-popover__issue:focus-visible {
   background: #222c35;
 }
 
+.path-stage__overflow-marker {
+  position: absolute;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border: 1px dashed rgba(255, 190, 92, 0.92);
+  border-radius: 50%;
+  color: #ffe0a8;
+  background: rgba(68, 42, 15, 0.9);
+  box-shadow:
+    0 0 0 4px rgba(255, 178, 64, 0.1),
+    0 6px 16px rgba(0, 0, 0, 0.34);
+  pointer-events: none;
+}
+
+.path-stage__overflow-marker.is-selected {
+  border-style: solid;
+  border-color: #ffd17c;
+  color: #fff3d7;
+  background: rgba(109, 62, 16, 0.96);
+  box-shadow:
+    0 0 0 5px rgba(255, 178, 64, 0.18),
+    0 7px 18px rgba(0, 0, 0, 0.38);
+}
+
+.path-stage__overflow-marker span {
+  position: absolute;
+  left: 21px;
+  color: #ffc15c;
+  font-size: 0.74rem;
+  line-height: 1;
+  transform: rotate(var(--overflow-angle));
+  transform-origin: -6px 50%;
+}
+
+.path-stage__overflow-marker small {
+  font-size: 0.67rem;
+  font-weight: 820;
+  line-height: 1;
+}
+
 .path-stage__placement-preview {
   position: absolute;
   z-index: 11;

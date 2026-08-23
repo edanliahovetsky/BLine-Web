@@ -70,6 +70,7 @@ import {
   getNeighborAnchorPositions,
   interpolateSegmentPosition,
   modelToStagePoint,
+  overflowMarkerStagePoint,
   projectPointToSegmentRatio,
   stageToModelPoint,
   stagePointsDiffer,
@@ -505,26 +506,35 @@ export function PathStage({
     }),
     [baseViewport, panOffset, viewScale],
   );
-  const boundedPositionPreview = useMemo<PositionOverrides>(() => {
-    const preview = new Map<number, PointMeters>();
+  const positionPreview = dragPreview;
+  const overflowMarkers = useMemo(() => {
     const elements = activePath?.path.path_elements ?? [];
-    for (const { index, position } of getRenderableElementPositions(elements)) {
-      if (!isTranslationBearingElement(elements[index])) {
-        continue;
-      }
-      const bounded = clampModelPoint(position, activeField.geometry);
-      if (!pointsAlmostEqual(position, bounded)) {
-        preview.set(index, bounded);
-      }
-    }
-    return preview;
-  }, [activeField.geometry, activePath]);
-  const positionPreview = useMemo<PositionOverrides>(() => {
-    if (dragPreview.size === 0) {
-      return boundedPositionPreview;
-    }
-    return new Map([...boundedPositionPreview, ...dragPreview]);
-  }, [boundedPositionPreview, dragPreview]);
+    return getRenderableElementPositions(elements, positionPreview).flatMap(
+      ({ index, position }) => {
+        const stagePoint = modelToStagePoint(position, viewport);
+        const markerPoint = overflowMarkerStagePoint(
+          stagePoint,
+          stageSize,
+          overflowMarkerInsetPx,
+        );
+        if (!markerPoint) {
+          return [];
+        }
+
+        return [
+          {
+            index,
+            markerPoint,
+            position,
+            angleRadians: Math.atan2(
+              stagePoint.y - stageSize.height / 2,
+              stagePoint.x - stageSize.width / 2,
+            ),
+          },
+        ];
+      },
+    );
+  }, [activePath, positionPreview, stageSize, viewport]);
 
   const simulationResult: SimTraceResult | null = useMemo(() => {
     if (!activePath || !durableProject) {
@@ -992,6 +1002,7 @@ export function PathStage({
       positionPreview,
       pointer,
       selectedElementIndex,
+      stageSize,
     );
     if (nodeHit !== null) {
       selectionStore.getState().selectElement(nodeHit, activePath.path);
@@ -1386,6 +1397,7 @@ export function PathStage({
       positionPreview,
       pointer,
       selectedElementIndex,
+      stageSize,
     );
     setContextMenu({
       stagePoint: pointer,
@@ -1537,6 +1549,32 @@ export function PathStage({
         onContextMenu={handleContextMenu}
         onWheel={handleWheel}
       >
+        {overflowMarkers.map(
+          ({ index, markerPoint, position, angleRadians }) => (
+            <div
+              key={index}
+              className={[
+                "path-stage__overflow-marker",
+                selectedElementIndex === index ? "is-selected" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              data-testid={`path-element-overflow-marker-${index}`}
+              title={`Element ${index + 1} is outside the visible canvas at X ${position.x_meters.toFixed(2)} m, Y ${position.y_meters.toFixed(2)} m`}
+              style={
+                {
+                  left: markerPoint.x,
+                  top: markerPoint.y,
+                  "--overflow-angle": `${angleRadians}rad`,
+                } as CSSProperties
+              }
+              aria-hidden="true"
+            >
+              <span aria-hidden="true">➤</span>
+              <small>{index + 1}</small>
+            </div>
+          ),
+        )}
         <CanvasToolRail
           activeTool={activeTool}
           path={activePath?.path ?? null}
@@ -2180,13 +2218,27 @@ function hitTestPathElement(
   positionPreview: PositionOverrides,
   pointer: StagePoint,
   selectedElementIndex: number | null,
+  stageSize: CanvasSize,
 ): number | null {
   const elements = path.path_elements;
   const renderedNodes = elements.flatMap((element, index) => {
     const position = getElementPosition(elements, index, positionPreview);
-    return position
-      ? [{ element, index, point: modelToStagePoint(position, viewport) }]
-      : [];
+    if (!position) {
+      return [];
+    }
+    const rawPoint = modelToStagePoint(position, viewport);
+    return [
+      {
+        element,
+        index,
+        point:
+          overflowMarkerStagePoint(
+            rawPoint,
+            stageSize,
+            overflowMarkerInsetPx,
+          ) ?? rawPoint,
+      },
+    ];
   });
   const orderedNodes =
     selectedElementIndex === null
@@ -2549,3 +2601,4 @@ const curveSampleSpacingMeters = 0.035;
 const curveDefaultHandoffRadiusMeters = 0.45;
 const curveMaxGeneratedTargets = 18;
 const overlayHitRadiusPx = 15;
+const overflowMarkerInsetPx = 24;

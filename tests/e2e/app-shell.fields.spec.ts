@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { canvasNodePosition } from "./support/app-shell-canvas";
+import { canvasNodePositionOrNull } from "./support/app-shell-canvas";
 import { runEditMenuAction } from "./support/app-shell-commands";
 import {
   activeFieldImageLoaded,
@@ -14,7 +14,7 @@ import {
   savedFileCount,
 } from "./support/app-shell-persistence";
 import { openPathMenu } from "./support/app-shell-project-library";
-import { gotoSampleEditor } from "./support/app-shell-shared";
+import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test("edits project config with undo support", async ({ page }) => {
   await gotoSampleEditor(page);
@@ -169,11 +169,27 @@ test("uploads and restores a custom field image from Settings", async ({
     y_meters: 2.5,
   });
 
+  // The raw position is not painted as a normal node at the Field edge. A
+  // distinct canvas-edge marker points toward the true offscreen position.
+  const pathStageCanvas = page.getByTestId("path-stage-canvas");
+  const overflowMarker = page.getByTestId("path-element-overflow-marker-0");
+  await expect(overflowMarker).toBeVisible();
+  await expect(overflowMarker).toHaveAttribute(
+    "title",
+    "Element 1 is outside the visible canvas at X 5.70 m, Y 2.50 m",
+  );
+  await expect
+    .poll(() => canvasNodePositionOrNull(page, "path-element-node-0"))
+    .toBeNull();
+
   // Pointer-down alone keeps the raw coordinates, and a cancelled moved drag
   // discards its bounded preview without creating a Path edit.
-  const pathStageCanvas = page.getByTestId("path-stage-canvas");
-  let boundedNode = await canvasNodePosition(page, "path-element-node-0");
-  await page.mouse.move(boundedNode.x, boundedNode.y);
+  let markerBox = await requiredBox(overflowMarker);
+  let markerPoint = {
+    x: markerBox.x + markerBox.width / 2,
+    y: markerBox.y + markerBox.height / 2,
+  };
+  await page.mouse.move(markerPoint.x, markerPoint.y);
   await page.mouse.down();
   await page.mouse.up();
   await expect(xField).toHaveValue("5.7");
@@ -192,10 +208,10 @@ test("uploads and restores a custom field image from Settings", async ({
     );
   });
   const cancelledPoint = {
-    x: boundedNode.x - 24,
-    y: boundedNode.y + 24,
+    x: markerPoint.x - 24,
+    y: markerPoint.y + 24,
   };
-  await page.mouse.move(boundedNode.x, boundedNode.y);
+  await page.mouse.move(markerPoint.x, markerPoint.y);
   await page.mouse.down();
   await page.mouse.move(cancelledPoint.x, cancelledPoint.y, { steps: 4 });
   await expect
@@ -218,12 +234,15 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect(xField).toHaveValue("5.7");
   await expect(yField).toHaveValue("2.5");
 
-  // The off-field node is shown at the nearest edge. Its first drag commits
-  // the snap as one normal undoable Path edit.
-  boundedNode = await canvasNodePosition(page, "path-element-node-0");
-  await page.mouse.move(boundedNode.x, boundedNode.y);
+  // Dragging the overflow marker commits one bounded, undoable Path edit.
+  markerBox = await requiredBox(overflowMarker);
+  markerPoint = {
+    x: markerBox.x + markerBox.width / 2,
+    y: markerBox.y + markerBox.height / 2,
+  };
+  await page.mouse.move(markerPoint.x, markerPoint.y);
   await page.mouse.down();
-  await page.mouse.move(boundedNode.x - 24, boundedNode.y + 24, { steps: 4 });
+  await page.mouse.move(markerPoint.x - 24, markerPoint.y + 24, { steps: 4 });
   await page.mouse.up();
   await expect
     .poll(async () => Number(await page.getByLabel("X (m)").inputValue()))

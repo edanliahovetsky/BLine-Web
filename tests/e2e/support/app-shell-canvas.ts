@@ -52,6 +52,18 @@ export async function canvasNodePosition(
   return position;
 }
 
+export function canvasNodePositionOrNull(
+  page: Page,
+  testId: string,
+): Promise<{ x: number; y: number } | null> {
+  return page.evaluate((nodeTestId) => {
+    return (
+      (window as PixiDebugWindow).__blinePixiDebug?.nodePosition(nodeTestId) ??
+      null
+    );
+  }, testId);
+}
+
 export function pointDistance(
   first: { x: number; y: number },
   second: { x: number; y: number },

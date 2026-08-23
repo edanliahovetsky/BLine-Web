@@ -11,6 +11,7 @@ import {
 } from "../../../src/core/model/path";
 import {
   anchorNodeExclusionRadiusPx,
+  clipStagePolyline,
   createFieldViewport,
   fieldImageStageRect,
   clampModelPoint,
@@ -21,6 +22,7 @@ import {
   projectPointToSegmentRatio,
   getRenderableElementPositions,
   modelToStagePoint,
+  overflowMarkerStagePoint,
   stageToModelPoint,
   stagePointsDiffer,
 } from "../../../src/canvas/geometry";
@@ -139,6 +141,52 @@ describe("canvas geometry", () => {
       x_meters: 8,
       y_meters: 3,
     });
+  });
+
+  it("keeps true out-of-bounds positions outside the active Field rectangle", () => {
+    const size = { width: 900, height: 540 };
+    const viewport = createFieldViewport(size, 24, {
+      length_meters: 4,
+      width_meters: 2,
+      coordinate_offset_meters: 0.25,
+    });
+    const stagePoint = modelToStagePoint(
+      { x_meters: 5.7, y_meters: 2.5 },
+      viewport,
+    );
+    const marker = overflowMarkerStagePoint(stagePoint, size, 24);
+
+    expect(stagePoint.x).toBeGreaterThan(viewport.x + viewport.width);
+    expect(stagePoint.y).toBeLessThan(viewport.y);
+    expect(marker).not.toBeNull();
+    expect(marker?.x).toBeLessThanOrEqual(size.width - 24);
+    expect(marker?.y).toBeGreaterThanOrEqual(24);
+  });
+
+  it("clips extreme path geometry to a render-safe canvas overscan", () => {
+    expect(
+      clipStagePolyline(
+        [
+          { x: 50, y: 50 },
+          { x: Number.POSITIVE_INFINITY, y: 50 },
+        ],
+        { width: 100, height: 100 },
+      ),
+    ).toEqual([
+      [
+        { x: 50, y: 50 },
+        { x: 196, y: 50 },
+      ],
+    ]);
+    expect(
+      clipStagePolyline(
+        [
+          { x: 1_000_000, y: 20 },
+          { x: 2_000_000, y: 80 },
+        ],
+        { width: 100, height: 100 },
+      ),
+    ).toEqual([]);
   });
 
   it("projects rotation and event elements between neighboring anchors", () => {

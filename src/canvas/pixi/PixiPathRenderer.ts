@@ -46,10 +46,12 @@ import {
   rotatableElementAccent,
 } from "../elementStyle";
 import {
+  clipStagePolyline,
   getElementHeadingRadians,
   getElementPosition,
   getRenderableElementPositions,
   fieldImageStageRect,
+  isStagePointWithinCanvas,
   modelToStagePoint,
   type CanvasSize,
   type FieldViewport,
@@ -374,20 +376,17 @@ export class PixiPathRenderer {
     const points = getRenderableElementPositions(
       elements,
       input.positionPreview,
-    ).flatMap(({ position }) => {
-      const point = modelToStagePoint(position, input.viewport);
-      return [point.x, point.y];
-    });
-    if (points.length < 4) {
+    ).map(({ position }) => modelToStagePoint(position, input.viewport));
+    if (points.length < 2) {
       return;
     }
 
-    drawPolyline(graphics, points, {
+    drawClippedPolyline(graphics, points, input.stageSize, {
       color: 0x05090c,
       width: 8,
       alpha: 0.82,
     });
-    drawPolyline(graphics, points, {
+    drawClippedPolyline(graphics, points, input.stageSize, {
       color: 0xd7dde3,
       width: 2.75,
       alpha: 0.94,
@@ -399,21 +398,18 @@ export class PixiPathRenderer {
     for (const overlay of input.overlayPaths) {
       const points = getRenderableElementPositions(
         overlay.path.path_elements,
-      ).flatMap(({ position }) => {
-        const point = modelToStagePoint(position, input.viewport);
-        return [point.x, point.y];
-      });
-      if (points.length < 4) {
+      ).map(({ position }) => modelToStagePoint(position, input.viewport));
+      if (points.length < 2) {
         continue;
       }
 
       const hovered = overlay.pathId === input.hoveredOverlayPathId;
-      drawPolyline(graphics, points, {
+      drawClippedPolyline(graphics, points, input.stageSize, {
         color: 0x071016,
         width: hovered ? 11 : 8,
         alpha: hovered ? 0.7 : 0.46,
       });
-      drawPolyline(graphics, points, {
+      drawClippedPolyline(graphics, points, input.stageSize, {
         color: hovered ? 0x62d6ff : 0x7d8c98,
         width: hovered ? 3.4 : 2.4,
         alpha: hovered ? 0.9 : 0.56,
@@ -578,9 +574,8 @@ export class PixiPathRenderer {
         return position ? [modelToStagePoint(position, input.viewport)] : [];
       },
     );
-    const coveredPoints = covered.flatMap((point) => [point.x, point.y]);
-    if (coveredPoints.length >= 4) {
-      drawPolyline(graphics, coveredPoints, {
+    if (covered.length >= 2) {
+      drawClippedPolyline(graphics, covered, input.stageSize, {
         color: constraintHighlightColor,
         width: 4,
         alpha: 0.96,
@@ -656,6 +651,9 @@ export class PixiPathRenderer {
 
     for (const { element, index, position } of orderedNodes) {
       const point = modelToStagePoint(position, input.viewport);
+      if (!isStagePointWithinCanvas(point, input.stageSize)) {
+        continue;
+      }
       const handoffRadius = handoffRadiusByElementIndex.get(index);
       this.debugNodes.set(`path-element-node-${index}`, point);
       drawPathElementNode(graphics, {
@@ -780,6 +778,9 @@ export class PixiPathRenderer {
     }
 
     const center = modelToStagePoint(position, input.viewport);
+    if (!isStagePointWithinCanvas(center, input.stageSize)) {
+      return false;
+    }
     const handlePoint = rotationHandlePoint(
       center,
       input.viewport,
@@ -1660,6 +1661,21 @@ function drawPolyline(
     cap: "round",
     join: "round",
   });
+}
+
+function drawClippedPolyline(
+  graphics: Graphics,
+  points: readonly StagePoint[],
+  stageSize: CanvasSize,
+  style: { color: string | number; width: number; alpha: number },
+): void {
+  for (const run of clipStagePolyline(points, stageSize)) {
+    drawPolyline(
+      graphics,
+      run.flatMap((point) => [point.x, point.y]),
+      style,
+    );
+  }
 }
 
 function drawLocalPolyline(
