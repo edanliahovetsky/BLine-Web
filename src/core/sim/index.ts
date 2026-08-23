@@ -1,9 +1,11 @@
 export type {
   ChassisSpeeds,
+  AuthoredRotationTarget,
   PointTuple,
   PoseTuple,
   RotationDomainEvent,
   RotationKeyframe,
+  RotationTargetDiagnostic,
   Segment,
   SimResult,
   SimTraceResult,
@@ -23,9 +25,14 @@ export {
 } from "./simGeometry";
 export {
   buildGlobalRotationKeyframes,
+  buildGlobalRotationTargets,
   buildRotationDomainEvents,
   buildSegments,
   desiredHeadingForGlobalS,
   simulatePath,
   simulatePathWithTrace,
 } from "./simulatePath";
+export {
+  evaluateRotationTargets,
+  rotationTargetToleranceRadians,
+} from "./rotationDiagnostics";

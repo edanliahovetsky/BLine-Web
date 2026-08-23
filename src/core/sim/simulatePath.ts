@@ -9,6 +9,7 @@ import {
 import { createProjectConfig } from "../config/projectConfig";
 import type {
   ChassisSpeeds,
+  AuthoredRotationTarget,
   PointTuple,
   PoseTuple,
   RotationDomainEvent,
@@ -287,7 +288,7 @@ function runPathSimulation(
     );
     const translationVelocity = resolveVelocityBaseline(
       maxVEff ?? baseMaxV,
-      minVEff ?? 0,
+      minVEff ?? numericOption(constraints.min_velocity_meters_per_sec) ?? 0,
       baseMaxV,
     );
     const maxV = translationVelocity.max;
@@ -313,7 +314,7 @@ function runPathSimulation(
     );
     const rotationVelocity = resolveVelocityBaseline(
       maxOmegaEff ?? radiansToDegrees(baseMaxOmega),
-      minOmegaEff ?? 0,
+      minOmegaEff ?? numericOption(constraints.min_velocity_deg_per_sec) ?? 0,
       radiansToDegrees(baseMaxOmega),
     );
     const maxOmega = degreesToRadians(rotationVelocity.max);
@@ -575,7 +576,29 @@ export function buildGlobalRotationKeyframes(
   anchors: readonly Anchor[],
   cumulativeLengths: readonly number[],
 ): RotationKeyframe[] {
-  const keyframes: RotationKeyframe[] = [];
+  return dedupeRotationKeyframes(
+    buildGlobalRotationTargets(path, anchors, cumulativeLengths).map(
+      (target) => ({
+        s_m: target.s_m,
+        theta_target: target.theta_target,
+        event_ordinal_1b: target.event_ordinal_1b,
+        profiled_rotation: target.profiled_rotation,
+      }),
+    ),
+  );
+}
+
+/**
+ * Every authored target in element order, sorted only after its ordinal and
+ * source element are captured. Unlike controller keyframes, equal-s targets
+ * remain distinct so diagnostics can report every authored requirement.
+ */
+export function buildGlobalRotationTargets(
+  path: PathModel,
+  anchors: readonly Anchor[],
+  cumulativeLengths: readonly number[],
+): AuthoredRotationTarget[] {
+  const targets: AuthoredRotationTarget[] = [];
   let rotationOrdinal = 0;
 
   for (const [pathIndex, element] of path.path_elements.entries()) {
@@ -591,11 +614,12 @@ export function buildGlobalRotationKeyframes(
       const s0 = cumulativeLengths[bracket.previous] ?? 0;
       const s1 = cumulativeLengths[bracket.next] ?? s0;
       rotationOrdinal += 1;
-      keyframes.push({
+      targets.push({
         s_m: s0 + clamp01(element.t_ratio) * Math.max(s1 - s0, 1e-9),
         theta_target: element.rotation_radians,
         event_ordinal_1b: rotationOrdinal,
         profiled_rotation: element.profiled_rotation,
+        path_element_index: pathIndex,
       });
       continue;
     }
@@ -608,16 +632,20 @@ export function buildGlobalRotationKeyframes(
         continue;
       }
       rotationOrdinal += 1;
-      keyframes.push({
+      targets.push({
         s_m: cumulativeLengths[anchorOrdinal] ?? 0,
         theta_target: element.rotation_target.rotation_radians,
         event_ordinal_1b: rotationOrdinal,
         profiled_rotation: element.rotation_target.profiled_rotation,
+        path_element_index: pathIndex,
       });
     }
   }
 
-  return dedupeRotationKeyframes(keyframes);
+  return targets.sort(
+    (left, right) =>
+      left.s_m - right.s_m || left.event_ordinal_1b - right.event_ordinal_1b,
+  );
 }
 
 export function buildRotationDomainEvents(

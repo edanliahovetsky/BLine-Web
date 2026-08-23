@@ -9,6 +9,8 @@ import {
 } from "../model/path";
 import { cornerGeometry, seedRadius, type BendPoint } from "./cornerBend";
 
+export const firstAnchorAutomaticHandoffRadiusMeters = 0.45;
+
 export interface AutoSeedHandoffResult {
   path: PathModel;
   seededElementIndexes: number[];
@@ -23,7 +25,7 @@ export interface AutoSeedHandoffResult {
  */
 export function seedHandoffRadii(path: PathModel): AutoSeedHandoffResult {
   const anchors = anchorPoints(path.path_elements);
-  if (anchors.length < 3) {
+  if (anchors.length === 0) {
     return { path, seededElementIndexes: [] };
   }
 
@@ -34,6 +36,12 @@ export function seedHandoffRadii(path: PathModel): AutoSeedHandoffResult {
   const radii: (number | null)[] = anchors.map(() => null);
   const seedableOrdinals: number[] = [];
   const clearableOrdinals: number[] = [];
+
+  const firstElement = path.path_elements[anchors[0].elementIndex];
+  if (isSeedable(firstElement)) {
+    radii[0] = firstAnchorAutomaticHandoffRadiusMeters;
+    seedableOrdinals.push(0);
+  }
 
   for (let ordinal = 1; ordinal < anchors.length - 1; ordinal += 1) {
     const element = path.path_elements[anchors[ordinal].elementIndex];
@@ -111,6 +119,10 @@ export function seedableHandoffElementIndexes(
 ): number[] {
   const anchors = anchorPoints(elements);
   const indexes: number[] = [];
+  const first = anchors[0];
+  if (first && isSeedable(elements[first.elementIndex])) {
+    indexes.push(first.elementIndex);
+  }
   for (let ordinal = 1; ordinal < anchors.length - 1; ordinal += 1) {
     if (isSeedable(elements[anchors[ordinal].elementIndex])) {
       indexes.push(anchors[ordinal].elementIndex);
@@ -124,8 +136,9 @@ function isSeedable(element: PathElement | undefined): boolean {
     return false;
   }
 
+  const source = getHandoffRadiusSource(element);
   return (
-    getHandoffRadiusSource(element) === "auto" || storedRadius(element) === null
+    source === "auto" || (source === null && storedRadius(element) === null)
   );
 }
 

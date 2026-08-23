@@ -10,6 +10,7 @@ export interface AutoVelocityObjectiveWeights {
 export interface AutoVelocityObjectiveInput {
   reachedEndRatio: number;
   handoffRatios: readonly number[];
+  rotationRatios?: readonly number[];
   totalTimeS: number;
   capsByOrdinal: ReadonlyMap<number, number>;
 }
@@ -60,7 +61,11 @@ export function autoVelocityObjectiveCost(
 export function autoVelocityObjectiveTerms(
   input: AutoVelocityObjectiveInput,
 ): AutoVelocityObjectiveTerms {
-  const ratios = [input.reachedEndRatio, ...input.handoffRatios];
+  const ratios = [
+    input.reachedEndRatio,
+    ...input.handoffRatios,
+    ...(input.rotationRatios ?? []),
+  ];
   let maxOver = 0;
   let sumOverLimitSquared = 0;
 

@@ -25,6 +25,7 @@ export interface FeasibleRadiusRange {
 export const autoCorridorDeviationBudgetMeters = 0.26;
 
 const minRadiusMeters = 0.05;
+export const minimumAutomaticHandoffStraightLegMeters = 0.3;
 const maxRadiusIncomingLegRatio = 0.9;
 const seedRadiusIncomingLegRatio = 0.49;
 const collinearTurnAngleRadians = 0.02;
@@ -106,6 +107,12 @@ export function feasibleRadiusRange(
   geometry: CornerGeometry | null,
 ): FeasibleRadiusRange | null {
   if (!geometry) {
+    return null;
+  }
+  if (
+    geometry.legInMeters < minimumAutomaticHandoffStraightLegMeters ||
+    geometry.legOutMeters < minimumAutomaticHandoffStraightLegMeters
+  ) {
     return null;
   }
 

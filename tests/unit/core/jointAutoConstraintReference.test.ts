@@ -94,6 +94,7 @@ describe("solveJointAutoConstraintsReference", () => {
       {
         "objectiveCost": 0.918821,
         "radii": [
+          0.45,
           0.539,
           0.348,
         ],

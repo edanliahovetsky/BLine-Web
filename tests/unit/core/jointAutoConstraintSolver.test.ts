@@ -336,7 +336,7 @@ describe("solveJointAutoConstraints", () => {
     expect(getHandoffRadiusSource(seeded.path_elements[1])).toBeNull();
   });
 
-  it("reports an unset corner whose incoming leg cannot fit the radius lattice", () => {
+  it("leaves an ineligible short-leg automatic radius unset", () => {
     const path = pathOf([
       [0, 0],
       [0.04, 0],
@@ -345,7 +345,7 @@ describe("solveJointAutoConstraints", () => {
 
     const result = solveJointAutoConstraints(seedHandoffRadii(path).path, {});
 
-    expect(result.status).toBe("unsolvable");
+    expect(result.status).toBe("valid");
     expect(result.path.path_elements[1]).toMatchObject({
       intermediate_handoff_radius_meters: null,
     });
