@@ -6,7 +6,7 @@ import {
 
 export type { FieldBackgroundEntry } from "../core/field/fieldConfig";
 
-export const USER_DATA_SCHEMA_VERSION = 2 as const;
+export const USER_DATA_SCHEMA_VERSION = 3 as const;
 
 export interface EditorLayoutPreferences {
   inspector_tab: "elements" | "constraints";
@@ -19,6 +19,12 @@ export interface ProjectViewPreferences {
   selected_field_background_id?: string;
 }
 
+export interface FieldAssetStagingEntry {
+  asset_id: string;
+  owner_id: string;
+  expires_at_ms: number;
+}
+
 export interface UserData {
   schema_version: typeof USER_DATA_SCHEMA_VERSION;
   editor_layout: EditorLayoutPreferences;
@@ -28,6 +34,8 @@ export interface UserData {
   field_backgrounds: FieldBackgroundEntry[];
   /** Durable ownership for unreferenced Field assets awaiting verified deletion. */
   field_asset_cleanup_ids: string[];
+  /** Leased ownership for a generation being written before metadata publication. */
+  field_asset_staging: FieldAssetStagingEntry[];
 }
 
 export interface LegacyUserDataStorage {
@@ -46,6 +54,7 @@ export const defaultUserData: UserData = {
   project_views: {},
   field_backgrounds: [],
   field_asset_cleanup_ids: [],
+  field_asset_staging: [],
 };
 
 export class UnsupportedUserDataVersionError extends Error {
@@ -101,6 +110,12 @@ export function migrateUserData(
   const fieldAssetIds = new Set(
     fieldBackgrounds.map((entry) => entry.asset_id),
   );
+  const fieldAssetStaging = fieldAssetStagingEntries(
+    root?.field_asset_staging,
+  ).filter((entry) => !fieldAssetIds.has(entry.asset_id));
+  const stagedAssetIds = new Set(
+    fieldAssetStaging.map((entry) => entry.asset_id),
+  );
   return {
     schema_version: USER_DATA_SCHEMA_VERSION,
     editor_layout: {
@@ -139,7 +154,11 @@ export function migrateUserData(
     field_backgrounds: fieldBackgrounds,
     field_asset_cleanup_ids: fieldAssetCleanupIds(
       root?.field_asset_cleanup_ids,
-    ).filter((assetId) => !fieldAssetIds.has(assetId)),
+    ).filter(
+      (assetId) =>
+        !fieldAssetIds.has(assetId) && !stagedAssetIds.has(assetId),
+    ),
+    field_asset_staging: fieldAssetStaging,
   };
 }
 
@@ -163,6 +182,7 @@ function isCurrentUserDataRecord(
   const views = objectValue(root.project_views);
   const fields = root.field_backgrounds;
   const cleanupIds = root.field_asset_cleanup_ids;
+  const staging = root.field_asset_staging;
   if (
     !layout ||
     !inspectorTab(layout.inspector_tab) ||
@@ -176,7 +196,8 @@ function isCurrentUserDataRecord(
     !views ||
     !validCurrentProjectViews(views) ||
     !Array.isArray(fields) ||
-    (cleanupIds !== undefined && !validFieldAssetCleanupIds(cleanupIds))
+    (cleanupIds !== undefined && !validFieldAssetCleanupIds(cleanupIds)) ||
+    (staging !== undefined && !validFieldAssetStaging(staging))
   ) {
     return false;
   }
@@ -185,8 +206,10 @@ function isCurrentUserDataRecord(
   const fieldAssetIds = new Set<string>();
   for (const field of fields) {
     const normalized = normalizeFieldBackgroundEntry(field);
+    const rawField = objectValue(field);
     if (
       !normalized ||
+      rawField?.asset_id !== normalized.asset_id ||
       fieldIds.has(normalized.id) ||
       fieldAssetIds.has(normalized.asset_id)
     ) {
@@ -201,7 +224,63 @@ function isCurrentUserDataRecord(
   ) {
     return false;
   }
+  if (Array.isArray(staging)) {
+    const stagedIds = new Set(
+      staging.map((entry) => objectValue(entry)?.asset_id),
+    );
+    if (
+      staging.some((entry) => {
+        const assetId = objectValue(entry)?.asset_id;
+        return (
+          typeof assetId !== "string" ||
+          (Array.isArray(cleanupIds) && cleanupIds.includes(assetId))
+        );
+      }) ||
+      stagedIds.size !== staging.length
+    ) {
+      return false;
+    }
+  }
   return true;
+}
+
+function validFieldAssetStaging(value: unknown): value is unknown[] {
+  return (
+    Array.isArray(value) &&
+    value.every((candidate) => {
+      const entry = objectValue(candidate);
+      return (
+        entry !== null &&
+        typeof entry.asset_id === "string" &&
+        isSafeFieldBackgroundId(entry.asset_id) &&
+        typeof entry.owner_id === "string" &&
+        isSafeFieldBackgroundId(entry.owner_id) &&
+        typeof entry.expires_at_ms === "number" &&
+        Number.isSafeInteger(entry.expires_at_ms) &&
+        entry.expires_at_ms >= 0
+      );
+    })
+  );
+}
+
+function fieldAssetStagingEntries(value: unknown): FieldAssetStagingEntry[] {
+  if (!validFieldAssetStaging(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    const entry = objectValue(candidate)!;
+    const assetId = entry.asset_id as string;
+    if (seen.has(assetId)) return [];
+    seen.add(assetId);
+    return [
+      {
+        asset_id: assetId,
+        owner_id: entry.owner_id as string,
+        expires_at_ms: entry.expires_at_ms as number,
+      },
+    ];
+  });
 }
 
 function validFieldAssetCleanupIds(value: unknown): value is string[] {

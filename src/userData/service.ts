@@ -12,6 +12,7 @@ import {
   isUserDataRecord,
   migrateUserData,
   type FieldBackgroundEntry,
+  type FieldAssetStagingEntry,
   type ProjectViewPreferences,
   type UserData,
 } from "./model";
@@ -21,6 +22,8 @@ export interface UserDataServiceOptions {
   legacyStorage?: UserDataStorage;
   idFactory?: () => string;
   assetIdFactory?: () => string;
+  sessionId?: string;
+  stagingLeaseMs?: number;
   clock?: () => Date;
   /** Only for an explicitly non-durable in-memory runtime fallback. */
   assumeEmptyDurableSource?: boolean;
@@ -147,11 +150,21 @@ export class UserDataService {
   private initialization: Promise<UserData> | null = null;
   private readonly issuedEntryIds = new Set<string>();
   private readonly issuedAssetIds = new Set<string>();
+  private readonly sessionId: string;
 
   constructor(
     private readonly adapter: UserDataAdapter,
     private readonly options: UserDataServiceOptions = {},
   ) {
+    this.sessionId =
+      options.sessionId ??
+      `session-${
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+      }`;
+    if (!isSafeFieldBackgroundId(this.sessionId)) {
+      throw new Error("Invalid User Data session ID");
+    }
     if (options.assumeEmptyDurableSource) {
       this.availability = "ready";
     }
@@ -222,6 +235,9 @@ export class UserDataService {
     for (const assetId of this.snapshot.field_asset_cleanup_ids) {
       this.issuedAssetIds.add(assetId);
     }
+    for (const staging of this.snapshot.field_asset_staging) {
+      this.issuedAssetIds.add(staging.asset_id);
+    }
     if (requiresNormalizationWrite) {
       try {
         const durable = await this.persistWithRetry(this.snapshot);
@@ -233,6 +249,7 @@ export class UserDataService {
     this.durableRevision = this.snapshotRevision;
     this.availability = "ready";
     try {
+      await this.reapExpiredFieldAssetStaging();
       await this.completePendingFieldAssetCleanup();
     } catch (error) {
       // Cleanup ownership is durable. Keep the editor available and surface
@@ -269,6 +286,7 @@ export class UserDataService {
       // Asset metadata only enters through the verified async operations.
       field_backgrounds: current.field_backgrounds,
       field_asset_cleanup_ids: current.field_asset_cleanup_ids,
+      field_asset_staging: current.field_asset_staging,
     });
     this.snapshotRevision += 1;
     this.queueWrite();
@@ -285,6 +303,11 @@ export class UserDataService {
       if (this.snapshot.field_asset_cleanup_ids.length > 0) {
         this.assertWritable();
         await this.enqueue(() => this.completePendingFieldAssetCleanup());
+        continue;
+      }
+      if (this.hasExpiredFieldAssetStaging()) {
+        this.assertWritable();
+        await this.enqueue(() => this.reapExpiredFieldAssetStaging());
         continue;
       }
       const targetRevision = this.snapshotRevision;
@@ -515,6 +538,7 @@ export class UserDataService {
   async deleteFieldBackground(entryId: string): Promise<void> {
     this.assertWritable();
     return this.enqueue(async () => {
+      await this.reapExpiredFieldAssetStaging();
       await this.completePendingFieldAssetCleanup();
       if (
         !this.snapshot.field_backgrounds.some((entry) => entry.id === entryId)
@@ -552,6 +576,7 @@ export class UserDataService {
   ): Promise<FieldBackgroundEntry[]> {
     this.assertWritable();
     return this.enqueue(async () => {
+      await this.reapExpiredFieldAssetStaging();
       await this.completePendingFieldAssetCleanup();
       let desiredEntries = input.fieldBackgrounds.map((entry) =>
         this.normalizedEntry(structuredClone(entry)),
@@ -578,9 +603,17 @@ export class UserDataService {
       const beforeById = new Map(
         before.field_backgrounds.map((entry) => [entry.id, entry]),
       );
-      const previousBytes = new Map<string, Uint8Array | null>();
       const writtenAssetIds: string[] = [];
       const replacedAssetIds = new Set<string>();
+      for (const [entryId] of imageUpdates) {
+        const assetId = this.allocateAssetId();
+        desiredEntries = desiredEntries.map((entry) =>
+          entry.id === entryId ? { ...entry, asset_id: assetId } : entry,
+        );
+        writtenAssetIds.push(assetId);
+      }
+      await this.stageFieldAssets(writtenAssetIds);
+      const stagedBase = this.getSnapshot();
       try {
         for (const [entryId, bytes] of imageUpdates) {
           const previousEntry = beforeById.get(entryId);
@@ -590,19 +623,16 @@ export class UserDataService {
           ) {
             throw new FieldBackgroundAssetVerificationError(entryId);
           }
-          const assetId = this.allocateAssetId();
-          desiredEntries = desiredEntries.map((entry) =>
-            entry.id === entryId ? { ...entry, asset_id: assetId } : entry,
-          );
-          previousBytes.set(assetId, null);
-          writtenAssetIds.push(assetId);
+          const assetId = desiredEntries.find(
+            (entry) => entry.id === entryId,
+          )!.asset_id;
           await this.writeVerifiedAsset(assetId, bytes);
           if (previousEntry) {
             replacedAssetIds.add(previousEntry.asset_id);
           }
         }
       } catch (error) {
-        await this.restoreFieldAssetsBestEffort(writtenAssetIds, previousBytes);
+        await this.discardStagedAssetsBestEffort(writtenAssetIds);
         throw error;
       }
 
@@ -618,7 +648,7 @@ export class UserDataService {
           .map((entry) => entry.asset_id),
       ]);
       const writtenRevision = this.snapshotRevision;
-      let next = removeFieldEntries(before, removedIds);
+      let next = removeFieldEntries(stagedBase, removedIds);
       next = migrateUserData({
         ...next,
         field_backgrounds: desiredEntries,
@@ -628,6 +658,9 @@ export class UserDataService {
             ...retiredAssetIds,
           ]),
         ],
+        field_asset_staging: next.field_asset_staging.filter(
+          (staging) => !writtenAssetIds.includes(staging.asset_id),
+        ),
         project_views: withSelectedFieldBackground(
           next.project_views,
           input.projectId,
@@ -640,25 +673,32 @@ export class UserDataService {
         durable = await this.persistWithRetry(next);
       } catch (error) {
         if (!(error instanceof UserDataWriteOutcomeUnknownError)) {
-          await this.restoreFieldAssetsBestEffort(
-            writtenAssetIds,
-            previousBytes,
-          );
+          await this.discardStagedAssetsBestEffort(writtenAssetIds);
         }
         throw error;
       }
-      if (
-        !desiredEntries.every((desired) =>
-          durable.field_backgrounds.some(
-            (entry) =>
-              entry.id === desired.id && sameUserData(entry, desired),
+      const missingDesiredIds = desiredEntries.some(
+        (desired) =>
+          !durable.field_backgrounds.some((entry) => entry.id === desired.id),
+      );
+      const missingStagedGeneration = writtenAssetIds.some(
+        (assetId) =>
+          !durable.field_backgrounds.some(
+            (entry) => entry.asset_id === assetId,
           ),
-        ) ||
+      );
+      if (
+        missingDesiredIds ||
+        missingStagedGeneration ||
         !fieldEntriesAreRemoved(durable, removedIds)
       ) {
-        await this.restoreFieldAssetsBestEffort(
-          writtenAssetIds,
-          previousBytes,
+        const referencedAssetIds = new Set(
+          durable.field_backgrounds.map((entry) => entry.asset_id),
+        );
+        await this.discardStagedAssetsBestEffort(
+          writtenAssetIds.filter(
+            (assetId) => !referencedAssetIds.has(assetId),
+          ),
         );
         throw new UserDataVerificationError();
       }
@@ -666,8 +706,8 @@ export class UserDataService {
       const volatileSnapshot = this.getSnapshot();
       this.acceptDurableSnapshot(next, durable);
       this.snapshot = mergeConcurrentUserData(
-        before,
-        mergeConcurrentUserData(before, next, volatileSnapshot),
+        stagedBase,
+        mergeConcurrentUserData(stagedBase, next, volatileSnapshot),
         durable,
       );
       this.recordDurableWrite(writtenRevision);
@@ -752,6 +792,9 @@ export class UserDataService {
     bytes: Uint8Array,
     releaseReservationForDeterministicRetry: boolean,
   ): Promise<LegacyFieldBackgroundMigration> {
+    await this.reapExpiredFieldAssetStaging();
+    await this.completePendingFieldAssetCleanup();
+    const operationBase = this.getSnapshot();
     const assetId = this.allocateAssetId();
     const entry = this.normalizedEntry({
       id: entryId,
@@ -763,19 +806,36 @@ export class UserDataService {
       created_at: this.now().toISOString(),
       geometry: structuredClone(input.geometry),
     });
+    await this.stageFieldAssets([assetId]);
+    const concurrentExisting = this.snapshot.field_backgrounds.find(
+      (candidate) => candidate.id === entryId,
+    );
+    if (concurrentExisting) {
+      await this.discardStagedAssetsBestEffort([assetId]);
+      if (!releaseReservationForDeterministicRetry) {
+        throw new Error(`Duplicate Field Background ID ${entryId}`);
+      }
+      const existingBytes = await this.adapter.readFieldAsset(
+        concurrentExisting.asset_id,
+      );
+      if (!existingBytes || !bytesEqual(existingBytes, bytes)) {
+        throw new FieldBackgroundAssetVerificationError(entryId);
+      }
+      await this.verifyDurableEntry(concurrentExisting);
+      return { entry: structuredClone(concurrentExisting), created: false };
+    }
     try {
       await this.writeVerifiedAsset(assetId, bytes);
     } catch (error) {
-      await this.deleteAssetBestEffort(assetId);
+      await this.discardStagedAssetsBestEffort([assetId]);
       this.issuedEntryIds.delete(entryId);
-      this.issuedAssetIds.delete(assetId);
       throw error;
     }
 
-    const next = this.withFieldEntries([
-      ...this.snapshot.field_backgrounds,
-      entry,
-    ]);
+    const next = removeFieldAssetStaging(
+      this.withFieldEntries([...this.snapshot.field_backgrounds, entry]),
+      new Set([assetId]),
+    );
     const writtenRevision = this.snapshotRevision;
     let durable: UserData;
     try {
@@ -790,9 +850,8 @@ export class UserDataService {
               (candidate) => candidate.id === entryId,
             )
           ) {
-            await this.deleteAssetBestEffort(assetId);
+            await this.discardStagedAssetsBestEffort([assetId]);
             this.issuedEntryIds.delete(entryId);
-            this.issuedAssetIds.delete(assetId);
           }
         } catch {
           // Keep possibly referenced bytes when the metadata outcome is unknown.
@@ -806,29 +865,36 @@ export class UserDataService {
       }
       throw error;
     }
+    const volatileSnapshot = this.getSnapshot();
     this.acceptDurableSnapshot(next, durable);
+    this.snapshot = mergeConcurrentUserData(
+      operationBase,
+      volatileSnapshot,
+      durable,
+    );
     const durableEntry = durable.field_backgrounds.find(
       (candidate) => candidate.id === entryId,
     );
     if (!durableEntry) {
-      await this.deleteAssetBestEffort(assetId);
-      this.issuedAssetIds.delete(assetId);
+      await this.discardStagedAssetsBestEffort([assetId]);
       throw new UserDataVerificationError();
     }
     if (!sameUserData(durableEntry, entry)) {
       if (!releaseReservationForDeterministicRetry) {
         throw new Error(`Duplicate Field Background ID ${entryId}`);
       }
-      await this.deleteAssetBestEffort(assetId);
-      this.issuedAssetIds.delete(assetId);
+      await this.discardStagedAssetsBestEffort([assetId]);
       this.recordDurableWrite(writtenRevision);
       await this.verifyDurableEntry(durableEntry);
       return { entry: structuredClone(durableEntry), created: false };
     }
-    this.snapshot = addFieldEntry(this.snapshot, entry);
+    this.snapshot = removeFieldAssetStaging(
+      this.snapshot,
+      new Set([assetId]),
+    );
     this.recordDurableWrite(writtenRevision);
-    await this.verifyDurableEntry(entry);
-    return { entry: structuredClone(entry), created: true };
+    await this.verifyDurableEntry(durableEntry);
+    return { entry: structuredClone(durableEntry), created: true };
   }
 
   private async writeVerifiedAsset(
@@ -920,6 +986,9 @@ export class UserDataService {
     for (const assetId of durable.field_asset_cleanup_ids) {
       this.issuedAssetIds.add(assetId);
     }
+    for (const staging of durable.field_asset_staging) {
+      this.issuedAssetIds.add(staging.asset_id);
+    }
   }
 
   private recordDurableWrite(revision: number): void {
@@ -1007,6 +1076,59 @@ export class UserDataService {
     throw new Error("Could not allocate a unique Field Background asset ID");
   }
 
+  private async stageFieldAssets(assetIds: readonly string[]): Promise<void> {
+    if (assetIds.length === 0) return;
+    const writtenRevision = this.snapshotRevision;
+    const leaseMs = this.options.stagingLeaseMs ?? 60 * 60 * 1000;
+    if (!Number.isSafeInteger(leaseMs) || leaseMs <= 0) {
+      throw new Error("Invalid Field asset staging lease");
+    }
+    const expiresAt = this.now().getTime() + leaseMs;
+    if (!Number.isSafeInteger(expiresAt) || expiresAt < 0) {
+      throw new Error("Invalid Field asset staging lease");
+    }
+    const records = assetIds.map((assetId) => ({
+      asset_id: assetId,
+      owner_id: this.sessionId,
+      expires_at_ms: expiresAt,
+    }));
+    const next = addFieldAssetStaging(this.snapshot, records);
+    const durable = await this.persistWithRetry(next);
+    this.acceptDurableSnapshot(next, durable);
+    this.snapshot = addFieldAssetStaging(this.snapshot, records);
+    this.recordDurableWrite(writtenRevision);
+  }
+
+  private hasExpiredFieldAssetStaging(): boolean {
+    const now = this.now().getTime();
+    return this.snapshot.field_asset_staging.some(
+      (entry) => entry.expires_at_ms <= now,
+    );
+  }
+
+  private async reapExpiredFieldAssetStaging(): Promise<void> {
+    const now = this.now().getTime();
+    const expiredIds = new Set(
+      this.snapshot.field_asset_staging
+        .filter((entry) => entry.expires_at_ms <= now)
+        .map((entry) => entry.asset_id),
+    );
+    if (expiredIds.size === 0) return;
+    const writtenRevision = this.snapshotRevision;
+    const next = addFieldAssetCleanup(
+      removeFieldAssetStaging(this.snapshot, expiredIds),
+      expiredIds,
+    );
+    const durable = await this.persistWithRetry(next);
+    this.acceptDurableSnapshot(next, durable);
+    this.snapshot = addFieldAssetCleanup(
+      removeFieldAssetStaging(this.snapshot, expiredIds),
+      expiredIds,
+    );
+    this.recordDurableWrite(writtenRevision);
+    await this.completePendingFieldAssetCleanup();
+  }
+
   private makeId(): string {
     const supplied = this.options.idFactory?.();
     if (supplied !== undefined) {
@@ -1034,11 +1156,43 @@ export class UserDataService {
     return migrateUserData({ ...this.snapshot, field_backgrounds: entries });
   }
 
-  private async deleteAssetBestEffort(entryId: string): Promise<void> {
+  private async discardStagedAssetsBestEffort(
+    assetIds: readonly string[],
+  ): Promise<void> {
+    const deletedIds = new Set<string>();
+    for (const assetId of assetIds) {
+      try {
+        await this.adapter.deleteFieldAsset(assetId);
+        if ((await this.adapter.readFieldAsset(assetId)) === null) {
+          deletedIds.add(assetId);
+        }
+      } catch {
+        // The durable staging lease keeps failed compensation discoverable.
+      }
+    }
+    if (deletedIds.size === 0) return;
     try {
-      await this.adapter.deleteFieldAsset(entryId);
+      const writtenRevision = this.snapshotRevision;
+      const next = removeFieldAssetStaging(this.snapshot, deletedIds);
+      const durable = await this.persistWithRetry(next);
+      this.acceptDurableSnapshot(next, durable);
+      this.snapshot = removeFieldAssetStaging(this.snapshot, deletedIds);
+      this.recordDurableWrite(writtenRevision);
+      for (const assetId of deletedIds) {
+        if (
+          !this.snapshot.field_backgrounds.some(
+            (entry) => entry.asset_id === assetId,
+          ) &&
+          !this.snapshot.field_asset_cleanup_ids.includes(assetId) &&
+          !this.snapshot.field_asset_staging.some(
+            (entry) => entry.asset_id === assetId,
+          )
+        ) {
+          this.issuedAssetIds.delete(assetId);
+        }
+      }
     } catch {
-      // An unreferenced orphan is safer than exposing missing referenced bytes.
+      // Missing bytes plus a durable lease are safe and retryable on expiry.
     }
   }
 
@@ -1066,31 +1220,15 @@ export class UserDataService {
         !this.snapshot.field_backgrounds.some(
           (entry) => entry.asset_id === assetId,
         ) &&
-        !this.snapshot.field_asset_cleanup_ids.includes(assetId)
+        !this.snapshot.field_asset_cleanup_ids.includes(assetId) &&
+        !this.snapshot.field_asset_staging.some(
+          (entry) => entry.asset_id === assetId,
+        )
       ) {
         this.issuedAssetIds.delete(assetId);
       }
     }
     this.availabilityError = null;
-  }
-
-  private async restoreFieldAssetsBestEffort(
-    entryIds: readonly string[],
-    previousBytes: ReadonlyMap<string, Uint8Array | null>,
-  ): Promise<void> {
-    for (const entryId of [...entryIds].reverse()) {
-      const previous = previousBytes.get(entryId) ?? null;
-      try {
-        if (previous) {
-          await this.writeVerifiedAsset(entryId, previous);
-        } else {
-          await this.adapter.deleteFieldAsset(entryId);
-        }
-      } catch {
-        // Keep the original failure. A preserved orphan is safer than deleting
-        // bytes that a metadata write with an unknown outcome may reference.
-      }
-    }
   }
 }
 
@@ -1138,16 +1276,6 @@ function migrateProjectViewSnapshot(
     delete projectViews[legacyProjectId];
   }
   return migrateUserData({ ...snapshot, project_views: projectViews });
-}
-
-function addFieldEntry(
-  snapshot: UserData,
-  entry: FieldBackgroundEntry,
-): UserData {
-  return migrateUserData({
-    ...snapshot,
-    field_backgrounds: [...snapshot.field_backgrounds, entry],
-  });
 }
 
 function updateFieldEntry(
@@ -1213,6 +1341,34 @@ function removeFieldAssetCleanup(
   });
 }
 
+function addFieldAssetStaging(
+  snapshot: UserData,
+  records: readonly FieldAssetStagingEntry[],
+): UserData {
+  const byAssetId = new Map(
+    snapshot.field_asset_staging.map((entry) => [entry.asset_id, entry]),
+  );
+  for (const record of records) {
+    byAssetId.set(record.asset_id, structuredClone(record));
+  }
+  return migrateUserData({
+    ...snapshot,
+    field_asset_staging: [...byAssetId.values()],
+  });
+}
+
+function removeFieldAssetStaging(
+  snapshot: UserData,
+  assetIds: ReadonlySet<string>,
+): UserData {
+  return migrateUserData({
+    ...snapshot,
+    field_asset_staging: snapshot.field_asset_staging.filter(
+      (entry) => !assetIds.has(entry.asset_id),
+    ),
+  });
+}
+
 function fieldEntriesAreRemoved(
   snapshot: UserData,
   entryIds: ReadonlySet<string>,
@@ -1237,10 +1393,38 @@ function mergeConcurrentUserData(
     local.field_backgrounds,
     remote.field_backgrounds,
   );
-  const fieldAssetCleanupIds = mergeCleanupIds(
+  const referencedAssetIds = new Set(
+    fieldBackgrounds.map((entry) => entry.asset_id),
+  );
+  const displacedAssetIds = new Set(
+    [...local.field_backgrounds, ...remote.field_backgrounds]
+      .map((entry) => entry.asset_id)
+      .filter((assetId) => !referencedAssetIds.has(assetId)),
+  );
+  const fieldAssetStaging = mergeFieldAssetStaging(
+    base.field_asset_staging,
+    local.field_asset_staging,
+    remote.field_asset_staging,
+  ).filter(
+    (entry) =>
+      !referencedAssetIds.has(entry.asset_id) &&
+      !displacedAssetIds.has(entry.asset_id),
+  );
+  const stagedAssetIds = new Set(
+    fieldAssetStaging.map((entry) => entry.asset_id),
+  );
+  const fieldAssetCleanupIds = [
+    ...new Set([
+      ...mergeCleanupIds(
     base.field_asset_cleanup_ids,
     local.field_asset_cleanup_ids,
     remote.field_asset_cleanup_ids,
+      ),
+      ...displacedAssetIds,
+    ]),
+  ].filter(
+    (assetId) =>
+      !referencedAssetIds.has(assetId) && !stagedAssetIds.has(assetId),
   );
   const deletedFieldIds = new Set(
     base.field_backgrounds
@@ -1307,7 +1491,32 @@ function mergeConcurrentUserData(
     project_views: projectViews,
     field_backgrounds: fieldBackgrounds,
     field_asset_cleanup_ids: fieldAssetCleanupIds,
+    field_asset_staging: fieldAssetStaging,
   });
+}
+
+function mergeFieldAssetStaging(
+  baseEntries: readonly FieldAssetStagingEntry[],
+  localEntries: readonly FieldAssetStagingEntry[],
+  remoteEntries: readonly FieldAssetStagingEntry[],
+): FieldAssetStagingEntry[] {
+  const base = new Map(baseEntries.map((entry) => [entry.asset_id, entry]));
+  const local = new Map(localEntries.map((entry) => [entry.asset_id, entry]));
+  const remote = new Map(remoteEntries.map((entry) => [entry.asset_id, entry]));
+  const merged: FieldAssetStagingEntry[] = [];
+  for (const assetId of new Set([
+    ...base.keys(),
+    ...local.keys(),
+    ...remote.keys(),
+  ])) {
+    const baseEntry = base.get(assetId);
+    const localEntry = local.get(assetId);
+    const remoteEntry = remote.get(assetId);
+    if (baseEntry && (!localEntry || !remoteEntry)) continue;
+    const selected = localEntry ?? remoteEntry;
+    if (selected) merged.push(structuredClone(selected));
+  }
+  return merged;
 }
 
 function mergeCleanupIds(
@@ -1378,13 +1587,15 @@ function mergeFieldBackgroundEntry(
   local: FieldBackgroundEntry,
   remote: FieldBackgroundEntry,
 ): FieldBackgroundEntry {
+  if (!sameUserData(base.asset_id, local.asset_id)) {
+    return structuredClone(local);
+  }
+  if (!sameUserData(base.asset_id, remote.asset_id)) {
+    return structuredClone(remote);
+  }
   return {
     id: base.id,
-    asset_id: mergeValue(
-      base.asset_id,
-      local.asset_id,
-      remote.asset_id,
-    ),
+    asset_id: base.asset_id,
     name: mergeValue(base.name, local.name, remote.name),
     file_name: mergeValue(base.file_name, local.file_name, remote.file_name),
     mime_type: mergeValue(base.mime_type, local.mime_type, remote.mime_type),

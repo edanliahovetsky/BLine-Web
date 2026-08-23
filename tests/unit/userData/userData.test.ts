@@ -27,7 +27,11 @@ import {
   type UserDataAdapter,
   type UserDataStorage,
 } from "../../../src/userData/adapters";
-import { defaultUserData, type UserData } from "../../../src/userData/model";
+import {
+  USER_DATA_SCHEMA_VERSION,
+  defaultUserData,
+  type UserData,
+} from "../../../src/userData/model";
 import {
   FieldBackgroundAssetVerificationError,
   ProjectViewMigrationError,
@@ -241,7 +245,9 @@ describe("UserData", () => {
     };
     const adapter = new AssetMemoryAdapter({
       ...defaultUserData,
+      schema_version: 2,
       field_backgrounds: [legacyEntry],
+      field_asset_staging: undefined,
     });
     adapter.assets.set(legacyEntry.id, new Uint8Array([1, 2, 3, 4]));
     const service = new UserDataService(adapter);
@@ -255,6 +261,20 @@ describe("UserData", () => {
     await expect(
       service.readFieldBackgroundImage(legacyEntry.id),
     ).resolves.toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
+  it("fences stale v2 clients out of immutable Field asset metadata", () => {
+    expect(USER_DATA_SCHEMA_VERSION).toBe(3);
+    const staleV2Read = (data: UserData) => {
+      if (data.schema_version > 2) {
+        throw new Error("future User Data schema");
+      }
+      return data;
+    };
+
+    expect(() => staleV2Read(defaultUserData)).toThrow(
+      "future User Data schema",
+    );
   });
 
   it("uses the dedicated Tauri read and write commands", async () => {
@@ -1196,14 +1216,18 @@ describe("UserData", () => {
   it("keeps the previously published Field bytes after an ambiguous replacement write", async () => {
     const adapter = new AssetMemoryAdapter();
     const assetIds = ["asset-original", "asset-replacement"];
+    let now = new Date("2026-08-22T12:00:00.000Z");
     const service = new UserDataService(adapter, {
       idFactory: () => "field-existing",
       assetIdFactory: () => assetIds.shift()!,
+      sessionId: "session-original",
+      stagingLeaseMs: 1_000,
+      clock: () => now,
     });
     await service.initialize();
     const original = await service.createFieldBackgroundFromBytes(fieldInput());
     await service.flush();
-    adapter.failMetadataWrite = true;
+    adapter.failMetadataWriteAt = adapter.metadataWriteCount + 2;
     adapter.failMetadataReadAt = adapter.metadataReadCount + 1;
 
     await expect(
@@ -1232,14 +1256,86 @@ describe("UserData", () => {
     expect(adapter.assets.get("asset-replacement")).toEqual(
       new Uint8Array([7, 8, 9]),
     );
+    expect(durable.field_asset_staging).toEqual([
+      {
+        asset_id: "asset-replacement",
+        owner_id: "session-original",
+        expires_at_ms: now.getTime() + 1_000,
+      },
+    ]);
 
-    adapter.failMetadataWrite = false;
+    adapter.failMetadataWriteAt = undefined;
     adapter.failMetadataReadAt = undefined;
-    const relaunched = new UserDataService(adapter);
+    const relaunched = new UserDataService(adapter, { clock: () => now });
     await relaunched.initialize();
     await expect(
       relaunched.readFieldBackgroundImage(original.id),
     ).resolves.toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(adapter.assets.has("asset-replacement")).toBe(true);
+
+    now = new Date(now.getTime() + 1_001);
+    const expiredRelaunch = new UserDataService(adapter, { clock: () => now });
+    await expiredRelaunch.initialize();
+    expect(expiredRelaunch.getSnapshot().field_asset_staging).toEqual([]);
+    expect(adapter.assets.has("asset-replacement")).toBe(false);
+    await expect(
+      expiredRelaunch.readFieldBackgroundImage(original.id),
+    ).resolves.toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
+  it("keeps a replacement generation intact across a concurrent metadata write", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const creator = new UserDataService(adapter, {
+      idFactory: () => "field-concurrent-replacement",
+      assetIdFactory: () => "asset-original-concurrent",
+    });
+    await creator.initialize();
+    const original = await creator.createFieldBackgroundFromBytes(fieldInput());
+    const metadataEditor = new UserDataService(adapter);
+    const replacer = new UserDataService(adapter, {
+      assetIdFactory: () => "asset-replacement-concurrent",
+    });
+    await Promise.all([metadataEditor.initialize(), replacer.initialize()]);
+    const blocked = adapter.pauseMetadataWriteAt(
+      adapter.metadataWriteCount + 2,
+    );
+
+    const replacing = replacer.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: original.id,
+      fieldBackgrounds: [
+        {
+          ...original,
+          name: "Replacement",
+          file_name: "replacement.png",
+          size_bytes: 3,
+        },
+      ],
+      imageUpdates: [
+        { entryId: original.id, bytes: new Uint8Array([7, 8, 9]) },
+      ],
+    });
+    await blocked.started;
+    await metadataEditor.updateFieldBackgroundMetadata(original.id, {
+      geometry: { ...original.geometry, width_meters: 7.25 },
+    });
+    blocked.release();
+    await replacing;
+
+    const durable = adapter.persisted as UserData;
+    expect(durable.field_backgrounds).toMatchObject([
+      {
+        id: original.id,
+        asset_id: "asset-replacement-concurrent",
+        name: "Replacement",
+        file_name: "replacement.png",
+        size_bytes: 3,
+      },
+    ]);
+    expect(adapter.assets.get("asset-replacement-concurrent")).toEqual(
+      new Uint8Array([7, 8, 9]),
+    );
+    expect(adapter.assets.has(original.asset_id)).toBe(false);
   });
 
   it.each([
@@ -1450,7 +1546,7 @@ describe("UserData", () => {
     const service = new UserDataService(adapter);
     await service.initialize();
     await service.flush();
-    adapter.failMetadataWrite = true;
+    adapter.failMetadataWriteAt = adapter.metadataWriteCount + 2;
     adapter.failMetadataReadAt = adapter.metadataReadCount + 1;
 
     await expect(
@@ -1461,7 +1557,7 @@ describe("UserData", () => {
     ).rejects.toThrow("metadata write failed");
     expect(adapter.assets.size).toBe(1);
 
-    adapter.failMetadataWrite = false;
+    adapter.failMetadataWriteAt = undefined;
     adapter.failMetadataReadAt = undefined;
     const recovered = await service.migrateLegacyFieldBackgroundFromBytes(
       fieldInput(),
@@ -1481,13 +1577,13 @@ describe("UserData", () => {
     });
     await service.initialize();
     await service.flush();
-    adapter.failMetadataWrite = true;
+    adapter.failMetadataWriteAt = adapter.metadataWriteCount + 2;
     adapter.failMetadataReadAt = adapter.metadataReadCount + 1;
 
     await expect(
       service.createFieldBackgroundFromBytes(fieldInput()),
     ).rejects.toThrow("metadata write failed");
-    adapter.failMetadataWrite = false;
+    adapter.failMetadataWriteAt = undefined;
     adapter.failMetadataReadAt = undefined;
 
     await expect(
@@ -2104,6 +2200,8 @@ class AssetMemoryAdapter implements UserDataAdapter {
   mutateAssetThenThrow = false;
   mismatchNextAssetReadback = false;
   failMetadataWrite = false;
+  metadataWriteCount = 0;
+  failMetadataWriteAt: number | undefined;
   metadataWriteFailuresRemaining = 0;
   installMetadataThenThrow = false;
   failAssetDelete = false;
@@ -2115,6 +2213,7 @@ class AssetMemoryAdapter implements UserDataAdapter {
     started: Deferred<void>;
     release: Deferred<void>;
   } | null = null;
+  private metadataWritePauseAt: number | undefined;
   private assetDeletePause: {
     started: Deferred<void>;
     release: Deferred<void>;
@@ -2138,14 +2237,23 @@ class AssetMemoryAdapter implements UserDataAdapter {
 
   async compareAndSwap(expectedRevision: number, data: UserData) {
     this.events.push("metadata-write");
+    this.metadataWriteCount += 1;
     const pause = this.metadataWritePause;
-    if (pause) {
+    if (
+      pause &&
+      (this.metadataWritePauseAt === undefined ||
+        this.metadataWritePauseAt === this.metadataWriteCount)
+    ) {
       this.metadataWritePause = null;
+      this.metadataWritePauseAt = undefined;
       pause.started.resolve();
       await pause.release.promise;
     }
     if (this.metadataWriteFailuresRemaining > 0) {
       this.metadataWriteFailuresRemaining -= 1;
+      throw new Error("metadata write failed");
+    }
+    if (this.metadataWriteCount === this.failMetadataWriteAt) {
       throw new Error("metadata write failed");
     }
     if (this.failMetadataWrite) {
@@ -2179,6 +2287,21 @@ class AssetMemoryAdapter implements UserDataAdapter {
     const started = deferred<void>();
     const release = deferred<void>();
     this.metadataWritePause = { started, release };
+    this.metadataWritePauseAt = undefined;
+    return {
+      started: started.promise,
+      release: () => release.resolve(),
+    };
+  }
+
+  pauseMetadataWriteAt(target: number): {
+    started: Promise<void>;
+    release(): void;
+  } {
+    const started = deferred<void>();
+    const release = deferred<void>();
+    this.metadataWritePause = { started, release };
+    this.metadataWritePauseAt = target;
     return {
       started: started.promise,
       release: () => release.resolve(),
