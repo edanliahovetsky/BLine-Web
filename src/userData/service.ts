@@ -20,6 +20,7 @@ import type { FieldGeometry } from "../core/field/fieldConfig";
 export interface UserDataServiceOptions {
   legacyStorage?: UserDataStorage;
   idFactory?: () => string;
+  assetIdFactory?: () => string;
   clock?: () => Date;
   /** Only for an explicitly non-durable in-memory runtime fallback. */
   assumeEmptyDurableSource?: boolean;
@@ -145,6 +146,7 @@ export class UserDataService {
   private availabilityError: Error | null = null;
   private initialization: Promise<UserData> | null = null;
   private readonly issuedEntryIds = new Set<string>();
+  private readonly issuedAssetIds = new Set<string>();
 
   constructor(
     private readonly adapter: UserDataAdapter,
@@ -215,9 +217,10 @@ export class UserDataService {
     const requiresNormalizationWrite = !sameUserData(persisted, this.snapshot);
     for (const entry of this.snapshot.field_backgrounds) {
       this.issuedEntryIds.add(entry.id);
+      this.issuedAssetIds.add(entry.asset_id);
     }
-    for (const entryId of this.snapshot.field_asset_cleanup_ids) {
-      this.issuedEntryIds.add(entryId);
+    for (const assetId of this.snapshot.field_asset_cleanup_ids) {
+      this.issuedAssetIds.add(assetId);
     }
     if (requiresNormalizationWrite) {
       try {
@@ -419,12 +422,12 @@ export class UserDataService {
         (entry) => entry.id === entryId,
       );
       if (existing) {
-        const readback = await this.adapter.readFieldAsset(entryId);
+        const readback = await this.adapter.readFieldAsset(existing.asset_id);
         if (readback && !bytesEqual(bytes, readback)) {
           throw new FieldBackgroundAssetVerificationError(entryId);
         }
         if (!readback) {
-          await this.writeVerifiedAsset(entryId, bytes);
+          await this.writeVerifiedAsset(existing.asset_id, bytes);
         }
         await this.verifyDurableEntry(existing);
         return { entry: structuredClone(existing), created: false };
@@ -450,7 +453,7 @@ export class UserDataService {
       if (!existing) {
         return null;
       }
-      const bytes = await this.adapter.readFieldAsset(entryId);
+      const bytes = await this.adapter.readFieldAsset(existing.asset_id);
       if (!bytes || bytes.byteLength !== existing.size_bytes) {
         throw new FieldBackgroundAssetVerificationError(entryId);
       }
@@ -500,7 +503,12 @@ export class UserDataService {
     ) {
       return null;
     }
-    const bytes = await this.adapter.readFieldAsset(entryId);
+    const entry = this.snapshot.field_backgrounds.find(
+      (candidate) => candidate.id === entryId,
+    );
+    const bytes = entry
+      ? await this.adapter.readFieldAsset(entry.asset_id)
+      : null;
     return bytes ? new Uint8Array(bytes) : null;
   }
 
@@ -515,9 +523,14 @@ export class UserDataService {
       }
       const writtenRevision = this.snapshotRevision;
       const entryIds = new Set([entryId]);
+      const assetIds = new Set(
+        this.snapshot.field_backgrounds
+          .filter((entry) => entryIds.has(entry.id))
+          .map((entry) => entry.asset_id),
+      );
       const next = addFieldAssetCleanup(
         removeFieldEntries(this.snapshot, entryIds),
-        entryIds,
+        assetIds,
       );
       const persisted = await this.persistWithRetry(next);
       if (!fieldEntriesAreRemoved(persisted, entryIds)) {
@@ -526,9 +539,10 @@ export class UserDataService {
       this.acceptDurableSnapshot(next, persisted);
       this.snapshot = addFieldAssetCleanup(
         removeFieldEntries(this.snapshot, entryIds),
-        entryIds,
+        assetIds,
       );
       this.recordDurableWrite(writtenRevision);
+      this.issuedEntryIds.delete(entryId);
       await this.completePendingFieldAssetCleanup();
     });
   }
@@ -539,7 +553,7 @@ export class UserDataService {
     this.assertWritable();
     return this.enqueue(async () => {
       await this.completePendingFieldAssetCleanup();
-      const desiredEntries = input.fieldBackgrounds.map((entry) =>
+      let desiredEntries = input.fieldBackgrounds.map((entry) =>
         this.normalizedEntry(structuredClone(entry)),
       );
       const desiredIds = new Set(desiredEntries.map((entry) => entry.id));
@@ -561,23 +575,31 @@ export class UserDataService {
       }
 
       const before = this.getSnapshot();
-      const beforeIds = new Set(
-        before.field_backgrounds.map((entry) => entry.id),
+      const beforeById = new Map(
+        before.field_backgrounds.map((entry) => [entry.id, entry]),
       );
       const previousBytes = new Map<string, Uint8Array | null>();
       const writtenAssetIds: string[] = [];
+      const replacedAssetIds = new Set<string>();
       try {
         for (const [entryId, bytes] of imageUpdates) {
-          const previous = await this.adapter.readFieldAsset(entryId);
-          if (beforeIds.has(entryId) && !previous) {
+          const previousEntry = beforeById.get(entryId);
+          if (
+            previousEntry &&
+            !(await this.adapter.readFieldAsset(previousEntry.asset_id))
+          ) {
             throw new FieldBackgroundAssetVerificationError(entryId);
           }
-          previousBytes.set(
-            entryId,
-            previous ? new Uint8Array(previous) : null,
+          const assetId = this.allocateAssetId();
+          desiredEntries = desiredEntries.map((entry) =>
+            entry.id === entryId ? { ...entry, asset_id: assetId } : entry,
           );
-          writtenAssetIds.push(entryId);
-          await this.writeVerifiedAsset(entryId, bytes);
+          previousBytes.set(assetId, null);
+          writtenAssetIds.push(assetId);
+          await this.writeVerifiedAsset(assetId, bytes);
+          if (previousEntry) {
+            replacedAssetIds.add(previousEntry.asset_id);
+          }
         }
       } catch (error) {
         await this.restoreFieldAssetsBestEffort(writtenAssetIds, previousBytes);
@@ -589,14 +611,23 @@ export class UserDataService {
           .map((entry) => entry.id)
           .filter((entryId) => !desiredIds.has(entryId)),
       );
+      const retiredAssetIds = new Set([
+        ...replacedAssetIds,
+        ...before.field_backgrounds
+          .filter((entry) => removedIds.has(entry.id))
+          .map((entry) => entry.asset_id),
+      ]);
       const writtenRevision = this.snapshotRevision;
-      let next = addFieldAssetCleanup(
-        removeFieldEntries(before, removedIds),
-        removedIds,
-      );
+      let next = removeFieldEntries(before, removedIds);
       next = migrateUserData({
         ...next,
         field_backgrounds: desiredEntries,
+        field_asset_cleanup_ids: [
+          ...new Set([
+            ...next.field_asset_cleanup_ids,
+            ...retiredAssetIds,
+          ]),
+        ],
         project_views: withSelectedFieldBackground(
           next.project_views,
           input.projectId,
@@ -616,6 +647,21 @@ export class UserDataService {
         }
         throw error;
       }
+      if (
+        !desiredEntries.every((desired) =>
+          durable.field_backgrounds.some(
+            (entry) =>
+              entry.id === desired.id && sameUserData(entry, desired),
+          ),
+        ) ||
+        !fieldEntriesAreRemoved(durable, removedIds)
+      ) {
+        await this.restoreFieldAssetsBestEffort(
+          writtenAssetIds,
+          previousBytes,
+        );
+        throw new UserDataVerificationError();
+      }
 
       const volatileSnapshot = this.getSnapshot();
       this.acceptDurableSnapshot(next, durable);
@@ -625,6 +671,9 @@ export class UserDataService {
         durable,
       );
       this.recordDurableWrite(writtenRevision);
+      for (const entryId of removedIds) {
+        this.issuedEntryIds.delete(entryId);
+      }
       await this.completePendingFieldAssetCleanup();
       return structuredClone(durable.field_backgrounds);
     });
@@ -641,6 +690,11 @@ export class UserDataService {
     return this.enqueue(async () => {
       await this.completePendingFieldAssetCleanup();
       const writtenRevision = this.snapshotRevision;
+      const ownedAssetIds = new Set(
+        this.snapshot.field_backgrounds
+          .filter((entry) => ownedEntryIds.has(entry.id))
+          .map((entry) => entry.asset_id),
+      );
       const next = addFieldAssetCleanup(
         rollbackImportedFields(
           this.snapshot,
@@ -649,7 +703,7 @@ export class UserDataService {
           ownedSelection,
           priorSelection,
         ),
-        ownedEntryIds,
+        ownedAssetIds,
       );
       const durable = await this.writeVerifiedSnapshot(next);
       this.acceptDurableSnapshot(next, durable);
@@ -661,9 +715,12 @@ export class UserDataService {
           ownedSelection,
           priorSelection,
         ),
-        ownedEntryIds,
+        ownedAssetIds,
       );
       this.recordDurableWrite(writtenRevision);
+      for (const entryId of ownedEntryIds) {
+        this.issuedEntryIds.delete(entryId);
+      }
       await this.completePendingFieldAssetCleanup();
     });
   }
@@ -695,8 +752,10 @@ export class UserDataService {
     bytes: Uint8Array,
     releaseReservationForDeterministicRetry: boolean,
   ): Promise<LegacyFieldBackgroundMigration> {
+    const assetId = this.allocateAssetId();
     const entry = this.normalizedEntry({
       id: entryId,
+      asset_id: assetId,
       name: input.name,
       file_name: input.fileName,
       mime_type: input.mimeType,
@@ -705,10 +764,11 @@ export class UserDataService {
       geometry: structuredClone(input.geometry),
     });
     try {
-      await this.writeVerifiedAsset(entryId, bytes);
+      await this.writeVerifiedAsset(assetId, bytes);
     } catch (error) {
-      await this.deleteAssetBestEffort(entryId);
+      await this.deleteAssetBestEffort(assetId);
       this.issuedEntryIds.delete(entryId);
+      this.issuedAssetIds.delete(assetId);
       throw error;
     }
 
@@ -730,8 +790,9 @@ export class UserDataService {
               (candidate) => candidate.id === entryId,
             )
           ) {
-            await this.deleteAssetBestEffort(entryId);
+            await this.deleteAssetBestEffort(assetId);
             this.issuedEntryIds.delete(entryId);
+            this.issuedAssetIds.delete(assetId);
           }
         } catch {
           // Keep possibly referenced bytes when the metadata outcome is unknown.
@@ -750,12 +811,16 @@ export class UserDataService {
       (candidate) => candidate.id === entryId,
     );
     if (!durableEntry) {
+      await this.deleteAssetBestEffort(assetId);
+      this.issuedAssetIds.delete(assetId);
       throw new UserDataVerificationError();
     }
     if (!sameUserData(durableEntry, entry)) {
       if (!releaseReservationForDeterministicRetry) {
         throw new Error(`Duplicate Field Background ID ${entryId}`);
       }
+      await this.deleteAssetBestEffort(assetId);
+      this.issuedAssetIds.delete(assetId);
       this.recordDurableWrite(writtenRevision);
       await this.verifyDurableEntry(durableEntry);
       return { entry: structuredClone(durableEntry), created: false };
@@ -850,9 +915,10 @@ export class UserDataService {
     this.durableSnapshot = cloneUserData(durable);
     for (const entry of durable.field_backgrounds) {
       this.issuedEntryIds.add(entry.id);
+      this.issuedAssetIds.add(entry.asset_id);
     }
-    for (const entryId of durable.field_asset_cleanup_ids) {
-      this.issuedEntryIds.add(entryId);
+    for (const assetId of durable.field_asset_cleanup_ids) {
+      this.issuedAssetIds.add(assetId);
     }
   }
 
@@ -905,6 +971,7 @@ export class UserDataService {
     this.durableRevision = 0;
     this.writeFailures.clear();
     this.issuedEntryIds.clear();
+    this.issuedAssetIds.clear();
   }
 
   private allocateEntryId(): string {
@@ -919,6 +986,25 @@ export class UserDataService {
       }
     }
     throw new Error("Could not allocate a unique Field Background ID");
+  }
+
+  private allocateAssetId(): string {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const supplied = this.options.assetIdFactory?.();
+      const random =
+        supplied ??
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      const candidate = supplied ?? `asset-${random}`;
+      if (
+        isSafeFieldBackgroundId(candidate) &&
+        !this.issuedAssetIds.has(candidate)
+      ) {
+        this.issuedAssetIds.add(candidate);
+        return candidate;
+      }
+    }
+    throw new Error("Could not allocate a unique Field Background asset ID");
   }
 
   private makeId(): string {
@@ -975,14 +1061,14 @@ export class UserDataService {
     this.acceptDurableSnapshot(next, durable);
     this.snapshot = removeFieldAssetCleanup(this.snapshot, ownedIdSet);
     this.recordDurableWrite(writtenRevision);
-    for (const entryId of ownedIds) {
+    for (const assetId of ownedIds) {
       if (
         !this.snapshot.field_backgrounds.some(
-          (entry) => entry.id === entryId,
+          (entry) => entry.asset_id === assetId,
         ) &&
-        !this.snapshot.field_asset_cleanup_ids.includes(entryId)
+        !this.snapshot.field_asset_cleanup_ids.includes(assetId)
       ) {
-        this.issuedEntryIds.delete(entryId);
+        this.issuedAssetIds.delete(assetId);
       }
     }
     this.availabilityError = null;
@@ -1294,6 +1380,11 @@ function mergeFieldBackgroundEntry(
 ): FieldBackgroundEntry {
   return {
     id: base.id,
+    asset_id: mergeValue(
+      base.asset_id,
+      local.asset_id,
+      remote.asset_id,
+    ),
     name: mergeValue(base.name, local.name, remote.name),
     file_name: mergeValue(base.file_name, local.file_name, remote.file_name),
     mime_type: mergeValue(base.mime_type, local.mime_type, remote.mime_type),

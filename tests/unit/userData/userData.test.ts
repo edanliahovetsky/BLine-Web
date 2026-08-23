@@ -229,6 +229,34 @@ describe("UserData", () => {
     expect(storage.getItem(BROWSER_USER_DATA_KEY)).toBe(damaged);
   });
 
+  it("adds immutable asset generations to existing Field Background metadata", async () => {
+    const legacyEntry = {
+      id: "field-existing",
+      name: "Existing Field",
+      file_name: "existing.png",
+      mime_type: "image/png",
+      size_bytes: 4,
+      created_at: "2026-08-21T12:00:00.000Z",
+      geometry: fieldInput().geometry,
+    };
+    const adapter = new AssetMemoryAdapter({
+      ...defaultUserData,
+      field_backgrounds: [legacyEntry],
+    });
+    adapter.assets.set(legacyEntry.id, new Uint8Array([1, 2, 3, 4]));
+    const service = new UserDataService(adapter);
+
+    await service.initialize();
+
+    expect(service.getSnapshot().field_backgrounds).toEqual([
+      { ...legacyEntry, asset_id: legacyEntry.id },
+    ]);
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+    await expect(
+      service.readFieldBackgroundImage(legacyEntry.id),
+    ).resolves.toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
   it("uses the dedicated Tauri read and write commands", async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> =
       [];
@@ -924,8 +952,12 @@ describe("UserData", () => {
       created_at: "2026-08-21T12:00:00.000Z",
     });
     expect(updated.name).toBe("Renamed Field");
-    expect(adapter.assets.get("field-a")).toEqual(new Uint8Array([1, 2, 3, 4]));
-    expect(adapter.assets.get("field-b")).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(adapter.assets.get(first.asset_id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+    expect(adapter.assets.get(second.asset_id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
     expect(service.getSnapshot().field_backgrounds).toHaveLength(2);
   });
 
@@ -1064,7 +1096,9 @@ describe("UserData", () => {
 
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
     expect(adapter.persisted).toEqual(service.getSnapshot());
-    expect(adapter.assets.get(entry.id)).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(adapter.assets.get(entry.asset_id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
     expect(adapter.events.at(-1)).toBe("metadata-read");
   });
 
@@ -1099,15 +1133,26 @@ describe("UserData", () => {
       ],
     });
 
+    const saved = service.getSnapshot().field_backgrounds[0]!;
     expect(service.getSnapshot()).toMatchObject({
-      field_backgrounds: [replacement],
+      field_backgrounds: [
+        {
+          ...replacement,
+          asset_id: saved.asset_id,
+        },
+      ],
       project_views: {
         "project-a": { selected_field_background_id: original.id },
         "project-b": { selected_field_background_id: original.id },
       },
     });
     expect(adapter.persisted).toEqual(service.getSnapshot());
-    expect(adapter.assets.get(original.id)).toEqual(new Uint8Array([7, 8, 9]));
+    expect(saved.id).toBe(original.id);
+    expect(saved.asset_id).not.toBe(original.asset_id);
+    expect(adapter.assets.get(saved.asset_id)).toEqual(
+      new Uint8Array([7, 8, 9]),
+    );
+    expect(adapter.assets.has(original.asset_id)).toBe(false);
   });
 
   it("rolls back staged Field bytes when the Settings metadata commit fails", async () => {
@@ -1142,10 +1187,59 @@ describe("UserData", () => {
     ).rejects.toThrow("metadata write failed");
 
     expect(service.getSnapshot().field_backgrounds).toEqual([original]);
-    expect(adapter.assets.get(original.id)).toEqual(
+    expect(adapter.assets.get(original.asset_id)).toEqual(
       new Uint8Array([1, 2, 3, 4]),
     );
-    expect(adapter.assets.has(draft.id)).toBe(false);
+    expect(adapter.assets.size).toBe(1);
+  });
+
+  it("keeps the previously published Field bytes after an ambiguous replacement write", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const assetIds = ["asset-original", "asset-replacement"];
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-existing",
+      assetIdFactory: () => assetIds.shift()!,
+    });
+    await service.initialize();
+    const original = await service.createFieldBackgroundFromBytes(fieldInput());
+    await service.flush();
+    adapter.failMetadataWrite = true;
+    adapter.failMetadataReadAt = adapter.metadataReadCount + 1;
+
+    await expect(
+      service.saveFieldBackgroundSettings({
+        projectId: "project-a",
+        selectedFieldId: original.id,
+        fieldBackgrounds: [
+          {
+            ...original,
+            name: "Replacement Field",
+            file_name: "replacement.png",
+            size_bytes: 3,
+          },
+        ],
+        imageUpdates: [
+          { entryId: original.id, bytes: new Uint8Array([7, 8, 9]) },
+        ],
+      }),
+    ).rejects.toThrow("metadata write failed");
+
+    const durable = adapter.persisted as UserData;
+    expect(durable.field_backgrounds).toEqual([original]);
+    expect(adapter.assets.get(original.asset_id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+    expect(adapter.assets.get("asset-replacement")).toEqual(
+      new Uint8Array([7, 8, 9]),
+    );
+
+    adapter.failMetadataWrite = false;
+    adapter.failMetadataReadAt = undefined;
+    const relaunched = new UserDataService(adapter);
+    await relaunched.initialize();
+    await expect(
+      relaunched.readFieldBackgroundImage(original.id),
+    ).resolves.toEqual(new Uint8Array([1, 2, 3, 4]));
   });
 
   it.each([
@@ -1167,6 +1261,7 @@ describe("UserData", () => {
           : null;
       const entry = original ?? {
         id: "field-new",
+        asset_id: "field-new",
         name: "New Field",
         file_name: "new.png",
         mime_type: "image/png",
@@ -1195,11 +1290,11 @@ describe("UserData", () => {
         original ? [original] : [],
       );
       if (original) {
-        expect(adapter.assets.get(original.id)).toEqual(
+        expect(adapter.assets.get(original.asset_id)).toEqual(
           new Uint8Array([1, 2, 3, 4]),
         );
       } else {
-        expect(adapter.assets.has(entry.id)).toBe(false);
+        expect(adapter.assets.size).toBe(0);
       }
     },
   );
@@ -1224,10 +1319,10 @@ describe("UserData", () => {
 
     expect(service.getSnapshot().field_backgrounds).toEqual([]);
     expect(service.getSnapshot().field_asset_cleanup_ids).toEqual([
-      original.id,
+      original.asset_id,
     ]);
     expect(adapter.persisted).toEqual(service.getSnapshot());
-    expect(adapter.assets.has(original.id)).toBe(false);
+    expect(adapter.assets.has(original.asset_id)).toBe(false);
 
     await service.saveFieldBackgroundSettings({
       projectId: "project-a",
@@ -1236,7 +1331,7 @@ describe("UserData", () => {
       imageUpdates: [],
     });
     expect(service.getSnapshot().field_backgrounds).toEqual([]);
-    expect(adapter.assets.has(original.id)).toBe(false);
+    expect(adapter.assets.has(original.asset_id)).toBe(false);
   });
 
   it("recovers durable Field cleanup after interruption before asset deletion", async () => {
@@ -1259,9 +1354,9 @@ describe("UserData", () => {
 
     expect((adapter.persisted as UserData).field_backgrounds).toEqual([]);
     expect((adapter.persisted as UserData).field_asset_cleanup_ids).toEqual([
-      original.id,
+      original.asset_id,
     ]);
-    expect(adapter.assets.get(original.id)).toEqual(
+    expect(adapter.assets.get(original.asset_id)).toEqual(
       new Uint8Array([1, 2, 3, 4]),
     );
 
@@ -1270,11 +1365,56 @@ describe("UserData", () => {
     expect(relaunchedService.getSnapshot().field_asset_cleanup_ids).toEqual(
       [],
     );
-    expect(adapter.assets.has(original.id)).toBe(false);
+    expect(adapter.assets.has(original.asset_id)).toBe(false);
 
     blocked.release();
     await interruptedSave;
     expect(firstService.getSnapshot().field_asset_cleanup_ids).toEqual([]);
+  });
+
+  it("does not delete a concurrent re-imported Field asset generation", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const deletingService = new UserDataService(adapter, {
+      assetIdFactory: () => "asset-generation-a",
+    });
+    const staleImportService = new UserDataService(adapter, {
+      assetIdFactory: () => "asset-generation-b",
+    });
+    await deletingService.initialize();
+    await staleImportService.initialize();
+    const original =
+      await deletingService.migrateLegacyFieldBackgroundFromBytes(
+        fieldInput(),
+        "shared-legacy-source",
+      );
+    const pausedDelete = adapter.pauseNextAssetDelete();
+    const deletion = deletingService.deleteFieldBackground(original.id);
+    await pausedDelete.started;
+
+    const reimported =
+      await staleImportService.migrateLegacyFieldBackgroundFromBytes(
+        {
+          ...fieldInput(),
+          bytes: new Uint8Array([7, 8, 9]),
+        },
+        "shared-legacy-source",
+      );
+    expect(reimported.id).toBe(original.id);
+    expect(reimported.asset_id).toBe("asset-generation-b");
+    expect(adapter.assets.get(reimported.asset_id)).toEqual(
+      new Uint8Array([7, 8, 9]),
+    );
+
+    pausedDelete.release();
+    await deletion;
+    const relaunched = new UserDataService(adapter);
+    await relaunched.initialize();
+    expect(relaunched.getSnapshot().field_backgrounds).toEqual([reimported]);
+    expect(relaunched.getSnapshot().field_asset_cleanup_ids).toEqual([]);
+    expect(adapter.assets.has(original.asset_id)).toBe(false);
+    await expect(
+      relaunched.readFieldBackgroundImage(reimported.id),
+    ).resolves.toEqual(new Uint8Array([7, 8, 9]));
   });
 
   it("flush waits for an already queued Field Settings operation", async () => {
@@ -1329,7 +1469,7 @@ describe("UserData", () => {
     );
 
     expect(service.getSnapshot().field_backgrounds).toEqual([recovered]);
-    expect(adapter.assets.get(recovered.id)).toEqual(
+    expect(adapter.assets.get(recovered.asset_id)).toEqual(
       new Uint8Array([1, 2, 3, 4]),
     );
   });
@@ -1356,9 +1496,9 @@ describe("UserData", () => {
         bytes: new Uint8Array([9, 9, 9, 9]),
       }),
     ).rejects.toThrow("Could not allocate a unique Field Background ID");
-    expect(adapter.assets.get("field-ambiguous-ordinary")).toEqual(
+    expect([...adapter.assets.values()]).toEqual([
       new Uint8Array([1, 2, 3, 4]),
-    );
+    ]);
   });
 
   it("reconciles ambiguous metadata update and deletion writes", async () => {
@@ -1379,7 +1519,7 @@ describe("UserData", () => {
       service.deleteFieldBackground(entry.id),
     ).resolves.toBeUndefined();
     expect(service.getSnapshot().field_backgrounds).toEqual([]);
-    expect(adapter.assets.has(entry.id)).toBe(false);
+    expect(adapter.assets.has(entry.asset_id)).toBe(false);
   });
 
   it("can retry a failed deterministic legacy import without duplicating it", async () => {
@@ -1443,7 +1583,7 @@ describe("UserData", () => {
       fieldInput(),
       "source-a",
     );
-    adapter.assets.delete(entry.id);
+    adapter.assets.delete(entry.asset_id);
 
     const repaired = await service.migrateLegacyFieldBackgroundFromBytes(
       fieldInput(),
@@ -1451,7 +1591,9 @@ describe("UserData", () => {
     );
 
     expect(repaired).toEqual(entry);
-    expect(adapter.assets.get(entry.id)).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(adapter.assets.get(entry.asset_id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
   });
 
@@ -1468,7 +1610,7 @@ describe("UserData", () => {
       service.findVerifiedLegacyFieldBackground("source-a"),
     ).resolves.toEqual(entry);
 
-    adapter.assets.delete(entry.id);
+    adapter.assets.delete(entry.asset_id);
     await expect(
       service.findVerifiedLegacyFieldBackground("source-a"),
     ).rejects.toBeInstanceOf(FieldBackgroundAssetVerificationError);
@@ -1481,7 +1623,7 @@ describe("UserData", () => {
     });
     await service.initialize();
     const entry = await service.createFieldBackgroundFromBytes(fieldInput());
-    adapter.assets.delete(entry.id);
+    adapter.assets.delete(entry.asset_id);
 
     await expect(
       service.readFieldBackgroundImage(entry.id),
@@ -1517,11 +1659,13 @@ describe("UserData", () => {
 
     expect(adapter.events).toEqual(["metadata-write", "asset-delete"]);
     expect(service.getSnapshot().field_backgrounds).toEqual([]);
-    expect(service.getSnapshot().field_asset_cleanup_ids).toEqual([entry.id]);
+    expect(service.getSnapshot().field_asset_cleanup_ids).toEqual([
+      entry.asset_id,
+    ]);
     expect(service.getSnapshot().project_views).toEqual({
       "project-a": { active_path_id: "path-a" },
     });
-    expect(adapter.assets.has(entry.id)).toBe(true);
+    expect(adapter.assets.has(entry.asset_id)).toBe(true);
 
     adapter.failAssetDelete = false;
     await service.deleteFieldBackground(entry.id);
@@ -1529,7 +1673,7 @@ describe("UserData", () => {
     expect(service.getSnapshot().project_views).toEqual({
       "project-a": { active_path_id: "path-a" },
     });
-    expect(adapter.assets.has(entry.id)).toBe(false);
+    expect(adapter.assets.has(entry.asset_id)).toBe(false);
   });
 
   it("releases a deleted deterministic Field Background ID for reimport", async () => {
@@ -1567,7 +1711,7 @@ describe("UserData", () => {
 
     expect(adapter.events).toEqual(["metadata-write", "metadata-read"]);
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
-    expect(adapter.assets.has(entry.id)).toBe(true);
+    expect(adapter.assets.has(entry.asset_id)).toBe(true);
   });
 
   it("keeps future and unreadable stores read-only for asset operations", async () => {

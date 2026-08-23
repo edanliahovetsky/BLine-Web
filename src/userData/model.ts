@@ -98,7 +98,9 @@ export function migrateUserData(
   const automaticGeneration = objectValue(root?.automatic_generation);
 
   const fieldBackgrounds = fieldBackgroundEntries(root?.field_backgrounds);
-  const fieldIds = new Set(fieldBackgrounds.map((entry) => entry.id));
+  const fieldAssetIds = new Set(
+    fieldBackgrounds.map((entry) => entry.asset_id),
+  );
   return {
     schema_version: USER_DATA_SCHEMA_VERSION,
     editor_layout: {
@@ -137,7 +139,7 @@ export function migrateUserData(
     field_backgrounds: fieldBackgrounds,
     field_asset_cleanup_ids: fieldAssetCleanupIds(
       root?.field_asset_cleanup_ids,
-    ).filter((entryId) => !fieldIds.has(entryId)),
+    ).filter((assetId) => !fieldAssetIds.has(assetId)),
   };
 }
 
@@ -180,16 +182,22 @@ function isCurrentUserDataRecord(
   }
 
   const fieldIds = new Set<string>();
+  const fieldAssetIds = new Set<string>();
   for (const field of fields) {
     const normalized = normalizeFieldBackgroundEntry(field);
-    if (!normalized || fieldIds.has(normalized.id)) {
+    if (
+      !normalized ||
+      fieldIds.has(normalized.id) ||
+      fieldAssetIds.has(normalized.asset_id)
+    ) {
       return false;
     }
     fieldIds.add(normalized.id);
+    fieldAssetIds.add(normalized.asset_id);
   }
   if (
     Array.isArray(cleanupIds) &&
-    cleanupIds.some((entryId) => fieldIds.has(entryId))
+    cleanupIds.some((assetId) => fieldAssetIds.has(assetId))
   ) {
     return false;
   }
@@ -247,12 +255,18 @@ function fieldBackgroundEntries(value: unknown): FieldBackgroundEntry[] {
   }
 
   const seenIds = new Set<string>();
+  const seenAssetIds = new Set<string>();
   return value.flatMap((candidate) => {
     const entry = normalizeFieldBackgroundEntry(candidate);
-    if (!entry || seenIds.has(entry.id)) {
+    if (
+      !entry ||
+      seenIds.has(entry.id) ||
+      seenAssetIds.has(entry.asset_id)
+    ) {
       return [];
     }
     seenIds.add(entry.id);
+    seenAssetIds.add(entry.asset_id);
     return [entry];
   });
 }
@@ -262,6 +276,7 @@ function normalizeFieldBackgroundEntry(
 ): FieldBackgroundEntry | null {
   const entry = objectValue(value);
   const id = stringValue(entry?.id);
+  const assetId = stringValue(entry?.asset_id ?? entry?.assetId) ?? id;
   const name = stringValue(entry?.name);
   const fileName = stringValue(entry?.file_name);
   const mimeType = stringValue(entry?.mime_type);
@@ -271,6 +286,8 @@ function normalizeFieldBackgroundEntry(
   if (
     !id ||
     !isSafeFieldBackgroundId(id) ||
+    !assetId ||
+    !isSafeFieldBackgroundId(assetId) ||
     !name ||
     !fileName ||
     !mimeType ||
@@ -282,6 +299,7 @@ function normalizeFieldBackgroundEntry(
   }
   return {
     id,
+    asset_id: assetId,
     name,
     file_name: fileName,
     mime_type: mimeType,

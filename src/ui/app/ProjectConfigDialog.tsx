@@ -1088,8 +1088,10 @@ async function uploadCustomFieldImage({
         fieldDraft.fieldBackgrounds,
       ).geometry;
     const geometry = await inferCustomFieldGeometry(file, fallbackGeometry);
+    const fieldId = selectedCustomField?.id ?? createFieldImageId();
     const uploaded: FieldBackgroundEntry = {
-      id: selectedCustomField?.id ?? createFieldImageId(),
+      id: fieldId,
+      asset_id: selectedCustomField?.asset_id ?? fieldId,
       name: pathDisplayNameFromFileName(file.name),
       file_name: file.name,
       mime_type: file.type || "image/png",

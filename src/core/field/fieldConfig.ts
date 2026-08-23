@@ -57,9 +57,11 @@ export interface CustomFieldImage {
   geometry: FieldGeometry;
 }
 
-/** A user-owned Field Background. Image bytes are stored separately by ID. */
+/** A user-owned Field Background. Image bytes are stored separately by asset_id. */
 export interface FieldBackgroundEntry {
   id: string;
+  /** Immutable byte-generation identity; Field selection continues to use id. */
+  asset_id: string;
   name: string;
   file_name: string;
   mime_type: string;
