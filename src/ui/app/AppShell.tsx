@@ -2074,8 +2074,16 @@ export function AppShell() {
                 aria-expanded={showPathHealth}
                 onClick={() => setShowPathHealth((current) => !current)}
               >
-                {pathDiagnostics.length}{" "}
-                {pathDiagnostics.length === 1 ? "issue" : "issues"}
+                <span
+                  className="status-bar__diagnostics-icon"
+                  aria-hidden="true"
+                >
+                  !
+                </span>
+                <span>
+                  {pathDiagnostics.length}{" "}
+                  {pathDiagnostics.length === 1 ? "issue" : "issues"}
+                </span>
               </button>
               {showPathHealth ? (
                 <PathHealthPopover

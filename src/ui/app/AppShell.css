@@ -5118,18 +5118,87 @@ body.is-resizing-inspector * {
 }
 
 .status-bar__diagnostics {
-  color: #e6c87d;
+  min-height: 26px;
+  padding: 0 8px 0 5px;
+  border: 1px solid rgba(241, 193, 93, 0.52);
+  color: #f5d985;
+  background: rgba(241, 193, 93, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 0 rgba(241, 193, 93, 0);
+  animation: path-health-attention 900ms ease-out 1;
+}
+
+.status-bar__diagnostics-icon {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 50%;
+  color: #211a08;
+  background: var(--bline-warning);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .status-bar__diagnostics--error {
   color: var(--bline-danger);
+  border-color: rgba(255, 107, 107, 0.58);
+  background: rgba(255, 107, 107, 0.13);
+  animation-name: path-health-attention-error;
+}
+
+.status-bar__diagnostics--error .status-bar__diagnostics-icon {
+  color: #2a0f0f;
+  background: var(--bline-danger);
+}
+
+.status-bar__diagnostics[aria-expanded="true"] {
+  border-color: currentColor;
+  background: #242b2f;
 }
 
 .status-bar__save:hover,
 .status-bar__save:focus-visible,
 .status-bar__diagnostics:hover,
 .status-bar__diagnostics:focus-visible {
-  background: #1b2329;
+  border-color: currentColor;
+  background: #242b2f;
+}
+
+@keyframes path-health-attention {
+  0% {
+    box-shadow: 0 0 0 0 rgba(241, 193, 93, 0.42);
+  }
+
+  65% {
+    box-shadow: 0 0 0 5px rgba(241, 193, 93, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(241, 193, 93, 0);
+  }
+}
+
+@keyframes path-health-attention-error {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.48);
+  }
+
+  65% {
+    box-shadow: 0 0 0 5px rgba(255, 107, 107, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-bar__diagnostics {
+    animation: none;
+  }
 }
 
 .status-bar__save-dot {
