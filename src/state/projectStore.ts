@@ -76,12 +76,14 @@ export type ProjectStatus =
 interface WorkspaceHistoryMetadata {
   createdPathId?: string;
   focusPathId?: string;
+  initialAutomaticConstraintPathIds?: readonly string[];
 }
 
 interface ProjectSnapshotHistoryCommand extends HistoryCommand<Project> {
   kind: "project-snapshot";
   createdPathId?: string;
   focusPathId?: string;
+  initialAutomaticConstraintPathIds?: readonly string[];
   previousSnapshot: Project;
   nextSnapshot: Project;
   previousNavigation: EditorNavigation;
@@ -121,6 +123,7 @@ interface ProjectTransitionOwnership {
 export interface ProjectEditOwnership extends ProjectMutationOwnership {
   historyEntry: HistoryCommand<Project>;
   previousProject: Project;
+  initialAutomaticConstraintPathIds: readonly string[];
 }
 
 export type DerivedPathCommandResult = "applied" | "noop" | "stale";
@@ -851,7 +854,10 @@ export function createProjectStore(
         "Create path",
         true,
         {},
-        { createdPathId: added.createdPathId },
+        {
+          createdPathId: added.createdPathId,
+          initialAutomaticConstraintPathIds: [added.createdPathId],
+        },
       );
     },
     renamePath(pathId, name) {
@@ -1339,7 +1345,13 @@ export function createProjectStore(
         result.description,
         true,
         {},
-        { focusPathId: result.consequences.focusPathId },
+        {
+          focusPathId: result.consequences.focusPathId,
+          initialAutomaticConstraintPathIds:
+            edit.kind === "insert" || edit.kind === "insert-many"
+              ? [pathId]
+              : [],
+        },
       );
       return result;
     },
@@ -1542,6 +1554,11 @@ export function captureProjectEditOwnership(
         ...mutation,
         historyEntry,
         previousProject: historyEntry.revert(cloneProject(state.project)),
+        initialAutomaticConstraintPathIds: isProjectSnapshotCommand(
+          historyEntry,
+        )
+          ? (historyEntry.initialAutomaticConstraintPathIds ?? [])
+          : [],
       }
     : null;
 }
@@ -1635,6 +1652,8 @@ function projectSnapshotCommand(
     description,
     createdPathId: metadata.createdPathId,
     focusPathId: metadata.focusPathId,
+    initialAutomaticConstraintPathIds:
+      metadata.initialAutomaticConstraintPathIds,
     previousSnapshot,
     nextSnapshot,
     previousNavigation: structuredClone(previousNavigation),
@@ -1660,6 +1679,8 @@ function historyMetadataForAmendedCommand(
     return {
       createdPathId: command.createdPathId,
       focusPathId: command.focusPathId,
+      initialAutomaticConstraintPathIds:
+        command.initialAutomaticConstraintPathIds,
     };
   }
   return (command as Partial<ProjectPathHistoryCommand>).kind === "path-command"
@@ -1693,7 +1714,11 @@ function mergeCreatedPathMembershipTransition(
     nextProject,
     previousCommand.previousNavigation,
     nextNavigation,
-    { createdPathId: previousCommand.createdPathId },
+    {
+      createdPathId: previousCommand.createdPathId,
+      initialAutomaticConstraintPathIds:
+        previousCommand.initialAutomaticConstraintPathIds,
+    },
   );
   const undoStack = [...state.undoStack.slice(0, -1), mergedCommand];
 

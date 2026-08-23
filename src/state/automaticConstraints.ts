@@ -58,6 +58,7 @@ interface SyncCandidate {
   path: PathModel;
   config: ProjectConfig;
   refresh: NonNullable<ReturnType<typeof autoVelocityRefreshRequest>>;
+  initialGeneration: boolean;
 }
 
 /** Runs explicit generation and records one undoable Path edit if it still owns its inputs. */
@@ -169,6 +170,7 @@ export function startAutomaticConstraintSync(
   let currentToken = 0;
   let disposed = false;
   const lastAppliedUnstampedTokens = new Map<string, string>();
+  const pendingInitialGenerationPathIds = new Set<string>();
   let considered = captureProjectMutationOwnership(projects.getState());
 
   const cancelTimer = () => {
@@ -232,6 +234,9 @@ export function startAutomaticConstraintSync(
             unstampedRefreshToken(candidate),
           );
         }
+        if (outcome !== "stale" && candidate.initialGeneration) {
+          pendingInitialGenerationPathIds.delete(candidate.pathId);
+        }
         continueSync = outcome !== "stale";
       })
       .catch((error: unknown) => {
@@ -257,6 +262,19 @@ export function startAutomaticConstraintSync(
 
   const evaluate = (force = false) => {
     if (disposed) return;
+    const state = projects.getState();
+    const ownership = captureProjectEditOwnership(state);
+    for (const pathId of ownership?.initialAutomaticConstraintPathIds ?? []) {
+      pendingInitialGenerationPathIds.add(pathId);
+    }
+    const currentPathIds = new Set(
+      state.project?.paths.map((path) => path.path_id) ?? [],
+    );
+    for (const pathId of pendingInitialGenerationPathIds) {
+      if (!currentPathIds.has(pathId)) {
+        pendingInitialGenerationPathIds.delete(pathId);
+      }
+    }
     const statusState = status.getState();
     if (!statusState.autoSyncEnabled || statusState.runSource === "manual") {
       invalidate();
@@ -264,7 +282,6 @@ export function startAutomaticConstraintSync(
       return;
     }
 
-    const state = projects.getState();
     const mutation = captureProjectMutationOwnership(state);
     if (!force && sameMutation(mutation, considered)) {
       return;
@@ -272,7 +289,6 @@ export function startAutomaticConstraintSync(
     considered = mutation;
     invalidate();
 
-    const ownership = captureProjectEditOwnership(state);
     if (!ownership || !state.project) {
       settle();
       return;
@@ -281,26 +297,40 @@ export function startAutomaticConstraintSync(
     let selected: {
       path: (typeof state.project.paths)[number];
       refresh: NonNullable<ReturnType<typeof autoVelocityRefreshRequest>>;
+      initialGeneration: boolean;
     } | null = null;
     for (const candidate of state.project.paths) {
       const previousPath = ownership.previousProject.paths.find(
         (previous) => previous.path_id === candidate.path_id,
       );
+      const initialGeneration =
+        pendingInitialGenerationPathIds.has(candidate.path_id) &&
+        canGenerateAutoConstraints(candidate.path) &&
+        !hasGeneratedAutoConstraints(candidate.path);
+      if (
+        pendingInitialGenerationPathIds.has(candidate.path_id) &&
+        hasGeneratedAutoConstraints(candidate.path)
+      ) {
+        pendingInitialGenerationPathIds.delete(candidate.path_id);
+      }
       const candidateRefresh = autoVelocityRefreshRequest(
         candidate.path,
         state.project.config,
+        { includeUnseeded: initialGeneration },
       );
       if (
-        previousPath &&
         candidateRefresh?.stale &&
         candidateRefresh.signature !== null &&
-        autoVelocityInputsChanged(
-          previousPath.path,
-          ownership.previousProject.config,
-          candidate.path,
-          state.project.config,
-        ) &&
+        (initialGeneration ||
+          (previousPath &&
+            autoVelocityInputsChanged(
+              previousPath.path,
+              ownership.previousProject.config,
+              candidate.path,
+              state.project.config,
+            ))) &&
         (candidateRefresh.hasGeneratedVelocityCaps ||
+          initialGeneration ||
           lastAppliedUnstampedTokens.get(candidate.path_id) !==
             unstampedRefreshToken({
               ownership,
@@ -308,7 +338,11 @@ export function startAutomaticConstraintSync(
               refresh: candidateRefresh,
             }))
       ) {
-        selected = { path: candidate, refresh: candidateRefresh };
+        selected = {
+          path: candidate,
+          refresh: candidateRefresh,
+          initialGeneration,
+        };
         break;
       }
     }
@@ -316,7 +350,7 @@ export function startAutomaticConstraintSync(
       settle();
       return;
     }
-    const { path, refresh } = selected;
+    const { path, refresh, initialGeneration } = selected;
 
     const candidate: SyncCandidate = {
       token: nextToken++,
@@ -325,6 +359,7 @@ export function startAutomaticConstraintSync(
       path: structuredClone(path.path),
       config: structuredClone(state.project.config),
       refresh,
+      initialGeneration,
     };
     currentToken = candidate.token;
     status.getState().setPhase("pending", "sync");
@@ -339,6 +374,7 @@ export function startAutomaticConstraintSync(
     if (state.projectSessionId !== session) {
       session = state.projectSessionId;
       lastAppliedUnstampedTokens.clear();
+      pendingInitialGenerationPathIds.clear();
       status.getState().reset();
       invalidate();
       considered = captureProjectMutationOwnership(state);
@@ -404,7 +440,10 @@ function applySyncResult(
         refreshAutoVelocityConstraints(
           applyGeneratedAutoRadii(path, run.radii),
           candidate.config,
-          { whenPresentOnly: true, settings: candidate.refresh.settings },
+          {
+            whenPresentOnly: !candidate.initialGeneration,
+            settings: candidate.refresh.settings,
+          },
         ),
       revert: (path) => path,
     },
@@ -428,8 +467,9 @@ function syncCandidateIsCurrent(
     Boolean(
       path &&
       state.project &&
-      autoVelocityRefreshRequest(path.path, state.project.config)?.signature ===
-        candidate.refresh.signature,
+      autoVelocityRefreshRequest(path.path, state.project.config, {
+        includeUnseeded: candidate.initialGeneration,
+      })?.signature === candidate.refresh.signature,
     )
   );
 }

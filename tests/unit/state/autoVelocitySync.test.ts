@@ -212,6 +212,103 @@ describe("auto velocity sync", () => {
     stop();
   });
 
+  it("generates an initially unseeded Path after curve-tool insert-many", async () => {
+    const store = await initializedStore(exampleWorkspace(false));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+
+    const result = store.getState().applyPathStructureEdit({
+      kind: "insert-many",
+      index: 2,
+      elements: [
+        createTranslationTarget({ x_meters: 3, y_meters: 1.4 }),
+        createTranslationTarget({ x_meters: 3.5, y_meters: 0.8 }),
+      ],
+    });
+
+    expect(result.status).toBe("applied");
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(generatedValues(store).length).toBeGreaterThan(0);
+    expect(
+      activeDocument(store)?.path.path_elements.some(
+        (element) => getHandoffRadiusSource(element) === "auto",
+      ),
+    ).toBe(true);
+    stop();
+  });
+
+  it("coalesces two quick insertions into one initial generation", async () => {
+    const store = await initializedStore(exampleWorkspace(false));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+
+    for (const [index, x, y] of [
+      [1, 1.1, 0.2],
+      [2, 1.6, 0.45],
+    ] as const) {
+      expect(
+        store.getState().applyPathStructureEdit({
+          kind: "insert",
+          index,
+          element: createTranslationTarget({
+            x_meters: x,
+            y_meters: y,
+          }),
+        }).status,
+      ).toBe("applied");
+    }
+
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(generatedValues(store).length).toBeGreaterThan(0);
+    stop();
+  });
+
+  it("generates a newly created nonempty Path after an immediate rename", async () => {
+    const store = await initializedStore(exampleWorkspace(false));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 1.5, y_meters: 0.4 }),
+        createTranslationTarget({ x_meters: 3, y_meters: 0 }),
+      ],
+    });
+
+    store.getState().createPath({ displayName: "New Path", path });
+    const createdPathId = store.getState().activePathId;
+    expect(createdPathId).not.toBeNull();
+    store.getState().renamePath(createdPathId!, "Renamed Before Generation");
+
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(activeDocument(store)?.display_name).toBe(
+      "Renamed Before Generation",
+    );
+    expect(generatedValues(store).length).toBeGreaterThan(0);
+    stop();
+  });
+
   it("does not attach a source-only baseline refresh to an unrelated edit", async () => {
     const workspace: ProjectWorkspaceDocument = {
       ...exampleWorkspace(true),
