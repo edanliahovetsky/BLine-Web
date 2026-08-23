@@ -1107,7 +1107,7 @@ describe("UserData", () => {
     const service = new UserDataService(adapter);
     await service.initialize();
     await service.flush();
-    adapter.installMetadataThenThrow = true;
+    adapter.installMetadataThenThrowAt = adapter.metadataWriteCount + 2;
 
     const entry = await service.migrateLegacyFieldBackgroundFromBytes(
       fieldInput(),
@@ -1173,6 +1173,24 @@ describe("UserData", () => {
       new Uint8Array([7, 8, 9]),
     );
     expect(adapter.assets.has(original.asset_id)).toBe(false);
+  });
+
+  it("saves a built-in Field selection without custom Field metadata", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter);
+    await service.initialize();
+
+    await service.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: "blank-grid",
+      fieldBackgrounds: [],
+      imageUpdates: [],
+    });
+
+    expect(service.getSnapshot().project_views).toEqual({
+      "project-a": { selected_field_background_id: "blank-grid" },
+    });
+    expect(adapter.persisted).toEqual(service.getSnapshot());
   });
 
   it("rolls back staged Field bytes when the Settings metadata commit fails", async () => {
@@ -1281,6 +1299,48 @@ describe("UserData", () => {
     await expect(
       expiredRelaunch.readFieldBackgroundImage(original.id),
     ).resolves.toEqual(new Uint8Array([1, 2, 3, 4]));
+  });
+
+  it("adopts a replacement publication that commits before its CAS throws", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const assetIds = ["asset-committed-original", "asset-committed-replacement"];
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-committed-replacement",
+      assetIdFactory: () => assetIds.shift()!,
+    });
+    await service.initialize();
+    const original = await service.createFieldBackgroundFromBytes(fieldInput());
+    adapter.installMetadataThenThrowAt = adapter.metadataWriteCount + 2;
+
+    const saved = await service.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: original.id,
+      fieldBackgrounds: [
+        {
+          ...original,
+          file_name: "replacement.png",
+          size_bytes: 3,
+        },
+      ],
+      imageUpdates: [
+        { entryId: original.id, bytes: new Uint8Array([7, 8, 9]) },
+      ],
+    });
+    expect(saved).toEqual(service.getSnapshot().field_backgrounds);
+
+    const durable = adapter.persisted as UserData;
+    expect(durable.field_backgrounds[0]?.asset_id).toBe(
+      "asset-committed-replacement",
+    );
+    expect(adapter.assets.has(original.asset_id)).toBe(false);
+    expect(adapter.assets.get("asset-committed-replacement")).toEqual(
+      new Uint8Array([7, 8, 9]),
+    );
+    const relaunched = new UserDataService(adapter);
+    await relaunched.initialize();
+    await expect(
+      relaunched.readFieldBackgroundImage(original.id),
+    ).resolves.toEqual(new Uint8Array([7, 8, 9]));
   });
 
   it("keeps a replacement generation intact across a concurrent metadata write", async () => {
@@ -2309,6 +2369,7 @@ class AssetMemoryAdapter implements UserDataAdapter {
   failMetadataWriteAt: number | undefined;
   metadataWriteFailuresRemaining = 0;
   installMetadataThenThrow = false;
+  installMetadataThenThrowAt: number | undefined;
   failAssetDelete = false;
   deleteAssetThenThrow = false;
   readbackOverride: Uint8Array | null | undefined;
@@ -2378,8 +2439,12 @@ class AssetMemoryAdapter implements UserDataAdapter {
     }
     this.persisted = structuredClone(data);
     this.revision += 1;
-    if (this.installMetadataThenThrow) {
+    if (
+      this.installMetadataThenThrow ||
+      this.metadataWriteCount === this.installMetadataThenThrowAt
+    ) {
       this.installMetadataThenThrow = false;
+      this.installMetadataThenThrowAt = undefined;
       throw new Error("metadata write outcome unknown");
     }
     return { status: "written" as const, revision: this.revision };

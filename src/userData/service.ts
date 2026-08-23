@@ -630,6 +630,7 @@ export class UserDataService {
       if (
         [...imageUpdates.keys()].some((entryId) => !desiredIds.has(entryId)) ||
         (input.selectedFieldId !== null &&
+          requestedIds.has(input.selectedFieldId) &&
           !desiredIds.has(input.selectedFieldId))
       ) {
         await this.discardStagedAssetsBestEffort(writtenAssetIds);
@@ -991,7 +992,6 @@ export class UserDataService {
           throw error;
         }
         const remote = migrateUserData(document.data);
-        durableGuard?.(remote);
         if (
           sameUserData(mergeConcurrentUserData(base, desired, remote), remote)
         ) {
@@ -999,6 +999,7 @@ export class UserDataService {
           this.durableSnapshot = cloneUserData(remote);
           return remote;
         }
+        durableGuard?.(remote);
         expectedRevision = document.revision;
         desired = mergeConcurrentUserData(base, desired, remote);
         base = remote;
