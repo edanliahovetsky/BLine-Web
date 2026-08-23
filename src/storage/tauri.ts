@@ -45,6 +45,10 @@ export class TauriStorage implements ProjectFolderAdapter {
     string,
     Array<{ relativePath: string; contents: string }>
   >();
+  private readonly damagedLegacyFilesByLocator = new Map<
+    string,
+    Array<{ relativePath: string; contents: string }>
+  >();
   private readonly canonicalLocators = new Set<string>();
   private readonly legacyAttestationByLocator = new Map<
     string,
@@ -89,7 +93,10 @@ export class TauriStorage implements ProjectFolderAdapter {
     return (await this.readProjectSnapshot(id)).project;
   }
 
-  async readProjectSnapshot(id?: string): Promise<ProjectReadSnapshot> {
+  async readProjectSnapshot(
+    id?: string,
+    options: { establishRecoveryOwnership?: boolean } = {},
+  ): Promise<ProjectReadSnapshot> {
     const operationLocator = id ?? this.currentDirectoryLocator;
     const result = await this.invoke<ProjectFileSetPayload>(
       "storage_read_project_files",
@@ -173,8 +180,17 @@ export class TauriStorage implements ProjectFolderAdapter {
     }
     if (damage) {
       this.damageByLocator.set(result.directoryLocator, damage);
+      if (options.establishRecoveryOwnership !== false) {
+        this.damagedLegacyFilesByLocator.set(
+          result.directoryLocator,
+          structuredClone(result.legacyFiles ?? []),
+        );
+      }
     } else {
       this.damageByLocator.delete(result.directoryLocator);
+      if (options.establishRecoveryOwnership !== false) {
+        this.damagedLegacyFilesByLocator.delete(result.directoryLocator);
+      }
       if (attestedLegacyProject) {
         this.legacyAttestationByLocator.set(result.directoryLocator, {
           version: result.version,
@@ -237,16 +253,17 @@ export class TauriStorage implements ProjectFolderAdapter {
     expectedVersion?: string,
     storageId = this.currentDirectoryLocator ?? undefined,
   ): Promise<WriteResult> {
-    let expectedLegacyFiles = storageId
-      ? structuredClone(this.legacyFilesByLocator.get(storageId) ?? [])
+    const expectedLegacyFiles = storageId
+      ? structuredClone(this.damagedLegacyFilesByLocator.get(storageId) ?? [])
       : [];
-    if (storageId && expectedVersion === undefined) {
-      const current = await this.invoke<ProjectFileSetPayload>(
-        "storage_read_project_files",
-        { directoryLocator: storageId },
+    if (
+      storageId &&
+      (this.legacyFilesByLocator.get(storageId)?.length ?? 0) > 0 &&
+      !this.damagedLegacyFilesByLocator.has(storageId)
+    ) {
+      throw new Error(
+        "Damaged Project replacement requires an adopted recovery source",
       );
-      expectedLegacyFiles = structuredClone(current.legacyFiles ?? []);
-      this.legacyFilesByLocator.set(storageId, expectedLegacyFiles);
     }
     let result = await this.writeProjectFileSet(
       project,
@@ -255,7 +272,7 @@ export class TauriStorage implements ProjectFolderAdapter {
     );
     if (
       storageId &&
-      (this.legacyFilesByLocator.get(storageId)?.length ?? 0) > 0
+      expectedLegacyFiles.length > 0
     ) {
       const cleanup = await this.invoke<ProjectFileSetWritePayload>(
         "storage_delete_legacy_project_files",
@@ -267,12 +284,14 @@ export class TauriStorage implements ProjectFolderAdapter {
       );
       this.rememberFileSetWithoutStealingCurrentLocator(cleanup, storageId);
       this.legacyFilesByLocator.delete(storageId);
+      this.damagedLegacyFilesByLocator.delete(storageId);
       this.legacyAttestationByLocator.delete(storageId);
       this.cleanupProofByLocator.delete(storageId);
       result = { version: cleanup.version, updatedAt: cleanup.updatedAt };
     }
     if (storageId) {
       this.damageByLocator.delete(storageId);
+      this.damagedLegacyFilesByLocator.delete(storageId);
     }
     return result;
   }

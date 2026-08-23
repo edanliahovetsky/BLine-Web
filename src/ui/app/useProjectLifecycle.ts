@@ -217,6 +217,9 @@ export function useProjectLifecycle({
 
   useEffect(() => {
     const checkpoint = () => {
+      if (additionalPersistenceBlocked()) {
+        return false;
+      }
       const state = projectStore.getState();
       if (!state.dirty) {
         return true;

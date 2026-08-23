@@ -401,6 +401,15 @@ test("keeps Settings modal and immutable until its Field save finishes", async (
   );
   await page.keyboard.press("Escape");
   await expect(dialog).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      }),
+    )
+    .toBe(true);
 
   await page.evaluate(() => {
     (

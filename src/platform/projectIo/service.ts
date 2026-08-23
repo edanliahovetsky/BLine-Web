@@ -91,7 +91,15 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async peekWorkspace(handle: ProjectIoWorkspaceHandle): Promise<Project> {
-    return this.storage.readProject(this.storageId(handle));
+    const storageId = this.storageId(handle);
+    if (isProjectFolderAdapter(this.storage)) {
+      return (
+        await this.storage.readProjectSnapshot(storageId, {
+          establishRecoveryOwnership: false,
+        })
+      ).project;
+    }
+    return this.storage.readProject(storageId);
   }
 
   async prepareLegacyProjectMigration(
@@ -697,7 +705,9 @@ export class StorageProjectIoService implements ProjectIoService {
     }
     let snapshot: ProjectReadSnapshot;
     try {
-      snapshot = await this.storage.readProjectSnapshot(storageId);
+      snapshot = await this.storage.readProjectSnapshot(storageId, {
+        establishRecoveryOwnership: false,
+      });
     } catch (reconciliationError) {
       throw new ProjectImportOutcomeUncertainError(
         projectError,

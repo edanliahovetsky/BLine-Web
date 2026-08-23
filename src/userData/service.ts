@@ -98,6 +98,13 @@ export class FieldBackgroundAssetVerificationError extends Error {
   }
 }
 
+export class FieldBackgroundAssetDeletionError extends Error {
+  constructor(entryId: string) {
+    super(`Field Background bytes for ${entryId} were not deleted`);
+    this.name = "FieldBackgroundAssetDeletionError";
+  }
+}
+
 export class UserDataVerificationError extends Error {
   constructor() {
     super("User Data did not round-trip exactly after it was written");
@@ -491,16 +498,29 @@ export class UserDataService {
       }
       const writtenRevision = this.snapshotRevision;
       const entryIds = new Set([entryId]);
+      const deletedBytes = await this.deleteFieldAssetsForTransaction(entryIds);
       const next = removeFieldEntries(this.snapshot, entryIds);
-      const persisted = await this.persistWithRetry(next);
+      let persisted: UserData;
+      try {
+        persisted = await this.persistWithRetry(next);
+      } catch (error) {
+        await this.restoreFieldAssetsBestEffort(
+          [...deletedBytes.keys()],
+          deletedBytes,
+        );
+        throw error;
+      }
       if (!fieldEntriesAreRemoved(persisted, entryIds)) {
+        await this.restoreFieldAssetsBestEffort(
+          [...deletedBytes.keys()],
+          deletedBytes,
+        );
         throw new UserDataVerificationError();
       }
       this.acceptDurableSnapshot(next, persisted);
       this.snapshot = removeFieldEntries(this.snapshot, entryIds);
       this.recordDurableWrite(writtenRevision);
       this.issuedEntryIds.delete(entryId);
-      await this.adapter.deleteFieldAsset(entryId);
     });
   }
 
@@ -546,8 +566,8 @@ export class UserDataService {
             entryId,
             previous ? new Uint8Array(previous) : null,
           );
-          await this.writeVerifiedAsset(entryId, bytes);
           writtenAssetIds.push(entryId);
+          await this.writeVerifiedAsset(entryId, bytes);
         }
       } catch (error) {
         await this.restoreFieldAssetsBestEffort(writtenAssetIds, previousBytes);
@@ -559,6 +579,13 @@ export class UserDataService {
           .map((entry) => entry.id)
           .filter((entryId) => !desiredIds.has(entryId)),
       );
+      let deletedBytes: Map<string, Uint8Array | null>;
+      try {
+        deletedBytes = await this.deleteFieldAssetsForTransaction(removedIds);
+      } catch (error) {
+        await this.restoreFieldAssetsBestEffort(writtenAssetIds, previousBytes);
+        throw error;
+      }
       const writtenRevision = this.snapshotRevision;
       let next = removeFieldEntries(before, removedIds);
       next = migrateUserData({
@@ -575,6 +602,10 @@ export class UserDataService {
       try {
         durable = await this.persistWithRetry(next);
       } catch (error) {
+        await this.restoreFieldAssetsBestEffort(
+          [...deletedBytes.keys()],
+          deletedBytes,
+        );
         if (!(error instanceof UserDataWriteOutcomeUnknownError)) {
           await this.restoreFieldAssetsBestEffort(
             writtenAssetIds,
@@ -595,7 +626,6 @@ export class UserDataService {
       for (const entryId of removedIds) {
         if (!durable.field_backgrounds.some((entry) => entry.id === entryId)) {
           this.issuedEntryIds.delete(entryId);
-          await this.deleteAssetBestEffort(entryId);
         }
       }
       return structuredClone(durable.field_backgrounds);
@@ -612,6 +642,8 @@ export class UserDataService {
     const ownedEntryIds = new Set(entryIds);
     return this.enqueue(async () => {
       const writtenRevision = this.snapshotRevision;
+      const deletedBytes =
+        await this.deleteFieldAssetsForTransaction(ownedEntryIds);
       const next = rollbackImportedFields(
         this.snapshot,
         ownedEntryIds,
@@ -619,7 +651,16 @@ export class UserDataService {
         ownedSelection,
         priorSelection,
       );
-      const durable = await this.writeVerifiedSnapshot(next);
+      let durable: UserData;
+      try {
+        durable = await this.writeVerifiedSnapshot(next);
+      } catch (error) {
+        await this.restoreFieldAssetsBestEffort(
+          [...deletedBytes.keys()],
+          deletedBytes,
+        );
+        throw error;
+      }
       this.acceptDurableSnapshot(next, durable);
       this.snapshot = rollbackImportedFields(
         this.snapshot,
@@ -632,9 +673,6 @@ export class UserDataService {
 
       for (const entryId of ownedEntryIds) {
         this.issuedEntryIds.delete(entryId);
-      }
-      for (const entryId of ownedEntryIds) {
-        await this.adapter.deleteFieldAsset(entryId);
       }
     });
   }
@@ -924,6 +962,31 @@ export class UserDataService {
     }
   }
 
+  private async deleteFieldAssetsForTransaction(
+    entryIds: Iterable<string>,
+  ): Promise<Map<string, Uint8Array | null>> {
+    const previousBytes = new Map<string, Uint8Array | null>();
+    const attemptedIds: string[] = [];
+    try {
+      for (const entryId of entryIds) {
+        const previous = await this.adapter.readFieldAsset(entryId);
+        previousBytes.set(
+          entryId,
+          previous ? new Uint8Array(previous) : null,
+        );
+        attemptedIds.push(entryId);
+        await this.adapter.deleteFieldAsset(entryId);
+        if ((await this.adapter.readFieldAsset(entryId)) !== null) {
+          throw new FieldBackgroundAssetDeletionError(entryId);
+        }
+      }
+      return previousBytes;
+    } catch (error) {
+      await this.restoreFieldAssetsBestEffort(attemptedIds, previousBytes);
+      throw error;
+    }
+  }
+
   private async restoreFieldAssetsBestEffort(
     entryIds: readonly string[],
     previousBytes: ReadonlyMap<string, Uint8Array | null>,
@@ -935,7 +998,6 @@ export class UserDataService {
           await this.writeVerifiedAsset(entryId, previous);
         } else {
           await this.adapter.deleteFieldAsset(entryId);
-          this.issuedEntryIds.delete(entryId);
         }
       } catch {
         // Keep the original failure. A preserved orphan is safer than deleting

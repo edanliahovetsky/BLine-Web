@@ -1355,7 +1355,7 @@ describe("TauriStorage", () => {
     });
   });
 
-  it("refreshes damaged legacy attestation at force-retry time", async () => {
+  it("keeps the adopted damaged legacy attestation across observational reads", async () => {
     const project = exampleWorkspace("recovered-project", "Autos", ["One"]);
     const runtimeFiles = serializeProjectFiles(project)
       .filter((file) => file.relativePath !== "project.json")
@@ -1403,6 +1403,9 @@ describe("TauriStorage", () => {
     });
 
     const recovered = await storage.readProject("/tmp/autos");
+    await storage.readProjectSnapshot("/tmp/autos", {
+      establishRecoveryOwnership: false,
+    });
     await storage.replaceDamagedProject(recovered, undefined, "/tmp/autos");
 
     expect(calls.map((call) => call.command)).toEqual([
@@ -1412,6 +1415,65 @@ describe("TauriStorage", () => {
       "storage_delete_legacy_project_files",
     ]);
     expect(calls[3]?.args?.expectedLegacyFiles).toEqual([
+      {
+        relativePath: ".bline-web/state.json",
+        contents: "{damaged-a",
+      },
+    ]);
+  });
+
+  it("adopts a new damaged legacy attestation only on an explicit read", async () => {
+    const project = exampleWorkspace("recovered-project", "Autos", ["One"]);
+    const runtimeFiles = serializeProjectFiles(project)
+      .filter((file) => file.relativePath !== "project.json")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        contents: file.text,
+      }));
+    let readCount = 0;
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> =
+      [];
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (command === "storage_read_project_files") {
+          readCount += 1;
+          return {
+            directoryLocator: "/tmp/autos",
+            files: runtimeFiles,
+            legacyFiles: [
+              {
+                relativePath: ".bline-web/state.json",
+                contents: readCount === 1 ? "{damaged-a" : "{damaged-b",
+              },
+            ],
+            version: readCount === 1 ? "damaged-v1" : "damaged-v2",
+            updatedAt: "2026-04-23T15:40:00.000Z",
+          } as T;
+        }
+        if (command === "storage_write_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            version: "canonical-v3",
+            updatedAt: "2026-04-23T15:41:00.000Z",
+          } as T;
+        }
+        if (command === "storage_delete_legacy_project_files") {
+          return {
+            directoryLocator: "/tmp/autos",
+            version: "clean-v4",
+            updatedAt: "2026-04-23T15:42:00.000Z",
+          } as T;
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    });
+
+    await storage.readProject("/tmp/autos");
+    const reloaded = await storage.readProject("/tmp/autos");
+    await storage.replaceDamagedProject(reloaded, undefined, "/tmp/autos");
+
+    expect(calls.at(-1)?.args?.expectedLegacyFiles).toEqual([
       {
         relativePath: ".bline-web/state.json",
         contents: "{damaged-b",

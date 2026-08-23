@@ -1148,6 +1148,96 @@ describe("UserData", () => {
     expect(adapter.assets.has(draft.id)).toBe(false);
   });
 
+  it.each([
+    ["replacement", "write-after-mutation"],
+    ["replacement", "readback-mismatch"],
+    ["new", "write-after-mutation"],
+    ["new", "readback-mismatch"],
+  ] as const)(
+    "restores %s Field bytes after a %s failure",
+    async (entryKind, failure) => {
+      const adapter = new AssetMemoryAdapter();
+      const service = new UserDataService(adapter, {
+        idFactory: () => "field-existing",
+      });
+      await service.initialize();
+      const original =
+        entryKind === "replacement"
+          ? await service.createFieldBackgroundFromBytes(fieldInput())
+          : null;
+      const entry = original ?? {
+        id: "field-new",
+        name: "New Field",
+        file_name: "new.png",
+        mime_type: "image/png",
+        size_bytes: 3,
+        created_at: "2026-08-22T12:00:00.000Z",
+        geometry: fieldInput().geometry,
+      };
+      if (failure === "write-after-mutation") {
+        adapter.mutateAssetThenThrow = true;
+      } else {
+        adapter.mismatchNextAssetReadback = true;
+      }
+
+      await expect(
+        service.saveFieldBackgroundSettings({
+          projectId: "project-a",
+          selectedFieldId: entry.id,
+          fieldBackgrounds: [{ ...entry, size_bytes: 3 }],
+          imageUpdates: [
+            { entryId: entry.id, bytes: new Uint8Array([7, 8, 9]) },
+          ],
+        }),
+      ).rejects.toThrow();
+
+      expect(service.getSnapshot().field_backgrounds).toEqual(
+        original ? [original] : [],
+      );
+      if (original) {
+        expect(adapter.assets.get(original.id)).toEqual(
+          new Uint8Array([1, 2, 3, 4]),
+        );
+      } else {
+        expect(adapter.assets.has(entry.id)).toBe(false);
+      }
+    },
+  );
+
+  it("keeps a removed Field retryable when asset deletion fails", async () => {
+    const adapter = new AssetMemoryAdapter();
+    const service = new UserDataService(adapter, {
+      idFactory: () => "field-remove-retry",
+    });
+    await service.initialize();
+    const original = await service.createFieldBackgroundFromBytes(fieldInput());
+    adapter.deleteAssetThenThrow = true;
+
+    await expect(
+      service.saveFieldBackgroundSettings({
+        projectId: "project-a",
+        selectedFieldId: null,
+        fieldBackgrounds: [],
+        imageUpdates: [],
+      }),
+    ).rejects.toThrow("asset delete failed after mutation");
+
+    expect(service.getSnapshot().field_backgrounds).toEqual([original]);
+    expect(adapter.persisted).toEqual(service.getSnapshot());
+    expect(adapter.assets.get(original.id)).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+
+    await service.saveFieldBackgroundSettings({
+      projectId: "project-a",
+      selectedFieldId: null,
+      fieldBackgrounds: [],
+      imageUpdates: [],
+    });
+    expect(service.getSnapshot().field_backgrounds).toEqual([]);
+    expect(adapter.assets.has(original.id)).toBe(false);
+  });
+
   it("flush waits for an already queued Field Settings operation", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter, {
@@ -1360,7 +1450,7 @@ describe("UserData", () => {
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
   });
 
-  it("durably removes metadata and selections before deleting bytes", async () => {
+  it("keeps metadata and bytes retryable until deletion succeeds", async () => {
     const adapter = new AssetMemoryAdapter();
     const service = new UserDataService(adapter);
     await service.initialize();
@@ -1386,20 +1476,24 @@ describe("UserData", () => {
       "asset delete failed",
     );
 
-    expect(adapter.events).toEqual(["metadata-write", "asset-delete"]);
-    expect(service.getSnapshot().field_backgrounds).toEqual([]);
+    expect(adapter.events).not.toContain("metadata-write");
+    expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
     expect(service.getSnapshot().project_views).toEqual({
-      "project-a": { active_path_id: "path-a" },
+      "project-a": {
+        active_path_id: "path-a",
+        selected_field_background_id: entry.id,
+      },
+      "project-b": { selected_field_background_id: entry.id },
     });
     expect(adapter.assets.has(entry.id)).toBe(true);
 
     adapter.failAssetDelete = false;
-    const reimported = await service.migrateLegacyFieldBackgroundFromBytes(
-      fieldInput(),
-      "field-delete",
-    );
-    expect(reimported.id).toBe(entry.id);
-    expect(adapter.assets.get(entry.id)).toEqual(new Uint8Array([1, 2, 3, 4]));
+    await service.deleteFieldBackground(entry.id);
+    expect(service.getSnapshot().field_backgrounds).toEqual([]);
+    expect(service.getSnapshot().project_views).toEqual({
+      "project-a": { active_path_id: "path-a" },
+    });
+    expect(adapter.assets.has(entry.id)).toBe(false);
   });
 
   it("releases a deleted deterministic Field Background ID for reimport", async () => {
@@ -1435,7 +1529,15 @@ describe("UserData", () => {
       "metadata write failed",
     );
 
-    expect(adapter.events).toEqual(["metadata-write", "metadata-read"]);
+    expect(adapter.events).toEqual([
+      "asset-read",
+      "asset-delete",
+      "asset-read",
+      "metadata-write",
+      "metadata-read",
+      "asset-write",
+      "asset-read",
+    ]);
     expect(service.getSnapshot().field_backgrounds).toEqual([entry]);
     expect(adapter.assets.has(entry.id)).toBe(true);
   });
@@ -1591,6 +1693,7 @@ describe("UserData", () => {
 
     failNextAssetDelete = true;
     await expect(replacement.rollback()).rejects.toThrow("asset delete failed");
+    await replacement.rollback();
     const recoveredReplacement = await migrateImportedLegacyFieldBackgrounds({
       projectId: "project-imported",
       selectedFieldId: second.id,
@@ -1826,10 +1929,13 @@ class AssetMemoryAdapter implements UserDataAdapter {
   readonly assets = new Map<string, Uint8Array>();
   readonly events: string[] = [];
   failAssetWrite = false;
+  mutateAssetThenThrow = false;
+  mismatchNextAssetReadback = false;
   failMetadataWrite = false;
   metadataWriteFailuresRemaining = 0;
   installMetadataThenThrow = false;
   failAssetDelete = false;
+  deleteAssetThenThrow = false;
   readbackOverride: Uint8Array | null | undefined;
   metadataReadCount = 0;
   failMetadataReadAt: number | undefined;
@@ -1837,6 +1943,7 @@ class AssetMemoryAdapter implements UserDataAdapter {
     started: Deferred<void>;
     release: Deferred<void>;
   } | null = null;
+  private mismatchedAssetReadbackPending = false;
 
   constructor(persisted: unknown | null = null) {
     this.persisted = persisted;
@@ -1908,10 +2015,22 @@ class AssetMemoryAdapter implements UserDataAdapter {
       throw new Error("asset write failed");
     }
     this.assets.set(entryId, new Uint8Array(bytes));
+    if (this.mutateAssetThenThrow) {
+      this.mutateAssetThenThrow = false;
+      throw new Error("asset write failed after mutation");
+    }
+    if (this.mismatchNextAssetReadback) {
+      this.mismatchNextAssetReadback = false;
+      this.mismatchedAssetReadbackPending = true;
+    }
   }
 
   async readFieldAsset(entryId: string): Promise<Uint8Array | null> {
     this.events.push("asset-read");
+    if (this.mismatchedAssetReadbackPending) {
+      this.mismatchedAssetReadbackPending = false;
+      return new Uint8Array([255]);
+    }
     if (this.readbackOverride !== undefined) {
       return this.readbackOverride === null
         ? null
@@ -1927,6 +2046,10 @@ class AssetMemoryAdapter implements UserDataAdapter {
       throw new Error("asset delete failed");
     }
     this.assets.delete(entryId);
+    if (this.deleteAssetThenThrow) {
+      this.deleteAssetThenThrow = false;
+      throw new Error("asset delete failed after mutation");
+    }
   }
 }
 

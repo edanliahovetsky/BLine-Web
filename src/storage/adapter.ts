@@ -124,7 +124,10 @@ export interface CurrentWorkspaceAdapter extends StorageAdapter {
 }
 
 export interface ProjectFolderAdapter extends StorageAdapter {
-  readProjectSnapshot(id: string): Promise<ProjectReadSnapshot>;
+  readProjectSnapshot(
+    id: string,
+    options?: { establishRecoveryOwnership?: boolean },
+  ): Promise<ProjectReadSnapshot>;
   getCurrentWorkspace(): Promise<ProjectWorkspaceSummary | null>;
   listRecentWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
   openWorkspace(): Promise<ProjectWorkspaceSummary | null>;
