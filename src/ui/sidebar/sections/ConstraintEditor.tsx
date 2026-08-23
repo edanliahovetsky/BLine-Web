@@ -3166,7 +3166,9 @@ function clearHandoffRadii(chips: readonly HandoffRadiusChip[]): void {
       chips.map((chip) => ({
         index: chip.elementIndex,
         previous: storedHandoffState(chip),
-        next: { radiusMeters: null, source: null },
+        // Null remains visually unset, while manual ownership records the
+        // user's intent so background generation cannot immediately reclaim it.
+        next: { radiusMeters: null, source: "manual" },
       })),
       `Clear ${chips.length} handoff radii`,
     ),
