@@ -51,6 +51,9 @@ describe("path diagnostics", () => {
       diagnostics.find((item) => item.id.startsWith("event-key-"))?.fix,
     ).toMatchObject({ kind: "focus-event-key", elementIndex: 4 });
     expect(
+      diagnostics.find((item) => item.id.startsWith("event-key-"))?.summary,
+    ).toBe("Event 5 command key empty.");
+    expect(
       diagnostics.find((item) => item.id === "off-field-0")?.fix,
     ).toMatchObject({ kind: "move-inside-field", elementIndex: 0 });
   });

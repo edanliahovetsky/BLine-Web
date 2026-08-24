@@ -62,7 +62,7 @@ export function derivePathDiagnostics(
       diagnostics.push({
         id: `event-key-${index}`,
         severity: "warning",
-        summary: `Event ${index + 1} needs a command key.`,
+        summary: `Event ${index + 1} command key empty.`,
         elementIndex: index,
         fix: {
           kind: "focus-event-key",

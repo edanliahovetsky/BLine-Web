@@ -903,7 +903,7 @@ test("highlights, dismisses, and resolves path health issues", async ({
   await expect(health).toHaveClass(/status-bar__diagnostics--warning/);
   await health.click();
   await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
-    "needs a command key",
+    "command key empty",
   );
   await expect(
     page.getByRole("dialog", { name: "Path health" }),
@@ -923,9 +923,13 @@ test("highlights, dismisses, and resolves path health issues", async ({
   const dialog = page.getByRole("dialog", { name: "Path health" });
   await dialog
     .getByRole("button")
-    .filter({ hasText: "needs a command key" })
+    .filter({ hasText: "command key empty" })
     .click();
   await expect(page.getByLabel("Lib Key")).toHaveValue("");
+  await expect(page.getByLabel("Lib Key")).toHaveAttribute(
+    "placeholder",
+    "No action",
+  );
   await expect(page.getByLabel("Lib Key")).toBeFocused();
   await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
     "aria-selected",

@@ -540,6 +540,7 @@ function EventFields({
         <input
           aria-label="Lib Key"
           type="text"
+          placeholder="No action"
           value={element.lib_key}
           onChange={(event) =>
             onUpdateElement(
