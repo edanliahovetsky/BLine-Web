@@ -700,6 +700,7 @@ function AutoConstraintLedgerCard({
   const [activeType, setActiveType] = useState<"velocity" | "radius" | null>(
     initiallySelectedRadius ? "radius" : selectedEntry ? "velocity" : null,
   );
+  const [tourGenerateCount, setTourGenerateCount] = useState(0);
   const [velocitySelectionState, setVelocitySelectionState] =
     useState<OrderedSelectionState>(
       selectedEntry
@@ -821,6 +822,7 @@ function AutoConstraintLedgerCard({
       className="constraint-card constraint-card--auto-ledger"
       data-testid={`constraint-card-${constraintKey}`}
       data-tour="max-velocity-card"
+      data-tour-generate-count={tourGenerateCount}
       aria-label="Path constraints"
     >
       <div className="constraint-card__header constraint-card__header--auto constraint-card__header--auto-ledger">
@@ -830,7 +832,10 @@ function AutoConstraintLedgerCard({
         />
         <div className="constraint-card__auto-actions">
           <SidebarActionButton
-            onClick={onGenerateAutoVelocity}
+            onClick={() => {
+              setTourGenerateCount((count) => count + 1);
+              onGenerateAutoVelocity();
+            }}
             disabled={total === 0 || autoVelocityRunning || !canGenerate}
             aria-label="Generate constraints"
             title={
@@ -2461,6 +2466,7 @@ function RangedConstraintControls({
   onOpenPopout?(trigger: HTMLButtonElement): void;
   compact?: boolean;
 }) {
+  const [tourEditCount, setTourEditCount] = useState(0);
   const meta = rangedMeta[constraintKey];
   const constraint = entry?.constraint ?? null;
   const constraintSelectionToken = entry
@@ -2494,6 +2500,7 @@ function RangedConstraintControls({
       }
       data-testid={rowTestId}
       data-ranged-constraint-selection={constraintSelectionToken}
+      data-tour-velocity-edit-count={tourEditCount}
     >
       <div className="ranged-constraint-controls__fields">
         {entry ? (
@@ -2548,6 +2555,7 @@ function RangedConstraintControls({
                       return;
                     }
 
+                    setTourEditCount((count) => count + 1);
                     updateRangedConstraint(path, entry.index, {
                       ...constraint,
                       value: value ?? constraint.value,

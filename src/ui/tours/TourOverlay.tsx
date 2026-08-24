@@ -34,6 +34,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const wantsClearSelection = step?.prepare?.clearSelection ?? false;
   const wantsSelectElement = step?.prepare?.selectElement ?? null;
   const wantsSimulation = step?.prepare?.simulation ?? null;
+  const wantsPathHealth = step?.prepare?.pathHealth ?? null;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
@@ -67,7 +68,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       wantsTool ||
       wantsClearSelection ||
       wantsSelectElement !== null ||
-      wantsSimulation
+      wantsSimulation ||
+      wantsPathHealth
     ) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
@@ -76,6 +78,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
         clearSelection: wantsClearSelection || undefined,
         selectElement: wantsSelectElement ?? undefined,
         simulation: wantsSimulation ?? undefined,
+        pathHealth: wantsPathHealth ?? undefined,
       });
     }
     captureTourStepState();
@@ -88,6 +91,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     wantsClearSelection,
     wantsSelectElement,
     wantsSimulation,
+    wantsPathHealth,
     wantsTool,
   ]);
 
@@ -147,9 +151,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     }
   }, [actionComplete, cardHeight, stepIndex, activeTourId]);
 
-  // Verify action-driven steps against live editor state. Some advance right
-  // away; practice-heavy steps leave the control open until the learner is
-  // ready to continue.
+  // Verify action-driven steps against live editor state. Completing an action
+  // unlocks Continue without taking the control away from the learner.
   useEffect(() => {
     if (!activeTourId) {
       return;
@@ -162,26 +165,14 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       return;
     }
 
-    let advanceTimer: number | null = null;
     const interval = window.setInterval(() => {
       if (completeWhen()) {
         window.clearInterval(interval);
         setCompletedActionToken(`${activeTourId}:${stepIndex}`);
-        if (
-          currentStep?.advance !== "manual" &&
-          stepIndex < (currentTour?.steps.length ?? 0) - 1
-        ) {
-          advanceTimer = window.setTimeout(() => {
-            tourStore.getState().next(currentTour?.steps.length ?? 0);
-          }, 450);
-        }
       }
     }, 250);
     return () => {
       window.clearInterval(interval);
-      if (advanceTimer !== null) {
-        window.clearTimeout(advanceTimer);
-      }
     };
   }, [activeTourId, stepIndex]);
 
@@ -323,9 +314,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           >
             <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
             {actionComplete
-              ? step.advance === "manual"
-                ? "Done. Keep experimenting or continue."
-                : "Done"
+              ? "Done. Keep experimenting or continue."
               : "Waiting for this action"}
           </div>
         ) : null}
@@ -362,8 +351,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           >
             Back
           </button>
-          {!actionGated ||
-          (actionComplete && (isLastStep || step.advance === "manual")) ? (
+          {!actionGated || actionComplete ? (
             <button type="button" className="is-primary" onClick={handleNext}>
               {isLastStep ? "Finish" : "Next"}
             </button>

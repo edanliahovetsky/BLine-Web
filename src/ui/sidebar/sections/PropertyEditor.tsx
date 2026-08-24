@@ -66,6 +66,7 @@ export function PropertyEditor({
   onOpenLinkedTargetPicker,
   fieldGeometry = defaultFieldGeometry,
 }: PropertyEditorProps) {
+  const [tourEditCount, setTourEditCount] = useState(0);
   if (!element) {
     return null;
   }
@@ -92,6 +93,8 @@ export function PropertyEditor({
       <div
         className="property-editor"
         data-testid="property-editor"
+        data-tour="element-properties"
+        data-tour-edit-count={tourEditCount}
         aria-label={`Element ${selectedElementIndex === null ? "" : selectedElementIndex + 1} properties`}
       >
         <TypeField
@@ -103,26 +106,38 @@ export function PropertyEditor({
           <TranslationFields
             element={element}
             fieldGeometry={fieldGeometry}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+            onUpdateElement={(nextElement) => {
+              setTourEditCount((count) => count + 1);
+              onUpdateElement(nextElement);
+            }}
           />
         ) : null}
         {isWaypoint(element) ? (
           <WaypointFields
             element={element}
             fieldGeometry={fieldGeometry}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+            onUpdateElement={(nextElement) => {
+              setTourEditCount((count) => count + 1);
+              onUpdateElement(nextElement);
+            }}
           />
         ) : null}
         {isRotationTarget(element) ? (
           <RotationFields
             element={element}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+            onUpdateElement={(nextElement) => {
+              setTourEditCount((count) => count + 1);
+              onUpdateElement(nextElement);
+            }}
           />
         ) : null}
         {isEventTrigger(element) ? (
           <EventFields
             element={element}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+            onUpdateElement={(nextElement) => {
+              setTourEditCount((count) => count + 1);
+              onUpdateElement(nextElement);
+            }}
           />
         ) : null}
       </div>
@@ -390,6 +405,20 @@ function TranslationFields({
           onUpdateElement(updateTranslationTarget(element, { y_meters: value }))
         }
       />
+      <NullableNumberField
+        label="Handoff Radius (m)"
+        value={element.intermediate_handoff_radius_meters}
+        step={0.05}
+        min={0}
+        onChange={(value) =>
+          onUpdateElement(
+            updateTranslationTarget(element, {
+              intermediate_handoff_radius_meters: value,
+              handoff_radius_source: "manual",
+            }),
+          )
+        }
+      />
     </>
   );
 }
@@ -579,6 +608,37 @@ function NumberField({
         min={min}
         max={max}
         onChange={(nextValue) => onChange(nextValue ?? 0)}
+      />
+    </label>
+  );
+}
+
+function NullableNumberField({
+  label,
+  value,
+  step,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number | null;
+  step: number;
+  min?: number;
+  max?: number;
+  onChange(value: number | null): void;
+}) {
+  return (
+    <label className="property-row">
+      <span>{label}</span>
+      <NumberStepperControl
+        ariaLabel={label}
+        value={value}
+        step={step}
+        min={min}
+        max={max}
+        allowEmpty
+        onChange={onChange}
       />
     </label>
   );

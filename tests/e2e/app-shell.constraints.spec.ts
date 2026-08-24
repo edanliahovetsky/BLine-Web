@@ -748,11 +748,12 @@ test("keeps inert handoff radii in the Constraints card", async ({ page }) => {
   const rows = page.locator('[data-testid^="path-element-row-"]');
   const lastIndex = (await rows.count()) - 1;
 
-  // Element properties stay about path geometry; tuning lives in Constraints.
+  // The final waypoint has no handoff. Intermediate translation targets can
+  // expose the same value directly while Constraints keeps the full ledger.
   await rows.nth(lastIndex).click();
   await expect(page.getByLabel("Handoff Radius (m)")).toHaveCount(0);
   await rows.nth(1).click();
-  await expect(page.getByLabel("Handoff Radius (m)")).toHaveCount(0);
+  await expect(page.getByLabel("Handoff Radius (m)")).toBeVisible();
 
   await openConstraintsTab(page);
   await expect(

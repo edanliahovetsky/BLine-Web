@@ -758,6 +758,64 @@ select {
   cursor: grab;
 }
 
+.tour-field-markers {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.tour-field-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  color: #f4fbff;
+  font-size: clamp(0.6rem, 1vw, 0.76rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.05;
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+
+.tour-field-marker--zone {
+  border: 2px dashed rgba(82, 220, 255, 0.95);
+  border-radius: 16px;
+  background: rgba(34, 166, 214, 0.14);
+  box-shadow: inset 0 0 24px rgba(49, 196, 244, 0.12);
+}
+
+.tour-field-marker--structure {
+  border: 3px solid rgba(255, 174, 66, 0.95);
+  border-radius: 10px;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 174, 66, 0.24) 0 8px,
+      rgba(67, 42, 15, 0.34) 8px 16px
+    );
+  box-shadow: 0 0 0 3px rgba(21, 24, 28, 0.55);
+}
+
+.tour-field-marker--game-piece {
+  border: 3px solid rgba(255, 205, 63, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 181, 35, 0.32);
+  box-shadow: 0 0 18px rgba(255, 190, 36, 0.5);
+}
+
+.tour-field-marker--callout {
+  border: 2px solid rgba(255, 105, 124, 0.95);
+  border-radius: 999px;
+  background: rgba(210, 45, 72, 0.2);
+}
+
+.tour-field-marker span {
+  max-width: 90%;
+  padding: 3px;
+}
+
 .path-stage__renderer-error {
   position: absolute;
   top: 16px;

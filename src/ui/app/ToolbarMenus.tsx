@@ -267,6 +267,7 @@ export function TopMenuButton({
   onBeforeOpen,
   align = "start",
   children,
+  dataTour,
 }: {
   id: TopMenuId;
   label: string;
@@ -278,6 +279,7 @@ export function TopMenuButton({
   onBeforeOpen?: () => Promise<unknown> | void;
   align?: "start" | "end";
   children: ReactNode;
+  dataTour?: string;
 }) {
   const open = openTopMenu === id;
   const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
@@ -298,6 +300,7 @@ export function TopMenuButton({
         className={active ? "is-active" : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
+        data-tour={dataTour}
         disabled={disabled}
         onClick={() => {
           if (disabled) {

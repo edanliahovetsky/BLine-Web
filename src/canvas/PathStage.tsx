@@ -91,6 +91,7 @@ import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
 import { readFieldBackgroundImage } from "../userData";
+import type { TourMarker } from "../ui/tours/tourStore";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
@@ -103,6 +104,7 @@ interface PathStageProps {
   showGhostPaths?: boolean;
   curveTool?: CurveToolSession | null;
   simulationSeekRequest?: SimulationSeekRequest | null;
+  tourMarkers?: readonly TourMarker[];
   onToolChange?(tool: EditorTool): void;
   onShowGhostPathsChange?(show: boolean): void;
   onPlaceElement?(placement: CanvasElementPlacement): void;
@@ -171,6 +173,7 @@ export function PathStage({
   showGhostPaths = true,
   curveTool = null,
   simulationSeekRequest = null,
+  tourMarkers = [],
   onToolChange,
   onShowGhostPathsChange,
   onPlaceElement,
@@ -203,6 +206,7 @@ export function PathStage({
   const [simulationTime, setSimulationTime] = useState(0);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
   const [simulationSeekCount, setSimulationSeekCount] = useState(0);
+  const [simulationPlayCount, setSimulationPlayCount] = useState(0);
   const [hoveredOverlayPathId, setHoveredOverlayPathId] = useState<
     string | null
   >(null);
@@ -1569,6 +1573,9 @@ export function PathStage({
             onToolChange?.(tool);
           }}
         />
+        {tourMarkers.length > 0 ? (
+          <TourFieldMarkers markers={tourMarkers} viewport={viewport} />
+        ) : null}
         <CanvasViewControls
           scale={viewScale}
           showGhostPaths={showGhostPaths}
@@ -1636,8 +1643,14 @@ export function PathStage({
           currentTimeS={simulationTime}
           playing={simulationPlaying}
           seekCount={simulationSeekCount}
+          playCount={simulationPlayCount}
           onReset={resetSimulation}
-          onTogglePlaying={toggleSimulationPlaying}
+          onTogglePlaying={() => {
+            if (!simulationPlaying) {
+              setSimulationPlayCount((count) => count + 1);
+            }
+            toggleSimulationPlaying();
+          }}
           onFinish={finishSimulation}
           onSeek={(time) => {
             setSimulationTime(time);
@@ -1704,6 +1717,10 @@ function CanvasToolRail({
               ? "tool-waypoint"
               : tool === "translation"
                 ? "tool-translation"
+                : tool === "rotation"
+                  ? "tool-rotation"
+                  : tool === "event"
+                    ? "tool-event"
                 : undefined
           }
           disabled={!path || disabled}
@@ -1725,6 +1742,56 @@ function CanvasToolRail({
         </button>
       ))}
     </aside>
+  );
+}
+
+function TourFieldMarkers({
+  markers,
+  viewport,
+}: {
+  markers: readonly TourMarker[];
+  viewport: FieldViewport;
+}) {
+  return (
+    <div
+      className="tour-field-markers"
+      data-tour="lesson-markers"
+      aria-label="Lesson field markers"
+      style={{
+        left: viewport.x,
+        top: viewport.y,
+        width: viewport.width,
+        height: viewport.height,
+      }}
+    >
+      {markers.map((marker) => {
+        const center = modelToStagePoint(
+          { x_meters: marker.xMeters, y_meters: marker.yMeters },
+          viewport,
+        );
+        const width = (marker.widthMeters ?? 0.7) * viewport.scale;
+        const height = (marker.heightMeters ?? 0.7) * viewport.scale;
+        return (
+          <div
+            key={marker.id}
+            className={`tour-field-marker tour-field-marker--${marker.kind}`}
+            data-tour={marker.id}
+            aria-label={marker.label}
+            style={{
+              left: center.x - viewport.x - width / 2,
+              top: center.y - viewport.y - height / 2,
+              width,
+              height,
+              transform: marker.rotationDegrees
+                ? `rotate(${marker.rotationDegrees}deg)`
+                : undefined,
+            }}
+          >
+            <span>{marker.label}</span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1897,6 +1964,7 @@ function SimulationTransport({
   currentTimeS,
   playing,
   seekCount,
+  playCount,
   onReset,
   onTogglePlaying,
   onFinish,
@@ -1906,6 +1974,7 @@ function SimulationTransport({
   currentTimeS: number;
   playing: boolean;
   seekCount: number;
+  playCount: number;
   onReset(): void;
   onTogglePlaying(): void;
   onFinish(): void;
@@ -1925,6 +1994,7 @@ function SimulationTransport({
       data-testid="simulation-transport"
       data-tour="simulation-transport"
       data-tour-seek-count={seekCount}
+      data-tour-play-count={playCount}
     >
       <div className="transport-primary-controls">
         <button
@@ -1972,7 +2042,7 @@ function SimulationTransport({
       <span className="transport-elapsed" aria-hidden="true">
         {safeCurrent.toFixed(2)}s
       </span>
-      <div className="transport-timeline">
+      <div className="transport-timeline" data-tour="transport-timeline">
         <input
           aria-label="Simulation time"
           type="range"

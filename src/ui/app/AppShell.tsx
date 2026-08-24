@@ -98,7 +98,7 @@ import {
   selectedFieldBackgroundForProject,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { tours } from "../tours/tours";
+import { findTour, tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -2045,13 +2045,14 @@ export function AppShell() {
                 simulationSeekRequest={
                   activeTourId ? tourSimulationSeekRequest : null
                 }
+                tourMarkers={findTour(activeTourId)?.markers}
                 onToolChange={handleToolChange}
                 onPlaceElement={handlePlaceCanvasElement}
                 onInteractionStateChange={handleCanvasInteractionStateChange}
                 onCurveToolCommit={handleCommitCurveTool}
                 onCurveToolCancel={handleCancelCurveTool}
               />
-              {activePath?.path.path_elements.length === 0 ? (
+              {activePath?.path.path_elements.length === 0 && !activeTourId ? (
                 <div className="canvas-empty-guide">
                   <strong>Place your first waypoint</strong>
                   <span>Choose Waypoint or press 1, then click the field.</span>
@@ -2143,6 +2144,7 @@ export function AppShell() {
             type="button"
             className={`status-bar__save status-bar__save--${saveStatusTone}`}
             data-testid="save-status"
+            data-tour="save-status"
             title={`${storageLabel}. ${saveStatus}`}
             aria-label="Save"
             aria-live="polite"
@@ -2329,6 +2331,9 @@ export function AppShell() {
           }
           if (preparation.simulation) {
             seekTourSimulation(preparation.simulation);
+          }
+          if (preparation.pathHealth === "closed") {
+            setShowPathHealth(false);
           }
         }}
       />

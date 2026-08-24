@@ -4,6 +4,17 @@ import { rememberCompletedTourIds } from "../../userData";
 
 export type TourPlacement = "above" | "below" | "left" | "right";
 
+export interface TourMarker {
+  id: string;
+  label: string;
+  kind: "zone" | "structure" | "game-piece" | "callout";
+  xMeters: number;
+  yMeters: number;
+  widthMeters?: number;
+  heightMeters?: number;
+  rotationDegrees?: number;
+}
+
 export interface TourStep {
   /**
    * Value of the `data-tour` attribute this step points at. Steps without a
@@ -30,15 +41,9 @@ export interface TourStep {
    */
   prepare?: TourStepPreparation;
   /**
-   * When present the step waits for real editor state instead of accepting a
-   * button click. Automatic steps move on; manual steps unlock Next.
+   * When present the step waits for real editor state, then unlocks Continue.
    */
   completeWhen?(): boolean;
-  /**
-   * Manual action steps unlock Next instead of taking the learner away from
-   * the live control. Use them when another drag or scrub helps build feel.
-   */
-  advance?: "automatic" | "manual";
 }
 
 export interface TourStepPreparation {
@@ -56,6 +61,8 @@ export interface TourStepPreparation {
   selectElement?: number;
   /** Move the simulated robot before the step begins. */
   simulation?: "start" | "end";
+  /** Close Path Health after its open-state action has been completed. */
+  pathHealth?: "closed";
 }
 
 export interface TourDefinition {
@@ -64,6 +71,8 @@ export interface TourDefinition {
   summary: string;
   durationMinutes: number;
   completionMessage: string;
+  /** Scenario cues drawn over the practice field for this lesson only. */
+  markers?: readonly TourMarker[];
   /**
    * The geometry this lesson starts from. The practice path is recreated
    * from this seed on every start so each lesson opens in the state its

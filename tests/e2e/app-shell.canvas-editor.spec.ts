@@ -106,11 +106,11 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   );
 });
 
-test("keeps handoff radius tuning in the Constraints tab", async ({ page }) => {
+test("tunes an intermediate handoff radius from properties or Constraints", async ({ page }) => {
   await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-1").click();
-  await expect(page.getByLabel("Handoff Radius (m)")).toHaveCount(0);
+  await expect(page.getByLabel("Handoff Radius (m)")).toBeVisible();
 
   await openConstraintsTab(page);
   const chip = page.getByTestId("handoff-radius-chip-1");

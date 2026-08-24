@@ -3,21 +3,14 @@ import { tours } from "../../../src/ui/tours/tours";
 
 describe("guided lesson content", () => {
   it("keeps every lesson focused, interactive, and free of dash punctuation", () => {
+    expect(tours).toHaveLength(5);
+
     for (const tour of tours) {
-      expect(tour.steps.length).toBeGreaterThanOrEqual(7);
-      expect(tour.steps.length).toBeLessThanOrEqual(9);
+      expect(tour.steps.length).toBeGreaterThanOrEqual(11);
+      expect(tour.steps.length).toBeLessThanOrEqual(13);
       expect(tour.durationMinutes).toBeGreaterThan(0);
       expect(tour.summary).not.toMatch(/[—–]/);
       expect(tour.completionMessage).not.toMatch(/[—–]/);
-      expect(
-        tour.steps.some(
-          (step) =>
-            step.target === "simulation-transport" &&
-            step.completeWhen &&
-            step.advance === "manual",
-        ),
-      ).toBe(true);
-
       for (const step of tour.steps) {
         expect(step.title).not.toMatch(/[—–]/);
         expect(step.body).not.toMatch(/[—–]/);
@@ -27,6 +20,12 @@ describe("guided lesson content", () => {
         }
       }
     }
+
+    const scrubSteps = tours.flatMap((tour) =>
+      tour.steps.filter((step) => step.target === "transport-timeline"),
+    );
+    expect(scrubSteps).toHaveLength(1);
+    expect(scrubSteps[0]?.title).toBe("Scrub the timeline");
   });
 
   it("starts with realistic routes and leaves room for learner edits", () => {
@@ -34,6 +33,12 @@ describe("guided lesson content", () => {
       (tour) => tour.practicePath().path_elements.length,
     );
 
-    expect(seededElementCounts).toEqual([3, 2, 5, 9]);
+    expect(seededElementCounts).toEqual([0, 2, 3, 2, 4]);
+  });
+
+  it("uses visible field goals for the scenario lessons", () => {
+    expect(tours.map((tour) => tour.markers?.length ?? 0)).toEqual([
+      2, 1, 1, 1, 0,
+    ]);
   });
 });

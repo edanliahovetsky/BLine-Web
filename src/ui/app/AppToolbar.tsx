@@ -170,6 +170,7 @@ export function AppToolbar({
         <TopMenuButton
           id="project"
           label="File"
+          dataTour="export-menu-entry"
           openTopMenu={menu.open}
           setOpenTopMenu={menu.setOpen}
           onBeforeOpen={menu.refreshWorkspaces}
@@ -533,6 +534,7 @@ export function AppToolbar({
           </div>
           <IconButton
             aria-label="Settings"
+            data-tour="settings-menu-entry"
             title="Project settings"
             disabled={commands.settings.disabled}
             onClick={() => executeCommand(commands.settings)}
