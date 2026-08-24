@@ -2121,20 +2121,10 @@ export function AppShell() {
           project={durableProject}
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
-          showGhostPaths={showGhostPaths}
           onCancel={() => setShowPathGroupsDialog(false)}
-          onCreatePath={(groupId) => {
-            setShowOpenPanel(false);
-            setOpenTopMenu(null);
-            setNewPathGroupContextId(groupId);
-            setShowNewPathDialog(true);
-          }}
           onDeletePaths={() => {
             handleShowDeletePaths();
           }}
-          onExportPath={() => void handleExportPath()}
-          onImportPath={() => queueFileImport("path")}
-          onShowGhostPathsChange={handleShowGhostPathsChange}
         />
       ) : null}
       {pathNameAction ? (

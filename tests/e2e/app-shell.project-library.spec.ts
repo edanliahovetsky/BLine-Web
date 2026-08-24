@@ -21,6 +21,8 @@ import {
   createPathGroupFromTopMenu,
   duplicateSelectedLibraryPath,
   expectDialogOverPathLibrary,
+  openLabelManager,
+  openLibraryPathActions,
   openPathLibraryDialog,
   openPathManageMenu,
   openPathMenu,
@@ -52,8 +54,12 @@ test("creates path labels and new paths with default label membership", async ({
     "Score Autos / Group Blank",
   );
 
-  await openPathLibraryDialog(page);
-  await page.getByRole("button", { name: "Delete label" }).click();
+  const labelPanel = await openPathLibraryDialog(page);
+  await openLabelManager(labelPanel);
+  await labelPanel
+    .getByRole("button", { name: "Label actions for Score Autos" })
+    .click();
+  await labelPanel.getByRole("menuitem", { name: "Delete label" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "Delete Label" });
   await expect(deleteDialog).toBeVisible();
   await expect(deleteDialog).toContainText(
@@ -65,7 +71,8 @@ test("creates path labels and new paths with default label membership", async ({
   await expect(page.getByRole("dialog", { name: "Delete Label" })).toHaveCount(
     0,
   );
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await labelPanel.getByRole("button", { name: "Done", exact: true }).click();
+  await labelPanel.getByRole("button", { name: "Close", exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Current Path: Group Blank",
@@ -95,13 +102,11 @@ test("switches labeled paths from the toolbar and ghost canvas outlines", async 
     "Score Autos / Phase 1 Canvas Draft",
   );
 
-  let labelPanel = await openPathLibraryDialog(page);
-  const compareToggle = labelPanel
-    .getByLabel("Compare Paths")
-    .getByRole("button", { name: "Shown" });
+  const compareToggle = page.getByRole("button", {
+    name: "Hide label overlays",
+  });
   await expect(compareToggle).toHaveAttribute("aria-pressed", "true");
   await compareToggle.click();
-  await labelPanel.getByRole("button", { name: "Close", exact: true }).click();
 
   const canvas = page.getByTestId("path-stage-canvas");
   const ghostPoint = modelToCanvasPoint(await requiredBox(canvas), {
@@ -111,12 +116,9 @@ test("switches labeled paths from the toolbar and ghost canvas outlines", async 
   await page.mouse.move(ghostPoint.x, ghostPoint.y);
   await expect(page.getByTestId("path-stage-ghost-label")).toHaveCount(0);
 
-  labelPanel = await openPathLibraryDialog(page);
-  await labelPanel
-    .getByLabel("Compare Paths")
-    .getByRole("button", { name: "Hidden" })
+  await page
+    .getByRole("button", { name: "Show label overlays" })
     .click();
-  await labelPanel.getByRole("button", { name: "Close", exact: true }).click();
   await page.mouse.move(ghostPoint.x, ghostPoint.y);
   await expect(page.getByTestId("path-stage-ghost-label")).toHaveText(
     "Ghost Copy",
@@ -201,54 +203,47 @@ test("manages paths from the canonical path library", async ({ page }) => {
 
   const dialog = await openPathLibraryDialog(page);
   await expect(dialog.getByLabel("Labels")).toBeVisible();
-  await expect(dialog.getByLabel("Paths", { exact: true })).toBeVisible();
-  await expect(dialog.getByLabel("Label membership")).toBeVisible();
+  await expect(
+    dialog.getByRole("listbox", { name: /Paths filtered by/ }),
+  ).toBeVisible();
+  await expect(dialog.getByLabel("Label membership")).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "Import Path", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "Export Path", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "Create new path" }),
+  ).toHaveCount(0);
   await expect.poll(async () => (await requiredBox(dialog)).x).toBe(0);
   const panelBox = await requiredBox(dialog);
-  expect(panelBox.width).toBeLessThanOrEqual(430);
-  const importPathBox = await requiredBox(
-    dialog.getByRole("button", { name: "Import Path", exact: true }),
-  );
-  const exportPathBox = await requiredBox(
-    dialog.getByRole("button", { name: "Export Path", exact: true }),
-  );
-  expect(Math.abs(importPathBox.y - exportPathBox.y)).toBeLessThan(2);
-  expect(Math.abs(importPathBox.height - exportPathBox.height)).toBeLessThan(2);
+  expect(panelBox.width).toBeLessThanOrEqual(360);
   await expect(
     dialog
       .locator(".path-library-dialog__group")
-      .filter({ hasText: "All Paths" }),
+      .filter({ hasText: "All" }),
   ).toHaveClass(/is-permanent/);
 
   await dialog
     .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" })
+    .filter({ hasText: "All" })
     .click();
-  await dialog
+  const phasePath = dialog
     .locator(".path-library-dialog__path")
-    .filter({ hasText: "Phase 1 Canvas Draft" })
-    .click();
-  const pathActions = dialog.locator(".path-library-dialog__path-actions");
-  await expect(
-    pathActions.getByRole("button", { name: "Open path" }),
-  ).toBeVisible();
-  await expect(
-    pathActions.getByRole("button", { name: "Duplicate path" }),
-  ).toBeVisible();
-  await expect(
-    pathActions.getByRole("button", { name: "Delete path" }),
-  ).toBeVisible();
-  await expect(
-    dialog.locator(".path-library-dialog__details-card"),
-  ).toHaveCount(0);
-  await expect(
-    dialog.locator(".path-library-dialog__details-actions"),
-  ).toHaveCount(0);
-  await expect(
-    dialog.locator(".path-library-dialog__path-actions"),
-  ).toBeVisible();
+    .filter({ hasText: "Phase 1 Canvas Draft" });
+  await phasePath.click();
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Phase 1 Canvas Draft",
+  );
 
-  await pathActions.getByRole("button", { name: "Duplicate path" }).click();
+  const pathActions = await openLibraryPathActions(
+    dialog,
+    "Phase 1 Canvas Draft",
+  );
+  await expect(pathActions.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+  await expect(pathActions.getByRole("menuitem", { name: "Delete…" })).toBeVisible();
+  await pathActions.getByRole("menuitem", { name: "Duplicate" }).click();
   await submitNameDialog(page, "Save Path As", "Library Branch", "Save Copy");
   await expect(
     dialog.locator(".path-library-dialog__path").filter({
@@ -256,20 +251,20 @@ test("manages paths from the canonical path library", async ({ page }) => {
     }),
   ).toBeVisible();
 
+  await openLabelManager(dialog);
+  const scoreLabel = dialog
+    .locator(".path-library-dialog__manage-label")
+    .filter({ hasText: "Score Autos" });
+  await scoreLabel.click();
   const membershipRow = dialog
     .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: "Score Autos" });
+    .filter({ hasText: "Library Branch" });
   await membershipRow.getByRole("checkbox").check();
-
-  await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "Score Autos" })
-    .click();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await dialog
     .locator(".path-library-dialog__path")
     .filter({ hasText: "Library Branch" })
     .click();
-  await pathActions.getByRole("button", { name: "Open path" }).click();
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Score Autos / Library Branch",
   );
@@ -361,47 +356,42 @@ test("uses focused name dialogs for every path and label launch point", async ({
     exact: true,
   });
   const library = await openPathLibraryDialog(page);
+  await openLabelManager(library);
   await library.getByRole("button", { name: "Create label" }).click();
   await page.getByTestId("path-collection-new-name").fill("Library Autos");
   await page.getByTestId("create-path-collection").click();
 
-  const renameLabelButton = library.getByRole("button", {
-    name: "Rename label",
-  });
-  await renameLabelButton.click();
+  await library
+    .getByRole("button", { name: "Label actions for Library Autos" })
+    .click();
+  await library.getByRole("menuitem", { name: "Rename label" }).click();
   nameDialog = page.getByRole("dialog", { name: "Rename Label" });
   await expect(nameDialog.getByLabel("Label name")).toHaveValue(
     "Library Autos",
   );
   await submitNameDialog(page, "Rename Label", "  Renamed Autos  ", "Rename");
   await expect(library).toBeVisible();
-  await expect(renameLabelButton).toBeFocused();
   await expect(
     library
-      .locator(".path-library-dialog__group")
+      .locator(".path-library-dialog__manage-label")
       .filter({ hasText: "Renamed Autos" }),
   ).toBeVisible();
 
-  const pathActions = library.locator(".path-library-dialog__path-actions");
-  const savePathAsButton = pathActions.getByRole("button", {
-    name: "Duplicate path",
-  });
-  await savePathAsButton.click();
+  await library.getByRole("button", { name: "Done", exact: true }).click();
+  let pathActions = await openLibraryPathActions(library, "Menu Renamed");
+  await pathActions.getByRole("menuitem", { name: "Duplicate" }).click();
   nameDialog = page.getByRole("dialog", { name: "Save Path As" });
   await expect(nameDialog.getByLabel("Path name")).toHaveValue("Menu Renamed");
   await submitNameDialog(page, "Save Path As", "  Library Copy  ", "Save Copy");
   await expect(library).toBeVisible();
-  await expect(savePathAsButton).toBeFocused();
   await expect(
     library
       .locator(".path-library-dialog__group")
       .filter({ hasText: "Renamed Autos" }),
   ).toContainText("2");
 
-  const renamePathButton = pathActions.getByRole("button", {
-    name: "Rename path",
-  });
-  await renamePathButton.click();
+  pathActions = await openLibraryPathActions(library, "Library Copy");
+  await pathActions.getByRole("menuitem", { name: "Rename" }).click();
   nameDialog = page.getByRole("dialog", { name: "Rename Path" });
   await expect(nameDialog.getByLabel("Path name")).toHaveValue("Library Copy");
   await submitNameDialog(
@@ -410,7 +400,6 @@ test("uses focused name dialogs for every path and label launch point", async ({
     "  Library Button Renamed  ",
     "Rename",
   );
-  await expect(renamePathButton).toBeFocused();
 
   let selectedPath = library
     .locator(".path-library-dialog__path")
@@ -455,108 +444,79 @@ test("supports undo and redo for path library content edits", async ({
   await gotoSampleEditor(page);
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
-  let dialog = await openPathLibraryDialog(page);
-  const undoGroup = dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "Undo Autos" });
-  const allPathsGroup = dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" });
-  const phasePath = dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: "Phase 1 Canvas Draft" });
-  const pathActions = dialog.locator(".path-library-dialog__path-actions");
-
+  const dialog = await openPathLibraryDialog(page);
+  await openLabelManager(dialog);
   await dialog.getByRole("button", { name: "Create label" }).click();
   await page.getByTestId("path-collection-new-name").fill("Undo Autos");
   await page.getByTestId("create-path-collection").click();
+  const undoGroup = dialog
+    .locator(".path-library-dialog__manage-label")
+    .filter({ hasText: "Undo Autos" });
   await expect(undoGroup).toBeVisible();
 
-  await allPathsGroup.click();
   await page.keyboard.press(`${shortcut}+Z`);
   await expect(undoGroup).toHaveCount(0);
   await page.keyboard.press(`${shortcut}+Shift+Z`);
   await expect(undoGroup).toBeVisible();
 
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  const allPathsGroup = dialog
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All" });
   await allPathsGroup.click();
-  await phasePath.click();
-  await pathActions.getByRole("button", { name: "Duplicate path" }).click();
+  const pathActions = await openLibraryPathActions(
+    dialog,
+    "Phase 1 Canvas Draft",
+  );
+  await pathActions.getByRole("menuitem", { name: "Duplicate" }).click();
   await submitNameDialog(page, "Save Path As", "Undo Copy", "Save Copy");
   const undoCopyPath = dialog
     .locator(".path-library-dialog__path")
     .filter({ hasText: "Undo Copy" });
   await expect(undoCopyPath).toBeVisible();
 
-  await phasePath.click();
   await page.keyboard.press(`${shortcut}+Z`);
   await expect(undoCopyPath).toHaveCount(0);
   await page.keyboard.press(`${shortcut}+Shift+Z`);
   await expect(undoCopyPath).toBeVisible();
 
-  await undoCopyPath.click();
-  let membershipCheckbox = dialog
+  await openLabelManager(dialog);
+  await undoGroup.click();
+  const membershipCheckbox = dialog
     .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: "Undo Autos" })
+    .filter({ hasText: "Undo Copy" })
     .getByRole("checkbox");
   await membershipCheckbox.check();
   await expect(membershipCheckbox).toBeChecked();
-
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
-  await runEditMenuAction(page, "Undo");
-  dialog = await openPathLibraryDialog(page);
-  await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" })
-    .click();
-  await expect(
-    dialog
-      .locator(".path-library-dialog__path")
-      .filter({ hasText: "Undo Copy" }),
-  ).toHaveCount(0);
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
-
-  await runEditMenuAction(page, "Redo");
-  dialog = await openPathLibraryDialog(page);
-  await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" })
-    .click();
-  const restoredUndoCopyPath = dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: "Undo Copy" });
-  await expect(restoredUndoCopyPath).toBeVisible();
-  await restoredUndoCopyPath.click();
-  membershipCheckbox = dialog
-    .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: "Undo Autos" })
-    .getByRole("checkbox");
+  await undoGroup.focus();
+  await page.keyboard.press(`${shortcut}+Z`);
+  await expect(membershipCheckbox).toHaveCount(0);
+  await page.keyboard.press(`${shortcut}+Shift+Z`);
   await expect(membershipCheckbox).toBeChecked();
 
   await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "Undo Autos" })
+    .getByRole("button", { name: "Label actions for Undo Autos" })
     .click();
-  await dialog.getByRole("button", { name: "Delete label" }).click();
+  await dialog.getByRole("menuitem", { name: "Delete label" }).click();
   await page
     .getByRole("dialog", { name: "Delete Label" })
     .getByRole("button", { name: "Delete Label", exact: true })
     .click();
   await expect(
     dialog
-      .locator(".path-library-dialog__group")
+      .locator(".path-library-dialog__manage-label")
       .filter({ hasText: "Undo Autos" }),
   ).toHaveCount(0);
 
-  await dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: "Undo Copy" })
-    .click();
   await page.keyboard.press(`${shortcut}+Z`);
   await expect(
     dialog
-      .locator(".path-library-dialog__group")
+      .locator(".path-library-dialog__manage-label")
       .filter({ hasText: "Undo Autos" }),
   ).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
 });
 
 test("deletes only labels and keeps undoable Path memberships", async ({
@@ -566,84 +526,66 @@ test("deletes only labels and keeps undoable Path memberships", async ({
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
   const dialog = await openPathLibraryDialog(page);
+  await openLabelManager(dialog);
   await dialog.getByRole("button", { name: "Create label" }).click();
   await page.getByTestId("path-collection-new-name").fill("Temp Autos");
   await page.getByTestId("create-path-collection").click();
 
-  const allPathsGroup = dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" });
   const tempAutosGroup = dialog
-    .locator(".path-library-dialog__group")
+    .locator(".path-library-dialog__manage-label")
     .filter({ hasText: "Temp Autos" });
-  const phasePath = dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: "Phase 1 Canvas Draft" });
-  const pathActions = dialog.locator(".path-library-dialog__path-actions");
-
-  await allPathsGroup.click();
-  await duplicateSelectedLibraryPath(page, pathActions, "Temp A");
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await dialog
-    .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: "Temp Autos" })
-    .getByRole("checkbox")
-    .check();
+    .locator(".path-library-dialog__group")
+    .filter({ hasText: "All" })
+    .click();
+  await duplicateSelectedLibraryPath(
+    page,
+    dialog,
+    "Phase 1 Canvas Draft",
+    "Temp A",
+  );
 
-  await phasePath.click();
-  await duplicateSelectedLibraryPath(page, pathActions, "Temp B");
-  await dialog
-    .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: "Temp Autos" })
-    .getByRole("checkbox")
-    .check();
-
-  await expect(tempAutosGroup).toContainText("3");
+  await openLabelManager(dialog);
   await tempAutosGroup.click();
-  await dialog.getByRole("button", { name: "Delete label" }).click();
+  const tempMembership = dialog
+    .locator(".path-library-dialog__membership-row")
+    .filter({ hasText: "Temp A" })
+    .getByRole("checkbox");
+  await tempMembership.check();
+  await expect(tempAutosGroup).toContainText("2 Paths");
+
+  await dialog
+    .getByRole("button", { name: "Label actions for Temp Autos" })
+    .click();
+  await dialog.getByRole("menuitem", { name: "Delete label" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "Delete Label" });
   await expect(deleteDialog.getByRole("checkbox")).toHaveCount(0);
   await deleteDialog
     .getByRole("button", { name: "Delete Label", exact: true })
     .click();
   await expect(tempAutosGroup).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await expect(
     dialog
       .locator(".path-library-dialog__path-list")
       .getByRole("option", { name: /^Temp A / }),
   ).toBeVisible();
-  await expect(
-    dialog
-      .locator(".path-library-dialog__path-list")
-      .getByRole("option", { name: /^Temp B / }),
-  ).toBeVisible();
 
+  await dialog
+    .locator(".path-library-dialog__path")
+    .filter({ hasText: "Phase 1 Canvas Draft" })
+    .focus();
   await page.keyboard.press(`${shortcut}+Z`);
-  await expect(tempAutosGroup).toContainText("3");
-
-  await page.keyboard.press(`${shortcut}+Z`);
-  await expect(tempAutosGroup).toContainText("2");
+  await openLabelManager(dialog);
+  await expect(tempAutosGroup).toContainText("2 Paths");
   await tempAutosGroup.click();
-  await expect(
-    dialog
-      .locator(".path-library-dialog__path-list")
-      .getByRole("option", { name: /^Temp A / }),
-  ).toBeVisible();
-  await expect(
-    dialog
-      .locator(".path-library-dialog__path-list")
-      .getByRole("option", { name: /^Temp B / }),
-  ).toHaveCount(0);
-
   await page.keyboard.press(`${shortcut}+Z`);
-  await expect(tempAutosGroup).toContainText("1");
-  await expect(
-    dialog
-      .locator(".path-library-dialog__path-list")
-      .getByRole("option", { name: /^Temp A / }),
-  ).toHaveCount(0);
+  await expect(tempAutosGroup).toContainText("1 Path");
+  await expect(tempMembership).toHaveCount(0);
 });
 
-test("overlays create and delete path dialogs above the path library", async ({
+test("keeps path utilities in menus while dialogs overlay the library", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -651,28 +593,14 @@ test("overlays create and delete path dialogs above the path library", async ({
   await createPathGroupFromTopMenu(page, "Score Autos");
 
   const dialog = await openPathLibraryDialog(page);
-  await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" })
-    .click();
-  await dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: "Phase 1 Canvas Draft" })
-    .click();
-
-  await dialog.getByRole("button", { name: "Create new path" }).click();
-  const newPathDialog = page.getByRole("dialog", { name: "Create New Path" });
-  await expect(newPathDialog).toBeVisible();
-  await expect(dialog).toBeVisible();
-  await expectDialogOverPathLibrary(page, "Create New Path");
-  await newPathDialog.getByRole("button", { name: "Cancel" }).click();
-  await expect(newPathDialog).toHaveCount(0);
-  await expect(dialog).toBeVisible();
-
-  await dialog
-    .locator(".path-library-dialog__path-actions")
-    .getByRole("button", { name: "Delete path" })
-    .click();
+  await expect(
+    dialog.getByRole("button", { name: "Create new path" }),
+  ).toHaveCount(0);
+  const pathActions = await openLibraryPathActions(
+    dialog,
+    "Phase 1 Canvas Draft",
+  );
+  await pathActions.getByRole("menuitem", { name: "Delete…" }).click();
   const deletePathDialog = page.getByRole("dialog", { name: "Delete Paths" });
   await expect(deletePathDialog).toBeVisible();
   await expect(dialog).toBeVisible();
@@ -680,6 +608,13 @@ test("overlays create and delete path dialogs above the path library", async ({
   await deletePathDialog.getByRole("button", { name: "Cancel" }).click();
   await expect(deletePathDialog).toHaveCount(0);
   await expect(dialog).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await openPathManageMenu(page);
+  await page.getByRole("menuitem", { name: "Create New Path" }).click();
+  const newPathDialog = page.getByRole("dialog", { name: "Create New Path" });
+  await expect(newPathDialog).toBeVisible();
+  await newPathDialog.getByRole("button", { name: "Cancel" }).click();
 });
 
 test("keeps label actions available when a label has no Paths", async ({
@@ -689,32 +624,24 @@ test("keeps label actions available when a label has no Paths", async ({
 
   await createPathGroupFromTopMenu(page, "Empty Autos");
   const dialog = await openPathLibraryDialog(page);
-
-  await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" })
-    .click();
-  await dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: "Phase 1 Canvas Draft" })
-    .click();
+  await openLabelManager(dialog);
   await dialog
     .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: "Empty Autos" })
+    .filter({ hasText: "Phase 1 Canvas Draft" })
     .getByRole("checkbox")
     .uncheck();
 
+  const emptyLabel = dialog
+    .locator(".path-library-dialog__manage-label")
+    .filter({ hasText: "Empty Autos" });
+  await expect(emptyLabel).toContainText("0 Paths");
   await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "Empty Autos" })
+    .getByRole("button", { name: "Label actions for Empty Autos" })
     .click();
   await expect(
-    dialog.getByText("No Paths match this label and search."),
+    dialog.getByRole("menuitem", { name: "Rename label" }),
   ).toBeVisible();
-  await expect(
-    dialog.getByRole("button", { name: "Rename label" }),
-  ).toBeVisible();
-  await dialog.getByRole("button", { name: "Delete label" }).click();
+  await dialog.getByRole("menuitem", { name: "Delete label" }).click();
   await expect(
     page.getByRole("dialog", { name: "Delete Label" }),
   ).toBeVisible();
@@ -722,6 +649,7 @@ test("keeps label actions available when a label has no Paths", async ({
     .getByRole("dialog", { name: "Delete Label" })
     .getByRole("button", { name: "Cancel" })
     .click();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
 });
 
