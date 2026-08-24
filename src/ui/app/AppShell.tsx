@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ChangeEvent, CSSProperties } from "react";
+import type { ChangeEvent, CSSProperties, RefObject } from "react";
 import { CircleAlert } from "lucide-react";
 import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
@@ -240,6 +240,8 @@ export function AppShell() {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
   const pathHealthControlRef = useRef<HTMLDivElement | null>(null);
+  const [showSaveFeedback, setShowSaveFeedback] = useState(false);
+  const previousSaveToneRef = useRef<SaveStatusTone | null>(null);
   const [showHelpHub, setShowHelpHub] = useState(false);
   const [toursSupported, setToursSupported] = useState(
     () =>
@@ -1474,10 +1476,6 @@ export function AppShell() {
     activePath && selectedElementIndex !== null
       ? getElementPosition(activePath.path.path_elements, selectedElementIndex)
       : null;
-  const selectedSummary =
-    selectedElement && selectedElementIndex !== null
-      ? `Selected: ${getElementLabel(selectedElement)} #${selectedElementIndex + 1} ${formatPointMeters(selectedPosition)}`
-      : "Selected: none";
   const ioCapabilities = projectIo?.capabilities;
   const supportsProjectFolders = Boolean(
     ioCapabilities?.supportsProjectFolders,
@@ -1534,6 +1532,30 @@ export function AppShell() {
     lastSavedAt,
     status,
   });
+  useEffect(() => {
+    const previousTone = previousSaveToneRef.current;
+    previousSaveToneRef.current = saveStatusTone;
+
+    if (
+      saveStatusTone !== "saved" ||
+      previousTone === null ||
+      previousTone === "saved"
+    ) {
+      return;
+    }
+
+    let hideTimer: number | null = null;
+    const showTimer = window.setTimeout(() => {
+      setShowSaveFeedback(true);
+      hideTimer = window.setTimeout(() => setShowSaveFeedback(false), 2000);
+    }, 0);
+    return () => {
+      window.clearTimeout(showTimer);
+      if (hideTimer !== null) {
+        window.clearTimeout(hideTimer);
+      }
+    };
+  }, [saveStatusTone]);
   const pathDiagnostics = useMemo(
     () =>
       derivePathDiagnostics(
@@ -1990,6 +2012,29 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
 
+  const saveFeedbackVisible =
+    saveStatusTone !== "saved" || showSaveFeedback;
+  const workspaceStatusVisible =
+    Boolean(durableProject) &&
+    (pathDiagnostics.length > 0 || showPathHealth || saveFeedbackVisible);
+  const workspaceStatus = workspaceStatusVisible ? (
+    <WorkspaceStatus
+      compact={!inspectorOpen}
+      diagnostics={pathDiagnostics}
+      saveCommand={saveCommand}
+      saveFeedbackVisible={saveFeedbackVisible}
+      saveStatus={saveStatus}
+      saveStatusTone={saveStatusTone}
+      showPathHealth={showPathHealth}
+      storageLabel={storageLabel}
+      controlRef={pathHealthControlRef}
+      onResolveDiagnostic={handleResolvePathDiagnostic}
+      onTogglePathHealth={() =>
+        setShowPathHealth((current) => !current)
+      }
+    />
+  ) : null;
+
   return (
     <main
       className="app-shell"
@@ -2165,6 +2210,7 @@ export function AppShell() {
               open={inspectorOpen}
               activeTab={inspectorTab}
               inspectorWidth={inspectorWidth}
+              footer={inspectorOpen ? workspaceStatus : null}
               curveToolActive={curveToolSession !== null}
               onClose={() => setInspectorOpen(false)}
               onActiveTabChange={setInspectorTab}
@@ -2175,92 +2221,35 @@ export function AppShell() {
               onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
               onDialogOpenChange={setInspectorDialogOpen}
             />
+            {!inspectorOpen ? workspaceStatus : null}
           </>
         )}
       </div>
 
-      <footer className="status-bar" aria-label="Workspace status">
-        <span
-          className="status-bar__selection"
-          data-testid="selected-element-status"
-          title={selectedSummary}
-        >
+      <div className="sr-only" aria-label="Workspace status">
+        <span data-testid="selected-element-status">
           {selectedElement && selectedElementIndex !== null
             ? `${getElementLabel(selectedElement)} ${selectedElementIndex + 1} · ${formatPointMeters(selectedPosition)}`
             : durableProject
               ? "Nothing selected"
               : "Ready"}
         </span>
-        <span className="status-bar__hint">
-          {durableProject
-            ? toolHint(activeTool, curveToolSession !== null)
-            : ""}
-        </span>
-        <div className="status-bar__system">
-          {pathDiagnostics.length > 0 || showPathHealth ? (
-            <div
-              ref={pathHealthControlRef}
-              className="status-bar__diagnostics-control"
-              data-tour="path-health"
-            >
-              <button
-                type="button"
-                className={`status-bar__diagnostics status-bar__diagnostics--${pathHealthSeverity(pathDiagnostics)}`}
-                aria-label={`Path health: ${pathDiagnostics.length} ${
-                  pathDiagnostics.length === 1 ? "issue" : "issues"
-                }`}
-                aria-expanded={showPathHealth}
-                onClick={() => setShowPathHealth((current) => !current)}
-              >
-                <span
-                  className="status-bar__diagnostics-icon"
-                  aria-hidden="true"
-                >
-                  <CircleAlert
-                    aria-hidden="true"
-                    size={16}
-                    strokeWidth={2.4}
-                  />
-                </span>
-                <span>
-                  {pathDiagnostics.length}{" "}
-                  {pathDiagnostics.length === 1 ? "issue" : "issues"}
-                </span>
-              </button>
-              {showPathHealth ? (
-                <PathHealthPopover
-                  diagnostics={pathDiagnostics}
-                  saveError={null}
-                  onSelect={handleResolvePathDiagnostic}
-                />
-              ) : null}
-            </div>
-          ) : null}
-          <span className="sr-only" data-testid="current-path-status">
-            {currentPathSummary}
-          </span>
-          <span className="sr-only" data-testid="current-project-status">
-            {currentProjectSummary}
-          </span>
-          <span className="sr-only" data-testid="storage-status">
-            {storageLabel}
-          </span>
+        <span data-testid="current-path-status">{currentPathSummary}</span>
+        <span data-testid="current-project-status">{currentProjectSummary}</span>
+        <span data-testid="storage-status">{storageLabel}</span>
+        {!workspaceStatusVisible ? (
           <button
             type="button"
-            className={`status-bar__save status-bar__save--${saveStatusTone}`}
             data-testid="save-status"
             title={`${storageLabel}. ${saveStatus}`}
             aria-label="Save"
-            aria-live="polite"
             disabled={saveCommand.disabled}
             onClick={() => executeCommand(saveCommand)}
           >
-            <span className="status-bar__save-dot" aria-hidden="true" />
-            <span>{compactSaveStatus(saveStatus, saveStatusTone)}</span>
-            {saveStatusTone === "danger" ? <strong>Retry</strong> : null}
+            {workspaceSaveStatusLabel(saveStatusTone)}
           </button>
-        </div>
-      </footer>
+        ) : null}
+      </div>
 
       {durableProject && showConfigDialog ? (
         <ProjectConfigDialog
@@ -2426,6 +2415,107 @@ export function AppShell() {
         }}
       />
     </main>
+  );
+}
+
+function WorkspaceStatus({
+  compact,
+  controlRef,
+  diagnostics,
+  saveCommand,
+  saveFeedbackVisible,
+  saveStatus,
+  saveStatusTone,
+  showPathHealth,
+  storageLabel,
+  onResolveDiagnostic,
+  onTogglePathHealth,
+}: {
+  compact: boolean;
+  controlRef: RefObject<HTMLDivElement | null>;
+  diagnostics: readonly PathDiagnostic[];
+  saveCommand: EditorCommand;
+  saveFeedbackVisible: boolean;
+  saveStatus: string;
+  saveStatusTone: SaveStatusTone;
+  showPathHealth: boolean;
+  storageLabel: string;
+  onResolveDiagnostic(diagnostic: PathDiagnostic): void;
+  onTogglePathHealth(): void;
+}) {
+  const issueCount = diagnostics.length;
+  const issueLabel = `Path health: ${issueCount} ${
+    issueCount === 1 ? "issue" : "issues"
+  }`;
+  const saveLabel = workspaceSaveStatusLabel(saveStatusTone);
+
+  return (
+    <aside
+      className={`workspace-status ${
+        compact ? "workspace-status--floating" : "workspace-status--sidebar"
+      }`}
+      aria-label="Workspace status"
+    >
+      {issueCount > 0 || showPathHealth ? (
+        <div
+          ref={controlRef}
+          className="workspace-status__diagnostics-control"
+          data-tour="path-health"
+        >
+          <button
+            type="button"
+            className={`workspace-status__diagnostics workspace-status__diagnostics--${pathHealthSeverity(diagnostics)}`}
+            aria-label={issueLabel}
+            aria-expanded={showPathHealth}
+            title={compact ? issueLabel : undefined}
+            onClick={onTogglePathHealth}
+          >
+            <span
+              className="workspace-status__diagnostics-icon"
+              aria-hidden="true"
+            >
+              <CircleAlert aria-hidden="true" size={16} strokeWidth={2.4} />
+            </span>
+            {compact ? null : (
+              <span>
+                {issueCount} {issueCount === 1 ? "issue" : "issues"}
+              </span>
+            )}
+          </button>
+          {showPathHealth ? (
+            <PathHealthPopover
+              diagnostics={diagnostics}
+              saveError={null}
+              onSelect={onResolveDiagnostic}
+            />
+          ) : null}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className={[
+          "workspace-status__save",
+          `workspace-status__save--${saveStatusTone}`,
+          !saveFeedbackVisible ? "sr-only" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        data-testid="save-status"
+        title={`${storageLabel}. ${saveStatus}`}
+        aria-label="Save"
+        aria-live="polite"
+        disabled={saveCommand.disabled}
+        onClick={() => executeCommand(saveCommand)}
+      >
+        <span className="workspace-status__save-glyph" aria-hidden="true">
+          {workspaceSaveStatusGlyph(saveStatusTone)}
+        </span>
+        <span className={compact ? "sr-only" : undefined}>{saveLabel}</span>
+        {!compact && saveStatusTone === "danger" ? (
+          <strong>Retry</strong>
+        ) : null}
+      </button>
+    </aside>
   );
 }
 
@@ -2908,20 +2998,27 @@ function formatSaveStatus({
 
 type SaveStatusTone = "danger" | "loading" | "pending" | "saved" | "saving";
 
-function compactSaveStatus(statusLabel: string, tone: SaveStatusTone): string {
+function workspaceSaveStatusLabel(tone: SaveStatusTone): string {
   if (tone === "danger") {
     return "Save failed";
   }
-  if (tone === "saving") {
+  if (tone === "saving" || tone === "pending") {
     return "Saving…";
-  }
-  if (tone === "pending") {
-    return "Autosave pending";
   }
   if (tone === "loading") {
     return "Loading…";
   }
-  return statusLabel.replace(/^Saved/, "Saved locally");
+  return "Saved";
+}
+
+function workspaceSaveStatusGlyph(tone: SaveStatusTone): string {
+  if (tone === "danger") {
+    return "❌";
+  }
+  if (tone === "saved") {
+    return "✅";
+  }
+  return "🚀";
 }
 
 function getSaveStatusTone({
@@ -3013,22 +3110,4 @@ function safeDownloadName(value: string): string {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "") || "bline-project"
   );
-}
-
-function toolHint(tool: EditorTool, curveDrawing: boolean): string {
-  if (curveDrawing) {
-    return "Draw across the field · Esc cancels";
-  }
-  if (tool === "select") {
-    return "Drag elements to reshape the path · V selects";
-  }
-  if (tool === "rotation" || tool === "event") {
-    return `Click near a path segment to place ${
-      tool === "event" ? "an event" : "a rotation"
-    } · Esc cancels`;
-  }
-  if (tool === "curve") {
-    return "Drag across the field to sketch a curve · Esc cancels";
-  }
-  return `Click the field to place a ${tool} · Esc cancels`;
 }

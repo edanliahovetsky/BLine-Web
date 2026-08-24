@@ -133,7 +133,7 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
   await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
   await expect(page.getByRole("button", { name: /^Path health/ })).toHaveClass(
-    /status-bar__diagnostics--warning/,
+    /workspace-status__diagnostics--warning/,
   );
 
   // A repairable warning moves its waypoint to the nearest valid coordinate.

@@ -900,7 +900,12 @@ test("highlights, dismisses, and resolves path health issues", async ({
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
 
   const health = page.getByRole("button", { name: "Path health: 1 issue" });
-  await expect(health).toHaveClass(/status-bar__diagnostics--warning/);
+  await expect(health).toHaveClass(/workspace-status__diagnostics--warning/);
+  await expect(
+    page
+      .locator(".inspector-sidebar__status")
+      .getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
   await health.click();
   await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
     "command key empty",
@@ -908,11 +913,20 @@ test("highlights, dismisses, and resolves path health issues", async ({
   await expect(
     page.getByRole("dialog", { name: "Path health" }),
   ).not.toContainText("Fix these before heading to the robot");
-  await page.locator(".status-bar__hint").click();
+  await page.getByRole("button", { name: "Fit view" }).click();
   await expect(page.getByRole("dialog", { name: "Path health" })).toHaveCount(
     0,
   );
   await expect(health).toHaveAttribute("aria-expanded", "false");
+
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+  await expect(
+    page
+      .locator(".workspace-status--floating")
+      .getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
+  await expect(health).toHaveText("");
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
 
   await openConstraintsTab(page);
   await expect(page.getByRole("tab", { name: /Constraints/ })).toHaveAttribute(
@@ -941,6 +955,31 @@ test("highlights, dismisses, and resolves path health issues", async ({
   await expect(
     page.getByRole("button", { name: /^Path health/ }),
   ).toHaveCount(0);
+});
+
+test("shows transient save feedback in the sidebar and collapsed canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+  await page.getByTestId("path-stage").focus();
+  await page.keyboard.press("ArrowRight");
+
+  const saveStatus = page.getByTestId("save-status");
+  const floatingStatus = page.locator(".workspace-status--floating");
+  await expect(floatingStatus).toBeVisible();
+  await expect(saveStatus).toBeVisible();
+  await expect(saveStatus).toContainText("Saving");
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("🚀");
+
+  await expect(saveStatus).toContainText("Saved");
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("✅");
+  await expect(floatingStatus).toHaveCount(0, { timeout: 3_500 });
 });
 
 test("adds missing waypoints from path health as one undoable fix", async ({

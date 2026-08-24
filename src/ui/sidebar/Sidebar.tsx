@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { X } from "lucide-react";
 import type { LinkedTargetKind } from "../../core/io/projectSchema";
 import type { Project, ProjectPath } from "../../core/model/project";
@@ -45,6 +45,7 @@ interface SidebarProps {
   open?: boolean;
   activeTab: "elements" | "constraints";
   inspectorWidth: number;
+  footer?: ReactNode;
   curveToolActive?: boolean;
   onClose?(): void;
   onActiveTabChange?(tab: "elements" | "constraints"): void;
@@ -62,6 +63,7 @@ export function Sidebar({
   open = false,
   activeTab,
   inspectorWidth,
+  footer,
   curveToolActive = false,
   onClose,
   onActiveTabChange,
@@ -482,6 +484,9 @@ export function Sidebar({
           />
         </div>
       )}
+      {footer ? (
+        <div className="inspector-sidebar__status">{footer}</div>
+      ) : null}
     </aside>
   );
 }
