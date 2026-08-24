@@ -285,6 +285,22 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
   await expect(status).toHaveText("Not generated");
   await generate.click();
   await expect(status).toHaveText("Up to date");
+  const firstRadius = page.getByTestId("handoff-radius-chip-0");
+  await expect(firstRadius).toBeEnabled();
+  // The sample pins its first radius, so initial generation preserves it.
+  await expect(firstRadius).toHaveClass(/handoff-radius-chip--manual/);
+  await expect(firstRadius.locator(".handoff-radius-chip__value")).toHaveText(
+    "0.4 m",
+  );
+  await firstRadius.click();
+  await page
+    .getByRole("group", { name: "Handoff radius mode" })
+    .getByRole("button", { name: "Auto" })
+    .click();
+  await expect(firstRadius).toHaveClass(/handoff-radius-chip--auto/);
+  await expect(firstRadius.locator(".handoff-radius-chip__value")).toHaveText(
+    "0.45 m",
+  );
   await expect(
     card.getByRole("button", { name: "Apply", exact: true }),
   ).toHaveCount(0);
@@ -780,8 +796,8 @@ test("presents every anchor radius as a chip in the Constraints tab", async ({
   await expect(card.getByLabel("Value modes")).toContainText("AutoManual");
   await expect(card).not.toContainText(/\b[WT]\d+\b/);
 
-  // One chip per anchor: the sample's two interior anchors carry values, and
-  // both endpoints remain blank because no handoff happens there.
+  // One chip per anchor: the first and interior anchors stay live, while the
+  // final anchor remains blank because no handoff happens there.
   const chips = radiusLane.locator('[data-testid^="handoff-radius-chip-"]');
   await expect(chips).toHaveCount(4);
   await expect(page.getByTestId("handoff-radius-chip-1")).toHaveClass(
@@ -801,13 +817,16 @@ test("presents every anchor radius as a chip in the Constraints tab", async ({
       .locator(".handoff-radius-chip__value"),
   ).toHaveCount(0);
 
-  // Both endpoints are inert: nothing hands off to the start, and the path
-  // finishes by tolerance rather than by a handoff.
-  await expect(page.getByTestId("handoff-radius-chip-0")).toBeDisabled();
+  await expect(page.getByTestId("handoff-radius-chip-0")).toBeEnabled();
   await expect(page.getByTestId("handoff-radius-chip-0")).toHaveAttribute(
     "title",
-    /Not used on the first element/,
+    "Anchor 1 · pinned radius",
   );
+  await expect(
+    page
+      .getByTestId("handoff-radius-chip-0")
+      .locator(".handoff-radius-chip__value"),
+  ).toHaveText("0.4 m");
   await expect(page.getByTestId("handoff-radius-chip-5")).toBeDisabled();
   await expect(page.getByTestId("handoff-radius-chip-5")).toHaveAttribute(
     "title",

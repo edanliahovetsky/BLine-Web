@@ -241,10 +241,6 @@ type NonAutoRangedConstraintKey = Exclude<
   typeof autoVelocityKey
 >;
 const handoffRadiusStep = 0.05;
-// The property pane says the same thing about the final anchor; the first one is
-// inert for the mirror-image reason, so both endpoints explain themselves here.
-const startAnchorHandoffNote =
-  "Not used on the first element — a handoff happens at the anchor a segment drives to, and nothing drives to the start.";
 const finalAnchorHandoffNote =
   "Not used on the final element — the path finishes here by tolerance, not by a handoff.";
 const minimumConstraintWarning =
@@ -3181,7 +3177,7 @@ function storedHandoffState(chip: HandoffRadiusChip): HandoffRadiusState {
 
 function handoffRadiusChipTitle(chip: HandoffRadiusChip): string {
   if (chip.inert) {
-    return chip.ordinal === 1 ? startAnchorHandoffNote : finalAnchorHandoffNote;
+    return finalAnchorHandoffNote;
   }
 
   switch (chip.state) {

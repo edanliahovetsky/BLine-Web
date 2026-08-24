@@ -668,7 +668,7 @@ describe("handoffRadiusChipsForPath", () => {
     ]);
   });
 
-  it("marks both endpoint anchors inert and leaves the interior live", () => {
+  it("keeps the first and interior anchors live and marks only the final anchor inert", () => {
     const chips = chipsForProject(
       chipProject([
         createTranslationTarget({ x_meters: 1, y_meters: 1 }),
@@ -678,7 +678,12 @@ describe("handoffRadiusChipsForPath", () => {
       ]),
     );
 
-    expect(chips.map((chip) => chip.inert)).toEqual([true, false, false, true]);
+    expect(chips.map((chip) => chip.inert)).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ]);
   });
 
   it("classifies generated, pinned and unset radii", () => {
