@@ -44,6 +44,11 @@ export interface TourStep {
    * When present the step waits for real editor state, then unlocks Continue.
    */
   completeWhen?(): boolean;
+  /**
+   * Stop editor interaction after the required action completes. Use this for
+   * one-shot actions such as placing exactly one path element.
+   */
+  lockInteractionOnComplete?: true;
 }
 
 export interface TourStepPreparation {

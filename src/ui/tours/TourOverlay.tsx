@@ -47,6 +47,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const interactToken = step?.interact?.join("|") ?? "";
   const stepToken = activeTourId ? `${activeTourId}:${stepIndex}` : null;
   const actionComplete = completedActionToken === stepToken;
+  const lockInteractionOnComplete =
+    step?.lockInteractionOnComplete ?? false;
 
   // Put the editor into the state this step needs once per step, so the
   // baseline for action-driven steps is not reset on every render.
@@ -116,7 +118,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       // Concept steps have no target; drop any previous spotlight.
       setRect(stepTarget ? measureTour(stepTarget) : null);
       setHoles(
-        interactToken
+        interactToken && !(lockInteractionOnComplete && actionComplete)
           ? interactToken
               .split("|")
               .map(measureTour)
@@ -142,7 +144,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       window.removeEventListener("scroll", measure, true);
       document.removeEventListener("transitionend", measure, true);
     };
-  }, [interactToken, stepTarget]);
+  }, [actionComplete, interactToken, lockInteractionOnComplete, stepTarget]);
 
   useLayoutEffect(() => {
     const measured = cardRef.current?.offsetHeight;
@@ -152,7 +154,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   }, [actionComplete, cardHeight, stepIndex, activeTourId]);
 
   // Verify action-driven steps against live editor state. Completing an action
-  // unlocks Continue without taking the control away from the learner.
+  // unlocks Continue and may close one-shot interaction holes.
   useEffect(() => {
     if (!activeTourId) {
       return;
@@ -175,6 +177,30 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       window.clearInterval(interval);
     };
   }, [activeTourId, stepIndex]);
+
+  useEffect(() => {
+    const completeWhen = step?.completeWhen;
+    if (!activeTourId || !lockInteractionOnComplete || !completeWhen) {
+      return;
+    }
+
+    const stopCompletedInteraction = (event: PointerEvent) => {
+      if ((event.target as Element | null)?.closest(".tour-card")) {
+        return;
+      }
+      if (!completeWhen()) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      setCompletedActionToken(`${activeTourId}:${stepIndex}`);
+    };
+
+    window.addEventListener("pointerdown", stopCompletedInteraction, true);
+    return () =>
+      window.removeEventListener("pointerdown", stopCompletedInteraction, true);
+  }, [activeTourId, lockInteractionOnComplete, step, stepIndex]);
 
   useEffect(() => {
     if (!activeTourId) {
@@ -314,7 +340,9 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           >
             <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
             {actionComplete
-              ? "Done. Keep experimenting or continue."
+              ? lockInteractionOnComplete
+                ? "Done. Continue to the next step."
+                : "Done. Keep experimenting or continue."
               : "Waiting for this action"}
           </div>
         ) : null}

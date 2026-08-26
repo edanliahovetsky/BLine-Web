@@ -68,6 +68,11 @@ describe("guided lesson content", () => {
     expect(middleIndex).toBeGreaterThan(-1);
     expect(goalIndex).toBeGreaterThan(middleIndex ?? -1);
     expect(firstPath?.steps[goalIndex ?? -1]?.prepare?.selectElement).toBe(0);
+    expect(
+      firstPath?.steps
+        .filter((step) => step.target === "tool-waypoint")
+        .every((step) => step.lockInteractionOnComplete),
+    ).toBe(true);
     expect(reorderStep?.interact).toContain("inspector-panel");
     expect(reorderStep?.completeWhen).toBeTypeOf("function");
   });
