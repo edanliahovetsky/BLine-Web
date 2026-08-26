@@ -24,6 +24,7 @@ import {
   type PathModel,
 } from "../../../src/core/model/path";
 import { addPathToProject } from "../../../src/core/model/projectOperations";
+import { createCurveTranslationTargets } from "../../../src/core/pathProfile/curveProfile";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import { startAutomaticConstraintSync } from "../../../src/state/automaticConstraints";
 import {
@@ -47,6 +48,45 @@ afterEach(() => {
 });
 
 describe("auto velocity sync", () => {
+  it("starts before a Project opens and generates its first curve-tool elements", async () => {
+    const store = createProjectStore();
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    store
+      .getState()
+      .setProjectIoService(
+        new MemoryIo(blankWorkspace()) as unknown as ProjectIoService,
+      );
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+
+    await store.getState().initializeWorkspace();
+    const result = store.getState().applyPathStructureEdit({
+      kind: "insert-many",
+      index: 0,
+      elements: createCurveTranslationTargets([
+        { x_meters: 3, y_meters: 1.4 },
+        { x_meters: 3.5, y_meters: 0.8 },
+      ]),
+    });
+
+    expect(result.status).toBe("applied");
+    expect(generatedValues(store)).toEqual([]);
+    expect(
+      activeDocument(store)?.path.path_elements.some(
+        (element) => getHandoffRadiusSource(element) === "auto",
+      ),
+    ).toBe(true);
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(generatedValues(store).length).toBeGreaterThan(0);
+    stop();
+  });
+
   it("regenerates stale caps after the path settles", async () => {
     const { store, stop, status } = await startedSync();
 
@@ -827,6 +867,16 @@ function exampleWorkspace(generated: boolean): ProjectWorkspaceDocument {
           }),
         }
       : project,
+  );
+}
+
+function blankWorkspace(): ProjectWorkspaceDocument {
+  return projectDocumentToWorkspaceDocument(
+    createProjectDocument({
+      project_id: "blank-sync-project",
+      display_name: "Blank Sync",
+      path: createPathModel(),
+    }),
   );
 }
 

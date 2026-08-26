@@ -2677,10 +2677,7 @@ function AutoVelocityWorkloadWarning({
       role="note"
     >
       <WarningIcon aria-hidden="true" />
-      <span>
-        Large path — optimization may take longer. Up to{" "}
-        {searchPlan.evaluationBudget} candidate evaluations are expected.
-      </span>
+      <span>Large path — optimization may take longer.</span>
     </p>
   );
 }

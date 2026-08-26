@@ -1,7 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { canvasNodePosition, pointDistance } from "./support/app-shell-canvas";
+import {
+  canvasNodePosition,
+  modelToCanvasPoint,
+  pointDistance,
+} from "./support/app-shell-canvas";
 import { openConstraintsTab } from "./support/app-shell-constraints";
-import { openPathMenu } from "./support/app-shell-project-library";
+import {
+  createNewPathFromTopMenu,
+  openPathMenu,
+} from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test("opens a polished expanded editor for an individual constraint", async ({
@@ -511,6 +518,42 @@ test("refreshes the generated policy in the background after a path edit", async
   );
 });
 
+test("starts automatic generation after an opened project creates a Path with the Curve tool", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewPathFromTopMenu(page, "Curve Generated");
+
+  const canvas = page.getByTestId("path-stage-canvas");
+  const canvasBox = await requiredBox(canvas);
+  const start = modelToCanvasPoint(canvasBox, {
+    x_meters: 2.5,
+    y_meters: 2,
+  });
+  const end = modelToCanvasPoint(canvasBox, {
+    x_meters: 6.5,
+    y_meters: 4,
+  });
+  await page.getByRole("button", { name: "Curve tool" }).click();
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 8 });
+  await page.mouse.up();
+
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    2,
+  );
+  await openConstraintsTab(page);
+  const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
+  await expect(card.getByRole("status")).toHaveText("Up to date");
+  await expect(page.getByTestId("handoff-radius-chip-0")).toContainText(
+    "0.45 m",
+  );
+  await expect(
+    page.locator('[data-testid^="constraint-range-max_velocity"]'),
+  ).not.toHaveCount(0);
+});
+
 test("keeps optimizer controls in Settings instead of Constraints", async ({
   page,
 }) => {
@@ -540,7 +583,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
   await expect(page.getByLabel("Keep in sync")).not.toBeChecked();
 });
 
-test("warns when a large path receives a scaled optimizer budget", async ({
+test("warns that a large path may take longer without exposing its evaluation budget", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -577,9 +620,8 @@ test("warns when a large path receives a scaled optimizer budget", async ({
     .click();
 
   const warning = page.getByTestId("auto-velocity-workload-warning");
-  await expect(warning).toContainText(
-    "Large path — optimization may take longer. Up to 7348 candidate evaluations are expected.",
-  );
+  await expect(warning).toHaveText("Large path — optimization may take longer.");
+  await expect(warning).not.toContainText("candidate evaluations");
 });
 
 test("turns dragged auto velocity ranges into manual ranges", async ({

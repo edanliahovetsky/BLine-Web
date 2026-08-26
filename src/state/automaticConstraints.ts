@@ -303,21 +303,24 @@ export function startAutomaticConstraintSync(
       const previousPath = ownership.previousProject.paths.find(
         (previous) => previous.path_id === candidate.path_id,
       );
-      const initialGeneration =
+      const pendingInitialGeneration =
         pendingInitialGenerationPathIds.has(candidate.path_id) &&
-        canGenerateAutoConstraints(candidate.path) &&
-        !hasGeneratedAutoConstraints(candidate.path);
-      if (
-        pendingInitialGenerationPathIds.has(candidate.path_id) &&
-        hasGeneratedAutoConstraints(candidate.path)
-      ) {
-        pendingInitialGenerationPathIds.delete(candidate.path_id);
-      }
+        canGenerateAutoConstraints(candidate.path);
       const candidateRefresh = autoVelocityRefreshRequest(
         candidate.path,
         state.project.config,
-        { includeUnseeded: initialGeneration },
+        { includeUnseeded: pendingInitialGeneration },
       );
+      const initialGeneration =
+        pendingInitialGeneration &&
+        candidateRefresh !== null &&
+        !candidateRefresh.hasGeneratedVelocityCaps;
+      if (
+        pendingInitialGenerationPathIds.has(candidate.path_id) &&
+        candidateRefresh?.hasGeneratedVelocityCaps
+      ) {
+        pendingInitialGenerationPathIds.delete(candidate.path_id);
+      }
       if (
         candidateRefresh?.stale &&
         candidateRefresh.signature !== null &&
