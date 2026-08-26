@@ -4464,7 +4464,18 @@ select {
   pointer-events: auto;
   transition:
     top 260ms ease-out,
-    left 260ms ease-out;
+    left 260ms ease-out,
+    opacity 460ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 460ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tour-card:hover:not(:has(.tour-card__actions:hover)) {
+    opacity: 0.2;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+    transition-delay: 140ms;
+  }
 }
 
 .tour-card:focus-visible {

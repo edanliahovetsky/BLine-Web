@@ -3,6 +3,7 @@ import type { PathModel } from "../../core/model/path";
 import { rememberCompletedTourIds } from "../../userData";
 
 export type TourPlacement = "above" | "below" | "left" | "right";
+export type TourCardPosition = "canvas-top-left" | "canvas-top-right";
 
 export interface TourMarker {
   id: string;
@@ -29,6 +30,11 @@ export interface TourStep {
   /** Keys worth showing as caps beneath the body. */
   keys?: readonly string[];
   placement?: TourPlacement;
+  /**
+   * Pins the dialogue to a quiet canvas corner when a target-relative card
+   * would cover the field action or route the learner needs to inspect.
+   */
+  cardPosition?: TourCardPosition;
   /**
    * `data-tour` ids the user may interact with during this step. Everything
    * else is shielded so a stray click cannot derail the lesson. Steps without

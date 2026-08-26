@@ -42,3 +42,53 @@ describe("guided lesson content", () => {
     ]);
   });
 });
+
+describe("guided lesson dialogue choreography", () => {
+  it("reserves a canvas corner for every field interaction", () => {
+    const fieldSteps = tours.flatMap((tour) =>
+      tour.steps
+        .filter(
+          (step) =>
+            step.interact?.includes("path-canvas") ||
+            step.interact?.includes("simulation-transport"),
+        )
+        .map((step) => `${tour.id}: ${step.title}`),
+    );
+    const positionedFieldSteps = tours.flatMap((tour) =>
+      tour.steps
+        .filter(
+          (step) =>
+            (step.interact?.includes("path-canvas") ||
+              step.interact?.includes("simulation-transport")) &&
+            step.cardPosition?.startsWith("canvas-"),
+        )
+        .map((step) => `${tour.id}: ${step.title}`),
+    );
+
+    expect(positionedFieldSteps).toEqual(fieldSteps);
+  });
+
+  it("keeps field-story callouts away from their markers", () => {
+    for (const tour of tours) {
+      for (const step of tour.steps.filter((candidate) =>
+        candidate.target?.startsWith("lesson-"),
+      )) {
+        expect(step.cardPosition, `${tour.id}: ${step.title}`).toBe(
+          "canvas-top-right",
+        );
+      }
+    }
+  });
+
+  it("keeps the capstone repair dialogue opposite the right-side defects", () => {
+    const capstone = tours.find((tour) => tour.id === "verify-export");
+    const repairSteps = capstone?.steps.filter((step) =>
+      step.title.startsWith("Fix the"),
+    );
+
+    expect(repairSteps?.map((step) => step.cardPosition)).toEqual([
+      "canvas-top-left",
+      "canvas-top-left",
+    ]);
+  });
+});

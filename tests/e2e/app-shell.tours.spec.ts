@@ -85,6 +85,28 @@ test("builds the first path with visible goals and manual Continue gates", async
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 11");
 });
 
+test("keeps field-action dialogue clear of the task and fades for inspection", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openLesson(page, "shape-route");
+  await next(page, 2);
+
+  const card = page.getByTestId("tour-card");
+  const structure = page.getByLabel("Field structure");
+  const cardBox = await requiredBox(card);
+  const structureBox = await requiredBox(structure);
+
+  expect(cardBox.x).toBeGreaterThan(structureBox.x + structureBox.width);
+
+  await page.waitForTimeout(500);
+  await card.getByRole("heading", { name: "Bend the route" }).hover();
+  await expect(card).toHaveCSS("opacity", "0.2");
+
+  await card.getByRole("button", { name: "Back" }).hover();
+  await expect(card).toHaveCSS("opacity", "1");
+});
+
 test("uses each simulation control for one clear purpose", async ({ page }) => {
   await gotoSampleEditor(page);
   await openLesson(page, "heading-events");
