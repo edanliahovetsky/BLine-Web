@@ -295,10 +295,11 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
     () => document.documentElement.scrollHeight,
   );
   const stageBox = await requiredBox(page.getByTestId("path-stage"));
+  const viewportHeight = page.viewportSize()?.height ?? 900;
 
   expect(documentHeight).toBeLessThan(1_850);
   expect(stageBox.height).toBeGreaterThan(450);
-  expect(stageBox.height).toBeLessThan(850);
+  expect(stageBox.height).toBeLessThan(viewportHeight);
 });
 
 test("locks document scrolling to the viewport", async ({ page }) => {
