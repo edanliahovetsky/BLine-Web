@@ -443,6 +443,7 @@ export function LinkedTargetsCanvas({
       simulationResult: null,
       simulationTimeS: 0,
       simulationPlaying: false,
+      simulationEventPulse: 0,
       config,
       curvePreview: null,
       linkedTargets: pixiTargets,

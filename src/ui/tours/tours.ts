@@ -392,7 +392,7 @@ export const headingEventsTour: TourDefinition = {
     { target: "element-properties", title: "Name the action", body: "Set the event key to startIntake. Set its position to 0.7.", task: "Set the key and event position", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: eventTriggerConfigured },
     { title: "Geometric progress", body: "The event fires when the robot's progress along the segment passes the marker. Progress comes from the robot's position, not from time." },
     { title: "The key is a name", body: "The path stores only the key. Robot code registers the startIntake action for that key." },
-    { target: "transport-play", title: "Watch the run", body: "Play the preview. Watch the robot turn during the segment and the event marker fire.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
+    { target: "transport-play", title: "Watch the run", body: "Play the preview. Watch the robot turn, then flash purple as it passes the event marker.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
     { target: "transport-timeline", title: "Scrub the timeline", body: "Drag the timeline under the field. Stop just before the event marker, then just after it.", task: "Scrub the simulation timeline", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasScrubbed },
     { title: "Check placement this way", body: "Scrubbing is how you verify rotation timing and event placement. Use it whenever a marker must line up with the field." },
   ],

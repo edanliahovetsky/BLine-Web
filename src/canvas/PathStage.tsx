@@ -87,6 +87,7 @@ import {
   type PixiPathOverlay,
   type PixiRenderInput,
 } from "./pixi/PixiPathRenderer";
+import { simulationEventPulseAtTime } from "./simulationEventPulse";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
@@ -768,26 +769,34 @@ export function PathStage({
   }, [finishSimulation, resetSimulation, toggleSimulationPlaying]);
 
   const renderInput = useMemo<PixiRenderInput>(
-    () => ({
-      stageSize,
-      viewport,
-      field: renderField,
-      path: activePath?.path ?? null,
-      overlayPaths,
-      hoveredOverlayPathId,
-      selectedElementIndex,
-      selectedRangedConstraint,
-      positionPreview,
-      rotationPreview,
-      selectedPulse: selectedPulseValue,
-      simulationResult,
-      simulationTrace: simulationResult?.trace ?? null,
-      trajectoryMaxSpeedMps,
-      simulationTimeS: simulationTime,
-      simulationPlaying,
-      config: durableProject?.config ?? null,
-      curvePreview,
-    }),
+    () => {
+      const simulationEventPulse = simulationEventPulseAtTime(
+        activePath?.path ?? null,
+        simulationResult?.trace ?? null,
+        simulationTime,
+      );
+      return {
+        stageSize,
+        viewport,
+        field: renderField,
+        path: activePath?.path ?? null,
+        overlayPaths,
+        hoveredOverlayPathId,
+        selectedElementIndex,
+        selectedRangedConstraint,
+        positionPreview,
+        rotationPreview,
+        selectedPulse: selectedPulseValue,
+        simulationResult,
+        simulationTrace: simulationResult?.trace ?? null,
+        trajectoryMaxSpeedMps,
+        simulationTimeS: simulationTime,
+        simulationPlaying,
+        simulationEventPulse,
+        config: durableProject?.config ?? null,
+        curvePreview,
+      };
+    },
     [
       renderField,
       activePath,
@@ -1556,6 +1565,7 @@ export function PathStage({
           .filter(Boolean)
           .join(" ")}
         data-testid="path-stage-canvas"
+        data-simulation-event-pulse={renderInput.simulationEventPulse.toFixed(3)}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

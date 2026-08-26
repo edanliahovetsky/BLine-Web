@@ -91,6 +91,7 @@ export interface PixiRenderInput {
   trajectoryMaxSpeedMps: number;
   simulationTimeS: number;
   simulationPlaying: boolean;
+  simulationEventPulse: number;
   config: ProjectConfig | null;
   curvePreview: CurveAuthoringPreview | null;
   linkedTargets?: readonly PixiLinkedTargetOverlay[];
@@ -868,11 +869,16 @@ export class PixiPathRenderer {
       protrusionSide: protrusions?.side ?? "none",
     });
 
-    drawSimulationRobot(graphics, robotBounds, {
-      x: robotPoint.x,
-      y: robotPoint.y,
-      rotation: -pose[2],
-    });
+    drawSimulationRobot(
+      graphics,
+      robotBounds,
+      {
+        x: robotPoint.x,
+        y: robotPoint.y,
+        rotation: -pose[2],
+      },
+      input.simulationEventPulse,
+    );
   }
 }
 
@@ -1558,7 +1564,14 @@ function drawSimulationRobot(
   graphics: Graphics,
   bounds: RobotLocalBounds,
   transform: LocalTransform,
+  eventPulse: number,
 ): void {
+  const pulse = Math.max(0, Math.min(1, eventPulse));
+  const accent = mixRgbColor(
+    simulationRobotColor,
+    simulationEventColor,
+    pulse,
+  );
   const triangleSize = Math.min(bounds.width, bounds.height) * 0.28;
   const triangleOffset = bounds.width * 0.26;
   const halo = robotHaloMetrics(bounds.width, bounds.height);
@@ -1580,13 +1593,27 @@ function drawSimulationRobot(
     },
     transform,
   );
+  if (pulse > 0) {
+    drawRect(
+      graphics,
+      haloOutline.rect,
+      {
+        fill: simulationEventColor,
+        fillAlpha: 0.08 * pulse,
+        stroke: simulationEventColor,
+        strokeAlpha: 0.72 * pulse,
+        strokeWidth: haloOutline.strokeWidth,
+      },
+      transform,
+    );
+  }
   drawRect(
     graphics,
     robotOutline.rect,
     {
-      fill: 0x62c7ff,
-      fillAlpha: 0.13,
-      stroke: elementColors.simulation,
+      fill: accent,
+      fillAlpha: 0.13 + 0.34 * pulse,
+      stroke: accent,
       strokeAlpha: 1,
       strokeWidth: robotOutline.strokeWidth,
     },
@@ -1603,9 +1630,9 @@ function drawSimulationRobot(
       -triangleSize / 2,
     ],
     {
-      fill: 0x62c7ff,
-      fillAlpha: 0.38,
-      stroke: elementColors.simulation,
+      fill: accent,
+      fillAlpha: 0.38 + 0.28 * pulse,
+      stroke: accent,
       strokeWidth: 1.9,
     },
     transform,
@@ -1618,9 +1645,11 @@ function drawSimulationRobot(
       Math.max(2.5, Math.min(bounds.width, bounds.height) * 0.08),
     )
     .fill({ color: 0x05080b, alpha: 0.36 })
-    .stroke({ color: elementColors.simulation, width: 1.5, alpha: 0.94 });
+    .stroke({ color: accent, width: 1.5, alpha: 0.94 });
 }
 
+const simulationRobotColor = 0x62c7ff;
+const simulationEventColor = 0xa78bfa;
 const trajectorySpeedBuckets = 20;
 const trajectoryMinSegmentPx = 1.5;
 const trajectorySlowColor = { r: 0x27, g: 0x45, b: 0x5c };
@@ -1638,6 +1667,15 @@ function trajectorySpeedColor(ratio: number): number {
     trajectorySlowColor.b + (trajectoryFastColor.b - trajectorySlowColor.b) * t,
   );
   return (r << 16) | (g << 8) | b;
+}
+
+function mixRgbColor(from: number, to: number, ratio: number): number {
+  const t = Math.max(0, Math.min(1, ratio));
+  const channel = (shift: number) =>
+    Math.round(
+      ((from >> shift) & 0xff) * (1 - t) + ((to >> shift) & 0xff) * t,
+    );
+  return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 }
 
 function drawPolyline(

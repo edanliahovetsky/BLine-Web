@@ -290,6 +290,20 @@ test("plays and seeks the simulation transport", async ({ page }) => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
+  await transport.getByRole("button", { name: "Play simulation" }).click();
+  await expect
+    .poll(
+      async () =>
+        Number(
+          (await page
+            .getByTestId("path-stage-canvas")
+            .getAttribute("data-simulation-event-pulse")) ?? 0,
+        ),
+      { timeout: 10_000, intervals: [50, 50, 50, 50, 100] },
+    )
+    .toBeGreaterThan(0.4);
+  await transport.getByRole("button", { name: "Pause simulation" }).click();
 });
 
 test("creates every path element type from the inspector menu", async ({
