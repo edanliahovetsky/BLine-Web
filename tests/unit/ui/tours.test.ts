@@ -7,7 +7,7 @@ describe("guided lesson content", () => {
 
     for (const tour of tours) {
       expect(tour.steps.length).toBeGreaterThanOrEqual(11);
-      expect(tour.steps.length).toBeLessThanOrEqual(15);
+      expect(tour.steps.length).toBeLessThanOrEqual(13);
       expect(tour.durationMinutes).toBeGreaterThan(0);
       expect(tour.summary).not.toMatch(/[—–]/);
       expect(tour.completionMessage).not.toMatch(/[—–]/);
@@ -59,10 +59,10 @@ describe("guided lesson content", () => {
       (step) => step.title === "Add a point between",
     );
     const goalIndex = firstPath?.steps.findIndex(
-      (step) => step.title === "Insert the goal",
+      (step) => step.title === "Place the goal",
     );
     const reorderStep = firstPath?.steps.find(
-      (step) => step.title === "Fix the drive order",
+      (step) => step.title === "Put them in drive order",
     );
 
     expect(middleIndex).toBeGreaterThan(-1);

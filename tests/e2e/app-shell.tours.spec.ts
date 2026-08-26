@@ -73,7 +73,7 @@ test("builds and orders the first path with manual Continue gates", async ({
     .click();
   await clickFieldPoint(page, 8, 2);
   await expect(card).toContainText("Done. Keep experimenting or continue.");
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 15");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 13");
   await card.getByRole("button", { name: "Next", exact: true }).click();
 
   await expect(card).toContainText("The start pose");
@@ -83,10 +83,7 @@ test("builds and orders the first path with manual Continue gates", async ({
     .click();
   await clickFieldPoint(page, 10, 3.2);
   await expect(card).toContainText("Done. Keep experimenting or continue.");
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 15");
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-
-  await expect(card).toContainText("The newest anchor is the End");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 13");
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await page
     .getByRole("button", { name: "Waypoint tool", exact: true })
@@ -95,15 +92,13 @@ test("builds and orders the first path with manual Continue gates", async ({
   await expect(card).toContainText("Done. Keep experimenting or continue.");
   await card.getByRole("button", { name: "Next", exact: true }).click();
 
-  await expect(card).toContainText("Read the mistake");
+  await expect(card).toContainText("Put them in drive order");
   await expect(page.getByTestId("path-element-row-1")).toContainText(
     "12.50, 4.80 m",
   );
   await expect(page.getByTestId("path-element-row-2")).toContainText(
     "10.00, 3.20 m",
   );
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-
   const middleRow = await requiredBox(page.getByTestId("path-element-row-2"));
   const goalRow = await requiredBox(page.getByTestId("path-element-row-1"));
   await page.mouse.move(
