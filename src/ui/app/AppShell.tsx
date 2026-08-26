@@ -2196,7 +2196,6 @@ export function AppShell() {
               onInspectorResize={(width) =>
                 setInspectorWidth(clampInspectorWidth(width))
               }
-              onStartCurve={handleStartCurveTool}
               onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
               onDialogOpenChange={setInspectorDialogOpen}
             />

@@ -39,6 +39,7 @@ import {
 
 interface PropertyEditorProps {
   element: PathElement | null;
+  selectedElements: readonly SelectedElement[];
   project: Pick<Project, "linked_targets"> | null;
   selectedElementIndex: number | null;
   open: boolean;
@@ -46,14 +47,23 @@ interface PropertyEditorProps {
   onToggleSection?(): void;
   onChangeType(type: AddableElementType): void;
   onUpdateElement(element: PathElement): void;
+  onUpdateSelectedElements(
+    replacements: readonly { index: number; element: PathElement }[],
+  ): void;
   onUnlinkTarget(): void;
   onCreateLinkedTarget(kind: LinkedTargetKind, displayName: string): void;
   onOpenLinkedTargetPicker(): void;
   fieldGeometry?: FieldGeometry;
 }
 
+interface SelectedElement {
+  index: number;
+  element: PathElement;
+}
+
 export function PropertyEditor({
   element,
+  selectedElements,
   project,
   selectedElementIndex,
   open,
@@ -61,6 +71,7 @@ export function PropertyEditor({
   onToggleSection,
   onChangeType,
   onUpdateElement,
+  onUpdateSelectedElements,
   onUnlinkTarget,
   onCreateLinkedTarget,
   onOpenLinkedTargetPicker,
@@ -70,20 +81,23 @@ export function PropertyEditor({
     return null;
   }
 
+  const multiple = selectedElements.length > 1;
+
   return (
     <SidebarSection
       className="property-editor-section"
       actions={
-        <LinkedTargetMenu
-          key={`element-${selectedElementIndex ?? "none"}-${element.type}`}
-          element={element}
-          project={project}
-          onCreateLinkedTarget={onCreateLinkedTarget}
-          onOpenLinkedTargetPicker={onOpenLinkedTargetPicker}
-          onUnlinkTarget={onUnlinkTarget}
-        />
+        multiple ? null : (
+          <LinkedTargetMenu
+            key={`element-${selectedElementIndex ?? "none"}-${element.type}`}
+            element={element}
+            project={project}
+            onCreateLinkedTarget={onCreateLinkedTarget}
+            onOpenLinkedTargetPicker={onOpenLinkedTargetPicker}
+            onUnlinkTarget={onUnlinkTarget}
+          />
+        )
       }
-      meta={propertySectionMeta(element, selectedElementIndex)}
       open={open}
       sectionId="element-properties"
       title="Element Properties"
@@ -92,42 +106,409 @@ export function PropertyEditor({
       <div
         className="property-editor"
         data-testid="property-editor"
-        aria-label={`Element ${selectedElementIndex === null ? "" : selectedElementIndex + 1} properties`}
+        aria-label={
+          multiple
+            ? `${selectedElements.length} selected element properties`
+            : `Element ${selectedElementIndex === null ? "" : selectedElementIndex + 1} properties`
+        }
       >
-        <TypeField
-          element={element}
-          options={typeOptions}
-          onChangeType={onChangeType}
-        />
-        {isTranslationTarget(element) ? (
-          <TranslationFields
-            element={element}
+        {multiple ? (
+          <BulkPropertyFields
+            selectedElements={selectedElements}
             fieldGeometry={fieldGeometry}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+            onUpdateSelectedElements={onUpdateSelectedElements}
           />
-        ) : null}
-        {isWaypoint(element) ? (
-          <WaypointFields
-            element={element}
-            fieldGeometry={fieldGeometry}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
-          />
-        ) : null}
-        {isRotationTarget(element) ? (
-          <RotationFields
-            element={element}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
-          />
-        ) : null}
-        {isEventTrigger(element) ? (
-          <EventFields
-            element={element}
-            onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
-          />
-        ) : null}
+        ) : (
+          <>
+            <TypeField
+              element={element}
+              options={typeOptions}
+              onChangeType={onChangeType}
+            />
+            {isTranslationTarget(element) ? (
+              <TranslationFields
+                element={element}
+                fieldGeometry={fieldGeometry}
+                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+              />
+            ) : null}
+            {isWaypoint(element) ? (
+              <WaypointFields
+                element={element}
+                fieldGeometry={fieldGeometry}
+                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+              />
+            ) : null}
+            {isRotationTarget(element) ? (
+              <RotationFields
+                element={element}
+                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+              />
+            ) : null}
+            {isEventTrigger(element) ? (
+              <EventFields
+                element={element}
+                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+              />
+            ) : null}
+          </>
+        )}
       </div>
     </SidebarSection>
   );
+}
+
+function BulkPropertyFields({
+  selectedElements,
+  fieldGeometry,
+  onUpdateSelectedElements,
+}: {
+  selectedElements: readonly SelectedElement[];
+  fieldGeometry: FieldGeometry;
+  onUpdateSelectedElements(
+    replacements: readonly { index: number; element: PathElement }[],
+  ): void;
+}) {
+  const allHavePosition = selectedElements.every(
+    ({ element }) => isTranslationTarget(element) || isWaypoint(element),
+  );
+  const allHaveRotation = selectedElements.every(
+    ({ element }) => isRotationTarget(element) || isWaypoint(element),
+  );
+  const allHaveRatio = selectedElements.every(
+    ({ element }) => isRotationTarget(element) || isEventTrigger(element),
+  );
+  const allAreEvents = selectedElements.every(({ element }) =>
+    isEventTrigger(element),
+  );
+  const hasCommonFields =
+    allHavePosition || allHaveRotation || allHaveRatio || allAreEvents;
+  const updateAll = (update: (element: PathElement) => PathElement) => {
+    onUpdateSelectedElements(
+      selectedElements.map(({ index, element }) => ({
+        index,
+        element: update(element),
+      })),
+    );
+  };
+
+  return (
+    <>
+      <p className="bulk-selection-summary">
+        {selectedElements.length} elements selected
+      </p>
+      {allHaveRotation ? (
+        <BulkNumberField
+          label="Rotation (deg)"
+          value={commonNumber(selectedElements, ({ element }) =>
+            radiansToDegrees(
+              isWaypoint(element)
+                ? element.rotation_target.rotation_radians
+                : isRotationTarget(element)
+                  ? element.rotation_radians
+                  : 0,
+            ),
+          )}
+          step={1}
+          onChange={(value) =>
+            updateAll((element) =>
+              isWaypoint(element)
+                ? updateWaypoint(element, {
+                    rotation: { rotation_radians: degreesToRadians(value) },
+                  })
+                : isRotationTarget(element)
+                  ? updateRotationTarget(element, {
+                      rotation_radians: degreesToRadians(value),
+                    })
+                  : element,
+            )
+          }
+        />
+      ) : null}
+      {allHavePosition ? (
+        <>
+          <BulkNumberField
+            label="X (m)"
+            value={commonNumber(selectedElements, ({ element }) =>
+              isWaypoint(element)
+                ? element.translation_target.x_meters
+                : isTranslationTarget(element)
+                  ? element.x_meters
+                  : 0,
+            )}
+            step={0.05}
+            {...bulkCoordinateBounds(selectedElements, fieldGeometry, "x")}
+            onChange={(value) =>
+              updateAll((element) =>
+                isWaypoint(element)
+                  ? updateWaypoint(element, {
+                      translation: { x_meters: value },
+                    })
+                  : isTranslationTarget(element)
+                    ? updateTranslationTarget(element, { x_meters: value })
+                    : element,
+              )
+            }
+          />
+          <BulkNumberField
+            label="Y (m)"
+            value={commonNumber(selectedElements, ({ element }) =>
+              isWaypoint(element)
+                ? element.translation_target.y_meters
+                : isTranslationTarget(element)
+                  ? element.y_meters
+                  : 0,
+            )}
+            step={0.05}
+            {...bulkCoordinateBounds(selectedElements, fieldGeometry, "y")}
+            onChange={(value) =>
+              updateAll((element) =>
+                isWaypoint(element)
+                  ? updateWaypoint(element, {
+                      translation: { y_meters: value },
+                    })
+                  : isTranslationTarget(element)
+                    ? updateTranslationTarget(element, { y_meters: value })
+                    : element,
+              )
+            }
+          />
+        </>
+      ) : null}
+      {allHaveRatio ? (
+        <BulkNumberField
+          label={allAreEvents ? "Event Pos (0-1)" : "Rotation Pos (0-1)"}
+          value={commonNumber(selectedElements, ({ element }) =>
+            isRotationTarget(element) || isEventTrigger(element)
+              ? element.t_ratio
+              : 0,
+          )}
+          step={0.01}
+          min={0}
+          max={1}
+          onChange={(value) =>
+            updateAll((element) =>
+              isRotationTarget(element)
+                ? updateRotationTarget(element, { t_ratio: clamp01(value) })
+                : isEventTrigger(element)
+                  ? updateEventTrigger(element, { t_ratio: clamp01(value) })
+                  : element,
+            )
+          }
+        />
+      ) : null}
+      {allHaveRotation ? (
+        <BulkBooleanField
+          label="Profiled Rotation"
+          checked={commonBoolean(selectedElements, ({ element }) =>
+            isWaypoint(element)
+              ? element.rotation_target.profiled_rotation
+              : isRotationTarget(element)
+                ? element.profiled_rotation
+                : false,
+          )}
+          onChange={(checked) =>
+            updateAll((element) =>
+              isWaypoint(element)
+                ? updateWaypoint(element, {
+                    rotation: { profiled_rotation: checked },
+                  })
+                : isRotationTarget(element)
+                  ? updateRotationTarget(element, {
+                      profiled_rotation: checked,
+                    })
+                  : element,
+            )
+          }
+        />
+      ) : null}
+      {allAreEvents ? (
+        <BulkTextField
+          label="Lib Key"
+          value={commonString(selectedElements, ({ element }) =>
+            isEventTrigger(element) ? element.lib_key : "",
+          )}
+          onChange={(value) =>
+            updateAll((element) =>
+              isEventTrigger(element)
+                ? updateEventTrigger(element, { lib_key: value })
+                : element,
+            )
+          }
+        />
+      ) : null}
+      {!hasCommonFields ? (
+        <p className="property-editor__empty" role="note">
+          These elements do not share editable properties.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function BulkNumberField({
+  label,
+  value,
+  step,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number | null;
+  step: number;
+  min?: number;
+  max?: number;
+  onChange(value: number): void;
+}) {
+  return (
+    <label className="property-row">
+      <span>{label}</span>
+      <NumberStepperControl
+        allowEmpty
+        ariaLabel={label}
+        value={value}
+        step={step}
+        min={min}
+        max={max}
+        onChange={(nextValue) => {
+          if (nextValue !== null) {
+            onChange(nextValue);
+          }
+        }}
+      />
+    </label>
+  );
+}
+
+function BulkBooleanField({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean | null;
+  onChange(checked: boolean): void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = checked === null;
+    }
+  }, [checked]);
+
+  return (
+    <label className="property-row property-row--toggle">
+      <span>{label}</span>
+      <span className="bline-switch">
+        <input
+          ref={inputRef}
+          aria-checked={checked === null ? "mixed" : checked}
+          aria-label={label}
+          checked={checked ?? false}
+          className="bline-switch__input"
+          role="switch"
+          type="checkbox"
+          onChange={(event) => onChange(event.currentTarget.checked)}
+        />
+        <span className="bline-switch__track" aria-hidden="true" />
+      </span>
+    </label>
+  );
+}
+
+function BulkTextField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="property-row">
+      <span>{label}</span>
+      <input
+        aria-label={label}
+        type="text"
+        placeholder={value === null ? "Mixed" : "No action"}
+        value={value ?? ""}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    </label>
+  );
+}
+
+function commonNumber(
+  selectedElements: readonly SelectedElement[],
+  read: (selected: SelectedElement) => number,
+): number | null {
+  const first = selectedElements[0];
+  if (!first) {
+    return null;
+  }
+  const value = read(first);
+  return selectedElements.every(
+    (selected) => Math.abs(read(selected) - value) < 1e-9,
+  )
+    ? value
+    : null;
+}
+
+function commonBoolean(
+  selectedElements: readonly SelectedElement[],
+  read: (selected: SelectedElement) => boolean,
+): boolean | null {
+  const first = selectedElements[0];
+  if (!first) {
+    return null;
+  }
+  const value = read(first);
+  return selectedElements.every((selected) => read(selected) === value)
+    ? value
+    : null;
+}
+
+function commonString(
+  selectedElements: readonly SelectedElement[],
+  read: (selected: SelectedElement) => string,
+): string | null {
+  const first = selectedElements[0];
+  if (!first) {
+    return null;
+  }
+  const value = read(first);
+  return selectedElements.every((selected) => read(selected) === value)
+    ? value
+    : null;
+}
+
+function bulkCoordinateBounds(
+  selectedElements: readonly SelectedElement[],
+  fieldGeometry: FieldGeometry,
+  axis: "x" | "y",
+): { min: number; max: number } {
+  const extent =
+    axis === "x"
+      ? fieldCoordinateLengthMeters(fieldGeometry)
+      : fieldCoordinateWidthMeters(fieldGeometry);
+  const bounds = selectedElements.map(({ element }) => {
+    const value = isWaypoint(element)
+      ? axis === "x"
+        ? element.translation_target.x_meters
+        : element.translation_target.y_meters
+      : isTranslationTarget(element)
+        ? axis === "x"
+          ? element.x_meters
+          : element.y_meters
+        : 0;
+    return coordinateEditBounds(value, extent);
+  });
+  return {
+    min: Math.min(...bounds.map((bound) => bound.min)),
+    max: Math.max(...bounds.map((bound) => bound.max)),
+  };
 }
 
 function TypeField({
@@ -628,15 +1009,4 @@ function typeOptionLabel(type: AddableElementType): string {
   }
 
   return "Waypoint";
-}
-
-function propertySectionMeta(
-  element: PathElement | null,
-  selectedElementIndex: number | null,
-): string {
-  if (!element || selectedElementIndex === null) {
-    return "No selection";
-  }
-
-  return `${selectedElementIndex + 1}. ${typeOptionLabel(elementTypeValue(element))}`;
 }

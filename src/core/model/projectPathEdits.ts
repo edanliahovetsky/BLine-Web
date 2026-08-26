@@ -26,6 +26,11 @@ export type PathElementEdit =
       description?: string;
     }
   | {
+      kind: "replace-many";
+      replacements: readonly { index: number; element: PathElement }[];
+      description?: string;
+    }
+  | {
       kind: "position";
       index: number;
       position: { x_meters: number; y_meters: number };
@@ -98,6 +103,41 @@ export function applyPathElementEdit(
   );
   if (!projectPath) {
     return elementEditRejected(project, consequences, "Path does not exist");
+  }
+
+  if (edit.kind === "replace-many") {
+    if (edit.replacements.length === 0) {
+      return elementEditNoop(project, consequences, "No elements to update");
+    }
+
+    let nextProject = project;
+    let appliedCount = 0;
+    for (const replacement of edit.replacements) {
+      const result = applyPathElementEdit(nextProject, pathId, {
+        kind: "replace",
+        index: replacement.index,
+        element: replacement.element,
+      });
+      if (result.status === "rejected") {
+        return elementEditRejected(project, consequences, result.reason);
+      }
+      if (result.status === "applied") {
+        nextProject = result.project;
+        appliedCount += 1;
+      }
+    }
+
+    if (appliedCount === 0) {
+      return elementEditNoop(project, consequences, "Elements are unchanged");
+    }
+
+    return {
+      status: "applied",
+      project: nextProject,
+      description:
+        edit.description ?? `Update ${appliedCount} selected elements`,
+      consequences,
+    };
   }
 
   const previous = projectPath.path.path_elements[edit.index];
@@ -469,6 +509,9 @@ function elementAfterEdit(
   if (edit.kind === "replace") {
     return structuredClone(edit.element);
   }
+  if (edit.kind === "replace-many") {
+    return null;
+  }
 
   const next = structuredClone(previous);
   if (edit.kind === "position") {
@@ -542,6 +585,9 @@ function normalizeRadians(radians: number): number {
 }
 
 function elementEditDescription(edit: PathElementEdit): string {
+  if (edit.kind === "replace-many") {
+    return edit.description ?? "Update selected elements";
+  }
   if (edit.kind === "replace") {
     return edit.description ?? `Update element ${edit.index + 1}`;
   }

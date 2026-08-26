@@ -3,16 +3,13 @@ import { getElementPosition } from "../../../canvas/geometry";
 import type { PathModel } from "../../../core/model/path";
 import { canMovePathElement } from "../../../core/model/projectPathEdits";
 import { formatPointMeters } from "../../../canvas/modelSync";
-import {
-  CopyIcon,
-  CurveIcon,
-  ElementIcon,
-  GripIcon,
-  RemoveIcon,
-} from "../../icons";
+import { CopyIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
-import { SidebarIconButton } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
+import {
+  orderedSelectionGesture,
+  type OrderedSelectionGesture,
+} from "../orderedSelection";
 import {
   elementTypeLabel,
   elementTypeValue,
@@ -23,11 +20,11 @@ import {
 interface ElementListProps {
   path: PathModel | null;
   selectedElementIndex: number | null;
+  selectedElementIndexes: readonly number[];
   curveToolActive?: boolean;
   open: boolean;
   onAddElement(type: AddableElementType): void;
-  onAddCurve(): void;
-  onSelectElement(index: number): void;
+  onSelectElement(index: number, gesture: OrderedSelectionGesture): void;
   onRemoveElement(index: number): void;
   onDuplicateElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
@@ -37,10 +34,10 @@ interface ElementListProps {
 export function ElementList({
   path,
   selectedElementIndex,
+  selectedElementIndexes,
   curveToolActive = false,
   open,
   onAddElement,
-  onAddCurve,
   onSelectElement,
   onRemoveElement,
   onDuplicateElement,
@@ -137,22 +134,11 @@ export function ElementList({
   return (
     <SidebarSection
       actions={
-        <>
-          <SidebarIconButton
-            className="sidebar-icon-button--add"
-            disabled={!path || curveToolActive}
-            aria-label="Add curve"
-            title="Add curve"
-            onClick={onAddCurve}
-          >
-            <CurveIcon />
-          </SidebarIconButton>
-          <AddElementMenu
-            disabled={!path || curveToolActive}
-            options={addableTypes}
-            onAdd={onAddElement}
-          />
-        </>
+        <AddElementMenu
+          disabled={!path || curveToolActive}
+          options={addableTypes}
+          onAdd={onAddElement}
+        />
       }
       className="path-elements-section"
       open={open}
@@ -167,14 +153,16 @@ export function ElementList({
           aria-label="Path elements"
         >
           {elements.map((element, index) => {
-            const selected = selectedElementIndex === index;
+            const selected = selectedElementIndexes.includes(index);
             const position = getElementPosition(elements, index);
             const type = elementTypeValue(element);
 
             return (
               <li
                 key={`${element.type}-${index}`}
-                ref={selected ? selectedRowRef : undefined}
+                ref={
+                  selectedElementIndex === index ? selectedRowRef : undefined
+                }
                 className={[
                   selected ? "is-selected" : "",
                   dragIndex === index ? "is-dragging" : "",
@@ -189,15 +177,21 @@ export function ElementList({
                   type="button"
                   className="path-element-row"
                   data-testid={`path-element-row-${index}`}
+                  aria-label={elementRowAccessibleLabel(
+                    elementTypeLabel(element),
+                    index,
+                    elements.length,
+                    formatPointMeters(position),
+                  )}
                   aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
                   aria-pressed={selected}
                   onMouseDown={(event) => handleMouseDown(event, index)}
-                  onClick={() => {
+                  onClick={(event) => {
                     if (suppressClickRef.current) {
                       suppressClickRef.current = false;
                       return;
                     }
-                    onSelectElement(index);
+                    onSelectElement(index, orderedSelectionGesture(event));
                   }}
                 >
                   <span className="drag-grip" aria-hidden="true">
@@ -209,24 +203,22 @@ export function ElementList({
                   >
                     <ElementIcon type={type} />
                   </span>
-                  <span className="path-element-row__label">
-                    {index + 1}. {elementTypeLabel(element)}
-                    {index === 0 || index === elements.length - 1 ? (
-                      <span
-                        className="path-element-row__role"
-                        title={
-                          index === 0
-                            ? "Start of the path"
-                            : "Final target — the path finishes here by tolerance, not by a handoff"
-                        }
-                      >
-                        {index === 0 ? "Start" : "End"}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="path-element-row__meta">
+                  <span className="visually-hidden">
+                    {index + 1}. {elementTypeLabel(element)}{" "}
                     {formatPointMeters(position)}
                   </span>
+                  {index === 0 || index === elements.length - 1 ? (
+                    <span
+                      className="path-element-row__role"
+                      title={
+                        index === 0
+                          ? "Start of the path"
+                          : "Final target — the path finishes here by tolerance, not by a handoff"
+                      }
+                    >
+                      {index === 0 ? "Start" : "End"}
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
@@ -254,6 +246,21 @@ export function ElementList({
       )}
     </SidebarSection>
   );
+}
+
+function elementRowAccessibleLabel(
+  typeLabel: string,
+  index: number,
+  total: number,
+  position: string,
+): string {
+  const role =
+    index === 0
+      ? ", start of path"
+      : index === total - 1
+        ? ", end of path"
+        : "";
+  return `Element ${index + 1}: ${typeLabel}${role}, ${position}`;
 }
 
 function getDropIndexFromPoint(

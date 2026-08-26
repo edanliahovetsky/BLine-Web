@@ -118,6 +118,48 @@ describe("project Path element edits", () => {
     ).toBe("noop");
   });
 
+  it("applies shared property replacements as one atomic element edit", () => {
+    const project = exampleProject();
+    const first = structuredClone(project.paths[0].path.path_elements[0]);
+    const third = structuredClone(project.paths[0].path.path_elements[2]);
+    if (first.type !== "translation" || third.type !== "translation") {
+      throw new Error("Expected translation targets");
+    }
+    first.x_meters = 6.5;
+    third.x_meters = 6.5;
+
+    const result = applyPathElementEdit(project, "path-a", {
+      kind: "replace-many",
+      replacements: [
+        { index: 0, element: first },
+        { index: 2, element: third },
+      ],
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result).toMatchObject({
+      description: "Update 2 selected elements",
+    });
+    expect(result.project.paths[0].path.path_elements[0]).toMatchObject({
+      x_meters: 6.5,
+    });
+    expect(result.project.paths[0].path.path_elements[2]).toMatchObject({
+      x_meters: 6.5,
+    });
+    expect(project.paths[0].path.path_elements[0]).toMatchObject({
+      x_meters: 0,
+    });
+
+    const rejected = applyPathElementEdit(project, "path-a", {
+      kind: "replace-many",
+      replacements: [
+        { index: 0, element: first },
+        { index: 99, element: third },
+      ],
+    });
+    expect(rejected).toMatchObject({ status: "rejected", project });
+  });
+
   it("normalizes rotations, clamps ratios, and rejects unsupported intents", () => {
     const project = exampleProject();
     const rotated = applyPathElementEdit(project, "path-a", {

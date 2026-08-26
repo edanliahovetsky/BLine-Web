@@ -1237,30 +1237,21 @@ select {
 
 .add-element-menu {
   position: relative;
-  min-width: 0;
-  max-width: 100%;
+  flex: 0 0 30px;
+  width: 30px;
 }
 
 .add-element-menu summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  max-width: 100%;
+  display: grid;
+  width: 30px;
   min-height: 30px;
   padding: 0;
+  place-items: center;
   cursor: pointer;
   color: #58a6ff;
   font-size: 0.86rem;
   font-weight: 670;
   list-style: none;
-  white-space: nowrap;
-}
-
-.add-element-menu summary > span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .add-element-menu summary::-webkit-details-marker {
@@ -1271,6 +1262,12 @@ select {
   cursor: not-allowed;
   opacity: 0.5;
   pointer-events: none;
+}
+
+.add-element-menu summary:focus-visible {
+  border-radius: 7px;
+  outline: 2px solid #78b7ff;
+  outline-offset: 2px;
 }
 
 .sidebar-add-icon {
@@ -1302,7 +1299,8 @@ select {
   position: absolute;
   z-index: 20;
   top: calc(100% + 6px);
-  right: 0;
+  /* Leave the top row's remove control reachable while the menu is open. */
+  right: 36px;
   display: grid;
   min-width: 188px;
   padding: 6px;
@@ -1421,7 +1419,7 @@ select {
 
 .path-element-row {
   display: grid;
-  grid-template-columns: 18px 22px minmax(78px, 1fr) auto;
+  grid-template-columns: 18px 22px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -1488,17 +1486,8 @@ select {
   background: #a371f7;
 }
 
-.path-element-row__label {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 0.88rem;
-  font-weight: 690;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .path-element-row__role {
-  margin-left: 6px;
+  justify-self: start;
   padding: 1px 5px;
   border: 1px solid #3a4855;
   border-radius: 4px;
@@ -1508,12 +1497,6 @@ select {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   vertical-align: 1px;
-}
-
-.path-element-row__meta {
-  color: #a8b4bf;
-  font-size: 0.74rem;
-  white-space: nowrap;
 }
 
 .duplicate-element-button {
@@ -5143,8 +5126,8 @@ body.is-resizing-inspector * {
 }
 
 .inspector-sidebar__panel--elements > .property-editor-section {
-  flex: 0 0 auto;
-  max-height: 60%;
+  flex: 0 1 auto;
+  min-height: min(180px, 52%);
 }
 
 /* Drop the standalone row cap and let the list itself fill the card, so it

@@ -371,7 +371,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     await page.getByRole("tab", { name: /Elements/ }).click();
 
     for (let index = 0; index < 5; index += 1) {
-      await page.getByText("Add element").click();
+      await page.getByRole("button", { name: "Add element" }).click();
       await page.getByRole("menuitem", { name: "Waypoint" }).click();
     }
 

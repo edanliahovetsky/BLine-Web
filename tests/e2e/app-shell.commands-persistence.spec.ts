@@ -64,7 +64,7 @@ test("creates saves and reloads a local project", async ({ page }) => {
   await gotoSampleEditor(page);
 
   await createNewProject(page);
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
   await page.getByLabel("X (m)").fill("6.50");
@@ -241,7 +241,7 @@ test("opens a saved project from the project list", async ({ page }) => {
   const firstPath = await currentPathName(page);
 
   await createNewProject(page);
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
@@ -268,7 +268,7 @@ test("opens a saved project from the mobile project list", async ({ page }) => {
 
   await createNewProject(page);
   await page.getByRole("button", { name: "Toggle inspector" }).click();
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await page.getByTestId("path-element-row-0").click();
   await page.getByLabel("X (m)").fill("5.4");
@@ -296,7 +296,7 @@ test("supports undo and redo for structural sidebar edits", async ({
 }) => {
   await gotoSampleEditor(page);
 
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
   await expect(page.getByTestId("path-element-row-5")).toContainText(
     "6. Event Trigger",
@@ -522,7 +522,7 @@ test("supports common keyboard shortcuts", async ({ page }) => {
     page.getByRole("button", { name: "Redo", exact: true }),
   ).toHaveAttribute("aria-keyshortcuts", /Meta\+Y Control\+Y/);
 
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
   await expect(page.getByTestId("path-element-row-5")).toContainText(
     "6. Event Trigger",

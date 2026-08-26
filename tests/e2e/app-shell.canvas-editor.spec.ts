@@ -409,14 +409,13 @@ test("places every path element type with the canvas tools", async ({
   await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
-test("draws curves at the requested insertion point and cancels safely", async ({
+test("draws curves from the canvas tool and cancels safely", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
 
   const canvas = page.getByTestId("path-stage-canvas");
   const canvasBox = await requiredBox(canvas);
-  const addCurve = page.getByRole("button", { name: "Add curve" });
   const curveTool = page.getByRole("button", { name: "Curve tool" });
   const selectTool = page.getByRole("button", { name: "Select tool" });
   const cancelledStart = modelToCanvasPoint(canvasBox, {
@@ -424,9 +423,8 @@ test("draws curves at the requested insertion point and cancels safely", async (
     y_meters: 3.3,
   });
 
-  await page.getByTestId("path-element-row-0").click();
-  await addCurve.click();
-  await expect(addCurve).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Add curve" })).toHaveCount(0);
+  await curveTool.click();
   await page.mouse.move(cancelledStart.x, cancelledStart.y);
   await page.mouse.down();
   await page.keyboard.press("Escape");
@@ -435,25 +433,6 @@ test("draws curves at the requested insertion point and cancels safely", async (
     6,
   );
   await expect(selectTool).toHaveAttribute("aria-pressed", "true");
-
-  const insertedEnd = modelToCanvasPoint(canvasBox, {
-    x_meters: 6.6,
-    y_meters: 3.6,
-  });
-  await addCurve.click();
-  await page.mouse.move(cancelledStart.x, cancelledStart.y);
-  await page.mouse.down();
-  await page.mouse.move(insertedEnd.x, insertedEnd.y, { steps: 8 });
-  await page.mouse.up();
-  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
-    8,
-  );
-  await expect(page.getByTestId("path-element-row-1")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(page.getByLabel("X (m)")).toHaveValue("6.1");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("3.3");
 
   const appendedStart = modelToCanvasPoint(canvasBox, {
     x_meters: 12,
@@ -471,8 +450,6 @@ test("draws curves at the requested insertion point and cancels safely", async (
   await expectPathElementTypes(page, [
     "Waypoint",
     "Translation",
-    "Translation",
-    "Translation",
     "Rotation",
     "Translation",
     "Event Trigger",
@@ -480,7 +457,7 @@ test("draws curves at the requested insertion point and cancels safely", async (
     "Translation",
     "Translation",
   ]);
-  await expect(page.getByTestId("path-element-row-8")).toHaveAttribute(
+  await expect(page.getByTestId("path-element-row-6")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -498,7 +475,7 @@ test("adds edits and removes path elements from the inspector", async ({
   await expect(addElementIcon).toBeVisible();
   expect((await requiredBox(addElementIcon)).width).toBeGreaterThanOrEqual(24);
 
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
   await expect(page.getByTestId("path-element-row-6")).toContainText(
@@ -554,13 +531,74 @@ test("adds edits and removes path elements from the inspector", async ({
   await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
 });
 
+test("keeps the top element removable while the icon-only add menu is open", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const addElement = page.getByRole("button", { name: "Add element" });
+  await expect(addElement).toHaveText("");
+  await expect(addElement).toHaveAttribute("title", "Add element");
+  await expect(page.getByRole("button", { name: "Add curve" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Curve tool" })).toBeVisible();
+
+  await addElement.click();
+  await expect(page.getByRole("menuitem", { name: "Waypoint" })).toBeVisible();
+  await page.getByRole("button", { name: "Remove Waypoint 1" }).click();
+
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    5,
+  );
+  await expect(page.getByTestId("path-element-row-0")).toHaveAttribute(
+    "aria-label",
+    /Element 1: Translation, start of path/,
+  );
+});
+
+test("range-selects and toggles elements for shared property editing", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const first = page.getByTestId("path-element-row-0");
+  const second = page.getByTestId("path-element-row-1");
+  const toggleModifier = process.platform === "darwin" ? "Meta" : "Control";
+
+  await first.click();
+  await second.click({ modifiers: ["Shift"] });
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("property-editor")).toHaveAttribute(
+    "aria-label",
+    "2 selected element properties",
+  );
+  await expect(page.getByText("2 elements selected")).toBeVisible();
+  await expect(page.getByLabel("X (m)")).toHaveValue("");
+
+  await second.click({ modifiers: [toggleModifier] });
+  await expect(second).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("2 elements selected")).toHaveCount(0);
+
+  await second.click({ modifiers: [toggleModifier] });
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  const sharedX = page.getByLabel("X (m)");
+  await sharedX.fill("6.5");
+  await sharedX.press("Enter");
+  await expect(first).toHaveAttribute("aria-label", /6\.50, 2\.50 m/);
+  await expect(second).toHaveAttribute("aria-label", /6\.50, 4\.00 m/);
+
+  await runEditMenuAction(page, "Undo");
+  await expect(first).toHaveAttribute("aria-label", /5\.70, 2\.50 m/);
+  await expect(second).toHaveAttribute("aria-label", /7\.00, 4\.00 m/);
+});
+
 test("persists the inspector tab while keeping header actions available", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   await page.getByTestId("path-element-row-0").click();
 
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await expect(page.getByTestId("path-element-row-1")).toContainText(
     "2. Waypoint",
@@ -619,7 +657,7 @@ test("scrolls selected rows into view", async ({ page }) => {
   );
 
   for (let index = 0; index < 12; index += 1) {
-    await page.getByText("Add element").click();
+    await page.getByRole("button", { name: "Add element" }).click();
     await page.getByRole("menuitem", { name: "Waypoint" }).click();
   }
 
@@ -643,7 +681,7 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
   await gotoSampleEditor(page);
 
   for (let index = 0; index < 12; index += 1) {
-    await page.getByText("Add element").click();
+    await page.getByRole("button", { name: "Add element" }).click();
     await page.getByRole("menuitem", { name: "Waypoint" }).click();
   }
 
@@ -896,7 +934,7 @@ test("highlights, dismisses, and resolves path health issues", async ({
   ).toHaveCount(0);
 
   // An event trigger with no command key is a warning-level issue.
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
 
   const health = page.getByRole("button", { name: "Path health: 1 issue" });
@@ -1054,6 +1092,35 @@ test("keeps the element properties card tight to its content", async ({
   expect(
     sectionBox.y + sectionBox.height - (bodyBox.y + bodyBox.height),
   ).toBeLessThanOrEqual(2);
+});
+
+test("scrolls element properties only on genuinely short viewports", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await gotoSampleEditor(page);
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("Profiled Rotation")).toBeVisible();
+
+  const propertyBody = page.locator(
+    ".property-editor-section > .sidebar-section__body",
+  );
+  const scrollMetrics = () =>
+    propertyBody.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+
+  const normal = await scrollMetrics();
+  expect(normal.scrollHeight).toBeLessThanOrEqual(normal.clientHeight + 1);
+
+  await page.setViewportSize({ width: 1200, height: 430 });
+  await expect
+    .poll(async () => {
+      const constrained = await scrollMetrics();
+      return constrained.scrollHeight - constrained.clientHeight;
+    })
+    .toBeGreaterThan(1);
 });
 
 test("gives the element list the panel height the properties leave over", async ({
