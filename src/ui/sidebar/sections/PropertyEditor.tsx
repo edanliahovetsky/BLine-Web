@@ -405,20 +405,6 @@ function TranslationFields({
           onUpdateElement(updateTranslationTarget(element, { y_meters: value }))
         }
       />
-      <NullableNumberField
-        label="Handoff Radius (m)"
-        value={element.intermediate_handoff_radius_meters}
-        step={0.05}
-        min={0}
-        onChange={(value) =>
-          onUpdateElement(
-            updateTranslationTarget(element, {
-              intermediate_handoff_radius_meters: value,
-              handoff_radius_source: "manual",
-            }),
-          )
-        }
-      />
     </>
   );
 }
@@ -608,37 +594,6 @@ function NumberField({
         min={min}
         max={max}
         onChange={(nextValue) => onChange(nextValue ?? 0)}
-      />
-    </label>
-  );
-}
-
-function NullableNumberField({
-  label,
-  value,
-  step,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number | null;
-  step: number;
-  min?: number;
-  max?: number;
-  onChange(value: number | null): void;
-}) {
-  return (
-    <label className="property-row">
-      <span>{label}</span>
-      <NumberStepperControl
-        ariaLabel={label}
-        value={value}
-        step={step}
-        min={min}
-        max={max}
-        allowEmpty
-        onChange={onChange}
       />
     </label>
   );

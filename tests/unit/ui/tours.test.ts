@@ -14,6 +14,9 @@ describe("guided lesson content", () => {
       for (const step of tour.steps) {
         expect(step.title).not.toMatch(/[—–]/);
         expect(step.body).not.toMatch(/[—–]/);
+        expect(`${step.title} ${step.body}`).not.toMatch(
+          /\b[WT]\d+\b|ordinals?|range bar/i,
+        );
         expect(step.task ?? "").not.toMatch(/[—–]/);
         if (step.completeWhen) {
           expect(step.task).toBeTruthy();
@@ -48,5 +51,16 @@ describe("guided lesson content", () => {
     expect(build?.markers?.map((marker) => marker.xMeters)).toEqual([8, 12.5]);
     expect(shape?.markers?.[0]?.xMeters).toBeGreaterThan(10);
     expect(behavior?.markers?.[0]?.xMeters).toBeGreaterThan(13);
+  });
+
+  it("teaches handoff radii through the Constraints ledger", () => {
+    const shape = tours.find((tour) => tour.id === "shape-route");
+    const radiusStep = shape?.steps.find(
+      (step) => step.title === "Tune the handoff",
+    );
+
+    expect(radiusStep?.target).toBe("max-velocity-card");
+    expect(radiusStep?.prepare?.inspectorTab).toBe("constraints");
+    expect(radiusStep?.interact).toContain("max-velocity-card");
   });
 });

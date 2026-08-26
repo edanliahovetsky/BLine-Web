@@ -106,6 +106,7 @@ let playCountAtStepStart = 0;
 let propertyCountAtStepStart = 0;
 let velocityEditCountAtStepStart = 0;
 let generationCountAtStepStart = 0;
+let handoffRadiusAtStepStart: number | null = null;
 let lastPlacedElementIndex: number | null = null;
 
 export function captureTourStepState(): void {
@@ -117,6 +118,7 @@ export function captureTourStepState(): void {
   propertyCountAtStepStart = readTourCount("element-properties", "data-tour-edit-count");
   velocityEditCountAtStepStart = readCount("[data-tour-velocity-edit-count]", "data-tour-velocity-edit-count");
   generationCountAtStepStart = readTourCount("max-velocity-card", "data-tour-generate-count");
+  handoffRadiusAtStepStart = selectedHandoffRadius();
 }
 
 function currentPath(): PathModel | null {
@@ -194,15 +196,21 @@ function selectedWaypointPropertyWasEdited(): boolean {
 }
 
 function selectedHandoffRadiusWasEdited(): boolean {
+  const radius = selectedHandoffRadius();
+  return radius !== null && radius !== handoffRadiusAtStepStart;
+}
+
+function selectedHandoffRadius(): number | null {
   const path = currentPath();
   const index = selectionStore.getState().selectedElementIndex;
   const element = path && index !== null ? path.path_elements[index] : null;
-  const radius = element && isTranslationTarget(element)
-    ? element.intermediate_handoff_radius_meters
-    : element && isWaypoint(element)
-      ? element.translation_target.intermediate_handoff_radius_meters
-      : null;
-  return propertyWasEdited() && radius !== null;
+  if (element && isTranslationTarget(element)) {
+    return element.intermediate_handoff_radius_meters;
+  }
+  if (element && isWaypoint(element)) {
+    return element.translation_target.intermediate_handoff_radius_meters;
+  }
+  return null;
 }
 
 function rotationTargetConfigured(): boolean {
@@ -307,8 +315,8 @@ export const shapeRouteTour: TourDefinition = {
     { target: "path-canvas", title: "Clear the structure", body: "Drag the new target until the route clears the structure. Keep the two waypoints where they are.", task: "Move the target until both segments are clear", placement: "right", interact: ["path-canvas"], prepare: { tool: "select" }, completeWhen: pathClearsStructure },
     { title: "Pass-through anchors", body: "The robot does not stop at an intermediate target. It passes through and continues toward the next element." },
     { target: "path-canvas", title: "Select the target", body: "Click the target you added. Note the dashed circle around it.", task: "Select the translation target", placement: "right", interact: ["path-canvas"], prepare: { tool: "select", clearSelection: true }, completeWhen: translationTargetIsSelected },
-    { target: "path-canvas", title: "The handoff radius", body: "The dashed circle is the handoff radius. When the robot enters the circle, it starts driving toward the next element.", placement: "right" },
-    { target: "element-properties", title: "Resize the handoff", body: "Change Handoff Radius in Element Properties. Watch the circle and the turn location change.", task: "Change Handoff Radius", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: selectedHandoffRadiusWasEdited },
+    { target: "path-canvas", title: "The handoff radius", body: "The dashed circle is the handoff radius. Its matching distance chip is in Constraints.", placement: "right" },
+    { target: "max-velocity-card", title: "Tune the handoff", body: "Select the radius chip aligned with your translation target. Choose Manual, then enter a new distance.", task: "Change the target's handoff radius", placement: "left", interact: ["max-velocity-card"], prepare: { inspector: "open", inspectorTab: "constraints" }, completeWhen: selectedHandoffRadiusWasEdited },
     { title: "Choose the radius", body: "A larger radius starts the turn earlier and cuts the corner. A smaller radius makes the robot visit the point closely." },
     { target: "transport-play", title: "Confirm the route", body: "Play the preview. Confirm the robot clears the structure.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
     { title: "Fewest elements win", body: "Every added element creates another handoff. Use the fewest elements that describe the route clearly." },
@@ -327,14 +335,14 @@ export const planSpeedTour: TourDefinition = {
     { target: "lesson-corner", title: "Where, then how fast", body: "Geometry says where the robot drives. Constraints say how fast it may drive each part. This path has a sharp corner on purpose.", placement: "right" },
     { title: "The main control", body: "Max translation velocity is the constraint you will use most. It caps how aggressively the robot approaches corners and the final pose." },
     { target: "inspector-constraints", title: "Open Constraints", body: "Click the highlighted Constraints tab.", task: "Open the Constraints tab", placement: "left", interact: ["inspector-constraints"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: constraintsTabIsOpen },
-    { target: "max-velocity-card", title: "The range bar", body: "The bar under Max Velocity maps the path from start to end. A ranged constraint caps the speed over one span of the path.", placement: "left", prepare: { inspector: "open", inspectorTab: "constraints" } },
-    { target: "max-velocity-card", title: "Ordinals", body: "Path elements are numbered in drive order: W1, T2, W3. A range covers elements from a start number to an end number.", placement: "left" },
-    { target: "max-velocity-card", title: "Generate a plan", body: "Click Generate. The optimizer proposes velocity caps from the path shape.", task: "Generate velocity caps", placement: "left", interact: ["max-velocity-card"], completeWhen: velocityPlanWasGenerated },
-    { target: "max-velocity-card", title: "Read the result", body: "The optimizer placed a lower cap at the corner. Straight spans stay near the global maximum.", placement: "left" },
-    { target: "max-velocity-card", title: "Take ownership", body: "Click the corner range in the bar. Type a new value. The range becomes Manual.", task: "Edit a generated velocity cap", placement: "left", interact: ["max-velocity-card"], completeWhen: velocityValueWasEdited },
-    { target: "max-velocity-card", title: "Manual ranges", body: "Manual ranges survive when you run the optimizer again. The optimizer proposes a plan, but you own it.", placement: "left" },
+    { target: "max-velocity-card", title: "One path ledger", body: "Speed segments are on the left. Handoff-radius distances are aligned on the right. Each row refers to the same part of the path.", placement: "left", prepare: { inspector: "open", inspectorTab: "constraints" } },
+    { target: "max-velocity-card", title: "Open speed cells", body: "An Open speed cell has no local cap, so it uses the global maximum. Select a filled cell after generation to inspect its value.", placement: "left" },
+    { target: "max-velocity-card", title: "Generate a plan", body: "Click Generate. BLine proposes speed caps and handoff radii from the path shape.", task: "Generate constraints", placement: "left", interact: ["max-velocity-card"], completeWhen: velocityPlanWasGenerated },
+    { target: "max-velocity-card", title: "Read the result", body: "A lower speed appears around the sharp corner. Open cells still use the global maximum.", placement: "left" },
+    { target: "max-velocity-card", title: "Take ownership", body: "Select the capped corner speed. Enter a new value. The value becomes Manual.", task: "Edit the corner speed", placement: "left", interact: ["max-velocity-card"], completeWhen: velocityValueWasEdited },
+    { target: "max-velocity-card", title: "Manual values", body: "Manual values stay fixed when you run Generate again. Auto values can be replaced by the next proposal.", placement: "left" },
     { target: "transport-play", title: "Watch the slowdown", body: "Play the preview. Watch the robot slow before the corner and speed up after it.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
-    { title: "The recipe", body: "Keep open straights fast. Cap the elements around each tight turn. If the robot overshoots a handoff, lower the cap before you grow the radius." },
+    { title: "The recipe", body: "Keep open straights fast. Cap the speed cells around each tight turn. If the robot overshoots a handoff, lower the speed before increasing its radius." },
   ],
 };
 

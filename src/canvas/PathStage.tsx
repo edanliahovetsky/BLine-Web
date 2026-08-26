@@ -691,8 +691,11 @@ export function PathStage({
     if (simulationTime >= simulationResult.total_time_s) {
       setSimulationTime(0);
     }
-    setSimulationPlaying((current) => !current);
-  }, [simulationResult, simulationTime]);
+    if (!simulationPlaying) {
+      setSimulationPlayCount((count) => count + 1);
+    }
+    setSimulationPlaying(!simulationPlaying);
+  }, [simulationPlaying, simulationResult, simulationTime]);
 
   const resetSimulation = useCallback(() => {
     if (!simulationResult || simulationResult.total_time_s <= 0) {
@@ -1645,12 +1648,7 @@ export function PathStage({
           seekCount={simulationSeekCount}
           playCount={simulationPlayCount}
           onReset={resetSimulation}
-          onTogglePlaying={() => {
-            if (!simulationPlaying) {
-              setSimulationPlayCount((count) => count + 1);
-            }
-            toggleSimulationPlaying();
-          }}
+          onTogglePlaying={toggleSimulationPlaying}
           onFinish={finishSimulation}
           onSeek={(time) => {
             setSimulationTime(time);

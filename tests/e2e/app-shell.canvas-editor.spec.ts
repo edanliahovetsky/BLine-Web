@@ -106,11 +106,11 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   );
 });
 
-test("tunes an intermediate handoff radius from properties or Constraints", async ({ page }) => {
+test("keeps handoff radius editing in Constraints", async ({ page }) => {
   await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-1").click();
-  await expect(page.getByLabel("Handoff Radius (m)")).toBeVisible();
+  await expect(page.getByLabel("Handoff Radius (m)")).toHaveCount(0);
 
   await openConstraintsTab(page);
   const chip = page.getByTestId("handoff-radius-chip-1");
@@ -218,6 +218,7 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 
   const transport = page.getByTestId("simulation-transport");
   await expect(transport).toBeVisible();
+  await expect(transport).toHaveAttribute("data-tour-play-count", "0");
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
   await expect(
     transport.getByRole("button", { name: "Reset simulation" }),
@@ -240,6 +241,7 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 
   await page.getByTestId("path-stage").focus();
   await page.keyboard.press("Space");
+  await expect(transport).toHaveAttribute("data-tour-play-count", "1");
   await expect(
     transport.getByRole("button", { name: "Pause simulation" }),
   ).toBeVisible();

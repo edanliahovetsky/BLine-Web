@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { modelToCanvasPoint } from "./support/app-shell-canvas";
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import { activeFieldLabel } from "./support/app-shell-fields";
 import { openPathLibraryDialog } from "./support/app-shell-project-library";
@@ -105,6 +106,54 @@ test("stages field actions beside target-relative dialogue and fades for inspect
 
   await card.getByRole("button", { name: "Back" }).hover();
   await expect(card).toHaveCSS("opacity", "1");
+});
+
+test("tunes the Shape lesson handoff radius through Constraints", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "shape-route");
+  const card = page.getByTestId("tour-card");
+  await next(page, 2);
+
+  await page
+    .getByRole("button", { name: "Translation tool", exact: true })
+    .click();
+  const canvas = page.getByTestId("path-stage-canvas");
+  const targetPoint = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 11.6,
+    y_meters: 6,
+  });
+  await page.mouse.click(targetPoint.x, targetPoint.y);
+  await expect(card).toContainText("Done. Keep experimenting or continue.");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(card).toContainText("Done. Keep experimenting or continue.");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+
+  await page.mouse.click(targetPoint.x, targetPoint.y);
+  await expect(card).toContainText("Done. Keep experimenting or continue.");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+
+  await expect(card).toContainText("Tune the handoff");
+  await expect(page.getByRole("tab", { name: "Constraints" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByLabel("Handoff Radius (m)")).toHaveCount(0);
+
+  await page
+    .getByRole("group", { name: "Handoff radius mode" })
+    .getByRole("button", { name: "Manual" })
+    .click();
+  await expect(card.getByRole("button", { name: "Next" })).toHaveCount(0);
+  const radius = page.getByLabel("Handoff radius 2 value");
+  await radius.fill("1.1");
+  await radius.press("Enter");
+  await expect(card).toContainText("Done. Keep experimenting or continue.");
 });
 
 test("uses each simulation control for one clear purpose", async ({ page }) => {
