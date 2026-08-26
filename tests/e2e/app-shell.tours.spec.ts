@@ -58,6 +58,7 @@ test("runs lessons in an isolated practice session", async ({ page }) => {
 test("builds and orders the first path with manual Continue gates", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
   await openLesson(page, "build-first-path");
   const card = page.getByTestId("tour-card");
@@ -67,36 +68,46 @@ test("builds and orders the first path with manual Continue gates", async ({
   await expect(card).toContainText("You are on a practice path");
   await next(page, 3);
 
-  await expect(card).toContainText("Place the start");
+  await expect(card).toContainText("Place the endpoints");
   await page
     .getByRole("button", { name: "Waypoint tool", exact: true })
     .click();
-  await clickFieldPoint(page, 8, 2);
-  await expect(card).toContainText("Done. Continue to the next step.");
-  await clickFieldPoint(page, 9, 8);
+  const canvas = page.getByTestId("path-stage-canvas");
+  const startPoint = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 8,
+    y_meters: 2,
+  });
+  await page.mouse.click(startPoint.x, startPoint.y);
+  await expect(card).toContainText("Waiting for this action");
   await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
     1,
   );
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 13");
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-
-  await expect(card).toContainText("The start pose");
-  await card.getByRole("button", { name: "Next", exact: true }).click();
   await page
     .getByRole("button", { name: "Waypoint tool", exact: true })
     .click();
-  await clickFieldPoint(page, 10, 7);
+  const goalPoint = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 12.5,
+    y_meters: 4.8,
+  });
+  await page.mouse.click(goalPoint.x, goalPoint.y);
   await expect(card).toContainText("Done. Continue to the next step.");
-  await clickFieldPoint(page, 9, 6);
+  await clickFieldPoint(page, 9, 8);
   await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
     2,
   );
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 13");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 11");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+
+  await expect(card).toContainText("Start and End");
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await page
     .getByRole("button", { name: "Waypoint tool", exact: true })
     .click();
-  await clickFieldPoint(page, 12.5, 4.8);
+  const middlePoint = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 10,
+    y_meters: 7,
+  });
+  await page.mouse.click(middlePoint.x, middlePoint.y);
   await expect(card).toContainText("Done. Continue to the next step.");
   await clickFieldPoint(page, 14, 7);
   await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
@@ -104,13 +115,15 @@ test("builds and orders the first path with manual Continue gates", async ({
   );
   await card.getByRole("button", { name: "Next", exact: true }).click();
 
-  await expect(card).toContainText("Put them in drive order");
-  await expect(page.getByTestId("path-element-row-1")).toContainText(
-    "12.50, 4.80 m",
-  );
-  await expect(page.getByTestId("path-element-row-2")).toContainText(
-    "10.00, 7.00 m",
-  );
+  await expect(card).toContainText("Put it in drive order");
+  const goalMeta = await page
+    .getByTestId("path-element-row-1")
+    .locator(".path-element-row__meta")
+    .innerText();
+  const middleMeta = await page
+    .getByTestId("path-element-row-2")
+    .locator(".path-element-row__meta")
+    .innerText();
   const middleRow = await requiredBox(page.getByTestId("path-element-row-2"));
   const goalRow = await requiredBox(page.getByTestId("path-element-row-1"));
   await page.mouse.move(
@@ -127,11 +140,9 @@ test("builds and orders the first path with manual Continue gates", async ({
 
   await expect(card).toContainText("Done. Keep experimenting or continue.");
   await expect(page.getByTestId("path-element-row-1")).toContainText(
-    "10.00, 7.00 m",
+    middleMeta,
   );
-  await expect(page.getByTestId("path-element-row-2")).toContainText(
-    "12.50, 4.80 m",
-  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText(goalMeta);
 });
 
 test("stages field actions beside target-relative dialogue and fades for inspection", async ({

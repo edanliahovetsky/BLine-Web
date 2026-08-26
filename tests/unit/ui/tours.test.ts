@@ -55,19 +55,19 @@ describe("guided lesson content", () => {
 
   it("teaches drive order with a misplaced middle waypoint", () => {
     const firstPath = tours.find((tour) => tour.id === "build-first-path");
-    const middleIndex = firstPath?.steps.findIndex(
-      (step) => step.title === "Add a point between",
+    const endpointsIndex = firstPath?.steps.findIndex(
+      (step) => step.title === "Place the endpoints",
     );
-    const goalIndex = firstPath?.steps.findIndex(
-      (step) => step.title === "Place the goal",
+    const middleIndex = firstPath?.steps.findIndex(
+      (step) => step.title === "Add a middle waypoint",
     );
     const reorderStep = firstPath?.steps.find(
-      (step) => step.title === "Put them in drive order",
+      (step) => step.title === "Put it in drive order",
     );
 
+    expect(endpointsIndex).toBeGreaterThan(-1);
     expect(middleIndex).toBeGreaterThan(-1);
-    expect(goalIndex).toBeGreaterThan(middleIndex ?? -1);
-    expect(firstPath?.steps[goalIndex ?? -1]?.prepare?.selectElement).toBe(0);
+    expect(middleIndex).toBeGreaterThan(endpointsIndex ?? -1);
     expect(
       firstPath?.steps
         .filter((step) => step.target === "tool-waypoint")

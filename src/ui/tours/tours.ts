@@ -134,6 +134,19 @@ function elementWasAdded(type: PathElement["type"]): boolean {
   return true;
 }
 
+function firstPathEndpointsWereAdded(): boolean {
+  const path = currentPath();
+  if (!path || path.path_elements.length - elementCountAtStepStart < 2) {
+    return false;
+  }
+  if (path.path_elements.length !== 2 || !path.path_elements.every(isWaypoint)) {
+    return false;
+  }
+
+  lastPlacedElementIndex = selectionStore.getState().selectedElementIndex;
+  return true;
+}
+
 function firstPathMiddleWaypointWasAdded(): boolean {
   const path = currentPath();
   if (!path || path.path_elements.length <= elementCountAtStepStart) {
@@ -293,7 +306,7 @@ export const buildFirstPathTour: TourDefinition = {
   id: editorBasicsTourId,
   title: "Build a First Path",
   summary: "Drive from a start zone to a goal",
-  durationMinutes: 8,
+  durationMinutes: 6,
   completionMessage: "You built a three-point route and put its elements in drive order.",
   markers: buildMarkers,
   practicePath: createTourPracticePath,
@@ -301,12 +314,10 @@ export const buildFirstPathTour: TourDefinition = {
     { target: "path-breadcrumb", title: "You are on a practice path", body: "This is a practice path. Nothing you do here changes your real paths.", placement: "below" },
     { target: "lesson-markers", title: "The mission", body: "The robot must drive from the start zone to the goal zone. You will build the path that takes it there.", placement: "right" },
     { title: "What a path is", body: "A path is an ordered list of path elements on the field. The robot drives in a straight line from each element to the next." },
-    { target: "tool-waypoint", title: "Place the start", body: "Click the highlighted Waypoint tool. Place the first waypoint in or near the start zone.", task: "Place the first waypoint", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => elementWasAdded("waypoint"), lockInteractionOnComplete: true },
-    { target: "path-canvas", title: "The start pose", body: "A waypoint has a position and a heading. The first waypoint sets the exact pose where the robot starts.", placement: "right" },
-    { target: "tool-waypoint", title: "Add a point between", body: "Click the Waypoint tool again. Place the second waypoint wherever you want between the endpoints. You can move it later.", task: "Place the second waypoint", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: firstPathMiddleWaypointWasAdded, lockInteractionOnComplete: true },
-    { target: "tool-waypoint", title: "Place the goal", body: "The Start is selected. Place the third waypoint in or near the goal zone. You can move it later.", task: "Place the third waypoint", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], prepare: { selectElement: 0 }, completeWhen: () => elementWasAdded("waypoint"), lockInteractionOnComplete: true },
-    { target: "inspector-panel", title: "Put them in drive order", body: "Drag the bottom row above the goal row. The list should read Start, middle, End.", task: "Move the middle waypoint above the goal", placement: "left", interact: ["inspector-panel"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: pathHasStartMiddleGoalOrder },
-    { title: "The final pose", body: "The last waypoint is now the final pose. The robot finishes when its position and heading are inside the end tolerances." },
+    { target: "tool-waypoint", title: "Place the endpoints", body: "Click Waypoint and place one point near Start. Click Waypoint again and place another near Goal.", task: "Place two waypoints", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: firstPathEndpointsWereAdded, lockInteractionOnComplete: true },
+    { target: "inspector-panel", title: "Start and End", body: "The first waypoint in the list is Start. The last waypoint is End.", placement: "left", prepare: { inspector: "open", inspectorTab: "elements" } },
+    { target: "tool-waypoint", title: "Add a middle waypoint", body: "Place one more waypoint anywhere you want between the endpoints. You can move it later.", task: "Place one middle waypoint", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: firstPathMiddleWaypointWasAdded, lockInteractionOnComplete: true },
+    { target: "inspector-panel", title: "Put it in drive order", body: "The new waypoint is below End because it was added last. Drag the bottom row above End.", task: "Move the middle waypoint above End", placement: "left", interact: ["inspector-panel"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: pathHasStartMiddleGoalOrder },
     { target: "path-canvas", title: "Move an element", body: "You are back on the Select tool. Drag a waypoint and watch the segment follow it.", task: "Drag either waypoint", keys: ["←", "↑", "↓", "→"], placement: "right", interact: ["path-canvas"], prepare: { tool: "select" }, completeWhen: pathGeometryChanged },
     { target: "element-properties", title: "Type exact values", body: "Select a waypoint. Type an exact X and Y in Element Properties.", task: "Edit a waypoint position", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: selectedWaypointPropertyWasEdited },
     { target: "transport-play", title: "Play the preview", body: "Press Play under the field. The preview shows how the robot follows your path.", task: "Play the preview", keys: ["Space"], placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
