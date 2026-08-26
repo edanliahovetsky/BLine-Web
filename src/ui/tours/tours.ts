@@ -23,22 +23,22 @@ import type { TourDefinition, TourMarker } from "./tourStore";
 export const editorBasicsTourId = "build-first-path";
 export const tourPracticePathName = "Tour practice";
 
-const startZone = { minX: 1.3, maxX: 2.7, minY: 0.9, maxY: 2.1 };
-const goalZone = { minX: 5.3, maxX: 6.7, minY: 2.4, maxY: 3.6 };
-const structureBounds = { minX: 4.9, maxX: 6.7, minY: 3.1, maxY: 4.9 };
+const startZone = { minX: 7.3, maxX: 8.7, minY: 1.4, maxY: 2.6 };
+const goalZone = { minX: 11.8, maxX: 13.2, minY: 4.2, maxY: 5.4 };
+const structureBounds = { minX: 10.7, maxX: 12.5, minY: 3.1, maxY: 4.9 };
 
 const buildMarkers: readonly TourMarker[] = [
-  { id: "lesson-start-zone", label: "Start zone", kind: "zone", xMeters: 2, yMeters: 1.5, widthMeters: 1.4, heightMeters: 1.2 },
-  { id: "lesson-goal-zone", label: "Goal zone", kind: "zone", xMeters: 6, yMeters: 3, widthMeters: 1.4, heightMeters: 1.2 },
+  { id: "lesson-start-zone", label: "Start zone", kind: "zone", xMeters: 8, yMeters: 2, widthMeters: 1.4, heightMeters: 1.2 },
+  { id: "lesson-goal-zone", label: "Goal zone", kind: "zone", xMeters: 12.5, yMeters: 4.8, widthMeters: 1.4, heightMeters: 1.2 },
 ];
 const shapeMarkers: readonly TourMarker[] = [
-  { id: "lesson-structure", label: "Field structure", kind: "structure", xMeters: 5.8, yMeters: 4, widthMeters: 1.8, heightMeters: 1.8 },
+  { id: "lesson-structure", label: "Field structure", kind: "structure", xMeters: 11.6, yMeters: 4, widthMeters: 1.8, heightMeters: 1.8 },
 ];
 const speedMarkers: readonly TourMarker[] = [
   { id: "lesson-corner", label: "Sharp corner", kind: "callout", xMeters: 8, yMeters: 2.5, widthMeters: 1.15, heightMeters: 1.15 },
 ];
 const behaviorMarkers: readonly TourMarker[] = [
-  { id: "lesson-game-piece", label: "Game piece", kind: "game-piece", xMeters: 8.5, yMeters: 6, widthMeters: 0.85, heightMeters: 0.85 },
+  { id: "lesson-game-piece", label: "Game piece", kind: "game-piece", xMeters: 14, yMeters: 6, widthMeters: 0.85, heightMeters: 0.85 },
 ];
 
 function waypoint(x: number, y: number, rotation = 0) {
@@ -53,7 +53,7 @@ export function createTourPracticePath(): PathModel {
 }
 
 function createShapePracticePath(): PathModel {
-  return createPathModel({ path_elements: [waypoint(2.5, 4), waypoint(9, 4)] });
+  return createPathModel({ path_elements: [waypoint(8, 4), waypoint(15, 4)] });
 }
 
 function createSpeedPracticePath(): PathModel {
@@ -69,8 +69,8 @@ function createSpeedPracticePath(): PathModel {
 function createBehaviorPracticePath(): PathModel {
   return createPathModel({
     path_elements: [
-      waypoint(2.5, 3),
-      createTranslationTarget({ x_meters: 8.5, y_meters: 5 }),
+      waypoint(8, 3),
+      createTranslationTarget({ x_meters: 14, y_meters: 5 }),
     ],
   });
 }
@@ -278,15 +278,15 @@ export const buildFirstPathTour: TourDefinition = {
   practicePath: createTourPracticePath,
   steps: [
     { target: "path-breadcrumb", title: "You are on a practice path", body: "This is a practice path. Nothing you do here changes your real paths.", placement: "below" },
-    { target: "lesson-markers", title: "The mission", body: "The robot must drive from the start zone to the goal zone. You will build the path that takes it there.", placement: "right", cardPosition: "canvas-top-right" },
+    { target: "lesson-markers", title: "The mission", body: "The robot must drive from the start zone to the goal zone. You will build the path that takes it there.", placement: "right" },
     { title: "What a path is", body: "A path is an ordered list of path elements on the field. The robot drives in a straight line from each element to the next." },
-    { target: "tool-waypoint", title: "Place the start", body: "Click the highlighted Waypoint tool. Then click inside the start zone on the field.", task: "Place a waypoint inside the start zone", keys: ["1"], placement: "right", cardPosition: "canvas-top-right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => waypointAddedInside(startZone, 1) },
-    { target: "path-canvas", title: "The start pose", body: "A waypoint has a position and a heading. The first waypoint sets the exact pose where the robot starts.", placement: "right", cardPosition: "canvas-top-right" },
-    { target: "tool-waypoint", title: "Place the goal", body: "Click the Waypoint tool again. Place a second waypoint inside the goal zone.", task: "Place a waypoint inside the goal zone", keys: ["1"], placement: "right", cardPosition: "canvas-top-right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => waypointAddedInside(goalZone, 2) },
+    { target: "tool-waypoint", title: "Place the start", body: "Click the highlighted Waypoint tool. Then click inside the start zone on the field.", task: "Place a waypoint inside the start zone", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => waypointAddedInside(startZone, 1) },
+    { target: "path-canvas", title: "The start pose", body: "A waypoint has a position and a heading. The first waypoint sets the exact pose where the robot starts.", placement: "right" },
+    { target: "tool-waypoint", title: "Place the goal", body: "Click the Waypoint tool again. Place a second waypoint inside the goal zone.", task: "Place a waypoint inside the goal zone", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => waypointAddedInside(goalZone, 2) },
     { title: "The final pose", body: "The last waypoint is the final pose. The robot finishes when its position and heading are inside the end tolerances." },
-    { target: "path-canvas", title: "Move an element", body: "You are back on the Select tool. Drag a waypoint and watch the segment follow it.", task: "Drag either waypoint", keys: ["←", "↑", "↓", "→"], placement: "right", cardPosition: "canvas-top-right", interact: ["path-canvas"], prepare: { tool: "select" }, completeWhen: pathGeometryChanged },
+    { target: "path-canvas", title: "Move an element", body: "You are back on the Select tool. Drag a waypoint and watch the segment follow it.", task: "Drag either waypoint", keys: ["←", "↑", "↓", "→"], placement: "right", interact: ["path-canvas"], prepare: { tool: "select" }, completeWhen: pathGeometryChanged },
     { target: "element-properties", title: "Type exact values", body: "Select a waypoint. Type an exact X and Y in Element Properties.", task: "Edit a waypoint position", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: selectedWaypointPropertyWasEdited },
-    { target: "transport-play", title: "Play the preview", body: "Press Play under the field. The preview shows how the robot follows your path.", task: "Play the preview", keys: ["Space"], placement: "above", cardPosition: "canvas-top-right", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
+    { target: "transport-play", title: "Play the preview", body: "Press Play under the field. The preview shows how the robot follows your path.", task: "Play the preview", keys: ["Space"], placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
     { title: "What you built", body: "You set a start pose, a final pose, and a straight route. The next lesson shapes the route between them." },
   ],
 };
@@ -300,17 +300,17 @@ export const shapeRouteTour: TourDefinition = {
   markers: shapeMarkers,
   practicePath: createShapePracticePath,
   steps: [
-    { target: "lesson-structure", title: "The route has a problem", body: "This route crosses a field structure. The robot cannot drive through it. You will bend the route around it.", placement: "right", cardPosition: "canvas-top-right" },
+    { target: "lesson-structure", title: "The route has a problem", body: "This route crosses a field structure. The robot cannot drive through it. You will bend the route around it.", placement: "right" },
     { title: "Translation targets", body: "A translation target has a position but no heading. Use one to shape the route when the heading does not need to change." },
-    { target: "tool-translation", title: "Bend the route", body: "Click the highlighted Translation tool. Click above the structure to add a target between the waypoints.", task: "Add a translation target above the structure", keys: ["2"], placement: "right", cardPosition: "canvas-top-right", interact: ["tool-translation", "path-canvas"], prepare: { selectElement: 0 }, completeWhen: () => elementWasAdded("translation") },
+    { target: "tool-translation", title: "Bend the route", body: "Click the highlighted Translation tool. Click above the structure to add a target between the waypoints.", task: "Add a translation target above the structure", keys: ["2"], placement: "right", interact: ["tool-translation", "path-canvas"], prepare: { selectElement: 0 }, completeWhen: () => elementWasAdded("translation") },
     { target: "inspector-panel", title: "Path order", body: "The inspector lists path elements in drive order. A new element is inserted after the selected one.", placement: "left", prepare: { inspector: "open", inspectorTab: "elements" } },
-    { target: "path-canvas", title: "Clear the structure", body: "Drag the new target until the route clears the structure. Keep the two waypoints where they are.", task: "Move the target until both segments are clear", placement: "right", cardPosition: "canvas-top-right", interact: ["path-canvas"], prepare: { tool: "select" }, completeWhen: pathClearsStructure },
+    { target: "path-canvas", title: "Clear the structure", body: "Drag the new target until the route clears the structure. Keep the two waypoints where they are.", task: "Move the target until both segments are clear", placement: "right", interact: ["path-canvas"], prepare: { tool: "select" }, completeWhen: pathClearsStructure },
     { title: "Pass-through anchors", body: "The robot does not stop at an intermediate target. It passes through and continues toward the next element." },
-    { target: "path-canvas", title: "Select the target", body: "Click the target you added. Note the dashed circle around it.", task: "Select the translation target", placement: "right", cardPosition: "canvas-top-right", interact: ["path-canvas"], prepare: { tool: "select", clearSelection: true }, completeWhen: translationTargetIsSelected },
-    { target: "path-canvas", title: "The handoff radius", body: "The dashed circle is the handoff radius. When the robot enters the circle, it starts driving toward the next element.", placement: "right", cardPosition: "canvas-top-right" },
+    { target: "path-canvas", title: "Select the target", body: "Click the target you added. Note the dashed circle around it.", task: "Select the translation target", placement: "right", interact: ["path-canvas"], prepare: { tool: "select", clearSelection: true }, completeWhen: translationTargetIsSelected },
+    { target: "path-canvas", title: "The handoff radius", body: "The dashed circle is the handoff radius. When the robot enters the circle, it starts driving toward the next element.", placement: "right" },
     { target: "element-properties", title: "Resize the handoff", body: "Change Handoff Radius in Element Properties. Watch the circle and the turn location change.", task: "Change Handoff Radius", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: selectedHandoffRadiusWasEdited },
     { title: "Choose the radius", body: "A larger radius starts the turn earlier and cuts the corner. A smaller radius makes the robot visit the point closely." },
-    { target: "transport-play", title: "Confirm the route", body: "Play the preview. Confirm the robot clears the structure.", task: "Play the preview", placement: "above", cardPosition: "canvas-top-right", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
+    { target: "transport-play", title: "Confirm the route", body: "Play the preview. Confirm the robot clears the structure.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
     { title: "Fewest elements win", body: "Every added element creates another handoff. Use the fewest elements that describe the route clearly." },
   ],
 };
@@ -324,7 +324,7 @@ export const planSpeedTour: TourDefinition = {
   markers: speedMarkers,
   practicePath: createSpeedPracticePath,
   steps: [
-    { target: "lesson-corner", title: "Where, then how fast", body: "Geometry says where the robot drives. Constraints say how fast it may drive each part. This path has a sharp corner on purpose.", placement: "right", cardPosition: "canvas-top-right" },
+    { target: "lesson-corner", title: "Where, then how fast", body: "Geometry says where the robot drives. Constraints say how fast it may drive each part. This path has a sharp corner on purpose.", placement: "right" },
     { title: "The main control", body: "Max translation velocity is the constraint you will use most. It caps how aggressively the robot approaches corners and the final pose." },
     { target: "inspector-constraints", title: "Open Constraints", body: "Click the highlighted Constraints tab.", task: "Open the Constraints tab", placement: "left", interact: ["inspector-constraints"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: constraintsTabIsOpen },
     { target: "max-velocity-card", title: "The range bar", body: "The bar under Max Velocity maps the path from start to end. A ranged constraint caps the speed over one span of the path.", placement: "left", prepare: { inspector: "open", inspectorTab: "constraints" } },
@@ -333,7 +333,7 @@ export const planSpeedTour: TourDefinition = {
     { target: "max-velocity-card", title: "Read the result", body: "The optimizer placed a lower cap at the corner. Straight spans stay near the global maximum.", placement: "left" },
     { target: "max-velocity-card", title: "Take ownership", body: "Click the corner range in the bar. Type a new value. The range becomes Manual.", task: "Edit a generated velocity cap", placement: "left", interact: ["max-velocity-card"], completeWhen: velocityValueWasEdited },
     { target: "max-velocity-card", title: "Manual ranges", body: "Manual ranges survive when you run the optimizer again. The optimizer proposes a plan, but you own it.", placement: "left" },
-    { target: "transport-play", title: "Watch the slowdown", body: "Play the preview. Watch the robot slow before the corner and speed up after it.", task: "Play the preview", placement: "above", cardPosition: "canvas-top-right", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
+    { target: "transport-play", title: "Watch the slowdown", body: "Play the preview. Watch the robot slow before the corner and speed up after it.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
     { title: "The recipe", body: "Keep open straights fast. Cap the elements around each tight turn. If the robot overshoots a handoff, lower the cap before you grow the radius." },
   ],
 };
@@ -347,18 +347,18 @@ export const headingEventsTour: TourDefinition = {
   markers: behaviorMarkers,
   practicePath: createBehaviorPracticePath,
   steps: [
-    { target: "lesson-game-piece", title: "The mission", body: "The robot must pick up the game piece at the end of this path. It must face the piece before it arrives, and the intake must start while it drives.", placement: "right", cardPosition: "canvas-top-right" },
+    { target: "lesson-game-piece", title: "The mission", body: "The robot must pick up the game piece at the end of this path. It must face the piece before it arrives, and the intake must start while it drives.", placement: "right" },
     { title: "Rotation targets", body: "A rotation target changes the heading along a segment. It does not bend the route." },
-    { target: "tool-rotation", title: "Add a rotation target", body: "Click the highlighted Rotation tool. Click on the segment to place the target.", task: "Place a rotation target on the segment", keys: ["3"], placement: "right", cardPosition: "canvas-top-right", interact: ["tool-rotation", "path-canvas"], completeWhen: () => elementWasAdded("rotation") },
-    { target: "path-canvas", title: "Position on the segment", body: "A rotation target sits at a position along its segment. 0 is the segment start and 1 is the end. The editor calls this Rotation Pos.", placement: "right", cardPosition: "canvas-top-right" },
+    { target: "tool-rotation", title: "Add a rotation target", body: "Click the highlighted Rotation tool. Click on the segment to place the target.", task: "Place a rotation target on the segment", keys: ["3"], placement: "right", interact: ["tool-rotation", "path-canvas"], completeWhen: () => elementWasAdded("rotation") },
+    { target: "path-canvas", title: "Position on the segment", body: "A rotation target sits at a position along its segment. 0 is the segment start and 1 is the end. The editor calls this Rotation Pos.", placement: "right" },
     { target: "element-properties", title: "Face the piece", body: "Set Rotation to 90 degrees. Set Rotation Pos to 0.5.", task: "Set Rotation to 90 and Rotation Pos to 0.5", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: rotationTargetConfigured },
     { target: "element-properties", title: "Profiled rotation", body: "Profiled rotation turns gradually as the robot progresses. Non-profiled rotation drives toward the new heading immediately. Keep Profiled on for this pickup.", placement: "left" },
-    { target: "tool-event", title: "Add an event trigger", body: "Click the highlighted Event tool. Place the trigger on the segment after the rotation target.", task: "Place an event trigger after the rotation target", keys: ["4"], placement: "right", cardPosition: "canvas-top-right", interact: ["tool-event", "path-canvas"], completeWhen: () => elementWasAdded("event_trigger") },
+    { target: "tool-event", title: "Add an event trigger", body: "Click the highlighted Event tool. Place the trigger on the segment after the rotation target.", task: "Place an event trigger after the rotation target", keys: ["4"], placement: "right", interact: ["tool-event", "path-canvas"], completeWhen: () => elementWasAdded("event_trigger") },
     { target: "element-properties", title: "Name the action", body: "Set the event key to startIntake. Set its position to 0.7.", task: "Set the key and event position", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: eventTriggerConfigured },
     { title: "Geometric progress", body: "The event fires when the robot's progress along the segment passes the marker. Progress comes from the robot's position, not from time." },
     { title: "The key is a name", body: "The path stores only the key. Robot code registers the startIntake action for that key." },
-    { target: "transport-play", title: "Watch the run", body: "Play the preview. Watch the robot turn during the segment and the event marker fire.", task: "Play the preview", placement: "above", cardPosition: "canvas-top-right", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
-    { target: "transport-timeline", title: "Scrub the timeline", body: "Drag the timeline under the field. Stop just before the event marker, then just after it.", task: "Scrub the simulation timeline", placement: "above", cardPosition: "canvas-top-right", interact: ["simulation-transport"], completeWhen: simulationWasScrubbed },
+    { target: "transport-play", title: "Watch the run", body: "Play the preview. Watch the robot turn during the segment and the event marker fire.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
+    { target: "transport-timeline", title: "Scrub the timeline", body: "Drag the timeline under the field. Stop just before the event marker, then just after it.", task: "Scrub the simulation timeline", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasScrubbed },
     { title: "Check placement this way", body: "Scrubbing is how you verify rotation timing and event placement. Use it whenever a marker must line up with the field." },
   ],
 };
@@ -373,8 +373,8 @@ export const verifyExportTour: TourDefinition = {
   steps: [
     { title: "Ship it", body: "This path is almost ready for a robot. It has some problems. You will find them, fix them, and learn how to export." },
     { target: "path-health", title: "Open Path Health", body: "Click the highlighted Path Health icon. It lists structural problems in the current path.", task: "Open Path Health", placement: "below", interact: ["path-health"], completeWhen: pathHealthIsOpen },
-    { target: "path-canvas", title: "Fix the off-field element", body: "One element is outside the field. Drag it back inside the field boundary.", task: "Drag the off-field waypoint onto the field", placement: "right", cardPosition: "canvas-top-left", interact: ["path-canvas"], prepare: { tool: "select", pathHealth: "closed" }, completeWhen: offFieldIssueIsClear },
-    { target: "element-properties", title: "Fix the empty event", body: "One event trigger has no key. Select it and type a key name.", task: "Give the event trigger a key", placement: "left", cardPosition: "canvas-top-left", interact: ["path-canvas", "element-properties", "inspector-panel"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: emptyEventIssueIsClear },
+    { target: "path-canvas", title: "Fix the off-field element", body: "One element is outside the field. Drag it back inside the field boundary.", task: "Drag the off-field waypoint onto the field", placement: "right", interact: ["path-canvas"], prepare: { tool: "select", pathHealth: "closed" }, completeWhen: offFieldIssueIsClear },
+    { target: "element-properties", title: "Fix the empty event", body: "One event trigger has no key. Select it and type a key name.", task: "Give the event trigger a key", placement: "left", interact: ["path-canvas", "element-properties", "inspector-panel"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: emptyEventIssueIsClear },
     { target: "inspector-constraints", title: "Refresh stale caps", body: "The geometry changed after these caps were generated, so they are stale. Open Constraints and click Generate again.", task: "Open Constraints and generate the caps again", placement: "left", interact: ["inspector-panel"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: velocityPlanWasGenerated },
     { target: "settings-menu-entry", title: "Field and robot settings", body: "Settings holds the field selection and your robot's bumper size. The preview and Path Health use these values, so keep them accurate.", placement: "below" },
     { target: "save-status", title: "Save state", body: "This status shows Saved when your work is stored. In the browser, projects live in browser storage. The desktop app writes files to the folder you opened.", placement: "above" },

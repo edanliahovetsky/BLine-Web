@@ -28,7 +28,6 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const stepCount = tour?.steps.length ?? 0;
   const stepTarget = step?.target ?? null;
   const stepPlacement = step?.placement ?? "below";
-  const stepCardPosition = step?.cardPosition ?? null;
   const wantsInspector = step?.prepare?.inspector ?? null;
   const wantsInspectorTab = step?.prepare?.inspectorTab ?? null;
   const wantsTool = step?.prepare?.tool ?? null;
@@ -40,7 +39,6 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
   const [rect, setRect] = useState<TourRect | null>(null);
-  const [canvasRect, setCanvasRect] = useState<TourRect | null>(null);
   const [holes, setHoles] = useState<TourRect[]>([]);
   const [cardHeight, setCardHeight] = useState(fallbackCardHeight);
   const [completedActionToken, setCompletedActionToken] = useState<
@@ -117,7 +115,6 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     const measure = () => {
       // Concept steps have no target; drop any previous spotlight.
       setRect(stepTarget ? measureTour(stepTarget) : null);
-      setCanvasRect(stepCardPosition ? measureTour("path-canvas") : null);
       setHoles(
         interactToken
           ? interactToken
@@ -145,7 +142,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       window.removeEventListener("scroll", measure, true);
       document.removeEventListener("transitionend", measure, true);
     };
-  }, [interactToken, stepCardPosition, stepTarget]);
+  }, [interactToken, stepTarget]);
 
   useLayoutEffect(() => {
     const measured = cardRef.current?.offsetHeight;
@@ -209,13 +206,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   let cardLeft = (window.innerWidth - cardWidth) / 2;
   let cardTop = (window.innerHeight - cardHeight) / 2;
 
-  if (stepCardPosition && canvasRect) {
-    cardLeft =
-      stepCardPosition === "canvas-top-left"
-        ? canvasRect.left + viewportMargin
-        : canvasRect.left + canvasRect.width - cardWidth - viewportMargin;
-    cardTop = canvasRect.top + viewportMargin;
-  } else if (rect) {
+  if (rect) {
     if (stepPlacement === "right") {
       cardLeft = rect.left + rect.width + cardGap;
       cardTop = rect.top;

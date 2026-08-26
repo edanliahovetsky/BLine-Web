@@ -70,7 +70,7 @@ test("builds the first path with visible goals and manual Continue gates", async
   await page
     .getByRole("button", { name: "Waypoint tool", exact: true })
     .click();
-  await clickFieldPoint(page, 2, 1.5);
+  await clickFieldPoint(page, 8, 2);
   await expect(card).toContainText("Done. Keep experimenting or continue.");
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 11");
   await card.getByRole("button", { name: "Next", exact: true }).click();
@@ -80,12 +80,12 @@ test("builds the first path with visible goals and manual Continue gates", async
   await page
     .getByRole("button", { name: "Waypoint tool", exact: true })
     .click();
-  await clickFieldPoint(page, 6, 3);
+  await clickFieldPoint(page, 12.5, 4.8);
   await expect(card).toContainText("Done. Keep experimenting or continue.");
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 11");
 });
 
-test("keeps field-action dialogue clear of the task and fades for inspection", async ({
+test("stages field actions beside target-relative dialogue and fades for inspection", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -97,7 +97,7 @@ test("keeps field-action dialogue clear of the task and fades for inspection", a
   const cardBox = await requiredBox(card);
   const structureBox = await requiredBox(structure);
 
-  expect(cardBox.x).toBeGreaterThan(structureBox.x + structureBox.width);
+  expect(cardBox.x + cardBox.width).toBeLessThan(structureBox.x);
 
   await page.waitForTimeout(500);
   await card.getByRole("heading", { name: "Bend the route" }).hover();
