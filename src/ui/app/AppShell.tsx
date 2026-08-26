@@ -2964,11 +2964,11 @@ function formatSaveStatus({
   }
 
   if (optimizerPhase === "pending") {
-    return "Optimizer queued";
+    return "Generator queued";
   }
 
   if (optimizerPhase === "running") {
-    return "Optimizing constraints";
+    return "Generating constraints";
   }
 
   if (dirty && autosaveStatus === "pending") {
@@ -2984,8 +2984,8 @@ function formatSaveStatus({
 
 type SaveStatusTone =
   | "danger"
+  | "generating"
   | "loading"
-  | "optimizing"
   | "pending"
   | "saved"
   | "saving";
@@ -2997,8 +2997,8 @@ function workspaceSaveStatusLabel(tone: SaveStatusTone): string {
   if (tone === "saving" || tone === "pending") {
     return "Saving…";
   }
-  if (tone === "optimizing") {
-    return "Optimizing…";
+  if (tone === "generating") {
+    return "Generating…";
   }
   if (tone === "loading") {
     return "Loading…";
@@ -3042,7 +3042,7 @@ function getSaveStatusTone({
   }
 
   if (optimizerPhase !== "idle") {
-    return "optimizing";
+    return "generating";
   }
 
   if (dirty) {

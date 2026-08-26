@@ -39,7 +39,7 @@ const configSections = [
   { id: "robot", label: "Robot" },
   { id: "path-defaults", label: "Path Defaults" },
   { id: "field", label: "Field" },
-  { id: "optimizer", label: "Optimizer" },
+  { id: "optimizer", label: "Generator" },
 ] as const;
 
 type ConfigSectionId = (typeof configSections)[number]["id"];
@@ -743,11 +743,11 @@ function OptimizerSettingsSection({
   setDraft: Dispatch<SetStateAction<ProjectConfig>>;
 }) {
   return (
-    <ConfigSection title="Optimizer">
+    <ConfigSection title="Generator">
       <ConfigSubsection title="Constraint Generation">
         <CheckboxRow
           label="Keep in sync"
-          description="Regenerate automatic radii and velocity caps whenever the path or optimizer settings change."
+          description="Regenerate automatic radii and velocity caps whenever the path or generator settings change."
           checked={autoSyncEnabled}
           onChange={setAutoSyncEnabled}
         />

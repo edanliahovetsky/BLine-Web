@@ -188,7 +188,7 @@ export const editorBasicsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Generate a velocity plan",
-      body: "Click Generate to let the optimizer propose max-velocity caps from the path's shape. The simulation drives with these caps, so generate before you play — and review what it proposes.",
+      body: "Click Generate to let the generator propose max-velocity caps from the path's shape. The simulation drives with these caps, so generate before you play — and review what it proposes.",
       placement: "left",
       interact: ["max-velocity-card"],
       completeWhen: velocityPlanGenerated,
@@ -266,7 +266,7 @@ export const shapePathsTour: TourDefinition = {
 export const constraintsTour: TourDefinition = {
   id: "constrain-optimize",
   title: "Constrain and optimize",
-  summary: "Velocity caps, the optimizer, and who owns the plan",
+  summary: "Velocity caps, the generator, and who owns the plan",
   practicePath: createConstraintsPracticePath,
   steps: [
     {
@@ -291,7 +291,7 @@ export const constraintsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Generate caps for the corner",
-      body: "Click Generate. The optimizer proposes max-velocity caps from the geometry with a safety factor — watch it place a lower cap where the route turns sharply.",
+      body: "Click Generate. The generator proposes max-velocity caps from the geometry with a safety factor — watch it place a lower cap where the route turns sharply.",
       placement: "left",
       interact: ["max-velocity-card"],
       completeWhen: velocityPlanGenerated,
@@ -299,7 +299,7 @@ export const constraintsTour: TourDefinition = {
     {
       target: "max-velocity-card",
       title: "Select a cap and make it yours",
-      body: "Click a generated stretch in the bar to select it. Edit its value and it becomes Manual — manual caps survive optimizer reruns, and caps go stale when you move elements. You own the plan.",
+      body: "Click a generated stretch in the bar to select it. Edit its value and it becomes Manual — manual caps survive generator reruns, and caps go stale when you move elements. You own the plan.",
       placement: "left",
       interact: ["max-velocity-card"],
       completeWhen: velocitySegmentSelected,
@@ -340,7 +340,7 @@ export const simulateTour: TourDefinition = {
     },
     {
       title: "Close the loop on the robot",
-      body: "The full loop is geometry → velocity plan → optimizer → simulate → robot test. Change one thing at a time, and let observed robot behavior refine your caps.",
+      body: "The full loop is geometry → velocity plan → generator → simulate → robot test. Change one thing at a time, and let observed robot behavior refine your caps.",
     },
     {
       target: "help-hub",

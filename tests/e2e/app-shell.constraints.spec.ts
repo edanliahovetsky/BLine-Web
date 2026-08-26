@@ -486,12 +486,12 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
 
   await expect(page.getByTestId("auto-velocity-controls")).toHaveCount(0);
   await expect(
-    page.getByText("Optimizer settings", { exact: true }),
+    page.getByText("Generator settings", { exact: true }),
   ).toHaveCount(0);
 
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
-  await dialog.getByRole("button", { name: "Optimizer" }).click();
+  await dialog.getByRole("button", { name: "Generator" }).click();
 
   await expect(dialog.getByLabel("Keep in sync")).toBeChecked();
   await expect(dialog.getByLabel("Velocity safety factor")).toHaveValue("1");
@@ -503,7 +503,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
   await dialog.getByLabel("Keep in sync").uncheck();
   await dialog.getByRole("button", { name: "Save" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("button", { name: "Optimizer" }).click();
+  await page.getByRole("button", { name: "Generator" }).click();
   await expect(page.getByLabel("Keep in sync")).not.toBeChecked();
 });
 
@@ -555,7 +555,7 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   await gotoSampleEditor(page);
   await page.getByRole("button", { name: "Settings" }).click();
   const settingsDialog = page.getByRole("dialog", { name: "Edit Config" });
-  await settingsDialog.getByRole("button", { name: "Optimizer" }).click();
+  await settingsDialog.getByRole("button", { name: "Generator" }).click();
   await settingsDialog.getByLabel("Merge difference (m/s)").fill("20");
   await settingsDialog.getByRole("button", { name: "Save" }).click();
   await openConstraintsTab(page);

@@ -3339,14 +3339,14 @@ function autoVelocityStatusTooltip(
   running: boolean,
 ): string {
   if (running) {
-    return "The optimizer is generating velocity constraints.";
+    return "The generator is creating velocity constraints.";
   }
 
   if (autoVelocityStatusIsCurrent(status)) {
-    return "Generated constraints match the current path and optimizer settings.";
+    return "Generated constraints match the current path and generator settings.";
   }
   if (status.hasAutoConstraints) {
-    return "The path or optimizer settings changed after these constraints were generated.";
+    return "The path or generator settings changed after these constraints were generated.";
   }
   return "No generated velocity constraints are currently applied.";
 }

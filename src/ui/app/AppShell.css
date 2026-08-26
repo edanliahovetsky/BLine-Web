@@ -4660,7 +4660,7 @@ button.path-health-popover__issue:focus-visible {
 }
 
 .workspace-status__save--loading,
-.workspace-status__save--optimizing,
+.workspace-status__save--generating,
 .workspace-status__save--saving,
 .workspace-status__save--pending {
   border-color: rgba(122, 162, 247, 0.36);
@@ -4686,7 +4686,7 @@ button.path-health-popover__issue:focus-visible {
 }
 
 .workspace-status__save--loading .workspace-status__save-glyph,
-.workspace-status__save--optimizing .workspace-status__save-glyph,
+.workspace-status__save--generating .workspace-status__save-glyph,
 .workspace-status__save--saving .workspace-status__save-glyph,
 .workspace-status__save--pending .workspace-status__save-glyph {
   animation: workspace-status-launch 620ms ease-in-out infinite alternate;

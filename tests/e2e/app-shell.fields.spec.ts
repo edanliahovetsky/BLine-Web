@@ -28,7 +28,7 @@ test("edits project config with undo support", async ({ page }) => {
     "Robot",
     "Path Defaults",
     "Field",
-    "Optimizer",
+    "Generator",
   ]);
   await expect(
     dialog.getByRole("heading", { name: "Auto Velocity" }),
@@ -37,12 +37,12 @@ test("edits project config with undo support", async ({ page }) => {
     "aria-current",
     "page",
   );
-  await dialog.getByRole("button", { name: "Optimizer" }).click();
+  await dialog.getByRole("button", { name: "Generator" }).click();
   await expect(
     dialog.getByRole("heading", { name: "Constraint Generation" }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("heading", { name: "Optimizer" }),
+    dialog.getByRole("heading", { name: "Generator" }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Robot" }).click();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
