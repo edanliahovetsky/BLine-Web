@@ -572,12 +572,8 @@ test("range-selects and toggles elements for shared property editing", async ({
     "aria-label",
     "2 selected element properties",
   );
-  await expect(page.getByText("2 elements selected")).toBeVisible();
-  await expect(
-    page.getByText(
-      "Shift-click selects a range · ⌘/Ctrl-click toggles elements.",
-    ),
-  ).toBeVisible();
+  await expect(page.getByText("2 elements selected")).toHaveCount(0);
+  await expect(page.getByText(/Shift-click selects a range/)).toHaveCount(0);
   await expect(page.getByLabel("X (m)")).toHaveValue("");
 
   await second.click({ modifiers: [toggleModifier] });
@@ -927,6 +923,67 @@ test("marks the start and end of the path in the element list", async ({
 
   // Only the two endpoints are marked; everything between is intermediate.
   await expect(page.locator(".path-element-row__role")).toHaveCount(2);
+});
+
+test("shows element-specific row details and sheds them at minimum width", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await expect(page.getByTestId("path-element-row-0")).toContainText(
+    "Waypoint",
+  );
+  await expect(page.getByTestId("path-element-row-0")).toContainText(
+    "5.70, 2.50 m",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "Rotation",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText("45°");
+
+  await page.getByRole("button", { name: "Add element" }).click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  const eventRow = page.getByTestId("path-element-row-5");
+  await expect(eventRow).toContainText("Event Trigger");
+  await expect(eventRow).toContainText("No action");
+  await expect(eventRow.locator(".path-element-row__detail")).toHaveClass(
+    /path-element-row__detail--empty/,
+  );
+
+  await page.getByLabel("Lib Key").fill("Intake note");
+  await expect(eventRow).toContainText("Intake note");
+  await expect(eventRow.locator(".path-element-row__detail")).not.toHaveClass(
+    /path-element-row__detail--empty/,
+  );
+
+  await page.getByRole("separator", { name: "Resize inspector" }).press("Home");
+  await expect(
+    page.getByRole("separator", { name: "Resize inspector" }),
+  ).toHaveAttribute("aria-valuenow", "280");
+  await expect(eventRow.locator(".path-element-row__detail")).toBeHidden();
+  await expect(eventRow.locator(".path-element-row__type")).toBeVisible();
+});
+
+test("uses a visual empty state when selected elements share no properties", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const toggleModifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.getByTestId("path-element-row-0").click();
+  await page
+    .getByTestId("path-element-row-4")
+    .click({ modifiers: [toggleModifier] });
+
+  const emptyState = page.getByTestId("property-editor-common-empty");
+  await expect(emptyState).toBeVisible();
+  await expect(emptyState).toHaveAttribute(
+    "aria-label",
+    "Selected elements do not share editable properties",
+  );
+  await expect(
+    page.getByText("These elements do not share editable properties."),
+  ).toHaveCount(0);
 });
 
 test("highlights, dismisses, and resolves path health issues", async ({

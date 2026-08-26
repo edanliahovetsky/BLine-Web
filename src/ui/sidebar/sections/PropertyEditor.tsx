@@ -194,9 +194,6 @@ function BulkPropertyFields({
 
   return (
     <>
-      <p className="bulk-selection-summary">
-        {selectedElements.length} elements selected
-      </p>
       {allHaveRotation ? (
         <BulkNumberField
           label="Rotation (deg)"
@@ -338,9 +335,16 @@ function BulkPropertyFields({
         />
       ) : null}
       {!hasCommonFields ? (
-        <p className="property-editor__empty" role="note">
-          These elements do not share editable properties.
-        </p>
+        <div
+          className="property-editor__common-empty"
+          data-testid="property-editor-common-empty"
+          role="img"
+          aria-label="Selected elements do not share editable properties"
+        >
+          <span className="property-editor__common-empty-node" />
+          <span className="property-editor__common-empty-bridge" />
+          <span className="property-editor__common-empty-node" />
+        </div>
       ) : null}
     </>
   );

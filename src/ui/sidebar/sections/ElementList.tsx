@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
-import type { PathModel } from "../../../core/model/path";
+import {
+  isEventTrigger,
+  isRotationTarget,
+  isTranslationTarget,
+  isWaypoint,
+  type PathElement,
+  type PathModel,
+} from "../../../core/model/path";
 import { canMovePathElement } from "../../../core/model/projectPathEdits";
 import { formatPointMeters } from "../../../canvas/modelSync";
 import { CopyIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
@@ -157,6 +164,7 @@ export function ElementList({
               const selected = selectedElementIndexes.includes(index);
               const position = getElementPosition(elements, index);
               const type = elementTypeValue(element);
+              const detail = elementRowDetail(element, position);
 
               return (
                 <li
@@ -182,7 +190,7 @@ export function ElementList({
                       elementTypeLabel(element),
                       index,
                       elements.length,
-                      formatPointMeters(position),
+                      detail.accessibleText,
                     )}
                     aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
                     aria-pressed={selected}
@@ -206,20 +214,41 @@ export function ElementList({
                     </span>
                     <span className="visually-hidden">
                       {index + 1}. {elementTypeLabel(element)}{" "}
-                      {formatPointMeters(position)}
+                      {detail.accessibleText}
                     </span>
-                    {index === 0 || index === elements.length - 1 ? (
-                      <span
-                        className="path-element-row__role"
-                        title={
-                          index === 0
-                            ? "Start of the path"
-                            : "Final target — the path finishes here by tolerance, not by a handoff"
-                        }
-                      >
-                        {index === 0 ? "Start" : "End"}
+                    <span
+                      className="path-element-row__content"
+                      aria-hidden="true"
+                    >
+                      <span className="path-element-row__label">
+                        <span className="path-element-row__type">
+                          {elementTypeLabel(element)}
+                        </span>
+                        {index === 0 || index === elements.length - 1 ? (
+                          <span
+                            className="path-element-row__role"
+                            title={
+                              index === 0
+                                ? "Start of the path"
+                                : "Final target — the path finishes here by tolerance, not by a handoff"
+                            }
+                          >
+                            {index === 0 ? "Start" : "End"}
+                          </span>
+                        ) : null}
                       </span>
-                    ) : null}
+                      <span
+                        className={[
+                          "path-element-row__detail",
+                          detail.empty ? "path-element-row__detail--empty" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        title={detail.title}
+                      >
+                        {detail.visibleText}
+                      </span>
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -242,11 +271,6 @@ export function ElementList({
               );
             })}
           </ol>
-          {elements.length > 1 ? (
-            <p className="bulk-selection-hint path-elements-selection-hint">
-              Shift-click selects a range · ⌘/Ctrl-click toggles elements.
-            </p>
-          ) : null}
         </>
       ) : (
         <div className="sidebar-empty-state">No path elements</div>
@@ -259,7 +283,7 @@ function elementRowAccessibleLabel(
   typeLabel: string,
   index: number,
   total: number,
-  position: string,
+  detail: string,
 ): string {
   const role =
     index === 0
@@ -267,7 +291,66 @@ function elementRowAccessibleLabel(
       : index === total - 1
         ? ", end of path"
         : "";
-  return `Element ${index + 1}: ${typeLabel}${role}, ${position}`;
+  return `Element ${index + 1}: ${typeLabel}${role}, ${detail}`;
+}
+
+interface ElementRowDetail {
+  accessibleText: string;
+  visibleText: string;
+  title: string;
+  empty?: boolean;
+}
+
+function elementRowDetail(
+  element: PathElement,
+  position: ReturnType<typeof getElementPosition>,
+): ElementRowDetail {
+  if (isTranslationTarget(element) || isWaypoint(element)) {
+    const point = formatPointMeters(position);
+    return {
+      accessibleText: point,
+      visibleText: point,
+      title: point,
+    };
+  }
+
+  if (isRotationTarget(element)) {
+    const rotation = formatDegrees(element.rotation_radians);
+    return {
+      accessibleText: `${rotation} rotation`,
+      visibleText: rotation,
+      title: rotation,
+    };
+  }
+
+  if (isEventTrigger(element)) {
+    const label = element.lib_key.trim();
+    if (label) {
+      return {
+        accessibleText: `action ${label}`,
+        visibleText: label,
+        title: label,
+      };
+    }
+
+    return {
+      accessibleText: "no action set",
+      visibleText: "No action",
+      title: "No event action set",
+      empty: true,
+    };
+  }
+
+  return {
+    accessibleText: "",
+    visibleText: "",
+    title: "",
+  };
+}
+
+function formatDegrees(radians: number): string {
+  const degrees = (radians * 180) / Math.PI;
+  return `${Number(degrees.toFixed(2))}°`;
 }
 
 function getDropIndexFromPoint(
