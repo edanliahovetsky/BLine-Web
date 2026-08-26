@@ -24,6 +24,7 @@ export const editorBasicsTourId = "build-first-path";
 export const tourPracticePathName = "Tour practice";
 
 const startZone = { minX: 7.3, maxX: 8.7, minY: 1.4, maxY: 2.6 };
+const middleZone = { minX: 9, maxX: 11.4, minY: 1.4, maxY: 5.8 };
 const goalZone = { minX: 11.8, maxX: 13.2, minY: 4.2, maxY: 5.4 };
 const structureBounds = { minX: 10.7, maxX: 12.5, minY: 3.1, maxY: 4.9 };
 
@@ -147,6 +148,31 @@ function waypointAddedInside(bounds: typeof startZone, minimum: number): boolean
     return true;
   }
   return false;
+}
+
+function pathHasStartMiddleGoalOrder(): boolean {
+  const elements = currentPath()?.path_elements ?? [];
+  if (elements.length !== 3 || !elements.every(isWaypoint)) {
+    return false;
+  }
+
+  return (
+    pointIsInside(elements[0].translation_target, startZone) &&
+    pointIsInside(elements[1].translation_target, middleZone) &&
+    pointIsInside(elements[2].translation_target, goalZone)
+  );
+}
+
+function pointIsInside(
+  point: { x_meters: number; y_meters: number },
+  bounds: typeof startZone,
+): boolean {
+  return (
+    point.x_meters >= bounds.minX &&
+    point.x_meters <= bounds.maxX &&
+    point.y_meters >= bounds.minY &&
+    point.y_meters <= bounds.maxY
+  );
 }
 
 function pathGeometryChanged(): boolean {
@@ -280,8 +306,8 @@ export const buildFirstPathTour: TourDefinition = {
   id: editorBasicsTourId,
   title: "Build a First Path",
   summary: "Drive from a start zone to a goal",
-  durationMinutes: 6,
-  completionMessage: "You built a start pose, a final pose, and a straight route.",
+  durationMinutes: 8,
+  completionMessage: "You built a three-point route and put its elements in drive order.",
   markers: buildMarkers,
   practicePath: createTourPracticePath,
   steps: [
@@ -290,12 +316,16 @@ export const buildFirstPathTour: TourDefinition = {
     { title: "What a path is", body: "A path is an ordered list of path elements on the field. The robot drives in a straight line from each element to the next." },
     { target: "tool-waypoint", title: "Place the start", body: "Click the highlighted Waypoint tool. Then click inside the start zone on the field.", task: "Place a waypoint inside the start zone", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => waypointAddedInside(startZone, 1) },
     { target: "path-canvas", title: "The start pose", body: "A waypoint has a position and a heading. The first waypoint sets the exact pose where the robot starts.", placement: "right" },
-    { target: "tool-waypoint", title: "Place the goal", body: "Click the Waypoint tool again. Place a second waypoint inside the goal zone.", task: "Place a waypoint inside the goal zone", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => waypointAddedInside(goalZone, 2) },
-    { title: "The final pose", body: "The last waypoint is the final pose. The robot finishes when its position and heading are inside the end tolerances." },
+    { target: "tool-waypoint", title: "Add a point between", body: "Click the Waypoint tool again. Place a second waypoint somewhere between the start and goal zones.", task: "Place a waypoint between the two zones", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], completeWhen: () => waypointAddedInside(middleZone, 2) },
+    { target: "inspector-panel", title: "The newest anchor is the End", body: "The last anchor in the list is the End, even when it sits near the middle of the field. Field position does not control drive order.", placement: "left", prepare: { inspector: "open", inspectorTab: "elements" } },
+    { target: "tool-waypoint", title: "Insert the goal", body: "The Start is selected. Add a waypoint inside the goal zone. BLine inserts it after the selected row.", task: "Add the goal after Start", keys: ["1"], placement: "right", interact: ["tool-waypoint", "path-canvas"], prepare: { selectElement: 0 }, completeWhen: () => waypointAddedInside(goalZone, 3) },
+    { target: "inspector-panel", title: "Read the mistake", body: "The list now sends the robot to the goal, then back to the middle point. The final row is always the End.", placement: "left", prepare: { inspector: "open", inspectorTab: "elements" } },
+    { target: "inspector-panel", title: "Fix the drive order", body: "Drag the bottom row up one place. The list should read Start, middle, End.", task: "Move the bottom row above the goal", placement: "left", interact: ["inspector-panel"], completeWhen: pathHasStartMiddleGoalOrder },
+    { title: "The final pose", body: "The last waypoint is now the final pose. The robot finishes when its position and heading are inside the end tolerances." },
     { target: "path-canvas", title: "Move an element", body: "You are back on the Select tool. Drag a waypoint and watch the segment follow it.", task: "Drag either waypoint", keys: ["←", "↑", "↓", "→"], placement: "right", interact: ["path-canvas"], prepare: { tool: "select" }, completeWhen: pathGeometryChanged },
     { target: "element-properties", title: "Type exact values", body: "Select a waypoint. Type an exact X and Y in Element Properties.", task: "Edit a waypoint position", placement: "left", interact: ["element-properties"], prepare: { inspector: "open", inspectorTab: "elements" }, completeWhen: selectedWaypointPropertyWasEdited },
     { target: "transport-play", title: "Play the preview", body: "Press Play under the field. The preview shows how the robot follows your path.", task: "Play the preview", keys: ["Space"], placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
-    { title: "What you built", body: "You set a start pose, a final pose, and a straight route. The next lesson shapes the route between them." },
+    { title: "What you built", body: "You set a start pose, an intermediate point, and a final pose. You also set the order in which the robot visits them." },
   ],
 };
 
@@ -318,6 +348,7 @@ export const shapeRouteTour: TourDefinition = {
     { target: "path-canvas", title: "The handoff radius", body: "The dashed circle is the handoff radius. Its matching distance chip is in Constraints.", placement: "right" },
     { target: "max-velocity-card", title: "Tune the handoff", body: "Select the radius chip aligned with your translation target. Choose Manual, then enter a new distance.", task: "Change the target's handoff radius", placement: "left", interact: ["max-velocity-card"], prepare: { inspector: "open", inspectorTab: "constraints" }, completeWhen: selectedHandoffRadiusWasEdited },
     { title: "Choose the radius", body: "A larger radius starts the turn earlier and cuts the corner. A smaller radius makes the robot visit the point closely." },
+    { target: "max-velocity-card", title: "Regenerate the constraints", body: "Click Generate after setting the radius. Your Manual value stays fixed while BLine recalculates the Auto constraints.", task: "Generate the remaining constraints", placement: "left", interact: ["max-velocity-card"], prepare: { inspector: "open", inspectorTab: "constraints" }, completeWhen: velocityPlanWasGenerated },
     { target: "transport-play", title: "Confirm the route", body: "Play the preview. Confirm the robot clears the structure.", task: "Play the preview", placement: "above", interact: ["simulation-transport"], completeWhen: simulationWasPlayed },
     { title: "Fewest elements win", body: "Every added element creates another handoff. Use the fewest elements that describe the route clearly." },
   ],

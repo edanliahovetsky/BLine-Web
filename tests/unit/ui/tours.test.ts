@@ -7,7 +7,7 @@ describe("guided lesson content", () => {
 
     for (const tour of tours) {
       expect(tour.steps.length).toBeGreaterThanOrEqual(11);
-      expect(tour.steps.length).toBeLessThanOrEqual(13);
+      expect(tour.steps.length).toBeLessThanOrEqual(15);
       expect(tour.durationMinutes).toBeGreaterThan(0);
       expect(tour.summary).not.toMatch(/[—–]/);
       expect(tour.completionMessage).not.toMatch(/[—–]/);
@@ -53,6 +53,25 @@ describe("guided lesson content", () => {
     expect(behavior?.markers?.[0]?.xMeters).toBeGreaterThan(13);
   });
 
+  it("teaches drive order with a misplaced middle waypoint", () => {
+    const firstPath = tours.find((tour) => tour.id === "build-first-path");
+    const middleIndex = firstPath?.steps.findIndex(
+      (step) => step.title === "Add a point between",
+    );
+    const goalIndex = firstPath?.steps.findIndex(
+      (step) => step.title === "Insert the goal",
+    );
+    const reorderStep = firstPath?.steps.find(
+      (step) => step.title === "Fix the drive order",
+    );
+
+    expect(middleIndex).toBeGreaterThan(-1);
+    expect(goalIndex).toBeGreaterThan(middleIndex ?? -1);
+    expect(firstPath?.steps[goalIndex ?? -1]?.prepare?.selectElement).toBe(0);
+    expect(reorderStep?.interact).toContain("inspector-panel");
+    expect(reorderStep?.completeWhen).toBeTypeOf("function");
+  });
+
   it("teaches handoff radii through the Constraints ledger", () => {
     const shape = tours.find((tour) => tour.id === "shape-route");
     const radiusStep = shape?.steps.find(
@@ -62,5 +81,11 @@ describe("guided lesson content", () => {
     expect(radiusStep?.target).toBe("max-velocity-card");
     expect(radiusStep?.prepare?.inspectorTab).toBe("constraints");
     expect(radiusStep?.interact).toContain("max-velocity-card");
+
+    const regenerateStep = shape?.steps.find(
+      (step) => step.title === "Regenerate the constraints",
+    );
+    expect(regenerateStep?.target).toBe("max-velocity-card");
+    expect(regenerateStep?.completeWhen).toBeTypeOf("function");
   });
 });

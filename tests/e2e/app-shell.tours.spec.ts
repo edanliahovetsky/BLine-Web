@@ -55,7 +55,7 @@ test("runs lessons in an isolated practice session", async ({ page }) => {
   );
 });
 
-test("builds the first path with visible goals and manual Continue gates", async ({
+test("builds and orders the first path with manual Continue gates", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -73,7 +73,7 @@ test("builds the first path with visible goals and manual Continue gates", async
     .click();
   await clickFieldPoint(page, 8, 2);
   await expect(card).toContainText("Done. Keep experimenting or continue.");
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 11");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 15");
   await card.getByRole("button", { name: "Next", exact: true }).click();
 
   await expect(card).toContainText("The start pose");
@@ -81,9 +81,50 @@ test("builds the first path with visible goals and manual Continue gates", async
   await page
     .getByRole("button", { name: "Waypoint tool", exact: true })
     .click();
+  await clickFieldPoint(page, 10, 3.2);
+  await expect(card).toContainText("Done. Keep experimenting or continue.");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 15");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+
+  await expect(card).toContainText("The newest anchor is the End");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Waypoint tool", exact: true })
+    .click();
   await clickFieldPoint(page, 12.5, 4.8);
   await expect(card).toContainText("Done. Keep experimenting or continue.");
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 6 of 11");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+
+  await expect(card).toContainText("Read the mistake");
+  await expect(page.getByTestId("path-element-row-1")).toContainText(
+    "12.50, 4.80 m",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "10.00, 3.20 m",
+  );
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+
+  const middleRow = await requiredBox(page.getByTestId("path-element-row-2"));
+  const goalRow = await requiredBox(page.getByTestId("path-element-row-1"));
+  await page.mouse.move(
+    middleRow.x + middleRow.width / 2,
+    middleRow.y + middleRow.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    goalRow.x + goalRow.width / 2,
+    goalRow.y + goalRow.height / 2,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+
+  await expect(card).toContainText("Done. Keep experimenting or continue.");
+  await expect(page.getByTestId("path-element-row-1")).toContainText(
+    "10.00, 3.20 m",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "12.50, 4.80 m",
+  );
 });
 
 test("stages field actions beside target-relative dialogue and fades for inspection", async ({
@@ -153,6 +194,14 @@ test("tunes the Shape lesson handoff radius through Constraints", async ({
   const radius = page.getByLabel("Handoff radius 2 value");
   await radius.fill("1.1");
   await radius.press("Enter");
+  await expect(card).toContainText("Done. Keep experimenting or continue.");
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
+
+  await expect(card).toContainText("Regenerate the constraints");
+  await page
+    .getByRole("button", { name: "Generate constraints", exact: true })
+    .click();
   await expect(card).toContainText("Done. Keep experimenting or continue.");
 });
 
