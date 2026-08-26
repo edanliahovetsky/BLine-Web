@@ -147,100 +147,107 @@ export function ElementList({
       onToggle={onToggleSection}
     >
       {elements.length > 0 ? (
-        <ol
-          ref={listRef}
-          className="path-element-list"
-          aria-label="Path elements"
-        >
-          {elements.map((element, index) => {
-            const selected = selectedElementIndexes.includes(index);
-            const position = getElementPosition(elements, index);
-            const type = elementTypeValue(element);
+        <>
+          <ol
+            ref={listRef}
+            className="path-element-list"
+            aria-label="Path elements"
+          >
+            {elements.map((element, index) => {
+              const selected = selectedElementIndexes.includes(index);
+              const position = getElementPosition(elements, index);
+              const type = elementTypeValue(element);
 
-            return (
-              <li
-                key={`${element.type}-${index}`}
-                ref={
-                  selectedElementIndex === index ? selectedRowRef : undefined
-                }
-                className={[
-                  selected ? "is-selected" : "",
-                  dragIndex === index ? "is-dragging" : "",
-                  dragOverIndex === index ? "is-drop-target" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                data-testid={`path-element-item-${index}`}
-                data-path-element-index={index}
-              >
-                <button
-                  type="button"
-                  className="path-element-row"
-                  data-testid={`path-element-row-${index}`}
-                  aria-label={elementRowAccessibleLabel(
-                    elementTypeLabel(element),
-                    index,
-                    elements.length,
-                    formatPointMeters(position),
-                  )}
-                  aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
-                  aria-pressed={selected}
-                  onMouseDown={(event) => handleMouseDown(event, index)}
-                  onClick={(event) => {
-                    if (suppressClickRef.current) {
-                      suppressClickRef.current = false;
-                      return;
-                    }
-                    onSelectElement(index, orderedSelectionGesture(event));
-                  }}
+              return (
+                <li
+                  key={`${element.type}-${index}`}
+                  ref={
+                    selectedElementIndex === index ? selectedRowRef : undefined
+                  }
+                  className={[
+                    selected ? "is-selected" : "",
+                    dragIndex === index ? "is-dragging" : "",
+                    dragOverIndex === index ? "is-drop-target" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  data-testid={`path-element-item-${index}`}
+                  data-path-element-index={index}
                 >
-                  <span className="drag-grip" aria-hidden="true">
-                    <GripIcon />
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className={`element-type-mark type-${type}`}
-                  >
-                    <ElementIcon type={type} />
-                  </span>
-                  <span className="visually-hidden">
-                    {index + 1}. {elementTypeLabel(element)}{" "}
-                    {formatPointMeters(position)}
-                  </span>
-                  {index === 0 || index === elements.length - 1 ? (
-                    <span
-                      className="path-element-row__role"
-                      title={
-                        index === 0
-                          ? "Start of the path"
-                          : "Final target — the path finishes here by tolerance, not by a handoff"
+                  <button
+                    type="button"
+                    className="path-element-row"
+                    data-testid={`path-element-row-${index}`}
+                    aria-label={elementRowAccessibleLabel(
+                      elementTypeLabel(element),
+                      index,
+                      elements.length,
+                      formatPointMeters(position),
+                    )}
+                    aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
+                    aria-pressed={selected}
+                    onMouseDown={(event) => handleMouseDown(event, index)}
+                    onClick={(event) => {
+                      if (suppressClickRef.current) {
+                        suppressClickRef.current = false;
+                        return;
                       }
-                    >
-                      {index === 0 ? "Start" : "End"}
+                      onSelectElement(index, orderedSelectionGesture(event));
+                    }}
+                  >
+                    <span className="drag-grip" aria-hidden="true">
+                      <GripIcon />
                     </span>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  className="duplicate-element-button"
-                  aria-label={`Duplicate ${elementTypeLabel(element)} ${index + 1}`}
-                  title="Duplicate element"
-                  onClick={() => onDuplicateElement(index)}
-                >
-                  <CopyIcon />
-                </button>
-                <button
-                  type="button"
-                  className="remove-element-button"
-                  aria-label={`Remove ${elementTypeLabel(element)} ${index + 1}`}
-                  onClick={() => onRemoveElement(index)}
-                >
-                  <RemoveIcon />
-                </button>
-              </li>
-            );
-          })}
-        </ol>
+                    <span
+                      aria-hidden="true"
+                      className={`element-type-mark type-${type}`}
+                    >
+                      <ElementIcon type={type} />
+                    </span>
+                    <span className="visually-hidden">
+                      {index + 1}. {elementTypeLabel(element)}{" "}
+                      {formatPointMeters(position)}
+                    </span>
+                    {index === 0 || index === elements.length - 1 ? (
+                      <span
+                        className="path-element-row__role"
+                        title={
+                          index === 0
+                            ? "Start of the path"
+                            : "Final target — the path finishes here by tolerance, not by a handoff"
+                        }
+                      >
+                        {index === 0 ? "Start" : "End"}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="duplicate-element-button"
+                    aria-label={`Duplicate ${elementTypeLabel(element)} ${index + 1}`}
+                    title="Duplicate element"
+                    onClick={() => onDuplicateElement(index)}
+                  >
+                    <CopyIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className="remove-element-button"
+                    aria-label={`Remove ${elementTypeLabel(element)} ${index + 1}`}
+                    onClick={() => onRemoveElement(index)}
+                  >
+                    <RemoveIcon />
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          {elements.length > 1 ? (
+            <p className="bulk-selection-hint path-elements-selection-hint">
+              Shift-click selects a range · ⌘/Ctrl-click toggles elements.
+            </p>
+          ) : null}
+        </>
       ) : (
         <div className="sidebar-empty-state">No path elements</div>
       )}

@@ -573,6 +573,11 @@ test("range-selects and toggles elements for shared property editing", async ({
     "2 selected element properties",
   );
   await expect(page.getByText("2 elements selected")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Shift-click selects a range · ⌘/Ctrl-click toggles elements.",
+    ),
+  ).toBeVisible();
   await expect(page.getByLabel("X (m)")).toHaveValue("");
 
   await second.click({ modifiers: [toggleModifier] });

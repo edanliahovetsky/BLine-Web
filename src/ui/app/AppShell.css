@@ -1417,6 +1417,10 @@ select {
   box-shadow: inset 0 2px 0 #58a6ff;
 }
 
+.path-elements-selection-hint {
+  padding: 0 8px 6px;
+}
+
 .path-element-row {
   display: grid;
   grid-template-columns: 18px 22px minmax(0, 1fr);
