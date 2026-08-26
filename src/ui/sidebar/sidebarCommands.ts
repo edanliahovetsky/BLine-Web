@@ -332,7 +332,7 @@ export function createDefaultElement(
 
   return createEventTrigger({
     t_ratio: 0.5,
-    lib_key: "event",
+    lib_key: "",
   });
 }
 
@@ -392,7 +392,7 @@ export function createConvertedElement(
 
   return createEventTrigger({
     t_ratio: ratio ?? 0.5,
-    lib_key: isEventTrigger(element) ? element.lib_key : "event",
+    lib_key: isEventTrigger(element) ? element.lib_key : "",
   });
 }
 

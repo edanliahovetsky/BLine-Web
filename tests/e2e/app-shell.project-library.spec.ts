@@ -30,6 +30,18 @@ import {
 } from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
+test("opens New Path directly from the File menu", async ({ page }) => {
+  await gotoSampleEditor(page);
+
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "New Path", exact: true }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Create New Path" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test("creates path collections and new paths with default collection membership", async ({
   page,
 }) => {
@@ -715,6 +727,9 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
 
   await openProjectMenu(page);
   await expect(page.getByTestId("top-menu-project")).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "New Path", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Workspace" })).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Import / Export" }),

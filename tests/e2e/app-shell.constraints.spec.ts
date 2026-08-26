@@ -1,10 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { canvasNodePosition, pointDistance } from "./support/app-shell-canvas";
 import { openConstraintsTab } from "./support/app-shell-constraints";
+import {
+  installWorkspaceWriteSpy,
+  resetWorkspaceWriteSpy,
+  workspaceWriteCount,
+} from "./support/app-shell-persistence";
 import { openPathMenu } from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
-test("opens a polished expanded editor for an individual constraint", async ({
+test("keeps the expanded constraint editor out of the current UI", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -13,46 +18,13 @@ test("opens a polished expanded editor for an individual constraint", async ({
   await page
     .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
     .click();
-  const expandButton = page.getByRole("button", {
-    name: "Expand Max Velocity editor",
-  });
-  await expandButton.click();
-
-  const dialog = page.getByRole("dialog", {
-    name: "Max Velocity expanded editor",
-  });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toBeFocused();
-  await expect(dialog).not.toContainText(
-    "Changes apply immediately to the path and stay synchronized with the inspector.",
-  );
-  await expect(dialog).not.toContainText("Drag to move");
-  await expect(expandButton).toHaveText("");
   await expect(
-    dialog.getByRole("listbox", { name: "Max Velocity segments" }),
+    page.getByRole("button", { name: "Expand Max Velocity editor" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("listbox", { name: "Max Velocity segments" }),
   ).toBeVisible();
-
-  const dragHandle = dialog.getByTestId("constraint-popout-drag-handle");
-  const beforeDrag = await requiredBox(dialog);
-  const dragBox = await requiredBox(dragHandle);
-  await page.mouse.move(
-    dragBox.x + dragBox.width / 2,
-    dragBox.y + dragBox.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    dragBox.x + dragBox.width / 2 - 80,
-    dragBox.y + dragBox.height / 2 + 36,
-    { steps: 4 },
-  );
-  await page.mouse.up();
-  const afterDrag = await requiredBox(dialog);
-  expect(afterDrag.x).toBeLessThan(beforeDrag.x - 40);
-  expect(afterDrag.y).toBeGreaterThan(beforeDrag.y + 20);
-
-  await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
-  await expect(expandButton).toBeFocused();
+  await expect(page.getByTestId("constraint-popout-window")).toHaveCount(0);
 });
 
 test("adds edits and deletes ranged constraints", async ({ page }) => {
@@ -462,6 +434,7 @@ test("uses range and toggle selection for velocity segments", async ({
 test("refreshes the generated policy in the background after a path edit", async ({
   page,
 }) => {
+  await installWorkspaceWriteSpy(page);
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
 
@@ -474,6 +447,8 @@ test("refreshes the generated policy in the background after a path edit", async
   await page.getByLabel("Delete constraint 1").click();
   await card.getByRole("button", { name: "Generate constraints" }).click();
   await expect(status).toHaveText("Up to date");
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await resetWorkspaceWriteSpy(page);
 
   await page.getByRole("tab", { name: "Elements", exact: true }).click();
   await page.getByTestId("path-element-row-1").click();
@@ -483,7 +458,15 @@ test("refreshes the generated policy in the background after a path edit", async
   // The current traces the Constraints tab, so a solve is visible from the
   // Elements tab too.
   await expect(constraintsTab).toHaveClass(/is-optimizing/);
+  const saveStatus = page.getByTestId("save-status");
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("🚀");
   await expect(constraintsTab).not.toHaveClass(/is-optimizing/);
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("✅");
+  expect(await workspaceWriteCount(page)).toBeGreaterThanOrEqual(2);
 
   await openConstraintsTab(page);
   await expect(status).toHaveText("Up to date");
@@ -503,12 +486,12 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
 
   await expect(page.getByTestId("auto-velocity-controls")).toHaveCount(0);
   await expect(
-    page.getByText("Optimizer settings", { exact: true }),
+    page.getByText("Generator settings", { exact: true }),
   ).toHaveCount(0);
 
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
-  await dialog.getByRole("button", { name: "Optimizer" }).click();
+  await dialog.getByRole("button", { name: "Generator" }).click();
 
   await expect(dialog.getByLabel("Keep in sync")).toBeChecked();
   await expect(dialog.getByLabel("Velocity safety factor")).toHaveValue("1");
@@ -520,7 +503,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
   await dialog.getByLabel("Keep in sync").uncheck();
   await dialog.getByRole("button", { name: "Save" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("button", { name: "Optimizer" }).click();
+  await page.getByRole("button", { name: "Generator" }).click();
   await expect(page.getByLabel("Keep in sync")).not.toBeChecked();
 });
 
@@ -572,7 +555,7 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   await gotoSampleEditor(page);
   await page.getByRole("button", { name: "Settings" }).click();
   const settingsDialog = page.getByRole("dialog", { name: "Edit Config" });
-  await settingsDialog.getByRole("button", { name: "Optimizer" }).click();
+  await settingsDialog.getByRole("button", { name: "Generator" }).click();
   await settingsDialog.getByLabel("Merge difference (m/s)").fill("20");
   await settingsDialog.getByRole("button", { name: "Save" }).click();
   await openConstraintsTab(page);

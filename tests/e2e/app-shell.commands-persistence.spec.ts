@@ -494,9 +494,7 @@ test("keeps disabled palette actions inert and restores focus on Escape", async 
 }) => {
   await gotoSampleEditor(page);
 
-  const trigger = page.getByRole("button", {
-    name: "Search commands and paths",
-  });
+  const trigger = page.getByRole("button", { name: "Help and tutorials" });
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
   await trigger.focus();
   await page.keyboard.press(`${shortcut}+K`);

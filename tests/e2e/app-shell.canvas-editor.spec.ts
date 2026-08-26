@@ -333,7 +333,7 @@ test("creates every path element type from the inspector menu", async ({
     "Waypoint",
   ]);
   await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.5");
-  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
 test("places every path element type with the canvas tools", async ({
@@ -406,7 +406,7 @@ test("places every path element type with the canvas tools", async ({
     "Translation",
   ]);
   await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.75");
-  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
 test("draws curves at the requested insertion point and cancels safely", async ({
@@ -886,25 +886,153 @@ test("marks the start and end of the path in the element list", async ({
   await expect(page.locator(".path-element-row__role")).toHaveCount(2);
 });
 
-test("escalates path health styling for errors and names the count", async ({
+test("highlights, dismisses, and resolves path health issues", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
 
-  const health = page.getByRole("button", { name: /^Path health/ });
-  await expect(health).toHaveAttribute(
-    "title",
-    "Path health — editor checks for this path",
-  );
-  await expect(health).not.toHaveClass(/has-diagnostics/);
+  await expect(
+    page.getByRole("button", { name: /^Path health/ }),
+  ).toHaveCount(0);
 
   // An event trigger with no command key is a warning-level issue.
   await page.getByText("Add element").click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await page.getByLabel("Lib Key").fill("");
 
-  await expect(health).toHaveClass(/has-diagnostics--warning/);
-  await expect(health).toHaveAttribute("title", /issue/);
+  const health = page.getByRole("button", { name: "Path health: 1 issue" });
+  await expect(health).toHaveClass(/workspace-status__diagnostics--warning/);
+  await expect(
+    page
+      .locator(".inspector-sidebar__status")
+      .getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
+  await health.click();
+  const openHealthDialog = page.getByRole("dialog", { name: "Path health" });
+  await expect(openHealthDialog).toContainText(
+    "command key empty",
+  );
+  expect(
+    await openHealthDialog.evaluate((popover) => {
+      const bounds = popover.getBoundingClientRect();
+      const inspector = popover.closest(".inspector-sidebar");
+      const inspectorBounds = inspector?.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        bounds.left + 6,
+        bounds.top + bounds.height / 2,
+      );
+      return Boolean(
+        inspectorBounds &&
+          bounds.left < inspectorBounds.left &&
+          hit &&
+          popover.contains(hit),
+      );
+    }),
+  ).toBe(true);
+  await expect(
+    page.getByRole("dialog", { name: "Path health" }),
+  ).not.toContainText("Fix these before heading to the robot");
+  await page.getByRole("button", { name: "Fit view" }).click();
+  await expect(page.getByRole("dialog", { name: "Path health" })).toHaveCount(
+    0,
+  );
+  await expect(health).toHaveAttribute("aria-expanded", "false");
+
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+  await expect(
+    page
+      .locator(".workspace-status--floating")
+      .getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
+  await expect(health).toHaveText("");
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+
+  await openConstraintsTab(page);
+  await expect(page.getByRole("tab", { name: /Constraints/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await health.click();
+  const dialog = page.getByRole("dialog", { name: "Path health" });
+  await dialog
+    .getByRole("button")
+    .filter({ hasText: "command key empty" })
+    .click();
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
+  await expect(page.getByLabel("Lib Key")).toHaveAttribute(
+    "placeholder",
+    "No action",
+  );
+  await expect(page.getByLabel("Lib Key")).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(dialog).toHaveCount(0);
+  await expect(health).toHaveAttribute("aria-expanded", "false");
+  await page.getByLabel("Lib Key").fill("intake");
+  await expect(
+    page.getByRole("button", { name: /^Path health/ }),
+  ).toHaveCount(0);
+});
+
+test("shows persistent save feedback in the sidebar and collapsed canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+  await page.getByTestId("path-stage").focus();
+  await page.keyboard.press("ArrowRight");
+
+  const saveStatus = page.getByTestId("save-status");
+  const floatingStatus = page.locator(".workspace-status--floating");
+  await expect(floatingStatus).toBeVisible();
+  await expect(saveStatus).toBeVisible();
+  await expect(saveStatus).toContainText("Saving");
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("🚀");
+
+  await expect(saveStatus).toContainText("Saved");
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("✅");
+  await expect(floatingStatus).toBeVisible();
+  await page.waitForTimeout(2_100);
+  await expect(saveStatus).toBeVisible();
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("✅");
+});
+
+test("adds missing waypoints from path health as one undoable fix", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewProject(page);
+
+  const rows = page.locator('[data-testid^="path-element-row-"]');
+  await expect(rows).toHaveCount(0);
+
+  const health = page.getByRole("button", { name: "Path health: 1 issue" });
+  await health.click();
+  const dialog = page.getByRole("dialog", { name: "Path health" });
+  await expect(dialog).toContainText("Add two waypoints");
+  await dialog
+    .getByRole("button")
+    .filter({ hasText: "Add two waypoints" })
+    .click();
+
+  await expect(rows).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: /^Path health/ }),
+  ).toHaveCount(0);
+
+  await runEditMenuAction(page, "Undo");
+  await expect(rows).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
 });
 
 test("keeps the element properties card tight to its content", async ({

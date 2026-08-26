@@ -28,7 +28,7 @@ test("edits project config with undo support", async ({ page }) => {
     "Robot",
     "Path Defaults",
     "Field",
-    "Optimizer",
+    "Generator",
   ]);
   await expect(
     dialog.getByRole("heading", { name: "Auto Velocity" }),
@@ -37,12 +37,12 @@ test("edits project config with undo support", async ({ page }) => {
     "aria-current",
     "page",
   );
-  await dialog.getByRole("button", { name: "Optimizer" }).click();
+  await dialog.getByRole("button", { name: "Generator" }).click();
   await expect(
     dialog.getByRole("heading", { name: "Constraint Generation" }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("heading", { name: "Optimizer" }),
+    dialog.getByRole("heading", { name: "Generator" }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Robot" }).click();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
@@ -133,8 +133,21 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
   await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
   await expect(page.getByRole("button", { name: /^Path health/ })).toHaveClass(
-    /has-diagnostics--warning/,
+    /workspace-status__diagnostics--warning/,
   );
+
+  // A repairable warning moves its waypoint to the nearest valid coordinate.
+  await page.getByRole("button", { name: /^Path health/ }).click();
+  const healthDialog = page.getByRole("dialog", { name: "Path health" });
+  await healthDialog
+    .getByRole("button")
+    .filter({ hasText: "Element 1 is outside" })
+    .click();
+  await expect(page.getByLabel("X (m)")).toHaveValue("3.5");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("1.5");
+  await runEditMenuAction(page, "Undo");
+  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
 
   // Numeric edits can recover preserved overflow gradually, but cannot move
   // farther away from the active field's effective coordinate bounds.

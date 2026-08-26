@@ -6,7 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ChangeEvent, CSSProperties } from "react";
+import type { ChangeEvent, CSSProperties, RefObject } from "react";
+import { CircleAlert } from "lucide-react";
 import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { activeProjectPath } from "../../core/model/editorNavigation";
@@ -17,6 +18,7 @@ import {
 } from "../../core/io/workspaceConflictDiff";
 import {
   defaultFieldId,
+  fieldCoordinateBounds,
   resolveUserFieldDefinition,
   type FieldBackgroundEntry,
 } from "../../core/field/fieldConfig";
@@ -34,7 +36,10 @@ import {
   saveBlobAs,
 } from "../../platform/fileExport";
 import type { AutosaveStatus } from "../../state/autosave";
-import { autoVelocityStore } from "../../state/autoVelocityStore";
+import {
+  autoVelocityStore,
+  type AutoVelocityPhase,
+} from "../../state/autoVelocityStore";
 import {
   canGenerateAutomaticConstraints,
   generateAutomaticConstraints,
@@ -79,7 +84,10 @@ import {
   type EditorTool,
   type EditorUiPreferencesV1,
 } from "./editorCommands";
-import { derivePathDiagnostics } from "./pathDiagnostics";
+import {
+  derivePathDiagnostics,
+  type PathDiagnostic,
+} from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
 import {
@@ -115,7 +123,7 @@ import {
 } from "./LinkedTargetsDialog";
 import { PathLibraryDialog } from "./PathLibraryDialog";
 import type { TopMenuId } from "./ToolbarMenus";
-import { AppToolbar } from "./AppToolbar";
+import { AppToolbar, PathHealthPopover } from "./AppToolbar";
 
 interface PathNameAction {
   kind: "duplicate" | "rename";
@@ -160,6 +168,10 @@ export function AppShell() {
     (state) => state.projectSessionId,
   );
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
+  const projectRevision = useStoreSelector(
+    projectStore,
+    (state) => state.revision,
+  );
   const projectTransitionInProgress = useStoreSelector(
     projectStore,
     (state) => state.projectTransitionInProgress,
@@ -234,6 +246,7 @@ export function AppShell() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
+  const pathHealthControlRef = useRef<HTMLDivElement | null>(null);
   const [showHelpHub, setShowHelpHub] = useState(false);
   const [toursSupported, setToursSupported] = useState(
     () =>
@@ -244,6 +257,9 @@ export function AppShell() {
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
   );
+  const [inspectorTab, setInspectorTab] = useState<
+    "elements" | "constraints"
+  >(() => readEditorUiPreferences().inspectorTab);
   const [inspectorWidth, setInspectorWidth] = useState(
     () => readEditorUiPreferences().inspectorWidth,
   );
@@ -295,14 +311,39 @@ export function AppShell() {
     dirty,
     durableProject,
     lastSavedAt,
+    projectRevision,
     isPersistenceBlocked: () => configSaveInProgressRef.current,
     prepareClose: () => tourSessionRef.current?.restore(),
     projectIo,
-    onEditorLayoutLoaded: ({ inspectorWidth, showGhostPaths }) => {
+    onEditorLayoutLoaded: ({ inspectorTab, inspectorWidth, showGhostPaths }) => {
+      setInspectorTab(inspectorTab);
       setInspectorWidth(inspectorWidth);
       setShowGhostPaths(showGhostPaths);
     },
   });
+
+  useEffect(() => {
+    if (!showPathHealth) {
+      return;
+    }
+
+    const closePathHealthOutside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !pathHealthControlRef.current?.contains(event.target)
+      ) {
+        setShowPathHealth(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closePathHealthOutside, true);
+    return () =>
+      document.removeEventListener(
+        "pointerdown",
+        closePathHealthOutside,
+        true,
+      );
+  }, [showPathHealth]);
 
   useEffect(() => {
     tourViewRef.current = {
@@ -390,6 +431,7 @@ export function AppShell() {
         writeEditorUiPreferences(view.editorPreferences);
         setFieldSelectionOverride(view.fieldSelectionOverride);
         setInspectorOpen(view.inspectorOpen);
+        setInspectorTab(view.editorPreferences.inspectorTab);
         setInspectorWidth(view.inspectorWidth);
         setActiveTool(view.activeTool);
         setAutosaveStatus(view.autosaveStatus);
@@ -1440,10 +1482,6 @@ export function AppShell() {
     activePath && selectedElementIndex !== null
       ? getElementPosition(activePath.path.path_elements, selectedElementIndex)
       : null;
-  const selectedSummary =
-    selectedElement && selectedElementIndex !== null
-      ? `Selected: ${getElementLabel(selectedElement)} #${selectedElementIndex + 1} ${formatPointMeters(selectedPosition)}`
-      : "Selected: none";
   const ioCapabilities = projectIo?.capabilities;
   const supportsProjectFolders = Boolean(
     ioCapabilities?.supportsProjectFolders,
@@ -1490,6 +1528,7 @@ export function AppShell() {
     error,
     initializing,
     lastSavedAt,
+    optimizerPhase,
     status,
   });
   const saveStatusTone = getSaveStatusTone({
@@ -1498,6 +1537,7 @@ export function AppShell() {
     error,
     initializing,
     lastSavedAt,
+    optimizerPhase,
     status,
   });
   const pathDiagnostics = useMemo(
@@ -1508,6 +1548,110 @@ export function AppShell() {
         durableProject?.linked_targets ?? [],
       ),
     [activeField.geometry, activePath, durableProject],
+  );
+  const handleResolvePathDiagnostic = useCallback(
+    (diagnostic: PathDiagnostic) => {
+      const state = projectStore.getState();
+      if (state.projectTransitionInProgress) {
+        return;
+      }
+
+      const project = state.project;
+      const currentPath = activeProjectPath(project, state.activePathId);
+      if (!project || !currentPath) {
+        return;
+      }
+
+      const fix = diagnostic.fix;
+      let focusIndex = diagnostic.elementIndex ?? null;
+
+      if (fix?.kind === "add-anchors") {
+        const insertionIndex = currentPath.path.path_elements.length;
+        const workingPath = structuredClone(currentPath.path);
+        const elements = Array.from({ length: fix.count }, () => {
+          const previousIndex = workingPath.path_elements.length - 1;
+          const element = createDefaultElement(
+            workingPath,
+            project.config,
+            "waypoint",
+            previousIndex >= 0 ? previousIndex : null,
+            activeField.geometry,
+          );
+          workingPath.path_elements.push(element);
+          return element;
+        });
+        const result = projectStore.getState().applyPathStructureEdit(
+          { kind: "insert-many", index: insertionIndex, elements },
+          {
+            pathId: currentPath.path_id,
+            selectedElementIndex:
+              selectionStore.getState().selectedElementIndex,
+          },
+        );
+        if (result.status === "applied") {
+          focusIndex = insertionIndex + elements.length - 1;
+        }
+      } else if (fix?.kind === "focus-event-key") {
+        setInspectorTab("elements");
+        writeEditorUiPreferences({
+          ...readEditorUiPreferences(),
+          inspectorTab: "elements",
+        });
+        window.requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLInputElement>(
+              '[data-testid="property-editor"] input[aria-label="Lib Key"]',
+            )
+            ?.focus();
+        });
+      } else if (fix?.kind === "move-inside-field") {
+        const position = getElementPosition(
+          currentPath.path.path_elements,
+          fix.elementIndex,
+        );
+        if (position) {
+          const bounds = fieldCoordinateBounds(activeField.geometry);
+          projectStore.getState().applyPathElementEdit(
+            {
+              kind: "position",
+              index: fix.elementIndex,
+              position: {
+                x_meters: clampCoordinateToBounds(
+                  position.x_meters,
+                  bounds.minX,
+                  bounds.maxX,
+                ),
+                y_meters: clampCoordinateToBounds(
+                  position.y_meters,
+                  bounds.minY,
+                  bounds.maxY,
+                ),
+              },
+            },
+            { pathId: currentPath.path_id },
+          );
+        }
+      } else if (fix?.kind === "remove-missing-link") {
+        projectStore
+          .getState()
+          .unlinkPathElement(currentPath.path_id, fix.elementIndex);
+      }
+
+      if (focusIndex !== null) {
+        selectionStore
+          .getState()
+          .selectElement(
+            focusIndex,
+            activeProjectPath(
+              projectStore.getState().project,
+              projectStore.getState().activePathId,
+            )?.path,
+          );
+        setInspectorOpen(true);
+      }
+      setShowPathHealth(false);
+    },
+    [activeField.geometry],
   );
   const handleSelectPathFromToolbar = useCallback((pathId: string) => {
     if (projectStore.getState().projectTransitionInProgress) {
@@ -1852,6 +1996,24 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
 
+  const workspaceStatusVisible = Boolean(durableProject);
+  const workspaceStatus = workspaceStatusVisible ? (
+    <WorkspaceStatus
+      compact={!inspectorOpen}
+      diagnostics={pathDiagnostics}
+      saveCommand={saveCommand}
+      saveStatus={saveStatus}
+      saveStatusTone={saveStatusTone}
+      showPathHealth={showPathHealth}
+      storageLabel={storageLabel}
+      controlRef={pathHealthControlRef}
+      onResolveDiagnostic={handleResolvePathDiagnostic}
+      onTogglePathHealth={() =>
+        setShowPathHealth((current) => !current)
+      }
+    />
+  ) : null;
+
   return (
     <main
       className="app-shell"
@@ -1871,8 +2033,6 @@ export function AppShell() {
           toolbarBusy,
           undoLabel,
           redoLabel,
-          pathDiagnostics,
-          saveError: error,
           toursSupported,
         }}
         commands={{
@@ -1893,25 +2053,10 @@ export function AppShell() {
         }}
         panels={{
           showOpenPanel,
-          showPathHealth,
           showHelpHub,
           inspectorOpen,
           openCommandPalette: () => setShowCommandPalette(true),
           closeOpenPanel: () => setShowOpenPanel(false),
-          togglePathHealth: () => {
-            setShowHelpHub(false);
-            setShowPathHealth((current) => !current);
-          },
-          closePathHealth: () => setShowPathHealth(false),
-          selectDiagnostic: (diagnostic) => {
-            if (diagnostic.elementIndex !== undefined) {
-              selectionStore
-                .getState()
-                .selectElement(diagnostic.elementIndex, activePath?.path);
-              setInspectorOpen(true);
-            }
-            setShowPathHealth(false);
-          },
           toggleHelpHub: () => {
             setShowPathHealth(false);
             setShowHelpHub((current) => !current);
@@ -2042,9 +2187,12 @@ export function AppShell() {
               selectedElementIndex={selectedElementIndex}
               fieldGeometry={activeField.geometry}
               open={inspectorOpen}
+              activeTab={inspectorTab}
               inspectorWidth={inspectorWidth}
+              footer={inspectorOpen ? workspaceStatus : null}
               curveToolActive={curveToolSession !== null}
               onClose={() => setInspectorOpen(false)}
+              onActiveTabChange={setInspectorTab}
               onInspectorResize={(width) =>
                 setInspectorWidth(clampInspectorWidth(width))
               }
@@ -2052,63 +2200,35 @@ export function AppShell() {
               onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
               onDialogOpenChange={setInspectorDialogOpen}
             />
+            {!inspectorOpen ? workspaceStatus : null}
           </>
         )}
       </div>
 
-      <footer className="status-bar" aria-label="Workspace status">
-        <span
-          className="status-bar__selection"
-          data-testid="selected-element-status"
-          title={selectedSummary}
-        >
+      <div className="sr-only" aria-label="Workspace status">
+        <span data-testid="selected-element-status">
           {selectedElement && selectedElementIndex !== null
             ? `${getElementLabel(selectedElement)} ${selectedElementIndex + 1} · ${formatPointMeters(selectedPosition)}`
             : durableProject
               ? "Nothing selected"
               : "Ready"}
         </span>
-        <span className="status-bar__hint">
-          {durableProject
-            ? toolHint(activeTool, curveToolSession !== null)
-            : ""}
-        </span>
-        <div className="status-bar__system">
-          {pathDiagnostics.length > 0 ? (
-            <button
-              type="button"
-              className="status-bar__diagnostics"
-              onClick={() => setShowPathHealth(true)}
-            >
-              {pathDiagnostics.length}{" "}
-              {pathDiagnostics.length === 1 ? "issue" : "issues"}
-            </button>
-          ) : null}
-          <span className="sr-only" data-testid="current-path-status">
-            {currentPathSummary}
-          </span>
-          <span className="sr-only" data-testid="current-project-status">
-            {currentProjectSummary}
-          </span>
-          <span className="sr-only" data-testid="storage-status">
-            {storageLabel}
-          </span>
+        <span data-testid="current-path-status">{currentPathSummary}</span>
+        <span data-testid="current-project-status">{currentProjectSummary}</span>
+        <span data-testid="storage-status">{storageLabel}</span>
+        {!workspaceStatusVisible ? (
           <button
             type="button"
-            className={`status-bar__save status-bar__save--${saveStatusTone}`}
             data-testid="save-status"
             title={`${storageLabel}. ${saveStatus}`}
             aria-label="Save"
-            aria-live="polite"
             disabled={saveCommand.disabled}
             onClick={() => executeCommand(saveCommand)}
           >
-            <span className="status-bar__save-dot" aria-hidden="true" />
-            <span>{compactSaveStatus(saveStatus, saveStatusTone)}</span>
-            {saveStatusTone === "danger" ? <strong>Retry</strong> : null}
+            {workspaceSaveStatusLabel(saveStatusTone)}
           </button>
-        </div>
-      </footer>
+        ) : null}
+      </div>
 
       {durableProject && showConfigDialog ? (
         <ProjectConfigDialog
@@ -2274,6 +2394,104 @@ export function AppShell() {
         }}
       />
     </main>
+  );
+}
+
+function WorkspaceStatus({
+  compact,
+  controlRef,
+  diagnostics,
+  saveCommand,
+  saveStatus,
+  saveStatusTone,
+  showPathHealth,
+  storageLabel,
+  onResolveDiagnostic,
+  onTogglePathHealth,
+}: {
+  compact: boolean;
+  controlRef: RefObject<HTMLDivElement | null>;
+  diagnostics: readonly PathDiagnostic[];
+  saveCommand: EditorCommand;
+  saveStatus: string;
+  saveStatusTone: SaveStatusTone;
+  showPathHealth: boolean;
+  storageLabel: string;
+  onResolveDiagnostic(diagnostic: PathDiagnostic): void;
+  onTogglePathHealth(): void;
+}) {
+  const issueCount = diagnostics.length;
+  const issueLabel = `Path health: ${issueCount} ${
+    issueCount === 1 ? "issue" : "issues"
+  }`;
+  const saveLabel = workspaceSaveStatusLabel(saveStatusTone);
+
+  return (
+    <aside
+      className={`workspace-status ${
+        compact ? "workspace-status--floating" : "workspace-status--sidebar"
+      }`}
+      aria-label="Workspace status"
+    >
+      {issueCount > 0 || showPathHealth ? (
+        <div
+          ref={controlRef}
+          className="workspace-status__diagnostics-control"
+          data-tour="path-health"
+        >
+          <button
+            type="button"
+            className={`workspace-status__diagnostics workspace-status__diagnostics--${pathHealthSeverity(diagnostics)}`}
+            aria-label={issueLabel}
+            aria-expanded={showPathHealth}
+            title={compact ? issueLabel : undefined}
+            onClick={onTogglePathHealth}
+          >
+            <span
+              className="workspace-status__diagnostics-icon"
+              aria-hidden="true"
+            >
+              <CircleAlert aria-hidden="true" size={16} strokeWidth={2.4} />
+            </span>
+            {compact ? null : (
+              <span>
+                {issueCount} {issueCount === 1 ? "issue" : "issues"}
+              </span>
+            )}
+          </button>
+          {showPathHealth ? (
+            <PathHealthPopover
+              diagnostics={diagnostics}
+              saveError={null}
+              onSelect={onResolveDiagnostic}
+            />
+          ) : null}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className={[
+          "workspace-status__save",
+          `workspace-status__save--${saveStatusTone}`,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        data-testid="save-status"
+        title={`${storageLabel}. ${saveStatus}`}
+        aria-label="Save"
+        aria-live="polite"
+        disabled={saveCommand.disabled}
+        onClick={() => executeCommand(saveCommand)}
+      >
+        <span className="workspace-status__save-glyph" aria-hidden="true">
+          {workspaceSaveStatusGlyph(saveStatusTone)}
+        </span>
+        <span className={compact ? "sr-only" : undefined}>{saveLabel}</span>
+        {!compact && saveStatusTone === "danger" ? (
+          <strong>Retry</strong>
+        ) : null}
+      </button>
+    </aside>
   );
 }
 
@@ -2712,6 +2930,7 @@ interface SaveStatusInput {
   error: string | null;
   initializing: boolean;
   lastSavedAt: string | null;
+  optimizerPhase: AutoVelocityPhase;
   status: string;
 }
 
@@ -2721,6 +2940,7 @@ function formatSaveStatus({
   error,
   initializing,
   lastSavedAt,
+  optimizerPhase,
   status,
 }: SaveStatusInput): string {
   if (initializing || status === "loading") {
@@ -2743,6 +2963,14 @@ function formatSaveStatus({
     return "Saving";
   }
 
+  if (optimizerPhase === "pending") {
+    return "Generator queued";
+  }
+
+  if (optimizerPhase === "running") {
+    return "Generating constraints";
+  }
+
   if (dirty && autosaveStatus === "pending") {
     return "Autosave pending";
   }
@@ -2754,22 +2982,38 @@ function formatSaveStatus({
   return lastSavedAt ? `Saved ${formatTimestamp(lastSavedAt)}` : "Saved";
 }
 
-type SaveStatusTone = "danger" | "loading" | "pending" | "saved" | "saving";
+type SaveStatusTone =
+  | "danger"
+  | "generating"
+  | "loading"
+  | "pending"
+  | "saved"
+  | "saving";
 
-function compactSaveStatus(statusLabel: string, tone: SaveStatusTone): string {
+function workspaceSaveStatusLabel(tone: SaveStatusTone): string {
   if (tone === "danger") {
     return "Save failed";
   }
-  if (tone === "saving") {
+  if (tone === "saving" || tone === "pending") {
     return "Saving…";
   }
-  if (tone === "pending") {
-    return "Autosave pending";
+  if (tone === "generating") {
+    return "Generating…";
   }
   if (tone === "loading") {
     return "Loading…";
   }
-  return statusLabel.replace(/^Saved/, "Saved locally");
+  return "Saved";
+}
+
+function workspaceSaveStatusGlyph(tone: SaveStatusTone): string {
+  if (tone === "danger") {
+    return "❌";
+  }
+  if (tone === "saved") {
+    return "✅";
+  }
+  return "🚀";
 }
 
 function getSaveStatusTone({
@@ -2777,6 +3021,7 @@ function getSaveStatusTone({
   dirty,
   error,
   initializing,
+  optimizerPhase,
   status,
 }: SaveStatusInput): SaveStatusTone {
   if (initializing || status === "loading") {
@@ -2794,6 +3039,10 @@ function getSaveStatusTone({
 
   if (status === "saving" || autosaveStatus === "saving") {
     return "saving";
+  }
+
+  if (optimizerPhase !== "idle") {
+    return "generating";
   }
 
   if (dirty) {
@@ -2837,6 +3086,22 @@ function formatTimestamp(value: string): string {
   });
 }
 
+function pathHealthSeverity(diagnostics: readonly PathDiagnostic[]) {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error")
+    ? "error"
+    : "warning";
+}
+
+function clampCoordinateToBounds(
+  value: number,
+  minimum: number,
+  maximum: number,
+): number {
+  return Number.isFinite(value)
+    ? Math.min(Math.max(value, minimum), maximum)
+    : (minimum + maximum) / 2;
+}
+
 function safeDownloadName(value: string): string {
   return (
     value
@@ -2845,22 +3110,4 @@ function safeDownloadName(value: string): string {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "") || "bline-project"
   );
-}
-
-function toolHint(tool: EditorTool, curveDrawing: boolean): string {
-  if (curveDrawing) {
-    return "Draw across the field · Esc cancels";
-  }
-  if (tool === "select") {
-    return "Drag elements to reshape the path · V selects";
-  }
-  if (tool === "rotation" || tool === "event") {
-    return `Click near a path segment to place ${
-      tool === "event" ? "an event" : "a rotation"
-    } · Esc cancels`;
-  }
-  if (tool === "curve") {
-    return "Drag across the field to sketch a curve · Esc cancels";
-  }
-  return `Click the field to place a ${tool} · Esc cancels`;
 }

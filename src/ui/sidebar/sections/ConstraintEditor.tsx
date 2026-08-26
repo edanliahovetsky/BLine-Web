@@ -252,6 +252,9 @@ const minimumConstraintWarning =
 const minimumConflictWarningTitle =
   "Above max constraint; BLine will use the global default and disable the minimum baseline.";
 const minimumConstraintTooltipDelayMs = 1000;
+// Keep the expanded editor implementation available while the affordance is
+// intentionally withheld from the current UI.
+const constraintPopoutEnabled = false;
 const defaultAutoVelocitySettings: AutoVelocitySettings = {
   velocitySafetyFactor: defaultAutoVelocityVelocitySafetyFactor,
   accelerationSafetyFactor: defaultAutoVelocityAccelerationSafetyFactor,
@@ -2639,7 +2642,7 @@ function RangedConstraintControls({
         >
           Split
         </SidebarActionButton>
-        {onOpenPopout ? (
+        {constraintPopoutEnabled && onOpenPopout ? (
           <SidebarIconButton
             className="constraint-popout-button"
             onClick={(event) => onOpenPopout(event.currentTarget)}
@@ -3336,14 +3339,14 @@ function autoVelocityStatusTooltip(
   running: boolean,
 ): string {
   if (running) {
-    return "The optimizer is generating velocity constraints.";
+    return "The generator is creating velocity constraints.";
   }
 
   if (autoVelocityStatusIsCurrent(status)) {
-    return "Generated constraints match the current path and optimizer settings.";
+    return "Generated constraints match the current path and generator settings.";
   }
   if (status.hasAutoConstraints) {
-    return "The path or optimizer settings changed after these constraints were generated.";
+    return "The path or generator settings changed after these constraints were generated.";
   }
   return "No generated velocity constraints are currently applied.";
 }

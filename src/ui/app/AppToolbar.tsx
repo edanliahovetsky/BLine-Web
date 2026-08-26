@@ -1,12 +1,10 @@
 import { useEffect } from "react";
 import type { ChangeEvent, RefCallback, RefObject } from "react";
 import {
-  Activity,
   CircleHelp,
   FolderTree,
   PanelRight,
   Redo2,
-  Search,
   Settings,
   Undo2,
 } from "lucide-react";
@@ -52,8 +50,6 @@ interface ToolbarModel {
   toolbarBusy: boolean;
   undoLabel: string;
   redoLabel: string;
-  pathDiagnostics: readonly PathDiagnostic[];
-  saveError: string | null;
   toursSupported: boolean;
 }
 
@@ -77,14 +73,10 @@ interface ToolbarMenuState {
 
 interface ToolbarPanelState {
   showOpenPanel: boolean;
-  showPathHealth: boolean;
   showHelpHub: boolean;
   inspectorOpen: boolean;
   openCommandPalette(): void;
   closeOpenPanel(): void;
-  togglePathHealth(): void;
-  closePathHealth(): void;
-  selectDiagnostic(diagnostic: PathDiagnostic): void;
   toggleHelpHub(): void;
   closeHelpHub(): void;
   openTourPicker(): void;
@@ -149,8 +141,6 @@ export function AppToolbar({
     toolbarBusy,
     undoLabel,
     redoLabel,
-    pathDiagnostics,
-    saveError,
     toursSupported,
   } = model;
   const pathLabel = activePath?.display_name ?? "No path";
@@ -174,6 +164,12 @@ export function AppToolbar({
           setOpenTopMenu={menu.setOpen}
           onBeforeOpen={menu.refreshWorkspaces}
         >
+          <MenuAction
+            label="New Path"
+            disabled={commands.newPath.disabled}
+            onAction={() => executeCommand(commands.newPath)}
+          />
+          <div className="top-menu__separator" role="separator" />
           {supportsProjectFolders ? (
             <MenuSubmenu label="Folder" testId="top-menu-project-folder">
               <MenuAction
@@ -451,49 +447,7 @@ export function AppToolbar({
           >
             <Redo2 aria-hidden="true" size={16} />
           </IconButton>
-          <button
-            type="button"
-            className="command-search-button"
-            aria-label="Search commands and paths"
-            onClick={panels.openCommandPalette}
-          >
-            <Search aria-hidden="true" size={16} />
-            <span>Commands</span>
-            <kbd>⌘K</kbd>
-          </button>
           <OptimizerLiveRegion />
-          <div className="path-health-control" data-tour="path-health">
-            <IconButton
-              className={
-                pathDiagnostics.length > 0
-                  ? `has-diagnostics has-diagnostics--${pathHealthSeverity(pathDiagnostics)}`
-                  : ""
-              }
-              aria-label={`Path health: ${pathDiagnostics.length} issues`}
-              aria-expanded={panels.showPathHealth}
-              title={
-                pathDiagnostics.length > 0
-                  ? `Path health — ${pathDiagnostics.length} ${
-                      pathDiagnostics.length === 1 ? "issue" : "issues"
-                    } to review`
-                  : "Path health — editor checks for this path"
-              }
-              disabled={!activePath}
-              onClick={panels.togglePathHealth}
-            >
-              <Activity aria-hidden="true" size={16} />
-              {pathDiagnostics.length > 0 ? (
-                <span>{pathDiagnostics.length}</span>
-              ) : null}
-            </IconButton>
-            {panels.showPathHealth ? (
-              <PathHealthPopover
-                diagnostics={pathDiagnostics}
-                saveError={saveError}
-                onSelect={panels.selectDiagnostic}
-              />
-            ) : null}
-          </div>
           <div className="help-hub-control" data-tour="help-hub">
             <IconButton
               aria-label="Help and tutorials"
@@ -749,7 +703,7 @@ function OptimizerLiveRegion() {
   );
 }
 
-function PathHealthPopover({
+export function PathHealthPopover({
   diagnostics,
   saveError,
   onSelect,
@@ -765,14 +719,7 @@ function PathHealthPopover({
       aria-label="Path health"
     >
       <header>
-        <div>
-          <strong>Path health</strong>
-          <span>
-            {diagnostics.length === 0 && !saveError
-              ? "No editor issues found"
-              : "Fix these before heading to the robot"}
-          </span>
-        </div>
+        <strong>Path health</strong>
       </header>
       <div className="path-health-popover__list">
         {saveError ? (
@@ -789,7 +736,13 @@ function PathHealthPopover({
             onClick={() => onSelect(diagnostic)}
           >
             <span>{diagnostic.summary}</span>
-            {diagnostic.elementIndex !== undefined ? (
+            {diagnostic.fix ? (
+              <small>
+                {diagnostic.fix.kind === "focus-event-key" ? "Edit" : "Fix"}
+                {" · "}
+                {diagnostic.fix.label}
+              </small>
+            ) : diagnostic.elementIndex !== undefined ? (
               <small>Show element {diagnostic.elementIndex + 1}</small>
             ) : (
               <small>Path guidance</small>
@@ -836,12 +789,6 @@ function WorkspaceMenuList({
       ))}
     </div>
   );
-}
-
-function pathHealthSeverity(diagnostics: readonly PathDiagnostic[]) {
-  return diagnostics.some((diagnostic) => diagnostic.severity === "error")
-    ? "error"
-    : "warning";
 }
 
 function formatTimestamp(value: string): string {
