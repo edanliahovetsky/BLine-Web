@@ -41,6 +41,7 @@ interface UseProjectLifecycleOptions {
   dirty: boolean;
   durableProject: Project | null;
   lastSavedAt: string | null;
+  projectRevision: number;
   isPersistenceBlocked(): boolean;
   prepareClose(): void;
   projectIo: ProjectIoService | null;
@@ -57,6 +58,7 @@ export function useProjectLifecycle({
   dirty,
   durableProject,
   lastSavedAt,
+  projectRevision,
   isPersistenceBlocked,
   prepareClose,
   projectIo,
@@ -191,7 +193,7 @@ export function useProjectLifecycle({
 
     autosaveRef.current?.cancel();
     autosaveRef.current = createProjectAutosaveCoordinator(projectStore, {
-      delayMs: 300,
+      delayMs: 650,
       onStatusChange: setAutosaveStatus,
       onSaved: () => {
         if (!projectStore.getState().dirty) {
@@ -297,6 +299,7 @@ export function useProjectLifecycle({
     canvasInteractionActive,
     dirty,
     durableProject,
+    projectRevision,
     projectRecoveryLifecycle,
     canvasInteractionActiveRef,
   ]);

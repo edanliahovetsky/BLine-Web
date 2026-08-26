@@ -165,6 +165,10 @@ export function AppShell() {
     (state) => state.projectSessionId,
   );
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
+  const projectRevision = useStoreSelector(
+    projectStore,
+    (state) => state.revision,
+  );
   const projectTransitionInProgress = useStoreSelector(
     projectStore,
     (state) => state.projectTransitionInProgress,
@@ -240,8 +244,6 @@ export function AppShell() {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
   const pathHealthControlRef = useRef<HTMLDivElement | null>(null);
-  const [showSaveFeedback, setShowSaveFeedback] = useState(false);
-  const previousSaveToneRef = useRef<SaveStatusTone | null>(null);
   const [showHelpHub, setShowHelpHub] = useState(false);
   const [toursSupported, setToursSupported] = useState(
     () =>
@@ -306,6 +308,7 @@ export function AppShell() {
     dirty,
     durableProject,
     lastSavedAt,
+    projectRevision,
     isPersistenceBlocked: () => configSaveInProgressRef.current,
     prepareClose: () => tourSessionRef.current?.restore(),
     projectIo,
@@ -1532,30 +1535,6 @@ export function AppShell() {
     lastSavedAt,
     status,
   });
-  useEffect(() => {
-    const previousTone = previousSaveToneRef.current;
-    previousSaveToneRef.current = saveStatusTone;
-
-    if (
-      saveStatusTone !== "saved" ||
-      previousTone === null ||
-      previousTone === "saved"
-    ) {
-      return;
-    }
-
-    let hideTimer: number | null = null;
-    const showTimer = window.setTimeout(() => {
-      setShowSaveFeedback(true);
-      hideTimer = window.setTimeout(() => setShowSaveFeedback(false), 2000);
-    }, 0);
-    return () => {
-      window.clearTimeout(showTimer);
-      if (hideTimer !== null) {
-        window.clearTimeout(hideTimer);
-      }
-    };
-  }, [saveStatusTone]);
   const pathDiagnostics = useMemo(
     () =>
       derivePathDiagnostics(
@@ -2012,17 +1991,12 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
 
-  const saveFeedbackVisible =
-    saveStatusTone !== "saved" || showSaveFeedback;
-  const workspaceStatusVisible =
-    Boolean(durableProject) &&
-    (pathDiagnostics.length > 0 || showPathHealth || saveFeedbackVisible);
+  const workspaceStatusVisible = Boolean(durableProject);
   const workspaceStatus = workspaceStatusVisible ? (
     <WorkspaceStatus
       compact={!inspectorOpen}
       diagnostics={pathDiagnostics}
       saveCommand={saveCommand}
-      saveFeedbackVisible={saveFeedbackVisible}
       saveStatus={saveStatus}
       saveStatusTone={saveStatusTone}
       showPathHealth={showPathHealth}
@@ -2423,7 +2397,6 @@ function WorkspaceStatus({
   controlRef,
   diagnostics,
   saveCommand,
-  saveFeedbackVisible,
   saveStatus,
   saveStatusTone,
   showPathHealth,
@@ -2435,7 +2408,6 @@ function WorkspaceStatus({
   controlRef: RefObject<HTMLDivElement | null>;
   diagnostics: readonly PathDiagnostic[];
   saveCommand: EditorCommand;
-  saveFeedbackVisible: boolean;
   saveStatus: string;
   saveStatusTone: SaveStatusTone;
   showPathHealth: boolean;
@@ -2496,7 +2468,6 @@ function WorkspaceStatus({
         className={[
           "workspace-status__save",
           `workspace-status__save--${saveStatusTone}`,
-          !saveFeedbackVisible ? "sr-only" : "",
         ]
           .filter(Boolean)
           .join(" ")}
