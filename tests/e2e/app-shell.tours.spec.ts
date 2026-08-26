@@ -145,19 +145,25 @@ test("builds and orders the first path with manual Continue gates", async ({
   await expect(page.getByTestId("path-element-row-2")).toContainText(goalMeta);
 });
 
-test("stages field actions beside target-relative dialogue and fades for inspection", async ({
+test("keeps tour actions visible and fades dialogue for inspection", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
   await openLesson(page, "shape-route");
   await next(page, 2);
 
   const card = page.getByTestId("tour-card");
-  const structure = page.getByLabel("Field structure");
-  const cardBox = await requiredBox(card);
-  const structureBox = await requiredBox(structure);
+  const skip = card.getByRole("button", { name: "Skip tour" });
 
-  expect(cardBox.x + cardBox.width).toBeLessThan(structureBox.x);
+  await expect(skip).toHaveCSS("border-top-style", "solid");
+  await expect(skip).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+
+  await skip.hover();
+  await page.mouse.down();
+  await expect(skip).toHaveCSS("transform", "none");
+  await page.mouse.move(0, 0);
+  await page.mouse.up();
 
   await page.waitForTimeout(500);
   await card.getByRole("heading", { name: "Bend the route" }).hover();

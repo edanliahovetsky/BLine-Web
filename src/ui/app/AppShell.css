@@ -4600,10 +4600,21 @@ select {
 
 .tour-card__actions .tour-card__skip {
   margin-right: auto;
-  padding-left: 0;
-  border-color: transparent;
-  background: transparent;
+  border-color: var(--bline-border-subtle);
+  background: color-mix(in srgb, var(--bline-surface-base) 58%, transparent);
   color: var(--bline-text-muted);
+}
+
+.tour-card__actions .tour-card__skip:hover:not(:disabled) {
+  border-color: var(--bline-border-strong);
+  color: var(--bline-text-secondary);
+  background: var(--bline-surface-base);
+}
+
+.tour-card__actions .tour-card__skip:active:not(:disabled) {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.34);
+  transform: none;
+  filter: brightness(0.96);
 }
 
 .tour-card__actions button {
