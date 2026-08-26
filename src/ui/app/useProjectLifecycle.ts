@@ -193,7 +193,7 @@ export function useProjectLifecycle({
 
     autosaveRef.current?.cancel();
     autosaveRef.current = createProjectAutosaveCoordinator(projectStore, {
-      delayMs: 650,
+      delayMs: 300,
       onStatusChange: setAutosaveStatus,
       onSaved: () => {
         if (!projectStore.getState().dirty) {

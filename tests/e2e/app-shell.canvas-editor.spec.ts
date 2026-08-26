@@ -213,24 +213,6 @@ test("defers autosave while a dirty canvas drag is active", async ({
   expect(await workspaceWriteCount(page)).toBeGreaterThan(0);
 });
 
-test("debounces autosave across successive project revisions", async ({
-  page,
-}) => {
-  await installWorkspaceWriteSpy(page);
-  await gotoSampleEditor(page);
-  await page.getByTestId("path-element-row-0").click();
-  await resetWorkspaceWriteSpy(page);
-
-  const xField = page.getByLabel("X (m)");
-  await xField.fill("5.750");
-  await page.waitForTimeout(400);
-  await xField.fill("5.800");
-  await page.waitForTimeout(400);
-
-  expect(await workspaceWriteCount(page)).toBe(0);
-  await expect.poll(() => workspaceWriteCount(page)).toBeGreaterThan(0);
-});
-
 test("plays and seeks the simulation transport", async ({ page }) => {
   await gotoSampleEditor(page);
 

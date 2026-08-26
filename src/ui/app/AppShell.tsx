@@ -36,7 +36,10 @@ import {
   saveBlobAs,
 } from "../../platform/fileExport";
 import type { AutosaveStatus } from "../../state/autosave";
-import { autoVelocityStore } from "../../state/autoVelocityStore";
+import {
+  autoVelocityStore,
+  type AutoVelocityPhase,
+} from "../../state/autoVelocityStore";
 import {
   canGenerateAutomaticConstraints,
   generateAutomaticConstraints,
@@ -1525,6 +1528,7 @@ export function AppShell() {
     error,
     initializing,
     lastSavedAt,
+    optimizerPhase,
     status,
   });
   const saveStatusTone = getSaveStatusTone({
@@ -1533,6 +1537,7 @@ export function AppShell() {
     error,
     initializing,
     lastSavedAt,
+    optimizerPhase,
     status,
   });
   const pathDiagnostics = useMemo(
@@ -2925,6 +2930,7 @@ interface SaveStatusInput {
   error: string | null;
   initializing: boolean;
   lastSavedAt: string | null;
+  optimizerPhase: AutoVelocityPhase;
   status: string;
 }
 
@@ -2934,6 +2940,7 @@ function formatSaveStatus({
   error,
   initializing,
   lastSavedAt,
+  optimizerPhase,
   status,
 }: SaveStatusInput): string {
   if (initializing || status === "loading") {
@@ -2956,6 +2963,14 @@ function formatSaveStatus({
     return "Saving";
   }
 
+  if (optimizerPhase === "pending") {
+    return "Optimizer queued";
+  }
+
+  if (optimizerPhase === "running") {
+    return "Optimizing constraints";
+  }
+
   if (dirty && autosaveStatus === "pending") {
     return "Autosave pending";
   }
@@ -2967,7 +2982,13 @@ function formatSaveStatus({
   return lastSavedAt ? `Saved ${formatTimestamp(lastSavedAt)}` : "Saved";
 }
 
-type SaveStatusTone = "danger" | "loading" | "pending" | "saved" | "saving";
+type SaveStatusTone =
+  | "danger"
+  | "loading"
+  | "optimizing"
+  | "pending"
+  | "saved"
+  | "saving";
 
 function workspaceSaveStatusLabel(tone: SaveStatusTone): string {
   if (tone === "danger") {
@@ -2975,6 +2996,9 @@ function workspaceSaveStatusLabel(tone: SaveStatusTone): string {
   }
   if (tone === "saving" || tone === "pending") {
     return "Saving…";
+  }
+  if (tone === "optimizing") {
+    return "Optimizing…";
   }
   if (tone === "loading") {
     return "Loading…";
@@ -2997,6 +3021,7 @@ function getSaveStatusTone({
   dirty,
   error,
   initializing,
+  optimizerPhase,
   status,
 }: SaveStatusInput): SaveStatusTone {
   if (initializing || status === "loading") {
@@ -3014,6 +3039,10 @@ function getSaveStatusTone({
 
   if (status === "saving" || autosaveStatus === "saving") {
     return "saving";
+  }
+
+  if (optimizerPhase !== "idle") {
+    return "optimizing";
   }
 
   if (dirty) {

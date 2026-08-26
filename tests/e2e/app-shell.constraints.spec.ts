@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { canvasNodePosition, pointDistance } from "./support/app-shell-canvas";
 import { openConstraintsTab } from "./support/app-shell-constraints";
+import {
+  installWorkspaceWriteSpy,
+  resetWorkspaceWriteSpy,
+  workspaceWriteCount,
+} from "./support/app-shell-persistence";
 import { openPathMenu } from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
@@ -429,6 +434,7 @@ test("uses range and toggle selection for velocity segments", async ({
 test("refreshes the generated policy in the background after a path edit", async ({
   page,
 }) => {
+  await installWorkspaceWriteSpy(page);
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
 
@@ -441,6 +447,8 @@ test("refreshes the generated policy in the background after a path edit", async
   await page.getByLabel("Delete constraint 1").click();
   await card.getByRole("button", { name: "Generate constraints" }).click();
   await expect(status).toHaveText("Up to date");
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await resetWorkspaceWriteSpy(page);
 
   await page.getByRole("tab", { name: "Elements", exact: true }).click();
   await page.getByTestId("path-element-row-1").click();
@@ -450,7 +458,15 @@ test("refreshes the generated policy in the background after a path edit", async
   // The current traces the Constraints tab, so a solve is visible from the
   // Elements tab too.
   await expect(constraintsTab).toHaveClass(/is-optimizing/);
+  const saveStatus = page.getByTestId("save-status");
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("🚀");
   await expect(constraintsTab).not.toHaveClass(/is-optimizing/);
+  await expect(
+    saveStatus.locator(".workspace-status__save-glyph"),
+  ).toHaveText("✅");
+  expect(await workspaceWriteCount(page)).toBeGreaterThanOrEqual(2);
 
   await openConstraintsTab(page);
   await expect(status).toHaveText("Up to date");
