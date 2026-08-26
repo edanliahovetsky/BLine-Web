@@ -4575,6 +4575,17 @@ button.path-health-popover__issue:focus-visible {
   bottom: 12px;
 }
 
+.workspace-status--sidebar {
+  z-index: 90;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid #303c45;
+  border-radius: 10px;
+  background: rgba(18, 24, 29, 0.92);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(9px);
+}
+
 .workspace-status__diagnostics-control {
   position: static;
   pointer-events: auto;
@@ -4695,6 +4706,12 @@ button.path-health-popover__issue:focus-visible {
 .workspace-status__save strong {
   color: #ffd0d0;
   font-size: 0.67rem;
+}
+
+.workspace-status--sidebar .workspace-status__diagnostics,
+.workspace-status--sidebar .workspace-status__save {
+  min-height: 27px;
+  box-shadow: none;
 }
 
 .workspace-status--floating .workspace-status__diagnostics,
@@ -5048,9 +5065,9 @@ body.is-resizing-inspector * {
   min-height: 45px;
   align-items: center;
   justify-content: flex-end;
-  padding: 8px;
-  border-top: 1px solid var(--bline-border-subtle);
-  background: linear-gradient(180deg, #12181d 0%, #101519 100%);
+  padding: 6px 7px;
+  border-top: 0;
+  background: var(--bline-surface-base);
 }
 
 .inspector-sidebar__panel--elements {
