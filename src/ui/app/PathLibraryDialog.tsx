@@ -86,9 +86,7 @@ export function PathLibraryDialog({
   const [deletingGroup, setDeletingGroup] = useState<ProjectPathGroup | null>(
     null,
   );
-  const [dragSourceGroupId, setDragSourceGroupId] = useState<string | null>(
-    null,
-  );
+  const [draggedPaths, setDraggedPaths] = useState<DraggedPaths | null>(null);
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
   const [isRemovingDropTarget, setIsRemovingDropTarget] = useState(false);
 
@@ -127,6 +125,10 @@ export function PathLibraryDialog({
 
   const selectedGroup =
     project.path_groups.find((group) => group.group_id === selectedGroupId) ??
+    null;
+  const dragSourceGroupId = draggedPaths?.sourceGroupId ?? null;
+  const dragSourceGroup =
+    project.path_groups.find((group) => group.group_id === dragSourceGroupId) ??
     null;
   const visibleSelectedPathIds = useMemo(() => {
     const validPathIds = new Set(project.paths.map((path) => path.path_id));
@@ -340,7 +342,11 @@ export function PathLibraryDialog({
     const payload: DraggedPaths = { pathIds, sourceGroupId };
     event.dataTransfer.effectAllowed = "copyMove";
     event.dataTransfer.setData(pathDragType, JSON.stringify(payload));
-    setDragSourceGroupId(sourceGroupId);
+    const dragImage = createPathDragImage(project, payload);
+    event.dataTransfer.setDragImage(dragImage, 24, 20);
+    window.setTimeout(() => dragImage.remove(), 0);
+    closeTransientUi();
+    setDraggedPaths(payload);
   };
 
   const readDragData = (event: ReactDragEvent): DraggedPaths | null => {
@@ -364,7 +370,7 @@ export function PathLibraryDialog({
       setExpandedGroupIds((current) => new Set([...current, group.group_id]));
     }
     setDragOverGroupId(null);
-    setDragSourceGroupId(null);
+    setDraggedPaths(null);
   };
 
   const handleDropOnAllPaths = (event: ReactDragEvent) => {
@@ -376,7 +382,7 @@ export function PathLibraryDialog({
         .removePathsFromGroup(payload.sourceGroupId, payload.pathIds);
     }
     setIsRemovingDropTarget(false);
-    setDragSourceGroupId(null);
+    setDraggedPaths(null);
   };
 
   return (
@@ -438,14 +444,21 @@ export function PathLibraryDialog({
                   const isSelected = selectedGroupId === group.group_id;
                   const isMenuOpen = openCollectionMenuId === group.group_id;
                   const isDropTarget = dragOverGroupId === group.group_id;
+                  const isDragReady = Boolean(
+                    draggedPaths &&
+                    draggedPaths.sourceGroupId !== group.group_id,
+                  );
                   return (
                     <div
                       key={group.group_id}
-                      className={`project-library__collection-block${isSelected ? " is-selected" : ""}${isDropTarget ? " is-drop-target" : ""}`}
+                      className={`project-library__collection-block${isSelected ? " is-selected" : ""}${isDragReady ? " is-drag-ready" : ""}${isDropTarget ? " is-drop-target" : ""}`}
                     >
                       <div
                         className="project-library__collection-row"
                         onDragOver={(event) => {
+                          if (!draggedPaths) {
+                            return;
+                          }
                           event.preventDefault();
                           event.dataTransfer.dropEffect = "copy";
                           setDragOverGroupId(group.group_id);
@@ -508,9 +521,15 @@ export function PathLibraryDialog({
                             {group.display_name}
                           </button>
                         )}
-                        <span className="project-library__count">
-                          {group.path_ids.length}
-                        </span>
+                        {isDropTarget && draggedPaths ? (
+                          <span className="project-library__drop-caption">
+                            Add {draggedPaths.pathIds.length}
+                          </span>
+                        ) : (
+                          <span className="project-library__count">
+                            {group.path_ids.length}
+                          </span>
+                        )}
                         <button
                           type="button"
                           className="project-library__more"
@@ -610,7 +629,7 @@ export function PathLibraryDialog({
                                     )
                                   }
                                   onDragEnd={() => {
-                                    setDragSourceGroupId(null);
+                                    setDraggedPaths(null);
                                     setDragOverGroupId(null);
                                     setIsRemovingDropTarget(false);
                                   }}
@@ -682,126 +701,159 @@ export function PathLibraryDialog({
               </div>
             </header>
 
-            <div className="all-paths__actions">
-              <strong>
-                {selectedPaths.length}{" "}
-                {selectedPaths.length === 1 ? "Path" : "Paths"} selected
-              </strong>
-              <div>
-                <button
-                  type="button"
-                  className="all-paths__add-to"
-                  aria-haspopup="menu"
-                  aria-expanded={showMembershipMenu}
-                  disabled={selectedPaths.length === 0}
-                  onClick={() => {
-                    setOpenCollectionMenuId(null);
-                    setShowMembershipMenu((current) => !current);
-                  }}
-                >
-                  <Folder aria-hidden="true" size={14} />
-                  Add to…
-                </button>
-                <button
-                  type="button"
-                  className="all-paths__icon-action"
-                  aria-label="Create new path"
-                  title="Create new path"
-                  onClick={() => onCreatePath(selectedGroupId)}
-                >
-                  <Plus aria-hidden="true" size={15} />
-                </button>
-                <button
-                  type="button"
-                  className="all-paths__icon-action"
-                  aria-label="Duplicate selected path"
-                  title="Duplicate selected path"
-                  disabled={selectedPaths.length !== 1}
-                  onClick={duplicateSelectedPath}
-                >
-                  <Copy aria-hidden="true" size={14} />
-                </button>
-                <button
-                  type="button"
-                  className="all-paths__icon-action"
-                  aria-label="Rename selected path"
-                  title="Rename selected path"
-                  disabled={selectedPaths.length !== 1}
-                  onClick={() =>
-                    selectedPaths[0] && beginPathRename(selectedPaths[0])
-                  }
-                >
-                  <Pencil aria-hidden="true" size={14} />
-                </button>
-                <button
-                  type="button"
-                  className="all-paths__icon-action is-danger"
-                  aria-label="Delete selected paths"
-                  title="Delete selected paths"
-                  disabled={selectedPaths.length === 0}
-                  onClick={() => onDeletePaths([...visibleSelectedPathIds])}
-                >
-                  <Trash2 aria-hidden="true" size={14} />
-                </button>
+            {draggedPaths ? (
+              <div
+                className={`all-paths__drag-state${dragSourceGroup ? " is-remove" : ""}`}
+                aria-live="polite"
+              >
+                <span className="all-paths__drag-count">
+                  {draggedPaths.pathIds.length}
+                </span>
+                <strong>
+                  {draggedPaths.pathIds.length === 1
+                    ? (project.paths.find(
+                        (path) => path.path_id === draggedPaths.pathIds[0],
+                      )?.display_name ?? "1 Path")
+                    : `${draggedPaths.pathIds.length} Paths`}
+                </strong>
+                <span>
+                  {dragSourceGroup
+                    ? `Drop in All Paths to remove from ${dragSourceGroup.display_name}`
+                    : "Drop onto a Collection to add"}
+                </span>
               </div>
-              {showMembershipMenu ? (
-                <div
-                  className="all-paths__membership-menu"
-                  role="menu"
-                  aria-label="Add to Collections"
-                >
-                  <header>
-                    <strong>Add to Collections</strong>
-                    <button
-                      type="button"
-                      aria-label="Close Add to Collections"
-                      onClick={() => setShowMembershipMenu(false)}
-                    >
-                      ×
-                    </button>
-                  </header>
-                  {project.path_groups.length > 0 ? (
-                    project.path_groups.map((group) => {
-                      const includedCount = selectedPaths.filter((path) =>
-                        group.path_ids.includes(path.path_id),
-                      ).length;
-                      const allIncluded =
-                        selectedPaths.length > 0 &&
-                        includedCount === selectedPaths.length;
-                      return (
-                        <button
-                          key={group.group_id}
-                          type="button"
-                          role="menuitemcheckbox"
-                          aria-checked={allIncluded}
-                          onClick={() => toggleMembership(group)}
-                        >
-                          <span>
-                            <Folder aria-hidden="true" size={14} />
-                            {group.display_name}
-                          </span>
-                          <small>
-                            {allIncluded
-                              ? "Remove"
-                              : includedCount > 0
-                                ? "Add all"
-                                : "Add"}
-                          </small>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <p>No Collections yet.</p>
-                  )}
+            ) : (
+              <div className="all-paths__actions">
+                <strong>
+                  {selectedPaths.length}{" "}
+                  {selectedPaths.length === 1 ? "Path" : "Paths"} selected
+                </strong>
+                <div>
+                  <button
+                    type="button"
+                    className="all-paths__add-to"
+                    aria-haspopup="menu"
+                    aria-expanded={showMembershipMenu}
+                    disabled={selectedPaths.length === 0}
+                    onClick={() => {
+                      setOpenCollectionMenuId(null);
+                      setShowMembershipMenu((current) => !current);
+                    }}
+                  >
+                    <Folder aria-hidden="true" size={14} />
+                    Add to…
+                  </button>
+                  <button
+                    type="button"
+                    className="all-paths__icon-action"
+                    aria-label="Create new path"
+                    title="Create new path"
+                    onClick={() => onCreatePath(selectedGroupId)}
+                  >
+                    <Plus aria-hidden="true" size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="all-paths__icon-action"
+                    aria-label="Duplicate selected path"
+                    title="Duplicate selected path"
+                    disabled={selectedPaths.length !== 1}
+                    onClick={duplicateSelectedPath}
+                  >
+                    <Copy aria-hidden="true" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="all-paths__icon-action"
+                    aria-label="Rename selected path"
+                    title="Rename selected path"
+                    disabled={selectedPaths.length !== 1}
+                    onClick={() =>
+                      selectedPaths[0] && beginPathRename(selectedPaths[0])
+                    }
+                  >
+                    <Pencil aria-hidden="true" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="all-paths__icon-action is-danger"
+                    aria-label="Delete selected paths"
+                    title="Delete selected paths"
+                    disabled={selectedPaths.length === 0}
+                    onClick={() => onDeletePaths([...visibleSelectedPathIds])}
+                  >
+                    <Trash2 aria-hidden="true" size={14} />
+                  </button>
                 </div>
-              ) : null}
-            </div>
-
-            {dragSourceGroupId ? (
-              <div className="all-paths__drop-message">
-                Drop here to remove from the Collection
+                {showMembershipMenu ? (
+                  <div
+                    className="all-paths__membership-menu"
+                    role="menu"
+                    aria-label="Add to Collections"
+                  >
+                    <header>
+                      <strong>Add to Collections</strong>
+                      <button
+                        type="button"
+                        aria-label="Close Add to Collections"
+                        onClick={() => setShowMembershipMenu(false)}
+                      >
+                        ×
+                      </button>
+                    </header>
+                    {project.path_groups.length > 0 ? (
+                      project.path_groups.map((group) => {
+                        const includedCount = selectedPaths.filter((path) =>
+                          group.path_ids.includes(path.path_id),
+                        ).length;
+                        const allIncluded =
+                          selectedPaths.length > 0 &&
+                          includedCount === selectedPaths.length;
+                        return (
+                          <button
+                            key={group.group_id}
+                            type="button"
+                            role="menuitemcheckbox"
+                            aria-checked={allIncluded}
+                            className="all-paths__membership-row"
+                            onClick={() => toggleMembership(group)}
+                          >
+                            <span className="all-paths__membership-name">
+                              <Folder aria-hidden="true" size={14} />
+                              {group.display_name}
+                            </span>
+                            {includedCount > 0 ? (
+                              <span
+                                className={`all-paths__membership-status${allIncluded ? " is-added" : " is-mixed"}`}
+                              >
+                                {allIncluded
+                                  ? selectedPaths.length === 1
+                                    ? "Added"
+                                    : "All added"
+                                  : `${includedCount} of ${selectedPaths.length}`}
+                              </span>
+                            ) : (
+                              <span />
+                            )}
+                            <span
+                              className={`all-paths__membership-change${allIncluded ? " is-remove" : " is-add"}`}
+                            >
+                              {allIncluded
+                                ? "Remove"
+                                : includedCount > 0
+                                  ? "Add all"
+                                  : "+ Add"}
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <p>No Collections yet.</p>
+                    )}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            )}
 
             <div
               className="all-paths__list"
@@ -854,7 +906,7 @@ export function PathLibraryDialog({
                         )
                       }
                       onDragEnd={() => {
-                        setDragSourceGroupId(null);
+                        setDraggedPaths(null);
                         setDragOverGroupId(null);
                         setIsRemovingDropTarget(false);
                       }}
@@ -989,6 +1041,33 @@ function DeleteCollectionDialog({
       </form>
     </div>
   );
+}
+
+function createPathDragImage(
+  project: Project,
+  payload: DraggedPaths,
+): HTMLDivElement {
+  const dragImage = document.createElement("div");
+  dragImage.className = `project-navigator-drag-card${payload.sourceGroupId ? " is-removal" : ""}`;
+  dragImage.setAttribute("aria-hidden", "true");
+
+  const badge = document.createElement("span");
+  badge.className = "project-navigator-drag-card__badge";
+  badge.textContent = String(payload.pathIds.length);
+
+  const copy = document.createElement("span");
+  copy.className = "project-navigator-drag-card__copy";
+  const path =
+    payload.pathIds.length === 1
+      ? project.paths.find(
+          (candidate) => candidate.path_id === payload.pathIds[0],
+        )
+      : null;
+  copy.textContent = path?.display_name ?? `${payload.pathIds.length} Paths`;
+
+  dragImage.append(badge, copy);
+  document.body.append(dragImage);
+  return dragImage;
 }
 
 function collectionMemberships(

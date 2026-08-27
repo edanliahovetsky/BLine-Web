@@ -42,10 +42,19 @@ test("uses the approved Project Library and unique All Paths layout", async ({
   await collectionInput.press("Enter");
 
   await navigator.getByRole("button", { name: "Add to…" }).click();
-  await navigator
+  const competitionMembership = navigator
     .getByRole("menu", { name: "Add to Collections" })
-    .getByRole("menuitemcheckbox", { name: /Competition Autos/ })
-    .click();
+    .getByRole("menuitemcheckbox", { name: /Competition Autos/ });
+  await expect(competitionMembership).toContainText("+ Add");
+  await expect(
+    competitionMembership.locator(".all-paths__membership-change"),
+  ).toHaveClass(/is-add/);
+  await competitionMembership.click();
+  await expect(competitionMembership).toContainText("Added");
+  await expect(competitionMembership).toContainText("Remove");
+  await expect(
+    competitionMembership.locator(".all-paths__membership-change"),
+  ).toHaveClass(/is-remove/);
   await expect(
     pathRows.getByRole("button", { name: "Competition Autos" }),
   ).toBeVisible();
@@ -118,10 +127,13 @@ test("renames Paths inline and supports bulk Collection membership", async ({
   await collectionInput.fill("Testing");
   await collectionInput.press("Enter");
   await navigator.getByRole("button", { name: "Add to…" }).click();
-  await navigator
+  const testingMembership = navigator
     .getByRole("menu", { name: "Add to Collections" })
-    .getByRole("menuitemcheckbox", { name: /Testing/ })
-    .click();
+    .getByRole("menuitemcheckbox", { name: /Testing/ });
+  await expect(testingMembership).toContainText("+ Add");
+  await testingMembership.click();
+  await expect(testingMembership).toContainText("All added");
+  await expect(testingMembership).toContainText("Remove");
   await expect(
     navigator
       .locator(".all-paths__row")
