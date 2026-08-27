@@ -38,7 +38,7 @@ test("runs the guided tour in an isolated practice session", async ({
     "Phase 1 Canvas Draft",
   );
   const ghostPathsToggle = page.getByRole("button", {
-    name: /label overlays/,
+    name: /Collection overlays/,
   });
   const ghostPathsBefore = await ghostPathsToggle.getAttribute("aria-pressed");
 

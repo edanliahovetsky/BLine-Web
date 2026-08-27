@@ -1,35 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-import { requiredBox, type Bounds } from "./app-shell-shared";
-
-export async function expectDialogOverPathLibrary(
-  page: Page,
-  dialogName: string,
-): Promise<void> {
-  await expect(
-    page.getByRole("dialog", { name: "Project Navigator" }),
-  ).toBeVisible();
-  const dialogBox = await requiredBox(
-    page.getByRole("dialog", { name: dialogName }),
-  );
-  const center = {
-    x: dialogBox.x + dialogBox.width / 2,
-    y: dialogBox.y + dialogBox.height / 2,
-  };
-
-  await expect
-    .poll(() =>
-      page.evaluate(({ x, y }) => {
-        return (
-          document
-            .elementFromPoint(x, y)
-            ?.closest("[role='dialog']")
-            ?.getAttribute("aria-label") ?? null
-        );
-      }, center),
-    )
-    .toBe(dialogName);
-}
+import type { Bounds } from "./app-shell-shared";
 
 export function pointBetweenFlyoutAndTrigger(
   triggerBox: Bounds,
@@ -78,27 +49,6 @@ export async function openPathLibraryDialog(page: Page): Promise<Locator> {
   return dialog;
 }
 
-export async function openLabelManager(library: Locator): Promise<Locator> {
-  await library
-    .getByRole("button", { name: "Manage labels…", exact: true })
-    .click();
-  const manager = library.getByRole("region", { name: "Manage labels" });
-  await expect(manager).toBeVisible();
-  return manager;
-}
-
-export async function openLibraryPathActions(
-  library: Locator,
-  pathName: string,
-): Promise<Locator> {
-  await library
-    .getByRole("button", { name: `More actions for ${pathName}` })
-    .click();
-  const menu = library.getByRole("menu", { name: `${pathName} actions` });
-  await expect(menu).toBeVisible();
-  return menu;
-}
-
 export async function selectToolbarOption(
   page: Page,
   label: "Toolbar path",
@@ -116,17 +66,20 @@ export async function createPathGroupFromTopMenu(
   groupName: string,
 ): Promise<void> {
   const dialog = await openPathLibraryDialog(page);
-  await openLabelManager(dialog);
-  await dialog.getByRole("button", { name: "Create label" }).click();
-  await page.getByTestId("path-collection-new-name").fill(groupName);
-  await page.getByTestId("create-path-collection").click();
+  await dialog.getByRole("button", { name: "Create Collection" }).click();
+  await dialog
+    .getByRole("textbox", { name: "Collection name" })
+    .fill(groupName);
+  await dialog.getByRole("textbox", { name: "Collection name" }).press("Enter");
+  await dialog.getByRole("button", { name: "Add to…" }).click();
+  await dialog
+    .getByRole("menu", { name: "Add to Collections" })
+    .getByRole("menuitemcheckbox", { name: new RegExp(groupName) })
+    .click();
   await expect(page.getByTestId("current-path-status")).toContainText(
     `${groupName} /`,
   );
-  if (await dialog.isVisible()) {
-    await dialog.getByRole("button", { name: "Done", exact: true }).click();
-    await dialog.getByRole("button", { name: "Close", exact: true }).click();
-  }
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
 }
 
 export async function addPathToGroupFromLibrary(
@@ -135,34 +88,15 @@ export async function addPathToGroupFromLibrary(
   pathName: string,
 ): Promise<void> {
   const dialog = await openPathLibraryDialog(page);
-  await openLabelManager(dialog);
-  await dialog
-    .locator(".path-library-dialog__manage-label")
-    .filter({ hasText: groupName })
-    .click();
-  const membershipRow = dialog
-    .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: pathName });
-  await membershipRow.getByRole("checkbox").check();
-  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await dialog.locator(".all-paths__row").filter({ hasText: pathName }).click();
+  await dialog.getByRole("button", { name: "Add to…" }).click();
+  const membership = dialog
+    .getByRole("menu", { name: "Add to Collections" })
+    .getByRole("menuitemcheckbox", { name: new RegExp(groupName) });
+  if ((await membership.getAttribute("aria-checked")) !== "true") {
+    await membership.click();
+  }
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
-}
-
-export async function duplicateSelectedLibraryPath(
-  page: Page,
-  library: Locator,
-  pathName: string,
-  displayName: string,
-): Promise<void> {
-  const pathActions = await openLibraryPathActions(library, pathName);
-  await pathActions.getByRole("menuitem", { name: "Duplicate" }).click();
-  await submitNameDialog(page, "Save Path As", displayName, "Save Copy");
-  await expect(
-    page
-      .getByRole("dialog", { name: "Project Navigator" })
-      .locator(".path-library-dialog__path")
-      .filter({ has: page.getByText(displayName, { exact: true }) }),
-  ).toBeVisible();
 }
 
 export async function submitNameDialog(

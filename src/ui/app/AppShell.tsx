@@ -226,6 +226,9 @@ export function AppShell() {
   >(undefined);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
+  const [deletePathSelectionIds, setDeletePathSelectionIds] = useState<
+    readonly string[]
+  >([]);
   const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
   const [pathNameAction, setPathNameAction] = useState<PathNameAction | null>(
     null,
@@ -1249,14 +1252,19 @@ export function AppShell() {
     [pathNameAction],
   );
 
-  const handleShowDeletePaths = useCallback(() => {
-    setShowDeletePathDialog(true);
-    setOpenTopMenu(null);
-  }, []);
+  const handleShowDeletePaths = useCallback(
+    (pathIds: readonly string[] = []) => {
+      setDeletePathSelectionIds(pathIds);
+      setShowDeletePathDialog(true);
+      setOpenTopMenu(null);
+    },
+    [],
+  );
 
   const handleDeletePaths = useCallback(async (ids: string[]) => {
     if (ids.length === 0) {
       setShowDeletePathDialog(false);
+      setDeletePathSelectionIds([]);
       return;
     }
 
@@ -1264,6 +1272,7 @@ export function AppShell() {
       projectStore.getState().deletePaths(ids);
       selectionStore.getState().clearSelection();
       setShowDeletePathDialog(false);
+      setDeletePathSelectionIds([]);
     } catch (caughtError) {
       projectStore.getState().markSaveError(caughtError);
     }
@@ -2122,9 +2131,11 @@ export function AppShell() {
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
           onCancel={() => setShowPathGroupsDialog(false)}
-          onDeletePaths={() => {
-            handleShowDeletePaths();
+          onCreatePath={(groupId) => {
+            setNewPathGroupContextId(groupId);
+            setShowNewPathDialog(true);
           }}
+          onDeletePaths={handleShowDeletePaths}
         />
       ) : null}
       {pathNameAction ? (
@@ -2178,8 +2189,12 @@ export function AppShell() {
       {showDeletePathDialog ? (
         <DeletePathsDialog
           activePathId={activePathId}
+          initialSelectedIds={deletePathSelectionIds}
           paths={pathDocuments}
-          onCancel={() => setShowDeletePathDialog(false)}
+          onCancel={() => {
+            setDeletePathSelectionIds([]);
+            setShowDeletePathDialog(false);
+          }}
           onDelete={(ids) => void handleDeletePaths(ids)}
         />
       ) : null}

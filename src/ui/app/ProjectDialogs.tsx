@@ -72,7 +72,7 @@ export function CreateProjectDialog({
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => setPathName(event.currentTarget.value)}
             />
-            <small>You can add labels and more Paths later.</small>
+            <small>You can add Collections and more Paths later.</small>
           </label>
         </section>
         <footer className="config-dialog__footer">
@@ -406,16 +406,20 @@ export function DeleteProjectsDialog({
 
 export function DeletePathsDialog({
   activePathId,
+  initialSelectedIds = [],
   paths,
   onCancel,
   onDelete,
 }: {
   activePathId: string | null;
+  initialSelectedIds?: readonly string[];
   paths: ProjectPath[];
   onCancel(): void;
   onDelete(ids: string[]): void;
 }) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () => new Set(initialSelectedIds),
+  );
   const selectedCount = selectedIds.size;
 
   return (

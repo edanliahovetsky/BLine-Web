@@ -930,7 +930,7 @@ export function createProjectStore(
         grouped.project,
         navigation,
         { activePathId, activePathGroupId },
-        "Create path label",
+        "Create Collection",
       );
     },
     renamePathGroup(groupId, name) {
@@ -945,7 +945,7 @@ export function createProjectStore(
         renamePathGroupInProject(project, groupId, name),
         navigation,
         navigation,
-        "Rename path label",
+        "Rename Collection",
       );
     },
     deletePathGroup(groupId, options) {
@@ -968,7 +968,7 @@ export function createProjectStore(
         nextProject,
         navigation,
         nextNavigation,
-        "Delete path label",
+        "Delete Collection",
       );
     },
     addPathsToGroup(groupId, pathIds) {
@@ -996,7 +996,7 @@ export function createProjectStore(
         nextProject,
         navigation,
         navigation,
-        "Add Paths to label",
+        "Add Paths to Collection",
       );
     },
     removePathsFromGroup(groupId, pathIds) {
@@ -1020,7 +1020,7 @@ export function createProjectStore(
         nextProject,
         navigation,
         nextNavigation,
-        "Remove Paths from label",
+        "Remove Paths from Collection",
       );
     },
     createLinkedTarget(input) {
