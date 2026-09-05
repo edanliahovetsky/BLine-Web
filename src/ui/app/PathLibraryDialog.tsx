@@ -91,6 +91,7 @@ export function PathLibraryDialog({
   onCancel,
   onCreatePath,
   onDeletePaths,
+  onDeletePathGroups,
   onPreviewPathGroup,
 }: {
   project: Project;
@@ -99,6 +100,7 @@ export function PathLibraryDialog({
   onCancel(): void;
   onCreatePath(groupId: string | null): void;
   onDeletePaths(pathIds: readonly string[]): void;
+  onDeletePathGroups(groupIds: readonly string[]): void;
   onPreviewPathGroup(): void;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
@@ -504,8 +506,7 @@ export function PathLibraryDialog({
     setPending(null);
     setSelectedEdge(null);
     if (node.kind === "path") onDeletePaths([node.id]);
-    else if (mutate(() => projectStore.getState().deletePathGroup(node.id)))
-      setMessage("Path Group deleted. Its Paths are kept.");
+    else onDeletePathGroups([node.id]);
   };
   const openOnCanvas = (node: Node) => {
     if (node.kind === "group") {

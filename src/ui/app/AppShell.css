@@ -3047,6 +3047,7 @@ select {
 
 .config-dialog,
 .delete-paths-dialog,
+.delete-path-groups-dialog,
 .delete-projects-dialog,
 .new-path-dialog,
 .delete-path-group-dialog {
@@ -3194,6 +3195,7 @@ select {
 }
 
 .delete-paths-dialog,
+.delete-path-groups-dialog,
 .delete-projects-dialog {
   gap: 12px;
   width: min(520px, calc(100vw - 40px));

@@ -105,6 +105,7 @@ import { useLegacyFieldMigration } from "./useLegacyFieldMigration";
 import {
   CreateProjectDialog,
   DeletePathsDialog,
+  DeletePathGroupsDialog,
   DeleteProjectsDialog,
   NameEntryDialog,
   NewPathDialog,
@@ -225,6 +226,10 @@ export function AppShell() {
     string | null | undefined
   >(undefined);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
+  const [showDeletePathGroupDialog, setShowDeletePathGroupDialog] =
+    useState(false);
+  const [deletePathGroupSelectionIds, setDeletePathGroupSelectionIds] =
+    useState<readonly string[]>([]);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
   const [deletePathSelectionIds, setDeletePathSelectionIds] = useState<
     readonly string[]
@@ -321,6 +326,7 @@ export function AppShell() {
         showCommandPalette ||
         showConfigDialog ||
         showDeletePathDialog ||
+        showDeletePathGroupDialog ||
         showDeleteProjectDialog ||
         showLinkedTargetsDialog ||
         showMobileSupportWarning ||
@@ -360,6 +366,7 @@ export function AppShell() {
     showCommandPalette,
     showConfigDialog,
     showDeletePathDialog,
+    showDeletePathGroupDialog,
     showDeleteProjectDialog,
     showLinkedTargetsDialog,
     showMobileSupportWarning,
@@ -1278,6 +1285,25 @@ export function AppShell() {
     }
   }, []);
 
+  const handleShowDeletePathGroups = useCallback(
+    (groupIds: readonly string[] = []) => {
+      setDeletePathGroupSelectionIds(groupIds);
+      setShowDeletePathGroupDialog(true);
+      setOpenTopMenu(null);
+    },
+    [],
+  );
+
+  const handleDeletePathGroups = useCallback((ids: string[]) => {
+    try {
+      projectStore.getState().deletePathGroups(ids);
+      setShowDeletePathGroupDialog(false);
+      setDeletePathGroupSelectionIds([]);
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    }
+  }, []);
+
   const handleImportProject = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.currentTarget.files?.[0];
@@ -1727,6 +1753,7 @@ export function AppShell() {
         showCommandPalette,
         showConfigDialog,
         showDeletePathDialog,
+        showDeletePathGroupDialog,
         showDeleteProjectDialog,
         showLinkedTargetsDialog,
         showMobileSupportWarning,
@@ -1940,6 +1967,7 @@ export function AppShell() {
           savePathAs: handleSavePathAs,
           renamePath: handleRenamePath,
           showDeletePaths: handleShowDeletePaths,
+          showDeletePathGroups: handleShowDeletePathGroups,
           selectPath: handleSelectPathFromToolbar,
           openWorkspaceById: handleOpenWorkspaceById,
           openSample: handleOpenSample,
@@ -2136,6 +2164,7 @@ export function AppShell() {
             setShowNewPathDialog(true);
           }}
           onDeletePaths={handleShowDeletePaths}
+          onDeletePathGroups={handleShowDeletePathGroups}
           onPreviewPathGroup={() => handleShowGhostPathsChange(true)}
         />
       ) : null}
@@ -2185,6 +2214,18 @@ export function AppShell() {
             setShowNewPathDialog(false);
           }}
           onCreate={handleConfirmCreateNewPath}
+        />
+      ) : null}
+      {showDeletePathGroupDialog ? (
+        <DeletePathGroupsDialog
+          activeGroupId={activePathGroupId}
+          initialSelectedIds={deletePathGroupSelectionIds}
+          groups={durableProject?.path_groups ?? []}
+          onCancel={() => {
+            setDeletePathGroupSelectionIds([]);
+            setShowDeletePathGroupDialog(false);
+          }}
+          onDelete={handleDeletePathGroups}
         />
       ) : null}
       {showDeletePathDialog ? (
@@ -2634,6 +2675,7 @@ function hasActiveBlockingSurface({
   showCommandPalette,
   showConfigDialog,
   showDeletePathDialog,
+  showDeletePathGroupDialog,
   showDeleteProjectDialog,
   showLinkedTargetsDialog,
   showMobileSupportWarning,
@@ -2650,6 +2692,7 @@ function hasActiveBlockingSurface({
   showCommandPalette: boolean;
   showConfigDialog: boolean;
   showDeletePathDialog: boolean;
+  showDeletePathGroupDialog: boolean;
   showDeleteProjectDialog: boolean;
   showLinkedTargetsDialog: boolean;
   showMobileSupportWarning: boolean;
@@ -2667,6 +2710,7 @@ function hasActiveBlockingSurface({
     showCommandPalette ||
     showConfigDialog ||
     showDeletePathDialog ||
+    showDeletePathGroupDialog ||
     showDeleteProjectDialog ||
     showLinkedTargetsDialog ||
     showMobileSupportWarning ||

@@ -168,6 +168,10 @@ test("undo and redo work immediately after renaming, dragging, toggling, and del
   await expect(focusCount(nav)).toHaveText("1 Path connected");
 
   await action(nav, "Path Group", "Competition", "Delete");
+  await page
+    .getByRole("dialog", { name: "Delete Path Groups", exact: true })
+    .getByRole("button", { name: "Delete Selected", exact: true })
+    .click();
   await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(1);
@@ -235,6 +239,10 @@ test("deletes Path Groups without deleting Paths and uses the existing Path dele
   await action(nav, "Path", sample, "Duplicate");
   await nameInline(nav, "Path", "Backup");
   await action(nav, "Path Group", "Competition", "Delete");
+  await page
+    .getByRole("dialog", { name: "Delete Path Groups", exact: true })
+    .getByRole("button", { name: "Delete Selected", exact: true })
+    .click();
   await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(0);
   await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
   await action(nav, "Path", "Backup", "Delete");
@@ -252,6 +260,80 @@ test("deletes Path Groups without deleting Paths and uses the existing Path dele
     .getByRole("button", { name: `Focus ${sample}`, exact: true })
     .press("ControlOrMeta+z");
   await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
+});
+
+test("selects Path Groups for bulk deletion from row and top menus, with cancel and one-step undo", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const nav = await openPathLibraryDialog(page);
+  await createGroup(nav, "Competition");
+  await link(nav, "Competition", sample);
+  await createGroup(nav, "Testing");
+  await link(nav, "Testing", sample);
+  await createGroup(nav, "Keep");
+  await action(nav, "Path Group", "Competition", "Delete");
+  const dialog = page.getByRole("dialog", {
+    name: "Delete Path Groups",
+    exact: true,
+  });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("checkbox", { name: "Competition", exact: true }),
+  ).toBeChecked();
+  await expect(dialog.getByRole("status")).toHaveText("1 of 3 selected");
+  await dialog.getByRole("button", { name: "Select All", exact: true }).click();
+  await expect(dialog.getByRole("status")).toHaveText("3 of 3 selected");
+  await dialog
+    .getByRole("button", { name: "Select None", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("button", { name: "Delete Selected", exact: true }),
+  ).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(3);
+  await nav.getByRole("button", { name: "Close", exact: true }).click();
+
+  const openFromTopMenu = async () => {
+    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Manage Paths", exact: true })
+      .click();
+    await page
+      .getByRole("menuitem", { name: "Delete Path Groups...", exact: true })
+      .click();
+  };
+  await openFromTopMenu();
+  await expect(dialog.getByRole("status")).toHaveText("0 of 3 selected");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await openFromTopMenu();
+  await dialog
+    .getByRole("checkbox", { name: "Competition", exact: true })
+    .check();
+  await dialog.getByRole("checkbox", { name: "Testing", exact: true }).check();
+  const deleteButton = dialog.getByRole("button", {
+    name: "Delete Selected",
+    exact: true,
+  });
+  await deleteButton.focus();
+  await page.keyboard.press("Tab");
+  await expect(
+    dialog.getByRole("button", {
+      name: "Close delete path groups",
+      exact: true,
+    }),
+  ).toBeFocused();
+  await deleteButton.click();
+  await expect(dialog).toHaveCount(0);
+  await openPathLibraryDialog(page);
+  await expect(nav.locator(".fc-groups .fc-name")).toHaveText(["Keep"]);
+  await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(3);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(nav.locator(".fc-groups .fc-name")).toHaveText(["Keep"]);
+  await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(1);
 });
 
 test("filters connections, keeps row order stable, and aligns links after resizing", async ({

@@ -418,21 +418,96 @@ export function DeletePathsDialog({
   onCancel(): void;
   onDelete(ids: string[]): void;
 }) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set(initialSelectedIds),
+  return (
+    <DeleteLibraryItemsDialog
+      activeId={activePathId}
+      initialSelectedIds={initialSelectedIds}
+      items={paths.map((path) => ({
+        id: path.path_id,
+        name: path.display_name,
+      }))}
+      kind="paths"
+      onCancel={onCancel}
+      onDelete={onDelete}
+    />
   );
+}
+
+export function DeletePathGroupsDialog({
+  activeGroupId,
+  initialSelectedIds = [],
+  groups,
+  onCancel,
+  onDelete,
+}: {
+  activeGroupId: string | null;
+  initialSelectedIds?: readonly string[];
+  groups: ProjectPathGroup[];
+  onCancel(): void;
+  onDelete(ids: string[]): void;
+}) {
+  return (
+    <DeleteLibraryItemsDialog
+      activeId={activeGroupId}
+      initialSelectedIds={initialSelectedIds}
+      items={groups.map((group) => ({
+        id: group.group_id,
+        name: group.display_name,
+      }))}
+      kind="groups"
+      onCancel={onCancel}
+      onDelete={onDelete}
+    />
+  );
+}
+
+function DeleteLibraryItemsDialog({
+  activeId,
+  initialSelectedIds,
+  items,
+  kind,
+  onCancel,
+  onDelete,
+}: {
+  activeId: string | null;
+  initialSelectedIds: readonly string[];
+  items: { id: string; name: string }[];
+  kind: "paths" | "groups";
+  onCancel(): void;
+  onDelete(ids: string[]): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLFormElement>();
+  const title = kind === "paths" ? "Delete Paths" : "Delete Path Groups";
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () =>
+      new Set(
+        initialSelectedIds.filter((id) => items.some((item) => item.id === id)),
+      ),
+  );
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, [dialogRef]);
   const selectedCount = selectedIds.size;
 
   return (
     <div className="config-dialog-backdrop" role="presentation">
       <form
-        className="delete-paths-dialog path-removal"
+        ref={dialogRef}
+        tabIndex={-1}
+        className={`delete-${kind === "paths" ? "paths" : "path-groups"}-dialog path-removal`}
         role="dialog"
         aria-modal="true"
-        aria-label="Delete Paths"
+        aria-label={title}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          }
+        }}
         onSubmit={(event) => {
           event.preventDefault();
-          onDelete([...selectedIds]);
+          if (selectedCount > 0) onDelete([...selectedIds]);
         }}
       >
         <header className="path-removal__header">
@@ -440,22 +515,29 @@ export function DeletePathsDialog({
             <Trash2 size={18} />
           </span>
           <div>
-            <strong>Delete Paths</strong>
-            <p>Remove Paths from this project and its Path Groups.</p>
+            <strong>{title}</strong>
+            <p>
+              {kind === "paths"
+                ? "Remove Paths from this project and its Path Groups."
+                : "Remove Path Groups from this project. Their Paths stay in All Paths."}
+            </p>
           </div>
-          <CloseButton ariaLabel="Close delete paths" onClick={onCancel} />
+          <CloseButton
+            ariaLabel={`Close ${title.toLowerCase()}`}
+            onClick={onCancel}
+          />
         </header>
         <div className="path-removal__selection">
           <span role="status">
-            {selectedCount} of {paths.length} selected
+            {selectedCount} of {items.length} selected
           </span>
           <div>
             <button
               type="button"
               onClick={() =>
-                setSelectedIds(new Set(paths.map((path) => path.path_id)))
+                setSelectedIds(new Set(items.map((item) => item.id)))
               }
-              disabled={paths.length === 0 || selectedCount === paths.length}
+              disabled={items.length === 0 || selectedCount === items.length}
             >
               Select All
             </button>
@@ -468,17 +550,20 @@ export function DeletePathsDialog({
             </button>
           </div>
         </div>
-        <section className="delete-paths-dialog__list" aria-label="Saved paths">
-          {paths.length === 0 ? (
+        <section
+          className="delete-paths-dialog__list"
+          aria-label={kind === "paths" ? "Saved paths" : "Saved path groups"}
+        >
+          {items.length === 0 ? (
             <div className="delete-paths-dialog__empty">
-              No paths found to delete.
+              No {kind === "paths" ? "paths" : "path groups"} found to delete.
             </div>
           ) : (
-            paths.map((path) => {
-              const checked = selectedIds.has(path.path_id);
+            items.map((item) => {
+              const checked = selectedIds.has(item.id);
               return (
                 <label
-                  key={path.path_id}
+                  key={item.id}
                   className={`delete-path-row${checked ? " is-selected" : ""}`}
                 >
                   <input
@@ -489,18 +574,16 @@ export function DeletePathsDialog({
                       setSelectedIds((current) => {
                         const next = new Set(current);
                         if (nextChecked) {
-                          next.add(path.path_id);
+                          next.add(item.id);
                         } else {
-                          next.delete(path.path_id);
+                          next.delete(item.id);
                         }
                         return next;
                       });
                     }}
                   />
-                  <span>{path.display_name}</span>
-                  {path.path_id === activePathId ? (
-                    <small>Current</small>
-                  ) : null}
+                  <span>{item.name}</span>
+                  {item.id === activeId ? <small>Current</small> : null}
                 </label>
               );
             })

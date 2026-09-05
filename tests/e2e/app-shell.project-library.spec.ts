@@ -52,6 +52,10 @@ test("creates Path Groups and new Paths from the Project Navigator", async ({
     .getByRole("button", { name: "Path Group actions for Score Autos" })
     .click();
   await navigator.getByRole("menuitem", { name: "Delete Path Group" }).click();
+  await page
+    .getByRole("dialog", { name: "Delete Path Groups", exact: true })
+    .getByRole("button", { name: "Delete Selected", exact: true })
+    .click();
   await expect(
     navigator.locator(".all-paths__row").filter({ hasText: "Group Blank" }),
   ).toBeVisible();
@@ -266,7 +270,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   await page.getByRole("button", { name: "Path", exact: true }).click();
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
   await expect(page.getByText("Current: Phase 1 Canvas Draft")).toBeVisible();
-  await expect(page.getByText("Label: All Paths")).toBeVisible();
+  await expect(page.getByText("Path Group: None")).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Linked Elements..." }),
   ).toBeVisible();

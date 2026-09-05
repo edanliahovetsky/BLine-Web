@@ -1174,6 +1174,46 @@ describe("project store", () => {
     });
   });
 
+  it("deletes multiple Path Groups in one undo step and preserves shared Paths", async () => {
+    const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
+    const paths = structuredClone(requireWorkspace(store).paths);
+    for (const displayName of ["Competition", "Testing", "Keep"]) {
+      store.getState().createPathGroup({
+        displayName,
+        pathIds: paths.map((path) => path.path_id),
+        makeActive: false,
+      });
+    }
+    const groups = structuredClone(requireWorkspace(store).path_groups);
+    store.getState().setActivePathGroup(groups[0].group_id);
+    const activePathId = store.getState().activePathId;
+    store.getState().history.getState().clear();
+    store
+      .getState()
+      .deletePathGroups([
+        groups[0].group_id,
+        groups[1].group_id,
+        groups[0].group_id,
+        "missing",
+      ]);
+    expect(requireWorkspace(store).path_groups).toEqual([groups[2]]);
+    expect(requireWorkspace(store).paths).toEqual(paths);
+    expect(store.getState().activePathId).toBe(activePathId);
+    expect(store.getState().activePathGroupId).toBeNull();
+    store.getState().undo();
+    expect(requireWorkspace(store).path_groups).toEqual(groups);
+    expect(store.getState().activePathGroupId).toBe(groups[0].group_id);
+    expect(store.getState().history.getState().canUndo).toBe(false);
+    store.getState().redo();
+    expect(requireWorkspace(store).path_groups).toEqual([groups[2]]);
+    expect(requireWorkspace(store).paths).toEqual(paths);
+    store.getState().history.getState().clear();
+    store.getState().deletePathGroups([]);
+    store.getState().deletePathGroups(["missing"]);
+    expect(store.getState().history.getState().canUndo).toBe(false);
+    expect(requireWorkspace(store).path_groups).toEqual([groups[2]]);
+  });
+
   it("copies all Path memberships atomically without opening the duplicate", async () => {
     const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
     const [source, active] = requireWorkspace(store).paths;
@@ -1229,19 +1269,15 @@ describe("project store", () => {
   it("disconnects the canvas Path without switching it and restores its Collection on undo", async () => {
     const { store } = await initializedProjectStore(exampleTwoPathWorkspace());
     const [first, second] = requireWorkspace(store).paths;
-    store
-      .getState()
-      .createPathGroup({
-        displayName: "Compare",
-        pathIds: [first.path_id, second.path_id],
-      });
+    store.getState().createPathGroup({
+      displayName: "Compare",
+      pathIds: [first.path_id, second.path_id],
+    });
     const groupId = store.getState().activePathGroupId!;
     store.getState().setActivePath(first.path_id);
-    store
-      .getState()
-      .removePathsFromGroup(groupId, [first.path_id], {
-        preserveActivePath: true,
-      });
+    store.getState().removePathsFromGroup(groupId, [first.path_id], {
+      preserveActivePath: true,
+    });
     expect(store.getState().activePathId).toBe(first.path_id);
     expect(store.getState().activePathGroupId).toBeNull();
     expect(requireWorkspace(store).path_groups[0].path_ids).toEqual([

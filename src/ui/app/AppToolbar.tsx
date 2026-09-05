@@ -114,6 +114,7 @@ interface ToolbarActions {
   savePathAs(): void | Promise<void>;
   renamePath(): void;
   showDeletePaths(): void;
+  showDeletePathGroups(): void;
   selectPath(pathId: string): void;
   openWorkspaceById(id: string): void | Promise<void>;
   openSample(): void | Promise<void>;
@@ -281,7 +282,7 @@ export function AppToolbar({
         >
           <MenuLabel>Current: {pathLabel}</MenuLabel>
           <MenuLabel>
-            Label: {activeGroup?.display_name ?? "All Paths"}
+            Path Group: {activeGroup?.display_name ?? "None"}
           </MenuLabel>
           <div className="top-menu__separator" role="separator" />
           <MenuAction
@@ -308,7 +309,14 @@ export function AppToolbar({
             <MenuAction
               label="Delete Paths..."
               disabled={!project || project.paths.length === 0 || toolbarBusy}
-              onAction={actions.showDeletePaths}
+              onAction={() => actions.showDeletePaths()}
+            />
+            <MenuAction
+              label="Delete Path Groups..."
+              disabled={
+                !project || project.path_groups.length === 0 || toolbarBusy
+              }
+              onAction={() => actions.showDeletePathGroups()}
             />
           </MenuSubmenu>
           <MenuSubmenu label="Import / Export" testId="top-menu-path-transfer">

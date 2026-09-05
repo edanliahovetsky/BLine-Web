@@ -198,6 +198,7 @@ export interface ProjectStoreState {
     groupId: string,
     options?: { deleteMemberPaths?: boolean },
   ): void;
+  deletePathGroups(groupIds: readonly string[]): void;
   addPathsToGroup(groupId: string, pathIds: readonly string[]): void;
   removePathsFromGroup(
     groupId: string,
@@ -979,6 +980,27 @@ export function createProjectStore(
         navigation,
         nextNavigation,
         "Delete Path Group",
+      );
+    },
+    deletePathGroups(groupIds) {
+      requireProjectMutationAllowed();
+      const state = get();
+      const project = requireProject(state.project);
+      const ids = new Set(groupIds);
+      const remainingGroups = project.path_groups.filter(
+        (group) => !ids.has(group.group_id),
+      );
+      if (remainingGroups.length === project.path_groups.length) return;
+      const navigation = currentNavigation(state);
+      const nextProject = { ...project, path_groups: remainingGroups };
+      applyProjectTransition(
+        set,
+        history,
+        project,
+        nextProject,
+        navigation,
+        normalizeEditorNavigation(nextProject, navigation),
+        ids.size === 1 ? "Delete Path Group" : "Delete Path Groups",
       );
     },
     addPathsToGroup(groupId, pathIds) {
