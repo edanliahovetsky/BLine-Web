@@ -331,6 +331,7 @@ function autoVelocityMetadataMatchesSettings(
 export function autoVelocityGenerationOptions(settings: {
   velocitySafetyFactor: number;
   accelerationSafetyFactor: number;
+  mergeToleranceMps?: number;
 }): AutoVelocityGenerationOptions {
   return autoVelocityOptions(settings);
 }
@@ -338,10 +339,14 @@ export function autoVelocityGenerationOptions(settings: {
 function autoVelocityOptions(settings: {
   velocitySafetyFactor: number;
   accelerationSafetyFactor: number;
+  mergeToleranceMps?: number;
 }): AutoVelocityGenerationOptions {
   return {
     velocitySafetyFactor: settings.velocitySafetyFactor,
     accelerationSafetyFactor: settings.accelerationSafetyFactor,
+    ...(settings.mergeToleranceMps === undefined
+      ? {}
+      : { mergeToleranceMps: settings.mergeToleranceMps }),
   };
 }
 

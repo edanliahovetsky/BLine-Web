@@ -110,3 +110,35 @@ describe("path diagnostics", () => {
     ).toMatchObject({ severity: "warning", elementIndex: 1 });
   });
 });
+
+it("distinguishes impossible profiled handoff timing from preview tracking", () => {
+  const path = createPathModel({
+    path_elements: [
+      createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+      createRotationTarget({
+        t_ratio: 1,
+        rotation_radians: Math.PI / 2,
+        profiled_rotation: true,
+      }),
+      createTranslationTarget({
+        x_meters: 5,
+        y_meters: 1,
+        intermediate_handoff_radius_meters: 0.45,
+      }),
+      createTranslationTarget({ x_meters: 5, y_meters: 5 }),
+    ],
+  });
+  const diagnostics = derivePathDiagnostics(path, defaultFieldGeometry, [], {});
+  expect(
+    diagnostics.find((item) => item.id === "rotation-feasibility-1"),
+  ).toMatchObject({
+    severity: "warning",
+    elementIndex: 1,
+    summary: expect.stringContaining(
+      "hands off before its authored rotation profile",
+    ),
+  });
+  expect(
+    diagnostics.find((item) => item.id === "rotation-target-1")?.summary,
+  ).toMatch(/^Preview tracking:/);
+});

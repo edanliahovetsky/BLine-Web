@@ -1,3 +1,5 @@
+import { refreshAutoVelocityConstraints } from "../../../src/core/constraints/autoVelocityApply";
+import { evaluateRotationFeasibility } from "../../../src/core/sim/rotationFeasibility";
 import { simulatePathWithTrace } from "../../../src/core/sim";
 import { describe, expect, it } from "vitest";
 import {
@@ -103,7 +105,9 @@ it("matches an independent two-waypoint cap lattice and preserves manual radii",
   });
   const result = solveJointAutoConstraints(path, config, options);
   expect(result.status).toBe("valid");
-  expect(result.path.path_elements.slice(1)).toEqual(path.path_elements.slice(1));
+  expect(result.path.path_elements.slice(1)).toEqual(
+    path.path_elements.slice(1),
+  );
   expect(result.profile.diagnostics.totalTimeS).toBeLessThan(4.2);
   // Independent oracle: both 90 degree unprofiled turns need 1.5 s from rest.
   // Check actual translation arrival, with no dependency on the new angular
@@ -153,3 +157,94 @@ it("matches an independent two-waypoint cap lattice and preserves manual radii",
     oracle * 1.05 + 0.02,
   );
 }, 15_000);
+
+it("validates merged saved caps at all three timesteps", () => {
+  const path = createPathModel({
+    path_elements: [
+      createTranslationTarget(),
+      createWaypoint({
+        translation_target: createTranslationTarget({
+          x_meters: 4,
+          intermediate_handoff_radius_meters: 0.45,
+        }),
+        rotation_target: createRotationTarget({
+          rotation_radians: Math.PI / 2,
+          profiled_rotation: false,
+        }),
+      }),
+      createWaypoint({
+        translation_target: createTranslationTarget({
+          x_meters: 4,
+          y_meters: 4,
+        }),
+        rotation_target: createRotationTarget({
+          rotation_radians: Math.PI,
+          profiled_rotation: false,
+        }),
+      }),
+    ],
+  });
+  const saved = refreshAutoVelocityConstraints(path, config, {
+    whenPresentOnly: false,
+    settings: {
+      velocitySafetyFactor: 1,
+      accelerationSafetyFactor: 1,
+      mergeToleranceMps: 0.2,
+    },
+  });
+  for (const dt of [0.02, 0.01, 0.005]) {
+    const trace = simulatePathWithTrace(saved, config, { dt_s: dt }).trace;
+    expect(
+      evaluateRotationFeasibility(saved, config, trace).every(
+        (target) => target.passed,
+      ),
+    ).toBe(true);
+    const arrival = trace.find(
+      (sample) =>
+        sample.segment_index === 1 &&
+        Math.hypot(sample.x_m - 4, sample.y_m - 4) < 0.001,
+    );
+    expect(arrival?.time_s).toBeLessThan(4.2);
+  }
+});
+
+it("keeps an achievable profiled heading fast and reports impossible manual timing", () => {
+  const path = createPathModel({
+    path_elements: [
+      createTranslationTarget(),
+      createRotationTarget({
+        t_ratio: 1,
+        rotation_radians: Math.PI / 6,
+        profiled_rotation: true,
+      }),
+      createTranslationTarget({ x_meters: 4 }),
+    ],
+  });
+  const result = solveJointAutoConstraints(path, config, options);
+  expect(result.status).toBe("valid");
+  expect(result.profile.diagnostics.totalTimeS).toBeLessThan(2);
+  const pinned = {
+    ...pathOf(),
+    ranged_constraints: [
+      {
+        key: "max_velocity_meters_per_sec" as const,
+        value: 4,
+        start_ordinal: 2,
+        end_ordinal: 2,
+      },
+    ],
+  };
+  const impossible = solveJointAutoConstraints(pinned, config, {
+    ...options,
+    velocitySafetyFactor: 0.5,
+  });
+  expect(impossible.status).toBe("best-effort");
+  expect(
+    impossible.profile.segmentCaps.find((cap) => cap.targetOrdinal === 2)
+      ?.value,
+  ).toBe(4);
+  expect(impossible.path.ranged_constraints).toEqual(pinned.ranged_constraints);
+  expect(
+    impossible.profile.diagnostics.rotationFeasibility?.[0]?.availableTimeS,
+  ).toBeLessThan(1);
+});

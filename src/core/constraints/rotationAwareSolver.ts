@@ -142,3 +142,40 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
   }
   return { ...best, evaluations, budget };
 }
+
+/** Match persisted adjacent-cap merging, to a fixed point before validation. */
+export function mergeRotationCaps(
+  caps: Map<number, number>,
+  pinned: ReadonlyMap<number, number>,
+  tolerance: number,
+): void {
+  const ordinals = [...caps.keys()].sort((a, b) => a - b);
+  for (let pass = 0; pass < ordinals.length; pass += 1) {
+    let changed = false;
+    let group: number[] = [];
+    for (const ordinal of ordinals) {
+      if (pinned.has(ordinal)) {
+        group = [];
+        continue;
+      }
+      const previous = group.at(-1);
+      if (
+        previous === undefined ||
+        previous !== ordinal - 1 ||
+        Math.abs(caps.get(previous)! - caps.get(ordinal)!) > tolerance
+      )
+        group = [ordinal];
+      else {
+        group.push(ordinal);
+        const minimum = Math.min(...group.map((index) => caps.get(index)!));
+        for (const index of group) {
+          if (caps.get(index)! !== minimum) {
+            caps.set(index, minimum);
+            changed = true;
+          }
+        }
+      }
+    }
+    if (!changed) break;
+  }
+}

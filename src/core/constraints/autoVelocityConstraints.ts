@@ -1,5 +1,6 @@
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
+  defaultAutoVelocityMergeToleranceMetersPerSec,
   defaultAutoVelocityVelocitySafetyFactor,
   getDefaultOptionalConfigValue,
 } from "../config/projectConfig";
@@ -45,6 +46,7 @@ import {
 import {
   searchRotationConstraints,
   rotationSearchBudget,
+  mergeRotationCaps,
   type RotationSearchVariable,
 } from "./rotationAwareSolver";
 import { autoHandoffRadiusObjectiveCost } from "./autoHandoffRadiusObjective";
@@ -60,6 +62,7 @@ export interface AutoVelocityGenerationOptions {
   velocitySafetyFactor?: number;
   accelerationSafetyFactor?: number;
   sampleStepMeters?: number;
+  mergeToleranceMps?: number;
   /**
    * Radius-search evaluations must distinguish generated radius candidates.
    * Normal refresh signatures deliberately omit those output values.
@@ -1363,6 +1366,26 @@ function solveRotationAwareConstraints(
     (values, stable) => {
       const caps = new Map(problem.canonicalCaps);
       ordinals.forEach((ordinal, i) => caps.set(ordinal, values[i]!));
+      caps.set(
+        1,
+        Math.min(
+          setup.baseMaxVelocityMps * defaultFirstOrdinalVelocityRatio,
+          setup.usableMaxVelocityMps,
+        ),
+      );
+      for (const [ordinal, value] of setup.simulationContext
+        .pinnedCapsByOrdinal)
+        caps.set(ordinal, value);
+      mergeRotationCaps(
+        caps,
+        setup.simulationContext.pinnedCapsByOrdinal,
+        options.mergeToleranceMps ??
+          getDefaultOptionalConfigValue(
+            config,
+            "auto_velocity_merge_tolerance_meters_per_sec",
+          ) ??
+          defaultAutoVelocityMergeToleranceMetersPerSec,
+      );
       const radii = [...problem.canonicalRadii];
       coordinates.forEach((coordinate, i) => {
         radii[coordinate.segmentIndex] = values[ordinals.length + i]!;
@@ -1530,12 +1553,8 @@ function solveRotationAwareConstraints(
           setup.baseMaxVelocityMps,
           setup.usableMaxVelocityMps,
         ).map((cap) => {
-          const pinned = setup.simulationContext.pinnedCapsByOrdinal.get(
-            cap.targetOrdinal,
-          );
-          return pinned === undefined
-            ? cap
-            : { ...cap, value: pinned, minVelocityLimitMps: pinned };
+          const value = caps.get(cap.targetOrdinal) ?? cap.value;
+          return { ...cap, value, minVelocityLimitMps: value };
         }),
         diagnostics: {
           ...diagnosticsFromEvaluation(primary.evaluation),
@@ -1572,11 +1591,13 @@ function solveRotationAwareConstraints(
         : "best-effort",
     stats: {
       algorithm: "interactive",
-      evaluations: search.evaluations,
-      evaluationBudget: search.budget,
+      evaluations: search.evaluations + (baseline?.stats?.evaluations ?? 0),
+      evaluationBudget:
+        search.budget + (baseline?.stats?.evaluationBudget ?? 0),
       searchableBlocks: variables.length,
-      cacheHits: 0,
-      genericEvaluations,
+      cacheHits: baseline?.stats?.cacheHits ?? 0,
+      genericEvaluations:
+        genericEvaluations + (baseline?.stats?.genericEvaluations ?? 0),
       objectiveCost: winner.timeS,
       genericValidationPassed: winner.primaryPassed,
       stabilityValidationPassed: winner.feasible,
@@ -3230,6 +3251,13 @@ export function autoVelocityInputSignature(
         velocitySafetyFactor: options.velocitySafetyFactor ?? null,
         accelerationSafetyFactor: options.accelerationSafetyFactor ?? null,
         sampleStepMeters: options.sampleStepMeters ?? null,
+        mergeToleranceMps:
+          options.mergeToleranceMps ??
+          getDefaultOptionalConfigValue(
+            config,
+            "auto_velocity_merge_tolerance_meters_per_sec",
+          ) ??
+          null,
         includeGeneratedRadiiInCacheKey:
           options.includeGeneratedRadiiInCacheKey ?? false,
       },
