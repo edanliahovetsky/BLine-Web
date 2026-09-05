@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type CSSProperties,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   Check,
   Copy,
@@ -918,9 +919,13 @@ export function PathLibraryDialog({
         <div
           className="fc-scroll"
           onScrollCapture={() => {
-            setMenu(null);
-            measure();
-            drag.scroll();
+            // Scroll updates normally have continuous priority in React. Commit
+            // the SVG endpoints before this frame paints the already-moved rows.
+            flushSync(() => {
+              setMenu(null);
+              measure();
+              drag.scroll();
+            });
           }}
         >
           <div

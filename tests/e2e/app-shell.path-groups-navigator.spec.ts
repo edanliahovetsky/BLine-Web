@@ -460,6 +460,74 @@ async function seedLongLibrary(page: Page, longSide: "path" | "group") {
 }
 
 for (const longSide of ["path", "group"] as const) {
+  test(`keeps ${longSide} wire endpoints aligned in the first frame of each scroll @webkit-canvas`, async ({
+    page,
+  }) => {
+    const nav = await seedLongLibrary(page, longSide);
+    const list = nav.locator(`.fc-list-scroll[data-kind="${longSide}"]`);
+    await list.evaluate((scroll) => {
+      const samples: { error: number; wires: number }[] = [];
+      scroll.setAttribute("data-scroll-alignment", "[]");
+      const onScroll = (event: Event) => {
+        if (event.target !== scroll) return;
+        // Observe the frame that will actually paint, not the eventually settled UI.
+        requestAnimationFrame(() => {
+          const board = scroll.closest(".fc-board")!;
+          const ports = (kind: string) =>
+            [
+              ...board.querySelectorAll(
+                `.fc-row[data-kind="${kind}"] .fc-port`,
+              ),
+            ].map((port) => {
+              const box = port.getBoundingClientRect();
+              return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+            });
+          const groupPorts = ports("group"),
+            pathPorts = ports("path");
+          const wires = [...board.querySelectorAll<SVGPathElement>(".fc-wire")];
+          const error = Math.max(
+            0,
+            ...wires.flatMap((wire) => {
+              const matrix = wire.getScreenCTM()!;
+              return [0, 1].map((end) => {
+                const point = wire
+                  .getPointAtLength(end ? wire.getTotalLength() : 0)
+                  .matrixTransform(matrix);
+                return Math.min(
+                  ...(end ? pathPorts : groupPorts).map((port) =>
+                    Math.hypot(point.x - port.x, point.y - port.y),
+                  ),
+                );
+              });
+            }),
+          );
+          samples.push({ error, wires: wires.length });
+          scroll.setAttribute("data-scroll-alignment", JSON.stringify(samples));
+        });
+      };
+      window.addEventListener("scroll", onScroll, { capture: true });
+    });
+    await list.hover();
+    for (let index = 0; index < 12; index++) {
+      await page.mouse.wheel(0, 9);
+      await expect
+        .poll(
+          async () =>
+            JSON.parse((await list.getAttribute("data-scroll-alignment"))!)
+              .length,
+        )
+        .toBeGreaterThan(index);
+    }
+    const samples: { error: number; wires: number }[] = JSON.parse(
+      (await list.getAttribute("data-scroll-alignment"))!,
+    );
+    expect(samples.every((sample) => sample.wires > 0)).toBe(true);
+    expect(
+      Math.max(...samples.map((sample) => sample.error)),
+      JSON.stringify(samples),
+    ).toBeLessThan(1);
+  });
+
   test(`keeps connections visible when the selected ${longSide} scrolls out of view`, async ({
     page,
   }) => {
