@@ -238,6 +238,7 @@
   place-items: center;
   width: 25px;
   height: 25px;
+  padding: 0;
   border: 1px solid #344b5d;
   border-radius: 6px;
   background: #203240;
@@ -359,16 +360,9 @@
   font-size: 0.64rem;
   margin-left: auto;
 }
-.fc-path-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border: 1.5px solid #88a6bf;
-  border-radius: 50%;
-}
-.fc-row.is-related .fc-path-dot {
-  border-color: #b3deff;
-  background: #83bde8;
+.fc-paths .fc-select,
+.fc-paths .fc-rename {
+  padding-left: 24px;
 }
 .fc-more {
   display: grid;

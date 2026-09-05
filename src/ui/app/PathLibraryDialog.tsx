@@ -604,10 +604,8 @@ export function PathLibraryDialog({
               onClick={() => select(node)}
               onDoubleClick={() => startRename(node)}
             >
-              {node.kind === "collection" ? (
+              {node.kind === "collection" && (
                 <Folder className="fc-folder" size={17} />
-              ) : (
-                <span className="fc-path-dot" />
               )}
               <span className="fc-name" title={node.name}>
                 {node.name}

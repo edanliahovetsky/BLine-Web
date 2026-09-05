@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { ProjectPath, ProjectPathGroup } from "../../core/model/project";
 import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
 import { CloseButton } from "../controls";
@@ -425,7 +426,7 @@ export function DeletePathsDialog({
   return (
     <div className="config-dialog-backdrop" role="presentation">
       <form
-        className="delete-paths-dialog"
+        className="delete-paths-dialog path-removal"
         role="dialog"
         aria-modal="true"
         aria-label="Delete Paths"
@@ -434,10 +435,39 @@ export function DeletePathsDialog({
           onDelete([...selectedIds]);
         }}
       >
-        <header className="config-dialog__header">
-          <strong>Delete Paths</strong>
+        <header className="path-removal__header">
+          <span className="path-removal__icon">
+            <Trash2 size={18} />
+          </span>
+          <div>
+            <strong>Delete Paths</strong>
+            <p>Remove Paths from this project and its Collections.</p>
+          </div>
           <CloseButton ariaLabel="Close delete paths" onClick={onCancel} />
         </header>
+        <div className="path-removal__selection">
+          <span role="status">
+            {selectedCount} of {paths.length} selected
+          </span>
+          <div>
+            <button
+              type="button"
+              onClick={() =>
+                setSelectedIds(new Set(paths.map((path) => path.path_id)))
+              }
+              disabled={paths.length === 0 || selectedCount === paths.length}
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              disabled={selectedCount === 0}
+            >
+              Select None
+            </button>
+          </div>
+        </div>
         <section className="delete-paths-dialog__list" aria-label="Saved paths">
           {paths.length === 0 ? (
             <div className="delete-paths-dialog__empty">
@@ -449,11 +479,7 @@ export function DeletePathsDialog({
               return (
                 <label
                   key={path.path_id}
-                  className={
-                    path.path_id === activePathId
-                      ? "delete-path-row is-current"
-                      : "delete-path-row"
-                  }
+                  className={`delete-path-row${checked ? " is-selected" : ""}`}
                 >
                   <input
                     type="checkbox"
@@ -480,32 +506,16 @@ export function DeletePathsDialog({
             })
           )}
         </section>
-        <footer className="config-dialog__footer">
-          <button
-            type="button"
-            onClick={() =>
-              setSelectedIds(new Set(paths.map((path) => path.path_id)))
-            }
-            disabled={paths.length === 0}
-          >
-            Select All
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedIds(new Set())}
-            disabled={selectedCount === 0}
-          >
-            Select None
-          </button>
-          <span className="delete-paths-dialog__spacer" />
+        <footer className="path-removal__footer">
           <button type="button" onClick={onCancel}>
             Cancel
           </button>
           <button
             type="submit"
-            className="danger-action"
+            className="path-removal__delete"
             disabled={selectedCount === 0}
           >
+            <Trash2 size={14} />
             Delete Selected
           </button>
         </footer>
