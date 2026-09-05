@@ -1,5 +1,6 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { PathModel } from "../../core/model/path";
+import type { ProjectConfig } from "../../core/model/project";
 import { rememberCompletedTourIds } from "../../userData";
 
 export type TourPlacement = "above" | "below" | "left" | "right";
@@ -7,12 +8,32 @@ export type TourPlacement = "above" | "below" | "left" | "right";
 export interface TourMarker {
   id: string;
   label: string;
-  kind: "zone" | "structure" | "game-piece" | "callout";
+  kind: "zone" | "structure" | "game-piece" | "callout" | "pose";
   xMeters: number;
   yMeters: number;
   widthMeters?: number;
   heightMeters?: number;
   rotationDegrees?: number;
+}
+
+export type TourExperiment = "handoff" | "speed" | "heading";
+export interface TourFeedback {
+  complete: boolean;
+  message: string;
+}
+export type TourAction =
+  | "play"
+  | "finishRun"
+  | "scrub"
+  | "reference"
+  | "replay"
+  | "inspectConfig"
+  | "inspectPath"
+  | "export"
+  | "keepCopy";
+export interface TourReference {
+  path: PathModel;
+  config: ProjectConfig;
 }
 
 export interface TourStep {
@@ -24,6 +45,16 @@ export interface TourStep {
   target?: string;
   title: string;
   body: string;
+  describe?(): string;
+  phase?: "Build" | "Observe" | "Experiment" | "Challenge" | "Review";
+  /** Visible context is independent of the controls permitted for interaction. */
+  visible?: readonly string[];
+  hints?: readonly string[];
+  hintTargets?: readonly string[];
+  demo?: TourExperiment;
+  experiment?: TourExperiment;
+  handoff?: true;
+  check?(): TourFeedback;
   /** Short action shown as a task when the step waits for editor input. */
   task?: string;
   /** Keys worth showing as caps beneath the body. */
@@ -84,6 +115,7 @@ export interface TourDefinition {
    * steps assume — a straight line to bend, a sharp corner to constrain.
    */
   practicePath(): PathModel;
+  practiceConfig?(): ProjectConfig;
   steps: readonly TourStep[];
 }
 
@@ -93,6 +125,8 @@ export interface TourState {
   attemptId: number;
   furthestStepIndex: number;
   completedStepIndexes: readonly number[];
+  actions: Partial<Record<TourAction, number>>;
+  reference: TourReference | null;
   completedTourIds: readonly string[];
   start(tourId: string): void;
   goTo(stepIndex: number): void;
@@ -100,6 +134,8 @@ export interface TourState {
   back(): void;
   setStepComplete(index: number, complete: boolean): void;
   restartAt(index: number): void;
+  recordAction(action: TourAction): void;
+  captureReference(reference: TourReference): void;
   hydrateCompleted(ids: readonly string[]): void;
   finish(): void;
   exit(): void;
@@ -119,6 +155,8 @@ export function createTourStore(
     attemptId: 0,
     furthestStepIndex: 0,
     completedStepIndexes: [],
+    actions: {},
+    reference: null,
     completedTourIds: [...new Set(options.completedTourIds ?? [])],
     start(tourId) {
       set({
@@ -126,6 +164,8 @@ export function createTourStore(
         stepIndex: 0,
         furthestStepIndex: 0,
         completedStepIndexes: [],
+        actions: {},
+        reference: null,
         attemptId: get().attemptId + 1,
       });
     },
@@ -165,7 +205,22 @@ export function createTourStore(
           (candidate) => candidate < index,
         ),
         attemptId: get().attemptId + 1,
+        ...(index === 0 ? { reference: null, actions: {} } : {}),
       });
+    },
+    recordAction(action) {
+      if (!get().activeTourId) return;
+      set({
+        actions: {
+          ...get().actions,
+          [action]: (get().actions[action] ?? 0) + 1,
+        },
+      });
+    },
+    captureReference(reference) {
+      if (!get().activeTourId) return;
+      set({ reference: structuredClone(reference) });
+      get().recordAction("reference");
     },
     hydrateCompleted(ids) {
       set({ completedTourIds: [...new Set(ids)] });
@@ -180,7 +235,7 @@ export function createTourStore(
       set({ activeTourId: null, stepIndex: 0 });
     },
     exit() {
-      set({ activeTourId: null, stepIndex: 0 });
+      set({ activeTourId: null, stepIndex: 0, reference: null });
     },
   }));
 }

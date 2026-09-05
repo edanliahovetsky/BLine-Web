@@ -164,7 +164,7 @@ export function createTourSessionController<View>(
       const practiceProject = createProject({
         project_id: practiceProjectId,
         display_name: state.project?.display_name ?? tourPracticePathName,
-        config: state.project?.config,
+        config: definition.practiceConfig?.() ?? state.project?.config,
         paths: [
           {
             path_id: practicePathId,

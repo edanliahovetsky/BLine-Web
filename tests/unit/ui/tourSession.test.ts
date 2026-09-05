@@ -47,7 +47,11 @@ describe("Tour session", () => {
     const projects = createProjectStore();
     const selections = createSelectionStore();
     const tours = createTourStore();
-    const original = createProject({ project_id: "original", display_name: "Original", paths: [] });
+    const original = createProject({
+      project_id: "original",
+      display_name: "Original",
+      paths: [],
+    });
     projects.setState({
       project: original,
       activePathId: original.paths[0]?.path_id ?? null,
