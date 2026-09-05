@@ -1,3 +1,4 @@
+import { evaluateRotationFeasibility } from "../../core/sim/rotationFeasibility";
 import { getElementPosition } from "../../canvas/geometry";
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
 import {
@@ -96,6 +97,31 @@ export function derivePathDiagnostics(
     if (rotationTargets.length > 0) {
       try {
         const result = simulatePathWithTrace(path, config, { dt_s: 0.02 });
+        for (const target of evaluateRotationFeasibility(
+          path,
+          config,
+          result.trace,
+        )) {
+          if (target.passed) continue;
+          const detail =
+            target.reason === "unreached"
+              ? "is never reached by the translation path."
+              : target.reason === "conflicting-targets"
+                ? "conflicts with another rotation at the same location."
+                : target.reason === "profile-handoff"
+                  ? "hands off before its authored rotation profile reaches the target."
+                  : target.reason === "profile-limits"
+                    ? "cannot follow its profiled heading within the angular limits before handoff."
+                    : target.reason === "angular-transition"
+                      ? "cannot make the angular velocity transition within its limits."
+                      : `needs at least ${target.requiredTimeS.toFixed(2)} s to turn; only ${target.availableTimeS.toFixed(2)} s is available before arrival or handoff.`;
+          diagnostics.push({
+            id: `rotation-feasibility-${target.eventOrdinal}`,
+            severity: "warning",
+            summary: `Rotation ${target.eventOrdinal} ${detail}`,
+            elementIndex: target.elementIndex,
+          });
+        }
         for (const target of evaluateRotationTargets(
           rotationTargets,
           result.trace,
@@ -109,7 +135,7 @@ export function derivePathDiagnostics(
           diagnostics.push({
             id: `rotation-target-${target.event_ordinal_1b}`,
             severity: "warning",
-            summary: `Rotation ${target.event_ordinal_1b} misses its target by ${missDegrees} on arrival.`,
+            summary: `Preview tracking: rotation ${target.event_ordinal_1b} misses its target by ${missDegrees} on arrival.`,
             elementIndex: target.path_element_index,
           });
         }

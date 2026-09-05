@@ -23,6 +23,7 @@ import {
 } from "../model/path";
 import {
   buildGlobalRotationKeyframes,
+  buildGlobalRotationTargets,
   buildRotationDomainEvents,
   desiredHeadingForGlobalS,
   simulatePathWithTrace,
@@ -37,6 +38,15 @@ import {
   autoVelocityObjectiveCost,
   autoVelocityTieBreakCost,
 } from "./autoVelocityObjective";
+import {
+  evaluateRotationFeasibility,
+  type RotationFeasibilityDiagnostic,
+} from "../sim/rotationFeasibility";
+import {
+  searchRotationConstraints,
+  rotationSearchBudget,
+  type RotationSearchVariable,
+} from "./rotationAwareSolver";
 import { autoHandoffRadiusObjectiveCost } from "./autoHandoffRadiusObjective";
 import type {
   ChassisSpeeds,
@@ -121,6 +131,7 @@ export interface AutoVelocityDiagnostics {
   maxOvershootErrorRatio: number;
   maxCorridorDeviationRatio: number;
   handoffs: AutoVelocityHandoffDiagnostic[];
+  rotationFeasibility?: RotationFeasibilityDiagnostic[];
 }
 
 export interface AutoVelocityProfile {
@@ -326,7 +337,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 7;
+const autoConstraintSolverVersion = 8;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -342,6 +353,17 @@ export function generateAutoVelocityProfile(
     profileCache.delete(cacheKey);
     profileCache.set(cacheKey, cached);
     return cached;
+  }
+
+  if (hasAuthoredRotations(path)) {
+    const profile = solveRotationAwareConstraints(
+      path,
+      config,
+      options,
+      false,
+    ).profile;
+    cacheProfile(cacheKey, profile);
+    return profile;
   }
 
   const {
@@ -533,6 +555,15 @@ export function jointAutoConstraintSearchPlan(
   ).filter(
     (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
   ).length;
+  if (hasAuthoredRotations(path)) {
+    const capCount = setup.segments.filter(
+      (_, i) => !setup.simulationContext.pinnedCapsByOrdinal.has(i + 2),
+    ).length;
+    return {
+      searchableBlocks: searchableBlocks + capCount,
+      evaluationBudget: rotationSearchBudget(searchableBlocks + capCount),
+    };
+  }
   return {
     searchableBlocks,
     evaluationBudget:
@@ -1208,6 +1239,17 @@ export function solveJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): JointAutoConstraintSolveResult {
+  if (hasAuthoredRotations(path)) {
+    return solveRotationAwareConstraints(path, config, options, true);
+  }
+  return solveTranslationJointConstraints(path, config, options);
+}
+
+function solveTranslationJointConstraints(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+): JointAutoConstraintSolveResult {
   const searchPlan = jointAutoConstraintSearchPlan(path, config, options);
   if (searchPlan.searchableBlocks <= 8) {
     const result = solveJointAutoConstraintsGlobalSearchInternal(
@@ -1226,6 +1268,326 @@ export function solveJointAutoConstraints(
   }
   const seed = solveJointAutoConstraintsInternal(path, config, options, true);
   return refineJointAutoConstraintsForProduction(path, config, options, seed);
+}
+
+function hasAuthoredRotations(path: PathModel): boolean {
+  const anchors = translationAnchors(path.path_elements);
+  if (anchors.length < 2) return false;
+  const segments = buildSegmentGeometry(anchors);
+  const distances = [0, ...segments.map((segment) => segment.endS)];
+  const targets = buildGlobalRotationTargets(path, anchors, distances);
+  if (targets.length === 0) return false;
+  const initial = desiredHeadingForGlobalS(
+    buildGlobalRotationKeyframes(path, anchors, distances),
+    0,
+    Math.atan2(segments[0]!.uy, segments[0]!.ux),
+  ).desiredTheta;
+  return targets.some(
+    (target) =>
+      Math.abs(shortestAngularDistance(target.theta_target, initial)) > 1e-9,
+  );
+}
+
+/** Rotation uses kinematic feasibility; preview controller error stays diagnostic. */
+function solveRotationAwareConstraints(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+  optimizeRadii: boolean,
+): JointAutoConstraintSolveResult {
+  const basePath = optimizeRadii ? seedHandoffRadii(path).path : path;
+  const problem = createJointSearchProblem(basePath, config, options);
+  const setup = problem.setup;
+  const coordinates = optimizeRadii ? problem.searchableCoordinates : [];
+  const ordinals = [...problem.canonicalCaps.keys()].filter(
+    (ordinal) => !setup.simulationContext.pinnedCapsByOrdinal.has(ordinal),
+  );
+  const variables: RotationSearchVariable[] = [
+    ...ordinals.map(() => ({
+      kind: "cap" as const,
+      min: Math.min(0.05, setup.usableMaxVelocityMps),
+      max: setup.usableMaxVelocityMps,
+      quantum: 0.01,
+    })),
+    ...coordinates.map((coordinate) => ({
+      kind: "radius" as const,
+      min: coordinate.minRadiusMeters,
+      max: coordinate.maxRadiusMeters,
+      quantum: 0.001,
+    })),
+  ];
+  const translationPath: PathModel = {
+    ...basePath,
+    path_elements: basePath.path_elements.flatMap((element) =>
+      isRotationTarget(element)
+        ? []
+        : isWaypoint(element)
+          ? [
+              setHandoffRadiusSource(
+                { ...element.translation_target },
+                getHandoffRadiusSource(element),
+              ),
+            ]
+          : [element],
+    ),
+  };
+  const baseline =
+    setup.corners.length === 0
+      ? null
+      : optimizeRadii
+        ? solveTranslationJointConstraints(translationPath, config, options)
+        : {
+            path: translationPath,
+            profile: generateAutoVelocityProfile(
+              translationPath,
+              config,
+              options,
+            ),
+            stats: null,
+          };
+  const baselineCaps = baseline
+    ? capsByOrdinalFromSegmentCaps(baseline.profile.segmentCaps)
+    : problem.canonicalCaps;
+  const baselineRadii = baseline
+    ? createAutoVelocitySolveSetup(baseline.path, config, options)
+        .simulationContext.handoffRadiiBySegmentIndex
+    : problem.canonicalRadii;
+  const seed = [
+    ...ordinals.map((ordinal) => baselineCaps.get(ordinal)!),
+    ...coordinates.map((coordinate) => baselineRadii[coordinate.segmentIndex]!),
+  ];
+  let genericEvaluations = 0;
+  const search = searchRotationConstraints(
+    variables,
+    seed,
+    (values, stable) => {
+      const caps = new Map(problem.canonicalCaps);
+      ordinals.forEach((ordinal, i) => caps.set(ordinal, values[i]!));
+      const radii = [...problem.canonicalRadii];
+      coordinates.forEach((coordinate, i) => {
+        radii[coordinate.segmentIndex] = values[ordinals.length + i]!;
+      });
+      const candidatePath = pathWithJointRadii(basePath, setup.anchors, radii);
+      const candidateSetup = createAutoVelocitySolveSetup(
+        candidatePath,
+        config,
+        options,
+      );
+      // Validate the values that will actually be saved. Keep manual ranges,
+      // minimum speeds and acceleration ranges; the generic translation solver
+      // intentionally replaces these during its separate safety-margin solve.
+      const persistedPath: PathModel = {
+        ...candidatePath,
+        ranged_constraints: [
+          ...candidatePath.ranged_constraints.filter(
+            (constraint) =>
+              !(
+                constraint.key === "max_velocity_meters_per_sec" &&
+                constraint.source === "auto_velocity"
+              ),
+          ),
+          ...ordinals.map((ordinal) => ({
+            key: "max_velocity_meters_per_sec" as const,
+            value: caps.get(ordinal)!,
+            start_ordinal: ordinal,
+            end_ordinal: ordinal,
+          })),
+        ],
+      };
+      const cases = (stable ? [0.02, 0.01, 0.005] : [0.02]).map((dt) => ({
+        dt,
+        margin: false,
+      }));
+      if (setup.settings.accelerationSafetyFactor < 1)
+        cases.push({ dt: 0.02, margin: true });
+      const results = cases.map(({ dt, margin }) => {
+        genericEvaluations += 1;
+        const simulationPath = !margin
+          ? persistedPath
+          : {
+              ...persistedPath,
+              constraints: {
+                ...persistedPath.constraints,
+                max_acceleration_meters_per_sec2:
+                  setup.usableMaxAccelerationMps2,
+              },
+              ranged_constraints: persistedPath.ranged_constraints.map(
+                (constraint) =>
+                  constraint.key === "max_acceleration_meters_per_sec2"
+                    ? {
+                        ...constraint,
+                        value:
+                          constraint.value *
+                          setup.settings.accelerationSafetyFactor,
+                      }
+                    : constraint,
+              ),
+            };
+        const simulation = simulatePathWithTrace(simulationPath, config, {
+          dt_s: dt,
+        });
+        const evaluation: VelocityCapEvaluation = {
+          trace: simulation.trace,
+          handoffs: candidateSetup.corners.map((corner) =>
+            evaluateHandoff(corner, candidateSetup.segments, simulation.trace),
+          ),
+          passed: false,
+          reachedEnd: false,
+          totalTimeS: simulation.total_time_s,
+          finalGlobalSMeters: simulation.trace.at(-1)?.global_s_m ?? 0,
+          totalLengthMeters: candidateSetup.segments.at(-1)?.endS ?? 0,
+        };
+        const end = candidateSetup.anchors.at(-1);
+        const arrivalIndex = evaluation.trace.findIndex(
+          (sample) =>
+            end &&
+            sample.segment_index >= candidateSetup.segments.length - 1 &&
+            Math.hypot(sample.x_m - end.x, sample.y_m - end.y) <= 0.001,
+        );
+        const trace =
+          arrivalIndex < 0
+            ? evaluation.trace
+            : evaluation.trace.slice(0, arrivalIndex + 1);
+        const reachedEnd = arrivalIndex >= 0;
+        const timeS = trace.at(-1)?.time_s ?? 0;
+        const translationPassed =
+          reachedEnd && evaluation.handoffs.every((handoff) => handoff.passed);
+        const rotation = translationPassed
+          ? evaluateRotationFeasibility(candidatePath, config, trace)
+          : [];
+        const feasible =
+          translationPassed && rotation.every((target) => target.passed);
+        const translationViolation =
+          (reachedEnd ? 0 : 100) +
+          evaluation.handoffs.reduce(
+            (sum, handoff) =>
+              sum +
+              Math.max(
+                0,
+                handoff.combinedErrorMeters / handoff.toleranceMeters - 1,
+              ) +
+              Math.max(
+                0,
+                handoff.postHandoffPeakErrorMeters /
+                  handoff.postHandoffToleranceMeters -
+                  1,
+              ) +
+              Math.max(
+                0,
+                handoff.overshootErrorMeters /
+                  handoff.overshootToleranceMeters -
+                  1,
+              ) +
+              Math.max(
+                0,
+                handoff.corridorDeviationMeters /
+                  handoff.corridorToleranceMeters -
+                  1,
+              ),
+            0,
+          );
+        const violation =
+          translationViolation +
+          rotation.reduce(
+            (sum, target) =>
+              sum +
+              (target.passed
+                ? 0
+                : 1 +
+                  (target.profileViolation ?? 0) +
+                  (Number.isFinite(target.requiredTimeS)
+                    ? Math.max(
+                        0,
+                        target.requiredTimeS /
+                          Math.max(0.02, target.availableTimeS) -
+                          1,
+                      )
+                    : 100)),
+            0,
+          );
+        return {
+          feasible,
+          translationFeasible: translationPassed,
+          translationViolation,
+          violation,
+          timeS,
+          rotation,
+          evaluation: { ...evaluation, reachedEnd, totalTimeS: timeS, trace },
+        };
+      });
+      const primary = results[0]!;
+      const profile: AutoVelocityProfile = {
+        anchors: candidateSetup.anchors,
+        corners: candidateSetup.corners,
+        samples: samplesFromTrace(
+          primary.evaluation.trace,
+          setup.usableMaxVelocityMps,
+        ),
+        segmentCaps: segmentCapsFromSolvedCaps(
+          setup.anchors,
+          setup.segments,
+          caps,
+          setup.baseMaxVelocityMps,
+          setup.usableMaxVelocityMps,
+        ).map((cap) => {
+          const pinned = setup.simulationContext.pinnedCapsByOrdinal.get(
+            cap.targetOrdinal,
+          );
+          return pinned === undefined
+            ? cap
+            : { ...cap, value: pinned, minVelocityLimitMps: pinned };
+        }),
+        diagnostics: {
+          ...diagnosticsFromEvaluation(primary.evaluation),
+          rotationFeasibility: primary.rotation,
+        },
+        settings: setup.settings,
+        usableMaxVelocityMps: setup.usableMaxVelocityMps,
+        usableMaxAccelerationMps2: setup.usableMaxAccelerationMps2,
+      };
+      return {
+        feasible: results.every((result) => result.feasible),
+        translationFeasible: results.every(
+          (result) => result.translationFeasible,
+        ),
+        translationViolation: Math.max(
+          ...results.map((result) => result.translationViolation),
+        ),
+        violation: Math.max(...results.map((result) => result.violation)),
+        timeS: Math.max(...results.map((result) => result.timeS)),
+        primaryPassed: primary.feasible,
+        path: candidatePath,
+        profile,
+      };
+    },
+  );
+  const winner = search.result;
+  return {
+    path: winner.path,
+    profile: winner.profile,
+    status: problem.hasImpossibleCoordinate
+      ? "unsolvable"
+      : winner.feasible
+        ? "valid"
+        : "best-effort",
+    stats: {
+      algorithm: "interactive",
+      evaluations: search.evaluations,
+      evaluationBudget: search.budget,
+      searchableBlocks: variables.length,
+      cacheHits: 0,
+      genericEvaluations,
+      objectiveCost: winner.timeS,
+      genericValidationPassed: winner.primaryPassed,
+      stabilityValidationPassed: winner.feasible,
+      terminationReason:
+        variables.length === 0
+          ? "no-coordinates"
+          : search.evaluations >= search.budget
+            ? "evaluation-budget"
+            : "converged",
+    },
+  };
 }
 
 function refineJointAutoConstraintsForProduction(

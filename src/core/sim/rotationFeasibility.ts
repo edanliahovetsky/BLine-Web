@@ -2,6 +2,7 @@ import { getDefaultOptionalConfigValue } from "../config/projectConfig";
 import type { PathModel, RangedConstraintKey } from "../model/path";
 import { buildGlobalRotationTargets, buildSegments } from "./simulatePath";
 import { shortestAngularDistance } from "./simGeometry";
+import { profiledRotationReachability } from "./profiledRotationReachability";
 import { rotationTargetToleranceRadians } from "./rotationDiagnostics";
 import type { SimulationConfig, SimulationTraceSample } from "./types";
 
@@ -17,7 +18,10 @@ export interface RotationFeasibilityDiagnostic {
     | "insufficient-time"
     | "unreached"
     | "conflicting-targets"
-    | "angular-transition";
+    | "angular-transition"
+    | "profile-limits"
+    | "profile-handoff";
+  profileViolation?: number;
 }
 
 type VelocityRange = readonly [number, number];
@@ -35,7 +39,7 @@ export function evaluateRotationFeasibility(
   config: SimulationConfig,
   trace: readonly SimulationTraceSample[],
 ): RotationFeasibilityDiagnostic[] {
-  const { anchors, cumulativeLengths } = buildSegments(path);
+  const { anchors, segments, cumulativeLengths } = buildSegments(path);
   const targets = buildGlobalRotationTargets(path, anchors, cumulativeLengths);
   if (targets.length === 0 || anchors.length < 2) return [];
 
@@ -43,6 +47,7 @@ export function evaluateRotationFeasibility(
   let previousTime = 0;
   let velocities: VelocityRange = [0, 0];
   let sampleIndex = 0;
+  let previousDistance = 0;
 
   return targets.map((target, index) => {
     // The last rotation on an incoming leg retires when that leg hands off,
@@ -110,9 +115,13 @@ export function evaluateRotationFeasibility(
     const distance = Math.abs(angle);
     const coLocated = available <= numericalEpsilon;
     const withinTolerance = distance <= rotationTargetToleranceRadians;
-    const end =
+    let end =
       coLocated && withinTolerance
-        ? start
+        ? mustStop
+          ? start[0] <= numericalEpsilon && start[1] >= -numericalEpsilon
+            ? ([0, 0] as const)
+            : null
+          : start
         : reachableAngularVelocities(
             distance,
             available,
@@ -121,6 +130,101 @@ export function evaluateRotationFeasibility(
             alpha,
             mustStop,
           );
+    let profileViolation = 0;
+    let profileHandoff = false;
+    if (
+      target.profiled_rotation &&
+      !coLocated &&
+      distance > numericalEpsilon &&
+      deadline !== null
+    ) {
+      const positionAt = (s: number) => {
+        const i = Math.max(
+          0,
+          cumulativeLengths.findIndex(
+            (value, j) => j > 0 && value >= s - numericalEpsilon,
+          ) - 1,
+        );
+        const segment = segments[i]!;
+        const along = Math.max(0, s - (cumulativeLengths[i] ?? 0));
+        return [
+          segment.ax + segment.ux * along,
+          segment.ay + segment.uy * along,
+        ] as const;
+      };
+      const from = positionAt(previousDistance),
+        to = positionAt(target.s_m);
+      const dx = to[0] - from[0],
+        dy = to[1] - from[1];
+      const length = Math.hypot(dx, dy);
+      const translationTolerance =
+        path.constraints.end_translation_tolerance_meters ??
+        getDefaultOptionalConfigValue(
+          config,
+          "end_translation_tolerance_meters",
+        ) ??
+        0.03;
+      // Match the library's profiled setpoint: projection between rotation
+      // target positions, including its final translation-tolerance snap.
+      const progression = (x: number, y: number) => {
+        let fraction =
+          length <= numericalEpsilon
+            ? 1
+            : Math.max(
+                0,
+                Math.min(
+                  1,
+                  ((x - from[0]) * dx + (y - from[1]) * dy) / (length * length),
+                ),
+              );
+        if (
+          length > numericalEpsilon &&
+          fraction >= 1 - Math.min(translationTolerance, length) / length
+        )
+          fraction = 1;
+        return fraction * distance;
+      };
+      let lastX = sample?.x_m ?? to[0],
+        lastY = sample?.y_m ?? to[1];
+      if (sample && previous && sample.time_s > previous.time_s) {
+        const fraction =
+          (deadline - previous.time_s) / (sample.time_s - previous.time_s);
+        lastX = previous.x_m + fraction * (sample.x_m - previous.x_m);
+        lastY = previous.y_m + fraction * (sample.y_m - previous.y_m);
+      }
+      if (
+        distance - progression(lastX, lastY) >
+        rotationTargetToleranceRadians
+      ) {
+        // A target retired before its authored profile gets there is a
+        // geometric conflict. More time cannot fix this by itself.
+        profileHandoff = true;
+        end = null;
+      } else if (end) {
+        const nodes = trace
+          .filter(
+            (point) =>
+              point.time_s > previousTime + numericalEpsilon &&
+              point.time_s < deadline - numericalEpsilon,
+          )
+          .map((point) => ({
+            timeS: point.time_s - previousTime,
+            angle: progression(point.x_m, point.y_m),
+          }));
+        nodes.push({ timeS: available, angle: progression(lastX, lastY) });
+        const profile = profiledRotationReachability(
+          nodes,
+          distance,
+          start,
+          omega,
+          alpha,
+          rotationTargetToleranceRadians,
+          mustStop,
+        );
+        end = profile.velocities;
+        profileViolation = profile.violation;
+      }
+    }
     const passed = deadline !== null && end !== null;
     const required =
       coLocated && withinTolerance
@@ -133,19 +237,25 @@ export function evaluateRotationFeasibility(
       availableTimeS: available,
       requiredTimeS: required,
       passed,
+      ...(profileViolation > 0 ? { profileViolation } : {}),
       reason:
         deadline === null
           ? "unreached"
           : coLocated && !withinTolerance
             ? "conflicting-targets"
-            : passed
-              ? "reachable"
-              : required > available + numericalEpsilon
-                ? "insufficient-time"
-                : "angular-transition",
+            : profileHandoff
+              ? "profile-handoff"
+              : passed
+                ? "reachable"
+                : required > available + numericalEpsilon
+                  ? "insufficient-time"
+                  : profileViolation > 0
+                    ? "profile-limits"
+                    : "angular-transition",
     };
     if (!(coLocated && withinTolerance)) previousHeading = target.theta_target;
     previousTime = deadline ?? previousTime;
+    previousDistance = target.s_m;
     velocities = !end ? [0, 0] : direction < 0 ? [-end[1], -end[0]] : end;
     return diagnostic;
   });
@@ -305,18 +415,21 @@ function angularLimit(
   ordinal: number,
   fallback: number,
 ): number {
-  let value =
+  const global =
     path.constraints[key] ??
     getDefaultOptionalConfigValue(config, key) ??
     fallback;
+  let ranged: number | null = null;
   for (const constraint of path.ranged_constraints) {
     if (
       constraint.key === key &&
       Math.min(constraint.start_ordinal, constraint.end_ordinal) <= ordinal &&
-      ordinal <= Math.max(constraint.start_ordinal, constraint.end_ordinal)
+      ordinal <= Math.max(constraint.start_ordinal, constraint.end_ordinal) &&
+      constraint.value > 0
     ) {
-      value = Math.min(value, constraint.value);
+      ranged =
+        ranged === null ? constraint.value : Math.min(ranged, constraint.value);
     }
   }
-  return (value * Math.PI) / 180;
+  return ((ranged ?? global) * Math.PI) / 180;
 }

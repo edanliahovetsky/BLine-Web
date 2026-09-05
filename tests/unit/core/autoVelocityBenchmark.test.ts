@@ -68,6 +68,14 @@ describe("auto velocity benchmark", () => {
       const runtimeMs = shouldMeasureRuntime
         ? performance.now() - startedAt
         : 0;
+      if (benchmark.name === "mixed waypoint rotation events") {
+        expect(
+          profile.diagnostics.rotationFeasibility?.some(
+            (target) => target.reason === "profile-handoff",
+          ),
+        ).toBe(true);
+        expect(profile.diagnostics.totalTimeS).toBeLessThan(5);
+      }
       const cachedProfile = generateAutoVelocityProfile(
         benchmark.path,
         benchmarkConfig,
@@ -91,7 +99,6 @@ describe("auto velocity benchmark", () => {
 
     const safetyFailures = results.filter((result) => !result.auto.safe);
     expect(formatSafetyFailures(safetyFailures)).toEqual([]);
-    expectMixedWaypointRotationCap(results);
 
     const compared = results.filter((result) => result.compareOracle);
     const timeFailures = compared.filter(
@@ -319,7 +326,9 @@ function benchmarkCases(): BenchmarkCase[] {
     {
       name: "mixed waypoint rotation events",
       path: mixedWaypointPath(),
-      compareOracle: true,
+      // The legacy oracle optimizes only translation. Rotation completion is
+      // compared with an independent cap lattice in rotationAwareAutoConstraints.
+      compareOracle: false,
       typicalRuntimePath: true,
     },
   ];
@@ -408,18 +417,6 @@ function optimizeOracle(
   }
 
   return best;
-}
-
-function expectMixedWaypointRotationCap(
-  results: ReadonlyArray<{
-    name: string;
-    auto: Evaluation;
-  }>,
-) {
-  const mixed = results.find(
-    (result) => result.name === "mixed waypoint rotation events",
-  );
-  expect(mixed?.auto.capsByOrdinal.get(4)).toBeGreaterThanOrEqual(3.5);
 }
 
 function betterOracleEvaluation(

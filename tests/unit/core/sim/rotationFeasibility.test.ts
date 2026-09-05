@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { profiledRotationReachability } from "../../../../src/core/sim/profiledRotationReachability";
 import {
   evaluateRotationFeasibility,
   reachableAngularVelocities,
@@ -60,7 +61,7 @@ describe("rotation feasibility along a translation trace", () => {
       createRotationTarget({
         t_ratio: 0.5,
         rotation_radians: Math.PI,
-        profiled_rotation: true,
+        profiled_rotation: false,
       }),
       createTranslationTarget({ x_meters: 4, y_meters: 0 }),
     ],
@@ -167,3 +168,59 @@ function sample(time: number, distance: number): SimulationTraceSample {
     snapped_rotation: false,
   };
 }
+
+describe("profiled heading reachability", () => {
+  it("accepts an analytical trapezoid and rejects a constant-rate profile with the same endpoint time", () => {
+    const samples = Array.from({ length: 500 }, (_, i) => {
+      const timeS = (i + 1) * 0.005;
+      const angle =
+        timeS < 0.5
+          ? 90 * timeS * timeS
+          : timeS < 2
+            ? 22.5 + 90 * (timeS - 0.5)
+            : 180 - 90 * (2.5 - timeS) ** 2;
+      return { timeS, angle };
+    });
+    expect(
+      profiledRotationReachability(samples, 180, [0, 0], 90, 180, 0.5, true)
+        .velocities,
+    ).not.toBeNull();
+    expect(
+      profiledRotationReachability(
+        samples.map((sample) => ({ ...sample, angle: 72 * sample.timeS })),
+        180,
+        [0, 0],
+        90,
+        180,
+        0.5,
+        true,
+      ).velocities,
+    ).toBeNull();
+  });
+  it("checks interpolation even when endpoint-only reachability passes", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget(),
+        createRotationTarget({
+          t_ratio: 0.5,
+          rotation_radians: Math.PI,
+          profiled_rotation: true,
+        }),
+        createTranslationTarget({ x_meters: 4 }),
+      ],
+    });
+    const trace = Array.from({ length: 251 }, (_, i) =>
+      sample(i * 0.01, i * 0.008),
+    );
+    expect(
+      evaluateRotationFeasibility(
+        path,
+        {
+          default_max_velocity_deg_per_sec: 90,
+          default_max_acceleration_deg_per_sec2: 180,
+        },
+        trace,
+      )[0],
+    ).toMatchObject({ passed: false, reason: "profile-limits" });
+  });
+});
