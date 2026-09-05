@@ -509,7 +509,7 @@ for (const longSide of ["path", "group"] as const) {
     await expect(ownList.locator(".fc-row.is-focused")).toHaveCount(1);
   });
 
-  test(`scrolls the long ${longSide} list independently and displays clean connection stacks`, async ({
+  test(`scrolls the long ${longSide} list independently and displays compact overflow bars`, async ({
     page,
   }, testInfo) => {
     const nav = await seedLongLibrary(page, longSide);
@@ -533,29 +533,16 @@ for (const longSide of ["path", "group"] as const) {
       .poll(() => list.evaluate((el) => el.scrollTop))
       .toBeGreaterThan(700);
     expect((await requiredBox(selection)).y).toBe(anchor.y);
-    const stack = nav.getByRole("button", { name: /connected above/ });
-    await expect(stack).toBeVisible();
-    await expect(stack.locator(".fc-stack-layer")).toHaveCount(2);
-    const stackBox = await requiredBox(stack);
-    const cardBox = await requiredBox(row(nav, `${oppositeName} 23`));
-    expect(stackBox.height).toBe(cardBox.height);
-    expect(Math.abs(stackBox.width - cardBox.width)).toBeLessThan(2);
-    // Hidden rows must not show or receive clicks through the stack's layers.
-    expect(
-      await page.evaluate(
-        ({ x, y }) =>
-          Boolean(document.elementFromPoint(x, y)?.closest(".fc-row")),
-        { x: stackBox.x + stackBox.width / 2, y: stackBox.y - 8 },
-      ),
-    ).toBe(false);
-    expect(
-      await page.evaluate(
-        ({ x, y }) =>
-          Boolean(document.elementFromPoint(x, y)?.closest(".fc-row")),
-        { x: stackBox.x, y: stackBox.y + stackBox.height / 2 },
-      ),
-    ).toBe(false);
-    await nav.screenshot({ path: testInfo.outputPath("offscreen-stacks.png") });
+    const bar = nav.getByRole("button", {
+      name: /^\d+ (Paths?|Path Groups?) above$/,
+    });
+    await expect(bar).toHaveText(
+      longSide === "path" ? "5 Paths above" : "5 Path Groups above",
+    );
+    expect((await requiredBox(bar)).height).toBeLessThan(
+      (await requiredBox(row(nav, `${oppositeName} 23`))).height,
+    );
+    await nav.screenshot({ path: testInfo.outputPath("offscreen-bars.png") });
 
     await startDrag(
       page,
@@ -588,7 +575,9 @@ for (const longSide of ["path", "group"] as const) {
         (i) => `${oppositeName} ${String(i).padStart(2, "0")}`,
       ),
     );
-    await nav.getByRole("button", { name: /connected below/ }).click();
+    await nav
+      .getByRole("button", { name: /^\d+ (Paths?|Path Groups?) below$/ })
+      .click();
     await expect
       .poll(() => list.evaluate((el) => el.scrollTop))
       .toBeGreaterThan(0);

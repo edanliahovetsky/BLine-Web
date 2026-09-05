@@ -35,13 +35,13 @@ export function usePathLibraryGeometry(
         const point = port.getBoundingClientRect();
         return point.y + point.height / 2;
       });
-      // Keep endpoints covered by a stack in that stack's connection count.
+      // Include endpoints hidden behind an overflow bar in its count.
       viewports.set(scroll, {
         top:
-          rect.top + (connectedCenters.some((y) => y < rect.top + 4) ? 74 : 4),
+          rect.top + (connectedCenters.some((y) => y < rect.top + 4) ? 32 : 4),
         bottom:
           rect.bottom -
-          (connectedCenters.some((y) => y > rect.bottom - 4) ? 74 : 4),
+          (connectedCenters.some((y) => y > rect.bottom - 4) ? 32 : 4),
       });
     });
     const points = new Map<string, PortPoint>();
@@ -72,7 +72,7 @@ export function usePathLibraryGeometry(
           overflowAnchors.set(`${kind}:${direction}`, {
             x: (kind === "group" ? rect.right : rect.left) - bounds.x,
             y:
-              (direction === "above" ? rect.top + 37 : rect.bottom - 37) -
+              (direction === "above" ? rect.top + 16 : rect.bottom - 16) -
               bounds.y,
           });
         }

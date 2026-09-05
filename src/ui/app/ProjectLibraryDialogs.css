@@ -293,15 +293,15 @@
   min-height: 0;
   pointer-events: none;
 }
-.fc-list-viewport.has-stack-above {
-  --stack-clip-top: 74px;
+.fc-list-viewport.has-overflow-above {
+  --overflow-clip-top: 32px;
 }
-.fc-list-viewport.has-stack-below {
-  --stack-clip-bottom: 74px;
+.fc-list-viewport.has-overflow-below {
+  --overflow-clip-bottom: 32px;
 }
 .fc-list-scroll {
   clip-path: inset(
-    var(--stack-clip-top, 0px) 0 var(--stack-clip-bottom, 0px) 0
+    var(--overflow-clip-top, 0px) 0 var(--overflow-clip-bottom, 0px) 0
   );
   height: 100%;
   overflow-y: auto;
@@ -322,85 +322,26 @@
   z-index: 9;
   left: 0;
   right: 0;
-  height: 50px;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: #c5e2f8;
-  text-align: left;
-  pointer-events: auto;
-  isolation: isolate;
-}
-.fc-edge-cap.is-above {
-  top: 12px;
-  --stack-step: -6px;
-}
-.fc-edge-cap.is-below {
-  bottom: 12px;
-  --stack-step: 6px;
-}
-.fc-stack-layer,
-.fc-stack-face {
-  position: absolute;
-  inset: 0;
-  border: 1px solid #3b5267;
-  border-radius: 8px;
-  background: linear-gradient(110deg, #213447, #1b2d3b);
-  box-shadow:
-    0 3px 10px #0005,
-    inset 0 1px #ffffff06;
-}
-.fc-stack-layer {
-  z-index: calc(3 - var(--layer));
-  left: calc(var(--layer) * 8px);
-  right: calc(var(--layer) * 8px);
-  transform: translateY(calc(var(--layer) * var(--stack-step)));
-  background: #192a37;
-}
-.fc-stack-face {
-  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  transition:
-    background 130ms,
-    border-color 130ms;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  padding: 4px 9px;
+  border: 1px solid #48677f;
+  border-radius: 5px;
+  background: #203545;
+  color: #c5e2f8;
+  font-size: 0.65rem !important;
+  pointer-events: auto;
 }
-.fc-stack-face::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: -10px;
-  translate: 0 -50%;
-  width: 20px;
-  height: 20px;
-  border: 1px solid #739cbc;
-  border-radius: 50%;
-  background: radial-gradient(circle, #b7dfff 0 3px, #16222d 3.5px);
-  box-shadow: 0 0 0 5px #121b24;
+.fc-edge-cap.is-above {
+  top: 3px;
 }
-.fc-paths .fc-stack-face {
-  padding-left: 24px;
+.fc-edge-cap.is-below {
+  bottom: 3px;
 }
-.fc-paths .fc-stack-face::after {
-  left: -10px;
-  right: auto;
-}
-.fc-stack-copy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-}
-.fc-stack-copy strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.74rem;
-  font-weight: 540;
-}
-.fc-edge-cap:hover .fc-stack-face {
+.fc-edge-cap:hover {
   border-color: #739cbc;
   background: #294256;
 }

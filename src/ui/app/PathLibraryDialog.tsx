@@ -737,7 +737,7 @@ export function PathLibraryDialog({
     return (
       <>
         <div
-          className={`fc-list-viewport${offscreen[kind].above.length ? " has-stack-above" : ""}${offscreen[kind].below.length ? " has-stack-below" : ""}`}
+          className={`fc-list-viewport${offscreen[kind].above.length ? " has-overflow-above" : ""}${offscreen[kind].below.length ? " has-overflow-below" : ""}`}
           data-kind={kind}
         >
           <div
@@ -770,45 +770,23 @@ export function PathLibraryDialog({
                 key={direction}
                 type="button"
                 className={`fc-edge-cap is-${direction}`}
-                aria-label={`${ids.length} connected ${direction}`}
                 title={`Show connections ${direction}`}
                 onClick={() => jumpToConnection(kind, ids, direction)}
               >
-                {Array.from(
-                  { length: Math.min(2, ids.length - 1) },
-                  (_, index) => (
-                    <span
-                      key={index}
-                      className="fc-stack-layer"
-                      style={{ "--layer": index + 1 } as CSSProperties}
-                      aria-hidden="true"
-                    />
-                  ),
+                {direction === "above" ? (
+                  <ArrowUp size={12} />
+                ) : (
+                  <ArrowDown size={12} />
                 )}
-                <span className="fc-stack-face">
-                  {kind === "group" ? (
-                    <Folder size={16} />
-                  ) : (
-                    <Link2 size={16} />
-                  )}
-                  <span className="fc-stack-copy">
-                    <strong>
-                      {ids.length} connected{" "}
-                      {ids.length === 1
-                        ? kind === "group"
-                          ? "Path Group"
-                          : "Path"
-                        : kind === "group"
-                          ? "Path Groups"
-                          : "Paths"}
-                    </strong>
-                  </span>
-                  {direction === "above" ? (
-                    <ArrowUp size={15} />
-                  ) : (
-                    <ArrowDown size={15} />
-                  )}
-                </span>
+                {ids.length}{" "}
+                {kind === "group"
+                  ? ids.length === 1
+                    ? "Path Group"
+                    : "Path Groups"
+                  : ids.length === 1
+                    ? "Path"
+                    : "Paths"}{" "}
+                {direction}
               </button>
             ) : null;
           })}
