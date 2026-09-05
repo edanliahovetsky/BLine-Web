@@ -2165,6 +2165,8 @@ function ConstraintSegmentBar({
             )}
             data-ranged-constraint-key={constraintKey}
             data-ranged-constraint-index={entry.index}
+            data-range-start={start}
+            data-range-end={end}
             role="option"
             aria-selected={selected}
             aria-keyshortcuts="Delete Backspace"

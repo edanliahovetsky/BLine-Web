@@ -3,9 +3,11 @@ import { createPortal } from "react-dom";
 import { useStoreSelector } from "../../state/react";
 import { captureTourStepState, findTour } from "./tours";
 import { paddedViewportRect, type TourRect } from "./tourGeometry";
+import { TourLab } from "./TourLab";
+import { KeepPracticeCopy, TourHandoff } from "./TourHandoff";
 import { tourStore, type TourStepPreparation } from "./tourStore";
 
-const cardWidth = 272;
+const cardWidth = 304;
 const cardGap = 14;
 const viewportMargin = 12;
 const fallbackCardHeight = 200;
@@ -56,6 +58,26 @@ export function TourOverlay({
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
   const [rect, setRect] = useState<TourRect | null>(null);
+  const [visibleHoles, setVisibleHoles] = useState<TourRect[]>([]);
+  const [feedback, setFeedback] = useState("");
+  const [hidden, setHidden] = useState(false);
+  const [hintState, setHintState] = useState({ token: "", count: 0 });
+  const [labState, setLabState] = useState<{
+    token: string;
+    example: boolean;
+  } | null>(null);
+  const stepToken = `${activeTourId}:${attemptId}:${stepIndex}`;
+  const hintCount = hintState.token === stepToken ? hintState.count : 0;
+  const lab = labState?.token === stepToken ? labState : null;
+  const visibleToken = [
+    "path-canvas",
+    stepTarget,
+    ...(step?.visible ?? []),
+    ...(step?.interact ?? []),
+  ]
+    .filter(Boolean)
+    .join("|");
+  const hintTarget = hintCount > 1 ? step?.hintTargets?.[0] : null;
   const [holes, setHoles] = useState<TourRect[]>([]);
   const [cardHeight, setCardHeight] = useState(fallbackCardHeight);
   const interactToken = isReviewing ? "" : (step?.interact?.join("|") ?? "");
@@ -114,9 +136,30 @@ export function TourOverlay({
   // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {
     const measureTour = (id: string): TourRect | null => {
-      const element = document.querySelector<HTMLElement>(
-        `[data-tour="${id}"]`,
-      );
+      const speedOrdinal =
+        id === "lesson-corner-speed"
+          ? 3
+          : id === "lesson-delivery-speed"
+            ? 4
+            : null;
+      const element = speedOrdinal
+        ? (Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[data-ranged-constraint-key="max_velocity_meters_per_sec"][data-range-start]',
+            ),
+          ).find(
+            (candidate) =>
+              Number(candidate.dataset.rangeStart) <= speedOrdinal &&
+              Number(candidate.dataset.rangeEnd) >= speedOrdinal,
+          ) ??
+          document.querySelector<HTMLElement>(
+            `[data-testid="constraint-cell-max_velocity_meters_per_sec-${speedOrdinal}"]`,
+          ))
+        : id === "lesson-health-dialog"
+          ? document.querySelector<HTMLElement>(
+              '[role="dialog"][aria-label="Path health"]',
+            )
+          : document.querySelector<HTMLElement>(`[data-tour="${id}"]`);
       if (!element) {
         return null;
       }
@@ -130,7 +173,19 @@ export function TourOverlay({
 
     const measure = () => {
       // Concept steps have no target; drop any previous spotlight.
-      setRect(stepTarget ? measureTour(stepTarget) : null);
+      setRect(
+        hintTarget
+          ? measureTour(hintTarget)
+          : stepTarget
+            ? measureTour(stepTarget)
+            : null,
+      );
+      setVisibleHoles(
+        visibleToken
+          .split("|")
+          .map(measureTour)
+          .filter((hole): hole is TourRect => hole !== null),
+      );
       setHoles(
         interactToken && !(lockInteractionOnComplete && actionComplete)
           ? interactToken
@@ -142,7 +197,7 @@ export function TourOverlay({
     };
 
     const frame = window.requestAnimationFrame(measure);
-    const settleTimer = window.setTimeout(measure, 320);
+    const settleTimer = window.setInterval(measure, 350);
     const resizeObserver = new ResizeObserver(measure);
     document
       .querySelectorAll<HTMLElement>("[data-tour]")
@@ -152,20 +207,35 @@ export function TourOverlay({
     document.addEventListener("transitionend", measure, true);
     return () => {
       window.cancelAnimationFrame(frame);
-      window.clearTimeout(settleTimer);
+      window.clearInterval(settleTimer);
       resizeObserver.disconnect();
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
       document.removeEventListener("transitionend", measure, true);
     };
-  }, [actionComplete, interactToken, lockInteractionOnComplete, stepTarget]);
+  }, [
+    actionComplete,
+    interactToken,
+    lockInteractionOnComplete,
+    stepTarget,
+    visibleToken,
+    hintTarget,
+  ]);
 
   useLayoutEffect(() => {
     const measured = cardRef.current?.offsetHeight;
     if (measured && measured !== cardHeight) {
       setCardHeight(measured);
     }
-  }, [actionComplete, cardHeight, stepIndex, activeTourId]);
+  }, [
+    actionComplete,
+    cardHeight,
+    stepIndex,
+    activeTourId,
+    hintCount,
+    hidden,
+    feedback,
+  ]);
 
   // Verify action-driven steps against live editor state. Completing an action
   // unlocks Continue and may close one-shot interaction holes.
@@ -176,13 +246,19 @@ export function TourOverlay({
 
     const currentTour = findTour(activeTourId);
     const currentStep = currentTour?.steps[stepIndex];
-    const completeWhen = currentStep?.completeWhen;
+    const completeWhen = currentStep?.check
+      ? () => currentStep.check!().complete
+      : currentStep?.completeWhen;
     if (!completeWhen) {
       return;
     }
 
     const interval = window.setInterval(() => {
-      tourStore.getState().setStepComplete(stepIndex, completeWhen());
+      const result = currentStep?.check?.();
+      setFeedback(result?.message ?? "");
+      tourStore
+        .getState()
+        .setStepComplete(stepIndex, result?.complete ?? completeWhen());
     }, 250);
     return () => {
       window.clearInterval(interval);
@@ -190,7 +266,9 @@ export function TourOverlay({
   }, [activeTourId, attemptId, isReviewing, stepIndex]);
 
   useEffect(() => {
-    const completeWhen = step?.completeWhen;
+    const completeWhen = step?.check
+      ? () => step.check!().complete
+      : step?.completeWhen;
     if (
       !activeTourId ||
       isReviewing ||
@@ -228,13 +306,14 @@ export function TourOverlay({
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        tourStore.getState().exit();
+        if (lab) setLabState(null);
+        else tourStore.getState().exit();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeTourId]);
+  }, [activeTourId, lab]);
 
   useEffect(() => {
     cardRef.current?.focus();
@@ -244,24 +323,20 @@ export function TourOverlay({
     return null;
   }
 
-  // Concept steps have no target: the card sits centered over the scrim.
-  let cardLeft = (window.innerWidth - cardWidth) / 2;
-  let cardTop = (window.innerHeight - cardHeight) / 2;
-
-  if (rect) {
-    if (stepPlacement === "right") {
-      cardLeft = rect.left + rect.width + cardGap;
-      cardTop = rect.top;
-    } else if (stepPlacement === "left") {
-      cardLeft = rect.left - cardWidth - cardGap;
-      cardTop = rect.top;
-    } else if (stepPlacement === "above") {
-      cardLeft = rect.left + rect.width / 2 - cardWidth / 2;
-      cardTop = rect.top - cardHeight - cardGap;
-    } else {
-      cardLeft = rect.left + rect.width / 2 - cardWidth / 2;
-      cardTop = rect.top + rect.height + cardGap;
-    }
+  // Keep the mission and inspector visible while the coach occupies quiet space.
+  const canvas = document
+    .querySelector('[data-tour="path-canvas"]')
+    ?.getBoundingClientRect();
+  let cardLeft = (canvas?.left ?? 0) + 64;
+  let cardTop = (canvas?.top ?? 40) + 18;
+  if (
+    rect &&
+    stepTarget !== "path-canvas" &&
+    !stepTarget?.startsWith("lesson-")
+  ) {
+    if (stepPlacement === "right") cardLeft = rect.left + rect.width + cardGap;
+    else if (stepPlacement === "left")
+      cardLeft = Math.min(cardLeft, rect.left - cardWidth - cardGap);
   }
 
   cardLeft = Math.max(
@@ -274,7 +349,7 @@ export function TourOverlay({
   );
 
   const isLastStep = stepIndex === stepCount - 1;
-  const actionGated = Boolean(step.completeWhen);
+  const actionGated = Boolean(step.check || step.completeWhen);
   const handleNext = () => {
     if (actionGated && !actionComplete && !isReviewing) return;
     tourStore.getState().setStepComplete(stepIndex, true);
@@ -297,18 +372,32 @@ export function TourOverlay({
 
   return createPortal(
     <div className="tour-layer" data-testid="tour-layer">
-      {rect ? (
+      {computeShieldRegions(
+        visibleHoles,
+        window.innerWidth,
+        window.innerHeight,
+      ).map((region, index) => (
+        <div
+          key={`scrim-${index}`}
+          className="tour-scrim-region"
+          style={{
+            top: region.top,
+            left: region.left,
+            width: region.width,
+            height: region.height,
+          }}
+        />
+      ))}
+      {rect && stepTarget !== "path-canvas" && (
         <div
           className="tour-spotlight"
           style={{
-            top: `${rect.top}px`,
-            left: `${rect.left}px`,
-            width: `${rect.width}px`,
-            height: `${rect.height}px`,
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
           }}
         />
-      ) : (
-        <div className="tour-scrim" />
       )}
       {shieldRegions.map((region, index) => (
         <div
@@ -323,7 +412,24 @@ export function TourOverlay({
           }}
         />
       ))}
+      <button
+        className="tour-visibility"
+        onClick={() => setHidden(!hidden)}
+        style={{ left: cardLeft, top: Math.max(8, cardTop - 30) }}
+      >
+        {hidden ? "Show instructions" : "Hide instructions"} · Practice only
+      </button>
+      {lab && <div className="tour-lab-backdrop" />}
+      {lab && (step.experiment || step.demo) && (
+        <TourLab
+          key={`${stepToken}:${lab.example}`}
+          kind={(lab.example ? step.demo : step.experiment)!}
+          example={lab.example}
+          onClose={() => setLabState(null)}
+        />
+      )}
       <section
+        hidden={hidden}
         ref={cardRef}
         className="tour-card"
         data-testid="tour-card"
@@ -342,10 +448,10 @@ export function TourOverlay({
           </span>
         </div>
         <h4>{step.title}</h4>
-        <p>{step.body}</p>
+        <p>{step.describe?.() ?? step.body}</p>
         {step.task ? (
           <div className="tour-card__task">
-            <span>Task</span>
+            <span>{step.phase ?? "Task"}</span>
             <strong>{step.task}</strong>
           </div>
         ) : null}
@@ -359,13 +465,51 @@ export function TourOverlay({
             <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
             {isReviewing
               ? "Previously completed. Your later work is preserved."
-              : actionComplete
-                ? lockInteractionOnComplete
-                  ? "Done. Continue to the next step."
-                  : "Done. Keep experimenting or continue."
-                : "Waiting for this action"}
+              : feedback && step.check
+                ? feedback
+                : actionComplete
+                  ? lockInteractionOnComplete
+                    ? "Done. Continue to the next step."
+                    : "Done. Keep experimenting or continue."
+                  : "Waiting for this action"}
           </div>
         ) : null}
+        {(step.hints?.length || step.demo) && (
+          <div className="tour-card__hints">
+            <button
+              onClick={() =>
+                setHintState({ token: stepToken, count: hintCount + 1 })
+              }
+            >
+              {hintCount ? "More help" : "Get a hint"}
+            </button>
+            {step.hints?.slice(0, hintCount).map((hint) => (
+              <p key={hint}>{hint}</p>
+            ))}
+            {hintCount >= 2 && step.demo && (
+              <button
+                onClick={() => setLabState({ token: stepToken, example: true })}
+              >
+                Show worked example
+              </button>
+            )}
+          </div>
+        )}
+        {step.experiment && (
+          <button
+            className="tour-card__experiment"
+            onClick={() => setLabState({ token: stepToken, example: false })}
+          >
+            Compare your path
+          </button>
+        )}
+        {step.handoff && <TourHandoff />}
+        {isLastStep && (
+          <div className="tour-card__copy">
+            <KeepPracticeCopy />
+            <p>Reopen the copy with Import Project Archive after the lesson.</p>
+          </div>
+        )}
         {isLastStep && (!actionGated || actionComplete) ? (
           <p className="tour-card__completion">{tour.completionMessage}</p>
         ) : null}
@@ -376,9 +520,15 @@ export function TourOverlay({
             ))}
           </div>
         ) : null}
-        <div className="tour-card__progress" aria-hidden="true">
+        <div className="tour-card__progress" aria-label="Lesson progress">
           {tour.steps.map((tourStep, index) => (
-            <i
+            <button
+              type="button"
+              disabled={index > furthestStepIndex}
+              aria-label={`Review step ${index + 1}: ${tourStep.title}`}
+              aria-current={index === stepIndex ? "step" : undefined}
+              title={tourStep.title}
+              onClick={() => tourStore.getState().goTo(index)}
               key={`${tourStep.title}-${index}`}
               className={index <= stepIndex ? "is-done" : ""}
             />

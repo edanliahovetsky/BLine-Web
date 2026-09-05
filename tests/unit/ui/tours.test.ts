@@ -6,8 +6,10 @@ describe("guided lesson content", () => {
     expect(tours).toHaveLength(5);
 
     for (const tour of tours) {
-      expect(tour.steps.length).toBeGreaterThanOrEqual(11);
-      expect(tour.steps.length).toBeLessThanOrEqual(13);
+      expect(tour.steps.some((step) => step.phase === "Challenge")).toBe(true);
+      expect(
+        tour.steps.filter((step) => step.check).length,
+      ).toBeGreaterThanOrEqual(5);
       expect(tour.durationMinutes).toBeGreaterThan(0);
       expect(tour.summary).not.toMatch(/[—–]/);
       expect(tour.completionMessage).not.toMatch(/[—–]/);
@@ -18,7 +20,7 @@ describe("guided lesson content", () => {
           /\b[WT]\d+\b|ordinals?|range bar/i,
         );
         expect(step.task ?? "").not.toMatch(/[—–]/);
-        if (step.completeWhen) {
+        if (step.check) {
           expect(step.task).toBeTruthy();
         }
       }
@@ -36,21 +38,26 @@ describe("guided lesson content", () => {
       (tour) => tour.practicePath().path_elements.length,
     );
 
-    expect(seededElementCounts).toEqual([0, 2, 3, 2, 4]);
+    expect(seededElementCounts).toEqual([0, 2, 4, 2, 7]);
   });
 
   it("uses visible field goals for the scenario lessons", () => {
     expect(tours.map((tour) => tour.markers?.length ?? 0)).toEqual([
-      2, 1, 1, 1, 0,
+      2, 4, 6, 3, 6,
     ]);
   });
 
   it("stages left-toolbar lesson work in the center-right field area", () => {
     const [build, shape, , behavior] = tours;
 
-    expect(build?.markers?.map((marker) => marker.xMeters)).toEqual([8, 12.5]);
-    expect(shape?.markers?.[0]?.xMeters).toBeGreaterThan(10);
-    expect(behavior?.markers?.[0]?.xMeters).toBeGreaterThan(13);
+    expect(build?.markers?.map((marker) => marker.xMeters)).toEqual([5, 15]);
+    expect(
+      shape?.markers?.find((marker) => marker.kind === "structure")?.xMeters,
+    ).toBeGreaterThan(10);
+    expect(
+      behavior?.markers?.find((marker) => marker.kind === "game-piece")
+        ?.xMeters,
+    ).toBe(8);
   });
 
   it("teaches drive order with a misplaced middle waypoint", () => {
@@ -74,7 +81,7 @@ describe("guided lesson content", () => {
         .every((step) => step.lockInteractionOnComplete),
     ).toBe(true);
     expect(reorderStep?.interact).toContain("inspector-panel");
-    expect(reorderStep?.completeWhen).toBeTypeOf("function");
+    expect(reorderStep?.check).toBeTypeOf("function");
   });
 
   it("teaches handoff radii through the Constraints ledger", () => {
@@ -91,6 +98,6 @@ describe("guided lesson content", () => {
       (step) => step.title === "Regenerate the constraints",
     );
     expect(regenerateStep?.target).toBe("max-velocity-card");
-    expect(regenerateStep?.completeWhen).toBeTypeOf("function");
+    expect(regenerateStep?.check).toBeTypeOf("function");
   });
 });

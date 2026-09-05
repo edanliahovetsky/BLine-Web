@@ -92,7 +92,7 @@ import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
 import { readFieldBackgroundImage } from "../userData";
-import type { TourMarker } from "../ui/tours/tourStore";
+import { tourStore, type TourMarker } from "../ui/tours/tourStore";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
@@ -664,6 +664,7 @@ export function PathStage({
 
     let frameId = 0;
     let lastTimestamp: number | null = null;
+    let runFinished = false;
     const tick = (timestamp: number) => {
       if (lastTimestamp === null) {
         lastTimestamp = timestamp;
@@ -674,6 +675,10 @@ export function PathStage({
         const next = Math.min(simulationResult.total_time_s, current + deltaS);
         if (next >= simulationResult.total_time_s) {
           setSimulationPlaying(false);
+          if (!runFinished) {
+            runFinished = true;
+            queueMicrotask(() => tourStore.getState().recordAction("finishRun"));
+          }
         }
         return next;
       });
@@ -694,6 +699,7 @@ export function PathStage({
     }
     if (!simulationPlaying) {
       setSimulationPlayCount((count) => count + 1);
+      tourStore.getState().recordAction("play");
     }
     setSimulationPlaying(!simulationPlaying);
   }, [simulationPlaying, simulationResult, simulationTime]);
@@ -1664,6 +1670,7 @@ export function PathStage({
             setSimulationTime(time);
             setSimulationPlaying(false);
             setSimulationSeekCount((count) => count + 1);
+            tourStore.getState().recordAction("scrub");
           }}
         />
       </div>
@@ -1791,7 +1798,7 @@ function TourFieldMarkers({
               width,
               height,
               transform: marker.rotationDegrees
-                ? `rotate(${marker.rotationDegrees}deg)`
+                ? `rotate(${-marker.rotationDegrees}deg)`
                 : undefined,
             }}
           >

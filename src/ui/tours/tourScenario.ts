@@ -127,7 +127,7 @@ export function createSpeedPath() {
     path_elements: [
       waypoint(5, 2, 90),
       translation(8, 6),
-      translation(12.8, 6.3),
+      translation(12.8, 6.3, 0.7),
       waypoint(15, 2.5, -90),
     ],
   });
