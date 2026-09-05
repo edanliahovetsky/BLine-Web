@@ -180,7 +180,11 @@ export interface ProjectStoreState {
   duplicatePath(
     pathId: string,
     name: string,
-    options?: { addToGroupId?: string | null },
+    options?: {
+      addToGroupId?: string | null;
+      copyMemberships?: boolean;
+      makeActive?: boolean;
+    },
   ): void;
   deletePaths(pathIds: readonly string[]): void;
   createPathGroup(input: {
@@ -195,7 +199,11 @@ export interface ProjectStoreState {
     options?: { deleteMemberPaths?: boolean },
   ): void;
   addPathsToGroup(groupId: string, pathIds: readonly string[]): void;
-  removePathsFromGroup(groupId: string, pathIds: readonly string[]): void;
+  removePathsFromGroup(
+    groupId: string,
+    pathIds: readonly string[],
+    options?: { preserveActivePath?: boolean },
+  ): void;
   createLinkedTarget(
     input: Omit<CreateLinkedTargetInput, "target_id"> & {
       target_id?: string;
@@ -882,10 +890,12 @@ export function createProjectStore(
         pathId,
         name,
         options?.addToGroupId,
+        options?.copyMemberships,
       );
-      const nextNavigation = duplicated.createdPathId
-        ? { ...navigation, activePathId: duplicated.createdPathId }
-        : navigation;
+      const nextNavigation =
+        duplicated.createdPathId && options?.makeActive !== false
+          ? { ...navigation, activePathId: duplicated.createdPathId }
+          : navigation;
       applyProjectTransition(
         set,
         history,
@@ -999,7 +1009,7 @@ export function createProjectStore(
         "Add Paths to Collection",
       );
     },
-    removePathsFromGroup(groupId, pathIds) {
+    removePathsFromGroup(groupId, pathIds, options) {
       requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
@@ -1009,8 +1019,17 @@ export function createProjectStore(
         groupId,
         pathIds,
       );
-      const nextNavigation =
-        navigation.activePathGroupId === groupId
+      const nextNavigation = options?.preserveActivePath
+        ? {
+            ...navigation,
+            activePathGroupId:
+              navigation.activePathGroupId === groupId &&
+              navigation.activePathId !== null &&
+              pathIds.includes(navigation.activePathId)
+                ? null
+                : navigation.activePathGroupId,
+          }
+        : navigation.activePathGroupId === groupId
           ? navigationForActiveGroup(nextProject, navigation, groupId)
           : navigation;
       applyProjectTransition(
