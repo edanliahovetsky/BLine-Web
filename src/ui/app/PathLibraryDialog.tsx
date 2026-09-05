@@ -1,47 +1,77 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type DragEvent as ReactDragEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
+  type KeyboardEvent,
+  type CSSProperties,
 } from "react";
 import {
-  ChevronDown,
-  ChevronRight,
+  Check,
   Copy,
+  Eye,
   Folder,
-  FolderPlus,
+  Link2,
   MoreHorizontal,
   Pencil,
   Plus,
   Search,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
-import type {
-  Project,
-  ProjectPath,
-  ProjectPathGroup,
-} from "../../core/model/project";
+import type { Project } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import { isEditableShortcutTarget } from "../keyboardShortcuts";
 import { CloseButton } from "../controls";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
-import "./LibraryDialog.css";
+import {
+  useCollectionLinkDrag,
+  type CollectionNode,
+  type ConnectionPoint,
+} from "./useCollectionLinkDrag";
 import "./ProjectLibraryDialogs.css";
 
-type InlineEdit =
-  | { kind: "collection"; id: string; value: string }
-  | { kind: "path"; id: string; value: string };
-
-interface DraggedPaths {
-  pathIds: string[];
-  sourceGroupId: string | null;
+interface Node extends CollectionNode {
+  name: string;
+  count: number;
 }
-
-const pathDragType = "application/x-bline-paths";
+interface Edge {
+  groupId: string;
+  pathId: string;
+}
+interface InlineEdit extends CollectionNode {
+  value: string;
+}
+interface RowMenu {
+  node: Node;
+  x: number;
+  y: number;
+  trigger: HTMLButtonElement;
+}
+const keyFor = (node: CollectionNode) => `${node.kind}:${node.id}`;
+const sameNode = (a: CollectionNode | null, b: CollectionNode | null) =>
+  Boolean(a && b && a.kind === b.kind && a.id === b.id);
+const edgeFor = (a: CollectionNode, b: CollectionNode): Edge =>
+  a.kind === "collection"
+    ? { groupId: a.id, pathId: b.id }
+    : { groupId: b.id, pathId: a.id };
+const incident = (edge: Edge, node: CollectionNode | null) =>
+  node?.kind === "collection"
+    ? edge.groupId === node.id
+    : edge.pathId === node?.id;
+const uniqueName = (base: string, names: string[]) => {
+  const existing = new Set(names.map((name) => name.toLocaleLowerCase()));
+  let value = base,
+    suffix = 2;
+  while (existing.has(value.toLocaleLowerCase())) value = `${base} ${suffix++}`;
+  return value;
+};
+function curve(from: ConnectionPoint, to: ConnectionPoint, direction = 1) {
+  const bend = Math.max(32, Math.abs(to.x - from.x) * 0.48);
+  return `M ${from.x} ${from.y} C ${from.x + direction * bend} ${from.y}, ${to.x - direction * bend} ${to.y}, ${to.x} ${to.y}`;
+}
 
 export function PathLibraryDialog({
   project,
@@ -50,6 +80,7 @@ export function PathLibraryDialog({
   onCancel,
   onCreatePath,
   onDeletePaths,
+  onPreviewCollection,
 }: {
   project: Project;
   activePathId: string | null;
@@ -57,332 +88,591 @@ export function PathLibraryDialog({
   onCancel(): void;
   onCreatePath(groupId: string | null): void;
   onDeletePaths(pathIds: readonly string[]): void;
+  onPreviewCollection(): void;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const skipBlurCommitRef = useRef(false);
-  const initialGroupId =
-    project.path_groups.find((group) => group.group_id === activePathGroupId)
-      ?.group_id ??
-    project.path_groups[0]?.group_id ??
-    null;
-  const initialPathId = activePathId ?? project.paths[0]?.path_id ?? null;
-
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
-    initialGroupId,
+  const boardRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const skipBlur = useRef(false);
+  const [selected, setSelected] = useState<CollectionNode | null>(() =>
+    activePathGroupId
+      ? { kind: "collection", id: activePathGroupId }
+      : activePathId
+        ? { kind: "path", id: activePathId }
+        : null,
   );
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(
-    () => new Set(initialGroupId ? [initialGroupId] : []),
-  );
-  const [selectedPathIds, setSelectedPathIds] = useState<Set<string>>(
-    () => new Set(initialPathId ? [initialPathId] : []),
-  );
-  const [query, setQuery] = useState("");
-  const [openCollectionMenuId, setOpenCollectionMenuId] = useState<
-    string | null
-  >(null);
-  const [showMembershipMenu, setShowMembershipMenu] = useState(false);
+  const [collectionContext, setCollectionContext] = useState(activePathGroupId);
+  const [collectionQuery, setCollectionQuery] = useState("");
+  const [pathQuery, setPathQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [pending, setPending] = useState<CollectionNode | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [editing, setEditing] = useState<InlineEdit | null>(null);
-  const [deletingGroup, setDeletingGroup] = useState<ProjectPathGroup | null>(
-    null,
-  );
-  const [draggedPaths, setDraggedPaths] = useState<DraggedPaths | null>(null);
-  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
-  const [isRemovingDropTarget, setIsRemovingDropTarget] = useState(false);
+  const [menu, setMenu] = useState<RowMenu | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [geometry, setGeometry] = useState<{
+    width: number;
+    height: number;
+    points: Map<string, ConnectionPoint>;
+  }>({ width: 1, height: 1, points: new Map() });
 
-  useEffect(() => {
-    searchInputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        deletingGroup ||
-        editing ||
-        isEditableShortcutTarget(event.target)
-      ) {
-        return;
-      }
-
-      const modifier = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-      if (!modifier || event.altKey || (key !== "z" && key !== "y")) {
-        return;
-      }
-
-      event.preventDefault();
-      if (key === "y" || event.shiftKey) {
-        projectStore.getState().redo();
-      } else {
-        projectStore.getState().undo();
-      }
-    };
-
-    window.addEventListener("keydown", handleHistoryShortcut);
-    return () => window.removeEventListener("keydown", handleHistoryShortcut);
-  }, [deletingGroup, editing]);
-
-  const selectedGroup =
-    project.path_groups.find((group) => group.group_id === selectedGroupId) ??
-    null;
-  const dragSourceGroupId = draggedPaths?.sourceGroupId ?? null;
-  const dragSourceGroup =
-    project.path_groups.find((group) => group.group_id === dragSourceGroupId) ??
-    null;
-  const visibleSelectedPathIds = useMemo(() => {
-    const validPathIds = new Set(project.paths.map((path) => path.path_id));
-    return new Set(
-      [...selectedPathIds].filter((pathId) => validPathIds.has(pathId)),
+  const { collections, paths, edges } = useMemo(() => {
+    const edges: Edge[] = project.path_groups.flatMap((group) =>
+      group.path_ids.map((pathId) => ({ groupId: group.group_id, pathId })),
     );
-  }, [project.paths, selectedPathIds]);
-  const selectedPaths = project.paths.filter((path) =>
-    visibleSelectedPathIds.has(path.path_id),
-  );
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const sortedPaths = useMemo(
-    () =>
-      [...project.paths]
-        .filter(
-          (path) =>
-            !normalizedQuery ||
-            path.display_name.toLocaleLowerCase().includes(normalizedQuery) ||
-            path.file_name.toLocaleLowerCase().includes(normalizedQuery),
-        )
-        .sort((left, right) => {
-          const membershipDifference =
-            collectionMemberships(project, right.path_id).length -
-            collectionMemberships(project, left.path_id).length;
-          return (
-            membershipDifference ||
-            left.display_name.localeCompare(right.display_name, undefined, {
-              sensitivity: "base",
-            })
-          );
-        }),
-    [normalizedQuery, project],
-  );
-
-  const closeTransientUi = () => {
-    setOpenCollectionMenuId(null);
-    setShowMembershipMenu(false);
-  };
-
-  const handleSelectCollection = (group: ProjectPathGroup) => {
-    closeTransientUi();
-    setSelectedGroupId(group.group_id);
-    setExpandedGroupIds((current) => {
-      const next = new Set(current);
-      next.add(group.group_id);
-      return next;
-    });
-    projectStore.getState().setActivePathGroup(group.group_id);
-    selectionStore.getState().clearSelection();
-  };
-
-  const handleUsePath = (pathId: string, groupId = selectedGroupId) => {
-    const group = project.path_groups.find(
-      (candidate) => candidate.group_id === groupId,
-    );
-    projectStore
-      .getState()
-      .setActivePathGroup(
-        group?.path_ids.includes(pathId) ? group.group_id : null,
-      );
-    projectStore.getState().setActivePath(pathId);
-    selectionStore.getState().clearSelection();
-  };
-
-  const handleSelectPath = (
-    event: Pick<ReactMouseEvent, "ctrlKey" | "metaKey" | "shiftKey">,
-    pathId: string,
-    groupId = selectedGroupId,
-  ) => {
-    const extendSelection = event.metaKey || event.ctrlKey || event.shiftKey;
-    setSelectedPathIds((current) => {
-      if (!extendSelection) {
-        return new Set([pathId]);
-      }
-      const next = new Set(current);
-      if (next.has(pathId) && next.size > 1) {
-        next.delete(pathId);
-      } else {
-        next.add(pathId);
-      }
-      return next;
-    });
-    handleUsePath(pathId, groupId);
-  };
-
-  const beginCollectionRename = (group: ProjectPathGroup) => {
-    closeTransientUi();
-    setSelectedGroupId(group.group_id);
-    setEditing({
+    const counts = new Map<string, number>();
+    for (const edge of edges)
+      counts.set(edge.pathId, (counts.get(edge.pathId) ?? 0) + 1);
+    const collections: Node[] = project.path_groups.map((group) => ({
       kind: "collection",
       id: group.group_id,
-      value: group.display_name,
-    });
-  };
-
-  const beginPathRename = (path: ProjectPath) => {
-    closeTransientUi();
-    setSelectedPathIds(new Set([path.path_id]));
-    setEditing({ kind: "path", id: path.path_id, value: path.display_name });
-  };
-
-  const commitInlineEdit = (value = editing?.value ?? "") => {
-    if (!editing) {
-      return;
-    }
-    try {
-      if (editing.kind === "collection") {
-        projectStore
-          .getState()
-          .renamePathGroup(editing.id, value.trim() || "Untitled Collection");
-      } else {
-        projectStore
-          .getState()
-          .renamePath(editing.id, value.trim() || "Untitled Path");
-      }
-      setEditing(null);
-    } catch (caughtError) {
-      projectStore.getState().markSaveError(caughtError);
-    }
-  };
-
-  const handleInlineEditKeyDown = (
-    event: ReactKeyboardEvent<HTMLInputElement>,
-  ) => {
-    event.stopPropagation();
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commitInlineEdit(event.currentTarget.value);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      skipBlurCommitRef.current = true;
-      setEditing(null);
-    }
-  };
-
-  const handleInlineEditBlur = (value: string) => {
-    if (skipBlurCommitRef.current) {
-      skipBlurCommitRef.current = false;
-      return;
-    }
-    commitInlineEdit(value);
-  };
-
-  const createCollection = (
-    source?: Pick<ProjectPathGroup, "display_name" | "path_ids">,
-  ) => {
-    const baseName = source ? `${source.display_name} Copy` : "New Collection";
-    const displayName = uniqueName(
-      baseName,
-      project.path_groups.map((group) => group.display_name),
+      name: group.display_name,
+      count: group.path_ids.length,
+    }));
+    const paths: Node[] = project.paths.map((path) => ({
+      kind: "path",
+      id: path.path_id,
+      name: path.display_name,
+      count: counts.get(path.path_id) ?? 0,
+    }));
+    const order = (a: Node, b: Node) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      a.id.localeCompare(b.id);
+    return {
+      collections: collections.sort(order),
+      paths: paths.sort(order),
+      edges,
+    };
+  }, [project]);
+  const findNode = (node: CollectionNode | null) =>
+    node
+      ? (node.kind === "collection" ? collections : paths).find(
+          (item) => item.id === node.id,
+        )
+      : undefined;
+  const focus =
+    findNode(selected) ??
+    paths.find((node) => node.id === activePathId) ??
+    collections[0] ??
+    paths[0] ??
+    null;
+  const connected = (edge: Edge) =>
+    edges.some(
+      (candidate) =>
+        candidate.groupId === edge.groupId && candidate.pathId === edge.pathId,
     );
-    projectStore.getState().createPathGroup({
-      displayName,
-      activePathId: source?.path_ids[0] ?? null,
-      pathIds: source?.path_ids ?? [],
-      makeActive: true,
-    });
-    const createdGroupId = projectStore.getState().activePathGroupId;
-    if (createdGroupId) {
-      setSelectedGroupId(createdGroupId);
-      setExpandedGroupIds((current) => new Set([...current, createdGroupId]));
-      setEditing({
-        kind: "collection",
-        id: createdGroupId,
-        value: displayName,
+  const related = (node: Node) =>
+    Boolean(
+      focus && node.kind !== focus.kind && connected(edgeFor(focus, node)),
+    );
+  const visibleCollections = useMemo(
+    () =>
+      collections.filter((node) =>
+        node.name
+          .toLocaleLowerCase()
+          .includes(collectionQuery.trim().toLocaleLowerCase()),
+      ),
+    [collections, collectionQuery],
+  );
+  const visiblePaths = useMemo(
+    () =>
+      paths.filter((node) => {
+        const query = pathQuery.trim().toLocaleLowerCase();
+        return (
+          node.name.toLocaleLowerCase().includes(query) ||
+          project.paths
+            .find((path) => path.path_id === node.id)
+            ?.file_name.toLocaleLowerCase()
+            .includes(query)
+        );
+      }),
+    [paths, pathQuery, project.paths],
+  );
+  const visibleEdges = edges.filter(
+    (edge) =>
+      visibleCollections.some((node) => node.id === edge.groupId) &&
+      visiblePaths.some((node) => node.id === edge.pathId),
+  );
+  const hiddenCount = focus
+    ? focus.count - visibleEdges.filter((edge) => incident(edge, focus)).length
+    : 0;
+
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
+  useLayoutEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+    const measure = () => {
+      const bounds = board.getBoundingClientRect();
+      const points = new Map<string, ConnectionPoint>();
+      board.querySelectorAll<HTMLButtonElement>(".fc-port").forEach((port) => {
+        const rect = port.getBoundingClientRect();
+        points.set(port.dataset.nodeKey!, {
+          x: rect.x + rect.width / 2 - bounds.x,
+          y: rect.y + rect.height / 2 - bounds.y,
+        });
       });
-    }
-    closeTransientUi();
-  };
+      setGeometry({ width: bounds.width, height: bounds.height, points });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(board);
+    return () => observer.disconnect();
+  }, [visibleCollections, visiblePaths]);
 
-  const duplicateSelectedPath = () => {
-    const path = selectedPaths.length === 1 ? selectedPaths[0] : null;
-    if (!path) {
+  useEffect(() => {
+    if (!menu) return;
+    const dismiss = (event: globalThis.PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        !event.target.closest(".fc-menu, .fc-more")
+      )
+        setMenu(null);
+    };
+    const close = () => setMenu(null);
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+
+  const mutate = (action: () => void) => {
+    try {
+      action();
+      setError("");
+      return true;
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The change could not be saved.",
+      );
+      return false;
+    }
+  };
+  const connect = (source: CollectionNode, target: CollectionNode) => {
+    if (source.kind === target.kind || !findNode(source) || !findNode(target))
+      return;
+    const edge = edgeFor(source, target);
+    setPending(null);
+    setSelectedEdge(null);
+    if (connected(edge)) {
+      setMessage("Already connected.");
       return;
     }
-    const displayName = uniqueName(
-      `${path.display_name} Copy`,
-      project.paths.map((candidate) => candidate.display_name),
-    );
-    projectStore.getState().duplicatePath(path.path_id, displayName, {
-      addToGroupId: selectedGroup?.group_id ?? null,
-    });
-    const createdPathId = projectStore.getState().activePathId;
-    if (createdPathId) {
-      setSelectedPathIds(new Set([createdPathId]));
-      setEditing({ kind: "path", id: createdPathId, value: displayName });
-    }
+    if (
+      mutate(() =>
+        projectStore.getState().addPathsToGroup(edge.groupId, [edge.pathId]),
+      )
+    )
+      setMessage("Connection added.");
   };
-
-  const toggleMembership = (group: ProjectPathGroup) => {
-    if (selectedPaths.length === 0) {
+  const disconnect = (edge: Edge) => {
+    setPending(null);
+    setSelectedEdge(null);
+    if (
+      mutate(() =>
+        projectStore
+          .getState()
+          .removePathsFromGroup(edge.groupId, [edge.pathId], {
+            preserveActivePath: true,
+          }),
+      )
+    )
+      setMessage("Connection removed. The Path is kept.");
+  };
+  const tapPort = (node: CollectionNode) => {
+    if (focus && node.kind !== focus.kind && connected(edgeFor(focus, node))) {
+      disconnect(edgeFor(focus, node));
       return;
     }
-    const pathIds = selectedPaths.map((path) => path.path_id);
-    const allIncluded = pathIds.every((pathId) =>
-      group.path_ids.includes(pathId),
+    if (pending && pending.kind !== node.kind) {
+      connect(pending, node);
+      return;
+    }
+    setMenu(null);
+    setSelectedEdge(null);
+    setMessage("");
+    if (sameNode(pending, node)) setPending(null);
+    else {
+      setSelected(node);
+      setPending(node);
+      if (node.kind === "collection") setCollectionContext(node.id);
+    }
+  };
+  const drag = useCollectionLinkDrag(
+    boardRef,
+    (source) => {
+      setSelected(source);
+      setPending(null);
+      setMenu(null);
+      setSelectedEdge(null);
+      setMessage("");
+      if (source.kind === "collection") setCollectionContext(source.id);
+    },
+    connect,
+    tapPort,
+  );
+  const select = (node: Node) => {
+    if (pending && pending.kind !== node.kind) {
+      tapPort(node);
+      return;
+    }
+    setSelected(node);
+    setPending(null);
+    setSelectedEdge(null);
+    setMenu(null);
+    setMessage("");
+    if (node.kind === "collection") setCollectionContext(node.id);
+  };
+  const startRename = (node: Node) => {
+    skipBlur.current = false;
+    setMenu(null);
+    setPending(null);
+    setSelectedEdge(null);
+    setError("");
+    setEditing({ kind: node.kind, id: node.id, value: node.name });
+  };
+  const finishRename = (value: string) => {
+    if (!editing) return;
+    const name = value.trim();
+    if (!name) {
+      setError("Enter a name.");
+      return;
+    }
+    const peers = editing.kind === "collection" ? collections : paths;
+    if (
+      peers.some(
+        (node) =>
+          node.id !== editing.id &&
+          node.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )
+    ) {
+      setError("This name is already in use.");
+      return;
+    }
+    const node = findNode(editing);
+    if (!node || name === node.name) {
+      setEditing(null);
+      setError("");
+      return;
+    }
+    if (
+      mutate(() =>
+        editing.kind === "collection"
+          ? projectStore.getState().renamePathGroup(editing.id, name)
+          : projectStore.getState().renamePath(editing.id, name),
+      )
+    ) {
+      setEditing(null);
+      setMessage("Name updated.");
+    }
+  };
+  const createCollection = (source?: Node) => {
+    setMenu(null);
+    setPending(null);
+    const name = uniqueName(
+      source ? `${source.name} Copy` : "New Collection",
+      collections.map((node) => node.name),
     );
-    if (allIncluded) {
-      projectStore.getState().removePathsFromGroup(group.group_id, pathIds);
+    const group = source
+      ? project.path_groups.find((group) => group.group_id === source.id)
+      : null;
+    if (
+      !mutate(() =>
+        projectStore.getState().createPathGroup({
+          displayName: name,
+          pathIds: group?.path_ids ?? [],
+          makeActive: false,
+        }),
+      )
+    )
+      return;
+    const created = projectStore
+      .getState()
+      .project?.path_groups.find(
+        (group) => !collections.some((node) => node.id === group.group_id),
+      );
+    if (created) {
+      const node: Node = {
+        kind: "collection",
+        id: created.group_id,
+        name: created.display_name,
+        count: created.path_ids.length,
+      };
+      setCollectionQuery("");
+      setSelected(node);
+      setCollectionContext(node.id);
+      startRename(node);
+    }
+  };
+  const duplicate = (node: Node) => {
+    if (node.kind === "collection") {
+      createCollection(node);
+      return;
+    }
+    setMenu(null);
+    setPending(null);
+    const name = uniqueName(
+      `${node.name} Copy`,
+      paths.map((path) => path.name),
+    );
+    if (
+      !mutate(() =>
+        projectStore.getState().duplicatePath(node.id, name, {
+          copyMemberships: true,
+          makeActive: false,
+        }),
+      )
+    )
+      return;
+    const created = projectStore
+      .getState()
+      .project?.paths.find(
+        (path) => !paths.some((node) => node.id === path.path_id),
+      );
+    if (created) {
+      const copy: Node = {
+        kind: "path",
+        id: created.path_id,
+        name,
+        count: node.count,
+      };
+      setPathQuery("");
+      setSelected(copy);
+      startRename(copy);
+    }
+  };
+  const remove = (node: Node) => {
+    setMenu(null);
+    setPending(null);
+    setSelectedEdge(null);
+    if (node.kind === "path") onDeletePaths([node.id]);
+    else if (mutate(() => projectStore.getState().deletePathGroup(node.id)))
+      setMessage("Collection deleted. Its Paths are kept.");
+  };
+  const openOnCanvas = (node: Node) => {
+    if (node.kind === "collection") {
+      if (!node.count) return;
+      projectStore.getState().setActivePathGroup(node.id);
+      onPreviewCollection();
     } else {
-      projectStore.getState().addPathsToGroup(group.group_id, pathIds);
+      const groupId =
+        [collectionContext, activePathGroupId].find(
+          (id) => id && connected({ groupId: id, pathId: node.id }),
+        ) ?? null;
+      projectStore.getState().setActivePath(node.id);
+      projectStore.getState().setActivePathGroup(groupId);
     }
     selectionStore.getState().clearSelection();
+    onCancel();
   };
-
-  const setDragData = (
-    event: ReactDragEvent,
-    pathIds: string[],
-    sourceGroupId: string | null,
-  ) => {
-    const payload: DraggedPaths = { pathIds, sourceGroupId };
-    event.dataTransfer.effectAllowed = "copyMove";
-    event.dataTransfer.setData(pathDragType, JSON.stringify(payload));
-    const dragImage = createPathDragImage(project, payload);
-    event.dataTransfer.setDragImage(dragImage, 24, 20);
-    window.setTimeout(() => dragImage.remove(), 0);
-    closeTransientUi();
-    setDraggedPaths(payload);
+  const closeMenu = () => {
+    menu?.trigger.focus({ preventScroll: true });
+    setMenu(null);
   };
-
-  const readDragData = (event: ReactDragEvent): DraggedPaths | null => {
-    try {
-      const value = event.dataTransfer.getData(pathDragType);
-      return value ? (JSON.parse(value) as DraggedPaths) : null;
-    } catch {
-      return null;
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (menu) closeMenu();
+      else if (drag.view || pending || selectedEdge) {
+        drag.cancel();
+        setPending(null);
+        setSelectedEdge(null);
+      } else onCancel();
+    } else if (isEditableShortcutTarget(event.target)) {
+      return;
+    } else if (event.key === "F2" && focus) {
+      event.preventDefault();
+      startRename(focus);
+    } else if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      /^(z|y)$/i.test(event.key)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      drag.cancel();
+      setPending(null);
+      setSelectedEdge(null);
+      setMenu(null);
+      mutate(() =>
+        event.key.toLowerCase() === "y" || event.shiftKey
+          ? projectStore.getState().redo()
+          : projectStore.getState().undo(),
+      );
     }
   };
+  const origin = drag.view?.source ?? pending;
+  const previewStart = drag.view
+    ? geometry.points.get(keyFor(drag.view.source))
+    : null;
+  const previewEnd = drag.view?.target
+    ? geometry.points.get(keyFor(drag.view.target))
+    : drag.view?.point;
+  let status =
+    message ||
+    "Drag between connection points to link. Click a connected endpoint to disconnect.";
+  if (pending)
+    status = `Choose a ${pending.kind === "collection" ? "Path" : "Collection"} to connect. Esc to cancel.`;
+  if (drag.view)
+    status = drag.view.target
+      ? connected(edgeFor(drag.view.source, drag.view.target))
+        ? "Already connected."
+        : `Release to connect to ${findNode(drag.view.target)?.name ?? "the destination"}.`
+      : "Drag to the other column. Esc to cancel.";
+  if (selectedEdge)
+    status = `${collections.find((node) => node.id === selectedEdge.groupId)?.name} ↔ ${paths.find((node) => node.id === selectedEdge.pathId)?.name}`;
 
-  const handleDropOnCollection = (
-    event: ReactDragEvent,
-    group: ProjectPathGroup,
-  ) => {
-    event.preventDefault();
-    const payload = readDragData(event);
-    if (payload?.pathIds.length) {
-      projectStore.getState().addPathsToGroup(group.group_id, payload.pathIds);
-      setSelectedGroupId(group.group_id);
-      setExpandedGroupIds((current) => new Set([...current, group.group_id]));
-    }
-    setDragOverGroupId(null);
-    setDraggedPaths(null);
-  };
-
-  const handleDropOnAllPaths = (event: ReactDragEvent) => {
-    event.preventDefault();
-    const payload = readDragData(event);
-    if (payload?.sourceGroupId && payload.pathIds.length) {
-      projectStore
-        .getState()
-        .removePathsFromGroup(payload.sourceGroupId, payload.pathIds);
-    }
-    setIsRemovingDropTarget(false);
-    setDraggedPaths(null);
+  const renderNode = (node: Node) => {
+    const isFocused = sameNode(focus, node),
+      isRelated = related(node),
+      isEditing = sameNode(editing, node);
+    const isTarget = Boolean(origin && origin.kind !== node.kind);
+    const endpointLabel =
+      isRelated && focus
+        ? `Disconnect ${paths.find((path) => path.id === edgeFor(focus, node).pathId)?.name} from ${collections.find((group) => group.id === edgeFor(focus, node).groupId)?.name}`
+        : sameNode(pending, node)
+          ? `Cancel connection from ${node.name}`
+          : isTarget
+            ? `Connect to ${node.name}`
+            : `Start connection from ${node.name}`;
+    return (
+      <div
+        key={node.id}
+        className={`fc-row ${node.kind === "path" ? "all-paths__row" : ""}${isFocused ? " is-focused" : isRelated ? " is-related" : !isTarget ? " is-muted" : ""}${isTarget ? " is-target" : ""}${sameNode(drag.view?.target ?? null, node) ? " is-drop-target" : ""}`}
+        data-kind={node.kind}
+        data-node-id={node.id}
+      >
+        {isEditing && editing ? (
+          <div className="fc-rename">
+            <input
+              autoFocus
+              aria-label={
+                node.kind === "collection" ? "Collection name" : "Path name"
+              }
+              maxLength={120}
+              value={editing.value}
+              aria-invalid={Boolean(error)}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setEditing({ ...editing, value: event.currentTarget.value });
+                setError("");
+              }}
+              onBlur={(event) => {
+                if (skipBlur.current) {
+                  skipBlur.current = false;
+                  return;
+                }
+                finishRename(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  finishRename(event.currentTarget.value);
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  skipBlur.current = true;
+                  setEditing(null);
+                  setError("");
+                }
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Save name"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => finishRename(editing.value)}
+            >
+              <Check size={14} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="fc-select"
+              aria-label={`Focus ${node.name}`}
+              aria-pressed={isFocused}
+              onClick={() => select(node)}
+              onDoubleClick={() => startRename(node)}
+            >
+              {node.kind === "collection" ? (
+                <Folder className="fc-folder" size={17} />
+              ) : (
+                <span className="fc-path-dot" />
+              )}
+              <span className="fc-name" title={node.name}>
+                {node.name}
+              </span>
+              <span
+                className="fc-count"
+                title={`${node.count} ${node.kind === "collection" ? "Paths" : "Collections"}`}
+              >
+                {node.count}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="fc-more"
+              aria-label={`${node.kind === "collection" ? "Collection" : "Path"} actions for ${node.name}`}
+              aria-haspopup="menu"
+              aria-expanded={sameNode(menu?.node ?? null, node)}
+              title="Rename, duplicate, or delete"
+              onClick={(event) => {
+                if (sameNode(menu?.node ?? null, node)) {
+                  setMenu(null);
+                  return;
+                }
+                const box = event.currentTarget.getBoundingClientRect();
+                setPending(null);
+                setSelectedEdge(null);
+                setMenu({
+                  node,
+                  trigger: event.currentTarget,
+                  x: Math.max(
+                    8,
+                    Math.min(window.innerWidth - 190, box.right - 182),
+                  ),
+                  y: Math.max(
+                    8,
+                    Math.min(window.innerHeight - 160, box.bottom + 6),
+                  ),
+                });
+              }}
+            >
+              <MoreHorizontal size={17} />
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          className={`fc-port${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
+          data-node-key={keyFor(node)}
+          disabled={Boolean(editing)}
+          aria-label={endpointLabel}
+          title={
+            isRelated
+              ? "Click to disconnect · drag to connect"
+              : "Drag to connect · or click"
+          }
+          onPointerDown={(event) => {
+            setMenu(null);
+            drag.start(event, node);
+          }}
+          onClick={(event) => {
+            if (event.detail === 0) tapPort(node);
+          }}
+        />
+      </div>
+    );
   };
 
   return (
@@ -390,34 +680,17 @@ export function PathLibraryDialog({
       className="project-navigator-backdrop"
       role="presentation"
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onCancel();
-        }
+        if (event.target === event.currentTarget) onCancel();
       }}
     >
       <section
         ref={dialogRef}
-        className="library-dialog path-library-dialog project-navigator"
+        className="project-navigator fc-navigator"
         role="dialog"
         aria-modal="true"
         aria-label="Project Navigator"
         data-testid="path-library-dialog"
-        onKeyDown={(event) => {
-          if (
-            event.key === "Escape" &&
-            !isEditableShortcutTarget(event.target)
-          ) {
-            event.preventDefault();
-            if (openCollectionMenuId || showMembershipMenu) {
-              closeTransientUi();
-            } else {
-              onCancel();
-            }
-          } else if (event.key === "F2" && selectedPaths.length === 1) {
-            event.preventDefault();
-            beginPathRename(selectedPaths[0]);
-          }
-        }}
+        onKeyDown={handleKeyDown}
       >
         <header className="project-navigator__header">
           <div>
@@ -426,670 +699,324 @@ export function PathLibraryDialog({
           </div>
           <CloseButton ariaLabel="Close" onClick={onCancel} />
         </header>
-
-        <div className="project-navigator__columns">
-          <aside
-            className="project-library"
-            aria-label="Project library"
-            onPointerDown={() => setShowMembershipMenu(false)}
-          >
-            <header className="project-navigator__column-header">
-              <strong>Project Library</strong>
-              <span>{project.path_groups.length}</span>
-            </header>
-            <div className="project-library__tree">
-              {project.path_groups.length > 0 ? (
-                project.path_groups.map((group) => {
-                  const isExpanded = expandedGroupIds.has(group.group_id);
-                  const isSelected = selectedGroupId === group.group_id;
-                  const isMenuOpen = openCollectionMenuId === group.group_id;
-                  const isDropTarget = dragOverGroupId === group.group_id;
-                  const isDragReady = Boolean(
-                    draggedPaths &&
-                    draggedPaths.sourceGroupId !== group.group_id,
-                  );
-                  return (
-                    <div
-                      key={group.group_id}
-                      className={`project-library__collection-block${isSelected ? " is-selected" : ""}${isDragReady ? " is-drag-ready" : ""}${isDropTarget ? " is-drop-target" : ""}`}
-                    >
-                      <div
-                        className="project-library__collection-row"
-                        onDragOver={(event) => {
-                          if (!draggedPaths) {
-                            return;
-                          }
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = "copy";
-                          setDragOverGroupId(group.group_id);
-                        }}
-                        onDragLeave={() => setDragOverGroupId(null)}
-                        onDrop={(event) => handleDropOnCollection(event, group)}
-                      >
-                        <button
-                          type="button"
-                          className="project-library__expand"
-                          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${group.display_name}`}
-                          aria-expanded={isExpanded}
-                          onClick={() => {
-                            setExpandedGroupIds((current) => {
-                              const next = new Set(current);
-                              if (next.has(group.group_id)) {
-                                next.delete(group.group_id);
-                              } else {
-                                next.add(group.group_id);
-                              }
-                              return next;
-                            });
-                          }}
-                        >
-                          {isExpanded ? (
-                            <ChevronDown aria-hidden="true" size={14} />
-                          ) : (
-                            <ChevronRight aria-hidden="true" size={14} />
-                          )}
-                        </button>
-                        <Folder aria-hidden="true" size={14} />
-                        {editing?.kind === "collection" &&
-                        editing.id === group.group_id ? (
-                          <input
-                            autoFocus
-                            className="project-navigator__inline-input"
-                            aria-label="Collection name"
-                            value={editing.value}
-                            onFocus={(event) => event.currentTarget.select()}
-                            onChange={(event) =>
-                              setEditing({
-                                kind: "collection",
-                                id: group.group_id,
-                                value: event.currentTarget.value,
-                              })
-                            }
-                            onKeyDown={handleInlineEditKeyDown}
-                            onBlur={(event) =>
-                              handleInlineEditBlur(event.currentTarget.value)
-                            }
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            className="project-library__collection-name"
-                            aria-pressed={isSelected}
-                            onClick={() => handleSelectCollection(group)}
-                            onDoubleClick={() => beginCollectionRename(group)}
-                          >
-                            {group.display_name}
-                          </button>
-                        )}
-                        {isDropTarget && draggedPaths ? (
-                          <span className="project-library__drop-caption">
-                            Add {draggedPaths.pathIds.length}
-                          </span>
-                        ) : (
-                          <span className="project-library__count">
-                            {group.path_ids.length}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          className="project-library__more"
-                          aria-label={`Collection actions for ${group.display_name}`}
-                          aria-haspopup="menu"
-                          aria-expanded={isMenuOpen}
-                          onClick={() => {
-                            setSelectedGroupId(group.group_id);
-                            setShowMembershipMenu(false);
-                            setOpenCollectionMenuId((current) =>
-                              current === group.group_id
-                                ? null
-                                : group.group_id,
-                            );
-                          }}
-                        >
-                          <MoreHorizontal aria-hidden="true" size={16} />
-                        </button>
-                        {isMenuOpen ? (
-                          <div
-                            className="project-library__collection-menu"
-                            role="menu"
-                            aria-label={`${group.display_name} collection actions`}
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => createCollection()}
-                            >
-                              <FolderPlus aria-hidden="true" size={14} />
-                              New Collection
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => beginCollectionRename(group)}
-                            >
-                              <Pencil aria-hidden="true" size={14} />
-                              Rename Collection
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => createCollection(group)}
-                            >
-                              <Copy aria-hidden="true" size={14} />
-                              Duplicate Collection
-                            </button>
-                            <div role="separator" />
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="is-danger"
-                              onClick={() => {
-                                setOpenCollectionMenuId(null);
-                                setDeletingGroup(group);
-                              }}
-                            >
-                              <Trash2 aria-hidden="true" size={14} />
-                              Delete Collection
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                      {isExpanded ? (
-                        <div className="project-library__children">
-                          {group.path_ids.length > 0 ? (
-                            group.path_ids.flatMap((pathId) => {
-                              const path = project.paths.find(
-                                (candidate) => candidate.path_id === pathId,
-                              );
-                              if (!path) {
-                                return [];
-                              }
-                              return [
-                                <button
-                                  key={path.path_id}
-                                  type="button"
-                                  draggable
-                                  className={`project-library__child${activePathId === path.path_id ? " is-current" : ""}${visibleSelectedPathIds.has(path.path_id) ? " is-selected" : ""}`}
-                                  onClick={(event) => {
-                                    setSelectedGroupId(group.group_id);
-                                    handleSelectPath(
-                                      event,
-                                      path.path_id,
-                                      group.group_id,
-                                    );
-                                  }}
-                                  onDoubleClick={() => beginPathRename(path)}
-                                  onDragStart={(event) =>
-                                    setDragData(
-                                      event,
-                                      visibleSelectedPathIds.has(path.path_id)
-                                        ? [...visibleSelectedPathIds]
-                                        : [path.path_id],
-                                      group.group_id,
-                                    )
-                                  }
-                                  onDragEnd={() => {
-                                    setDraggedPaths(null);
-                                    setDragOverGroupId(null);
-                                    setIsRemovingDropTarget(false);
-                                  }}
-                                >
-                                  {path.display_name}
-                                </button>,
-                              ];
-                            })
-                          ) : (
-                            <span className="project-library__empty-collection">
-                              Drop Paths here
-                            </span>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })
+        <div className="fc-focusbar">
+          <div className="fc-focus-meta">
+            <span className="fc-focus-icon">
+              {focus?.kind === "collection" ? (
+                <Folder size={18} />
               ) : (
-                <div className="project-library__empty">
-                  Create a Collection to organize Paths.
-                </div>
+                <Link2 size={18} />
               )}
+            </span>
+            <div>
+              <strong data-testid="collection-focus-name">
+                {focus?.name ?? "Paths & Collections"}
+              </strong>
+              <span data-testid="collection-focus-count">
+                {focus
+                  ? `${focus.count} ${focus.kind === "collection" ? "Path" : "Collection"}${focus.count === 1 ? "" : "s"} connected${hiddenCount ? ` · ${hiddenCount} hidden by search` : ""}`
+                  : "Create a Path or Collection to begin."}
+              </span>
             </div>
-            <button
-              type="button"
-              className="project-library__add"
-              aria-label="Create Collection"
-              onClick={() => createCollection()}
-            >
-              <Plus aria-hidden="true" size={15} />
-              Add Collection
-            </button>
-          </aside>
-
-          <section
-            className={`all-paths${isRemovingDropTarget ? " is-removing-drop-target" : ""}`}
-            aria-label="All Paths"
-            onDragOver={(event) => {
-              if (!dragSourceGroupId) {
-                return;
-              }
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setIsRemovingDropTarget(true);
-            }}
-            onDragLeave={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-                setIsRemovingDropTarget(false);
-              }
-            }}
-            onDrop={handleDropOnAllPaths}
-          >
-            <header className="project-navigator__column-header all-paths__header">
-              <strong>All Paths · {project.paths.length}</strong>
-              <div className="all-paths__header-tools">
-                <span className="all-paths__sort">Collections ↓ · A–Z</span>
-                <label className="project-navigator__search">
-                  <Search aria-hidden="true" size={14} />
-                  <input
-                    ref={searchInputRef}
-                    type="search"
-                    aria-label="Search paths"
-                    placeholder="Search Paths"
-                    value={query}
-                    onChange={(event) => setQuery(event.currentTarget.value)}
-                  />
-                </label>
-              </div>
-            </header>
-
-            {draggedPaths ? (
-              <div
-                className={`all-paths__drag-state${dragSourceGroup ? " is-remove" : ""}`}
-                aria-live="polite"
+          </div>
+          <div className="fc-focus-actions">
+            {focus && (
+              <button
+                type="button"
+                className="fc-open"
+                disabled={focus.kind === "collection" && focus.count === 0}
+                onClick={() => openOnCanvas(focus)}
               >
-                <span className="all-paths__drag-count">
-                  {draggedPaths.pathIds.length}
-                </span>
-                <strong>
-                  {draggedPaths.pathIds.length === 1
-                    ? (project.paths.find(
-                        (path) => path.path_id === draggedPaths.pathIds[0],
-                      )?.display_name ?? "1 Path")
-                    : `${draggedPaths.pathIds.length} Paths`}
-                </strong>
-                <span>
-                  {dragSourceGroup
-                    ? `Drop in All Paths to remove from ${dragSourceGroup.display_name}`
-                    : "Drop onto a Collection to add"}
-                </span>
-              </div>
-            ) : (
-              <div className="all-paths__actions">
-                <strong>
-                  {selectedPaths.length}{" "}
-                  {selectedPaths.length === 1 ? "Path" : "Paths"} selected
-                </strong>
-                <div>
-                  <button
-                    type="button"
-                    className="all-paths__add-to"
-                    aria-haspopup="menu"
-                    aria-expanded={showMembershipMenu}
-                    disabled={selectedPaths.length === 0}
-                    onClick={() => {
-                      setOpenCollectionMenuId(null);
-                      setShowMembershipMenu((current) => !current);
-                    }}
-                  >
-                    <Folder aria-hidden="true" size={14} />
-                    Add to…
-                  </button>
-                  <button
-                    type="button"
-                    className="all-paths__icon-action"
-                    aria-label="Create new path"
-                    title="Create new path"
-                    onClick={() => onCreatePath(selectedGroupId)}
-                  >
-                    <Plus aria-hidden="true" size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    className="all-paths__icon-action"
-                    aria-label="Duplicate selected path"
-                    title="Duplicate selected path"
-                    disabled={selectedPaths.length !== 1}
-                    onClick={duplicateSelectedPath}
-                  >
-                    <Copy aria-hidden="true" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="all-paths__icon-action"
-                    aria-label="Rename selected path"
-                    title="Rename selected path"
-                    disabled={selectedPaths.length !== 1}
-                    onClick={() =>
-                      selectedPaths[0] && beginPathRename(selectedPaths[0])
-                    }
-                  >
-                    <Pencil aria-hidden="true" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="all-paths__icon-action is-danger"
-                    aria-label="Delete selected paths"
-                    title="Delete selected paths"
-                    disabled={selectedPaths.length === 0}
-                    onClick={() => onDeletePaths([...visibleSelectedPathIds])}
-                  >
-                    <Trash2 aria-hidden="true" size={14} />
-                  </button>
-                </div>
-                {showMembershipMenu ? (
-                  <div
-                    className="all-paths__membership-menu"
-                    role="menu"
-                    aria-label="Add to Collections"
-                  >
-                    <header>
-                      <strong>Add to Collections</strong>
-                      <button
-                        type="button"
-                        aria-label="Close Add to Collections"
-                        onClick={() => setShowMembershipMenu(false)}
-                      >
-                        ×
-                      </button>
-                    </header>
-                    {project.path_groups.length > 0 ? (
-                      project.path_groups.map((group) => {
-                        const includedCount = selectedPaths.filter((path) =>
-                          group.path_ids.includes(path.path_id),
-                        ).length;
-                        const allIncluded =
-                          selectedPaths.length > 0 &&
-                          includedCount === selectedPaths.length;
-                        return (
-                          <button
-                            key={group.group_id}
-                            type="button"
-                            role="menuitemcheckbox"
-                            aria-checked={allIncluded}
-                            className="all-paths__membership-row"
-                            onClick={() => toggleMembership(group)}
-                          >
-                            <span className="all-paths__membership-name">
-                              <Folder aria-hidden="true" size={14} />
-                              {group.display_name}
-                            </span>
-                            {includedCount > 0 ? (
-                              <span
-                                className={`all-paths__membership-status${allIncluded ? " is-added" : " is-mixed"}`}
-                              >
-                                {allIncluded
-                                  ? selectedPaths.length === 1
-                                    ? "Added"
-                                    : "All added"
-                                  : `${includedCount} of ${selectedPaths.length}`}
-                              </span>
-                            ) : (
-                              <span />
-                            )}
-                            <span
-                              className={`all-paths__membership-change${allIncluded ? " is-remove" : " is-add"}`}
-                            >
-                              {allIncluded
-                                ? "Remove"
-                                : includedCount > 0
-                                  ? "Add all"
-                                  : "+ Add"}
-                            </span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <p>No Collections yet.</p>
-                    )}
-                  </div>
-                ) : null}
-              </div>
+                {focus.kind === "collection" ? (
+                  <Eye size={14} />
+                ) : (
+                  <ExternalLink size={14} />
+                )}
+                {focus.kind === "collection"
+                  ? "Preview Collection"
+                  : "Open Path"}
+              </button>
             )}
-
-            <div
-              className="all-paths__list"
-              role="listbox"
-              aria-label="All project Paths"
-              aria-multiselectable="true"
-            >
-              {sortedPaths.length > 0 ? (
-                sortedPaths.map((path) => {
-                  const memberships = collectionMemberships(
-                    project,
-                    path.path_id,
-                  );
-                  const isMember = Boolean(
-                    selectedGroup?.path_ids.includes(path.path_id),
-                  );
-                  const isSelected = visibleSelectedPathIds.has(path.path_id);
-                  const isEditing =
-                    editing?.kind === "path" && editing.id === path.path_id;
-                  return (
-                    <div
-                      key={path.path_id}
-                      role="option"
-                      aria-selected={isSelected}
-                      tabIndex={0}
-                      draggable={!isEditing}
-                      className={`all-paths__row${isMember ? " is-collection-member" : ""}${isSelected ? " is-selected" : ""}${activePathId === path.path_id ? " is-current" : ""}`}
-                      onClick={(event) => {
-                        if (!isEditableShortcutTarget(event.target)) {
-                          handleSelectPath(event, path.path_id);
-                        }
-                      }}
-                      onDoubleClick={() => beginPathRename(path)}
-                      onKeyDown={(event) => {
-                        if (
-                          (event.key === "Enter" || event.key === " ") &&
-                          event.target === event.currentTarget
-                        ) {
-                          event.preventDefault();
-                          handleSelectPath(event, path.path_id);
-                        }
-                      }}
-                      onDragStart={(event) =>
-                        setDragData(
-                          event,
-                          isSelected
-                            ? [...visibleSelectedPathIds]
-                            : [path.path_id],
-                          null,
-                        )
-                      }
-                      onDragEnd={() => {
-                        setDraggedPaths(null);
-                        setDragOverGroupId(null);
-                        setIsRemovingDropTarget(false);
-                      }}
-                    >
-                      {isEditing ? (
-                        <input
-                          autoFocus
-                          className="project-navigator__inline-input"
-                          aria-label="Path name"
-                          value={editing.value}
-                          onFocus={(event) => event.currentTarget.select()}
-                          onChange={(event) =>
-                            setEditing({
-                              kind: "path",
-                              id: path.path_id,
-                              value: event.currentTarget.value,
-                            })
-                          }
-                          onKeyDown={handleInlineEditKeyDown}
-                          onBlur={(event) =>
-                            handleInlineEditBlur(event.currentTarget.value)
-                          }
-                        />
-                      ) : (
-                        <strong>{path.display_name}</strong>
-                      )}
-                      <div
-                        className="all-paths__pills"
-                        aria-label="Collections"
-                      >
-                        {memberships.map((group, index) => (
-                          <button
-                            key={group.group_id}
-                            type="button"
-                            className="all-paths__pill"
-                            data-color={index % 4}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleSelectCollection(group);
-                            }}
-                          >
-                            {group.display_name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="all-paths__empty">
-                  {project.paths.length === 0
-                    ? "Create your first Path."
-                    : "No Paths match your search."}
-                </div>
-              )}
-            </div>
-          </section>
+            <label className="fc-toggle">
+              <input
+                type="checkbox"
+                checked={showAll}
+                onChange={(event) => setShowAll(event.currentTarget.checked)}
+              />
+              Show all connections
+            </label>
+          </div>
         </div>
-      </section>
-
-      {deletingGroup ? (
-        <DeleteCollectionDialog
-          group={deletingGroup}
-          onCancel={() => setDeletingGroup(null)}
-          onDelete={() => {
-            projectStore.getState().deletePathGroup(deletingGroup.group_id);
-            selectionStore.getState().clearSelection();
-            setSelectedGroupId((current) =>
-              current === deletingGroup.group_id
-                ? (project.path_groups.find(
-                    (group) => group.group_id !== deletingGroup.group_id,
-                  )?.group_id ?? null)
-                : current,
-            );
-            setDeletingGroup(null);
+        <div
+          className="fc-scroll"
+          onScroll={() => {
+            setMenu(null);
+            drag.scroll();
           }}
-        />
-      ) : null}
+        >
+          <div
+            className={`fc-board${drag.view ? " is-dragging" : ""}`}
+            ref={boardRef}
+            onPointerMove={drag.move}
+            onPointerUp={drag.end}
+            onPointerCancel={drag.cancel}
+            onLostPointerCapture={drag.cancel}
+          >
+            <svg
+              className="fc-wires"
+              aria-hidden="true"
+              viewBox={`0 0 ${geometry.width} ${geometry.height}`}
+            >
+              {visibleEdges
+                .filter((edge) => showAll || incident(edge, focus))
+                .map((edge) => {
+                  const from = geometry.points.get(
+                      `collection:${edge.groupId}`,
+                    ),
+                    to = geometry.points.get(`path:${edge.pathId}`);
+                  if (!from || !to) return null;
+                  const selected =
+                    selectedEdge?.groupId === edge.groupId &&
+                    selectedEdge?.pathId === edge.pathId;
+                  return (
+                    <g
+                      key={`${edge.groupId}:${edge.pathId}`}
+                      className="fc-wire-group"
+                    >
+                      <path
+                        className={`fc-wire${incident(edge, focus) ? "" : " is-dim"}${selected ? " is-selected" : ""}`}
+                        d={curve(from, to)}
+                      />
+                      <path
+                        className="fc-wire-hit"
+                        d={curve(from, to)}
+                        onClick={() => {
+                          if (!pending && !drag.view) setSelectedEdge(edge);
+                        }}
+                      />
+                    </g>
+                  );
+                })}
+              {previewStart && previewEnd && (
+                <>
+                  <path
+                    className={`fc-wire-preview${drag.view?.target ? " is-snapped" : ""}`}
+                    d={curve(
+                      previewStart,
+                      previewEnd,
+                      drag.view?.source.kind === "path" ? -1 : 1,
+                    )}
+                  />
+                  {!drag.view?.target && (
+                    <circle
+                      className="fc-preview-tip"
+                      cx={previewEnd.x}
+                      cy={previewEnd.y}
+                      r={5}
+                    />
+                  )}
+                </>
+              )}
+            </svg>
+            <section
+              className="fc-column fc-collections"
+              aria-label="Collections"
+            >
+              <header>
+                <h2>
+                  Collections <span>{collections.length}</span>
+                </h2>
+                <button
+                  type="button"
+                  aria-label="Create Collection"
+                  title="New Collection"
+                  onClick={() => createCollection()}
+                >
+                  <Plus size={14} />
+                </button>
+              </header>
+              <label className="fc-search">
+                <Search size={14} />
+                <input
+                  type="search"
+                  aria-label="Find a Collection"
+                  placeholder="Find a Collection"
+                  value={collectionQuery}
+                  onChange={(event) => {
+                    setCollectionQuery(event.currentTarget.value);
+                    setSelectedEdge(null);
+                  }}
+                />
+              </label>
+              <div className="fc-rows">
+                {visibleCollections.map(renderNode)}
+                {!visibleCollections.length && (
+                  <div className="fc-empty">
+                    {collections.length
+                      ? "No Collections match your search."
+                      : "Create a Collection, then link your Paths."}
+                  </div>
+                )}
+              </div>
+            </section>
+            <section className="fc-column fc-paths" aria-label="All Paths">
+              <header>
+                <h2>
+                  All Paths <span>{paths.length}</span>
+                </h2>
+                <button
+                  type="button"
+                  aria-label="Create new path"
+                  title="New Path"
+                  onClick={() =>
+                    onCreatePath(focus?.kind === "collection" ? focus.id : null)
+                  }
+                >
+                  <Plus size={14} />
+                </button>
+              </header>
+              <label className="fc-search">
+                <Search size={14} />
+                <input
+                  ref={searchRef}
+                  type="search"
+                  aria-label="Search paths"
+                  placeholder="Find a Path"
+                  value={pathQuery}
+                  onChange={(event) => {
+                    setPathQuery(event.currentTarget.value);
+                    setSelectedEdge(null);
+                  }}
+                />
+              </label>
+              <div className="fc-rows">
+                {visiblePaths.map(renderNode)}
+                {!visiblePaths.length && (
+                  <div className="fc-empty">
+                    {paths.length
+                      ? "No Paths match your search."
+                      : "Create your first Path."}
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+        <footer className={`fc-status${origin ? " is-linking" : ""}`}>
+          <span role={error ? "alert" : "status"}>
+            <Link2 size={14} />
+            {error || status}
+          </span>
+          {selectedEdge && (
+            <button type="button" onClick={() => disconnect(selectedEdge)}>
+              Remove connection
+            </button>
+          )}
+          {pending && !drag.view && (
+            <button type="button" onClick={() => setPending(null)}>
+              Cancel
+            </button>
+          )}
+        </footer>
+        {menu && (
+          <NodeMenu
+            menu={menu}
+            onClose={closeMenu}
+            onRename={() => startRename(menu.node)}
+            onDuplicate={() => duplicate(menu.node)}
+            onDelete={() => remove(menu.node)}
+          />
+        )}
+      </section>
     </div>
   );
 }
 
-function DeleteCollectionDialog({
-  group,
-  onCancel,
+function NodeMenu({
+  menu,
+  onClose,
+  onRename,
+  onDuplicate,
   onDelete,
 }: {
-  group: ProjectPathGroup;
-  onCancel(): void;
+  menu: RowMenu;
+  onClose(): void;
+  onRename(): void;
+  onDuplicate(): void;
   onDelete(): void;
 }) {
-  const dialogRef = useDialogFocusTrap<HTMLFormElement>();
-
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current
+      ?.querySelector<HTMLButtonElement>("button")
+      ?.focus({ preventScroll: true });
+  }, [menu.node.id]);
+  const label = menu.node.kind === "collection" ? "Collection" : "Path";
   return (
-    <div className="path-library-modal-backdrop" role="presentation">
-      <form
-        ref={dialogRef}
-        className="path-library-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Delete Collection"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            onCancel();
-          }
-        }}
-        onSubmit={(event) => {
+    <div
+      ref={ref}
+      className="fc-menu"
+      role="menu"
+      aria-label={`Actions for ${menu.node.name}`}
+      style={{ left: menu.x, top: menu.y } as CSSProperties}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" || event.key === "Tab") {
           event.preventDefault();
-          onDelete();
-        }}
+          event.stopPropagation();
+          onClose();
+        } else if (
+          ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+        ) {
+          event.preventDefault();
+          const buttons = [
+            ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              "button",
+            ),
+          ];
+          const current = buttons.indexOf(
+            document.activeElement as HTMLButtonElement,
+          );
+          const index =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? buttons.length - 1
+                : (current +
+                    (event.key === "ArrowDown" ? 1 : -1) +
+                    buttons.length) %
+                  buttons.length;
+          buttons[index]?.focus();
+        }
+      }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        aria-label={`Rename ${label}`}
+        onClick={onRename}
       >
-        <header>
-          <div>
-            <strong>Delete “{group.display_name}”?</strong>
-          </div>
-          <CloseButton ariaLabel="Close delete Collection" onClick={onCancel} />
-        </header>
-        <p>
-          The Collection will be removed. Its {group.path_ids.length} Paths
-          remain in All Paths and in every other Collection.
-        </p>
-        <footer>
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="danger-dialog-action">
-            Delete Collection
-          </button>
-        </footer>
-      </form>
+        <Pencil size={15} />
+        Rename
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        aria-label={`Duplicate ${label}`}
+        onClick={onDuplicate}
+      >
+        <Copy size={15} />
+        Duplicate
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        aria-label={`Delete ${label}`}
+        className="fc-delete"
+        onClick={onDelete}
+      >
+        <Trash2 size={15} />
+        Delete
+      </button>
     </div>
   );
-}
-
-function createPathDragImage(
-  project: Project,
-  payload: DraggedPaths,
-): HTMLDivElement {
-  const dragImage = document.createElement("div");
-  dragImage.className = `project-navigator-drag-card${payload.sourceGroupId ? " is-removal" : ""}`;
-  dragImage.setAttribute("aria-hidden", "true");
-
-  const badge = document.createElement("span");
-  badge.className = "project-navigator-drag-card__badge";
-  badge.textContent = String(payload.pathIds.length);
-
-  const copy = document.createElement("span");
-  copy.className = "project-navigator-drag-card__copy";
-  const path =
-    payload.pathIds.length === 1
-      ? project.paths.find(
-          (candidate) => candidate.path_id === payload.pathIds[0],
-        )
-      : null;
-  copy.textContent = path?.display_name ?? `${payload.pathIds.length} Paths`;
-
-  dragImage.append(badge, copy);
-  document.body.append(dragImage);
-  return dragImage;
-}
-
-function collectionMemberships(
-  project: Project,
-  pathId: string,
-): ProjectPathGroup[] {
-  return project.path_groups.filter((group) => group.path_ids.includes(pathId));
-}
-
-function uniqueName(
-  baseName: string,
-  existingNames: readonly string[],
-): string {
-  const normalizedNames = new Set(
-    existingNames.map((name) => name.trim().toLocaleLowerCase()),
-  );
-  if (!normalizedNames.has(baseName.toLocaleLowerCase())) {
-    return baseName;
-  }
-  let suffix = 2;
-  while (normalizedNames.has(`${baseName} ${suffix}`.toLocaleLowerCase())) {
-    suffix += 1;
-  }
-  return `${baseName} ${suffix}`;
 }

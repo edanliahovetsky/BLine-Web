@@ -2136,6 +2136,7 @@ export function AppShell() {
             setShowNewPathDialog(true);
           }}
           onDeletePaths={handleShowDeletePaths}
+          onPreviewCollection={() => handleShowGhostPathsChange(true)}
         />
       ) : null}
       {pathNameAction ? (

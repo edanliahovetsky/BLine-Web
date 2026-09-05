@@ -52,19 +52,6 @@ test("creates Collections and new Paths from the Project Navigator", async ({
     .getByRole("button", { name: "Collection actions for Score Autos" })
     .click();
   await navigator.getByRole("menuitem", { name: "Delete Collection" }).click();
-  const deleteDialog = page.getByRole("dialog", {
-    name: "Delete Collection",
-  });
-  await expect(deleteDialog).toBeVisible();
-  await expect(deleteDialog).toContainText(
-    "remain in All Paths and in every other Collection",
-  );
-  await deleteDialog
-    .getByRole("button", { name: "Delete Collection", exact: true })
-    .click();
-  await expect(
-    page.getByRole("dialog", { name: "Delete Collection" }),
-  ).toHaveCount(0);
   await expect(
     navigator.locator(".all-paths__row").filter({ hasText: "Group Blank" }),
   ).toBeVisible();
@@ -96,10 +83,11 @@ test("switches collected Paths and toggles Collection canvas overlays", async ({
   await selectToolbarOption(page, "Toolbar path", "Phase 1 Canvas Draft");
   const navigator = await openPathLibraryDialog(page);
   await navigator
-    .getByLabel("Project library")
-    .getByRole("button", { name: "Score Autos", exact: true })
+    .getByRole("button", { name: "Focus Score Autos", exact: true })
     .click();
-  await navigator.getByRole("button", { name: "Close", exact: true }).click();
+  await navigator
+    .getByRole("button", { name: "Preview Collection", exact: true })
+    .click();
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Score Autos / Phase 1 Canvas Draft",
   );

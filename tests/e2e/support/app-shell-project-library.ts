@@ -71,15 +71,21 @@ export async function createPathGroupFromTopMenu(
     .getByRole("textbox", { name: "Collection name" })
     .fill(groupName);
   await dialog.getByRole("textbox", { name: "Collection name" }).press("Enter");
-  await dialog.getByRole("button", { name: "Add to…" }).click();
+  const pathName = await page
+    .getByLabel("Toolbar path", { exact: true })
+    .innerText();
   await dialog
-    .getByRole("menu", { name: "Add to Collections" })
-    .getByRole("menuitemcheckbox", { name: new RegExp(groupName) })
+    .getByRole("button", {
+      name: `Start connection from ${groupName}`,
+      exact: true,
+    })
     .click();
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    `${groupName} /`,
-  );
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: `Connect to ${pathName}`, exact: true })
+    .click();
+  await dialog
+    .getByRole("button", { name: "Preview Collection", exact: true })
+    .click();
 }
 
 export async function addPathToGroupFromLibrary(
@@ -88,13 +94,23 @@ export async function addPathToGroupFromLibrary(
   pathName: string,
 ): Promise<void> {
   const dialog = await openPathLibraryDialog(page);
-  await dialog.locator(".all-paths__row").filter({ hasText: pathName }).click();
-  await dialog.getByRole("button", { name: "Add to…" }).click();
-  const membership = dialog
-    .getByRole("menu", { name: "Add to Collections" })
-    .getByRole("menuitemcheckbox", { name: new RegExp(groupName) });
-  if ((await membership.getAttribute("aria-checked")) !== "true") {
-    await membership.click();
+  await dialog
+    .getByRole("button", { name: `Focus ${groupName}`, exact: true })
+    .click();
+  const pathPort = dialog
+    .locator(".fc-paths .fc-row")
+    .filter({
+      has: page.getByRole("button", { name: `Focus ${pathName}`, exact: true }),
+    })
+    .locator(".fc-port");
+  if (!(await pathPort.getAttribute("aria-label"))?.startsWith("Disconnect")) {
+    await dialog
+      .getByRole("button", {
+        name: `Start connection from ${groupName}`,
+        exact: true,
+      })
+      .click();
+    await pathPort.click();
   }
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
 }
