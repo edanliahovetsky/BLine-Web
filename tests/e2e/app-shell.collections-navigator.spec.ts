@@ -132,6 +132,41 @@ test("drags links both ways, previews the target, and cancels safely", async ({
   await expect(focusCount(nav)).toHaveText("1 Path connected");
 });
 
+test("undo and redo work immediately after renaming, dragging, toggling, and deleting", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const nav = await openPathLibraryDialog(page);
+  await createCollection(nav, "Competition");
+  // Use the keyboard as-is: no test locator should repair lost UI focus.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(focusName(nav)).toHaveText("New Collection");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(focusName(nav)).toHaveText("Competition");
+
+  await nav.getByRole("searchbox", { name: "Search paths" }).focus();
+  await startDrag(page, port(nav, "Competition"), port(nav, sample));
+  await page.mouse.up();
+  await expect(focusCount(nav)).toHaveText("1 Path connected");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(focusCount(nav)).toHaveText("0 Paths connected");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(focusCount(nav)).toHaveText("1 Path connected");
+
+  await nav.getByRole("checkbox", { name: "Show all connections" }).check();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(focusCount(nav)).toHaveText("0 Paths connected");
+  await page.keyboard.press("ControlOrMeta+y");
+  await expect(focusCount(nav)).toHaveText("1 Path connected");
+
+  await action(nav, "Collection", "Competition", "Delete");
+  await expect(nav.locator(".fc-collections .fc-row")).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(nav.locator(".fc-collections .fc-row")).toHaveCount(1);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(nav.locator(".fc-collections .fc-row")).toHaveCount(0);
+});
+
 test("duplicates shared Collections and independent Paths, renames inline, and saves memberships", async ({
   page,
 }) => {

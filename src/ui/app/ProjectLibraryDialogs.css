@@ -19,6 +19,7 @@
   background: #121a22;
   box-shadow: 20px 0 64px #0008;
   animation: fc-enter 150ms ease-out;
+  outline: none;
 }
 @keyframes fc-enter {
   from {
@@ -301,9 +302,7 @@
 .fc-row.is-focused {
   border-color: #739cbc;
   background: linear-gradient(110deg, #2c4357, #203444);
-  box-shadow:
-    inset 3px 0 #9dceff,
-    0 0 0 1px #52799a22;
+  box-shadow: none;
 }
 .fc-row.is-related {
   border-color: #3b5267;
@@ -372,10 +371,16 @@
   border-radius: 5px;
   width: 27px;
   height: 28px;
-  padding: 5px;
+  padding: 0;
   margin-right: 9px;
   background: transparent;
   color: #8fa7b8;
+}
+.fc-collections .fc-more {
+  margin-right: 24px;
+}
+.fc-collections .fc-rename {
+  padding-right: 24px;
 }
 .fc-more:hover,
 .fc-more[aria-expanded="true"] {
@@ -390,7 +395,8 @@
 .fc-port {
   position: absolute;
   z-index: 5;
-  top: 15px;
+  top: 50%;
+  translate: 0 -50%;
   display: grid;
   place-items: center;
   width: 20px;

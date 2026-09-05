@@ -92,7 +92,6 @@ export function PathLibraryDialog({
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
   const boardRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const skipBlur = useRef(false);
   const [selected, setSelected] = useState<CollectionNode | null>(() =>
     activePathGroupId
@@ -198,9 +197,24 @@ export function PathLibraryDialog({
     ? focus.count - visibleEdges.filter((edge) => incident(edge, focus)).length
     : 0;
 
+  // An inline editor or menu can unmount with focus still inside it. Keep
+  // shortcuts in this dialog, while leaving any dialog opened above it alone.
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    const topDialog = [
+      ...document.querySelectorAll('[role="dialog"][aria-modal="true"]'),
+    ].at(-1);
+    if (
+      dialog &&
+      topDialog === dialog &&
+      document.activeElement === document.body
+    ) {
+      dialog.focus({ preventScroll: true });
+    }
+  });
   useEffect(() => {
-    searchRef.current?.focus();
-  }, []);
+    dialogRef.current?.focus({ preventScroll: true });
+  }, [dialogRef]);
   useLayoutEffect(() => {
     const board = boardRef.current;
     if (!board) return;
@@ -486,7 +500,13 @@ export function PathLibraryDialog({
         setPending(null);
         setSelectedEdge(null);
       } else onCancel();
-    } else if (isEditableShortcutTarget(event.target)) {
+    } else if (
+      isEditableShortcutTarget(event.target) &&
+      !(
+        event.target instanceof HTMLInputElement &&
+        event.target.type === "checkbox"
+      )
+    ) {
       return;
     } else if (event.key === "F2" && focus) {
       event.preventDefault();
@@ -662,6 +682,7 @@ export function PathLibraryDialog({
               : "Drag to connect · or click"
           }
           onPointerDown={(event) => {
+            event.currentTarget.focus({ preventScroll: true });
             setMenu(null);
             drag.start(event, node);
           }}
@@ -687,8 +708,17 @@ export function PathLibraryDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Project Navigator"
+        tabIndex={-1}
         data-testid="path-library-dialog"
         onKeyDown={handleKeyDown}
+        onPointerDown={(event) => {
+          if (
+            event.target instanceof Element &&
+            !event.target.closest("button, input, label")
+          ) {
+            event.currentTarget.focus({ preventScroll: true });
+          }
+        }}
       >
         <header className="project-navigator__header">
           <div>
@@ -876,7 +906,6 @@ export function PathLibraryDialog({
               <label className="fc-search">
                 <Search size={14} />
                 <input
-                  ref={searchRef}
                   type="search"
                   aria-label="Search paths"
                   placeholder="Find a Path"
