@@ -22,13 +22,6 @@
   background: rgba(18, 24, 29, 0.99);
   box-shadow: 20px 0 64px rgba(0, 0, 0, 0.48);
   animation: project-navigator-enter var(--bline-motion-fast);
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.project-navigator input {
-  -webkit-user-select: text;
-  user-select: text;
 }
 
 @keyframes project-navigator-enter {
