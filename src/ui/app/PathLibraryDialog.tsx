@@ -19,6 +19,9 @@ import {
   Search,
   Trash2,
   ExternalLink,
+  Pin,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 import type { Project } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
@@ -31,6 +34,16 @@ import {
   type LibraryNode,
   type ConnectionPoint,
 } from "./usePathGroupLinkDrag";
+import {
+  applyLibraryOrder,
+  captureLibraryOrder,
+  connectedNodeIds,
+  libraryNodeKey,
+} from "./pathLibraryOrder";
+import {
+  usePathLibraryGeometry,
+  type OffscreenDirection,
+} from "./usePathLibraryGeometry";
 import "./ProjectLibraryDialogs.css";
 
 interface Node extends LibraryNode {
@@ -108,11 +121,7 @@ export function PathLibraryDialog({
   const [menu, setMenu] = useState<RowMenu | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [geometry, setGeometry] = useState<{
-    width: number;
-    height: number;
-    points: Map<string, ConnectionPoint>;
-  }>({ width: 1, height: 1, points: new Map() });
+  const [scrollEpoch, setScrollEpoch] = useState(0);
 
   const { groups, paths, edges } = useMemo(() => {
     const edges: Edge[] = project.path_groups.flatMap((group) =>
@@ -154,6 +163,20 @@ export function PathLibraryDialog({
     groups[0] ??
     paths[0] ??
     null;
+  const focusKey = libraryNodeKey(focus);
+  const [capturedOrder, setCapturedOrder] = useState(() =>
+    captureLibraryOrder(project, focus),
+  );
+  let order = capturedOrder;
+  // Reconcile a deleted/undone selection before rendering its new pinned row.
+  if (order.focusKey !== focusKey) {
+    order = captureLibraryOrder(project, focus);
+    setCapturedOrder(order);
+  }
+  const currentNeighbors = connectedNodeIds(project, focus);
+  const sortDirty =
+    currentNeighbors.length !== order.connectedIds.length ||
+    currentNeighbors.some((id) => !order.connectedIds.includes(id));
   const connected = (edge: Edge) =>
     edges.some(
       (candidate) =>
@@ -165,16 +188,19 @@ export function PathLibraryDialog({
     );
   const visibleGroups = useMemo(
     () =>
-      groups.filter((node) =>
-        node.name
-          .toLocaleLowerCase()
-          .includes(groupQuery.trim().toLocaleLowerCase()),
+      applyLibraryOrder(groups, order.group).filter(
+        (node) =>
+          (focus?.kind === "group" && node.id === focus.id) ||
+          node.name
+            .toLocaleLowerCase()
+            .includes(groupQuery.trim().toLocaleLowerCase()),
       ),
-    [groups, groupQuery],
+    [groups, order.group, groupQuery, focus],
   );
   const visiblePaths = useMemo(
     () =>
-      paths.filter((node) => {
+      applyLibraryOrder(paths, order.path).filter((node) => {
+        if (focus?.kind === "path" && node.id === focus.id) return true;
         const query = pathQuery.trim().toLocaleLowerCase();
         return (
           node.name.toLocaleLowerCase().includes(query) ||
@@ -184,7 +210,7 @@ export function PathLibraryDialog({
             .includes(query)
         );
       }),
-    [paths, pathQuery, project.paths],
+    [paths, order.path, pathQuery, project.paths, focus],
   );
   const visibleEdges = edges.filter(
     (edge) =>
@@ -213,26 +239,46 @@ export function PathLibraryDialog({
   useEffect(() => {
     dialogRef.current?.focus({ preventScroll: true });
   }, [dialogRef]);
+  const layoutKey = `${focusKey}|${visibleGroups.map((node) => node.id).join(",")}|${visiblePaths.map((node) => node.id).join(",")}`;
+  const { geometry, measure, jumpToConnection } = usePathLibraryGeometry(
+    boardRef,
+    layoutKey,
+  );
   useLayoutEffect(() => {
-    const board = boardRef.current;
-    if (!board) return;
-    const measure = () => {
-      const bounds = board.getBoundingClientRect();
-      const points = new Map<string, ConnectionPoint>();
-      board.querySelectorAll<HTMLButtonElement>(".fc-port").forEach((port) => {
-        const rect = port.getBoundingClientRect();
-        points.set(port.dataset.nodeKey!, {
-          x: rect.x + rect.width / 2 - bounds.x,
-          y: rect.y + rect.height / 2 - bounds.y,
-        });
+    boardRef.current
+      ?.querySelectorAll<HTMLElement>(".fc-list-scroll")
+      .forEach((scroll) => {
+        scroll.scrollTop = 0;
       });
-      setGeometry({ width: bounds.width, height: bounds.height, points });
-    };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(board);
-    return () => observer.disconnect();
-  }, [visibleGroups, visiblePaths]);
+  }, [focusKey, scrollEpoch, measure]);
+  const inspect = (node: LibraryNode) => {
+    setSelected(node);
+    setCapturedOrder(
+      captureLibraryOrder(projectStore.getState().project ?? project, node),
+    );
+    setScrollEpoch((epoch) => epoch + 1);
+  };
+  const refreshOrder = () => {
+    setCapturedOrder(captureLibraryOrder(project, focus));
+    setScrollEpoch((epoch) => epoch + 1);
+    setMessage("Connected items moved to the top.");
+  };
+  const offscreen: Record<
+    LibraryNode["kind"],
+    Record<OffscreenDirection, string[]>
+  > = {
+    group: { above: [], below: [] },
+    path: { above: [], below: [] },
+  };
+  if (focus) {
+    const kind = focus.kind === "group" ? "path" : "group";
+    for (const edge of visibleEdges.filter((edge) => incident(edge, focus))) {
+      const id = kind === "group" ? edge.groupId : edge.pathId;
+      const point = geometry.points.get(`${kind}:${id}`);
+      if (point?.offscreen) offscreen[kind][point.offscreen].push(id);
+    }
+  }
 
   useEffect(() => {
     if (!menu) return;
@@ -298,33 +344,27 @@ export function PathLibraryDialog({
       setMessage("Connection removed. The Path is kept.");
   };
   const tapPort = (node: LibraryNode) => {
-    if (focus && node.kind !== focus.kind && connected(edgeFor(focus, node))) {
-      disconnect(edgeFor(focus, node));
-      return;
-    }
     if (pending && pending.kind !== node.kind) {
       connect(pending, node);
+      return;
+    }
+    if (focus && node.kind !== focus.kind && connected(edgeFor(focus, node))) {
+      disconnect(edgeFor(focus, node));
       return;
     }
     setMenu(null);
     setSelectedEdge(null);
     setMessage("");
     if (sameNode(pending, node)) setPending(null);
-    else {
-      setSelected(node);
-      setPending(node);
-      if (node.kind === "group") setGroupContext(node.id);
-    }
+    else setPending(node);
   };
   const drag = usePathGroupLinkDrag(
     boardRef,
-    (source) => {
-      setSelected(source);
+    () => {
       setPending(null);
       setMenu(null);
       setSelectedEdge(null);
       setMessage("");
-      if (source.kind === "group") setGroupContext(source.id);
     },
     connect,
     tapPort,
@@ -334,7 +374,7 @@ export function PathLibraryDialog({
       tapPort(node);
       return;
     }
-    setSelected(node);
+    inspect(node);
     setPending(null);
     setSelectedEdge(null);
     setMenu(null);
@@ -417,7 +457,7 @@ export function PathLibraryDialog({
         count: created.path_ids.length,
       };
       setGroupQuery("");
-      setSelected(node);
+      inspect(node);
       setGroupContext(node.id);
       startRename(node);
     }
@@ -455,7 +495,7 @@ export function PathLibraryDialog({
         count: node.count,
       };
       setPathQuery("");
-      setSelected(copy);
+      inspect(copy);
       startRename(copy);
     }
   };
@@ -544,27 +584,26 @@ export function PathLibraryDialog({
       ? connected(edgeFor(drag.view.source, drag.view.target))
         ? "Already connected."
         : `Release to connect to ${findNode(drag.view.target)?.name ?? "the destination"}.`
-      : "Drag to the other column. Esc to cancel.";
+      : "Drag to the other column. Pause near an edge to scroll. Esc to cancel.";
   if (selectedEdge)
     status = `${groups.find((node) => node.id === selectedEdge.groupId)?.name} ↔ ${paths.find((node) => node.id === selectedEdge.pathId)?.name}`;
 
-  const renderNode = (node: Node) => {
+  const renderNode = (node: Node, pinned = false) => {
     const isFocused = sameNode(focus, node),
       isRelated = related(node),
       isEditing = sameNode(editing, node);
     const isTarget = Boolean(origin && origin.kind !== node.kind);
-    const endpointLabel =
-      isRelated && focus
+    const endpointLabel = isTarget
+      ? `Connect to ${node.name}`
+      : isRelated && focus
         ? `Disconnect ${paths.find((path) => path.id === edgeFor(focus, node).pathId)?.name} from ${groups.find((group) => group.id === edgeFor(focus, node).groupId)?.name}`
         : sameNode(pending, node)
           ? `Cancel connection from ${node.name}`
-          : isTarget
-            ? `Connect to ${node.name}`
-            : `Start connection from ${node.name}`;
+          : `Start connection from ${node.name}`;
     return (
       <div
         key={node.id}
-        className={`fc-row ${node.kind === "path" ? "all-paths__row" : ""}${isFocused ? " is-focused" : isRelated ? " is-related" : !isTarget ? " is-muted" : ""}${isTarget ? " is-target" : ""}${sameNode(drag.view?.target ?? null, node) ? " is-drop-target" : ""}`}
+        className={`fc-row${pinned ? " is-pinned" : ""} ${node.kind === "path" ? "all-paths__row" : ""}${isFocused ? " is-focused" : isRelated ? " is-related" : !isTarget ? " is-muted" : ""}${isTarget ? " is-target" : ""}${sameNode(drag.view?.target ?? null, node) ? " is-drop-target" : ""}`}
         data-kind={node.kind}
         data-node-id={node.id}
       >
@@ -668,6 +707,12 @@ export function PathLibraryDialog({
             </button>
           </>
         )}
+        {pinned && !isEditing && (
+          <span className="fc-pin-label">
+            <Pin size={10} />
+            Selected
+          </span>
+        )}
         <button
           type="button"
           className={`fc-port${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
@@ -689,6 +734,67 @@ export function PathLibraryDialog({
           }}
         />
       </div>
+    );
+  };
+
+  const renderColumnRows = (kind: LibraryNode["kind"], nodes: Node[]) => {
+    const pinned = focus?.kind === kind ? focus : null;
+    const rest = nodes.filter((node) => !sameNode(node, pinned));
+    const total = kind === "group" ? groups.length : paths.length;
+    const query = kind === "group" ? groupQuery : pathQuery;
+    return (
+      <>
+        {pinned && (
+          <div className="fc-pinned" data-testid={`pinned-${kind}`}>
+            {renderNode(pinned, true)}
+          </div>
+        )}
+        <div className="fc-list-viewport" data-kind={kind}>
+          <div
+            className="fc-list-scroll"
+            data-kind={kind}
+            tabIndex={0}
+            aria-label={
+              kind === "group" ? "Scroll Path Groups" : "Scroll Paths"
+            }
+          >
+            <div className="fc-rows">
+              {rest.map((node) => renderNode(node))}
+              {!rest.length && (
+                <div className="fc-empty">
+                  {query.trim()
+                    ? `No ${kind === "group" ? "Path Groups" : "Paths"} match your search.`
+                    : pinned
+                      ? `The selected ${kind === "group" ? "Path Group" : "Path"} stays here while you scroll.`
+                      : total
+                        ? "Select an item to see its connections."
+                        : kind === "group"
+                          ? "Create a Path Group, then link your Paths."
+                          : "Create your first Path."}
+                </div>
+              )}
+            </div>
+          </div>
+          {(["above", "below"] as const).map((direction) => {
+            const ids = offscreen[kind][direction];
+            return ids.length ? (
+              <button
+                key={direction}
+                type="button"
+                className={`fc-edge-cap is-${direction}`}
+                onClick={() => jumpToConnection(kind, ids, direction)}
+              >
+                {direction === "above" ? (
+                  <ArrowUp size={12} />
+                ) : (
+                  <ArrowDown size={12} />
+                )}
+                {ids.length} connected {direction}
+              </button>
+            ) : null;
+          })}
+        </div>
+      </>
     );
   };
 
@@ -773,13 +879,14 @@ export function PathLibraryDialog({
         </div>
         <div
           className="fc-scroll"
-          onScroll={() => {
+          onScrollCapture={() => {
             setMenu(null);
+            measure();
             drag.scroll();
           }}
         >
           <div
-            className={`fc-board${drag.view ? " is-dragging" : ""}`}
+            className={`fc-board${drag.view ? " is-dragging" : ""}${pending ? " is-linking" : ""}`}
             ref={boardRef}
             onPointerMove={drag.move}
             onPointerUp={drag.end}
@@ -796,7 +903,8 @@ export function PathLibraryDialog({
                 .map((edge) => {
                   const from = geometry.points.get(`group:${edge.groupId}`),
                     to = geometry.points.get(`path:${edge.pathId}`);
-                  if (!from || !to) return null;
+                  if (!from || !to || from.offscreen || to.offscreen)
+                    return null;
                   const selected =
                     selectedEdge?.groupId === edge.groupId &&
                     selectedEdge?.pathId === edge.pathId;
@@ -819,7 +927,25 @@ export function PathLibraryDialog({
                     </g>
                   );
                 })}
-              {previewStart && previewEnd && (
+              {focus &&
+                (["group", "path"] as const).flatMap((kind) =>
+                  (["above", "below"] as const).map((direction) => {
+                    if (!offscreen[kind][direction].length) return null;
+                    const from = geometry.points.get(keyFor(focus));
+                    const to = geometry.overflowAnchors.get(
+                      `${kind}:${direction}`,
+                    );
+                    if (!from || !to || from.offscreen) return null;
+                    return (
+                      <path
+                        key={`${kind}:${direction}`}
+                        className="fc-overflow-wire"
+                        d={curve(from, to, focus.kind === "path" ? -1 : 1)}
+                      />
+                    );
+                  }),
+                )}
+              {previewStart && !previewStart.offscreen && previewEnd && (
                 <>
                   <path
                     className={`fc-wire-preview${drag.view?.target ? " is-snapped" : ""}`}
@@ -867,16 +993,7 @@ export function PathLibraryDialog({
                   }}
                 />
               </label>
-              <div className="fc-rows">
-                {visibleGroups.map(renderNode)}
-                {!visibleGroups.length && (
-                  <div className="fc-empty">
-                    {groups.length
-                      ? "No Path Groups match your search."
-                      : "Create a Path Group, then link your Paths."}
-                  </div>
-                )}
-              </div>
+              {renderColumnRows("group", visibleGroups)}
             </section>
             <section className="fc-column fc-paths" aria-label="All Paths">
               <header>
@@ -907,16 +1024,7 @@ export function PathLibraryDialog({
                   }}
                 />
               </label>
-              <div className="fc-rows">
-                {visiblePaths.map(renderNode)}
-                {!visiblePaths.length && (
-                  <div className="fc-empty">
-                    {paths.length
-                      ? "No Paths match your search."
-                      : "Create your first Path."}
-                  </div>
-                )}
-              </div>
+              {renderColumnRows("path", visiblePaths)}
             </section>
           </div>
         </div>
@@ -925,6 +1033,11 @@ export function PathLibraryDialog({
             <Link2 size={14} />
             {error || status}
           </span>
+          {sortDirty && !origin && !selectedEdge && (
+            <button type="button" className="fc-resort" onClick={refreshOrder}>
+              Re-sort connected first
+            </button>
+          )}
           {selectedEdge && (
             <button type="button" onClick={() => disconnect(selectedEdge)}>
               Remove connection

@@ -36,10 +36,13 @@ export function usePathGroupLinkDrag(
   onTap: (source: LibraryNode) => void,
 ) {
   const session = useRef<DragSession | null>(null);
+  const scrollFrame = useRef<number | null>(null);
   const [view, setView] = useState<DragView | null>(null);
   const release = useCallback(() => {
     const current = session.current;
     session.current = null;
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = null;
     setView(null);
     if (current && boardRef.current?.hasPointerCapture(current.pointerId)) {
       boardRef.current.releasePointerCapture(current.pointerId);
@@ -55,6 +58,8 @@ export function usePathGroupLinkDrag(
     return () => {
       window.removeEventListener("blur", cancel);
       session.current = null;
+      if (scrollFrame.current !== null)
+        cancelAnimationFrame(scrollFrame.current);
     };
   }, [release]);
 
@@ -82,6 +87,35 @@ export function usePathGroupLinkDrag(
         y: current.client.y - (bounds?.top ?? 0),
       },
     };
+  };
+  const autoScroll = () => {
+    const current = session.current;
+    if (!current?.active) return;
+    const kind = current.source.kind === "group" ? "path" : "group";
+    const scroll = boardRef.current?.querySelector<HTMLElement>(
+      `.fc-list-scroll[data-kind="${kind}"]`,
+    );
+    if (scroll) {
+      const bounds = scroll.getBoundingClientRect();
+      const { x, y } = current.client;
+      if (
+        x >= bounds.left &&
+        x <= bounds.right &&
+        y >= bounds.top - 10 &&
+        y <= bounds.bottom + 10
+      ) {
+        const speed =
+          y < bounds.top + 45
+            ? -Math.ceil((bounds.top + 45 - y) / 6)
+            : y > bounds.bottom - 45
+              ? Math.ceil((y - bounds.bottom + 45) / 6)
+              : 0;
+        const before = scroll.scrollTop;
+        scroll.scrollTop += speed;
+        if (scroll.scrollTop !== before) setView(locate(current));
+      }
+    }
+    scrollFrame.current = requestAnimationFrame(autoScroll);
   };
   const start = (
     event: PointerEvent<HTMLButtonElement>,
@@ -112,6 +146,7 @@ export function usePathGroupLinkDrag(
     ) {
       current.active = true;
       onStart(current.source);
+      scrollFrame.current = requestAnimationFrame(autoScroll);
     }
     if (current.active) {
       event.preventDefault();
