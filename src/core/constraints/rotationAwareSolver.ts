@@ -15,7 +15,7 @@ export interface RotationSearchEvaluation {
 }
 
 export function rotationSearchBudget(variables: number): number {
-  return Math.min(420, 80 + 40 * variables);
+  return Math.min(720, 80 + 60 * variables);
 }
 
 export function searchRotationConstraints<T extends RotationSearchEvaluation>(
@@ -25,7 +25,7 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
 ): { values: number[]; result: T; evaluations: number; budget: number } {
   const budget = rotationSearchBudget(variables.length);
   let evaluations = 0;
-  let phaseBudget = Math.floor(budget * 0.85);
+  let phaseBudget = Math.floor(budget * 0.7);
   const cache = new Map<string, { values: number[]; result: T }>();
   const trial = (values: readonly number[], stable = false) => {
     const normalized = values.map((value, i) => {
@@ -73,18 +73,22 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
   // Broad cap scales find feasible basins without deriving a speed from the
   // preview controller's tracking lag. Independent radius starts allow an
   // early handoff to move later without inventing microscopic trigger circles.
-  for (const radiusFraction of [null, 0, 0.15, 0.4]) {
-    for (const factor of [1, 0.75, 0.5, 0.3, 0.15, 0.07]) {
-      consider(
-        seed.map((value, i) =>
-          variables[i]!.kind === "cap"
-            ? value * factor
-            : radiusFraction === null
-              ? value
-              : variables[i]!.min +
-                radiusFraction * (variables[i]!.max - variables[i]!.min),
-        ),
-      );
+  // Include starts from the speed limit: scaling only a slow translation seed
+  // cannot escape a basin that needs several caps and radii increased together.
+  for (const maxCaps of [false, true]) {
+    for (const radiusFraction of [null, 0, 0.15, 0.4]) {
+      for (const factor of [1, 0.75, 0.5, 0.3, 0.15, 0.07]) {
+        consider(
+          seed.map((value, i) =>
+            variables[i]!.kind === "cap"
+              ? (maxCaps ? variables[i]!.max : value) * factor
+              : radiusFraction === null
+                ? value
+                : variables[i]!.min +
+                  radiusFraction * (variables[i]!.max - variables[i]!.min),
+          ),
+        );
+      }
     }
   }
   const polish = (stable: boolean) => {
@@ -139,6 +143,9 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
         true,
       );
     }
+    // Timing changes can require a small radius adjustment as well as a cap
+    // change. Repair against all validation timesteps, within the same budget.
+    if (!best.result.feasible) polish(true);
   }
   return { ...best, evaluations, budget };
 }

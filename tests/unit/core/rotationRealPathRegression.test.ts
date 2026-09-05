@@ -15,7 +15,7 @@ import { refreshAutoVelocityConstraints } from "../../../src/core/constraints/au
 import { simulatePathWithTrace } from "../../../src/core/sim";
 import { evaluateRotationFeasibility } from "../../../src/core/sim/rotationFeasibility";
 
-// Reconstructed from the editor values on a reported five-anchor return path.
+// Captured from an export of the reported five-anchor return path.
 // The saved 0.05 m radii and [1.40, 0.63, 1.41, 0.63] m/s leg caps took 30.62 s
 // in the editor (30.64 s with the displayed coordinates rounded to 0.01 m).
 const config = {
@@ -30,30 +30,29 @@ const options = {
   accelerationSafetyFactor: 0.8,
   mergeToleranceMps: 0.3,
 };
-const rad = (degrees: number) => (degrees * Math.PI) / 180;
 const draft = createPathModel({
   path_elements: [
     waypoint({
       translation_target: translation({
-        x_meters: 10.41,
-        y_meters: 6.65,
+        x_meters: 10.40998,
+        y_meters: 6.64816,
         intermediate_handoff_radius_meters: 0.4,
       }),
-      rotation_target: rotation({ rotation_radians: rad(45) }),
+      rotation_target: rotation({ rotation_radians: 0.7854 }),
     }),
     setHandoffRadiusSource(
       translation({
-        x_meters: 13.37,
-        y_meters: 5.6,
+        x_meters: 13.37203,
+        y_meters: 5.60358,
         intermediate_handoff_radius_meters: 0.05,
       }),
       "auto",
     ),
-    rotation({ rotation_radians: rad(45), t_ratio: 0 }),
+    rotation({ rotation_radians: 0.7854, t_ratio: 0 }),
     setHandoffRadiusSource(
       translation({
-        x_meters: 3.17,
-        y_meters: 4.1,
+        x_meters: 3.16981,
+        y_meters: 4.10071,
         intermediate_handoff_radius_meters: 0.05,
       }),
       "auto",
@@ -62,21 +61,21 @@ const draft = createPathModel({
     setHandoffRadiusSource(
       waypoint({
         translation_target: translation({
-          x_meters: 10.39,
-          y_meters: 2.92,
+          x_meters: 10.39126,
+          y_meters: 2.92278,
           intermediate_handoff_radius_meters: 0.05,
         }),
-        rotation_target: rotation({ rotation_radians: rad(-88.6) }),
+        rotation_target: rotation({ rotation_radians: -1.54634 }),
       }),
       "auto",
     ),
     waypoint({
       translation_target: translation({
-        x_meters: 7.56,
-        y_meters: 5.89,
+        x_meters: 7.56004,
+        y_meters: 5.89164,
         intermediate_handoff_radius_meters: 0.45,
       }),
-      rotation_target: rotation({ rotation_radians: rad(45) }),
+      rotation_target: rotation({ rotation_radians: 0.7854 }),
     }),
   ],
 });
@@ -100,9 +99,14 @@ function authoredElements(path: PathModel): PathElement[] {
 }
 
 describe("observed five-anchor return path", () => {
-  it.each([true, false])(
-    "keeps realistic completion time with profiled=%s",
-    (profiled) => {
+  it.each([
+    { profiled: true, rounded: false },
+    { profiled: false, rounded: false },
+    { profiled: true, rounded: true },
+    { profiled: false, rounded: true },
+  ])(
+    "keeps realistic completion time with profiled=$profiled, rounded=$rounded",
+    ({ profiled, rounded }) => {
       const path: PathModel = {
         ...draft,
         path_elements: draft.path_elements.map((element) =>
@@ -119,6 +123,25 @@ describe("observed five-anchor return path", () => {
               : element,
         ),
       };
+      if (rounded) {
+        path.path_elements = path.path_elements.map((element) => {
+          const target =
+            element.type === "waypoint"
+              ? element.translation_target
+              : element.type === "translation"
+                ? element
+                : null;
+          if (!target) return element;
+          const position = {
+            ...target,
+            x_meters: Math.round(target.x_meters * 100) / 100,
+            y_meters: Math.round(target.y_meters * 100) / 100,
+          };
+          return element.type === "waypoint"
+            ? { ...element, translation_target: position }
+            : position;
+        });
+      }
       const generated = solveJointAutoConstraints(path, config, options);
       expect(generated.status).toBe("valid");
       expect(generated.profile.diagnostics.totalTimeS).toBeLessThan(7);
@@ -154,7 +177,10 @@ describe("observed five-anchor return path", () => {
         ).toBe(true);
         const final = sim.trace.at(-1)!;
         expect(
-          Math.hypot(final.x_m - 7.56, final.y_m - 5.89),
+          Math.hypot(
+            final.x_m - (rounded ? 7.56 : 7.56004),
+            final.y_m - (rounded ? 5.89 : 5.89164),
+          ),
         ).toBeLessThanOrEqual(0.001);
       }
     },
