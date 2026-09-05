@@ -201,8 +201,7 @@ describe("auto constraint generation", () => {
 
     expect(generatedRadii).toHaveLength(15);
     expect(generatedRadii[0]).toBe(0.45);
-    // Rotation targets at corner handoffs may require an epsilon-sized trigger.
-    expect(generatedRadii.every((radius) => radius >= 0.001)).toBe(true);
+    expect(generatedRadii.every((radius) => radius >= 0.05)).toBe(true);
     expect(solved.profile.diagnostics.reachedEnd).toBe(true);
     expect(
       solved.profile.diagnostics.maxCorridorDeviationRatio,

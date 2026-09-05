@@ -4,7 +4,6 @@ import { autoRadiiCapSolveInput } from "../../../src/core/constraints/autoConstr
 import { autoVelocitySettingsForPath } from "../../../src/core/constraints/autoVelocityApply";
 import {
   createPathModel,
-  createRotationTarget,
   createTranslationTarget,
   type PathModel,
 } from "../../../src/core/model/path";
@@ -47,26 +46,6 @@ function pathOf(points: Array<[number, number]>): PathModel {
   });
 }
 
-function pathWithRotations(
-  points: Array<[number, number]>,
-  rotations: number[],
-): PathModel {
-  return createPathModel({
-    path_elements: points.flatMap(([x, y], index) => [
-      createTranslationTarget({ x_meters: x, y_meters: y }),
-      ...(index < points.length - 1
-        ? [
-            createRotationTarget({
-              rotation_radians: rotations[index] ?? 0,
-              t_ratio: 0.55,
-              profiled_rotation: true,
-            }),
-          ]
-        : []),
-    ]),
-  });
-}
-
 describe("translation generator regression corpus", () => {
   it.each(fixture.scenarios)(
     "$name remains deterministic and translation-valid",
@@ -96,51 +75,10 @@ describe("translation generator regression corpus", () => {
         scenario.expected.caps,
       );
       expect(result.profile.diagnostics.reachedEnd).toBe(true);
-      expect(result.profile.diagnostics.rotationTargets).toEqual([]);
       expect(result.radii[0]).toMatchObject({
         elementIndex: 0,
         radiusMeters: 0.45,
       });
-    },
-    20_000,
-  );
-
-  it.each([
-    {
-      name: "long-straight-overlay",
-      points: fixture.scenarios[0]!.points,
-      rotations: [Math.PI / 2, -Math.PI / 2, Math.PI],
-    },
-    {
-      name: "shallow-sweep-overlay",
-      points: fixture.scenarios[1]!.points,
-      rotations: [Math.PI / 3, -Math.PI / 2, Math.PI / 2, 0],
-    },
-    {
-      name: "alternating-corners-overlay",
-      points: fixture.scenarios[2]!.points,
-      rotations: [Math.PI / 2, Math.PI, -Math.PI / 2, 0, Math.PI / 3],
-    },
-  ])(
-    "$name reaches every fixed rotation target",
-    (scenario) => {
-      const path = pathWithRotations(scenario.points, scenario.rotations);
-      const result = autoRadiiCapSolveInput(
-        path,
-        fixture.config,
-        autoVelocitySettingsForPath(path, fixture.config),
-      );
-
-      expect(result.status).toBe("valid");
-      expect(result.profile.diagnostics.reachedEnd).toBe(true);
-      expect(result.profile.diagnostics.rotationTargets).toHaveLength(
-        scenario.rotations.length,
-      );
-      expect(
-        result.profile.diagnostics.rotationTargets.every(
-          (target) => target.passed,
-        ),
-      ).toBe(true);
     },
     20_000,
   );

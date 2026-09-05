@@ -288,7 +288,7 @@ function runPathSimulation(
     );
     const translationVelocity = resolveVelocityBaseline(
       maxVEff ?? baseMaxV,
-      minVEff ?? numericOption(constraints.min_velocity_meters_per_sec) ?? 0,
+      minVEff ?? 0,
       baseMaxV,
     );
     const maxV = translationVelocity.max;
@@ -314,7 +314,7 @@ function runPathSimulation(
     );
     const rotationVelocity = resolveVelocityBaseline(
       maxOmegaEff ?? radiansToDegrees(baseMaxOmega),
-      minOmegaEff ?? numericOption(constraints.min_velocity_deg_per_sec) ?? 0,
+      minOmegaEff ?? 0,
       radiansToDegrees(baseMaxOmega),
     );
     const maxOmega = degreesToRadians(rotationVelocity.max);

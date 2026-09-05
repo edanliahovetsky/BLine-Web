@@ -23,15 +23,10 @@ import {
 } from "../model/path";
 import {
   buildGlobalRotationKeyframes,
-  buildGlobalRotationTargets,
   buildRotationDomainEvents,
   desiredHeadingForGlobalS,
   simulatePathWithTrace,
 } from "../sim/simulatePath";
-import {
-  evaluateRotationTargets,
-  rotationTargetToleranceRadians,
-} from "../sim/rotationDiagnostics";
 import {
   degreesToRadians,
   limitAcceleration,
@@ -44,11 +39,9 @@ import {
 } from "./autoVelocityObjective";
 import { autoHandoffRadiusObjectiveCost } from "./autoHandoffRadiusObjective";
 import type {
-  AuthoredRotationTarget,
   ChassisSpeeds,
   RotationDomainEvent,
   RotationKeyframe,
-  RotationTargetDiagnostic,
   SimulationConfig,
   SimulationTraceSample,
 } from "../sim/types";
@@ -128,18 +121,6 @@ export interface AutoVelocityDiagnostics {
   maxOvershootErrorRatio: number;
   maxCorridorDeviationRatio: number;
   handoffs: AutoVelocityHandoffDiagnostic[];
-  rotationTargets: AutoVelocityRotationDiagnostic[];
-}
-
-export interface AutoVelocityRotationDiagnostic {
-  eventOrdinal: number;
-  elementIndex: number;
-  sMeters: number;
-  targetRadians: number;
-  actualRadians: number | null;
-  errorRadians: number;
-  toleranceRadians: number;
-  passed: boolean;
 }
 
 export interface AutoVelocityProfile {
@@ -220,20 +201,15 @@ interface RotationLimitConstraint {
   value: number;
 }
 
-type TranslationLimitConstraint = RotationLimitConstraint;
-
 interface AutoVelocitySimulationContext {
   path: PathModel;
   config: SimulationConfig;
   segments: readonly SegmentGeometry[];
   cumulativeLengths: readonly number[];
   rotationKeyframes: readonly RotationKeyframe[];
-  rotationTargets: readonly AuthoredRotationTarget[];
   rotationDomainEvents: readonly RotationDomainEvent[];
   maxRotationVelocityConstraints: readonly RotationLimitConstraint[];
   maxRotationAccelerationConstraints: readonly RotationLimitConstraint[];
-  minRotationVelocityConstraints: readonly RotationLimitConstraint[];
-  minTranslationVelocityConstraints: readonly TranslationLimitConstraint[];
   handoffRadiiBySegmentIndex: readonly number[];
   /**
    * Manual max-velocity caps by target ordinal. The apply step never overwrites
@@ -250,8 +226,6 @@ interface AutoVelocitySimulationContext {
   endY: number;
   baseMaxOmegaRadps: number;
   baseMaxAlphaRadps2: number;
-  baseMinOmegaRadps: number;
-  baseMinTranslationMps: number;
   defaultHandoffRadiusMeters: number;
 }
 
@@ -283,7 +257,6 @@ interface HandoffEvaluation {
 
 interface VelocityCapEvaluation {
   handoffs: HandoffEvaluation[];
-  rotationTargets: RotationTargetDiagnostic[];
   passed: boolean;
   reachedEnd: boolean;
   totalTimeS: number;
@@ -304,7 +277,6 @@ interface JointSimulationWorkspace {
   globalSMeters: number[];
   segmentIndices: number[];
   capsMps: number[];
-  thetaRadians: number[];
   length: number;
 }
 
@@ -344,7 +316,6 @@ const jointParityAlternateMinimumEvaluations = 4_096;
 const jointRadiusQuantumMeters = 0.001;
 const jointVelocityQuantumMps = 0.01;
 const jointRadiusFloorMeters = 0.05;
-const rotationJointRadiusFloorMeters = 0.001;
 const jointRadiusIncomingLegRatio = 0.9;
 const jointObjectiveIndifference = 1e-6;
 const jointGlobalRecoveryObjectiveThreshold = 100;
@@ -355,7 +326,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 6;
+const autoConstraintSolverVersion = 7;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -507,11 +478,6 @@ function jointRadiusCoordinates(
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
 ): JointRadiusCoordinate[] {
-  const minimumRadiusMeters = path.path_elements.some(
-    (element) => isRotationTarget(element) || isWaypoint(element),
-  )
-    ? rotationJointRadiusFloorMeters
-    : jointRadiusFloorMeters;
   return corners.flatMap((corner, cornerIndex) => {
     const anchor = anchors[corner.anchorOrdinal - 1];
     const incoming = segments[corner.anchorOrdinal - 2];
@@ -535,7 +501,7 @@ function jointRadiusCoordinates(
         elementIndex: anchor.pathIndex,
         segmentIndex: corner.anchorOrdinal - 2,
         incomingLegMeters: incoming.lengthMeters,
-        minRadiusMeters: minimumRadiusMeters,
+        minRadiusMeters: jointRadiusFloorMeters,
         maxRadiusMeters:
           Math.floor(
             jointRadiusIncomingLegRatio *
@@ -566,19 +532,13 @@ export function jointAutoConstraintSearchPlan(
     setup.corners,
   ).filter(
     (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
-  );
-  const searchableBlockCount =
-    searchableBlocks.length +
-    rotationOnlySearchBlockCount(setup, searchableBlocks);
-  const hasRotationTargets = setup.simulationContext.rotationTargets.length > 0;
+  ).length;
   return {
-    searchableBlocks: searchableBlockCount,
-    evaluationBudget: hasRotationTargets
-      ? jointEvaluationBudget(searchableBlockCount) +
-        rotationRecoveryEvaluationBudget(searchableBlockCount)
-      : jointEvaluationBudget(searchableBlockCount) +
-        jointParityEvaluationBudget(searchableBlockCount) +
-        jointParityAlternateEvaluationBudget(searchableBlockCount),
+    searchableBlocks,
+    evaluationBudget:
+      jointEvaluationBudget(searchableBlocks) +
+      jointParityEvaluationBudget(searchableBlocks) +
+      jointParityAlternateEvaluationBudget(searchableBlocks),
   };
 }
 
@@ -590,10 +550,6 @@ function jointEvaluationBudget(searchableBlocks: number): number {
       jointSolverMovesPerBlock *
       searchableBlocks
   );
-}
-
-function rotationRecoveryEvaluationBudget(searchableBlocks: number): number {
-  return clamp(searchableBlocks * 128, 800, 2_200);
 }
 
 function jointParityEvaluationBudget(searchableBlocks: number): number {
@@ -624,11 +580,6 @@ function hasImpossibleJointRadius(
   segments: readonly SegmentGeometry[],
   corners: readonly AutoVelocityCorner[],
 ): boolean {
-  const minimumRadiusMeters = path.path_elements.some(
-    (element) => isRotationTarget(element) || isWaypoint(element),
-  )
-    ? rotationJointRadiusFloorMeters
-    : jointRadiusFloorMeters;
   return corners.some((corner) => {
     const anchor = anchors[corner.anchorOrdinal - 1];
     const incoming = segments[corner.anchorOrdinal - 2];
@@ -647,7 +598,7 @@ function hasImpossibleJointRadius(
     return (
       generatorOwnsRadius &&
       jointRadiusIncomingLegRatio * incoming.lengthMeters <
-        minimumRadiusMeters - minPositive
+        jointRadiusFloorMeters - minPositive
     );
   });
 }
@@ -657,7 +608,6 @@ function normalizeJointCandidate(
   coordinates: readonly JointRadiusCoordinate[],
   pinnedCaps: ReadonlyMap<number, number>,
   usableMaxVelocityMps: number,
-  minimumVelocityMps: number = minimumSolverCap(usableMaxVelocityMps),
 ): JointCandidate {
   const radiiBySegmentIndex = [...candidate.radiiBySegmentIndex];
   for (const coordinate of coordinates) {
@@ -673,13 +623,13 @@ function normalizeJointCandidate(
   for (const [ordinal, value] of candidate.capsByOrdinal) {
     capsByOrdinal.set(
       ordinal,
-      quantizeJointVelocity(value, usableMaxVelocityMps, minimumVelocityMps),
+      quantizeJointVelocity(value, usableMaxVelocityMps),
     );
   }
   for (const [ordinal, value] of pinnedCaps) {
     capsByOrdinal.set(
       ordinal,
-      quantizeJointVelocity(value, usableMaxVelocityMps, minimumVelocityMps),
+      quantizeJointVelocity(value, usableMaxVelocityMps),
     );
   }
   return { radiiBySegmentIndex, capsByOrdinal };
@@ -889,12 +839,15 @@ function quantizeJointRadius(value: number, min: number, max: number): number {
 function quantizeJointVelocity(
   value: number,
   usableMaxVelocityMps: number,
-  minimumVelocityMps: number = minimumSolverCap(usableMaxVelocityMps),
 ): number {
   return Number(
     (
       Math.floor(
-        clamp(value, minimumVelocityMps, usableMaxVelocityMps) /
+        clamp(
+          value,
+          minimumSolverCap(usableMaxVelocityMps),
+          usableMaxVelocityMps,
+        ) /
           jointVelocityQuantumMps +
           1e-9,
       ) * jointVelocityQuantumMps
@@ -977,7 +930,6 @@ interface JointSearchProblem {
   canonicalRadii: number[];
   canonicalCaps: Map<number, number>;
   hasImpossibleCoordinate: boolean;
-  searchableBlockCount: number;
 }
 
 interface JointCandidateEvaluator {
@@ -1024,13 +976,6 @@ function createJointSearchProblem(
       setup.usableMaxAccelerationMps2,
       setup.anchors.length <= 7 ? 0.85 : 1.6,
     );
-  } else {
-    seedCapsFromRotationTargets(
-      canonicalCaps,
-      setup.simulationContext,
-      setup.segments,
-      setup.usableMaxVelocityMps,
-    );
   }
   applyPinnedCaps(
     canonicalCaps,
@@ -1048,9 +993,6 @@ function createJointSearchProblem(
       setup.segments,
       setup.corners,
     ),
-    searchableBlockCount:
-      searchableCoordinates.length +
-      rotationOnlySearchBlockCount(setup, searchableCoordinates),
   };
 }
 
@@ -1067,7 +1009,6 @@ function createJointCandidateEvaluator(
     globalSMeters: [],
     segmentIndices: [],
     capsMps: [],
-    thetaRadians: [],
     length: 0,
   };
   const evaluator: JointCandidateEvaluator = {
@@ -1086,9 +1027,6 @@ function createJointCandidateEvaluator(
         searchableCoordinates,
         setup.simulationContext.pinnedCapsByOrdinal,
         setup.usableMaxVelocityMps,
-        setup.simulationContext.rotationTargets.length > 0
-          ? rotationMinimumSolverCap(setup.usableMaxVelocityMps)
-          : minimumSolverCap(setup.usableMaxVelocityMps),
       );
       const signature = jointCandidateSignature(
         normalized,
@@ -1228,17 +1166,6 @@ function jointSearchObjectiveCost(
       handoff.overshootErrorMeters <= handoff.overshootToleranceMeters &&
       handoff.corridorDeviationMeters <= handoff.corridorToleranceMeters;
   }
-  for (const target of evaluation.rotationTargets) {
-    const ratio = finiteJointRatio(
-      target.error_rad / Math.max(target.tolerance_rad, minPositive),
-    );
-    // Feasibility is compared before cost. Among infeasible candidates keep
-    // rotation as a useful gradient without letting a small angular miss erase
-    // the established translation/handoff safety ordering.
-    handoffCost += 20 * Math.max(0, ratio - 1) ** 2;
-    handoffCost += 2 * ratio ** 2;
-    everyVelocityRatioWithinBudget &&= target.passed;
-  }
 
   let capSum = 0;
   let capSmoothness = 0;
@@ -1281,49 +1208,6 @@ export function solveJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): JointAutoConstraintSolveResult {
-  const setup = createAutoVelocitySolveSetup(path, config, options);
-  if (setup.simulationContext.rotationTargets.length > 0) {
-    const seed = solveJointAutoConstraintsInternal(
-      path,
-      config,
-      options,
-      false,
-    );
-    if (seed.status === "valid") {
-      return seed;
-    }
-    const recoveryBudget = rotationRecoveryEvaluationBudget(
-      jointAutoConstraintSearchPlan(path, config, options).searchableBlocks,
-    );
-    const recovered = solveJointAutoConstraintsGlobalSearchInternal(
-      path,
-      config,
-      options,
-      {
-        maxEvaluations: recoveryBudget,
-        restartIndices: [6, 0],
-        cmaBudgetFraction: 0.72,
-      },
-      seed,
-    );
-    const winner = betterFinalizedJointResult(recovered, seed)
-      ? recovered
-      : seed;
-    return {
-      ...winner,
-      stats: {
-        ...winner.stats,
-        algorithm: "interactive-global",
-        evaluations: seed.stats.evaluations + recovered.stats.evaluations,
-        evaluationBudget:
-          seed.stats.evaluationBudget + recovered.stats.evaluationBudget,
-        cacheHits: seed.stats.cacheHits + recovered.stats.cacheHits,
-        genericEvaluations:
-          seed.stats.genericEvaluations + recovered.stats.genericEvaluations,
-        terminationReason: "global-recovery",
-      },
-    };
-  }
   const searchPlan = jointAutoConstraintSearchPlan(path, config, options);
   if (searchPlan.searchableBlocks <= 8) {
     const result = solveJointAutoConstraintsGlobalSearchInternal(
@@ -1353,7 +1237,7 @@ function refineJointAutoConstraintsForProduction(
   const canonicalPath = seedHandoffRadii(path).path;
   const problem = createJointSearchProblem(canonicalPath, config, options);
   const evaluationBudget = jointParityEvaluationBudget(
-    problem.searchableBlockCount,
+    problem.searchableCoordinates.length,
   );
   if (evaluationBudget === 0) {
     return seed;
@@ -1416,7 +1300,7 @@ function refineJointAutoConstraintsForProduction(
     seed.stats.algorithm,
   );
   const alternateEvaluationBudget = jointParityAlternateEvaluationBudget(
-    problem.searchableBlockCount,
+    problem.searchableCoordinates.length,
   );
   const alternate = solveJointAutoConstraintsGlobalSearchInternal(
     canonicalPath,
@@ -1476,7 +1360,7 @@ function solveJointAutoConstraintsInternal(
   const problem = createJointSearchProblem(canonicalPath, config, options);
   const { setup, searchableCoordinates, canonicalRadii, canonicalCaps } =
     problem;
-  const evaluationBudget = jointEvaluationBudget(problem.searchableBlockCount);
+  const evaluationBudget = jointEvaluationBudget(searchableCoordinates.length);
   const evaluator = createJointCandidateEvaluator(problem, evaluationBudget);
 
   const baseCandidate: JointCandidate = {
@@ -1577,7 +1461,7 @@ function solveJointAutoConstraintsInternal(
     interactiveResult.stats.objectiveCost >=
       jointGlobalRecoveryObjectiveThreshold &&
     setup.simulationContext.rotationKeyframes.length === 0 &&
-    problem.searchableBlockCount > 0;
+    searchableCoordinates.length > 0;
   if (!shouldRecoverGlobally) {
     return interactiveResult;
   }
@@ -1714,10 +1598,6 @@ function finalizedConstraintQuality(result: JointAutoConstraintSolveResult): {
       handoff.corridorDeviationMeters /
         Math.max(handoff.corridorToleranceMeters, minPositive),
     ]),
-    ...diagnostics.rotationTargets.map(
-      (target) =>
-        target.errorRadians / Math.max(target.toleranceRadians, minPositive),
-    ),
   ];
   return {
     maxRatio: Math.max(...ratios),
@@ -1728,94 +1608,6 @@ function finalizedConstraintQuality(result: JointAutoConstraintSolveResult): {
 type JointGlobalSearchVariable =
   | { kind: "radius"; coordinate: JointRadiusCoordinate }
   | { kind: "cap"; ordinal: number; min: number; max: number };
-
-function rotationSearchCapOrdinals(setup: AutoVelocitySolveSetup): number[] {
-  if (setup.simulationContext.rotationTargets.length === 0) {
-    return [];
-  }
-
-  const ordinals = new Set<number>();
-  let intervalStart = 0;
-  for (const target of setup.simulationContext.rotationTargets) {
-    for (
-      let segmentIndex = 0;
-      segmentIndex < setup.segments.length;
-      segmentIndex += 1
-    ) {
-      const segment = setup.segments[segmentIndex]!;
-      if (
-        segment.endS > intervalStart + minPositive &&
-        segment.startS < target.s_m - minPositive
-      ) {
-        ordinals.add(segmentIndex + 2);
-      }
-    }
-    if (target.s_m > intervalStart + minPositive && ordinals.size === 0) {
-      const containingIndex = setup.segments.findIndex(
-        (segment) =>
-          segment.startS - minPositive <= target.s_m &&
-          target.s_m <= segment.endS + minPositive,
-      );
-      if (containingIndex >= 0) {
-        ordinals.add(containingIndex + 2);
-      }
-    }
-    intervalStart = Math.max(intervalStart, target.s_m);
-  }
-
-  return [...ordinals]
-    .filter(
-      (ordinal) => !setup.simulationContext.pinnedCapsByOrdinal.has(ordinal),
-    )
-    .sort((left, right) => left - right);
-}
-
-/** Translation caps whose driven distance precedes one authored target. */
-function rotationCapOrdinalsForTarget(
-  setup: AutoVelocitySolveSetup,
-  diagnostic: RotationTargetDiagnostic,
-): number[] {
-  const targets = setup.simulationContext.rotationTargets;
-  const targetIndex = targets.findIndex(
-    (target) => target.event_ordinal_1b === diagnostic.event_ordinal_1b,
-  );
-  const target = targets[targetIndex];
-  if (!target) {
-    return [];
-  }
-
-  let intervalStart = 0;
-  for (let index = 0; index < targetIndex; index += 1) {
-    const previous = targets[index];
-    if (previous && previous.s_m < target.s_m - minPositive) {
-      intervalStart = Math.max(intervalStart, previous.s_m);
-    }
-  }
-  if (target.s_m <= intervalStart + minPositive) {
-    return [];
-  }
-
-  return setup.segments.flatMap((segment, segmentIndex) =>
-    segment.endS > intervalStart + minPositive &&
-    segment.startS < target.s_m - minPositive
-      ? [segmentIndex + 2]
-      : [],
-  );
-}
-
-function rotationOnlySearchBlockCount(
-  setup: AutoVelocitySolveSetup,
-  radiusCoordinates: readonly JointRadiusCoordinate[],
-): number {
-  const radiusCapOrdinals = new Set<number>();
-  for (const coordinate of radiusCoordinates) {
-    radiusCapOrdinals.add(coordinate.anchorOrdinal);
-    radiusCapOrdinals.add(coordinate.anchorOrdinal + 1);
-  }
-  return rotationSearchCapOrdinals(setup).filter(
-    (ordinal) => !radiusCapOrdinals.has(ordinal),
-  ).length;
-}
 
 const globalSearchRestartSeeds = [
   0x4b11e, 0x9e3779b9, 0x243f6a88, 0xb7e15162, 0xdeadbeef, 0x85ebca6b,
@@ -2225,23 +2017,19 @@ function finalizeJointCandidates(
   };
   finalized.sort(compareFinalized);
   if (finalized[0]?.result.status !== "valid") {
-    const repairCandidateCount =
-      problem.setup.simulationContext.rotationTargets.length > 0 ? 1 : 3;
-    const repaired = finalized
-      .slice(0, repairCandidateCount)
-      .map(({ candidate }) => ({
+    const repaired = finalized.slice(0, 3).map(({ candidate }) => ({
+      candidate,
+      result: finalizeJointCandidate(
+        path,
+        config,
+        options,
+        problem,
         candidate,
-        result: finalizeJointCandidate(
-          path,
-          config,
-          options,
-          problem,
-          candidate,
-          evaluator,
-          algorithm,
-          true,
-        ),
-      }));
+        evaluator,
+        algorithm,
+        true,
+      ),
+    }));
     finalized.push(...repaired);
     finalized.sort(compareFinalized);
   }
@@ -2274,18 +2062,12 @@ function globalSearchVariables(
     capOrdinals.add(coordinate.anchorOrdinal);
     capOrdinals.add(coordinate.anchorOrdinal + 1);
   }
-  const rotationCapOrdinals = new Set(rotationSearchCapOrdinals(problem.setup));
-  for (const ordinal of rotationCapOrdinals) {
-    capOrdinals.add(ordinal);
-  }
   for (const ordinal of [...capOrdinals].sort((left, right) => left - right)) {
     if (!problem.setup.simulationContext.pinnedCapsByOrdinal.has(ordinal)) {
       variables.push({
         kind: "cap",
         ordinal,
-        min: rotationCapOrdinals.has(ordinal)
-          ? rotationMinimumSolverCap(problem.setup.usableMaxVelocityMps)
-          : minimumSolverCap(problem.setup.usableMaxVelocityMps),
+        min: minimumSolverCap(problem.setup.usableMaxVelocityMps),
         max: problem.setup.usableMaxVelocityMps,
       });
     }
@@ -2659,117 +2441,6 @@ function finalizeJointCandidate(
   let genericEvaluations = 2;
   if (
     attemptStabilityRepair &&
-    (!finalEvaluation.passed || !stabilityEvaluation.passed) &&
-    (finalEvaluation.rotationTargets.some((target) => !target.passed) ||
-      stabilityEvaluation.rotationTargets.some((target) => !target.passed))
-  ) {
-    let workingCaps = new Map(persistedCaps);
-    let workingQuality = combinedEvaluationQuality(
-      finalEvaluation,
-      stabilityEvaluation,
-    );
-    rotationRepair: for (let sweep = 0; sweep < 2; sweep += 1) {
-      const failedTargets = new Map(
-        [
-          ...finalEvaluation.rotationTargets,
-          ...stabilityEvaluation.rotationTargets,
-        ]
-          .filter((target) => !target.passed)
-          .map((target) => [target.event_ordinal_1b, target]),
-      );
-      if (failedTargets.size === 0) {
-        break;
-      }
-      const repairOrdinals = new Set<number>();
-      for (const target of failedTargets.values()) {
-        for (const ordinal of rotationCapOrdinalsForTarget(
-          finalSetup,
-          target,
-        )) {
-          repairOrdinals.add(ordinal);
-        }
-      }
-      let sweepImproved = false;
-      for (const ordinal of [...repairOrdinals].sort(
-        (left, right) => left - right,
-      )) {
-        if (finalSetup.simulationContext.pinnedCapsByOrdinal.has(ordinal)) {
-          continue;
-        }
-        const currentCap = workingCaps.get(ordinal);
-        if (currentCap === undefined) {
-          continue;
-        }
-        let coordinateCaps = workingCaps;
-        let coordinateEvaluation = finalEvaluation;
-        let coordinateStabilityEvaluation = stabilityEvaluation;
-        let coordinateQuality = workingQuality;
-        for (const factor of [0.9, 0.75, 0.5]) {
-          const trialValue = quantizeJointVelocity(
-            currentCap * factor,
-            finalSetup.usableMaxVelocityMps,
-            rotationMinimumSolverCap(finalSetup.usableMaxVelocityMps),
-          );
-          if (Math.abs(trialValue - currentCap) <= minPositive) {
-            continue;
-          }
-          const trialCaps = new Map(workingCaps);
-          trialCaps.set(ordinal, trialValue);
-          const trialEvaluation = evaluateVelocityCapsWithGenericSimulation(
-            finalSetup.simulationContext,
-            finalSetup.segments,
-            finalSetup.corners,
-            trialCaps,
-            finalSetup.usableMaxVelocityMps,
-            finalSetup.usableMaxAccelerationMps2,
-          );
-          const trialStabilityEvaluation =
-            evaluateVelocityCapsWithGenericSimulation(
-              finalSetup.simulationContext,
-              finalSetup.segments,
-              finalSetup.corners,
-              trialCaps,
-              finalSetup.usableMaxVelocityMps,
-              finalSetup.usableMaxAccelerationMps2,
-              solverDtSeconds / 2,
-            );
-          genericEvaluations += 2;
-          const trialQuality = combinedEvaluationQuality(
-            trialEvaluation,
-            trialStabilityEvaluation,
-          );
-          if (
-            trialQuality.maxRatio < coordinateQuality.maxRatio - minPositive ||
-            (Math.abs(trialQuality.maxRatio - coordinateQuality.maxRatio) <=
-              minPositive &&
-              trialQuality.sumSquaredRatio <
-                coordinateQuality.sumSquaredRatio - minPositive)
-          ) {
-            coordinateCaps = trialCaps;
-            coordinateEvaluation = trialEvaluation;
-            coordinateStabilityEvaluation = trialStabilityEvaluation;
-            coordinateQuality = trialQuality;
-          }
-        }
-        if (coordinateCaps !== workingCaps) {
-          workingCaps = coordinateCaps;
-          finalEvaluation = coordinateEvaluation;
-          stabilityEvaluation = coordinateStabilityEvaluation;
-          workingQuality = coordinateQuality;
-          sweepImproved = true;
-          if (finalEvaluation.passed && stabilityEvaluation.passed) {
-            break rotationRepair;
-          }
-        }
-      }
-      if (!sweepImproved) {
-        break;
-      }
-    }
-    persistedCaps = workingCaps;
-  }
-  if (
-    attemptStabilityRepair &&
     (!finalEvaluation.passed || !stabilityEvaluation.passed)
   ) {
     const failingOrdinals = new Set(
@@ -2782,9 +2453,8 @@ function finalizeJointCandidate(
         continue;
       }
       const currentRadius =
-        finalSetup.simulationContext.handoffRadiiBySegmentIndex[
-          coordinate.segmentIndex
-        ] ?? coordinate.minRadiusMeters;
+        best.candidate.radiiBySegmentIndex[coordinate.segmentIndex] ??
+        coordinate.minRadiusMeters;
       for (const trialRadius of [
         coordinate.minRadiusMeters,
         coordinate.maxRadiusMeters,
@@ -2807,11 +2477,14 @@ function finalizeJointCandidate(
           config,
           options,
         );
-        const trialCaps = new Map(persistedCaps);
-        applyPinnedCaps(
-          trialCaps,
-          trialSetup.simulationContext,
-          trialSetup.usableMaxVelocityMps,
+        const trialCaps = capsByOrdinalFromSegmentCaps(
+          segmentCapsFromSolvedCaps(
+            trialSetup.anchors,
+            trialSetup.segments,
+            best.candidate.capsByOrdinal,
+            trialSetup.baseMaxVelocityMps,
+            trialSetup.usableMaxVelocityMps,
+          ),
         );
         const trialEvaluation = evaluateVelocityCapsWithGenericSimulation(
           trialSetup.simulationContext,
@@ -2850,17 +2523,14 @@ function finalizeJointCandidate(
     const failingOrdinals = stabilityEvaluation.handoffs.flatMap((handoff) =>
       handoff.passed ? [] : [handoff.corner.anchorOrdinal],
     );
-    const scopes =
-      finalSetup.simulationContext.rotationTargets.length > 0
-        ? [[...persistedCaps.keys()]]
-        : [
-            [...persistedCaps.keys()],
-            ...failingOrdinals.flatMap((ordinal) => [
-              [ordinal],
-              [ordinal, ordinal + 1],
-              [ordinal - 1, ordinal, ordinal + 1],
-            ]),
-          ];
+    const scopes = [
+      [...persistedCaps.keys()],
+      ...failingOrdinals.flatMap((ordinal) => [
+        [ordinal],
+        [ordinal, ordinal + 1],
+        [ordinal - 1, ordinal, ordinal + 1],
+      ]),
+    ];
     repair: for (const factor of [0.85, 0.7, 0.55, 0.4, 0.25]) {
       for (const scope of scopes) {
         const trialCaps = new Map(persistedCaps);
@@ -2875,9 +2545,6 @@ function finalizeJointCandidate(
               quantizeJointVelocity(
                 current * factor,
                 finalSetup.usableMaxVelocityMps,
-                finalSetup.simulationContext.rotationTargets.length > 0
-                  ? rotationMinimumSolverCap(finalSetup.usableMaxVelocityMps)
-                  : minimumSolverCap(finalSetup.usableMaxVelocityMps),
               ),
             );
           }
@@ -2944,7 +2611,6 @@ function finalizeJointCandidate(
     autoVelocityTieBreakCost({
       reachedEndRatio: reachedEndRatio(finalEvaluation),
       handoffRatios: evaluationHandoffRatios(finalEvaluation),
-      rotationRatios: evaluationRotationRatios(finalEvaluation),
       totalTimeS: finalEvaluation.totalTimeS,
       capsByOrdinal: persistedCaps,
     });
@@ -2960,14 +2626,14 @@ function finalizeJointCandidate(
       algorithm,
       evaluations: evaluator.evaluations,
       evaluationBudget: evaluator.evaluationBudget,
-      searchableBlocks: problem.searchableBlockCount,
+      searchableBlocks: problem.searchableCoordinates.length,
       cacheHits: evaluator.cacheHits,
       genericEvaluations,
       objectiveCost: persistedObjectiveCost,
       genericValidationPassed: finalEvaluation.passed,
       stabilityValidationPassed: stabilityEvaluation.passed,
       terminationReason:
-        problem.searchableBlockCount === 0
+        problem.searchableCoordinates.length === 0
           ? "no-coordinates"
           : evaluator.budgetReached
             ? "evaluation-budget"
@@ -3141,10 +2807,8 @@ export function autoVelocityInputSignature(
       ),
       scalarConstraints: {
         maxVelocityMps: path.constraints.max_velocity_meters_per_sec,
-        minVelocityMps: path.constraints.min_velocity_meters_per_sec,
         maxAccelerationMps2: path.constraints.max_acceleration_meters_per_sec2,
         maxVelocityDegPerSec: path.constraints.max_velocity_deg_per_sec,
-        minVelocityDegPerSec: path.constraints.min_velocity_deg_per_sec,
         maxAccelerationDegPerSec:
           path.constraints.max_acceleration_deg_per_sec2,
       },
@@ -3166,17 +2830,6 @@ export function autoVelocityInputSignature(
             constraint.source !== "auto_velocity",
         )
         .map((constraint) => ({
-          key: constraint.key,
-          value: constraint.value,
-          startOrdinal: constraint.start_ordinal,
-          endOrdinal: constraint.end_ordinal,
-        })),
-      translationMinimumRangedConstraints: path.ranged_constraints
-        .filter(
-          (constraint) => constraint.key === "min_velocity_meters_per_sec",
-        )
-        .map((constraint) => ({
-          key: constraint.key,
           value: constraint.value,
           startOrdinal: constraint.start_ordinal,
           endOrdinal: constraint.end_ordinal,
@@ -3433,11 +3086,6 @@ function createAutoVelocitySimulationContext(
     anchors,
     cumulativeLengths,
   );
-  const rotationTargets = buildGlobalRotationTargets(
-    path,
-    anchors,
-    cumulativeLengths,
-  );
   const rotationDomainEvents = buildRotationDomainEvents(
     path,
     anchors,
@@ -3461,7 +3109,6 @@ function createAutoVelocitySimulationContext(
     segments,
     cumulativeLengths,
     rotationKeyframes,
-    rotationTargets,
     rotationDomainEvents,
     maxRotationVelocityConstraints: rotationLimitConstraints(
       path,
@@ -3470,14 +3117,6 @@ function createAutoVelocitySimulationContext(
     maxRotationAccelerationConstraints: rotationLimitConstraints(
       path,
       "max_acceleration_deg_per_sec2",
-    ),
-    minRotationVelocityConstraints: rotationLimitConstraints(
-      path,
-      "min_velocity_deg_per_sec",
-    ),
-    minTranslationVelocityConstraints: rotationLimitConstraints(
-      path,
-      "min_velocity_meters_per_sec",
     ),
     handoffRadiiBySegmentIndex: segments.map((_, segmentIndex) => {
       const targetAnchor = anchors[segmentIndex + 1];
@@ -3506,13 +3145,6 @@ function createAutoVelocitySimulationContext(
         getDefaultOptionalConfigValue(config, "max_acceleration_deg_per_sec2"),
         defaultMaxAlphaDegPerSec2,
       ),
-    ),
-    baseMinOmegaRadps: degreesToRadians(
-      positiveNumber(path.constraints.min_velocity_deg_per_sec, 0),
-    ),
-    baseMinTranslationMps: positiveNumber(
-      path.constraints.min_velocity_meters_per_sec,
-      0,
     ),
     defaultHandoffRadiusMeters: defaultHandoffRadius,
   };
@@ -3635,14 +3267,6 @@ function solveSegmentCapsWithSimulation(
       usableMaxAccelerationMps2,
       anchors.length <= 7 ? 0.85 : 1.6,
     );
-  } else {
-    seedCapsFromRotationTargets(
-      capsByOrdinal,
-      simulationContext,
-      segments,
-      usableMaxVelocityMps,
-    );
-    applyPinnedCaps(capsByOrdinal, simulationContext, usableMaxVelocityMps);
   }
   let evaluation = evaluateVelocityCaps(
     simulationContext,
@@ -3837,101 +3461,6 @@ function seedCapsFromCorners(
       ),
     );
   }
-}
-
-function seedCapsFromRotationTargets(
-  capsByOrdinal: Map<number, number>,
-  context: AutoVelocitySimulationContext,
-  segments: readonly SegmentGeometry[],
-  usableMaxVelocityMps: number,
-): void {
-  let previousS = 0;
-  let previousTheta = context.startHeadingBase;
-
-  for (const target of context.rotationKeyframes) {
-    const distance = target.s_m - previousS;
-    const angle = Math.abs(
-      shortestAngularDistance(target.theta_target, previousTheta),
-    );
-    if (distance > minPositive && angle > rotationTargetToleranceRadians) {
-      const midpoint = previousS + distance / 2;
-      const rangedOmega = activeRotationLimit(
-        context.rotationDomainEvents,
-        context.maxRotationVelocityConstraints,
-        midpoint,
-      );
-      const rangedAlpha = activeRotationLimit(
-        context.rotationDomainEvents,
-        context.maxRotationAccelerationConstraints,
-        midpoint,
-      );
-      const maxOmega =
-        rangedOmega === null
-          ? context.baseMaxOmegaRadps
-          : degreesToRadians(rangedOmega);
-      const maxAlpha =
-        rangedAlpha === null
-          ? context.baseMaxAlphaRadps2
-          : degreesToRadians(rangedAlpha);
-      const angularTime = minimumAngularTravelTime(angle, maxOmega, maxAlpha);
-      const profiledVelocityLimit = target.profiled_rotation
-        ? (maxOmega * distance) / angle
-        : usableMaxVelocityMps;
-      // The rotation controller has no path-rate feedforward. Under a
-      // profiled target its steady tracking error is approximately
-      // (dtheta/dt)^2 / (2 * alpha), so reserve half the target tolerance for
-      // controller lag and the remainder for discrete simulation/handoffs.
-      const trackingVelocityLimit = target.profiled_rotation
-        ? (Math.sqrt(2 * maxAlpha * (rotationTargetToleranceRadians * 0.5)) *
-            distance) /
-          angle
-        : usableMaxVelocityMps;
-      const timeVelocityLimit = distance / Math.max(angularTime, minPositive);
-      const seededCap = clamp(
-        Math.min(
-          profiledVelocityLimit,
-          trackingVelocityLimit,
-          timeVelocityLimit,
-        ) * 0.98,
-        rotationMinimumSolverCap(usableMaxVelocityMps),
-        usableMaxVelocityMps,
-      );
-
-      for (let index = 0; index < segments.length; index += 1) {
-        const segment = segments[index]!;
-        if (
-          segment.endS > previousS + minPositive &&
-          segment.startS < target.s_m - minPositive
-        ) {
-          const ordinal = index + 2;
-          capsByOrdinal.set(
-            ordinal,
-            Math.min(
-              capsByOrdinal.get(ordinal) ?? usableMaxVelocityMps,
-              seededCap,
-            ),
-          );
-        }
-      }
-    }
-    previousS = Math.max(previousS, target.s_m);
-    previousTheta = target.theta_target;
-  }
-}
-
-function minimumAngularTravelTime(
-  angleRadians: number,
-  maxOmegaRadps: number,
-  maxAlphaRadps2: number,
-): number {
-  const angle = Math.max(0, angleRadians);
-  const omega = Math.max(minPositive, maxOmegaRadps);
-  const alpha = Math.max(minPositive, maxAlphaRadps2);
-  const accelerationAngle = (omega * omega) / alpha;
-  if (angle <= accelerationAngle) {
-    return 2 * Math.sqrt(angle / alpha);
-  }
-  return 2 * (omega / alpha) + (angle - accelerationAngle) / omega;
 }
 
 function applyGlobalVelocitySeeds(
@@ -5063,18 +4592,10 @@ function evaluateJointCandidateFast(
   const handoffs = corners.map((corner) =>
     evaluateJointHandoff(corner, segments, workspace),
   );
-  const rotationTargets = evaluateJointRotationTargets(
-    simulationContext.rotationTargets,
-    workspace,
-  );
 
   return {
     handoffs,
-    rotationTargets,
-    passed:
-      reachedEnd &&
-      handoffs.every((handoff) => handoff.passed) &&
-      rotationTargets.every((target) => target.passed),
+    passed: reachedEnd && handoffs.every((handoff) => handoff.passed),
     reachedEnd,
     totalTimeS: result.totalTimeS,
     finalGlobalSMeters: result.finalGlobalSMeters,
@@ -5097,14 +4618,10 @@ function simulateJointCandidate(
   }
 
   let sampleCount = 1;
-  const tracksRotation = context.rotationKeyframes.length > 0;
   workspace.xMeters[0] = firstSegment.ax;
   workspace.yMeters[0] = firstSegment.ay;
   workspace.globalSMeters[0] = 0;
   workspace.segmentIndices[0] = 0;
-  if (tracksRotation) {
-    workspace.thetaRadians[0] = context.initialHeading;
-  }
 
   let x = firstSegment.ax;
   let y = firstSegment.ay;
@@ -5139,6 +4656,7 @@ function simulateJointCandidate(
   const epsPos = 1e-3;
   const epsAng = degreesToRadians(0.5);
   const maxTranslationDelta = usableMaxAccelerationMps2 * solverDtSeconds;
+  const tracksRotation = context.rotationKeyframes.length > 0;
 
   while (tS <= guardTime) {
     if (segmentIndex >= context.segments.length) {
@@ -5187,16 +4705,7 @@ function simulateJointCandidate(
           (context.cumulativeLengths[segmentIndex + 1] ??
             context.totalPathLength),
       );
-    let maxV = workspace.capsMps[segmentIndex] ?? usableMaxVelocityMps;
-    let minV =
-      activeOrdinalLimit(
-        context.minTranslationVelocityConstraints,
-        segmentIndex + 2,
-      ) ?? context.baseMinTranslationMps;
-    if (minV > maxV) {
-      maxV = usableMaxVelocityMps;
-      minV = 0;
-    }
+    const maxV = workspace.capsMps[segmentIndex] ?? usableMaxVelocityMps;
     const maxOmegaEff = tracksRotation
       ? activeRotationLimit(
           context.rotationDomainEvents,
@@ -5211,20 +4720,10 @@ function simulateJointCandidate(
           globalS,
         )
       : null;
-    let maxOmega =
+    const maxOmega =
       maxOmegaEff === null
         ? context.baseMaxOmegaRadps
         : degreesToRadians(maxOmegaEff);
-    let minOmega =
-      activeRotationLimit(
-        context.rotationDomainEvents,
-        context.minRotationVelocityConstraints,
-        globalS,
-      ) ?? context.baseMinOmegaRadps;
-    if (minOmega > maxOmega) {
-      maxOmega = context.baseMaxOmegaRadps;
-      minOmega = 0;
-    }
     const maxAlpha =
       maxAlphaEff === null
         ? context.baseMaxAlphaRadps2
@@ -5261,19 +4760,6 @@ function simulateJointCandidate(
       desiredDelta > minPositive ? obtainableDelta / desiredDelta : 0;
     let limitedVx = vx + dvx * translationScale;
     let limitedVy = vy + dvy * translationScale;
-    const limitedSpeed = Math.sqrt(
-      limitedVx * limitedVx + limitedVy * limitedVy,
-    );
-    if (minV > 0 && distToTarget > 1e-3 && limitedSpeed < minV) {
-      if (limitedSpeed <= minPositive) {
-        limitedVx = ux * minV;
-        limitedVy = uy * minV;
-      } else {
-        const scale = minV / limitedSpeed;
-        limitedVx *= scale;
-        limitedVy *= scale;
-      }
-    }
     let limitedOmega = 0;
     if (tracksRotation) {
       const desiredAlpha = (desiredOmega - omega) / solverDtSeconds;
@@ -5284,18 +4770,6 @@ function simulateJointCandidate(
       limitedOmega = omega + obtainableAlpha * solverDtSeconds;
       if (Math.abs(limitedOmega) > maxOmega && maxOmega > 0) {
         limitedOmega = Math.sign(limitedOmega) * maxOmega;
-      }
-      if (
-        minOmega > 0 &&
-        Math.abs(angularError) > rotationTargetToleranceRadians &&
-        Math.abs(limitedOmega) < minOmega
-      ) {
-        limitedOmega =
-          (Math.abs(limitedOmega) > minPositive
-            ? Math.sign(limitedOmega)
-            : angularError < 0
-              ? -1
-              : 1) * minOmega;
       }
     }
 
@@ -5379,9 +4853,6 @@ function simulateJointCandidate(
     workspace.yMeters[sampleCount] = y;
     workspace.globalSMeters[sampleCount] = lastGlobalS;
     workspace.segmentIndices[sampleCount] = segmentIndex;
-    if (tracksRotation) {
-      workspace.thetaRadians[sampleCount] = theta;
-    }
     sampleCount += 1;
 
     if (snappedPosition && snappedRotation) {
@@ -5549,67 +5020,6 @@ function sampleJointWorkspaceAtS(
     }
   }
   return null;
-}
-
-function evaluateJointRotationTargets(
-  targets: readonly AuthoredRotationTarget[],
-  workspace: JointSimulationWorkspace,
-): RotationTargetDiagnostic[] {
-  if (targets.length === 0) {
-    return [];
-  }
-
-  let sampleIndex = 0;
-  return targets.map((target) => {
-    while (
-      sampleIndex < workspace.length &&
-      workspace.globalSMeters[sampleIndex]! < target.s_m - 1e-9
-    ) {
-      sampleIndex += 1;
-    }
-
-    let actualTheta: number | null = null;
-    if (sampleIndex < workspace.length) {
-      const currentTheta = workspace.thetaRadians[sampleIndex];
-      const currentS = workspace.globalSMeters[sampleIndex]!;
-      const previousTheta = workspace.thetaRadians[sampleIndex - 1];
-      const previousS = workspace.globalSMeters[sampleIndex - 1];
-      if (currentTheta !== undefined) {
-        if (
-          previousTheta === undefined ||
-          previousS === undefined ||
-          target.s_m <= previousS + 1e-9 ||
-          currentS - previousS <= 1e-9
-        ) {
-          actualTheta = currentTheta;
-        } else {
-          const alpha = clamp(
-            (target.s_m - previousS) / (currentS - previousS),
-            0,
-            1,
-          );
-          actualTheta = wrapAngleRadians(
-            previousTheta +
-              shortestAngularDistance(currentTheta, previousTheta) * alpha,
-          );
-        }
-      }
-    }
-    const error =
-      actualTheta === null
-        ? Number.POSITIVE_INFINITY
-        : Math.abs(shortestAngularDistance(target.theta_target, actualTheta));
-    return {
-      event_ordinal_1b: target.event_ordinal_1b,
-      path_element_index: target.path_element_index,
-      s_m: target.s_m,
-      target_theta_rad: target.theta_target,
-      actual_theta_rad: actualTheta,
-      error_rad: error,
-      tolerance_rad: rotationTargetToleranceRadians,
-      passed: error <= rotationTargetToleranceRadians,
-    };
-  });
 }
 
 function jointLowerBoundGlobalS(
@@ -6098,7 +5508,6 @@ function evaluateVelocityCapsFast(
 
   return {
     handoffs,
-    rotationTargets: [],
     passed: reachedEnd && handoffs.every((handoff) => handoff.passed),
     reachedEnd,
     totalTimeS: result.totalTimeS,
@@ -6139,18 +5548,10 @@ function evaluateVelocityCapsWithGenericSimulation(
   const handoffs = corners.map((corner) =>
     evaluateHandoff(corner, segments, result.trace),
   );
-  const rotationTargets = evaluateRotationTargets(
-    simulationContext.rotationTargets,
-    result.trace,
-  );
 
   return {
     handoffs,
-    rotationTargets,
-    passed:
-      reachedEnd &&
-      handoffs.every((handoff) => handoff.passed) &&
-      rotationTargets.every((target) => target.passed),
+    passed: reachedEnd && handoffs.every((handoff) => handoff.passed),
     reachedEnd,
     totalTimeS: result.total_time_s,
     finalGlobalSMeters: finalGlobalS,
@@ -6416,19 +5817,6 @@ function diagnosticsFromEvaluation(
       passed: handoff.passed,
     };
   });
-  const rotationTargets = evaluation.rotationTargets.map((target) => ({
-    eventOrdinal: target.event_ordinal_1b,
-    elementIndex: target.path_element_index,
-    sMeters: roundDistance(target.s_m),
-    targetRadians: roundDistance(target.target_theta_rad),
-    actualRadians:
-      target.actual_theta_rad === null
-        ? null
-        : roundDistance(target.actual_theta_rad),
-    errorRadians: roundDistance(target.error_rad),
-    toleranceRadians: roundDistance(target.tolerance_rad),
-    passed: target.passed,
-  }));
 
   return {
     reachedEnd: evaluation.reachedEnd,
@@ -6440,7 +5828,6 @@ function diagnosticsFromEvaluation(
     maxOvershootErrorRatio: roundDistance(maxOvershootErrorRatio),
     maxCorridorDeviationRatio: roundDistance(maxCorridorDeviationRatio),
     handoffs,
-    rotationTargets,
   };
 }
 
@@ -6631,23 +6018,6 @@ function activeRotationLimit(
   return best;
 }
 
-function activeOrdinalLimit(
-  constraints: readonly TranslationLimitConstraint[],
-  ordinal: number,
-): number | null {
-  let best: number | null = null;
-  for (const constraint of constraints) {
-    if (
-      constraint.startOrdinal <= ordinal &&
-      ordinal <= constraint.endOrdinal
-    ) {
-      best =
-        best === null ? constraint.value : Math.min(best, constraint.value);
-    }
-  }
-  return best;
-}
-
 function rotationTargetEventOrdinal(
   events: readonly RotationDomainEvent[],
   globalSNow: number,
@@ -6770,10 +6140,6 @@ function overshootToleranceMeters(handoffDistanceMeters: number): number {
 
 function minimumSolverCap(usableMaxVelocityMps: number): number {
   return Math.max(0.05, usableMaxVelocityMps * solverMinVelocityRatio);
-}
-
-function rotationMinimumSolverCap(usableMaxVelocityMps: number): number {
-  return Math.min(usableMaxVelocityMps, 0.01);
 }
 
 function velocityGrid(
@@ -7076,23 +6442,9 @@ function isBetterEvaluation(
   if (candidate.passed !== current.passed) {
     return candidate.passed;
   }
-  const candidateTranslationPassed = evaluationTranslationPassed(candidate);
-  const currentTranslationPassed = evaluationTranslationPassed(current);
-  if (candidateTranslationPassed !== currentTranslationPassed) {
-    return candidateTranslationPassed;
-  }
   return (
     velocityObjectiveCost(candidate, candidateCaps) <
     velocityObjectiveCost(current, currentCaps) - minPositive
-  );
-}
-
-function evaluationTranslationPassed(
-  evaluation: VelocityCapEvaluation,
-): boolean {
-  return (
-    evaluation.reachedEnd &&
-    evaluation.handoffs.every((handoff) => handoff.passed)
   );
 }
 
@@ -7103,7 +6455,6 @@ function velocityObjectiveCost(
   return autoVelocityObjectiveCost({
     reachedEndRatio: reachedEndRatio(evaluation),
     handoffRatios: evaluationHandoffRatios(evaluation),
-    rotationRatios: evaluationRotationRatios(evaluation),
     totalTimeS: evaluation.totalTimeS,
     capsByOrdinal: caps,
   });
@@ -7124,20 +6475,11 @@ function evaluationHandoffRatios(
   ]);
 }
 
-function evaluationRotationRatios(
-  evaluation: VelocityCapEvaluation,
-): readonly number[] {
-  return evaluation.rotationTargets.map(
-    (target) => target.error_rad / Math.max(target.tolerance_rad, minPositive),
-  );
-}
-
 function evaluationMeetsConstraintBudget(
   evaluation: VelocityCapEvaluation,
 ): boolean {
   return (
     evaluation.reachedEnd &&
-    evaluation.rotationTargets.every((target) => target.passed) &&
     evaluation.handoffs.every(
       (handoff) =>
         handoff.combinedErrorMeters <= handoff.toleranceMeters &&
@@ -7153,10 +6495,7 @@ function evaluationQuality(evaluation: VelocityCapEvaluation): {
   maxRatio: number;
   sumSquaredRatio: number;
 } {
-  if (
-    evaluation.handoffs.length === 0 &&
-    evaluation.rotationTargets.length === 0
-  ) {
+  if (evaluation.handoffs.length === 0) {
     const reachedRatio = reachedEndRatio(evaluation);
     return { maxRatio: reachedRatio, sumSquaredRatio: reachedRatio ** 2 };
   }
@@ -7189,26 +6528,8 @@ function evaluationQuality(evaluation: VelocityCapEvaluation): {
       overshootRatio ** 2 +
       corridorRatio ** 2;
   }
-  for (const target of evaluation.rotationTargets) {
-    const ratio =
-      target.error_rad / Math.max(target.tolerance_rad, minPositive);
-    maxRatio = Math.max(maxRatio, ratio);
-    sumSquaredRatio += ratio ** 2;
-  }
 
   return { maxRatio, sumSquaredRatio };
-}
-
-function combinedEvaluationQuality(
-  evaluation: VelocityCapEvaluation,
-  stabilityEvaluation: VelocityCapEvaluation,
-): { maxRatio: number; sumSquaredRatio: number } {
-  const exact = evaluationQuality(evaluation);
-  const stability = evaluationQuality(stabilityEvaluation);
-  return {
-    maxRatio: Math.max(exact.maxRatio, stability.maxRatio),
-    sumSquaredRatio: exact.sumSquaredRatio + stability.sumSquaredRatio,
-  };
 }
 
 function handoffViolationRatio(handoff: HandoffEvaluation): number {
@@ -7257,7 +6578,6 @@ function isTranslationRangedConstraintKey(key: RangedConstraintKey): boolean {
 function isRotationRangedConstraintKey(key: RangedConstraintKey): boolean {
   return (
     key === "max_velocity_deg_per_sec" ||
-    key === "min_velocity_deg_per_sec" ||
     key === "max_acceleration_deg_per_sec2"
   );
 }

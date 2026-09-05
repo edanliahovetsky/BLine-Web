@@ -91,7 +91,7 @@ describe("auto velocity benchmark", () => {
 
     const safetyFailures = results.filter((result) => !result.auto.safe);
     expect(formatSafetyFailures(safetyFailures)).toEqual([]);
-    expectMixedWaypointRotationLimitedCap(results);
+    expectMixedWaypointRotationCap(results);
 
     const compared = results.filter((result) => result.compareOracle);
     const timeFailures = compared.filter(
@@ -319,8 +319,7 @@ function benchmarkCases(): BenchmarkCase[] {
     {
       name: "mixed waypoint rotation events",
       path: mixedWaypointPath(),
-      // The translation-only oracle does not enforce arrival-heading targets.
-      compareOracle: false,
+      compareOracle: true,
       typicalRuntimePath: true,
     },
   ];
@@ -411,7 +410,7 @@ function optimizeOracle(
   return best;
 }
 
-function expectMixedWaypointRotationLimitedCap(
+function expectMixedWaypointRotationCap(
   results: ReadonlyArray<{
     name: string;
     auto: Evaluation;
@@ -420,7 +419,7 @@ function expectMixedWaypointRotationLimitedCap(
   const mixed = results.find(
     (result) => result.name === "mixed waypoint rotation events",
   );
-  expect(mixed?.auto.capsByOrdinal.get(4)).toBeLessThan(3.5);
+  expect(mixed?.auto.capsByOrdinal.get(4)).toBeGreaterThanOrEqual(3.5);
 }
 
 function betterOracleEvaluation(
