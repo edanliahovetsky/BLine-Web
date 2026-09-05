@@ -70,8 +70,8 @@ describe("auto velocity benchmark", () => {
         : 0;
       if (benchmark.name === "mixed waypoint rotation events") {
         expect(
-          profile.diagnostics.rotationFeasibility?.some(
-            (target) => target.reason === "profile-handoff",
+          profile.diagnostics.rotationFeasibility?.every(
+            (target) => target.passed,
           ),
         ).toBe(true);
         expect(profile.diagnostics.totalTimeS).toBeLessThan(5);

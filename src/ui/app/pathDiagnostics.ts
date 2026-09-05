@@ -108,13 +108,9 @@ export function derivePathDiagnostics(
               ? "is never reached by the translation path."
               : target.reason === "conflicting-targets"
                 ? "conflicts with another rotation at the same location."
-                : target.reason === "profile-handoff"
-                  ? "hands off before its authored rotation profile reaches the target."
-                  : target.reason === "profile-limits"
-                    ? "cannot follow its profiled heading within the angular limits before handoff."
-                    : target.reason === "angular-transition"
-                      ? "cannot make the angular velocity transition within its limits."
-                      : `needs at least ${target.requiredTimeS.toFixed(2)} s to turn; only ${target.availableTimeS.toFixed(2)} s is available before arrival or handoff.`;
+                : target.reason === "angular-transition"
+                  ? "cannot make the angular velocity transition within its limits."
+                  : `needs at least ${target.requiredTimeS.toFixed(2)} s to turn; only ${target.availableTimeS.toFixed(2)} s is available before arrival or handoff.`;
           diagnostics.push({
             id: `rotation-feasibility-${target.eventOrdinal}`,
             severity: "warning",

@@ -195,6 +195,15 @@ describe("auto constraint generation", () => {
       default_max_acceleration_deg_per_sec2: 2000,
     };
     const solved = solveInput(strippedCompetitionFixture(), config);
+    // This recorded competition path must finish in a useful amount of time,
+    // in addition to passing the handoff/corridor gates below.
+    expect(solved.status).toBe("valid");
+    expect(solved.profile.diagnostics.totalTimeS).toBeLessThan(15);
+    expect(
+      solved.profile.diagnostics.rotationFeasibility?.every(
+        (target) => target.passed,
+      ),
+    ).toBe(true);
     const generatedRadii = autoHandoffRadiusElementIndexes(
       solved.path.path_elements,
     ).map((index) => radiusAt(solved.path, index) ?? 0);

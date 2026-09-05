@@ -340,7 +340,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 8;
+const autoConstraintSolverVersion = 9;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -1517,7 +1517,6 @@ function solveRotationAwareConstraints(
               (target.passed
                 ? 0
                 : 1 +
-                  (target.profileViolation ?? 0) +
                   (Number.isFinite(target.requiredTimeS)
                     ? Math.max(
                         0,

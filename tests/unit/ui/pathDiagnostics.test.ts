@@ -111,7 +111,7 @@ describe("path diagnostics", () => {
   });
 });
 
-it("distinguishes impossible profiled handoff timing from preview tracking", () => {
+it("keeps achievable target timing separate from preview tracking", () => {
   const path = createPathModel({
     path_elements: [
       createTranslationTarget({ x_meters: 1, y_meters: 1 }),
@@ -131,13 +131,7 @@ it("distinguishes impossible profiled handoff timing from preview tracking", () 
   const diagnostics = derivePathDiagnostics(path, defaultFieldGeometry, [], {});
   expect(
     diagnostics.find((item) => item.id === "rotation-feasibility-1"),
-  ).toMatchObject({
-    severity: "warning",
-    elementIndex: 1,
-    summary: expect.stringContaining(
-      "hands off before its authored rotation profile",
-    ),
-  });
+  ).toBeUndefined();
   expect(
     diagnostics.find((item) => item.id === "rotation-target-1")?.summary,
   ).toMatch(/^Preview tracking:/);
