@@ -6006,3 +6006,11 @@ body.is-resizing-inspector * {
 .tour-field-marker--pose span { display: none; }
 
 .tour-lab-backdrop { position: absolute; inset: 0; pointer-events: auto; z-index: 2; }
+
+.tour-reference-trace { position: absolute; z-index: 3; pointer-events: none; overflow: visible; }
+.tour-simulation-readout { position: absolute; left: 50%; bottom: 68px; transform: translateX(-50%); z-index: 4; pointer-events: none; display: flex; gap: 12px; align-items: center; white-space: nowrap; padding: 5px 9px; border-radius: 6px; background: rgba(16,27,36,.9); color: #c8d4df; font-size: .68rem; }
+.tour-event-cue { color: #deb2ff; }
+
+.tour-lab { color: var(--bline-text-primary); }
+.tour-lab:focus { outline: none; }
+.tour-handoff pre { color: var(--bline-text-primary); }

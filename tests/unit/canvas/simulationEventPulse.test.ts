@@ -5,7 +5,7 @@ import {
   createTranslationTarget,
 } from "../../../src/core/model/path";
 import type { SimulationTraceSample } from "../../../src/core/sim/types";
-import { simulationEventPulseAtTime } from "../../../src/canvas/simulationEventPulse";
+import { simulationEventKeysAtTime, simulationEventPulseAtTime } from "../../../src/canvas/simulationEventPulse";
 
 describe("simulation event pulse", () => {
   it("peaks as the robot crosses an event and fades shortly afterward", () => {
@@ -20,6 +20,8 @@ describe("simulation event pulse", () => {
 
     expect(simulationEventPulseAtTime(path, trace, 0.8)).toBe(0);
     expect(simulationEventPulseAtTime(path, trace, 1)).toBe(1);
+    expect(simulationEventKeysAtTime(path, trace, 1)).toEqual(["intake"]);
+    expect(simulationEventKeysAtTime(path, trace, 1.43)).toEqual([]);
     expect(simulationEventPulseAtTime(path, trace, 1.21)).toBeCloseTo(0.5);
     expect(simulationEventPulseAtTime(path, trace, 1.43)).toBe(0);
   });

@@ -9,6 +9,7 @@ import {
   checkDelivery,
   checkEvent,
   checkPlan,
+  checkMission,
   checkSpeed,
 } from "../../../src/ui/tours/tourChecks";
 import {
@@ -70,5 +71,17 @@ describe("lesson outcome checks", () => {
       whenPresentOnly: false,
     });
     expect(checkPlan(generated, config).complete).toBe(true);
+  });
+  it("checks the complete mission, including the pickup and both event roles", () => {
+    const path = createMissionPath();
+    const config = practiceConfig();
+    expect(checkMission(path, config).complete).toBe(true);
+    const changed = structuredClone(path);
+    changed.path_elements.splice(2, 1);
+    expect(checkMission(changed, config).complete).toBe(false);
+    const wrongPickup = structuredClone(path);
+    if (wrongPickup.path_elements[3].type === "translation")
+      wrongPickup.path_elements[3].y_meters = 7;
+    expect(checkMission(wrongPickup, config).complete).toBe(false);
   });
 });

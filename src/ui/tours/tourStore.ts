@@ -232,7 +232,7 @@ export function createTourStore(
         options.onCompletedChange?.(nextCompleted);
         set({ completedTourIds: nextCompleted });
       }
-      set({ activeTourId: null, stepIndex: 0 });
+      set({ activeTourId: null, stepIndex: 0, reference: null });
     },
     exit() {
       set({ activeTourId: null, stepIndex: 0, reference: null });

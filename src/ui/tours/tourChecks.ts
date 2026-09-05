@@ -2,6 +2,7 @@ import {
   isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
+  isWaypoint,
   type PathModel,
 } from "../../core/model/path";
 import type { ProjectConfig } from "../../core/model/project";
@@ -52,14 +53,15 @@ export function checkClearance(
   config: ProjectConfig,
   preview = false,
 ): TourFeedback {
-  const clear = clearance(path, config, preview) && withinField(path, config);
+  const clear =
+    clearance(path, config, preview) && withinField(path, config, preview);
   return feedback(
     clear,
     preview
       ? "The simulated bumper still clips the structure or the route is too close to a field edge. Move the bend farther out or reduce its radius."
       : "Leave room for the whole bumper, not just the line. Move the bend farther above the structure.",
     preview
-      ? "The simulated bumper clears the structure, and the anchors stay inside the field."
+      ? "The simulated bumper clears the structure and stays inside the field."
       : "Both route segments leave room for the bumper.",
   );
 }
@@ -112,4 +114,64 @@ export function checkPlan(
     "Generate the constraints for this route.",
     "The generated constraints already match this route and its settings.",
   );
+}
+
+export function checkMission(
+  path: PathModel,
+  config: ProjectConfig,
+): TourFeedback {
+  const anchors = anchorPositions(path);
+  const rotationIndex = path.path_elements.findIndex(isRotationTarget);
+  const rotation = path.path_elements[rotationIndex];
+  const events = path.path_elements.flatMap((element, index) =>
+    isEventTrigger(element) ? [{ element, index }] : [],
+  );
+  if (
+    anchors.length !== 4 ||
+    !near(anchors[0], mission.start) ||
+    !near(anchors[1], mission.pickup, 0.2)
+  )
+    return {
+      complete: false,
+      message:
+        "Keep Start and the Pickup target in place, with one bend before Delivery.",
+    };
+  if (
+    !rotation ||
+    !isRotationTarget(rotation) ||
+    !rotation.profiled_rotation ||
+    Math.abs(rotation.rotation_radians - Math.PI / 2) > 0.02 ||
+    rotationIndex >= anchors[1].index
+  )
+    return {
+      complete: false,
+      message: "Keep the profiled 90° heading target on the Pickup approach.",
+    };
+  if (
+    events.length !== 2 ||
+    events[0].element.lib_key !== "startIntake" ||
+    events[0].index <= rotationIndex ||
+    events[0].index >= anchors[1].index ||
+    events[0].element.t_ratio <= rotation.t_ratio ||
+    events[1].element.lib_key !== "prepareDelivery" ||
+    events[1].index <= anchors[2].index ||
+    events[1].index >= anchors[3].index
+  )
+    return {
+      complete: false,
+      message:
+        "Keep startIntake after the Pickup rotation, and prepareDelivery on the final approach.",
+    };
+  const endpoint = path.path_elements.at(-1);
+  if (
+    !endpoint ||
+    !isWaypoint(endpoint) ||
+    Math.abs(endpoint.rotation_target.rotation_radians + Math.PI / 2) > 0.02
+  )
+    return {
+      complete: false,
+      message: "Keep the final waypoint heading at -90° for Delivery.",
+    };
+  const delivery = checkDelivery(path, config);
+  return delivery.complete ? checkClearance(path, config, true) : delivery;
 }

@@ -25,7 +25,6 @@ import {
   createShapePath,
   createSpeedPath,
   elementPositionSignature,
-  geometrySignature,
   mission,
   missionMarkers,
   near,
@@ -36,6 +35,7 @@ import {
   checkDelivery,
   checkEvent,
   checkPlan,
+  checkMission,
   checkRadius,
   checkSpeed,
   feedback,
@@ -662,8 +662,7 @@ export const headingEventsTour: TourDefinition = {
               !!rotation &&
                 rotation.profiled_rotation &&
                 Math.abs(rotation.rotation_radians - Math.PI / 2) < 0.02 &&
-                Math.abs(rotation.t_ratio - 0.5) < 0.011 &&
-                geometrySignature(path) !== "",
+                Math.abs(rotation.t_ratio - 0.5) < 0.011,
               "Keep the rotation at 90° and 0.5 with Profiled enabled.",
               "The intake event moved earlier and the heading target is preserved.",
             )
@@ -765,10 +764,7 @@ export const verifyExportTour: TourDefinition = {
       interact: ["path-canvas", "inspector-panel", "max-velocity-card"],
       prepare: { tool: "select" },
       check: outcome((path) => {
-        const destination = checkDelivery(path, currentConfig());
-        return destination.complete
-          ? checkClearance(path, currentConfig(), true)
-          : destination;
+        return checkMission(path, currentConfig());
       }),
       phase: "Challenge",
     },

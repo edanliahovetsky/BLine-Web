@@ -249,16 +249,29 @@ export function clearance(
       .every((end, i) => segmentClearsStructure(points[i], end, margin))
   );
 }
-export function withinField(path: PathModel, config: ProjectConfig) {
+export function withinField(
+  path: PathModel,
+  config: ProjectConfig,
+  preview = false,
+) {
   const margin =
     Math.hypot(config.gui.robot.length_meters, config.gui.robot.width_meters) /
     2;
-  return anchorPositions(path).every(
-    (point) =>
-      point.x_meters >= margin &&
-      point.x_meters <= practiceField.width - margin &&
-      point.y_meters >= margin &&
-      point.y_meters <= practiceField.height - margin,
+  const points = preview
+    ? practiceSimulation(path, config).trace.map((point) => ({
+        x_meters: point.x_m,
+        y_meters: point.y_m,
+      }))
+    : anchorPositions(path);
+  return (
+    points.length > 0 &&
+    points.every(
+      (point) =>
+        point.x_meters >= margin &&
+        point.x_meters <= practiceField.width - margin &&
+        point.y_meters >= margin &&
+        point.y_meters <= practiceField.height - margin,
+    )
   );
 }
 

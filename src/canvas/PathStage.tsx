@@ -92,6 +92,7 @@ import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
 import { readFieldBackgroundImage } from "../userData";
+import { TourFieldComparison } from "../ui/tours/TourFieldComparison";
 import { tourStore, type TourMarker } from "../ui/tours/tourStore";
 
 const fallbackStageSize: CanvasSize = {
@@ -205,6 +206,7 @@ export function PathStage({
   } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [simulationTime, setSimulationTime] = useState(0);
+  const appliedSeekRequest = useRef<SimulationSeekRequest | null>(null);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
   const [simulationSeekCount, setSimulationSeekCount] = useState(0);
   const [simulationPlayCount, setSimulationPlayCount] = useState(0);
@@ -723,11 +725,12 @@ export function PathStage({
   }, [simulationResult]);
 
   useEffect(() => {
-    if (!simulationSeekRequest || !simulationResult) {
+    if (!simulationSeekRequest || !simulationResult || appliedSeekRequest.current === simulationSeekRequest) {
       return;
     }
 
     const frame = window.requestAnimationFrame(() => {
+      appliedSeekRequest.current = simulationSeekRequest;
       setSimulationPlaying(false);
       setSimulationTime(
         simulationSeekRequest.position === "end"
@@ -1657,6 +1660,7 @@ export function PathStage({
             onUnlink={unlinkContextElement}
           />
         ) : null}
+        {tourMarkers.length > 0 && activePath && simulationResult && <TourFieldComparison viewport={viewport} path={activePath.path} result={simulationResult} time={simulationTime} />}
         <SimulationTransport
           result={simulationResult}
           currentTimeS={simulationTime}

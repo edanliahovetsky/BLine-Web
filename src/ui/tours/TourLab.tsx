@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { simulatePathWithTrace } from "../../core/sim";
 import type { PathModel } from "../../core/model/path";
 import type { ProjectConfig } from "../../core/model/project";
-import { simulationEventPulseAtTime } from "../../canvas/simulationEventPulse";
+import {
+  simulationEventKeysAtTime,
+  simulationEventPulseAtTime,
+} from "../../canvas/simulationEventPulse";
 import {
   activePathForProjectStore,
   projectStore,
@@ -27,6 +30,15 @@ export function TourLab({
   example: boolean;
   onClose(): void;
 }) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    panelRef.current?.focus();
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected)
+        previous.focus();
+    };
+  }, []);
   const project = useStoreSelector(projectStore, (state) => state.project);
   const reference = useStoreSelector(tourStore, (state) => state.reference);
   const current = activePathForProjectStore(projectStore.getState())?.path;
@@ -93,8 +105,37 @@ export function TourLab({
   }, [duration, example, playing, slow, runs]);
   return (
     <section
+      ref={panelRef}
       className="tour-lab"
       role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const controls = Array.from(
+          panelRef.current?.querySelectorAll<HTMLElement>(
+            "button:not(:disabled), input:not(:disabled)",
+          ) ?? [],
+        );
+        const first = controls[0];
+        const last = controls.at(-1);
+        if (
+          !event.shiftKey &&
+          (document.activeElement === last ||
+            document.activeElement === panelRef.current)
+        ) {
+          event.preventDefault();
+          first?.focus();
+        }
+        if (
+          event.shiftKey &&
+          (document.activeElement === first ||
+            document.activeElement === panelRef.current)
+        ) {
+          event.preventDefault();
+          last?.focus();
+        }
+      }}
       aria-label={example ? "Worked example" : "Compare your path"}
     >
       <header>
@@ -297,7 +338,7 @@ function RunView({
           fontSize={0.35}
           fill="#e7baff"
         >
-          Event triggered
+          {simulationEventKeysAtTime(path, result.trace, time).join(" · ")}
         </text>
       )}
     </svg>

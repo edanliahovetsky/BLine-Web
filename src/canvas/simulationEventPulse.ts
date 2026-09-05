@@ -19,8 +19,8 @@ export function simulationEventPulseAtTime(
   }
 
   let pulse = 0;
-  for (const eventS of eventTriggerPathDistances(path)) {
-    const eventTime = timeAtPathDistance(trace, eventS);
+  for (const event of eventTriggerPathDistances(path)) {
+    const eventTime = timeAtPathDistance(trace, event.distance);
     if (eventTime === null) {
       continue;
     }
@@ -40,7 +40,27 @@ export function simulationEventPulseAtTime(
   return clamp01(pulse);
 }
 
-function eventTriggerPathDistances(path: PathModel): number[] {
+export function simulationEventKeysAtTime(
+  path: PathModel,
+  trace: readonly SimulationTraceSample[],
+  timeS: number,
+): string[] {
+  if (!trace.length || timeS < 0) return [];
+  return eventTriggerPathDistances(path).flatMap((event) => {
+    const eventTime = timeAtPathDistance(trace, event.distance);
+    if (
+      eventTime === null ||
+      timeS < eventTime - eventPulseLeadSeconds ||
+      timeS > eventTime + eventPulseFadeSeconds
+    )
+      return [];
+    return [event.key || "Unnamed event"];
+  });
+}
+
+function eventTriggerPathDistances(
+  path: PathModel,
+): { distance: number; key: string }[] {
   const anchors = path.path_elements.flatMap((element, pathIndex) => {
     if (!isAnchorElement(element)) {
       return [];
@@ -85,7 +105,13 @@ function eventTriggerPathDistances(path: PathModel): number[] {
 
     const startS = cumulativeDistances[previousAnchor] ?? 0;
     const endS = cumulativeDistances[nextAnchor] ?? startS;
-    return [startS + clamp01(element.t_ratio) * Math.max(0, endS - startS)];
+    return [
+      {
+        distance:
+          startS + clamp01(element.t_ratio) * Math.max(0, endS - startS),
+        key: element.lib_key,
+      },
+    ];
   });
 }
 

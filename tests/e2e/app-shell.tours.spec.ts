@@ -146,9 +146,38 @@ test("builds and orders the first path with manual Continue gates", async ({
   await expect(page.getByTestId("path-element-row-2")).toContainText(goalMeta);
 
   await next(page, 1);
-  for (let index = 0; index < 4; index += 1) {
-    await card.getByRole("button", { name: "Back", exact: true }).click();
-  }
+  const movePoint = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 10.4,
+    y_meters: 6.8,
+  });
+  await page.mouse.move(middlePoint.x, middlePoint.y);
+  await page.mouse.down();
+  await page.mouse.move(movePoint.x, movePoint.y, { steps: 8 });
+  await page.mouse.up();
+  await next(page, 1);
+  await setNumber(page, "X (m)", "15");
+  await setNumber(page, "Y (m)", "2.5");
+  await next(page, 1);
+  await watchRun(page);
+  await next(page, 1);
+  const revisePoint = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 11,
+    y_meters: 6.2,
+  });
+  await page.mouse.move(movePoint.x, movePoint.y);
+  await page.mouse.down();
+  await page.mouse.move(revisePoint.x, revisePoint.y, { steps: 8 });
+  await page.mouse.up();
+  await next(page, 1);
+  await watchRun(page);
+  await next(page, 1);
+  await expect(card).toContainText("Keep building");
+  await card
+    .getByRole("button", {
+      name: "Review step 2: Place the endpoints",
+      exact: true,
+    })
+    .click();
   await expect(card).toContainText("Place the endpoints");
   await expect(card).toContainText("Previously completed");
   await expect(
@@ -249,6 +278,13 @@ test("tunes the Shape lesson handoff radius through Constraints", async ({
   await expect(
     card.getByRole("button", { name: "Next", exact: true }),
   ).toBeVisible();
+  await next(page, 1);
+  await watchRun(page);
+  await next(page, 1);
+  await card.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page.getByTestId("tour-picker-progress")).toHaveText(
+    "1 of 5 lessons complete",
+  );
 });
 
 test("uses each simulation control for one clear purpose", async ({ page }) => {
@@ -401,6 +437,7 @@ async function saveReference(page: Page) {
     page.getByRole("dialog", { name: "Compare your path" }),
   ).toContainText("Saved reference");
   await page.getByRole("button", { name: "Close comparison" }).click();
+  await expect(page.getByTestId("tour-reference-trace")).toBeVisible();
 }
 async function replayComparison(page: Page) {
   await page
