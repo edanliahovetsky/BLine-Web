@@ -64,7 +64,8 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
       (Math.abs(a.violation - b.violation) <= 1e-6 && a.timeS < b.timeS - 1e-6)
     );
   };
-  let best = trial(seed);
+  const seedCandidate = trial(seed);
+  let best = seedCandidate;
   const consider = (values: readonly number[], stable = false) => {
     if (evaluations >= phaseBudget) return;
     const candidate = trial(values, stable);
@@ -146,6 +147,27 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
     // Timing changes can require a small radius adjustment as well as a cap
     // change. Repair against all validation timesteps, within the same budget.
     if (!best.result.feasible) polish(true);
+  }
+  // Feasibility-first ranking can abandon a fast seed for a much slower
+  // candidate with small radii. Use the remaining budget to repair the seed
+  // independently, retaining the validated winner if repair does not improve it.
+  if (
+    seedCandidate.result.timeS < best.result.timeS - 1e-6 &&
+    evaluations < budget
+  ) {
+    const fallback = best;
+    best = trial(seedCandidate.values, true);
+    for (let i = 0; i < variables.length; i += 1) {
+      if (variables[i]!.kind !== "radius") continue;
+      const center = best.values[i]!;
+      for (const factor of [0.8, 0.9, 1.1, 1.2]) {
+        const values = [...best.values];
+        values[i] = center * factor;
+        consider(values, true);
+      }
+    }
+    polish(true);
+    if (better(fallback.result, best.result)) best = fallback;
   }
   return { ...best, evaluations, budget };
 }
