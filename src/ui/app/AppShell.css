@@ -4598,6 +4598,24 @@ select {
   gap: 6px;
 }
 
+.tour-card__recovery {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  border-top: 1px solid var(--bline-border);
+  padding-top: 8px;
+}
+
+.tour-card__recovery button {
+  border: 0;
+  background: transparent;
+  color: var(--bline-text-muted);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
 .tour-card__actions .tour-card__skip {
   margin-right: auto;
   border-color: var(--bline-border-subtle);

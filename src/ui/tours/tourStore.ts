@@ -90,11 +90,16 @@ export interface TourDefinition {
 export interface TourState {
   activeTourId: string | null;
   stepIndex: number;
+  attemptId: number;
+  furthestStepIndex: number;
+  completedStepIndexes: readonly number[];
   completedTourIds: readonly string[];
   start(tourId: string): void;
   goTo(stepIndex: number): void;
   next(stepCount: number): void;
   back(): void;
+  setStepComplete(index: number, complete: boolean): void;
+  restartAt(index: number): void;
   hydrateCompleted(ids: readonly string[]): void;
   finish(): void;
   exit(): void;
@@ -111,12 +116,23 @@ export function createTourStore(
   return createStore<TourState>((set, get) => ({
     activeTourId: null,
     stepIndex: 0,
+    attemptId: 0,
+    furthestStepIndex: 0,
+    completedStepIndexes: [],
     completedTourIds: [...new Set(options.completedTourIds ?? [])],
     start(tourId) {
-      set({ activeTourId: tourId, stepIndex: 0 });
+      set({
+        activeTourId: tourId,
+        stepIndex: 0,
+        furthestStepIndex: 0,
+        completedStepIndexes: [],
+        attemptId: get().attemptId + 1,
+      });
     },
     goTo(stepIndex) {
-      set({ stepIndex: Math.max(0, stepIndex) });
+      set({
+        stepIndex: Math.max(0, Math.min(stepIndex, get().furthestStepIndex)),
+      });
     },
     next(stepCount) {
       const { stepIndex } = get();
@@ -124,10 +140,32 @@ export function createTourStore(
         get().finish();
         return;
       }
-      set({ stepIndex: stepIndex + 1 });
+      set({
+        stepIndex: stepIndex + 1,
+        furthestStepIndex: Math.max(get().furthestStepIndex, stepIndex + 1),
+      });
     },
     back() {
       set({ stepIndex: Math.max(0, get().stepIndex - 1) });
+    },
+    setStepComplete(index, complete) {
+      const completed = get().completedStepIndexes;
+      if (completed.includes(index) === complete) return;
+      set({
+        completedStepIndexes: complete
+          ? [...completed, index]
+          : completed.filter((candidate) => candidate !== index),
+      });
+    },
+    restartAt(index) {
+      set({
+        stepIndex: index,
+        furthestStepIndex: index,
+        completedStepIndexes: get().completedStepIndexes.filter(
+          (candidate) => candidate < index,
+        ),
+        attemptId: get().attemptId + 1,
+      });
     },
     hydrateCompleted(ids) {
       set({ completedTourIds: [...new Set(ids)] });

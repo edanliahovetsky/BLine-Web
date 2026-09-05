@@ -15,14 +15,31 @@ export interface TourOverlayProps {
   onPrepare(preparation: TourStepPreparation): void;
   /** Returns the learner to the course menu after a completed lesson. */
   onFinish(): void;
+  onRestartStep(): void;
+  onRestartLesson(): void;
 }
 
-export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
+export function TourOverlay({
+  onFinish,
+  onPrepare,
+  onRestartStep,
+  onRestartLesson,
+}: TourOverlayProps) {
   const activeTourId = useStoreSelector(
     tourStore,
     (state) => state.activeTourId,
   );
   const stepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
+  const attemptId = useStoreSelector(tourStore, (state) => state.attemptId);
+  const furthestStepIndex = useStoreSelector(
+    tourStore,
+    (state) => state.furthestStepIndex,
+  );
+  const completedSteps = useStoreSelector(
+    tourStore,
+    (state) => state.completedStepIndexes,
+  );
+  const isReviewing = stepIndex < furthestStepIndex;
   const tour = findTour(activeTourId);
   const step = tour?.steps[stepIndex] ?? null;
   const stepCount = tour?.steps.length ?? 0;
@@ -41,14 +58,9 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const [rect, setRect] = useState<TourRect | null>(null);
   const [holes, setHoles] = useState<TourRect[]>([]);
   const [cardHeight, setCardHeight] = useState(fallbackCardHeight);
-  const [completedActionToken, setCompletedActionToken] = useState<
-    string | null
-  >(null);
-  const interactToken = step?.interact?.join("|") ?? "";
-  const stepToken = activeTourId ? `${activeTourId}:${stepIndex}` : null;
-  const actionComplete = completedActionToken === stepToken;
-  const lockInteractionOnComplete =
-    step?.lockInteractionOnComplete ?? false;
+  const interactToken = isReviewing ? "" : (step?.interact?.join("|") ?? "");
+  const actionComplete = completedSteps.includes(stepIndex);
+  const lockInteractionOnComplete = step?.lockInteractionOnComplete ?? false;
 
   // Put the editor into the state this step needs once per step, so the
   // baseline for action-driven steps is not reset on every render.
@@ -58,7 +70,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       return;
     }
 
-    const token = `${activeTourId}:${stepIndex}`;
+    const token = `${activeTourId}:${attemptId}:${stepIndex}`;
     if (preparedStepRef.current === token) {
       return;
     }
@@ -83,9 +95,11 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
         pathHealth: wantsPathHealth ?? undefined,
       });
     }
-    captureTourStepState();
+    if (!isReviewing) captureTourStepState();
   }, [
     activeTourId,
+    attemptId,
+    isReviewing,
     onPrepare,
     stepIndex,
     wantsInspector,
@@ -156,7 +170,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   // Verify action-driven steps against live editor state. Completing an action
   // unlocks Continue and may close one-shot interaction holes.
   useEffect(() => {
-    if (!activeTourId) {
+    if (!activeTourId || isReviewing) {
       return;
     }
 
@@ -168,19 +182,21 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     }
 
     const interval = window.setInterval(() => {
-      if (completeWhen()) {
-        window.clearInterval(interval);
-        setCompletedActionToken(`${activeTourId}:${stepIndex}`);
-      }
+      tourStore.getState().setStepComplete(stepIndex, completeWhen());
     }, 250);
     return () => {
       window.clearInterval(interval);
     };
-  }, [activeTourId, stepIndex]);
+  }, [activeTourId, attemptId, isReviewing, stepIndex]);
 
   useEffect(() => {
     const completeWhen = step?.completeWhen;
-    if (!activeTourId || !lockInteractionOnComplete || !completeWhen) {
+    if (
+      !activeTourId ||
+      isReviewing ||
+      !lockInteractionOnComplete ||
+      !completeWhen
+    ) {
       return;
     }
 
@@ -194,13 +210,13 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
 
       event.preventDefault();
       event.stopPropagation();
-      setCompletedActionToken(`${activeTourId}:${stepIndex}`);
+      tourStore.getState().setStepComplete(stepIndex, true);
     };
 
     window.addEventListener("pointerdown", stopCompletedInteraction, true);
     return () =>
       window.removeEventListener("pointerdown", stopCompletedInteraction, true);
-  }, [activeTourId, lockInteractionOnComplete, step, stepIndex]);
+  }, [activeTourId, isReviewing, lockInteractionOnComplete, step, stepIndex]);
 
   useEffect(() => {
     if (!activeTourId) {
@@ -260,6 +276,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const isLastStep = stepIndex === stepCount - 1;
   const actionGated = Boolean(step.completeWhen);
   const handleNext = () => {
+    if (actionGated && !actionComplete && !isReviewing) return;
+    tourStore.getState().setStepComplete(stepIndex, true);
     if (isLastStep) {
       tourStore.getState().finish();
       onFinish();
@@ -339,11 +357,13 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
             role="status"
           >
             <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
-            {actionComplete
-              ? lockInteractionOnComplete
-                ? "Done. Continue to the next step."
-                : "Done. Keep experimenting or continue."
-              : "Waiting for this action"}
+            {isReviewing
+              ? "Previously completed. Your later work is preserved."
+              : actionComplete
+                ? lockInteractionOnComplete
+                  ? "Done. Continue to the next step."
+                  : "Done. Keep experimenting or continue."
+                : "Waiting for this action"}
           </div>
         ) : null}
         {isLastStep && (!actionGated || actionComplete) ? (
@@ -379,11 +399,19 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           >
             Back
           </button>
-          {!actionGated || actionComplete ? (
+          {!actionGated || actionComplete || isReviewing ? (
             <button type="button" className="is-primary" onClick={handleNext}>
               {isLastStep ? "Finish" : "Next"}
             </button>
           ) : null}
+        </div>
+        <div className="tour-card__recovery">
+          <button type="button" onClick={onRestartStep}>
+            Restart exercise
+          </button>
+          <button type="button" onClick={onRestartLesson}>
+            Restart lesson
+          </button>
         </div>
       </section>
     </div>,

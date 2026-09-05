@@ -37,6 +37,8 @@ export interface TourSessionControllerOptions<View> {
 
 export interface TourSessionController {
   start(tourId: string): boolean;
+  restartStep(): void;
+  restartLesson(): void;
   restore(): void;
   dispose(): void;
 }
@@ -59,6 +61,43 @@ export function createTourSessionController<View>(
   let active: ActiveTourSession<View> | null = null;
   let unsubscribeProject: (() => void) | null = null;
   let unsubscribeTour: (() => void) | null = null;
+  const checkpoints = new Map<
+    number,
+    {
+      project: Project;
+      history: HistoryStoreState<Project>;
+      selection: SelectionState;
+    }
+  >();
+
+  const captureCheckpoint = (index: number) => {
+    const state = projects.getState();
+    if (!state.project || checkpoints.has(index)) return;
+    checkpoints.set(index, {
+      project: structuredClone(state.project),
+      history: { ...state.history.getState() },
+      selection: { ...selections.getState() },
+    });
+  };
+
+  const restoreCheckpoint = (index: number) => {
+    const checkpoint = checkpoints.get(index);
+    if (!active || !checkpoint) return;
+    projects.getState().history.setState(checkpoint.history);
+    projects.setState({
+      project: structuredClone(checkpoint.project),
+      projectSessionId: createSessionId("practice"),
+      revision: 0,
+      activeSave: null,
+      dirty: false,
+      saveQueued: false,
+    });
+    selections.setState(checkpoint.selection);
+    for (const key of checkpoints.keys()) {
+      if (key > index) checkpoints.delete(key);
+    }
+    tours.getState().restartAt(index);
+  };
 
   const restoreSession = () => {
     const captured = active;
@@ -67,6 +106,7 @@ export function createTourSessionController<View>(
     }
 
     active = null;
+    checkpoints.clear();
     unsubscribeProject?.();
     unsubscribeProject = null;
     unsubscribeTour?.();
@@ -172,20 +212,27 @@ export function createTourSessionController<View>(
       // practice session owns the store so neither autosave nor Save can write
       // Tour work. History and revision tracking remain fully functional.
       unsubscribeProject = projects.subscribe((nextState) => {
-        if (
-          nextState.projectSessionId === practiceSessionId &&
-          nextState.dirty
-        ) {
+        if (active && nextState.dirty) {
           projects.setState({ dirty: false, saveQueued: false });
         }
       });
       unsubscribeTour = tours.subscribe((nextState, previousState) => {
         if (previousState.activeTourId && !nextState.activeTourId) {
           restoreSession();
+        } else if (nextState.activeTourId) {
+          captureCheckpoint(nextState.stepIndex);
         }
       });
       tours.getState().start(tourId);
       return true;
+    },
+    restartStep() {
+      restoreCheckpoint(tours.getState().stepIndex);
+    },
+    restartLesson() {
+      restoreCheckpoint(0);
+      const projectId = projects.getState().project?.project_id;
+      if (projectId) options.showPracticeView(projectId);
     },
     restore() {
       if (active && tours.getState().activeTourId) {

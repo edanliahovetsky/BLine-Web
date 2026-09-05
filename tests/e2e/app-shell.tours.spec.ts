@@ -143,6 +143,26 @@ test("builds and orders the first path with manual Continue gates", async ({
     middleMeta,
   );
   await expect(page.getByTestId("path-element-row-2")).toContainText(goalMeta);
+
+  await next(page, 1);
+  for (let index = 0; index < 4; index += 1) {
+    await card.getByRole("button", { name: "Back", exact: true }).click();
+  }
+  await expect(card).toContainText("Place the endpoints");
+  await expect(card).toContainText("Previously completed");
+  await expect(
+    card.getByRole("button", { name: "Next", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    3,
+  );
+  await card
+    .getByRole("button", { name: "Restart exercise", exact: true })
+    .click();
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    0,
+  );
+  await expect(card).toContainText("Waiting for this action");
 });
 
 test("keeps tour actions visible and fades dialogue for inspection", async ({
@@ -237,7 +257,9 @@ test("uses each simulation control for one clear purpose", async ({ page }) => {
   await next(page, 2);
 
   await expect(card).toContainText("Add a rotation target");
-  await expect(page.getByRole("button", { name: "Rotation tool" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Rotation tool" }),
+  ).toBeEnabled();
   await expect(page.getByRole("button", { name: "Event tool" })).toBeEnabled();
   await expect(page.locator('[data-tour="transport-timeline"]')).toBeVisible();
 });

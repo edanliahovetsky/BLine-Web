@@ -43,6 +43,57 @@ const definition: TourDefinition = {
 };
 
 describe("Tour session", () => {
+  it("preserves later edits on Back and restores only the requested exercise checkpoint", () => {
+    const projects = createProjectStore();
+    const selections = createSelectionStore();
+    const tours = createTourStore();
+    const original = createProject({ project_id: "original", display_name: "Original", paths: [] });
+    projects.setState({
+      project: original,
+      activePathId: original.paths[0]?.path_id ?? null,
+    });
+    const controller = createTourSessionController({
+      projects,
+      selections,
+      tours,
+      resolveTour: () => definition,
+      captureView: () => null,
+      showPracticeView: () => {},
+      restoreView: () => {},
+    });
+    expect(controller.start("test-tour")).toBe(true);
+    const pathId = projects.getState().activePathId!;
+    projects.getState().renamePath(pathId, "First edit");
+    tours.getState().setStepComplete(0, true);
+    tours.getState().next(3);
+    projects.getState().renamePath(pathId, "Second edit");
+    tours.getState().setStepComplete(1, true);
+    tours.getState().next(3);
+    tours.getState().back();
+    expect(projects.getState().project?.paths[0].display_name).toBe(
+      "Second edit",
+    );
+    expect(tours.getState().completedStepIndexes).toEqual([0, 1]);
+    const previousSession = projects.getState().projectSessionId;
+    controller.restartStep();
+    expect(projects.getState().project?.paths[0].display_name).toBe(
+      "First edit",
+    );
+    expect(projects.getState().projectSessionId).not.toBe(previousSession);
+    expect(tours.getState().completedStepIndexes).toEqual([0]);
+    expect(tours.getState().furthestStepIndex).toBe(1);
+    projects.getState().renamePath(pathId, "Another attempt");
+    expect(projects.getState().dirty).toBe(false);
+    controller.restartLesson();
+    expect(projects.getState().project?.paths[0].display_name).toBe(
+      "Tour practice",
+    );
+    expect(tours.getState().stepIndex).toBe(0);
+    expect(tours.getState().completedStepIndexes).toEqual([]);
+    controller.restore();
+    expect(projects.getState().project).toBe(original);
+  });
+
   it("isolates practice and restores the exact unsaved editor session", async () => {
     const projects = createProjectStore();
     const selections = createSelectionStore();
