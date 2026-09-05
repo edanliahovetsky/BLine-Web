@@ -287,35 +287,22 @@
   flex-direction: column;
   gap: 10px;
 }
-.fc-pinned {
-  flex: none;
-  margin-bottom: 10px;
-}
-.fc-pin-label {
-  position: absolute;
-  top: 6px;
-  left: 12px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: #aed2ec;
-  font-size: 0.56rem;
-  line-height: 11px;
-  pointer-events: none;
-}
-.fc-paths .fc-pin-label {
-  left: 24px;
-}
-.fc-row.is-pinned .fc-select {
-  padding-top: 12px;
-}
 .fc-list-viewport {
   position: relative;
   flex: 1;
   min-height: 0;
   pointer-events: none;
 }
+.fc-list-viewport.has-stack-above {
+  --stack-clip-top: 74px;
+}
+.fc-list-viewport.has-stack-below {
+  --stack-clip-bottom: 74px;
+}
 .fc-list-scroll {
+  clip-path: inset(
+    var(--stack-clip-top, 0px) 0 var(--stack-clip-bottom, 0px) 0
+  );
   height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -346,12 +333,12 @@
   isolation: isolate;
 }
 .fc-edge-cap.is-above {
-  top: 10px;
-  --stack-step: -4px;
+  top: 12px;
+  --stack-step: -6px;
 }
 .fc-edge-cap.is-below {
-  bottom: 10px;
-  --stack-step: 4px;
+  bottom: 12px;
+  --stack-step: 6px;
 }
 .fc-stack-layer,
 .fc-stack-face {
@@ -366,8 +353,9 @@
 }
 .fc-stack-layer {
   z-index: calc(3 - var(--layer));
-  transform: translateY(calc(var(--layer) * var(--stack-step)))
-    scaleX(calc(1 - var(--layer) * 0.035));
+  left: calc(var(--layer) * 8px);
+  right: calc(var(--layer) * 8px);
+  transform: translateY(calc(var(--layer) * var(--stack-step)));
   background: #192a37;
 }
 .fc-stack-face {
@@ -403,8 +391,7 @@
 .fc-stack-copy {
   flex: 1;
   min-width: 0;
-  display: grid;
-  gap: 3px;
+  display: flex;
 }
 .fc-stack-copy strong {
   overflow: hidden;
@@ -412,10 +399,6 @@
   white-space: nowrap;
   font-size: 0.74rem;
   font-weight: 540;
-}
-.fc-stack-copy > span {
-  color: #97afc2;
-  font-size: 0.61rem;
 }
 .fc-edge-cap:hover .fc-stack-face {
   border-color: #739cbc;

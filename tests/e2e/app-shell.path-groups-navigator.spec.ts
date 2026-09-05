@@ -359,8 +359,8 @@ test("filters connections, keeps row order stable, and aligns links after resizi
   await expect(nav.locator(".fc-wire")).toHaveCount(4);
   await port(nav, "Testing").click();
   await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
-    "Backup",
     ...order,
+    "Backup",
   ]);
   await page.setViewportSize({ width: 780, height: 600 });
   await expect
@@ -460,7 +460,7 @@ async function seedLongLibrary(page: Page, longSide: "path" | "group") {
 }
 
 for (const longSide of ["path", "group"] as const) {
-  test(`keeps the selected ${longSide} column in its existing order and sorts only its neighbors`, async ({
+  test(`keeps the selected ${longSide} row in place and sorts only its neighbors`, async ({
     page,
   }) => {
     const nav = await seedLongLibrary(page, longSide);
@@ -472,15 +472,16 @@ for (const longSide of ["path", "group"] as const) {
     await port(nav, `${opposite} 02`).click();
     await port(nav, `${label} 23`).click();
     await expect(ownList.locator(".fc-name")).toHaveText(originalOrder);
+    const selectedRow = row(nav, `${label} 23`);
+    const beforeSelection = await requiredBox(selectedRow);
+    const beforeScroll = await ownList.evaluate((el) => el.scrollTop);
     await nav
       .getByRole("button", { name: `Focus ${label} 23`, exact: true })
       .click();
-    await expect(ownList.locator(".fc-name")).toHaveText(
-      originalOrder.filter((name) => name !== `${label} 23`),
-    );
-    await expect(nav.getByTestId(`pinned-${longSide}`)).toContainText(
-      `${label} 23`,
-    );
+    await expect(ownList.locator(".fc-name")).toHaveText(originalOrder);
+    await expect(selectedRow).toHaveClass(/is-focused/);
+    expect((await requiredBox(selectedRow)).y).toBe(beforeSelection.y);
+    expect(await ownList.evaluate((el) => el.scrollTop)).toBe(beforeScroll);
     await expect
       .poll(() => ownList.evaluate((el) => el.scrollTop))
       .toBeGreaterThan(0);
@@ -488,24 +489,33 @@ for (const longSide of ["path", "group"] as const) {
       `.fc-list-scroll[data-kind="${longSide === "path" ? "group" : "path"}"] .fc-name`,
     );
     await expect(neighbors.first()).toHaveText(`${opposite} 02`);
-    await nav
-      .getByRole("button", { name: `Focus ${label} 22`, exact: true })
-      .click();
-    await expect(ownList.locator(".fc-name")).toHaveText(
-      originalOrder.filter((name) => name !== `${label} 22`),
-    );
+    const nextChoice = nav.getByRole("button", {
+      name: `Focus ${label} 22`,
+      exact: true,
+    });
+    await nextChoice.scrollIntoViewIfNeeded();
+    const nextPosition = await requiredBox(row(nav, `${label} 22`));
+    await nextChoice.click();
+    await expect(ownList.locator(".fc-name")).toHaveText(originalOrder);
+    expect((await requiredBox(row(nav, `${label} 22`))).y).toBe(nextPosition.y);
     await expect(neighbors.first()).toHaveText(`${opposite} 00`);
+    const scrollBefore = await ownList.evaluate((el) => el.scrollTop);
+    await ownList.hover();
+    await page.mouse.wheel(0, -2200);
+    await expect.poll(() => ownList.evaluate((el) => el.scrollTop)).toBe(0);
+    expect((await requiredBox(row(nav, `${label} 22`))).y).toBe(
+      nextPosition.y + scrollBefore,
+    );
+    await expect(ownList.locator(".fc-row.is-focused")).toHaveCount(1);
   });
 
-  test(`pins the selection while the long ${longSide} list scrolls and re-sorts only on request`, async ({
+  test(`scrolls the long ${longSide} list independently and displays clean connection stacks`, async ({
     page,
   }, testInfo) => {
     const nav = await seedLongLibrary(page, longSide);
     const oppositeName = longSide === "path" ? "Path" : "Group";
     const sourceName = longSide === "path" ? "Group 00" : "Path 00";
-    const pin = nav.getByTestId(
-      `pinned-${longSide === "path" ? "group" : "path"}`,
-    );
+    const selection = row(nav, sourceName);
     const list = nav.locator(`.fc-list-scroll[data-kind="${longSide}"]`);
     const names = list.locator(".fc-name");
     await expect(names).toHaveCount(24);
@@ -515,14 +525,14 @@ for (const longSide of ["path", "group"] as const) {
       ),
     );
     await expect(row(nav, sourceName)).toHaveCount(1);
-    const anchor = await requiredBox(pin);
+    const anchor = await requiredBox(selection);
     const order = await names.allTextContents();
     await list.hover();
     await page.mouse.wheel(0, 2200);
     await expect
       .poll(() => list.evaluate((el) => el.scrollTop))
       .toBeGreaterThan(700);
-    expect((await requiredBox(pin)).y).toBe(anchor.y);
+    expect((await requiredBox(selection)).y).toBe(anchor.y);
     const stack = nav.getByRole("button", { name: /connected above/ });
     await expect(stack).toBeVisible();
     await expect(stack.locator(".fc-stack-layer")).toHaveCount(2);
@@ -530,6 +540,21 @@ for (const longSide of ["path", "group"] as const) {
     const cardBox = await requiredBox(row(nav, `${oppositeName} 23`));
     expect(stackBox.height).toBe(cardBox.height);
     expect(Math.abs(stackBox.width - cardBox.width)).toBeLessThan(2);
+    // Hidden rows must not show or receive clicks through the stack's layers.
+    expect(
+      await page.evaluate(
+        ({ x, y }) =>
+          Boolean(document.elementFromPoint(x, y)?.closest(".fc-row")),
+        { x: stackBox.x + stackBox.width / 2, y: stackBox.y - 8 },
+      ),
+    ).toBe(false);
+    expect(
+      await page.evaluate(
+        ({ x, y }) =>
+          Boolean(document.elementFromPoint(x, y)?.closest(".fc-row")),
+        { x: stackBox.x, y: stackBox.y + stackBox.height / 2 },
+      ),
+    ).toBe(false);
     await nav.screenshot({ path: testInfo.outputPath("offscreen-stacks.png") });
 
     await startDrag(
@@ -543,7 +568,7 @@ for (const longSide of ["path", "group"] as const) {
       longSide === "path" ? "6 Paths connected" : "6 Path Groups connected",
     );
     await expect(names).toHaveText(order);
-    expect((await requiredBox(pin)).y).toBe(anchor.y);
+    expect((await requiredBox(selection)).y).toBe(anchor.y);
     await page.keyboard.press("ControlOrMeta+z");
     await expect(focusCount(nav)).toHaveText(
       longSide === "path" ? "5 Paths connected" : "5 Path Groups connected",
@@ -567,7 +592,7 @@ for (const longSide of ["path", "group"] as const) {
     await expect
       .poll(() => list.evaluate((el) => el.scrollTop))
       .toBeGreaterThan(0);
-    expect((await requiredBox(pin)).y).toBe(anchor.y);
+    expect((await requiredBox(selection)).y).toBe(anchor.y);
     await nav
       .getByRole("searchbox", {
         name: longSide === "path" ? "Search paths" : "Find a Path Group",
@@ -576,13 +601,13 @@ for (const longSide of ["path", "group"] as const) {
       .fill(`${oppositeName} 23`);
     await expect(names).toHaveText([`${oppositeName} 23`]);
     await expect(focusCount(nav)).toContainText("5 hidden by search");
-    await expect(pin).toBeVisible();
+    await expect(selection).toBeVisible();
     await expect(nav.locator(".fc-edge-cap")).toHaveCount(0);
     await expect(nav.locator(".fc-wire")).toHaveCount(1);
   });
 }
 
-test("scrolls the destination list during a drag without reordering or losing the pinned source", async ({
+test("scrolls the destination list during a drag without reordering or moving the source", async ({
   page,
 }) => {
   const nav = await seedLongLibrary(page, "path");
@@ -603,7 +628,7 @@ test("scrolls the destination list during a drag without reordering or losing th
   await expect
     .poll(() => list.evaluate((el) => el.scrollTop))
     .toBeGreaterThan(400);
-  await expect(nav.getByTestId("pinned-group")).toBeVisible();
+  await expect(row(nav, "Group 00")).toBeVisible();
   await expect(list.locator(".fc-name")).toHaveText(order);
   await page.keyboard.press("Escape");
   await page.mouse.up();

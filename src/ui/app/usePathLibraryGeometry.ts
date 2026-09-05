@@ -38,10 +38,10 @@ export function usePathLibraryGeometry(
       // Keep endpoints covered by a stack in that stack's connection count.
       viewports.set(scroll, {
         top:
-          rect.top + (connectedCenters.some((y) => y < rect.top + 4) ? 64 : 4),
+          rect.top + (connectedCenters.some((y) => y < rect.top + 4) ? 74 : 4),
         bottom:
           rect.bottom -
-          (connectedCenters.some((y) => y > rect.bottom - 4) ? 64 : 4),
+          (connectedCenters.some((y) => y > rect.bottom - 4) ? 74 : 4),
       });
     });
     const points = new Map<string, PortPoint>();
@@ -72,7 +72,7 @@ export function usePathLibraryGeometry(
           overflowAnchors.set(`${kind}:${direction}`, {
             x: (kind === "group" ? rect.right : rect.left) - bounds.x,
             y:
-              (direction === "above" ? rect.top + 35 : rect.bottom - 35) -
+              (direction === "above" ? rect.top + 37 : rect.bottom - 37) -
               bounds.y,
           });
         }
@@ -92,7 +92,7 @@ export function usePathLibraryGeometry(
     const observer = new ResizeObserver(measure);
     observer.observe(board);
     board
-      .querySelectorAll(".fc-list-viewport, .fc-pinned")
+      .querySelectorAll(".fc-list-viewport")
       .forEach((node) => observer.observe(node));
     return () => observer.disconnect();
   }, [boardRef, layoutKey, measure]);

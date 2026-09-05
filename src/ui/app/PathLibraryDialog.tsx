@@ -19,7 +19,6 @@ import {
   Search,
   Trash2,
   ExternalLink,
-  Pin,
   ArrowDown,
   ArrowUp,
 } from "lucide-react";
@@ -170,7 +169,7 @@ export function PathLibraryDialog({
     captureLibraryOrder(project, focus),
   );
   let order = capturedOrder;
-  // Reconcile a deleted/undone selection before rendering its new pinned row.
+  // Reconcile a deleted/undone selection without changing the selected column’s order.
   if (order.focusKey !== focusKey) {
     order = captureLibraryOrder(project, focus, order);
     setCapturedOrder(order);
@@ -589,7 +588,7 @@ export function PathLibraryDialog({
   if (selectedEdge)
     status = `${groups.find((node) => node.id === selectedEdge.groupId)?.name} ↔ ${paths.find((node) => node.id === selectedEdge.pathId)?.name}`;
 
-  const renderNode = (node: Node, pinned = false) => {
+  const renderNode = (node: Node) => {
     const isFocused = sameNode(focus, node),
       isRelated = related(node),
       isEditing = sameNode(editing, node);
@@ -604,7 +603,7 @@ export function PathLibraryDialog({
     return (
       <div
         key={node.id}
-        className={`fc-row${pinned ? " is-pinned" : ""} ${node.kind === "path" ? "all-paths__row" : ""}${isFocused ? " is-focused" : isRelated ? " is-related" : !isTarget ? " is-muted" : ""}${isTarget ? " is-target" : ""}${sameNode(drag.view?.target ?? null, node) ? " is-drop-target" : ""}`}
+        className={`fc-row ${node.kind === "path" ? "all-paths__row" : ""}${isFocused ? " is-focused" : isRelated ? " is-related" : !isTarget ? " is-muted" : ""}${isTarget ? " is-target" : ""}${sameNode(drag.view?.target ?? null, node) ? " is-drop-target" : ""}`}
         data-kind={node.kind}
         data-node-id={node.id}
       >
@@ -708,12 +707,6 @@ export function PathLibraryDialog({
             </button>
           </>
         )}
-        {pinned && !isEditing && (
-          <span className="fc-pin-label">
-            <Pin size={10} />
-            Selected
-          </span>
-        )}
         <button
           type="button"
           className={`fc-port${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
@@ -739,18 +732,14 @@ export function PathLibraryDialog({
   };
 
   const renderColumnRows = (kind: LibraryNode["kind"], nodes: Node[]) => {
-    const pinned = focus?.kind === kind ? focus : null;
-    const rest = nodes.filter((node) => !sameNode(node, pinned));
     const total = kind === "group" ? groups.length : paths.length;
     const query = kind === "group" ? groupQuery : pathQuery;
     return (
       <>
-        {pinned && (
-          <div className="fc-pinned" data-testid={`pinned-${kind}`}>
-            {renderNode(pinned, true)}
-          </div>
-        )}
-        <div className="fc-list-viewport" data-kind={kind}>
+        <div
+          className={`fc-list-viewport${offscreen[kind].above.length ? " has-stack-above" : ""}${offscreen[kind].below.length ? " has-stack-below" : ""}`}
+          data-kind={kind}
+        >
           <div
             className="fc-list-scroll"
             data-kind={kind}
@@ -760,18 +749,16 @@ export function PathLibraryDialog({
             }
           >
             <div className="fc-rows">
-              {rest.map((node) => renderNode(node))}
-              {!rest.length && (
+              {nodes.map((node) => renderNode(node))}
+              {!nodes.length && (
                 <div className="fc-empty">
                   {query.trim()
                     ? `No ${kind === "group" ? "Path Groups" : "Paths"} match your search.`
-                    : pinned
-                      ? `The selected ${kind === "group" ? "Path Group" : "Path"} stays here while you scroll.`
-                      : total
-                        ? "Select an item to see its connections."
-                        : kind === "group"
-                          ? "Create a Path Group, then link your Paths."
-                          : "Create your first Path."}
+                    : total
+                      ? "Select an item to see its connections."
+                      : kind === "group"
+                        ? "Create a Path Group, then link your Paths."
+                        : "Create your first Path."}
                 </div>
               )}
             </div>
@@ -784,6 +771,7 @@ export function PathLibraryDialog({
                 type="button"
                 className={`fc-edge-cap is-${direction}`}
                 aria-label={`${ids.length} connected ${direction}`}
+                title={`Show connections ${direction}`}
                 onClick={() => jumpToConnection(kind, ids, direction)}
               >
                 {Array.from(
@@ -814,7 +802,6 @@ export function PathLibraryDialog({
                           ? "Path Groups"
                           : "Paths"}
                     </strong>
-                    <span>Scroll to connections {direction}</span>
                   </span>
                   {direction === "above" ? (
                     <ArrowUp size={15} />
