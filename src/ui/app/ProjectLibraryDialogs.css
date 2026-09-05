@@ -553,7 +553,8 @@
   stroke-dasharray: 3 4;
   opacity: 0.65;
 }
-.fc-wire.is-dim {
+.fc-wire.is-dim,
+.fc-overflow-wire.is-dim {
   opacity: 0.13;
   stroke: #91adbf;
   stroke-width: 1.2;

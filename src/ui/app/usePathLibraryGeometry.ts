@@ -30,7 +30,9 @@ export function usePathLibraryGeometry(
     board.querySelectorAll(".fc-list-scroll").forEach((scroll) => {
       const rect = scroll.getBoundingClientRect();
       const connectedCenters = [
-        ...scroll.querySelectorAll(".fc-row.is-related .fc-port"),
+        ...scroll.querySelectorAll(
+          '.fc-row[data-has-visible-connection="true"] .fc-port',
+        ),
       ].map((port) => {
         const point = port.getBoundingClientRect();
         return point.y + point.height / 2;

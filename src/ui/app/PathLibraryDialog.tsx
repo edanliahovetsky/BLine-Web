@@ -213,6 +213,15 @@ export function PathLibraryDialog({
   const hiddenCount = focus
     ? focus.count - visibleEdges.filter((edge) => incident(edge, focus)).length
     : 0;
+  const displayedEdges = visibleEdges.filter(
+    (edge) => showAll || incident(edge, focus),
+  );
+  const displayedNodeKeys = new Set(
+    displayedEdges.flatMap((edge) => [
+      `group:${edge.groupId}`,
+      `path:${edge.pathId}`,
+    ]),
+  );
 
   // An inline editor or menu can unmount with focus still inside it. Keep
   // shortcuts in this dialog, while leaving any dialog opened above it alone.
@@ -232,7 +241,7 @@ export function PathLibraryDialog({
   useEffect(() => {
     dialogRef.current?.focus({ preventScroll: true });
   }, [dialogRef]);
-  const layoutKey = `${focusKey}|${currentNeighbors.join(",")}|${visibleGroups.map((node) => node.id).join(",")}|${visiblePaths.map((node) => node.id).join(",")}`;
+  const layoutKey = `${focusKey}|${[...displayedNodeKeys].join(",")}|${visibleGroups.map((node) => node.id).join(",")}|${visiblePaths.map((node) => node.id).join(",")}`;
   const { geometry, measure, jumpToConnection } = usePathLibraryGeometry(
     boardRef,
     layoutKey,
@@ -272,13 +281,44 @@ export function PathLibraryDialog({
     group: { above: [], below: [] },
     path: { above: [], below: [] },
   };
-  if (focus) {
-    const kind = focus.kind === "group" ? "path" : "group";
-    for (const edge of visibleEdges.filter((edge) => incident(edge, focus))) {
+  const overflowWires = new Map<
+    string,
+    { from: ConnectionPoint; to: ConnectionPoint; active: boolean }
+  >();
+  for (const edge of displayedEdges) {
+    const groupPoint = geometry.points.get(`group:${edge.groupId}`);
+    const pathPoint = geometry.points.get(`path:${edge.pathId}`);
+    if (!groupPoint || !pathPoint) continue;
+    for (const kind of ["group", "path"] as const) {
       const id = kind === "group" ? edge.groupId : edge.pathId;
-      const point = geometry.points.get(`${kind}:${id}`);
-      if (point?.offscreen) offscreen[kind][point.offscreen].push(id);
+      const point = kind === "group" ? groupPoint : pathPoint;
+      if (point.offscreen) {
+        const ids = offscreen[kind][point.offscreen];
+        if (!ids.includes(id)) ids.push(id);
+      }
     }
+    if (!groupPoint.offscreen && !pathPoint.offscreen) continue;
+    const groupKey = groupPoint.offscreen
+      ? `group:${groupPoint.offscreen}`
+      : `group:${edge.groupId}`;
+    const pathKey = pathPoint.offscreen
+      ? `path:${pathPoint.offscreen}`
+      : `path:${edge.pathId}`;
+    const from = groupPoint.offscreen
+      ? geometry.overflowAnchors.get(groupKey)
+      : groupPoint;
+    const to = pathPoint.offscreen
+      ? geometry.overflowAnchors.get(pathKey)
+      : pathPoint;
+    if (!from || !to) continue;
+    // Shared endpoints contribute one item to the bar and one aggregate wire.
+    const wireKey = `${groupKey}:${pathKey}`;
+    overflowWires.set(wireKey, {
+      from,
+      to,
+      active:
+        incident(edge, focus) || Boolean(overflowWires.get(wireKey)?.active),
+    });
   }
 
   useEffect(() => {
@@ -606,6 +646,7 @@ export function PathLibraryDialog({
         className={`fc-row ${node.kind === "path" ? "all-paths__row" : ""}${isFocused ? " is-focused" : isRelated ? " is-related" : !isTarget ? " is-muted" : ""}${isTarget ? " is-target" : ""}${sameNode(drag.view?.target ?? null, node) ? " is-drop-target" : ""}`}
         data-kind={node.kind}
         data-node-id={node.id}
+        data-has-visible-connection={displayedNodeKeys.has(keyFor(node))}
       >
         {isEditing && editing ? (
           <div className="fc-rename">
@@ -895,53 +936,39 @@ export function PathLibraryDialog({
               aria-hidden="true"
               viewBox={`0 0 ${geometry.width} ${geometry.height}`}
             >
-              {visibleEdges
-                .filter((edge) => showAll || incident(edge, focus))
-                .map((edge) => {
-                  const from = geometry.points.get(`group:${edge.groupId}`),
-                    to = geometry.points.get(`path:${edge.pathId}`);
-                  if (!from || !to || from.offscreen || to.offscreen)
-                    return null;
-                  const selected =
-                    selectedEdge?.groupId === edge.groupId &&
-                    selectedEdge?.pathId === edge.pathId;
-                  return (
-                    <g
-                      key={`${edge.groupId}:${edge.pathId}`}
-                      className="fc-wire-group"
-                    >
-                      <path
-                        className={`fc-wire${incident(edge, focus) ? "" : " is-dim"}${selected ? " is-selected" : ""}`}
-                        d={curve(from, to)}
-                      />
-                      <path
-                        className="fc-wire-hit"
-                        d={curve(from, to)}
-                        onClick={() => {
-                          if (!pending && !drag.view) setSelectedEdge(edge);
-                        }}
-                      />
-                    </g>
-                  );
-                })}
-              {focus &&
-                (["group", "path"] as const).flatMap((kind) =>
-                  (["above", "below"] as const).map((direction) => {
-                    if (!offscreen[kind][direction].length) return null;
-                    const from = geometry.points.get(keyFor(focus));
-                    const to = geometry.overflowAnchors.get(
-                      `${kind}:${direction}`,
-                    );
-                    if (!from || !to || from.offscreen) return null;
-                    return (
-                      <path
-                        key={`${kind}:${direction}`}
-                        className="fc-overflow-wire"
-                        d={curve(from, to, focus.kind === "path" ? -1 : 1)}
-                      />
-                    );
-                  }),
-                )}
+              {displayedEdges.map((edge) => {
+                const from = geometry.points.get(`group:${edge.groupId}`),
+                  to = geometry.points.get(`path:${edge.pathId}`);
+                if (!from || !to || from.offscreen || to.offscreen) return null;
+                const selected =
+                  selectedEdge?.groupId === edge.groupId &&
+                  selectedEdge?.pathId === edge.pathId;
+                return (
+                  <g
+                    key={`${edge.groupId}:${edge.pathId}`}
+                    className="fc-wire-group"
+                  >
+                    <path
+                      className={`fc-wire${incident(edge, focus) ? "" : " is-dim"}${selected ? " is-selected" : ""}`}
+                      d={curve(from, to)}
+                    />
+                    <path
+                      className="fc-wire-hit"
+                      d={curve(from, to)}
+                      onClick={() => {
+                        if (!pending && !drag.view) setSelectedEdge(edge);
+                      }}
+                    />
+                  </g>
+                );
+              })}
+              {[...overflowWires].map(([key, wire]) => (
+                <path
+                  key={key}
+                  className={`fc-overflow-wire${wire.active ? "" : " is-dim"}`}
+                  d={curve(wire.from, wire.to)}
+                />
+              ))}
               {previewStart && !previewStart.offscreen && previewEnd && (
                 <>
                   <path

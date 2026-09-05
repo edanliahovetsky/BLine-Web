@@ -460,6 +460,36 @@ async function seedLongLibrary(page: Page, longSide: "path" | "group") {
 }
 
 for (const longSide of ["path", "group"] as const) {
+  test(`keeps connections visible when the selected ${longSide} scrolls out of view`, async ({
+    page,
+  }) => {
+    const nav = await seedLongLibrary(page, longSide);
+    const label = longSide === "path" ? "Path" : "Group";
+    const list = nav.locator(`.fc-list-scroll[data-kind="${longSide}"]`);
+    await nav
+      .getByRole("button", { name: `Focus ${label} 00`, exact: true })
+      .click();
+    const names = await list.locator(".fc-name").allTextContents();
+    const connectionCount = longSide === "path" ? 2 : 1;
+    await expect(nav.locator(".fc-wire")).toHaveCount(connectionCount);
+    await list.hover();
+    await page.mouse.wheel(0, 60);
+    const bar = nav.getByRole("button", {
+      name: longSide === "path" ? "1 Path above" : "1 Path Group above",
+      exact: true,
+    });
+    await expect(bar).toBeVisible();
+    await expect(nav.locator(".fc-wire")).toHaveCount(0);
+    await expect(nav.locator(".fc-overflow-wire")).toHaveCount(connectionCount);
+    await expect(list.locator(".fc-name")).toHaveText(names);
+    await expect(focusName(nav)).toHaveText(`${label} 00`);
+    await bar.click();
+    await expect(bar).toHaveCount(0);
+    await expect(nav.locator(".fc-wire")).toHaveCount(connectionCount);
+    await expect(nav.locator(".fc-overflow-wire")).toHaveCount(0);
+    await expect(list.locator(".fc-name")).toHaveText(names);
+  });
+
   test(`keeps the selected ${longSide} row in place and sorts only its neighbors`, async ({
     page,
   }) => {
@@ -595,6 +625,35 @@ for (const longSide of ["path", "group"] as const) {
     await expect(nav.locator(".fc-wire")).toHaveCount(1);
   });
 }
+
+test("includes every displayed connection in overflow bars when showing all connections", async ({
+  page,
+}) => {
+  const nav = await seedLongLibrary(page, "path");
+  await nav
+    .getByRole("button", { name: "Focus Group 01", exact: true })
+    .click();
+  const list = nav.locator('.fc-list-scroll[data-kind="path"]');
+  await list.hover();
+  await page.mouse.wheel(0, 2200);
+  await expect(
+    nav.getByRole("button", { name: "1 Path above", exact: true }),
+  ).toBeVisible();
+  await expect(nav.locator(".fc-overflow-wire")).toHaveCount(1);
+  await nav.getByRole("checkbox", { name: "Show all connections" }).check();
+  // Path 00 counts once across both groups; Path 22 remains visible below.
+  await expect(
+    nav.getByRole("button", { name: "4 Paths above", exact: true }),
+  ).toBeVisible();
+  await expect(nav.locator(".fc-wire")).toHaveCount(1);
+  await expect(nav.locator(".fc-overflow-wire")).toHaveCount(2);
+  await expect(nav.locator(".fc-overflow-wire.is-dim")).toHaveCount(1);
+  await nav.getByRole("checkbox", { name: "Show all connections" }).uncheck();
+  await expect(
+    nav.getByRole("button", { name: "1 Path above", exact: true }),
+  ).toBeVisible();
+  await expect(nav.locator(".fc-overflow-wire")).toHaveCount(1);
+});
 
 test("scrolls the destination list during a drag without reordering or moving the source", async ({
   page,
