@@ -207,7 +207,7 @@
 .fc-column > * {
   pointer-events: auto;
 }
-.fc-collections {
+.fc-groups {
   grid-column: 1;
 }
 .fc-paths {
@@ -376,10 +376,10 @@
   background: transparent;
   color: #8fa7b8;
 }
-.fc-collections .fc-more {
+.fc-groups .fc-more {
   margin-right: 24px;
 }
-.fc-collections .fc-rename {
+.fc-groups .fc-rename {
   padding-right: 24px;
 }
 .fc-more:hover,
@@ -417,7 +417,7 @@
   background: #7793a9;
   border-radius: 50%;
 }
-.fc-collections .fc-port {
+.fc-groups .fc-port {
   right: -11px;
 }
 .fc-paths .fc-port {

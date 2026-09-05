@@ -7,8 +7,8 @@ import {
   type RefObject,
 } from "react";
 
-export interface CollectionNode {
-  kind: "collection" | "path";
+export interface LibraryNode {
+  kind: "group" | "path";
   id: string;
 }
 export interface ConnectionPoint {
@@ -16,12 +16,12 @@ export interface ConnectionPoint {
   y: number;
 }
 interface DragView {
-  source: CollectionNode;
-  target: CollectionNode | null;
+  source: LibraryNode;
+  target: LibraryNode | null;
   point: ConnectionPoint;
 }
 interface DragSession {
-  source: CollectionNode;
+  source: LibraryNode;
   pointerId: number;
   start: ConnectionPoint;
   client: ConnectionPoint;
@@ -29,11 +29,11 @@ interface DragSession {
 }
 
 /** Capture on the board, which stays mounted when the focused rows change. */
-export function useCollectionLinkDrag(
+export function usePathGroupLinkDrag(
   boardRef: RefObject<HTMLDivElement | null>,
-  onStart: (source: CollectionNode) => void,
-  onConnect: (source: CollectionNode, target: CollectionNode) => void,
-  onTap: (source: CollectionNode) => void,
+  onStart: (source: LibraryNode) => void,
+  onConnect: (source: LibraryNode, target: LibraryNode) => void,
+  onTap: (source: LibraryNode) => void,
 ) {
   const session = useRef<DragSession | null>(null);
   const [view, setView] = useState<DragView | null>(null);
@@ -66,11 +66,11 @@ export function useCollectionLinkDrag(
       ?.closest<HTMLElement>(".fc-row");
     const kind = row?.dataset.kind;
     const id = row?.dataset.nodeId;
-    const target: CollectionNode | null =
+    const target: LibraryNode | null =
       row &&
       board?.contains(row) &&
       id &&
-      (kind === "collection" || kind === "path") &&
+      (kind === "group" || kind === "path") &&
       kind !== current.source.kind
         ? { kind, id }
         : null;
@@ -85,7 +85,7 @@ export function useCollectionLinkDrag(
   };
   const start = (
     event: PointerEvent<HTMLButtonElement>,
-    source: CollectionNode,
+    source: LibraryNode,
   ) => {
     if (event.button !== 0 || !event.isPrimary || session.current) return;
     event.preventDefault();

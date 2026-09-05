@@ -27,13 +27,13 @@ import { isEditableShortcutTarget } from "../keyboardShortcuts";
 import { CloseButton } from "../controls";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import {
-  useCollectionLinkDrag,
-  type CollectionNode,
+  usePathGroupLinkDrag,
+  type LibraryNode,
   type ConnectionPoint,
-} from "./useCollectionLinkDrag";
+} from "./usePathGroupLinkDrag";
 import "./ProjectLibraryDialogs.css";
 
-interface Node extends CollectionNode {
+interface Node extends LibraryNode {
   name: string;
   count: number;
 }
@@ -41,7 +41,7 @@ interface Edge {
   groupId: string;
   pathId: string;
 }
-interface InlineEdit extends CollectionNode {
+interface InlineEdit extends LibraryNode {
   value: string;
 }
 interface RowMenu {
@@ -50,17 +50,15 @@ interface RowMenu {
   y: number;
   trigger: HTMLButtonElement;
 }
-const keyFor = (node: CollectionNode) => `${node.kind}:${node.id}`;
-const sameNode = (a: CollectionNode | null, b: CollectionNode | null) =>
+const keyFor = (node: LibraryNode) => `${node.kind}:${node.id}`;
+const sameNode = (a: LibraryNode | null, b: LibraryNode | null) =>
   Boolean(a && b && a.kind === b.kind && a.id === b.id);
-const edgeFor = (a: CollectionNode, b: CollectionNode): Edge =>
-  a.kind === "collection"
+const edgeFor = (a: LibraryNode, b: LibraryNode): Edge =>
+  a.kind === "group"
     ? { groupId: a.id, pathId: b.id }
     : { groupId: b.id, pathId: a.id };
-const incident = (edge: Edge, node: CollectionNode | null) =>
-  node?.kind === "collection"
-    ? edge.groupId === node.id
-    : edge.pathId === node?.id;
+const incident = (edge: Edge, node: LibraryNode | null) =>
+  node?.kind === "group" ? edge.groupId === node.id : edge.pathId === node?.id;
 const uniqueName = (base: string, names: string[]) => {
   const existing = new Set(names.map((name) => name.toLocaleLowerCase()));
   let value = base,
@@ -80,7 +78,7 @@ export function PathLibraryDialog({
   onCancel,
   onCreatePath,
   onDeletePaths,
-  onPreviewCollection,
+  onPreviewPathGroup,
 }: {
   project: Project;
   activePathId: string | null;
@@ -88,23 +86,23 @@ export function PathLibraryDialog({
   onCancel(): void;
   onCreatePath(groupId: string | null): void;
   onDeletePaths(pathIds: readonly string[]): void;
-  onPreviewCollection(): void;
+  onPreviewPathGroup(): void;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
   const boardRef = useRef<HTMLDivElement>(null);
   const skipBlur = useRef(false);
-  const [selected, setSelected] = useState<CollectionNode | null>(() =>
+  const [selected, setSelected] = useState<LibraryNode | null>(() =>
     activePathGroupId
-      ? { kind: "collection", id: activePathGroupId }
+      ? { kind: "group", id: activePathGroupId }
       : activePathId
         ? { kind: "path", id: activePathId }
         : null,
   );
-  const [collectionContext, setCollectionContext] = useState(activePathGroupId);
-  const [collectionQuery, setCollectionQuery] = useState("");
+  const [groupContext, setGroupContext] = useState(activePathGroupId);
+  const [groupQuery, setGroupQuery] = useState("");
   const [pathQuery, setPathQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
-  const [pending, setPending] = useState<CollectionNode | null>(null);
+  const [pending, setPending] = useState<LibraryNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [editing, setEditing] = useState<InlineEdit | null>(null);
   const [menu, setMenu] = useState<RowMenu | null>(null);
@@ -116,15 +114,15 @@ export function PathLibraryDialog({
     points: Map<string, ConnectionPoint>;
   }>({ width: 1, height: 1, points: new Map() });
 
-  const { collections, paths, edges } = useMemo(() => {
+  const { groups, paths, edges } = useMemo(() => {
     const edges: Edge[] = project.path_groups.flatMap((group) =>
       group.path_ids.map((pathId) => ({ groupId: group.group_id, pathId })),
     );
     const counts = new Map<string, number>();
     for (const edge of edges)
       counts.set(edge.pathId, (counts.get(edge.pathId) ?? 0) + 1);
-    const collections: Node[] = project.path_groups.map((group) => ({
-      kind: "collection",
+    const groups: Node[] = project.path_groups.map((group) => ({
+      kind: "group",
       id: group.group_id,
       name: group.display_name,
       count: group.path_ids.length,
@@ -139,21 +137,21 @@ export function PathLibraryDialog({
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
       a.id.localeCompare(b.id);
     return {
-      collections: collections.sort(order),
+      groups: groups.sort(order),
       paths: paths.sort(order),
       edges,
     };
   }, [project]);
-  const findNode = (node: CollectionNode | null) =>
+  const findNode = (node: LibraryNode | null) =>
     node
-      ? (node.kind === "collection" ? collections : paths).find(
+      ? (node.kind === "group" ? groups : paths).find(
           (item) => item.id === node.id,
         )
       : undefined;
   const focus =
     findNode(selected) ??
     paths.find((node) => node.id === activePathId) ??
-    collections[0] ??
+    groups[0] ??
     paths[0] ??
     null;
   const connected = (edge: Edge) =>
@@ -165,14 +163,14 @@ export function PathLibraryDialog({
     Boolean(
       focus && node.kind !== focus.kind && connected(edgeFor(focus, node)),
     );
-  const visibleCollections = useMemo(
+  const visibleGroups = useMemo(
     () =>
-      collections.filter((node) =>
+      groups.filter((node) =>
         node.name
           .toLocaleLowerCase()
-          .includes(collectionQuery.trim().toLocaleLowerCase()),
+          .includes(groupQuery.trim().toLocaleLowerCase()),
       ),
-    [collections, collectionQuery],
+    [groups, groupQuery],
   );
   const visiblePaths = useMemo(
     () =>
@@ -190,7 +188,7 @@ export function PathLibraryDialog({
   );
   const visibleEdges = edges.filter(
     (edge) =>
-      visibleCollections.some((node) => node.id === edge.groupId) &&
+      visibleGroups.some((node) => node.id === edge.groupId) &&
       visiblePaths.some((node) => node.id === edge.pathId),
   );
   const hiddenCount = focus
@@ -234,7 +232,7 @@ export function PathLibraryDialog({
     const observer = new ResizeObserver(measure);
     observer.observe(board);
     return () => observer.disconnect();
-  }, [visibleCollections, visiblePaths]);
+  }, [visibleGroups, visiblePaths]);
 
   useEffect(() => {
     if (!menu) return;
@@ -268,7 +266,7 @@ export function PathLibraryDialog({
       return false;
     }
   };
-  const connect = (source: CollectionNode, target: CollectionNode) => {
+  const connect = (source: LibraryNode, target: LibraryNode) => {
     if (source.kind === target.kind || !findNode(source) || !findNode(target))
       return;
     const edge = edgeFor(source, target);
@@ -299,7 +297,7 @@ export function PathLibraryDialog({
     )
       setMessage("Connection removed. The Path is kept.");
   };
-  const tapPort = (node: CollectionNode) => {
+  const tapPort = (node: LibraryNode) => {
     if (focus && node.kind !== focus.kind && connected(edgeFor(focus, node))) {
       disconnect(edgeFor(focus, node));
       return;
@@ -315,10 +313,10 @@ export function PathLibraryDialog({
     else {
       setSelected(node);
       setPending(node);
-      if (node.kind === "collection") setCollectionContext(node.id);
+      if (node.kind === "group") setGroupContext(node.id);
     }
   };
-  const drag = useCollectionLinkDrag(
+  const drag = usePathGroupLinkDrag(
     boardRef,
     (source) => {
       setSelected(source);
@@ -326,7 +324,7 @@ export function PathLibraryDialog({
       setMenu(null);
       setSelectedEdge(null);
       setMessage("");
-      if (source.kind === "collection") setCollectionContext(source.id);
+      if (source.kind === "group") setGroupContext(source.id);
     },
     connect,
     tapPort,
@@ -341,7 +339,7 @@ export function PathLibraryDialog({
     setSelectedEdge(null);
     setMenu(null);
     setMessage("");
-    if (node.kind === "collection") setCollectionContext(node.id);
+    if (node.kind === "group") setGroupContext(node.id);
   };
   const startRename = (node: Node) => {
     skipBlur.current = false;
@@ -358,7 +356,7 @@ export function PathLibraryDialog({
       setError("Enter a name.");
       return;
     }
-    const peers = editing.kind === "collection" ? collections : paths;
+    const peers = editing.kind === "group" ? groups : paths;
     if (
       peers.some(
         (node) =>
@@ -377,7 +375,7 @@ export function PathLibraryDialog({
     }
     if (
       mutate(() =>
-        editing.kind === "collection"
+        editing.kind === "group"
           ? projectStore.getState().renamePathGroup(editing.id, name)
           : projectStore.getState().renamePath(editing.id, name),
       )
@@ -386,12 +384,12 @@ export function PathLibraryDialog({
       setMessage("Name updated.");
     }
   };
-  const createCollection = (source?: Node) => {
+  const createGroup = (source?: Node) => {
     setMenu(null);
     setPending(null);
     const name = uniqueName(
-      source ? `${source.name} Copy` : "New Collection",
-      collections.map((node) => node.name),
+      source ? `${source.name} Copy` : "New Path Group",
+      groups.map((node) => node.name),
     );
     const group = source
       ? project.path_groups.find((group) => group.group_id === source.id)
@@ -409,24 +407,24 @@ export function PathLibraryDialog({
     const created = projectStore
       .getState()
       .project?.path_groups.find(
-        (group) => !collections.some((node) => node.id === group.group_id),
+        (group) => !groups.some((node) => node.id === group.group_id),
       );
     if (created) {
       const node: Node = {
-        kind: "collection",
+        kind: "group",
         id: created.group_id,
         name: created.display_name,
         count: created.path_ids.length,
       };
-      setCollectionQuery("");
+      setGroupQuery("");
       setSelected(node);
-      setCollectionContext(node.id);
+      setGroupContext(node.id);
       startRename(node);
     }
   };
   const duplicate = (node: Node) => {
-    if (node.kind === "collection") {
-      createCollection(node);
+    if (node.kind === "group") {
+      createGroup(node);
       return;
     }
     setMenu(null);
@@ -467,16 +465,16 @@ export function PathLibraryDialog({
     setSelectedEdge(null);
     if (node.kind === "path") onDeletePaths([node.id]);
     else if (mutate(() => projectStore.getState().deletePathGroup(node.id)))
-      setMessage("Collection deleted. Its Paths are kept.");
+      setMessage("Path Group deleted. Its Paths are kept.");
   };
   const openOnCanvas = (node: Node) => {
-    if (node.kind === "collection") {
+    if (node.kind === "group") {
       if (!node.count) return;
       projectStore.getState().setActivePathGroup(node.id);
-      onPreviewCollection();
+      onPreviewPathGroup();
     } else {
       const groupId =
-        [collectionContext, activePathGroupId].find(
+        [groupContext, activePathGroupId].find(
           (id) => id && connected({ groupId: id, pathId: node.id }),
         ) ?? null;
       projectStore.getState().setActivePath(node.id);
@@ -540,7 +538,7 @@ export function PathLibraryDialog({
     message ||
     "Drag between connection points to link. Click a connected endpoint to disconnect.";
   if (pending)
-    status = `Choose a ${pending.kind === "collection" ? "Path" : "Collection"} to connect. Esc to cancel.`;
+    status = `Choose a ${pending.kind === "group" ? "Path" : "Path Group"} to connect. Esc to cancel.`;
   if (drag.view)
     status = drag.view.target
       ? connected(edgeFor(drag.view.source, drag.view.target))
@@ -548,7 +546,7 @@ export function PathLibraryDialog({
         : `Release to connect to ${findNode(drag.view.target)?.name ?? "the destination"}.`
       : "Drag to the other column. Esc to cancel.";
   if (selectedEdge)
-    status = `${collections.find((node) => node.id === selectedEdge.groupId)?.name} ↔ ${paths.find((node) => node.id === selectedEdge.pathId)?.name}`;
+    status = `${groups.find((node) => node.id === selectedEdge.groupId)?.name} ↔ ${paths.find((node) => node.id === selectedEdge.pathId)?.name}`;
 
   const renderNode = (node: Node) => {
     const isFocused = sameNode(focus, node),
@@ -557,7 +555,7 @@ export function PathLibraryDialog({
     const isTarget = Boolean(origin && origin.kind !== node.kind);
     const endpointLabel =
       isRelated && focus
-        ? `Disconnect ${paths.find((path) => path.id === edgeFor(focus, node).pathId)?.name} from ${collections.find((group) => group.id === edgeFor(focus, node).groupId)?.name}`
+        ? `Disconnect ${paths.find((path) => path.id === edgeFor(focus, node).pathId)?.name} from ${groups.find((group) => group.id === edgeFor(focus, node).groupId)?.name}`
         : sameNode(pending, node)
           ? `Cancel connection from ${node.name}`
           : isTarget
@@ -575,7 +573,7 @@ export function PathLibraryDialog({
             <input
               autoFocus
               aria-label={
-                node.kind === "collection" ? "Collection name" : "Path name"
+                node.kind === "group" ? "Path Group name" : "Path name"
               }
               maxLength={120}
               value={editing.value}
@@ -624,7 +622,7 @@ export function PathLibraryDialog({
               onClick={() => select(node)}
               onDoubleClick={() => startRename(node)}
             >
-              {node.kind === "collection" && (
+              {node.kind === "group" && (
                 <Folder className="fc-folder" size={17} />
               )}
               <span className="fc-name" title={node.name}>
@@ -632,7 +630,7 @@ export function PathLibraryDialog({
               </span>
               <span
                 className="fc-count"
-                title={`${node.count} ${node.kind === "collection" ? "Paths" : "Collections"}`}
+                title={`${node.count} ${node.kind === "group" ? "Paths" : "Path Groups"}`}
               >
                 {node.count}
               </span>
@@ -640,7 +638,7 @@ export function PathLibraryDialog({
             <button
               type="button"
               className="fc-more"
-              aria-label={`${node.kind === "collection" ? "Collection" : "Path"} actions for ${node.name}`}
+              aria-label={`${node.kind === "group" ? "Path Group" : "Path"} actions for ${node.name}`}
               aria-haspopup="menu"
               aria-expanded={sameNode(menu?.node ?? null, node)}
               title="Rename, duplicate, or delete"
@@ -730,20 +728,20 @@ export function PathLibraryDialog({
         <div className="fc-focusbar">
           <div className="fc-focus-meta">
             <span className="fc-focus-icon">
-              {focus?.kind === "collection" ? (
+              {focus?.kind === "group" ? (
                 <Folder size={18} />
               ) : (
                 <Link2 size={18} />
               )}
             </span>
             <div>
-              <strong data-testid="collection-focus-name">
-                {focus?.name ?? "Paths & Collections"}
+              <strong data-testid="path-library-focus-name">
+                {focus?.name ?? "Paths & Path Groups"}
               </strong>
-              <span data-testid="collection-focus-count">
+              <span data-testid="path-library-focus-count">
                 {focus
-                  ? `${focus.count} ${focus.kind === "collection" ? "Path" : "Collection"}${focus.count === 1 ? "" : "s"} connected${hiddenCount ? ` · ${hiddenCount} hidden by search` : ""}`
-                  : "Create a Path or Collection to begin."}
+                  ? `${focus.count} ${focus.kind === "group" ? "Path" : "Path Group"}${focus.count === 1 ? "" : "s"} connected${hiddenCount ? ` · ${hiddenCount} hidden by search` : ""}`
+                  : "Create a Path or Path Group to begin."}
               </span>
             </div>
           </div>
@@ -752,17 +750,15 @@ export function PathLibraryDialog({
               <button
                 type="button"
                 className="fc-open"
-                disabled={focus.kind === "collection" && focus.count === 0}
+                disabled={focus.kind === "group" && focus.count === 0}
                 onClick={() => openOnCanvas(focus)}
               >
-                {focus.kind === "collection" ? (
+                {focus.kind === "group" ? (
                   <Eye size={14} />
                 ) : (
                   <ExternalLink size={14} />
                 )}
-                {focus.kind === "collection"
-                  ? "Preview Collection"
-                  : "Open Path"}
+                {focus.kind === "group" ? "Preview Path Group" : "Open Path"}
               </button>
             )}
             <label className="fc-toggle">
@@ -798,9 +794,7 @@ export function PathLibraryDialog({
               {visibleEdges
                 .filter((edge) => showAll || incident(edge, focus))
                 .map((edge) => {
-                  const from = geometry.points.get(
-                      `collection:${edge.groupId}`,
-                    ),
+                  const from = geometry.points.get(`group:${edge.groupId}`),
                     to = geometry.points.get(`path:${edge.pathId}`);
                   if (!from || !to) return null;
                   const selected =
@@ -846,19 +840,16 @@ export function PathLibraryDialog({
                 </>
               )}
             </svg>
-            <section
-              className="fc-column fc-collections"
-              aria-label="Collections"
-            >
+            <section className="fc-column fc-groups" aria-label="Path Groups">
               <header>
                 <h2>
-                  Collections <span>{collections.length}</span>
+                  Path Groups <span>{groups.length}</span>
                 </h2>
                 <button
                   type="button"
-                  aria-label="Create Collection"
-                  title="New Collection"
-                  onClick={() => createCollection()}
+                  aria-label="Create Path Group"
+                  title="New Path Group"
+                  onClick={() => createGroup()}
                 >
                   <Plus size={14} />
                 </button>
@@ -867,22 +858,22 @@ export function PathLibraryDialog({
                 <Search size={14} />
                 <input
                   type="search"
-                  aria-label="Find a Collection"
-                  placeholder="Find a Collection"
-                  value={collectionQuery}
+                  aria-label="Find a Path Group"
+                  placeholder="Find a Path Group"
+                  value={groupQuery}
                   onChange={(event) => {
-                    setCollectionQuery(event.currentTarget.value);
+                    setGroupQuery(event.currentTarget.value);
                     setSelectedEdge(null);
                   }}
                 />
               </label>
               <div className="fc-rows">
-                {visibleCollections.map(renderNode)}
-                {!visibleCollections.length && (
+                {visibleGroups.map(renderNode)}
+                {!visibleGroups.length && (
                   <div className="fc-empty">
-                    {collections.length
-                      ? "No Collections match your search."
-                      : "Create a Collection, then link your Paths."}
+                    {groups.length
+                      ? "No Path Groups match your search."
+                      : "Create a Path Group, then link your Paths."}
                   </div>
                 )}
               </div>
@@ -897,7 +888,7 @@ export function PathLibraryDialog({
                   aria-label="Create new path"
                   title="New Path"
                   onClick={() =>
-                    onCreatePath(focus?.kind === "collection" ? focus.id : null)
+                    onCreatePath(focus?.kind === "group" ? focus.id : null)
                   }
                 >
                   <Plus size={14} />
@@ -978,7 +969,7 @@ function NodeMenu({
       ?.querySelector<HTMLButtonElement>("button")
       ?.focus({ preventScroll: true });
   }, [menu.node.id]);
-  const label = menu.node.kind === "collection" ? "Collection" : "Path";
+  const label = menu.node.kind === "group" ? "Path Group" : "Path";
   return (
     <div
       ref={ref}

@@ -73,7 +73,7 @@ export function CreateProjectDialog({
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => setPathName(event.currentTarget.value)}
             />
-            <small>You can add Collections and more Paths later.</small>
+            <small>You can add Path Groups and more Paths later.</small>
           </label>
         </section>
         <footer className="config-dialog__footer">
@@ -441,7 +441,7 @@ export function DeletePathsDialog({
           </span>
           <div>
             <strong>Delete Paths</strong>
-            <p>Remove Paths from this project and its Collections.</p>
+            <p>Remove Paths from this project and its Path Groups.</p>
           </div>
           <CloseButton ariaLabel="Close delete paths" onClick={onCancel} />
         </header>

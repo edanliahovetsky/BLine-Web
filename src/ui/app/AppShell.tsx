@@ -1531,7 +1531,7 @@ export function AppShell() {
     id: "project.navigator",
     label: "Open project navigator",
     category: "Project",
-    keywords: ["paths", "collections", "library"],
+    keywords: ["paths", "path groups", "groups", "library"],
     disabled: !projectAvailable || toolbarBusy,
     run: handleShowPathLibrary,
   };
@@ -2136,7 +2136,7 @@ export function AppShell() {
             setShowNewPathDialog(true);
           }}
           onDeletePaths={handleShowDeletePaths}
-          onPreviewCollection={() => handleShowGhostPathsChange(true)}
+          onPreviewPathGroup={() => handleShowGhostPathsChange(true)}
         />
       ) : null}
       {pathNameAction ? (

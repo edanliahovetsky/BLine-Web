@@ -3,8 +3,9 @@ import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 import { openPathLibraryDialog } from "./support/app-shell-project-library";
 
 const sample = "Phase 1 Canvas Draft";
-const focusName = (nav: Locator) => nav.getByTestId("collection-focus-name");
-const focusCount = (nav: Locator) => nav.getByTestId("collection-focus-count");
+const focusName = (nav: Locator) => nav.getByTestId("path-library-focus-name");
+const focusCount = (nav: Locator) =>
+  nav.getByTestId("path-library-focus-count");
 const row = (nav: Locator, name: string) =>
   nav.locator(".fc-row").filter({
     has: nav.page().getByRole("button", { name: `Focus ${name}`, exact: true }),
@@ -12,7 +13,7 @@ const row = (nav: Locator, name: string) =>
 const port = (nav: Locator, name: string) => row(nav, name).locator(".fc-port");
 async function nameInline(
   nav: Locator,
-  kind: "Collection" | "Path",
+  kind: "Path Group" | "Path",
   name: string,
 ) {
   const input = nav.getByRole("textbox", { name: `${kind} name`, exact: true });
@@ -21,15 +22,15 @@ async function nameInline(
   await input.press("Enter");
   await expect(input).toHaveCount(0);
 }
-async function createCollection(nav: Locator, name: string) {
+async function createGroup(nav: Locator, name: string) {
   await nav
-    .getByRole("button", { name: "Create Collection", exact: true })
+    .getByRole("button", { name: "Create Path Group", exact: true })
     .click();
-  await nameInline(nav, "Collection", name);
+  await nameInline(nav, "Path Group", name);
 }
 async function action(
   nav: Locator,
-  kind: "Collection" | "Path",
+  kind: "Path Group" | "Path",
   name: string,
   command: "Rename" | "Duplicate" | "Delete",
 ) {
@@ -65,7 +66,7 @@ test("inspects connections without switching the canvas and disconnects endpoint
   const nav = await openPathLibraryDialog(page);
   await expect.poll(async () => (await requiredBox(nav)).x).toBe(0);
   await expect(nav.getByRole("button", { name: /Undo/ })).toHaveCount(0);
-  await createCollection(nav, "Competition");
+  await createGroup(nav, "Competition");
   await link(nav, "Competition", sample);
   await expect(focusCount(nav)).toHaveText("1 Path connected");
   await port(nav, sample).click();
@@ -83,7 +84,7 @@ test("inspects connections without switching the canvas and disconnects endpoint
     .click();
   await port(nav, "Competition").press("Enter");
   await expect(focusName(nav)).toHaveText(sample);
-  await expect(focusCount(nav)).toHaveText("0 Collections connected");
+  await expect(focusCount(nav)).toHaveText("0 Path Groups connected");
   await action(nav, "Path", sample, "Duplicate");
   await nameInline(nav, "Path", "Backup");
   await expect(page.getByTestId("current-path-status")).toHaveText(
@@ -101,8 +102,8 @@ test("drags links both ways, previews the target, and cancels safely", async ({
 }) => {
   await gotoSampleEditor(page);
   const nav = await openPathLibraryDialog(page);
-  await createCollection(nav, "Competition");
-  await createCollection(nav, "Testing");
+  await createGroup(nav, "Competition");
+  await createGroup(nav, "Testing");
   await startDrag(page, port(nav, "Competition"), port(nav, sample));
   await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(1);
   await expect(row(nav, sample)).toHaveClass(/is-drop-target/);
@@ -111,21 +112,21 @@ test("drags links both ways, previews the target, and cancels safely", async ({
   await startDrag(page, port(nav, sample), port(nav, "Testing"));
   await page.mouse.up();
   await expect(focusName(nav)).toHaveText(sample);
-  await expect(focusCount(nav)).toHaveText("2 Collections connected");
+  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
   await startDrag(page, port(nav, sample), port(nav, "Testing"));
   await page.mouse.up();
-  await expect(focusCount(nav)).toHaveText("2 Collections connected");
+  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
   await nav
     .getByRole("button", { name: `Focus ${sample}`, exact: true })
     .press("ControlOrMeta+z");
-  await expect(focusCount(nav)).toHaveText("1 Collection connected");
+  await expect(focusCount(nav)).toHaveText("1 Path Group connected");
   await nav.getByRole("searchbox", { name: "Search paths" }).focus();
   await startDrag(page, port(nav, sample), port(nav, "Testing"));
   await page.keyboard.press("Escape");
   await page.mouse.up();
   await expect(nav).toBeVisible();
   await expect(nav.locator(".fc-wire-preview")).toHaveCount(0);
-  await expect(focusCount(nav)).toHaveText("1 Collection connected");
+  await expect(focusCount(nav)).toHaveText("1 Path Group connected");
   await startDrag(page, port(nav, "Competition"), port(nav, "Testing"));
   await page.mouse.up();
   await expect(nav.locator(".fc-wire-preview")).toHaveCount(0);
@@ -137,10 +138,10 @@ test("undo and redo work immediately after renaming, dragging, toggling, and del
 }) => {
   await gotoSampleEditor(page);
   const nav = await openPathLibraryDialog(page);
-  await createCollection(nav, "Competition");
+  await createGroup(nav, "Competition");
   // Use the keyboard as-is: no test locator should repair lost UI focus.
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(focusName(nav)).toHaveText("New Collection");
+  await expect(focusName(nav)).toHaveText("New Path Group");
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect(focusName(nav)).toHaveText("Competition");
 
@@ -159,28 +160,28 @@ test("undo and redo work immediately after renaming, dragging, toggling, and del
   await page.keyboard.press("ControlOrMeta+y");
   await expect(focusCount(nav)).toHaveText("1 Path connected");
 
-  await action(nav, "Collection", "Competition", "Delete");
-  await expect(nav.locator(".fc-collections .fc-row")).toHaveCount(0);
+  await action(nav, "Path Group", "Competition", "Delete");
+  await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(nav.locator(".fc-collections .fc-row")).toHaveCount(1);
+  await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(1);
   await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(nav.locator(".fc-collections .fc-row")).toHaveCount(0);
+  await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(0);
 });
 
-test("duplicates shared Collections and independent Paths, renames inline, and saves memberships", async ({
+test("duplicates shared Path Groups and independent Paths, renames inline, and saves memberships", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   let nav = await openPathLibraryDialog(page);
-  await createCollection(nav, "Competition");
+  await createGroup(nav, "Competition");
   await link(nav, "Competition", sample);
-  await action(nav, "Collection", "Competition", "Duplicate");
-  await nameInline(nav, "Collection", "Testing");
+  await action(nav, "Path Group", "Competition", "Duplicate");
+  await nameInline(nav, "Path Group", "Testing");
   await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(1);
   await expect(focusCount(nav)).toHaveText("1 Path connected");
   await action(nav, "Path", sample, "Duplicate");
   await nameInline(nav, "Path", "Backup");
-  await expect(focusCount(nav)).toHaveText("2 Collections connected");
+  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
   await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
   await action(nav, "Path", "Backup", "Rename");
   const input = nav.getByRole("textbox", { name: "Path name", exact: true });
@@ -195,11 +196,11 @@ test("duplicates shared Collections and independent Paths, renames inline, and s
   await action(nav, "Path", "Backup renamed", "Rename");
   await nameInline(nav, "Path", "Backup");
   await port(nav, "Testing").click();
-  await expect(focusCount(nav)).toHaveText("1 Collection connected");
+  await expect(focusCount(nav)).toHaveText("1 Path Group connected");
   await nav
     .getByRole("button", { name: `Focus ${sample}`, exact: true })
     .click();
-  await expect(focusCount(nav)).toHaveText("2 Collections connected");
+  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
   await page.getByRole("button", { name: "Close", exact: true }).click();
   // Explicitly flush through the app's existing save action before reloading.
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -210,24 +211,24 @@ test("duplicates shared Collections and independent Paths, renames inline, and s
   await expect(page.getByTestId("path-stage")).toBeVisible();
   nav = await openPathLibraryDialog(page);
   await nav.getByRole("button", { name: "Focus Backup", exact: true }).click();
-  await expect(focusCount(nav)).toHaveText("1 Collection connected");
+  await expect(focusCount(nav)).toHaveText("1 Path Group connected");
   await nav
     .getByRole("button", { name: `Focus ${sample}`, exact: true })
     .click();
-  await expect(focusCount(nav)).toHaveText("2 Collections connected");
+  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
 });
 
-test("deletes Collections without deleting Paths and uses the existing Path deletion flow", async ({
+test("deletes Path Groups without deleting Paths and uses the existing Path deletion flow", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   const nav = await openPathLibraryDialog(page);
-  await createCollection(nav, "Competition");
+  await createGroup(nav, "Competition");
   await link(nav, "Competition", sample);
   await action(nav, "Path", sample, "Duplicate");
   await nameInline(nav, "Path", "Backup");
-  await action(nav, "Collection", "Competition", "Delete");
-  await expect(nav.locator(".fc-collections .fc-row")).toHaveCount(0);
+  await action(nav, "Path Group", "Competition", "Delete");
+  await expect(nav.locator(".fc-groups .fc-row")).toHaveCount(0);
   await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
   await action(nav, "Path", "Backup", "Delete");
   const confirm = page.getByRole("dialog", {
@@ -252,19 +253,19 @@ test("filters connections, keeps row order stable, and aligns links after resizi
   await page.setViewportSize({ width: 1200, height: 700 });
   await gotoSampleEditor(page);
   const nav = await openPathLibraryDialog(page);
-  await createCollection(nav, "Competition");
+  await createGroup(nav, "Competition");
   await link(nav, "Competition", sample);
-  await action(nav, "Collection", "Competition", "Duplicate");
-  await nameInline(nav, "Collection", "Testing");
+  await action(nav, "Path Group", "Competition", "Duplicate");
+  await nameInline(nav, "Path Group", "Testing");
   const order = await nav.locator(".fc-paths .fc-name").allTextContents();
   await action(nav, "Path", sample, "Duplicate");
   await nameInline(nav, "Path", "Backup");
   await nav
-    .getByRole("searchbox", { name: "Find a Collection" })
+    .getByRole("searchbox", { name: "Find a Path Group" })
     .fill("Competition");
   await expect(focusCount(nav)).toContainText("1 hidden by search");
   await expect(nav.locator(".fc-wire")).toHaveCount(1);
-  await nav.getByRole("searchbox", { name: "Find a Collection" }).fill("");
+  await nav.getByRole("searchbox", { name: "Find a Path Group" }).fill("");
   await nav.getByRole("checkbox", { name: "Show all connections" }).check();
   await expect(nav.locator(".fc-wire")).toHaveCount(4);
   await port(nav, "Testing").click();
@@ -282,7 +283,7 @@ test("filters connections, keeps row order stable, and aligns links after resizi
         const wire = element.querySelector<SVGPathElement>(".fc-wire")!;
         const point = wire.getPointAtLength(0);
         const port = element
-          .querySelector<HTMLElement>(".fc-collections .fc-port")!
+          .querySelector<HTMLElement>(".fc-groups .fc-port")!
           .getBoundingClientRect();
         return Math.abs(point.x + board.x - (port.x + port.width / 2));
       }),

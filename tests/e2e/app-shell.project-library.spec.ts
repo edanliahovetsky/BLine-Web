@@ -26,7 +26,7 @@ import {
 } from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
-test("creates Collections and new Paths from the Project Navigator", async ({
+test("creates Path Groups and new Paths from the Project Navigator", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -49,9 +49,9 @@ test("creates Collections and new Paths from the Project Navigator", async ({
   );
 
   await navigator
-    .getByRole("button", { name: "Collection actions for Score Autos" })
+    .getByRole("button", { name: "Path Group actions for Score Autos" })
     .click();
-  await navigator.getByRole("menuitem", { name: "Delete Collection" }).click();
+  await navigator.getByRole("menuitem", { name: "Delete Path Group" }).click();
   await expect(
     navigator.locator(".all-paths__row").filter({ hasText: "Group Blank" }),
   ).toBeVisible();
@@ -63,7 +63,7 @@ test("creates Collections and new Paths from the Project Navigator", async ({
   await expect(page.getByLabel("Toolbar path")).toContainText("Group Blank");
 });
 
-test("switches collected Paths and toggles Collection canvas overlays", async ({
+test("switches collected Paths and toggles Path Group canvas overlays", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -86,14 +86,14 @@ test("switches collected Paths and toggles Collection canvas overlays", async ({
     .getByRole("button", { name: "Focus Score Autos", exact: true })
     .click();
   await navigator
-    .getByRole("button", { name: "Preview Collection", exact: true })
+    .getByRole("button", { name: "Preview Path Group", exact: true })
     .click();
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Score Autos / Phase 1 Canvas Draft",
   );
 
   const compareToggle = page.getByRole("button", {
-    name: "Hide Collection overlays",
+    name: "Hide Path Group overlays",
   });
   await expect(compareToggle).toHaveAttribute("aria-pressed", "true");
   await compareToggle.click();
@@ -106,7 +106,7 @@ test("switches collected Paths and toggles Collection canvas overlays", async ({
   await page.mouse.move(ghostPoint.x, ghostPoint.y);
   await expect(page.getByTestId("path-stage-ghost-label")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Show Collection overlays" }).click();
+  await page.getByRole("button", { name: "Show Path Group overlays" }).click();
   await page.mouse.move(ghostPoint.x, ghostPoint.y);
   await expect(page.getByTestId("path-stage-ghost-label")).toHaveText(
     "Ghost Copy",

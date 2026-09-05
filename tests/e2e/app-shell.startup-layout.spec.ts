@@ -165,17 +165,17 @@ test("starts new users in a focused start center", async ({ page }) => {
   await pathStage.press(`${interfaceZoomModifier}+0`);
 
   const hideLabelOverlays = page.getByRole("button", {
-    name: "Hide Collection overlays",
+    name: "Hide Path Group overlays",
   });
   await expect(hideLabelOverlays).toHaveAttribute("aria-pressed", "true");
   await hideLabelOverlays.click();
   const showLabelOverlays = page.getByRole("button", {
-    name: "Show Collection overlays",
+    name: "Show Path Group overlays",
   });
   await expect(showLabelOverlays).toHaveAttribute("aria-pressed", "false");
   await showLabelOverlays.click();
   await expect(
-    page.getByRole("button", { name: "Hide Collection overlays" }),
+    page.getByRole("button", { name: "Hide Path Group overlays" }),
   ).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();

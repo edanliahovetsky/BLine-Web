@@ -66,11 +66,11 @@ export async function createPathGroupFromTopMenu(
   groupName: string,
 ): Promise<void> {
   const dialog = await openPathLibraryDialog(page);
-  await dialog.getByRole("button", { name: "Create Collection" }).click();
+  await dialog.getByRole("button", { name: "Create Path Group" }).click();
   await dialog
-    .getByRole("textbox", { name: "Collection name" })
+    .getByRole("textbox", { name: "Path Group name" })
     .fill(groupName);
-  await dialog.getByRole("textbox", { name: "Collection name" }).press("Enter");
+  await dialog.getByRole("textbox", { name: "Path Group name" }).press("Enter");
   const pathName = await page
     .getByLabel("Toolbar path", { exact: true })
     .innerText();
@@ -84,7 +84,7 @@ export async function createPathGroupFromTopMenu(
     .getByRole("button", { name: `Connect to ${pathName}`, exact: true })
     .click();
   await dialog
-    .getByRole("button", { name: "Preview Collection", exact: true })
+    .getByRole("button", { name: "Preview Path Group", exact: true })
     .click();
 }
 
