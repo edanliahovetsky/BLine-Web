@@ -22,7 +22,6 @@ import {
   projectPointToSegmentRatio,
   getRenderableElementPositions,
   modelToStagePoint,
-  overflowMarkerStagePoint,
   stageToModelPoint,
   stagePointsDiffer,
 } from "../../../src/canvas/geometry";
@@ -154,13 +153,8 @@ describe("canvas geometry", () => {
       { x_meters: 5.7, y_meters: 2.5 },
       viewport,
     );
-    const marker = overflowMarkerStagePoint(stagePoint, size, 24);
-
     expect(stagePoint.x).toBeGreaterThan(viewport.x + viewport.width);
     expect(stagePoint.y).toBeLessThan(viewport.y);
-    expect(marker).not.toBeNull();
-    expect(marker?.x).toBeLessThanOrEqual(size.width - 24);
-    expect(marker?.y).toBeGreaterThanOrEqual(24);
   });
 
   it("clips extreme path geometry to a render-safe canvas overscan", () => {

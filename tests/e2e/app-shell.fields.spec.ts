@@ -14,7 +14,7 @@ import {
   savedFileCount,
 } from "./support/app-shell-persistence";
 import { openPathMenu } from "./support/app-shell-project-library";
-import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
+import { gotoSampleEditor } from "./support/app-shell-shared";
 
 test("edits project config with undo support", async ({ page }) => {
   await gotoSampleEditor(page);
@@ -169,90 +169,11 @@ test("uploads and restores a custom field image from Settings", async ({
     y_meters: 2.5,
   });
 
-  // The raw position is not painted as a normal node at the Field edge. A
-  // distinct canvas-edge marker points toward the true offscreen position.
-  const pathStageCanvas = page.getByTestId("path-stage-canvas");
-  const overflowMarker = page.getByTestId("path-element-overflow-marker-0");
-  await expect(overflowMarker).toBeVisible();
-  await expect(overflowMarker).toHaveAttribute(
-    "title",
-    "Element 1 is outside the visible canvas at X 5.70 m, Y 2.50 m",
-  );
+  // Offscreen elements have no canvas-edge indicator or substitute node.
+  await expect(page.getByTestId("path-element-overflow-marker-0")).toHaveCount(0);
   await expect
     .poll(() => canvasNodePositionOrNull(page, "path-element-node-0"))
     .toBeNull();
-
-  // Pointer-down alone keeps the raw coordinates, and a cancelled moved drag
-  // discards its bounded preview without creating a Path edit.
-  let markerBox = await requiredBox(overflowMarker);
-  let markerPoint = {
-    x: markerBox.x + markerBox.width / 2,
-    y: markerBox.y + markerBox.height / 2,
-  };
-  await page.mouse.move(markerPoint.x, markerPoint.y);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect(xField).toHaveValue("5.7");
-  await expect(yField).toHaveValue("2.5");
-
-  await pathStageCanvas.evaluate((canvas) => {
-    canvas.addEventListener(
-      "pointerdown",
-      (event) => {
-        canvas.setAttribute(
-          "data-e2e-pointer-id",
-          String((event as PointerEvent).pointerId),
-        );
-      },
-      { once: true },
-    );
-  });
-  const cancelledPoint = {
-    x: markerPoint.x - 24,
-    y: markerPoint.y + 24,
-  };
-  await page.mouse.move(markerPoint.x, markerPoint.y);
-  await page.mouse.down();
-  await page.mouse.move(cancelledPoint.x, cancelledPoint.y, { steps: 4 });
-  await expect
-    .poll(() => pathStageCanvas.getAttribute("data-e2e-pointer-id"))
-    .not.toBeNull();
-  const pointerId = Number(
-    await pathStageCanvas.getAttribute("data-e2e-pointer-id"),
-  );
-  await pathStageCanvas.dispatchEvent("pointercancel", {
-    bubbles: true,
-    button: 0,
-    buttons: 0,
-    cancelable: true,
-    clientX: cancelledPoint.x,
-    clientY: cancelledPoint.y,
-    pointerId,
-    pointerType: "mouse",
-  });
-  await page.mouse.up();
-  await expect(xField).toHaveValue("5.7");
-  await expect(yField).toHaveValue("2.5");
-
-  // Dragging the overflow marker commits one bounded, undoable Path edit.
-  markerBox = await requiredBox(overflowMarker);
-  markerPoint = {
-    x: markerBox.x + markerBox.width / 2,
-    y: markerBox.y + markerBox.height / 2,
-  };
-  await page.mouse.move(markerPoint.x, markerPoint.y);
-  await page.mouse.down();
-  await page.mouse.move(markerPoint.x - 24, markerPoint.y + 24, { steps: 4 });
-  await page.mouse.up();
-  await expect
-    .poll(async () => Number(await page.getByLabel("X (m)").inputValue()))
-    .toBeLessThanOrEqual(3.5);
-  await expect
-    .poll(async () => Number(await page.getByLabel("Y (m)").inputValue()))
-    .toBeLessThanOrEqual(1.5);
-  await runEditMenuAction(page, "Undo");
-  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
 
   await page.reload();
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
