@@ -18,15 +18,23 @@ export function connectedNodeIds(project: Project, focus: LibraryNode | null) {
 export function captureLibraryOrder(
   project: Project,
   focus: LibraryNode | null,
+  previous?: { group: string[]; path: string[] },
 ) {
   const connectedIds = connectedNodeIds(project, focus);
   const neighbors = new Set(connectedIds);
   const order = (
     kind: LibraryNode["kind"],
     nodes: { id: string; name: string }[],
-  ) =>
-    nodes
+  ) => {
+    const retained = new Map(previous?.[kind].map((id, index) => [id, index]));
+    return nodes
       .sort((a, b) => {
+        if (focus?.kind === kind && previous) {
+          const difference =
+            (retained.get(a.id) ?? retained.size) -
+            (retained.get(b.id) ?? retained.size);
+          if (difference) return difference;
+        }
         const priority = (id: string) =>
           Number(focus?.kind !== kind && neighbors.has(id));
         return (
@@ -36,6 +44,7 @@ export function captureLibraryOrder(
         );
       })
       .map((node) => node.id);
+  };
   return {
     focusKey: libraryNodeKey(focus),
     connectedIds,

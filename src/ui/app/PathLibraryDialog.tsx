@@ -172,7 +172,7 @@ export function PathLibraryDialog({
   let order = capturedOrder;
   // Reconcile a deleted/undone selection before rendering its new pinned row.
   if (order.focusKey !== focusKey) {
-    order = captureLibraryOrder(project, focus);
+    order = captureLibraryOrder(project, focus, order);
     setCapturedOrder(order);
   }
   const currentNeighbors = connectedNodeIds(project, focus);
@@ -188,32 +188,24 @@ export function PathLibraryDialog({
     Boolean(
       focus && node.kind !== focus.kind && connected(edgeFor(focus, node)),
     );
-  const visibleGroups = useMemo(
-    () =>
-      applyLibraryOrder(groups, order.group).filter(
-        (node) =>
-          (focus?.kind === "group" && node.id === focus.id) ||
-          node.name
-            .toLocaleLowerCase()
-            .includes(groupQuery.trim().toLocaleLowerCase()),
-      ),
-    [groups, order.group, groupQuery, focus],
+  const visibleGroups = applyLibraryOrder(groups, order.group).filter(
+    (node) =>
+      (focus?.kind === "group" && node.id === focus.id) ||
+      node.name
+        .toLocaleLowerCase()
+        .includes(groupQuery.trim().toLocaleLowerCase()),
   );
-  const visiblePaths = useMemo(
-    () =>
-      applyLibraryOrder(paths, order.path).filter((node) => {
-        if (focus?.kind === "path" && node.id === focus.id) return true;
-        const query = pathQuery.trim().toLocaleLowerCase();
-        return (
-          node.name.toLocaleLowerCase().includes(query) ||
-          project.paths
-            .find((path) => path.path_id === node.id)
-            ?.file_name.toLocaleLowerCase()
-            .includes(query)
-        );
-      }),
-    [paths, order.path, pathQuery, project.paths, focus],
-  );
+  const visiblePaths = applyLibraryOrder(paths, order.path).filter((node) => {
+    if (focus?.kind === "path" && node.id === focus.id) return true;
+    const query = pathQuery.trim().toLocaleLowerCase();
+    return (
+      node.name.toLocaleLowerCase().includes(query) ||
+      project.paths
+        .find((path) => path.path_id === node.id)
+        ?.file_name.toLocaleLowerCase()
+        .includes(query)
+    );
+  });
   const visibleEdges = edges.filter(
     (edge) =>
       visibleGroups.some((node) => node.id === edge.groupId) &&
@@ -241,28 +233,36 @@ export function PathLibraryDialog({
   useEffect(() => {
     dialogRef.current?.focus({ preventScroll: true });
   }, [dialogRef]);
-  const layoutKey = `${focusKey}|${visibleGroups.map((node) => node.id).join(",")}|${visiblePaths.map((node) => node.id).join(",")}`;
+  const layoutKey = `${focusKey}|${currentNeighbors.join(",")}|${visibleGroups.map((node) => node.id).join(",")}|${visiblePaths.map((node) => node.id).join(",")}`;
   const { geometry, measure, jumpToConnection } = usePathLibraryGeometry(
     boardRef,
     layoutKey,
   );
   useLayoutEffect(() => {
     boardRef.current
-      ?.querySelectorAll<HTMLElement>(".fc-list-scroll")
+      ?.querySelectorAll<HTMLElement>(
+        `.fc-list-scroll[data-kind="${focus?.kind === "group" ? "path" : "group"}"]`,
+      )
       .forEach((scroll) => {
         scroll.scrollTop = 0;
       });
     measure();
-  }, [focusKey, scrollEpoch, measure]);
+  }, [focusKey, focus?.kind, scrollEpoch, measure]);
   const inspect = (node: LibraryNode) => {
     setSelected(node);
-    setCapturedOrder(
-      captureLibraryOrder(projectStore.getState().project ?? project, node),
+    setCapturedOrder((previous) =>
+      captureLibraryOrder(
+        projectStore.getState().project ?? project,
+        node,
+        previous,
+      ),
     );
     setScrollEpoch((epoch) => epoch + 1);
   };
   const refreshOrder = () => {
-    setCapturedOrder(captureLibraryOrder(project, focus));
+    setCapturedOrder((previous) =>
+      captureLibraryOrder(project, focus, previous),
+    );
     setScrollEpoch((epoch) => epoch + 1);
     setMessage("Connected items moved to the top.");
   };
@@ -783,14 +783,45 @@ export function PathLibraryDialog({
                 key={direction}
                 type="button"
                 className={`fc-edge-cap is-${direction}`}
+                aria-label={`${ids.length} connected ${direction}`}
                 onClick={() => jumpToConnection(kind, ids, direction)}
               >
-                {direction === "above" ? (
-                  <ArrowUp size={12} />
-                ) : (
-                  <ArrowDown size={12} />
+                {Array.from(
+                  { length: Math.min(2, ids.length - 1) },
+                  (_, index) => (
+                    <span
+                      key={index}
+                      className="fc-stack-layer"
+                      style={{ "--layer": index + 1 } as CSSProperties}
+                      aria-hidden="true"
+                    />
+                  ),
                 )}
-                {ids.length} connected {direction}
+                <span className="fc-stack-face">
+                  {kind === "group" ? (
+                    <Folder size={16} />
+                  ) : (
+                    <Link2 size={16} />
+                  )}
+                  <span className="fc-stack-copy">
+                    <strong>
+                      {ids.length} connected{" "}
+                      {ids.length === 1
+                        ? kind === "group"
+                          ? "Path Group"
+                          : "Path"
+                        : kind === "group"
+                          ? "Path Groups"
+                          : "Paths"}
+                    </strong>
+                    <span>Scroll to connections {direction}</span>
+                  </span>
+                  {direction === "above" ? (
+                    <ArrowUp size={15} />
+                  ) : (
+                    <ArrowDown size={15} />
+                  )}
+                </span>
               </button>
             ) : null;
           })}

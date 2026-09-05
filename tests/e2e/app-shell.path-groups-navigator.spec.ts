@@ -460,9 +460,46 @@ async function seedLongLibrary(page: Page, longSide: "path" | "group") {
 }
 
 for (const longSide of ["path", "group"] as const) {
-  test(`pins the selection while the long ${longSide} list scrolls and re-sorts only on request`, async ({
+  test(`keeps the selected ${longSide} column in its existing order and sorts only its neighbors`, async ({
     page,
   }) => {
+    const nav = await seedLongLibrary(page, longSide);
+    const label = longSide === "path" ? "Path" : "Group";
+    const opposite = longSide === "path" ? "Group" : "Path";
+    const ownList = nav.locator(`.fc-list-scroll[data-kind="${longSide}"]`);
+    const originalOrder = await ownList.locator(".fc-name").allTextContents();
+    // Add a connection to a lower-ranked neighbor without changing focus.
+    await port(nav, `${opposite} 02`).click();
+    await port(nav, `${label} 23`).click();
+    await expect(ownList.locator(".fc-name")).toHaveText(originalOrder);
+    await nav
+      .getByRole("button", { name: `Focus ${label} 23`, exact: true })
+      .click();
+    await expect(ownList.locator(".fc-name")).toHaveText(
+      originalOrder.filter((name) => name !== `${label} 23`),
+    );
+    await expect(nav.getByTestId(`pinned-${longSide}`)).toContainText(
+      `${label} 23`,
+    );
+    await expect
+      .poll(() => ownList.evaluate((el) => el.scrollTop))
+      .toBeGreaterThan(0);
+    const neighbors = nav.locator(
+      `.fc-list-scroll[data-kind="${longSide === "path" ? "group" : "path"}"] .fc-name`,
+    );
+    await expect(neighbors.first()).toHaveText(`${opposite} 02`);
+    await nav
+      .getByRole("button", { name: `Focus ${label} 22`, exact: true })
+      .click();
+    await expect(ownList.locator(".fc-name")).toHaveText(
+      originalOrder.filter((name) => name !== `${label} 22`),
+    );
+    await expect(neighbors.first()).toHaveText(`${opposite} 00`);
+  });
+
+  test(`pins the selection while the long ${longSide} list scrolls and re-sorts only on request`, async ({
+    page,
+  }, testInfo) => {
     const nav = await seedLongLibrary(page, longSide);
     const oppositeName = longSide === "path" ? "Path" : "Group";
     const sourceName = longSide === "path" ? "Group 00" : "Path 00";
@@ -486,9 +523,14 @@ for (const longSide of ["path", "group"] as const) {
       .poll(() => list.evaluate((el) => el.scrollTop))
       .toBeGreaterThan(700);
     expect((await requiredBox(pin)).y).toBe(anchor.y);
-    await expect(
-      nav.getByRole("button", { name: /connected above/ }),
-    ).toBeVisible();
+    const stack = nav.getByRole("button", { name: /connected above/ });
+    await expect(stack).toBeVisible();
+    await expect(stack.locator(".fc-stack-layer")).toHaveCount(2);
+    const stackBox = await requiredBox(stack);
+    const cardBox = await requiredBox(row(nav, `${oppositeName} 23`));
+    expect(stackBox.height).toBe(cardBox.height);
+    expect(Math.abs(stackBox.width - cardBox.width)).toBeLessThan(2);
+    await nav.screenshot({ path: testInfo.outputPath("offscreen-stacks.png") });
 
     await startDrag(
       page,

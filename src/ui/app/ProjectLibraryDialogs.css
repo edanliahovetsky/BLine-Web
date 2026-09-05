@@ -333,30 +333,97 @@
 .fc-edge-cap {
   position: absolute;
   z-index: 9;
-  left: 14px;
-  right: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 26px;
-  padding: 4px 9px;
-  border: 1px solid #6187a5;
-  border-radius: 5px;
-  background: #233d50f5;
-  box-shadow: 0 3px 12px #0008;
+  left: 0;
+  right: 0;
+  height: 50px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: #c5e2f8;
-  font-size: 0.65rem !important;
+  text-align: left;
   pointer-events: auto;
+  isolation: isolate;
 }
 .fc-edge-cap.is-above {
-  top: 3px;
+  top: 10px;
+  --stack-step: -4px;
 }
 .fc-edge-cap.is-below {
-  bottom: 3px;
+  bottom: 10px;
+  --stack-step: 4px;
 }
-.fc-edge-cap:hover {
-  background: #345b77;
+.fc-stack-layer,
+.fc-stack-face {
+  position: absolute;
+  inset: 0;
+  border: 1px solid #3b5267;
+  border-radius: 8px;
+  background: linear-gradient(110deg, #213447, #1b2d3b);
+  box-shadow:
+    0 3px 10px #0005,
+    inset 0 1px #ffffff06;
+}
+.fc-stack-layer {
+  z-index: calc(3 - var(--layer));
+  transform: translateY(calc(var(--layer) * var(--stack-step)))
+    scaleX(calc(1 - var(--layer) * 0.035));
+  background: #192a37;
+}
+.fc-stack-face {
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  transition:
+    background 130ms,
+    border-color 130ms;
+}
+.fc-stack-face::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  translate: 0 -50%;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #739cbc;
+  border-radius: 50%;
+  background: radial-gradient(circle, #b7dfff 0 3px, #16222d 3.5px);
+  box-shadow: 0 0 0 5px #121b24;
+}
+.fc-paths .fc-stack-face {
+  padding-left: 24px;
+}
+.fc-paths .fc-stack-face::after {
+  left: -10px;
+  right: auto;
+}
+.fc-stack-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.fc-stack-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74rem;
+  font-weight: 540;
+}
+.fc-stack-copy > span {
+  color: #97afc2;
+  font-size: 0.61rem;
+}
+.fc-edge-cap:hover .fc-stack-face {
+  border-color: #739cbc;
+  background: #294256;
+}
+.fc-edge-cap:focus-visible {
+  outline: 2px solid #9ed2ff;
+  outline-offset: 3px;
 }
 .fc-row {
   position: relative;

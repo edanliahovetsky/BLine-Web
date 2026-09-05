@@ -26,21 +26,38 @@ export function usePathLibraryGeometry(
     const board = boardRef.current;
     if (!board) return;
     const bounds = board.getBoundingClientRect();
+    const viewports = new Map<Element, { top: number; bottom: number }>();
+    board.querySelectorAll(".fc-list-scroll").forEach((scroll) => {
+      const rect = scroll.getBoundingClientRect();
+      const connectedCenters = [
+        ...scroll.querySelectorAll(".fc-row.is-related .fc-port"),
+      ].map((port) => {
+        const point = port.getBoundingClientRect();
+        return point.y + point.height / 2;
+      });
+      // Keep endpoints covered by a stack in that stack's connection count.
+      viewports.set(scroll, {
+        top:
+          rect.top + (connectedCenters.some((y) => y < rect.top + 4) ? 64 : 4),
+        bottom:
+          rect.bottom -
+          (connectedCenters.some((y) => y > rect.bottom - 4) ? 64 : 4),
+      });
+    });
     const points = new Map<string, PortPoint>();
     board.querySelectorAll<HTMLButtonElement>(".fc-port").forEach((port) => {
       const rect = port.getBoundingClientRect();
-      const scrollBounds = port
-        .closest(".fc-list-scroll")
-        ?.getBoundingClientRect();
+      const scroll = port.closest(".fc-list-scroll");
+      const scrollBounds = scroll ? viewports.get(scroll) : undefined;
       const center = rect.y + rect.height / 2;
       points.set(port.dataset.nodeKey!, {
         x: rect.x + rect.width / 2 - bounds.x,
         y: center - bounds.y,
         offscreen: !scrollBounds
           ? null
-          : center < scrollBounds.top + 4
+          : center < scrollBounds.top
             ? "above"
-            : center > scrollBounds.bottom - 4
+            : center > scrollBounds.bottom
               ? "below"
               : null,
       });
@@ -55,7 +72,7 @@ export function usePathLibraryGeometry(
           overflowAnchors.set(`${kind}:${direction}`, {
             x: (kind === "group" ? rect.right : rect.left) - bounds.x,
             y:
-              (direction === "above" ? rect.top + 16 : rect.bottom - 16) -
+              (direction === "above" ? rect.top + 35 : rect.bottom - 35) -
               bounds.y,
           });
         }
