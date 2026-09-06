@@ -541,7 +541,10 @@ function stageClipCode(point: StagePoint, rect: StageClipRect): number {
   return code;
 }
 
-function stagePointsAlmostEqual(first: StagePoint, second: StagePoint): boolean {
+function stagePointsAlmostEqual(
+  first: StagePoint,
+  second: StagePoint,
+): boolean {
   return (
     Math.abs(first.x - second.x) <= 0.001 &&
     Math.abs(first.y - second.y) <= 0.001

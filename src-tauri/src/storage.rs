@@ -318,7 +318,7 @@ pub fn storage_read_user_data(app: AppHandle) -> Result<Option<UserDataDocument>
 }
 
 fn legacy_user_data(app: &AppHandle) -> Result<Option<Value>, String> {
-    let legacy_state = read_state(&app)?;
+    let legacy_state = read_state(app)?;
     if legacy_state.active_path_by_project_dir.is_empty() {
         return Ok(None);
     }
@@ -678,6 +678,7 @@ fn with_exclusive_project_lock<T>(
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(lock_path)
         .map_err(|error| {
             format!(
@@ -1071,10 +1072,10 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
                 // snapshot after an editor has had a chance to change live files.
                 return retire_project_file_transaction(project_dir, &transaction_dir);
             }
-            return Err(
+            Err(
                 "storage-conflict: committed project transaction has divergent live files"
                     .to_owned(),
-            );
+            )
         }
         PROJECT_SAVE_TRANSACTION_PREPARED => {
             let live_files = read_managed_project_files(project_dir)?;
@@ -1086,25 +1087,25 @@ fn recover_project_file_transaction(project_dir: &Path) -> Result<(), String> {
                 // do not rewrite it after classification and risk racing an editor.
                 return retire_project_file_transaction(project_dir, &transaction_dir);
             }
-            return Err(
+            Err(
                 "storage-conflict: prepared project transaction has divergent live files"
                     .to_owned(),
-            );
+            )
         }
         PROJECT_SAVE_TRANSACTION_ABORTED => {
-            return retire_project_file_transaction(project_dir, &transaction_dir);
+            retire_project_file_transaction(project_dir, &transaction_dir)
         }
         _ => {
             // A marker can tear only while being written before installation or
             // after a complete install. Resolve recognizable complete live sets;
             // never replace an unrecognized live set on ambiguous evidence.
             let live_files = read_managed_project_files(project_dir)?;
-            if live_files == read_validated_project_snapshot(&new_snapshot)? {
-                return retire_project_file_transaction(project_dir, &transaction_dir);
-            } else if live_files == read_validated_project_snapshot(&old_snapshot)? {
-                return retire_project_file_transaction(project_dir, &transaction_dir);
+            if live_files == read_validated_project_snapshot(&new_snapshot)?
+                || live_files == read_validated_project_snapshot(&old_snapshot)?
+            {
+                retire_project_file_transaction(project_dir, &transaction_dir)
             } else {
-                return Err("Project save transaction marker is invalid".to_owned());
+                Err("Project save transaction marker is invalid".to_owned())
             }
         }
     }
@@ -1581,6 +1582,7 @@ fn with_exclusive_user_data_lock<T>(
     }
     let lock_file = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(user_data_lock_path(path))

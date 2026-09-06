@@ -1303,7 +1303,10 @@ describe("UserData", () => {
 
   it("adopts a replacement publication that commits before its CAS throws", async () => {
     const adapter = new AssetMemoryAdapter();
-    const assetIds = ["asset-committed-original", "asset-committed-replacement"];
+    const assetIds = [
+      "asset-committed-original",
+      "asset-committed-replacement",
+    ];
     const service = new UserDataService(adapter, {
       idFactory: () => "field-committed-replacement",
       assetIdFactory: () => assetIds.shift()!,
@@ -1451,9 +1454,9 @@ describe("UserData", () => {
       replacingEntry.id,
     ]);
     expect(adapter.assets.has(deletedEntry.asset_id)).toBe(false);
-    expect(
-      await replacer.readFieldBackgroundImage(replacingEntry.id),
-    ).toEqual(new Uint8Array([7, 8, 9]));
+    expect(await replacer.readFieldBackgroundImage(replacingEntry.id)).toEqual(
+      new Uint8Array([7, 8, 9]),
+    );
   });
 
   it("fences a publisher whose expired asset staging lease was reaped", async () => {
@@ -1623,9 +1626,7 @@ describe("UserData", () => {
 
     const relaunchedService = new UserDataService(adapter);
     await relaunchedService.initialize();
-    expect(relaunchedService.getSnapshot().field_asset_cleanup_ids).toEqual(
-      [],
-    );
+    expect(relaunchedService.getSnapshot().field_asset_cleanup_ids).toEqual([]);
     expect(adapter.assets.has(original.asset_id)).toBe(false);
 
     blocked.release();

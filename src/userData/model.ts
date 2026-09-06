@@ -155,8 +155,7 @@ export function migrateUserData(
     field_asset_cleanup_ids: fieldAssetCleanupIds(
       root?.field_asset_cleanup_ids,
     ).filter(
-      (assetId) =>
-        !fieldAssetIds.has(assetId) && !stagedAssetIds.has(assetId),
+      (assetId) => !fieldAssetIds.has(assetId) && !stagedAssetIds.has(assetId),
     ),
     field_asset_staging: fieldAssetStaging,
   };
@@ -337,11 +336,7 @@ function fieldBackgroundEntries(value: unknown): FieldBackgroundEntry[] {
   const seenAssetIds = new Set<string>();
   return value.flatMap((candidate) => {
     const entry = normalizeFieldBackgroundEntry(candidate);
-    if (
-      !entry ||
-      seenIds.has(entry.id) ||
-      seenAssetIds.has(entry.asset_id)
-    ) {
+    if (!entry || seenIds.has(entry.id) || seenAssetIds.has(entry.asset_id)) {
       return [];
     }
     seenIds.add(entry.id);

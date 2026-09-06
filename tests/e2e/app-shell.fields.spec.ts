@@ -170,7 +170,9 @@ test("uploads and restores a custom field image from Settings", async ({
   });
 
   // Offscreen elements have no canvas-edge indicator or substitute node.
-  await expect(page.getByTestId("path-element-overflow-marker-0")).toHaveCount(0);
+  await expect(page.getByTestId("path-element-overflow-marker-0")).toHaveCount(
+    0,
+  );
   await expect
     .poll(() => canvasNodePositionOrNull(page, "path-element-node-0"))
     .toBeNull();

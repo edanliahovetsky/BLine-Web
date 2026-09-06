@@ -1964,9 +1964,9 @@ describe("damaged Project metadata recovery", () => {
 
     renameActivePath(store, "Recovered Auto");
     io.simulateExternalEdit();
-    await expect(store.getState().replaceDamagedProject()).rejects.toBeInstanceOf(
-      StorageConflictError,
-    );
+    await expect(
+      store.getState().replaceDamagedProject(),
+    ).rejects.toBeInstanceOf(StorageConflictError);
     expect(store.getState()).toMatchObject({
       status: "conflict",
       dirty: true,
