@@ -390,8 +390,9 @@ export function PathLibraryDialog({
       connect(pending, node);
       return;
     }
-    if (focus && node.kind !== focus.kind && connected(edgeFor(focus, node))) {
-      disconnect(edgeFor(focus, node));
+    if (focus && node.kind !== focus.kind) {
+      if (connected(edgeFor(focus, node))) disconnect(edgeFor(focus, node));
+      else connect(focus, node);
       return;
     }
     setMenu(null);
@@ -617,7 +618,7 @@ export function PathLibraryDialog({
     : drag.view?.point;
   let status =
     message ||
-    "Drag between connection points to link. Click a connected endpoint to disconnect.";
+    "Click a connection point to link or unlink. Drag a point onto a row to connect.";
   if (pending)
     status = `Choose a ${pending.kind === "group" ? "Path" : "Path Group"} to connect. Esc to cancel.`;
   if (drag.view)
@@ -634,13 +635,16 @@ export function PathLibraryDialog({
       isRelated = related(node),
       isEditing = sameNode(editing, node);
     const isTarget = Boolean(origin && origin.kind !== node.kind);
+    const isConnectable = !focus || node.kind !== focus.kind;
     const endpointLabel = isTarget
       ? `Connect to ${node.name}`
       : isRelated && focus
         ? `Disconnect ${paths.find((path) => path.id === edgeFor(focus, node).pathId)?.name} from ${groups.find((group) => group.id === edgeFor(focus, node).groupId)?.name}`
-        : sameNode(pending, node)
-          ? `Cancel connection from ${node.name}`
-          : `Start connection from ${node.name}`;
+        : focus && isConnectable
+          ? `Connect to ${node.name}`
+          : sameNode(pending, node)
+            ? `Cancel connection from ${node.name}`
+            : `Start connection from ${node.name}`;
     return (
       <div
         key={node.id}
@@ -749,16 +753,18 @@ export function PathLibraryDialog({
             </button>
           </>
         )}
+        {/* Keep hidden ports in the layout as anchors for connection lines. */}
         <button
           type="button"
-          className={`fc-port${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
+          className={`fc-port${!isConnectable ? " is-hidden" : ""}${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
           data-node-key={keyFor(node)}
-          disabled={Boolean(editing)}
+          disabled={Boolean(editing) || !isConnectable}
+          aria-hidden={!isConnectable}
           aria-label={endpointLabel}
           title={
             isRelated
               ? "Click to disconnect · drag to connect"
-              : "Drag to connect · or click"
+              : "Click to connect · drag to a row"
           }
           onPointerDown={(event) => {
             event.currentTarget.focus({ preventScroll: true });

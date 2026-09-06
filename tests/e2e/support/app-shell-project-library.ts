@@ -75,12 +75,6 @@ export async function createPathGroupFromTopMenu(
     .getByLabel("Toolbar path", { exact: true })
     .innerText();
   await dialog
-    .getByRole("button", {
-      name: `Start connection from ${groupName}`,
-      exact: true,
-    })
-    .click();
-  await dialog
     .getByRole("button", { name: `Connect to ${pathName}`, exact: true })
     .click();
   await dialog
@@ -104,12 +98,6 @@ export async function addPathToGroupFromLibrary(
     })
     .locator(".fc-port");
   if (!(await pathPort.getAttribute("aria-label"))?.startsWith("Disconnect")) {
-    await dialog
-      .getByRole("button", {
-        name: `Start connection from ${groupName}`,
-        exact: true,
-      })
-      .click();
     await pathPort.click();
   }
   await dialog.getByRole("button", { name: "Close", exact: true }).click();

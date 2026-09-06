@@ -486,6 +486,10 @@
   background: #7793a9;
   border-radius: 50%;
 }
+.fc-port.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
 .fc-groups .fc-port {
   right: -11px;
 }
