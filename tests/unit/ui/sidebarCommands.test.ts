@@ -84,6 +84,7 @@ describe("sidebar commands", () => {
 
     expect(inserted.path_elements).toHaveLength(3);
     expect(isEventTrigger(inserted.path_elements[1])).toBe(true);
+    expect(inserted.path_elements[1]).toMatchObject({ lib_key: "" });
     expect(project.path.path_elements).toHaveLength(2);
 
     const insertedDocument = { ...project, path: inserted };
@@ -425,6 +426,7 @@ describe("sidebar commands", () => {
       return;
     }
     expect(isEventTrigger(converted)).toBe(true);
+    expect(converted).toMatchObject({ lib_key: "" });
 
     const updated = applyStructureToDocument(project, {
       kind: "convert",

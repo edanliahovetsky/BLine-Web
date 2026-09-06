@@ -1,742 +1,1223 @@
-import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { Search } from "lucide-react";
-import type {
-  Project,
-  ProjectPath,
-  ProjectPathGroup,
-} from "../../core/model/project";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type CSSProperties,
+} from "react";
+import { flushSync } from "react-dom";
+import {
+  Check,
+  Copy,
+  Eye,
+  Folder,
+  Link2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  ExternalLink,
+  ArrowDown,
+  ArrowUp,
+} from "lucide-react";
+import type { Project, ProjectPath } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import { isEditableShortcutTarget } from "../keyboardShortcuts";
-import {
-  CopyIcon,
-  DownloadIcon,
-  FilePlusIcon,
-  OpenIcon,
-  PencilIcon,
-  PlusIcon,
-  TrashIcon,
-  UploadIcon,
-} from "../icons";
-import { CloseButton, IconButton } from "../controls";
-import { DeletePathGroupDialog, NameEntryDialog } from "./ProjectDialogs";
+import { CloseButton } from "../controls";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
-import "./LibraryDialog.css";
+import {
+  usePathGroupLinkDrag,
+  type LibraryNode,
+  type ConnectionPoint,
+} from "./usePathGroupLinkDrag";
+import {
+  applyLibraryOrder,
+  captureLibraryOrder,
+  connectedNodeIds,
+  libraryNodeKey,
+} from "./pathLibraryOrder";
+import {
+  usePathLibraryGeometry,
+  type OffscreenDirection,
+} from "./usePathLibraryGeometry";
 import "./ProjectLibraryDialogs.css";
 
-type LibraryNameAction =
-  | {
-      kind: "rename-group";
-      groupId: string;
-      initialName: string;
-    }
-  | {
-      kind: "duplicate-path" | "rename-path";
-      pathId: string;
-      initialName: string;
-      addToGroupId: string | null;
-    };
+interface Node extends LibraryNode {
+  name: string;
+  count: number;
+}
+interface Edge {
+  groupId: string;
+  pathId: string;
+}
+interface InlineEdit extends LibraryNode {
+  value: string;
+}
+interface RowMenu {
+  node: Node;
+  x: number;
+  y: number;
+  trigger: HTMLButtonElement;
+}
+const keyFor = (node: LibraryNode) => `${node.kind}:${node.id}`;
+const sameNode = (a: LibraryNode | null, b: LibraryNode | null) =>
+  Boolean(a && b && a.kind === b.kind && a.id === b.id);
+const edgeFor = (a: LibraryNode, b: LibraryNode): Edge =>
+  a.kind === "group"
+    ? { groupId: a.id, pathId: b.id }
+    : { groupId: b.id, pathId: a.id };
+const incident = (edge: Edge, node: LibraryNode | null) =>
+  node?.kind === "group" ? edge.groupId === node.id : edge.pathId === node?.id;
+const uniqueName = (base: string, names: string[]) => {
+  const existing = new Set(names.map((name) => name.toLocaleLowerCase()));
+  let value = base,
+    suffix = 2;
+  while (existing.has(value.toLocaleLowerCase())) value = `${base} ${suffix++}`;
+  return value;
+};
+function curve(from: ConnectionPoint, to: ConnectionPoint, direction = 1) {
+  const bend = Math.max(32, Math.abs(to.x - from.x) * 0.48);
+  return `M ${from.x} ${from.y} C ${from.x + direction * bend} ${from.y}, ${to.x - direction * bend} ${to.y}, ${to.x} ${to.y}`;
+}
 
 export function PathLibraryDialog({
   project,
   activePathId,
   activePathGroupId,
+  initiallyEditingPathId = null,
   onCancel,
   onCreatePath,
   onDeletePaths,
-  onExportPath,
-  onImportPath,
+  onDeletePathGroups,
+  onPreviewPathGroup,
 }: {
   project: Project;
   activePathId: string | null;
   activePathGroupId: string | null;
+  initiallyEditingPathId?: string | null;
   onCancel(): void;
-  onCreatePath(groupId: string | null): void;
-  onDeletePaths(): void;
-  onExportPath(): void;
-  onImportPath(): void;
+  onCreatePath(groupId: string | null): ProjectPath | null;
+  onDeletePaths(pathIds: readonly string[]): void;
+  onDeletePathGroups(groupIds: readonly string[]): void;
+  onPreviewPathGroup(): void;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
-    activePathGroupId,
+  const boardRef = useRef<HTMLDivElement>(null);
+  const skipBlur = useRef(false);
+  const [selected, setSelected] = useState<LibraryNode | null>(() =>
+    initiallyEditingPathId
+      ? { kind: "path", id: initiallyEditingPathId }
+      : activePathGroupId
+        ? { kind: "group", id: activePathGroupId }
+        : activePathId
+          ? { kind: "path", id: activePathId }
+          : null,
   );
-  const [selectedPathId, setSelectedPathId] = useState<string | null>(
-    activePathId ?? project.paths[0]?.path_id ?? null,
-  );
-  const [query, setQuery] = useState("");
-  const [showCreateCollectionDialog, setShowCreateCollectionDialog] =
-    useState(false);
-  const [deletingGroup, setDeletingGroup] = useState<ProjectPathGroup | null>(
-    null,
-  );
-  const [nameAction, setNameAction] = useState<LibraryNameAction | null>(null);
+  const [groupContext, setGroupContext] = useState(activePathGroupId);
+  const [groupQuery, setGroupQuery] = useState("");
+  const [pathQuery, setPathQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [pending, setPending] = useState<LibraryNode | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
+  const [editing, setEditing] = useState<InlineEdit | null>(() => {
+    const path = project.paths.find(
+      (path) => path.path_id === initiallyEditingPathId,
+    );
+    return path
+      ? { kind: "path", id: path.path_id, value: path.display_name }
+      : null;
+  });
+  const [menu, setMenu] = useState<RowMenu | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [scrollEpoch, setScrollEpoch] = useState(0);
 
-  useEffect(() => {
-    searchInputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        deletingGroup ||
-        showCreateCollectionDialog ||
-        nameAction
-      ) {
-        return;
-      }
-
-      const modifier = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-      if (
-        !modifier ||
-        event.altKey ||
-        isEditableShortcutTarget(event.target) ||
-        (key !== "z" && key !== "y")
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      if (key === "y" || event.shiftKey) {
-        projectStore.getState().redo();
-      } else {
-        projectStore.getState().undo();
-      }
+  const { groups, paths, edges } = useMemo(() => {
+    const edges: Edge[] = project.path_groups.flatMap((group) =>
+      group.path_ids.map((pathId) => ({ groupId: group.group_id, pathId })),
+    );
+    const counts = new Map<string, number>();
+    for (const edge of edges)
+      counts.set(edge.pathId, (counts.get(edge.pathId) ?? 0) + 1);
+    const groups: Node[] = project.path_groups.map((group) => ({
+      kind: "group",
+      id: group.group_id,
+      name: group.display_name,
+      count: group.path_ids.length,
+    }));
+    const paths: Node[] = project.paths.map((path) => ({
+      kind: "path",
+      id: path.path_id,
+      name: path.display_name,
+      count: counts.get(path.path_id) ?? 0,
+    }));
+    const order = (a: Node, b: Node) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      a.id.localeCompare(b.id);
+    return {
+      groups: groups.sort(order),
+      paths: paths.sort(order),
+      edges,
     };
-
-    window.addEventListener("keydown", handleHistoryShortcut);
-    return () => window.removeEventListener("keydown", handleHistoryShortcut);
-  }, [deletingGroup, nameAction, showCreateCollectionDialog]);
-
-  const selectedGroup =
-    project.path_groups.find((group) => group.group_id === selectedGroupId) ??
+  }, [project]);
+  const findNode = (node: LibraryNode | null) =>
+    node
+      ? (node.kind === "group" ? groups : paths).find(
+          (item) => item.id === node.id,
+        )
+      : undefined;
+  const focus =
+    findNode(selected) ??
+    paths.find((node) => node.id === activePathId) ??
+    groups[0] ??
+    paths[0] ??
     null;
-  const selectedCollectionPaths = visiblePathsForGroup(
-    project.paths,
-    selectedGroup,
-  ).filter((path) => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
+  const focusKey = libraryNodeKey(focus);
+  const [capturedOrder, setCapturedOrder] = useState(() =>
+    captureLibraryOrder(project, focus),
+  );
+  let order = capturedOrder;
+  // Reconcile a deleted/undone selection without changing the selected column’s order.
+  if (order.focusKey !== focusKey) {
+    order = captureLibraryOrder(project, focus, order);
+    setCapturedOrder(order);
+  }
+  const currentNeighbors = connectedNodeIds(project, focus);
+  const sortDirty =
+    currentNeighbors.length !== order.connectedIds.length ||
+    currentNeighbors.some((id) => !order.connectedIds.includes(id));
+  const connected = (edge: Edge) =>
+    edges.some(
+      (candidate) =>
+        candidate.groupId === edge.groupId && candidate.pathId === edge.pathId,
+    );
+  const related = (node: Node) =>
+    Boolean(
+      focus && node.kind !== focus.kind && connected(edgeFor(focus, node)),
+    );
+  const visibleGroups = applyLibraryOrder(groups, order.group).filter(
+    (node) =>
+      (focus?.kind === "group" && node.id === focus.id) ||
+      node.name
+        .toLocaleLowerCase()
+        .includes(groupQuery.trim().toLocaleLowerCase()),
+  );
+  const visiblePaths = applyLibraryOrder(paths, order.path).filter((node) => {
+    if (focus?.kind === "path" && node.id === focus.id) return true;
+    const query = pathQuery.trim().toLocaleLowerCase();
     return (
-      !normalizedQuery ||
-      path.display_name.toLocaleLowerCase().includes(normalizedQuery) ||
-      path.file_name.toLocaleLowerCase().includes(normalizedQuery)
+      node.name.toLocaleLowerCase().includes(query) ||
+      project.paths
+        .find((path) => path.path_id === node.id)
+        ?.file_name.toLocaleLowerCase()
+        .includes(query)
     );
   });
-  const selectedPathFromState =
-    project.paths.find((path) => path.path_id === selectedPathId) ?? null;
-  const selectedPath =
-    selectedPathFromState &&
-    selectedCollectionPaths.some(
-      (path) => path.path_id === selectedPathFromState.path_id,
-    )
-      ? selectedPathFromState
-      : (selectedCollectionPaths.find(
-          (path) => path.path_id === activePathId,
-        ) ??
-        selectedCollectionPaths[0] ??
-        null);
-  const effectiveSelectedPathId = selectedPath?.path_id ?? null;
-  const handleSelectLibraryGroup = (groupId: string | null) => {
-    const nextGroup =
-      project.path_groups.find((group) => group.group_id === groupId) ?? null;
-    const nextPaths = visiblePathsForGroup(project.paths, nextGroup);
+  const visibleEdges = edges.filter(
+    (edge) =>
+      visibleGroups.some((node) => node.id === edge.groupId) &&
+      visiblePaths.some((node) => node.id === edge.pathId),
+  );
+  const hiddenCount = focus
+    ? focus.count - visibleEdges.filter((edge) => incident(edge, focus)).length
+    : 0;
+  const displayedEdges = visibleEdges.filter(
+    (edge) => showAll || incident(edge, focus),
+  );
+  const displayedNodeKeys = new Set(
+    displayedEdges.flatMap((edge) => [
+      `group:${edge.groupId}`,
+      `path:${edge.pathId}`,
+    ]),
+  );
 
-    setSelectedGroupId(groupId);
-    setSelectedPathId((current) =>
-      current && nextPaths.some((path) => path.path_id === current)
-        ? current
-        : (nextPaths[0]?.path_id ?? null),
+  // An inline editor or menu can unmount with focus still inside it. Keep
+  // shortcuts in this dialog, while leaving any dialog opened above it alone.
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    const topDialog = [
+      ...document.querySelectorAll('[role="dialog"][aria-modal="true"]'),
+    ].at(-1);
+    if (
+      dialog &&
+      topDialog === dialog &&
+      document.activeElement === document.body
+    ) {
+      dialog.focus({ preventScroll: true });
+    }
+  });
+  useEffect(() => {
+    if (!initiallyEditingPathId)
+      dialogRef.current?.focus({ preventScroll: true });
+  }, [dialogRef, initiallyEditingPathId]);
+  const layoutKey = `${focusKey}|${[...displayedNodeKeys].join(",")}|${visibleGroups.map((node) => node.id).join(",")}|${visiblePaths.map((node) => node.id).join(",")}`;
+  const { geometry, measure, jumpToConnection } = usePathLibraryGeometry(
+    boardRef,
+    layoutKey,
+  );
+  useLayoutEffect(() => {
+    boardRef.current
+      ?.querySelectorAll<HTMLElement>(
+        `.fc-list-scroll[data-kind="${focus?.kind === "group" ? "path" : "group"}"]`,
+      )
+      .forEach((scroll) => {
+        scroll.scrollTop = 0;
+      });
+    measure();
+  }, [focusKey, focus?.kind, scrollEpoch, measure]);
+  const inspect = (node: LibraryNode) => {
+    setSelected(node);
+    setCapturedOrder((previous) =>
+      captureLibraryOrder(
+        projectStore.getState().project ?? project,
+        node,
+        previous,
+      ),
+    );
+    setScrollEpoch((epoch) => epoch + 1);
+  };
+  const refreshOrder = () => {
+    setCapturedOrder((previous) =>
+      captureLibraryOrder(project, focus, previous),
+    );
+    setScrollEpoch((epoch) => epoch + 1);
+    setMessage("Connected items moved to the top.");
+  };
+  const offscreen: Record<
+    LibraryNode["kind"],
+    Record<OffscreenDirection, string[]>
+  > = {
+    group: { above: [], below: [] },
+    path: { above: [], below: [] },
+  };
+  const overflowWires = new Map<
+    string,
+    { from: ConnectionPoint; to: ConnectionPoint; active: boolean }
+  >();
+  for (const edge of displayedEdges) {
+    const groupPoint = geometry.points.get(`group:${edge.groupId}`);
+    const pathPoint = geometry.points.get(`path:${edge.pathId}`);
+    if (!groupPoint || !pathPoint) continue;
+    for (const kind of ["group", "path"] as const) {
+      const id = kind === "group" ? edge.groupId : edge.pathId;
+      const point = kind === "group" ? groupPoint : pathPoint;
+      if (point.offscreen) {
+        const ids = offscreen[kind][point.offscreen];
+        if (!ids.includes(id)) ids.push(id);
+      }
+    }
+    if (!groupPoint.offscreen && !pathPoint.offscreen) continue;
+    const groupKey = groupPoint.offscreen
+      ? `group:${groupPoint.offscreen}`
+      : `group:${edge.groupId}`;
+    const pathKey = pathPoint.offscreen
+      ? `path:${pathPoint.offscreen}`
+      : `path:${edge.pathId}`;
+    const from = groupPoint.offscreen
+      ? geometry.overflowAnchors.get(groupKey)
+      : groupPoint;
+    const to = pathPoint.offscreen
+      ? geometry.overflowAnchors.get(pathKey)
+      : pathPoint;
+    if (!from || !to) continue;
+    // Shared endpoints contribute one item to the bar and one aggregate wire.
+    const wireKey = `${groupKey}:${pathKey}`;
+    overflowWires.set(wireKey, {
+      from,
+      to,
+      active:
+        incident(edge, focus) || Boolean(overflowWires.get(wireKey)?.active),
+    });
+  }
+
+  useEffect(() => {
+    if (!menu) return;
+    const dismiss = (event: globalThis.PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        !event.target.closest(".fc-menu, .fc-more")
+      )
+        setMenu(null);
+    };
+    const close = () => setMenu(null);
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+
+  const mutate = (action: () => void) => {
+    try {
+      action();
+      setError("");
+      return true;
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The change could not be saved.",
+      );
+      return false;
+    }
+  };
+  const canLink = (source: LibraryNode, target: LibraryNode) =>
+    source.kind !== target.kind &&
+    (!focus || sameNode(focus, source) || sameNode(focus, target));
+  const connect = (source: LibraryNode, target: LibraryNode) => {
+    if (!canLink(source, target) || !findNode(source) || !findNode(target))
+      return;
+    const edge = edgeFor(source, target);
+    setPending(null);
+    setSelectedEdge(null);
+    if (connected(edge)) {
+      setMessage("Already connected.");
+      return;
+    }
+    if (
+      mutate(() =>
+        projectStore.getState().addPathsToGroup(edge.groupId, [edge.pathId]),
+      )
+    )
+      setMessage("Connection added.");
+  };
+  const disconnect = (edge: Edge) => {
+    setPending(null);
+    setSelectedEdge(null);
+    if (
+      mutate(() =>
+        projectStore
+          .getState()
+          .removePathsFromGroup(edge.groupId, [edge.pathId], {
+            preserveActivePath: true,
+          }),
+      )
+    )
+      setMessage("Connection removed. The Path is kept.");
+  };
+  const tapPort = (node: LibraryNode) => {
+    if (pending && pending.kind !== node.kind) {
+      connect(pending, node);
+      return;
+    }
+    if (focus && node.kind !== focus.kind) {
+      if (connected(edgeFor(focus, node))) disconnect(edgeFor(focus, node));
+      else connect(focus, node);
+      return;
+    }
+    setMenu(null);
+    setSelectedEdge(null);
+    setMessage("");
+    if (sameNode(pending, node)) setPending(null);
+    else setPending(node);
+  };
+  const drag = usePathGroupLinkDrag(
+    boardRef,
+    () => {
+      setPending(null);
+      setMenu(null);
+      setSelectedEdge(null);
+      setMessage("");
+    },
+    connect,
+    tapPort,
+    canLink,
+  );
+  const select = (node: Node) => {
+    if (pending && pending.kind !== node.kind) {
+      tapPort(node);
+      return;
+    }
+    inspect(node);
+    setPending(null);
+    setSelectedEdge(null);
+    setMenu(null);
+    setMessage("");
+    if (node.kind === "group") setGroupContext(node.id);
+  };
+  const startRename = (node: Node) => {
+    skipBlur.current = false;
+    setMenu(null);
+    setPending(null);
+    setSelectedEdge(null);
+    setError("");
+    setEditing({ kind: node.kind, id: node.id, value: node.name });
+  };
+  const finishRename = (value: string) => {
+    if (!editing) return;
+    const name = value.trim();
+    if (!name) {
+      setError("Enter a name.");
+      return;
+    }
+    const peers = editing.kind === "group" ? groups : paths;
+    if (
+      peers.some(
+        (node) =>
+          node.id !== editing.id &&
+          node.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )
+    ) {
+      setError("This name is already in use.");
+      return;
+    }
+    const node = findNode(editing);
+    if (!node || name === node.name) {
+      setEditing(null);
+      setError("");
+      return;
+    }
+    if (
+      mutate(() =>
+        editing.kind === "group"
+          ? projectStore.getState().renamePathGroup(editing.id, name)
+          : projectStore.getState().renamePath(editing.id, name),
+      )
+    ) {
+      setEditing(null);
+      setMessage("Name updated.");
+    }
+  };
+  const createPath = () => {
+    mutate(() => {
+      const created = onCreatePath(focus?.kind === "group" ? focus.id : null);
+      if (!created) return;
+      const node: Node = {
+        kind: "path",
+        id: created.path_id,
+        name: created.display_name,
+        count:
+          projectStore
+            .getState()
+            .project?.path_groups.filter((group) =>
+              group.path_ids.includes(created.path_id),
+            ).length ?? 0,
+      };
+      setPathQuery("");
+      inspect(node);
+      startRename(node);
+    });
+  };
+  const createGroup = (source?: Node) => {
+    setMenu(null);
+    setPending(null);
+    const name = uniqueName(
+      source ? `${source.name} Copy` : "New Path Group",
+      groups.map((node) => node.name),
+    );
+    const group = source
+      ? project.path_groups.find((group) => group.group_id === source.id)
+      : null;
+    if (
+      !mutate(() =>
+        projectStore.getState().createPathGroup({
+          displayName: name,
+          pathIds: group?.path_ids ?? [],
+          makeActive: false,
+        }),
+      )
+    )
+      return;
+    const created = projectStore
+      .getState()
+      .project?.path_groups.find(
+        (group) => !groups.some((node) => node.id === group.group_id),
+      );
+    if (created) {
+      const node: Node = {
+        kind: "group",
+        id: created.group_id,
+        name: created.display_name,
+        count: created.path_ids.length,
+      };
+      setGroupQuery("");
+      inspect(node);
+      setGroupContext(node.id);
+      startRename(node);
+    }
+  };
+  const duplicate = (node: Node) => {
+    if (node.kind === "group") {
+      createGroup(node);
+      return;
+    }
+    setMenu(null);
+    setPending(null);
+    const name = uniqueName(
+      `${node.name} Copy`,
+      paths.map((path) => path.name),
+    );
+    if (
+      !mutate(() =>
+        projectStore.getState().duplicatePath(node.id, name, {
+          copyMemberships: true,
+          makeActive: false,
+        }),
+      )
+    )
+      return;
+    const created = projectStore
+      .getState()
+      .project?.paths.find(
+        (path) => !paths.some((node) => node.id === path.path_id),
+      );
+    if (created) {
+      const copy: Node = {
+        kind: "path",
+        id: created.path_id,
+        name,
+        count: node.count,
+      };
+      setPathQuery("");
+      inspect(copy);
+      startRename(copy);
+    }
+  };
+  const remove = (node: Node) => {
+    setMenu(null);
+    setPending(null);
+    setSelectedEdge(null);
+    if (node.kind === "path") onDeletePaths([node.id]);
+    else onDeletePathGroups([node.id]);
+  };
+  const openOnCanvas = (node: Node) => {
+    if (node.kind === "group") {
+      if (!node.count) return;
+      projectStore.getState().setActivePathGroup(node.id);
+      onPreviewPathGroup();
+    } else {
+      const groupId =
+        [groupContext, activePathGroupId].find(
+          (id) => id && connected({ groupId: id, pathId: node.id }),
+        ) ?? null;
+      projectStore.getState().setActivePath(node.id);
+      projectStore.getState().setActivePathGroup(groupId);
+    }
+    selectionStore.getState().clearSelection();
+    onCancel();
+  };
+  const closeMenu = () => {
+    menu?.trigger.focus({ preventScroll: true });
+    setMenu(null);
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (menu) closeMenu();
+      else if (drag.view || pending || selectedEdge) {
+        drag.cancel();
+        setPending(null);
+        setSelectedEdge(null);
+      } else onCancel();
+    } else if (
+      isEditableShortcutTarget(event.target) &&
+      !(
+        event.target instanceof HTMLInputElement &&
+        event.target.type === "checkbox"
+      )
+    ) {
+      return;
+    } else if (event.key === "F2" && focus) {
+      event.preventDefault();
+      startRename(focus);
+    } else if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      /^(z|y)$/i.test(event.key)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      drag.cancel();
+      setPending(null);
+      setSelectedEdge(null);
+      setMenu(null);
+      mutate(() =>
+        event.key.toLowerCase() === "y" || event.shiftKey
+          ? projectStore.getState().redo()
+          : projectStore.getState().undo(),
+      );
+    }
+  };
+  const origin = drag.view?.source ?? pending;
+  const previewStart = drag.view
+    ? geometry.points.get(keyFor(drag.view.source))
+    : null;
+  const previewEnd = drag.view?.target
+    ? geometry.points.get(keyFor(drag.view.target))
+    : drag.view?.point;
+  let status =
+    message ||
+    "Click a connection point to link or unlink. Drag a point onto a row to connect.";
+  if (pending)
+    status = `Choose a ${pending.kind === "group" ? "Path" : "Path Group"} to connect. Esc to cancel.`;
+  if (drag.view)
+    status = drag.view.target
+      ? connected(edgeFor(drag.view.source, drag.view.target))
+        ? "Already connected."
+        : `Release to connect to ${findNode(drag.view.target)?.name ?? "the destination"}.`
+      : "Drag to the other column. Pause near an edge to scroll. Esc to cancel.";
+  if (selectedEdge)
+    status = `${groups.find((node) => node.id === selectedEdge.groupId)?.name} ↔ ${paths.find((node) => node.id === selectedEdge.pathId)?.name}`;
+
+  const renderNode = (node: Node) => {
+    const isFocused = sameNode(focus, node),
+      isRelated = related(node),
+      isEditing = sameNode(editing, node);
+    const isTarget = Boolean(origin && canLink(origin, node));
+    const isConnectable = !focus || node.kind !== focus.kind;
+    const showPort = isFocused || isConnectable;
+    const endpointLabel = isTarget
+      ? `Connect to ${node.name}`
+      : isRelated && focus
+        ? `Disconnect ${paths.find((path) => path.id === edgeFor(focus, node).pathId)?.name} from ${groups.find((group) => group.id === edgeFor(focus, node).groupId)?.name}`
+        : focus && isConnectable
+          ? `Connect to ${node.name}`
+          : sameNode(pending, node)
+            ? `Cancel connection from ${node.name}`
+            : `Start connection from ${node.name}`;
+    return (
+      <div
+        key={node.id}
+        className={`fc-row ${node.kind === "path" ? "all-paths__row" : ""}${isFocused ? " is-focused" : isRelated ? " is-related" : !isTarget ? " is-muted" : ""}${isTarget ? " is-target" : ""}${sameNode(drag.view?.target ?? null, node) ? " is-drop-target" : ""}`}
+        data-kind={node.kind}
+        data-node-id={node.id}
+        data-has-visible-connection={displayedNodeKeys.has(keyFor(node))}
+      >
+        {isEditing && editing ? (
+          <div className="fc-rename">
+            <input
+              autoFocus
+              aria-label={
+                node.kind === "group" ? "Path Group name" : "Path name"
+              }
+              maxLength={120}
+              value={editing.value}
+              aria-invalid={Boolean(error)}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setEditing({ ...editing, value: event.currentTarget.value });
+                setError("");
+              }}
+              onBlur={(event) => {
+                if (skipBlur.current) {
+                  skipBlur.current = false;
+                  return;
+                }
+                finishRename(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  finishRename(event.currentTarget.value);
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  skipBlur.current = true;
+                  setEditing(null);
+                  setError("");
+                }
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Save name"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => finishRename(editing.value)}
+            >
+              <Check size={14} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="fc-select"
+              aria-label={`Focus ${node.name}`}
+              aria-pressed={isFocused}
+              onClick={() => select(node)}
+              onDoubleClick={() => startRename(node)}
+            >
+              {node.kind === "group" && (
+                <Folder className="fc-folder" size={17} />
+              )}
+              <span className="fc-name" title={node.name}>
+                {node.name}
+              </span>
+              <span
+                className="fc-count"
+                title={`${node.count} ${node.kind === "group" ? "Paths" : "Path Groups"}`}
+              >
+                {node.count}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="fc-more"
+              aria-label={`${node.kind === "group" ? "Path Group" : "Path"} actions for ${node.name}`}
+              aria-haspopup="menu"
+              aria-expanded={sameNode(menu?.node ?? null, node)}
+              title="Rename, duplicate, or delete"
+              onClick={(event) => {
+                if (sameNode(menu?.node ?? null, node)) {
+                  setMenu(null);
+                  return;
+                }
+                const box = event.currentTarget.getBoundingClientRect();
+                setPending(null);
+                setSelectedEdge(null);
+                setMenu({
+                  node,
+                  trigger: event.currentTarget,
+                  x: Math.max(
+                    8,
+                    Math.min(window.innerWidth - 190, box.right - 182),
+                  ),
+                  y: Math.max(
+                    8,
+                    Math.min(window.innerHeight - 160, box.bottom + 6),
+                  ),
+                });
+              }}
+            >
+              <MoreHorizontal size={17} />
+            </button>
+          </>
+        )}
+        {/* Keep hidden ports in the layout as anchors for connection lines. */}
+        <button
+          type="button"
+          className={`fc-port${!showPort ? " is-hidden" : ""}${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
+          data-node-key={keyFor(node)}
+          disabled={Boolean(editing) || !showPort}
+          aria-hidden={!showPort}
+          aria-label={endpointLabel}
+          title={
+            isRelated
+              ? "Click to disconnect · drag to connect"
+              : "Click to connect · drag to a row"
+          }
+          onPointerDown={(event) => {
+            event.currentTarget.focus({ preventScroll: true });
+            setMenu(null);
+            drag.start(event, node);
+          }}
+          onClick={(event) => {
+            if (event.detail === 0) tapPort(node);
+          }}
+        />
+      </div>
     );
   };
 
-  const handleUsePath = (pathId: string) => {
-    projectStore.getState().setActivePathGroup(selectedGroup?.group_id ?? null);
-    projectStore.getState().setActivePath(pathId);
-    selectionStore.getState().clearSelection();
-  };
-
-  const handleCreateGroup = (displayName: string) => {
-    const pathId = effectiveSelectedPathId;
-
-    projectStore.getState().createPathGroup({
-      displayName,
-      activePathId: pathId,
-      pathIds: pathId ? [pathId] : [],
-      makeActive: true,
-    });
-
-    const createdGroupId = projectStore.getState().activePathGroupId;
-    selectionStore.getState().clearSelection();
-    setSelectedGroupId(createdGroupId);
-    setSelectedPathId(pathId);
-    setShowCreateCollectionDialog(false);
-  };
-
-  const handleRenameGroup = () => {
-    if (!selectedGroup) {
-      return;
-    }
-
-    setNameAction({
-      kind: "rename-group",
-      groupId: selectedGroup.group_id,
-      initialName: selectedGroup.display_name,
-    });
-  };
-
-  const handleToggleSelectedPathMembership = (
-    groupId: string,
-    checked: boolean,
-  ) => {
-    if (!selectedPath) {
-      return;
-    }
-
-    if (checked) {
-      projectStore.getState().addPathsToGroup(groupId, [selectedPath.path_id]);
-    } else {
-      projectStore
-        .getState()
-        .removePathsFromGroup(groupId, [selectedPath.path_id]);
-    }
-    selectionStore.getState().clearSelection();
-  };
-
-  const handleCreatePathInSelectedCollection = () => {
-    selectionStore.getState().clearSelection();
-    onCreatePath(selectedGroup?.group_id ?? null);
-  };
-
-  const handleDuplicateSelectedPath = () => {
-    if (!selectedPath) {
-      return;
-    }
-
-    setNameAction({
-      kind: "duplicate-path",
-      pathId: selectedPath.path_id,
-      initialName: selectedPath.display_name,
-      addToGroupId: selectedGroup?.group_id ?? null,
-    });
-  };
-
-  const handleRenameSelectedPath = () => {
-    if (!selectedPath) {
-      return;
-    }
-
-    setNameAction({
-      kind: "rename-path",
-      pathId: selectedPath.path_id,
-      initialName: selectedPath.display_name,
-      addToGroupId: selectedGroup?.group_id ?? null,
-    });
-  };
-
-  const handleConfirmNameAction = (displayName: string) => {
-    if (!nameAction) {
-      return;
-    }
-
-    try {
-      if (nameAction.kind === "rename-group") {
-        projectStore
-          .getState()
-          .renamePathGroup(nameAction.groupId, displayName);
-      } else if (nameAction.kind === "duplicate-path") {
-        projectStore.getState().duplicatePath(nameAction.pathId, displayName, {
-          addToGroupId: nameAction.addToGroupId,
-        });
-        const nextPathId = projectStore.getState().activePathId;
-        selectionStore.getState().clearSelection();
-        setSelectedPathId(nextPathId);
-      } else {
-        projectStore.getState().renamePath(nameAction.pathId, displayName);
-        setSelectedPathId(nameAction.pathId);
-      }
-      setNameAction(null);
-    } catch (caughtError) {
-      projectStore.getState().markSaveError(caughtError);
-    }
-  };
-
-  const handleExportSelectedPath = () => {
-    if (!selectedPath) {
-      return;
-    }
-
-    projectStore.getState().setActivePath(selectedPath.path_id);
-    selectionStore.getState().clearSelection();
-    onExportPath();
-  };
-
-  const handleDeleteSelectedPath = () => {
-    selectionStore.getState().clearSelection();
-    onDeletePaths();
+  const renderColumnRows = (kind: LibraryNode["kind"], nodes: Node[]) => {
+    const total = kind === "group" ? groups.length : paths.length;
+    const query = kind === "group" ? groupQuery : pathQuery;
+    return (
+      <>
+        <div
+          className={`fc-list-viewport${offscreen[kind].above.length ? " has-overflow-above" : ""}${offscreen[kind].below.length ? " has-overflow-below" : ""}`}
+          data-kind={kind}
+        >
+          <div
+            className="fc-list-scroll"
+            data-kind={kind}
+            tabIndex={0}
+            aria-label={
+              kind === "group" ? "Scroll Path Groups" : "Scroll Paths"
+            }
+          >
+            <div className="fc-rows">
+              {nodes.map((node) => renderNode(node))}
+              {!nodes.length && (
+                <div className="fc-empty">
+                  {query.trim()
+                    ? `No ${kind === "group" ? "Path Groups" : "Paths"} match your search.`
+                    : total
+                      ? "Select an item to see its connections."
+                      : kind === "group"
+                        ? "Create a Path Group, then link your Paths."
+                        : "Create your first Path."}
+                </div>
+              )}
+            </div>
+          </div>
+          {(["above", "below"] as const).map((direction) => {
+            const ids = offscreen[kind][direction];
+            return ids.length ? (
+              <button
+                key={direction}
+                type="button"
+                className={`fc-edge-cap is-${direction}`}
+                title={`Show connections ${direction}`}
+                onClick={() => jumpToConnection(kind, ids, direction)}
+              >
+                {direction === "above" ? (
+                  <ArrowUp size={12} />
+                ) : (
+                  <ArrowDown size={12} />
+                )}
+                {ids.length}{" "}
+                {kind === "group"
+                  ? ids.length === 1
+                    ? "Path Group"
+                    : "Path Groups"
+                  : ids.length === 1
+                    ? "Path"
+                    : "Paths"}{" "}
+                {direction}
+              </button>
+            ) : null;
+          })}
+        </div>
+      </>
+    );
   };
 
   return (
-    <div className="project-navigator-backdrop" role="presentation">
+    <div
+      className="project-navigator-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
       <section
         ref={dialogRef}
-        className="library-dialog path-library-dialog project-navigator"
+        className="project-navigator fc-navigator"
         role="dialog"
         aria-modal="true"
         aria-label="Project Navigator"
+        tabIndex={-1}
         data-testid="path-library-dialog"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          } else if (event.key === "F2" && selectedPath) {
-            event.preventDefault();
-            handleRenameSelectedPath();
+        onKeyDown={handleKeyDown}
+        onPointerDown={(event) => {
+          if (
+            event.target instanceof Element &&
+            !event.target.closest("button, input, label")
+          ) {
+            event.currentTarget.focus({ preventScroll: true });
           }
         }}
       >
-        <header className="config-dialog__header">
+        <header className="project-navigator__header">
           <div>
             <strong>Project Navigator</strong>
             <span>{project.display_name}</span>
           </div>
-          <CloseButton ariaLabel="Close project navigator" onClick={onCancel} />
+          <CloseButton ariaLabel="Close" onClick={onCancel} />
         </header>
-
-        <div className="library-dialog__utility-bar path-library-dialog__utility-bar">
-          <div className="library-dialog__selection-summary path-library-dialog__selection-summary">
-            <strong>{selectedGroup?.display_name ?? "All Paths"}</strong>
-            <span>
-              {selectedCollectionPaths.length}{" "}
-              {selectedCollectionPaths.length === 1 ? "path" : "paths"} visible
-            </span>
-          </div>
-          <label className="project-navigator__search">
-            <Search aria-hidden="true" size={15} />
-            <input
-              ref={searchInputRef}
-              type="search"
-              aria-label="Search paths"
-              placeholder="Search paths…"
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </label>
-          <div className="path-library-dialog__utility-actions">
-            <button
-              type="button"
-              className="library-dialog__utility-button path-library-dialog__utility-button"
-              onClick={onImportPath}
-            >
-              <UploadIcon size={17} />
-              <span>Import Path</span>
-            </button>
-            <button
-              type="button"
-              className="library-dialog__utility-button path-library-dialog__utility-button"
-              disabled={!selectedPath}
-              onClick={handleExportSelectedPath}
-            >
-              <DownloadIcon size={17} />
-              <span>Export Path</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="path-library-dialog__body">
-          <aside
-            className="library-dialog__column path-library-dialog__groups"
-            aria-label="Collections"
-          >
-            <div className="library-dialog__column-header path-library-dialog__column-header path-library-dialog__column-header--action">
-              <strong>Collections</strong>
-              <div className="path-library-dialog__header-actions">
-                <PathLibraryHeaderButton
-                  label="Create collection"
-                  onClick={() => setShowCreateCollectionDialog(true)}
-                >
-                  <PlusIcon size={17} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Rename collection"
-                  disabled={!selectedGroup}
-                  onClick={handleRenameGroup}
-                >
-                  <PencilIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Delete collection"
-                  tone="danger"
-                  disabled={!selectedGroup}
-                  onClick={() => {
-                    if (selectedGroup) {
-                      setDeletingGroup(selectedGroup);
-                    }
-                  }}
-                >
-                  <TrashIcon size={16} />
-                </PathLibraryHeaderButton>
-              </div>
-            </div>
-            <div
-              className="library-dialog__item-list path-library-dialog__group-list"
-              role="listbox"
-              aria-label="Collection list"
-            >
-              <button
-                type="button"
-                className={[
-                  "path-library-dialog__group",
-                  "library-dialog__item",
-                  "is-permanent",
-                  !selectedGroup ? "is-selected" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                role="option"
-                aria-selected={!selectedGroup}
-                onClick={() => handleSelectLibraryGroup(null)}
-              >
-                <span>All Paths</span>
-                <small>
-                  Permanent collection / {project.paths.length} paths
-                </small>
-              </button>
-              {project.path_groups.map((group) => (
-                <button
-                  key={group.group_id}
-                  type="button"
-                  className={
-                    selectedGroup?.group_id === group.group_id
-                      ? "library-dialog__item path-library-dialog__group is-selected"
-                      : "library-dialog__item path-library-dialog__group"
-                  }
-                  role="option"
-                  aria-selected={selectedGroup?.group_id === group.group_id}
-                  onClick={() => handleSelectLibraryGroup(group.group_id)}
-                >
-                  <span>{group.display_name}</span>
-                  <small>
-                    {group.path_ids.length}{" "}
-                    {group.path_ids.length === 1 ? "path" : "paths"}
-                    {activePathGroupId === group.group_id ? " / active" : ""}
-                  </small>
-                </button>
-              ))}
-            </div>
-          </aside>
-
-          <section
-            className="library-dialog__column path-library-dialog__paths"
-            aria-label="Paths in selected collection"
-          >
-            <div className="library-dialog__column-header path-library-dialog__column-header path-library-dialog__column-header--action">
-              <strong>Paths</strong>
-              <div className="path-library-dialog__header-actions">
-                <PathLibraryHeaderButton
-                  label="Open path"
-                  disabled={!selectedPath}
-                  onClick={() => {
-                    if (selectedPath) {
-                      handleUsePath(selectedPath.path_id);
-                    }
-                  }}
-                >
-                  <OpenIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Save path as"
-                  disabled={!selectedPath}
-                  onClick={handleDuplicateSelectedPath}
-                >
-                  <CopyIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Create new path"
-                  onClick={handleCreatePathInSelectedCollection}
-                >
-                  <FilePlusIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Rename path"
-                  disabled={!selectedPath}
-                  onClick={handleRenameSelectedPath}
-                >
-                  <PencilIcon size={16} />
-                </PathLibraryHeaderButton>
-                <PathLibraryHeaderButton
-                  label="Delete path"
-                  tone="danger"
-                  disabled={!selectedPath}
-                  onClick={handleDeleteSelectedPath}
-                >
-                  <TrashIcon size={16} />
-                </PathLibraryHeaderButton>
-              </div>
-            </div>
-            <div
-              className="library-dialog__item-list path-library-dialog__path-list"
-              role="listbox"
-              aria-label="Path list"
-            >
-              {selectedCollectionPaths.length > 0 ? (
-                selectedCollectionPaths.map((path) => (
-                  <button
-                    key={path.path_id}
-                    type="button"
-                    role="option"
-                    className={[
-                      "path-library-dialog__path",
-                      "library-dialog__item",
-                      path.path_id === effectiveSelectedPathId
-                        ? "is-selected"
-                        : "",
-                      path.path_id === activePathId ? "is-current" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    aria-selected={path.path_id === effectiveSelectedPathId}
-                    onClick={() => setSelectedPathId(path.path_id)}
-                    onDoubleClick={() => handleUsePath(path.path_id)}
-                  >
-                    <span>{path.display_name}</span>
-                    <small>
-                      {path.file_name}
-                      {path.path_id === activePathId ? " / open" : ""}
-                    </small>
-                  </button>
-                ))
+        <div className="fc-focusbar">
+          <div className="fc-focus-meta">
+            <span className="fc-focus-icon">
+              {focus?.kind === "group" ? (
+                <Folder size={18} />
               ) : (
-                <div className="library-dialog__empty path-library-dialog__empty">
-                  No paths are in this collection yet.
-                </div>
+                <Link2 size={18} />
               )}
-            </div>
-          </section>
-
-          <section
-            className="library-dialog__column path-library-dialog__details"
-            aria-label="Collection membership"
-          >
-            <div className="library-dialog__column-header path-library-dialog__column-header">
-              <strong>Membership</strong>
-              <span>
-                {selectedPath ? selectedPath.display_name : "No path"}
+            </span>
+            <div>
+              <strong data-testid="path-library-focus-name">
+                {focus?.name ?? "Paths & Path Groups"}
+              </strong>
+              <span data-testid="path-library-focus-count">
+                {focus
+                  ? `${focus.count} ${focus.kind === "group" ? "Path" : "Path Group"}${focus.count === 1 ? "" : "s"} connected${hiddenCount ? ` · ${hiddenCount} hidden by search` : ""}`
+                  : "Create a Path or Path Group to begin."}
               </span>
             </div>
-            <div className="library-dialog__details-scroll path-library-dialog__details-scroll">
-              {selectedPath ? (
-                <section className="path-library-dialog__membership">
-                  <div className="path-library-dialog__subhead">
-                    <strong>{selectedPath.file_name}</strong>
-                    <span>{project.path_groups.length + 1} collections</span>
-                  </div>
-                  <div className="path-library-dialog__membership-list">
-                    <label className="path-library-dialog__membership-row is-permanent">
-                      <input type="checkbox" checked disabled />
-                      <span>All Paths</span>
-                      <small>Permanent</small>
-                    </label>
-                    {project.path_groups.map((group) => (
-                      <label
-                        key={group.group_id}
-                        className={
-                          group.group_id === selectedGroup?.group_id
-                            ? "path-library-dialog__membership-row is-current"
-                            : "path-library-dialog__membership-row"
-                        }
-                      >
-                        <input
-                          type="checkbox"
-                          checked={group.path_ids.includes(
-                            selectedPath.path_id,
-                          )}
-                          onChange={(event) =>
-                            handleToggleSelectedPathMembership(
-                              group.group_id,
-                              event.currentTarget.checked,
-                            )
-                          }
-                        />
-                        <span>{group.display_name}</span>
-                        <small>
-                          {group.path_ids.length}{" "}
-                          {group.path_ids.length === 1 ? "path" : "paths"}
-                        </small>
-                      </label>
-                    ))}
-                  </div>
-                </section>
-              ) : (
-                <div className="library-dialog__empty path-library-dialog__empty">
-                  Select a path to manage collection membership.
-                </div>
-              )}
-            </div>
-          </section>
+          </div>
+          <div className="fc-focus-actions">
+            {focus && (
+              <button
+                type="button"
+                className="fc-open"
+                disabled={focus.kind === "group" && focus.count === 0}
+                onClick={() => openOnCanvas(focus)}
+              >
+                {focus.kind === "group" ? (
+                  <Eye size={14} />
+                ) : (
+                  <ExternalLink size={14} />
+                )}
+                {focus.kind === "group" ? "Preview Path Group" : "Open Path"}
+              </button>
+            )}
+            <label className="fc-toggle">
+              <input
+                type="checkbox"
+                checked={showAll}
+                onChange={(event) => setShowAll(event.currentTarget.checked)}
+              />
+              Show all connections
+            </label>
+          </div>
         </div>
-
-        <footer className="config-dialog__footer library-dialog__footer path-library-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Close
-          </button>
-        </footer>
-      </section>
-
-      {deletingGroup ? (
-        <DeletePathGroupDialog
-          group={deletingGroup}
-          memberPaths={visiblePathsForGroup(project.paths, deletingGroup)}
-          onCancel={() => setDeletingGroup(null)}
-          onDelete={(deleteMemberPaths) => {
-            projectStore
-              .getState()
-              .deletePathGroup(deletingGroup.group_id, { deleteMemberPaths });
-            selectionStore.getState().clearSelection();
-            setDeletingGroup(null);
+        <div
+          className="fc-scroll"
+          onScrollCapture={() => {
+            // Scroll updates normally have continuous priority in React. Commit
+            // the SVG endpoints before this frame paints the already-moved rows.
+            flushSync(() => {
+              setMenu(null);
+              measure();
+              drag.scroll();
+            });
           }}
-        />
-      ) : null}
-      {showCreateCollectionDialog ? (
-        <CreateCollectionDialog
-          onCancel={() => setShowCreateCollectionDialog(false)}
-          onCreate={handleCreateGroup}
-        />
-      ) : null}
-      {nameAction ? (
-        <NameEntryDialog
-          ariaLabel={
-            nameAction.kind === "rename-group"
-              ? "Rename Collection"
-              : nameAction.kind === "duplicate-path"
-                ? "Save Path As"
-                : "Rename Path"
-          }
-          title={
-            nameAction.kind === "rename-group"
-              ? "Rename Collection"
-              : nameAction.kind === "duplicate-path"
-                ? "Save Path As"
-                : "Rename Path"
-          }
-          description={
-            nameAction.kind === "rename-group"
-              ? "Update this collection name without changing its paths."
-              : nameAction.kind === "duplicate-path"
-                ? "Create a separate editable copy of this path."
-                : "Update the path name everywhere it appears in this project."
-          }
-          fieldLabel={
-            nameAction.kind === "rename-group" ? "Collection name" : "Path name"
-          }
-          initialValue={nameAction.initialName}
-          submitLabel={
-            nameAction.kind === "duplicate-path" ? "Save Copy" : "Rename"
-          }
-          onCancel={() => setNameAction(null)}
-          onSubmit={handleConfirmNameAction}
-        />
-      ) : null}
+        >
+          <div
+            className={`fc-board${drag.view ? " is-dragging" : ""}${pending ? " is-linking" : ""}`}
+            ref={boardRef}
+            onPointerMove={drag.move}
+            onPointerUp={drag.end}
+            onPointerCancel={drag.cancel}
+            onLostPointerCapture={drag.cancel}
+          >
+            <svg
+              className="fc-wires"
+              aria-hidden="true"
+              viewBox={`0 0 ${geometry.width} ${geometry.height}`}
+            >
+              {displayedEdges.map((edge) => {
+                const from = geometry.points.get(`group:${edge.groupId}`),
+                  to = geometry.points.get(`path:${edge.pathId}`);
+                if (!from || !to || from.offscreen || to.offscreen) return null;
+                const selected =
+                  selectedEdge?.groupId === edge.groupId &&
+                  selectedEdge?.pathId === edge.pathId;
+                return (
+                  <g
+                    key={`${edge.groupId}:${edge.pathId}`}
+                    className="fc-wire-group"
+                  >
+                    <path
+                      className={`fc-wire${incident(edge, focus) ? "" : " is-dim"}${selected ? " is-selected" : ""}`}
+                      d={curve(from, to)}
+                    />
+                    <path
+                      className="fc-wire-hit"
+                      d={curve(from, to)}
+                      onClick={() => {
+                        if (!pending && !drag.view) setSelectedEdge(edge);
+                      }}
+                    />
+                  </g>
+                );
+              })}
+              {[...overflowWires].map(([key, wire]) => (
+                <path
+                  key={key}
+                  className={`fc-overflow-wire${wire.active ? "" : " is-dim"}`}
+                  d={curve(wire.from, wire.to)}
+                />
+              ))}
+              {previewStart && !previewStart.offscreen && previewEnd && (
+                <>
+                  <path
+                    className={`fc-wire-preview${drag.view?.target ? " is-snapped" : ""}`}
+                    d={curve(
+                      previewStart,
+                      previewEnd,
+                      drag.view?.source.kind === "path" ? -1 : 1,
+                    )}
+                  />
+                  {!drag.view?.target && (
+                    <circle
+                      className="fc-preview-tip"
+                      cx={previewEnd.x}
+                      cy={previewEnd.y}
+                      r={5}
+                    />
+                  )}
+                </>
+              )}
+            </svg>
+            <section className="fc-column fc-groups" aria-label="Path Groups">
+              <header>
+                <h2>
+                  Path Groups <span>{groups.length}</span>
+                </h2>
+                <button
+                  type="button"
+                  aria-label="Create Path Group"
+                  title="New Path Group"
+                  onClick={() => createGroup()}
+                >
+                  <Plus size={14} />
+                </button>
+              </header>
+              <label className="fc-search">
+                <Search size={14} />
+                <input
+                  type="search"
+                  aria-label="Find a Path Group"
+                  placeholder="Find a Path Group"
+                  value={groupQuery}
+                  onChange={(event) => {
+                    setGroupQuery(event.currentTarget.value);
+                    setSelectedEdge(null);
+                  }}
+                />
+              </label>
+              {renderColumnRows("group", visibleGroups)}
+            </section>
+            <section className="fc-column fc-paths" aria-label="All Paths">
+              <header>
+                <h2>
+                  All Paths <span>{paths.length}</span>
+                </h2>
+                <button
+                  type="button"
+                  aria-label="Create new path"
+                  title="New Path"
+                  onClick={createPath}
+                >
+                  <Plus size={14} />
+                </button>
+              </header>
+              <label className="fc-search">
+                <Search size={14} />
+                <input
+                  type="search"
+                  aria-label="Search paths"
+                  placeholder="Find a Path"
+                  value={pathQuery}
+                  onChange={(event) => {
+                    setPathQuery(event.currentTarget.value);
+                    setSelectedEdge(null);
+                  }}
+                />
+              </label>
+              {renderColumnRows("path", visiblePaths)}
+            </section>
+          </div>
+        </div>
+        <footer className={`fc-status${origin ? " is-linking" : ""}`}>
+          <span role={error ? "alert" : "status"}>
+            <Link2 size={14} />
+            {error || status}
+          </span>
+          {sortDirty && !origin && !selectedEdge && (
+            <button type="button" className="fc-resort" onClick={refreshOrder}>
+              Re-sort connected first
+            </button>
+          )}
+          {selectedEdge && (
+            <button type="button" onClick={() => disconnect(selectedEdge)}>
+              Remove connection
+            </button>
+          )}
+          {pending && !drag.view && (
+            <button type="button" onClick={() => setPending(null)}>
+              Cancel
+            </button>
+          )}
+        </footer>
+        {menu && (
+          <NodeMenu
+            menu={menu}
+            onClose={closeMenu}
+            onRename={() => startRename(menu.node)}
+            onDuplicate={() => duplicate(menu.node)}
+            onDelete={() => remove(menu.node)}
+          />
+        )}
+      </section>
     </div>
   );
 }
 
-function PathLibraryHeaderButton({
-  children,
-  disabled = false,
-  label,
-  onClick,
-  tone = "neutral",
+function NodeMenu({
+  menu,
+  onClose,
+  onRename,
+  onDuplicate,
+  onDelete,
 }: {
-  children: ReactNode;
-  disabled?: boolean;
-  label: string;
-  onClick(): void;
-  tone?: "danger" | "neutral";
+  menu: RowMenu;
+  onClose(): void;
+  onRename(): void;
+  onDuplicate(): void;
+  onDelete(): void;
 }) {
-  return (
-    <IconButton
-      className={`path-library-dialog__header-button path-library-dialog__header-button--${tone}`}
-      aria-label={label}
-      title={label}
-      tone={tone === "danger" ? "danger" : "accent"}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </IconButton>
-  );
-}
-
-function CreateCollectionDialog({
-  onCancel,
-  onCreate,
-}: {
-  onCancel(): void;
-  onCreate(displayName: string): void;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [displayName, setDisplayName] = useState("");
-
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
+    ref.current
+      ?.querySelector<HTMLButtonElement>("button")
+      ?.focus({ preventScroll: true });
+  }, [menu.node.id]);
+  const label = menu.node.kind === "group" ? "Path Group" : "Path";
   return (
-    <form
-      className="path-library-create-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Create collection"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onCreate(displayName.trim() || "New Collection");
+    <div
+      ref={ref}
+      className="fc-menu"
+      role="menu"
+      aria-label={`Actions for ${menu.node.name}`}
+      style={{ left: menu.x, top: menu.y } as CSSProperties}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" || event.key === "Tab") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        } else if (
+          ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+        ) {
+          event.preventDefault();
+          const buttons = [
+            ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              "button",
+            ),
+          ];
+          const current = buttons.indexOf(
+            document.activeElement as HTMLButtonElement,
+          );
+          const index =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? buttons.length - 1
+                : (current +
+                    (event.key === "ArrowDown" ? 1 : -1) +
+                    buttons.length) %
+                  buttons.length;
+          buttons[index]?.focus();
+        }
       }}
     >
-      <header>
-        <strong>Create Collection</strong>
-        <CloseButton ariaLabel="Close create collection" onClick={onCancel} />
-      </header>
-      <label className="dialog-field">
-        <span>Collection name</span>
-        <input
-          ref={inputRef}
-          aria-label="Collection name"
-          data-testid="path-collection-new-name"
-          type="text"
-          value={displayName}
-          placeholder="Score autos"
-          onChange={(event) => setDisplayName(event.currentTarget.value)}
-        />
-      </label>
-      <footer>
-        <button type="button" onClick={onCancel}>
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="primary-dialog-action"
-          data-testid="create-path-collection"
-        >
-          Create
-        </button>
-      </footer>
-    </form>
+      <button
+        type="button"
+        role="menuitem"
+        aria-label={`Rename ${label}`}
+        onClick={onRename}
+      >
+        <Pencil size={15} />
+        Rename
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        aria-label={`Duplicate ${label}`}
+        onClick={onDuplicate}
+      >
+        <Copy size={15} />
+        Duplicate
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        aria-label={`Delete ${label}`}
+        className="fc-delete"
+        onClick={onDelete}
+      >
+        <Trash2 size={15} />
+        Delete
+      </button>
+    </div>
   );
-}
-
-function visiblePathsForGroup(
-  paths: readonly ProjectPath[],
-  group: ProjectPathGroup | null,
-): ProjectPath[] {
-  if (!group) {
-    return [...paths];
-  }
-
-  return group.path_ids.flatMap((pathId) => {
-    const path = paths.find((candidate) => candidate.path_id === pathId);
-    return path ? [path] : [];
-  });
 }

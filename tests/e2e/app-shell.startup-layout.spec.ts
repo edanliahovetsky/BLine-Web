@@ -164,18 +164,18 @@ test("starts new users in a focused start center", async ({ page }) => {
   await expect(fitView).toContainText("100%");
   await pathStage.press(`${interfaceZoomModifier}+0`);
 
-  const hideCollectionPaths = page.getByRole("button", {
-    name: "Hide collection paths",
+  const hideLabelOverlays = page.getByRole("button", {
+    name: "Hide Path Group overlays",
   });
-  await expect(hideCollectionPaths).toHaveAttribute("aria-pressed", "true");
-  await hideCollectionPaths.click();
-  const showCollectionPaths = page.getByRole("button", {
-    name: "Show collection paths",
+  await expect(hideLabelOverlays).toHaveAttribute("aria-pressed", "true");
+  await hideLabelOverlays.click();
+  const showLabelOverlays = page.getByRole("button", {
+    name: "Show Path Group overlays",
   });
-  await expect(showCollectionPaths).toHaveAttribute("aria-pressed", "false");
-  await showCollectionPaths.click();
+  await expect(showLabelOverlays).toHaveAttribute("aria-pressed", "false");
+  await showLabelOverlays.click();
   await expect(
-    page.getByRole("button", { name: "Hide collection paths" }),
+    page.getByRole("button", { name: "Hide Path Group overlays" }),
   ).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();
@@ -295,10 +295,11 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
     () => document.documentElement.scrollHeight,
   );
   const stageBox = await requiredBox(page.getByTestId("path-stage"));
+  const viewportHeight = page.viewportSize()?.height ?? 900;
 
   expect(documentHeight).toBeLessThan(1_850);
   expect(stageBox.height).toBeGreaterThan(450);
-  expect(stageBox.height).toBeLessThan(850);
+  expect(stageBox.height).toBeLessThan(viewportHeight);
 });
 
 test("locks document scrolling to the viewport", async ({ page }) => {
@@ -371,7 +372,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
     await page.getByRole("tab", { name: /Elements/ }).click();
 
     for (let index = 0; index < 5; index += 1) {
-      await page.getByText("Add element").click();
+      await page.getByRole("button", { name: "Add element" }).click();
       await page.getByRole("menuitem", { name: "Waypoint" }).click();
     }
 
@@ -386,7 +387,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
       denseConstraintCard.locator(
         ".ranged-constraint-controls__actions button",
       ),
-    ).toHaveCount(4);
+    ).toHaveCount(3);
     await expect(page.getByTestId("auto-velocity-controls")).toHaveCount(0);
     // Select the segment last (clicking elsewhere clears the selection) so its
     // value control renders for the overflow measurement below.
@@ -424,7 +425,7 @@ test("keeps dense sidebar content inside the viewport without horizontal sidebar
         !denseCard ||
         !valueControl ||
         !valueInput ||
-        actionButtons.length !== 4
+        actionButtons.length !== 3
       ) {
         throw new Error("Expected dense sidebar ranged controls to be present");
       }

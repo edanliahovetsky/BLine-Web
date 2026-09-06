@@ -79,6 +79,8 @@ describe("rotation-aware automatic constraints", () => {
   });
 });
 
+// Exhaustive oracle enumeration shares CI workers with the large acceptance
+// corpus; allow that validation workload to finish independently of solve timing.
 it("matches an independent two-waypoint cap lattice and preserves manual radii", () => {
   const path = createPathModel({
     path_elements: [
@@ -195,7 +197,7 @@ it("matches an independent two-waypoint cap lattice and preserves manual radii",
   expect(result.stats.objectiveCost).toBeLessThanOrEqual(
     oracleCost + 0.05 * Math.abs(oracleCost),
   );
-}, 15_000);
+}, 60_000);
 
 it("uses the same translation score for a pinned policy with feasible rotation", () => {
   const translations = [

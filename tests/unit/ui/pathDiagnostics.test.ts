@@ -21,7 +21,11 @@ describe("path diagnostics", () => {
       ),
     ).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "anchor-count", severity: "warning" }),
+        expect.objectContaining({
+          id: "anchor-count",
+          severity: "warning",
+          fix: expect.objectContaining({ kind: "add-anchors", count: 1 }),
+        }),
       ]),
     );
   });
@@ -48,6 +52,15 @@ describe("path diagnostics", () => {
       true,
     );
     expect(diagnostics.some((item) => item.id === "off-field-0")).toBe(true);
+    expect(
+      diagnostics.find((item) => item.id.startsWith("event-key-"))?.fix,
+    ).toMatchObject({ kind: "focus-event-key", elementIndex: 4 });
+    expect(
+      diagnostics.find((item) => item.id.startsWith("event-key-"))?.summary,
+    ).toBe("Event 5 command key empty.");
+    expect(
+      diagnostics.find((item) => item.id === "off-field-0")?.fix,
+    ).toMatchObject({ kind: "move-inside-field", elementIndex: 0 });
   });
 
   it("treats image padding as outside the effective coordinate bounds", () => {
@@ -109,30 +122,52 @@ describe("path diagnostics", () => {
       ),
     ).toMatchObject({ severity: "warning", elementIndex: 1 });
   });
-});
 
-it("keeps achievable target timing separate from preview tracking", () => {
-  const path = createPathModel({
-    path_elements: [
-      createTranslationTarget({ x_meters: 1, y_meters: 1 }),
-      createRotationTarget({
-        t_ratio: 1,
-        rotation_radians: Math.PI / 2,
-        profiled_rotation: true,
-      }),
-      createTranslationTarget({
-        x_meters: 5,
-        y_meters: 1,
-        intermediate_handoff_radius_meters: 0.45,
-      }),
-      createTranslationTarget({ x_meters: 5, y_meters: 5 }),
-    ],
+  it("keeps achievable target timing separate from preview tracking", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createRotationTarget({
+          t_ratio: 1,
+          rotation_radians: Math.PI / 2,
+          profiled_rotation: true,
+        }),
+        createTranslationTarget({
+          x_meters: 5,
+          y_meters: 1,
+          intermediate_handoff_radius_meters: 0.45,
+        }),
+        createTranslationTarget({ x_meters: 5, y_meters: 5 }),
+      ],
+    });
+    const diagnostics = derivePathDiagnostics(
+      path,
+      defaultFieldGeometry,
+      [],
+      {},
+    );
+    expect(
+      diagnostics.find((item) => item.id === "rotation-feasibility-1"),
+    ).toBeUndefined();
+    expect(
+      diagnostics.find((item) => item.id === "rotation-target-1")?.summary,
+    ).toMatch(/^Preview tracking:/);
   });
-  const diagnostics = derivePathDiagnostics(path, defaultFieldGeometry, [], {});
-  expect(
-    diagnostics.find((item) => item.id === "rotation-feasibility-1"),
-  ).toBeUndefined();
-  expect(
-    diagnostics.find((item) => item.id === "rotation-target-1")?.summary,
-  ).toMatch(/^Preview tracking:/);
+
+  it("offers to remove a reference to a missing linked target", () => {
+    const workspace = createSampleProject();
+    const first = workspace.paths[0].path.path_elements[0];
+    if (first?.type !== "waypoint") {
+      throw new Error("Expected the sample Path to begin with a waypoint");
+    }
+    first.linked_target_id = "missing-target";
+
+    expect(
+      derivePathDiagnostics(
+        workspace.paths[0].path,
+        defaultFieldGeometry,
+        workspace.linked_targets,
+      ).find((item) => item.id === "broken-link-0")?.fix,
+    ).toMatchObject({ kind: "remove-missing-link", elementIndex: 0 });
+  });
 });

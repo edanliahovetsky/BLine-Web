@@ -41,10 +41,12 @@ interface UseProjectLifecycleOptions {
   dirty: boolean;
   durableProject: Project | null;
   lastSavedAt: string | null;
+  projectRevision: number;
   isPersistenceBlocked(): boolean;
   prepareClose(): void;
   projectIo: ProjectIoService | null;
   onEditorLayoutLoaded(layout: {
+    inspectorTab: "elements" | "constraints";
     inspectorWidth: number;
     showGhostPaths: boolean;
   }): void;
@@ -56,6 +58,7 @@ export function useProjectLifecycle({
   dirty,
   durableProject,
   lastSavedAt,
+  projectRevision,
   isPersistenceBlocked,
   prepareClose,
   projectIo,
@@ -124,6 +127,7 @@ export function useProjectLifecycle({
           return;
         }
         applyEditorLayout({
+          inspectorTab: userData.editor_layout.inspector_tab,
           inspectorWidth: userData.editor_layout.inspector_width,
           showGhostPaths: userData.editor_layout.show_ghost_paths,
         });
@@ -295,6 +299,7 @@ export function useProjectLifecycle({
     canvasInteractionActive,
     dirty,
     durableProject,
+    projectRevision,
     projectRecoveryLifecycle,
     canvasInteractionActiveRef,
   ]);

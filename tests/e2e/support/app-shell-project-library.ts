@@ -1,40 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-import { requiredBox, type Bounds } from "./app-shell-shared";
-
-export async function expectDialogOverPathLibrary(
-  page: Page,
-  dialogName: string,
-): Promise<void> {
-  const libraryBox = await requiredBox(
-    page.getByRole("dialog", { name: "Project Navigator" }),
-  );
-  const dialogBox = await requiredBox(
-    page.getByRole("dialog", { name: dialogName }),
-  );
-  const center = {
-    x: dialogBox.x + dialogBox.width / 2,
-    y: dialogBox.y + dialogBox.height / 2,
-  };
-
-  expect(center.x).toBeGreaterThan(libraryBox.x);
-  expect(center.x).toBeLessThan(libraryBox.x + libraryBox.width);
-  expect(center.y).toBeGreaterThan(libraryBox.y);
-  expect(center.y).toBeLessThan(libraryBox.y + libraryBox.height);
-
-  await expect
-    .poll(() =>
-      page.evaluate(({ x, y }) => {
-        return (
-          document
-            .elementFromPoint(x, y)
-            ?.closest("[role='dialog']")
-            ?.getAttribute("aria-label") ?? null
-        );
-      }, center),
-    )
-    .toBe(dialogName);
-}
+import type { Bounds } from "./app-shell-shared";
 
 export function pointBetweenFlyoutAndTrigger(
   triggerBox: Bounds,
@@ -85,7 +51,7 @@ export async function openPathLibraryDialog(page: Page): Promise<Locator> {
 
 export async function selectToolbarOption(
   page: Page,
-  label: "Toolbar collection" | "Toolbar path",
+  label: "Toolbar path",
   optionName: string,
 ): Promise<void> {
   await page.getByLabel(label).click();
@@ -100,15 +66,20 @@ export async function createPathGroupFromTopMenu(
   groupName: string,
 ): Promise<void> {
   const dialog = await openPathLibraryDialog(page);
-  await dialog.getByRole("button", { name: "Create collection" }).click();
-  await page.getByTestId("path-collection-new-name").fill(groupName);
-  await page.getByTestId("create-path-collection").click();
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    `${groupName} /`,
-  );
-  if (await dialog.isVisible()) {
-    await dialog.getByRole("button", { name: "Close", exact: true }).click();
-  }
+  await dialog.getByRole("button", { name: "Create Path Group" }).click();
+  await dialog
+    .getByRole("textbox", { name: "Path Group name" })
+    .fill(groupName);
+  await dialog.getByRole("textbox", { name: "Path Group name" }).press("Enter");
+  const pathName = await page
+    .getByLabel("Toolbar path", { exact: true })
+    .innerText();
+  await dialog
+    .getByRole("button", { name: `Connect to ${pathName}`, exact: true })
+    .click();
+  await dialog
+    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .click();
 }
 
 export async function addPathToGroupFromLibrary(
@@ -118,38 +89,23 @@ export async function addPathToGroupFromLibrary(
 ): Promise<void> {
   const dialog = await openPathLibraryDialog(page);
   await dialog
-    .locator(".path-library-dialog__group")
-    .filter({ hasText: "All Paths" })
+    .getByRole("button", { name: `Focus ${groupName}`, exact: true })
     .click();
-  await dialog
-    .locator(".path-library-dialog__path")
-    .filter({ hasText: pathName })
-    .click();
-  const membershipRow = dialog
-    .locator(".path-library-dialog__membership-row")
-    .filter({ hasText: groupName });
-  await membershipRow.getByRole("checkbox").check();
+  const pathPort = dialog
+    .locator(".fc-paths .fc-row")
+    .filter({
+      has: page.getByRole("button", { name: `Focus ${pathName}`, exact: true }),
+    })
+    .locator(".fc-port");
+  if (!(await pathPort.getAttribute("aria-label"))?.startsWith("Disconnect")) {
+    await pathPort.click();
+  }
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
-}
-
-export async function duplicateSelectedLibraryPath(
-  page: Page,
-  pathHeaderActions: Locator,
-  displayName: string,
-): Promise<void> {
-  await pathHeaderActions.getByRole("button", { name: "Save path as" }).click();
-  await submitNameDialog(page, "Save Path As", displayName, "Save Copy");
-  await expect(
-    page
-      .getByRole("dialog", { name: "Project Navigator" })
-      .locator(".path-library-dialog__path")
-      .filter({ hasText: displayName }),
-  ).toBeVisible();
 }
 
 export async function submitNameDialog(
   page: Page,
-  dialogName: "Rename Collection" | "Rename Path" | "Save Path As",
+  dialogName: "Rename Label" | "Rename Path" | "Save Path As",
   displayName: string,
   submitLabel: "Rename" | "Save Copy",
 ): Promise<void> {
@@ -166,8 +122,11 @@ export async function createNewPathFromTopMenu(
 ): Promise<void> {
   await openPathManageMenu(page);
   await page.getByRole("menuitem", { name: "Create New Path" }).click();
-  const dialog = page.getByRole("dialog", { name: "Create New Path" });
+  const dialog = page.getByRole("dialog", { name: "Project Navigator" });
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel("Path name").fill(pathName);
-  await dialog.getByRole("button", { name: "Create Path" }).click();
+  const name = dialog.getByRole("textbox", { name: "Path name", exact: true });
+  await expect(name).toBeFocused();
+  await name.fill(pathName);
+  await name.press("Enter");
+  await dialog.getByRole("button", { name: "Open Path", exact: true }).click();
 }
