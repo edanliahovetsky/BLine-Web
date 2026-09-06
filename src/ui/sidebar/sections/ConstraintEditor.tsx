@@ -313,6 +313,12 @@ export function ConstraintEditor({
     selectionStore,
     (state) => state.selectedRangedConstraint,
   );
+  const visibleSelectedByKey = selectedRangedConstraint
+    ? {
+        ...selectedByKey,
+        [selectedRangedConstraint.key]: selectedRangedConstraint.index,
+      }
+    : selectedByKey;
   const availableSections = useMemo(
     () => (path ? buildConstraintMenuSections(path) : []),
     [path],
@@ -434,6 +440,7 @@ export function ConstraintEditor({
           "[data-ranged-constraint-key]",
         );
         if (
+          target.closest(".constraint-popout") ||
           target.closest(
             `[data-ranged-constraint-selection="${selectedToken}"]`,
           ) ||
@@ -469,7 +476,7 @@ export function ConstraintEditor({
             path={path}
             config={config}
             constraintKey={popoutKey}
-            selectedByKey={selectedByKey}
+            selectedByKey={visibleSelectedByKey}
             autoSettings={autoSettings}
             autoVelocityRunning={autoVelocityRunning}
             runAutoVelocityTask={runAutoVelocityTask}
@@ -499,7 +506,7 @@ export function ConstraintEditor({
                     key={`${key}-${projectConfigSignature(config)}`}
                     path={path}
                     config={config}
-                    selectedIndex={selectedByKey[key] ?? null}
+                    selectedIndex={visibleSelectedByKey[key] ?? null}
                     autoSettings={autoSettings}
                     autoVelocityRunning={autoVelocityRunning}
                     runAutoVelocityTask={runAutoVelocityTask}
@@ -513,7 +520,7 @@ export function ConstraintEditor({
                     path={path}
                     config={config}
                     constraintKey={key}
-                    selectedIndex={selectedByKey[key] ?? null}
+                    selectedIndex={visibleSelectedByKey[key] ?? null}
                     onSelect={(index) => setSelectedForKey(key, index)}
                     onOpenPopout={(trigger) => openPopout(key, trigger)}
                   />
@@ -692,14 +699,27 @@ function AutoConstraintLedgerCard({
     [path],
   );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
-  const initialSelectedElementIndex =
-    selectionStore.getState().selectedElementIndex;
+  const selectedElementIndex = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedElementIndex,
+  );
+  const selectedRangedConstraint = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedRangedConstraint,
+  );
+  const initialSelectedElementIndex = selectedElementIndex;
   const initiallySelectedRadius = chips.some(
     (chip) => !chip.inert && chip.elementIndex === initialSelectedElementIndex,
   );
-  const [activeType, setActiveType] = useState<"velocity" | "radius" | null>(
-    initiallySelectedRadius ? "radius" : selectedEntry ? "velocity" : null,
-  );
+  const [lastActiveType, setActiveType] = useState<
+    "velocity" | "radius" | null
+  >(initiallySelectedRadius ? "radius" : selectedEntry ? "velocity" : null);
+  const activeType =
+    selectedRangedConstraint?.key === constraintKey
+      ? "velocity"
+      : initiallySelectedRadius
+        ? "radius"
+        : lastActiveType;
   const [tourGenerateCount, setTourGenerateCount] = useState(0);
   const [velocitySelectionState, setVelocitySelectionState] =
     useState<OrderedSelectionState>(
@@ -755,10 +775,6 @@ function AutoConstraintLedgerCard({
   const selectedSegmentNumber =
     selectedLocalIndex >= 0 ? selectedLocalIndex + 1 : 1;
 
-  const selectedElementIndex = useStoreSelector(
-    selectionStore,
-    (state) => state.selectedElementIndex,
-  );
   const [radiusSelectionState, setRadiusSelectionState] =
     useState<OrderedSelectionState>(
       initiallySelectedRadius && initialSelectedElementIndex !== null

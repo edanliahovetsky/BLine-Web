@@ -12,6 +12,7 @@ import {
   clearance,
   mission,
   near,
+  practiceSimulation,
   withinField,
 } from "./tourScenario";
 import type { TourFeedback } from "./tourStore";
@@ -44,8 +45,8 @@ export function checkSpeed(
       cap.source !== "auto_velocity" &&
       cap.value > 0 &&
       cap.value <= maximum,
-    `Choose the speed cell for ${ordinal === 3 ? "the second turn" : "Delivery"} and set a Manual cap above 0 and at most ${maximum} m/s.`,
-    `The ${ordinal === 3 ? "second turn" : "Delivery approach"} now has a Manual ${cap?.value.toFixed(2)} m/s cap.`,
+    `Choose the speed cell for ${ordinal === 2 ? "Pickup" : ordinal === 3 ? "the second turn" : "Delivery"} and set a Manual cap above 0 and at most ${maximum} m/s. Split a shared cell if needed.`,
+    `The ${ordinal === 2 ? "Pickup approach" : ordinal === 3 ? "second turn" : "Delivery approach"} now has a Manual ${cap?.value.toFixed(2)} m/s cap.`,
   );
 }
 export function checkClearance(
@@ -58,7 +59,7 @@ export function checkClearance(
   return feedback(
     clear,
     preview
-      ? "The simulated bumper still clips the structure or the route is too close to a field edge. Move the bend farther out or reduce its radius."
+      ? "The simulated bumper still clips the structure or a field edge. Adjust the approach speed, handoff radius, or bend position allowed in this exercise."
       : "Leave room for the whole bumper, not just the line. Move the bend farther above the structure.",
     preview
       ? "The simulated bumper clears the structure and stays inside the field."
@@ -121,46 +122,46 @@ export function checkMission(
   config: ProjectConfig,
 ): TourFeedback {
   const anchors = anchorPositions(path);
-  const rotationIndex = path.path_elements.findIndex(isRotationTarget);
-  const rotation = path.path_elements[rotationIndex];
+  const pickupOrdinal = anchors.findIndex((anchor) =>
+    near(anchor, mission.pickup, 0.2),
+  );
+  const pickupIndex = anchors[pickupOrdinal]?.index ?? -1;
   const events = path.path_elements.flatMap((element, index) =>
     isEventTrigger(element) ? [{ element, index }] : [],
   );
   if (
-    anchors.length !== 4 ||
+    anchors.length < 3 ||
     !near(anchors[0], mission.start) ||
-    !near(anchors[1], mission.pickup, 0.2)
+    pickupOrdinal <= 0 ||
+    pickupOrdinal >= anchors.length - 1
   )
     return {
       complete: false,
       message:
-        "Keep Start and the Pickup target in place, with one bend before Delivery.",
+        "Keep Start in its zone and a target at the Pickup pose before Delivery.",
     };
+  const intake = events.filter(
+    ({ element }) => element.lib_key === "startIntake",
+  );
+  const deliveryEvents = events.filter(
+    ({ element }) => element.lib_key === "prepareDelivery",
+  );
   if (
-    !rotation ||
-    !isRotationTarget(rotation) ||
-    !rotation.profiled_rotation ||
-    Math.abs(rotation.rotation_radians - Math.PI / 2) > 0.02 ||
-    rotationIndex >= anchors[1].index
-  )
-    return {
-      complete: false,
-      message: "Keep the profiled 90° heading target on the Pickup approach.",
-    };
-  if (
-    events.length !== 2 ||
-    events[0].element.lib_key !== "startIntake" ||
-    events[0].index <= rotationIndex ||
-    events[0].index >= anchors[1].index ||
-    events[0].element.t_ratio <= rotation.t_ratio ||
-    events[1].element.lib_key !== "prepareDelivery" ||
-    events[1].index <= anchors[2].index ||
-    events[1].index >= anchors[3].index
+    intake.length !== 1 ||
+    deliveryEvents.length !== 1 ||
+    intake[0].index <= anchors[pickupOrdinal - 1].index ||
+    intake[0].index >= pickupIndex ||
+    deliveryEvents[0].index <= anchors[anchors.length - 2].index ||
+    deliveryEvents[0].index >= anchors[anchors.length - 1].index ||
+    events.some(
+      ({ element }) =>
+        !element.lib_key.trim() || element.t_ratio <= 0 || element.t_ratio >= 1,
+    )
   )
     return {
       complete: false,
       message:
-        "Keep startIntake after the Pickup rotation, and prepareDelivery on the final approach.",
+        "Use one startIntake event on the Pickup approach and one prepareDelivery event on the final approach. Give every event a nonempty key and a position between 0 and 1.",
     };
   const endpoint = path.path_elements.at(-1);
   if (
@@ -173,5 +174,48 @@ export function checkMission(
       message: "Keep the final waypoint heading at -90° for Delivery.",
     };
   const delivery = checkDelivery(path, config);
-  return delivery.complete ? checkClearance(path, config, true) : delivery;
+  if (!delivery.complete) return delivery;
+  const clear = checkClearance(path, config, true);
+  if (!clear.complete) return clear;
+  const trace = practiceSimulation(path, config).trace;
+  const pickup = trace.reduce<(typeof trace)[number] | null>(
+    (best, point) =>
+      !best ||
+      Math.hypot(
+        point.x_m - mission.pickup.x_meters,
+        point.y_m - mission.pickup.y_meters,
+      ) <
+        Math.hypot(
+          best.x_m - mission.pickup.x_meters,
+          best.y_m - mission.pickup.y_meters,
+        )
+        ? point
+        : best,
+    null,
+  );
+  const headingError = (actual: number, expected: number) =>
+    Math.abs(
+      Math.atan2(Math.sin(actual - expected), Math.cos(actual - expected)),
+    );
+  if (
+    !pickup ||
+    Math.hypot(
+      pickup.x_m - mission.pickup.x_meters,
+      pickup.y_m - mission.pickup.y_meters,
+    ) > 0.35 ||
+    headingError(pickup.theta_rad, Math.PI / 2) > Math.PI / 18
+  )
+    return {
+      complete: false,
+      message:
+        "The preview must reach Pickup facing 90°. Adjust its heading, approach speed, or handoff radius to reach that pose.",
+    };
+  const end = trace.at(-1);
+  return feedback(
+    !!end &&
+      near({ x_meters: end.x_m, y_meters: end.y_m }, mission.delivery) &&
+      headingError(end.theta_rad, -Math.PI / 2) < Math.PI / 18,
+    "The preview must finish inside Delivery facing -90°.",
+    "The preview reaches both poses, carries both named events, and keeps the bumper clear.",
+  );
 }

@@ -28,6 +28,7 @@ export type TourAction =
   | "reference"
   | "replay"
   | "inspectConfig"
+  | "inspectProject"
   | "inspectPath"
   | "export"
   | "keepCopy";
@@ -53,8 +54,12 @@ export interface TourStep {
   hintTargets?: readonly string[];
   demo?: TourExperiment;
   experiment?: TourExperiment;
+  /** Preserve this step's entry state for a comparison after the learner edits. */
+  captureReference?: true;
   handoff?: true;
   check?(): TourFeedback;
+  /** Conditions that must remain true even on an observation or review step. */
+  validate?(): TourFeedback;
   /** Exact element counts only for guided exercises. Challenges may accept alternatives. */
   elements?: Partial<Record<PathElement["type"], number>>;
   /** Short action shown as a task when the step waits for editor input. */
@@ -97,6 +102,8 @@ export interface TourStepPreparation {
    * the new element land between the existing ones.
    */
   selectElement?: number | ((path: PathModel) => number | null);
+  /** Select the speed cell containing this approach without relying on its array index. */
+  selectSpeed?: number;
   /** Move the simulated robot before the step begins. */
   simulation?: "start" | "end";
   /** Close Path Health after its open-state action has been completed. */

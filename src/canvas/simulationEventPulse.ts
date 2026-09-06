@@ -58,6 +58,17 @@ export function simulationEventKeysAtTime(
   });
 }
 
+/** Exact preview trigger moments, using the same geometric-progress mapping as the pulse. */
+export function simulationEventMoments(
+  path: PathModel,
+  trace: readonly SimulationTraceSample[],
+): { key: string; distance: number; time: number }[] {
+  return eventTriggerPathDistances(path).flatMap((event) => {
+    const time = timeAtPathDistance(trace, event.distance);
+    return time === null ? [] : [{ ...event, time }];
+  });
+}
+
 function eventTriggerPathDistances(
   path: PathModel,
 ): { distance: number; key: string }[] {

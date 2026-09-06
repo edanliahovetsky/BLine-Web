@@ -51,7 +51,7 @@ export function TourHandoff() {
         Practice robot: {project.config.gui.robot.length_meters.toFixed(2)} ×{" "}
         {project.config.gui.robot.width_meters.toFixed(2)} m. Field: Blank Grid.
       </p>
-      <p>Select config.json and the path file to inspect the actual export.</p>
+      <p>Select each file to inspect the actual export.</p>
       <div className="tour-handoff__files">
         {folder.files.map((file) => (
           <button
@@ -61,6 +61,8 @@ export function TourHandoff() {
               setSelected(file.relativePath);
               if (file.relativePath === "config.json")
                 tourStore.getState().recordAction("inspectConfig");
+              if (file.relativePath === "project.json")
+                tourStore.getState().recordAction("inspectProject");
               if (file.relativePath.startsWith("paths/"))
                 tourStore.getState().recordAction("inspectPath");
             }}
@@ -75,8 +77,8 @@ export function TourHandoff() {
             {selected.startsWith("paths/")
               ? "The path contains ordered elements, event keys, and constraints for the robot."
               : selected === "config.json"
-                ? "Shared motion settings and robot dimensions. Match these to your robot before using this export."
-                : "Project organization and editor state travel with the folder."}
+                ? "Runtime motion defaults, including speed, acceleration, tolerances, and handoff radius. Match them to your robot."
+                : "Editor metadata, including project organization and the bumper dimensions used for this preview. Robot code configures the physical robot separately."}
           </p>
           <pre aria-label="Export file contents">{contents}</pre>
         </>

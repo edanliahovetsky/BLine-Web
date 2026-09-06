@@ -1,103 +1,92 @@
 import { describe, expect, it } from "vitest";
 import { tours } from "../../../src/ui/tours/tours";
+import { speedCap } from "../../../src/ui/tours/tourChecks";
 
 describe("guided lesson content", () => {
-  it("keeps every lesson focused, interactive, and free of dash punctuation", () => {
-    expect(tours).toHaveLength(5);
-
+  it("teaches seven focused lessons with speed before radius tuning", () => {
+    expect(tours.map((tour) => tour.id)).toEqual([
+      "build-first-path",
+      "shape-route",
+      "plan-speed",
+      "understand-handoffs",
+      "control-heading",
+      "trigger-actions",
+      "verify-export",
+    ]);
     for (const tour of tours) {
       expect(tour.steps.some((step) => step.phase === "Challenge")).toBe(true);
-      expect(
-        tour.steps.filter((step) => step.check).length,
-      ).toBeGreaterThanOrEqual(5);
+      expect(tour.steps.length).toBeLessThanOrEqual(9);
       expect(tour.durationMinutes).toBeGreaterThan(0);
-      expect(tour.summary).not.toMatch(/[—–]/);
-      expect(tour.completionMessage).not.toMatch(/[—–]/);
       for (const step of tour.steps) {
-        expect(step.title).not.toMatch(/[—–]/);
-        expect(step.body).not.toMatch(/[—–]/);
-        expect(`${step.title} ${step.body}`).not.toMatch(
-          /\b[WT]\d+\b|ordinals?|range bar/i,
-        );
-        expect(step.task ?? "").not.toMatch(/[—–]/);
-        if (step.check) {
-          expect(step.task).toBeTruthy();
-        }
+        expect(
+          [step.title, step.body, step.task, ...(step.hints ?? [])].join(" "),
+        ).not.toMatch(/[—–]/);
+        if (step.check) expect(step.task).toBeTruthy();
       }
     }
-
-    const scrubSteps = tours.flatMap((tour) =>
-      tour.steps.filter((step) => step.target === "transport-timeline"),
+  });
+  it("gets two waypoints moving before teaching other editor mechanics", () => {
+    const build = tours[0];
+    expect(build.steps[1].title).toBe("Place the endpoints");
+    expect(build.steps[2].target).toBe("transport-play");
+    expect(build.steps[2].elements).toEqual({ waypoint: 2 });
+    expect(build.steps.some((step) => step.title.includes("order"))).toBe(
+      false,
     );
-    expect(scrubSteps).toHaveLength(1);
-    expect(scrubSteps[0]?.title).toBe("Scrub the timeline");
-  });
-
-  it("starts with realistic routes and leaves room for learner edits", () => {
-    const seededElementCounts = tours.map(
-      (tour) => tour.practicePath().path_elements.length,
-    );
-
-    expect(seededElementCounts).toEqual([0, 2, 4, 2, 7]);
-  });
-
-  it("uses visible field goals for the scenario lessons", () => {
-    expect(tours.map((tour) => tour.markers?.length ?? 0)).toEqual([
-      2, 4, 6, 3, 6,
-    ]);
-  });
-
-  it("stages left-toolbar lesson work in the center-right field area", () => {
-    const [build, shape, , behavior] = tours;
-
-    expect(build?.markers?.map((marker) => marker.xMeters)).toEqual([5, 15]);
     expect(
-      shape?.markers?.find((marker) => marker.kind === "structure")?.xMeters,
-    ).toBeGreaterThan(10);
-    expect(
-      behavior?.markers?.find((marker) => marker.kind === "game-piece")
-        ?.xMeters,
-    ).toBe(8);
-  });
-
-  it("teaches drive order with a misplaced middle waypoint", () => {
-    const firstPath = tours.find((tour) => tour.id === "build-first-path");
-    const endpointsIndex = firstPath?.steps.findIndex(
-      (step) => step.title === "Place the endpoints",
-    );
-    const middleIndex = firstPath?.steps.findIndex(
-      (step) => step.title === "Add a middle waypoint",
-    );
-    const reorderStep = firstPath?.steps.find(
-      (step) => step.title === "Put it in drive order",
-    );
-
-    expect(endpointsIndex).toBeGreaterThan(-1);
-    expect(middleIndex).toBeGreaterThan(-1);
-    expect(middleIndex).toBeGreaterThan(endpointsIndex ?? -1);
-    expect(
-      firstPath?.steps
-        .filter((step) => step.target === "tool-waypoint")
-        .every((step) => step.lockInteractionOnComplete),
+      tours[1].steps.some((step) => step.title === "Put it in drive order"),
     ).toBe(true);
-    expect(reorderStep?.interact).toContain("inspector-panel");
-    expect(reorderStep?.check).toBeTypeOf("function");
   });
-
-  it("teaches handoff radii through the Constraints ledger", () => {
-    const shape = tours.find((tour) => tour.id === "shape-route");
-    const radiusStep = shape?.steps.find(
-      (step) => step.title === "Tune the handoff",
+  it("starts the local-speed edit with a separate generated turn cap", () => {
+    const speed = tours[2];
+    const cap = speedCap(speed.practicePath(), 3);
+    expect(cap).toMatchObject({
+      source: "auto_velocity",
+      start_ordinal: 3,
+      end_ordinal: 3,
+    });
+    expect(cap!.value).toBeGreaterThan(1.2);
+    expect(speed.steps.findIndex((step) => step.captureReference)).toBeLessThan(
+      speed.steps.findIndex((step) => step.title.includes("shared")),
     );
-
-    expect(radiusStep?.target).toBe("max-velocity-card");
-    expect(radiusStep?.prepare?.inspectorTab).toBe("constraints");
-    expect(radiusStep?.interact).toContain("max-velocity-card");
-
-    const regenerateStep = shape?.steps.find(
-      (step) => step.title === "Regenerate the constraints",
+  });
+  it("prepares properties by element role and gives guided steps a structural contract", () => {
+    for (const tour of tours.slice(0, -1)) {
+      for (const step of tour.steps) {
+        if (step.target === "element-properties")
+          expect(step.prepare?.selectElement).toBeTypeOf("function");
+        if (!step.lockInteractionOnComplete)
+          expect(step.elements).toBeDefined();
+      }
+    }
+    const capstone = tours.at(-1)!;
+    expect(
+      capstone.steps.find((step) => step.title === "Repair the whole mission")
+        ?.elements,
+    ).toBeUndefined();
+    expect(capstone.steps.slice(3).every((step) => step.validate)).toBe(true);
+  });
+  it("keeps heading and event teaching separate and requires actual observation", () => {
+    expect(
+      tours[4]
+        .practicePath()
+        .path_elements.some((element) => element.type === "event_trigger"),
+    ).toBe(false);
+    expect(tours[4].steps.some((step) => step.experiment === "heading")).toBe(
+      true,
     );
-    expect(regenerateStep?.target).toBe("max-velocity-card");
-    expect(regenerateStep?.check).toBeTypeOf("function");
+    expect(tours[5].steps.some((step) => step.experiment === "events")).toBe(
+      true,
+    );
+    expect(
+      tours[5].steps.some((step) => step.target === "transport-timeline"),
+    ).toBe(true);
+    for (const tour of tours) {
+      for (const step of tour.steps.filter(
+        (step) => step.phase === "Observe" && step.check,
+      )) {
+        expect(step.task).toBeTruthy();
+      }
+    }
   });
 });

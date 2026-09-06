@@ -2347,6 +2347,35 @@ export function AppShell() {
           if (preparation.simulation) {
             seekTourSimulation(preparation.simulation);
           }
+          if (preparation.selectSpeed !== undefined) {
+            const state = projectStore.getState();
+            const path = activeProjectPath(
+              state.project,
+              state.activePathId,
+            )?.path;
+            const ordinal = preparation.selectSpeed;
+            const index =
+              path?.ranged_constraints.findIndex(
+                (constraint) =>
+                  constraint.key === "max_velocity_meters_per_sec" &&
+                  constraint.start_ordinal <= ordinal &&
+                  constraint.end_ordinal >= ordinal,
+              ) ?? -1;
+            if (path && index >= 0) {
+              const constraint = path.ranged_constraints[index];
+              selectionStore
+                .getState()
+                .selectRangedConstraint(
+                  {
+                    key: constraint.key,
+                    index,
+                    startOrdinal: constraint.start_ordinal,
+                    endOrdinal: constraint.end_ordinal,
+                  },
+                  path,
+                );
+            }
+          }
           if (preparation.pathHealth === "closed") {
             setShowPathHealth(false);
           }

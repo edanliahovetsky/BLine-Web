@@ -17,6 +17,7 @@ import {
   createMissionPath,
   createSpeedPath,
   practiceConfig,
+  translation,
 } from "../../../src/ui/tours/tourScenario";
 
 describe("lesson outcome checks", () => {
@@ -80,8 +81,18 @@ describe("lesson outcome checks", () => {
     changed.path_elements.splice(2, 1);
     expect(checkMission(changed, config).complete).toBe(false);
     const wrongPickup = structuredClone(path);
-    if (wrongPickup.path_elements[3].type === "translation")
-      wrongPickup.path_elements[3].y_meters = 7;
+    if (isWaypoint(wrongPickup.path_elements[3]))
+      wrongPickup.path_elements[3].translation_target.y_meters = 7;
     expect(checkMission(wrongPickup, config).complete).toBe(false);
+  });
+  it("accepts another useful bend and checks the actual pickup heading", () => {
+    const path = createMissionPath();
+    path.path_elements.splice(4, 0, translation(10.3, 6.5, 0.25));
+    expect(checkMission(path, practiceConfig()).complete).toBe(true);
+    path.path_elements[3] = translation(8, 6, 0.15);
+    expect(checkMission(path, practiceConfig())).toMatchObject({
+      complete: false,
+      message: expect.stringContaining("reach Pickup facing 90"),
+    });
   });
 });

@@ -5,6 +5,7 @@ import type { ProjectConfig } from "../../core/model/project";
 import {
   simulationEventKeysAtTime,
   simulationEventPulseAtTime,
+  simulationEventMoments,
 } from "../../canvas/simulationEventPulse";
 import {
   activePathForProjectStore,
@@ -67,8 +68,10 @@ export function TourLab({
   );
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [slow, setSlow] = useState(true);
-  const [focused, setFocused] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [focused, setFocused] = useState(
+    kind === "handoff" || kind === "speed",
+  );
   const windows = runs.map((run) =>
     focused
       ? cornerReplayWindow(run.result.trace, kind, run.path)
@@ -146,7 +149,9 @@ export function TourLab({
               ? "When does the robot cut the corner?"
               : kind === "speed"
                 ? "Watch the approach speed"
-                : "Watch the heading change"}
+                : kind === "events"
+                  ? "Same event position, different time"
+                  : "Watch the heading change"}
           </h3>
         </div>
         <button onClick={onClose} aria-label="Close comparison">
@@ -175,7 +180,24 @@ export function TourLab({
                   ?.speed_mps ?? 0
               ).toFixed(2)}{" "}
               m/s now
+              {" · "}
+              {(
+                ((sampleAtTime(run.result.trace, time + windows[index].start)
+                  ?.theta_rad ?? 0) *
+                  180) /
+                Math.PI
+              ).toFixed(0)}
+              ° heading
             </p>
+            {kind === "events" &&
+              simulationEventMoments(run.path, run.result.trace).map(
+                (event, eventIndex) => (
+                  <p key={eventIndex} className="tour-lab__event-time">
+                    {event.key || "Unnamed event"}: {event.time.toFixed(2)} s ·{" "}
+                    {event.distance.toFixed(2)} m along the route
+                  </p>
+                ),
+              )}
           </div>
         ))}
       </div>
@@ -199,18 +221,20 @@ export function TourLab({
           />{" "}
           Half speed
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={focused}
-            onChange={(event) => {
-              setPlaying(false);
-              setTime(0);
-              setFocused(event.target.checked);
-            }}
-          />{" "}
-          Focus on {kind === "heading" ? "segment" : "corner"}
-        </label>
+        {(kind === "handoff" || kind === "speed") && (
+          <label>
+            <input
+              type="checkbox"
+              checked={focused}
+              onChange={(event) => {
+                setPlaying(false);
+                setTime(0);
+                setFocused(event.target.checked);
+              }}
+            />{" "}
+            Focus on corner
+          </label>
+        )}
         <input
           aria-label="Comparison timeline"
           type="range"
@@ -223,7 +247,7 @@ export function TourLab({
             setTime(Number(event.target.value));
           }}
         />
-        {!example && (
+        {!example && !reference && (
           <button
             onClick={() => {
               if (current && project) {

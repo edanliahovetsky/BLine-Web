@@ -6,6 +6,12 @@ export function assessTourStep(
   step: TourStep,
   path: PathModel | null,
 ): TourFeedback {
+  if (step.elements && !path)
+    return {
+      complete: false,
+      message:
+        "The practice path is missing. Restart the lesson to restore it.",
+    };
   if (step.elements && path) {
     const types: PathElement["type"][] = [
       "waypoint",
@@ -34,6 +40,8 @@ export function assessTourStep(
       }
     }
   }
+  const invariant = step.validate?.();
+  if (invariant && !invariant.complete) return invariant;
   return (
     step.check?.() ?? { complete: step.completeWhen?.() ?? true, message: "" }
   );

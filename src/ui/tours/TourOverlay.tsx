@@ -63,11 +63,14 @@ export function TourOverlay({
   const wantsTool = step?.prepare?.tool ?? null;
   const wantsClearSelection = step?.prepare?.clearSelection ?? false;
   const wantsSelectElement = step?.prepare?.selectElement ?? null;
+  const wantsSelectSpeed = step?.prepare?.selectSpeed ?? null;
+  const wantsReference = step?.captureReference ?? false;
   const wantsSimulation = step?.prepare?.simulation ?? null;
   const wantsPathHealth = step?.prepare?.pathHealth ?? null;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
+  const capturedStepTokens = useRef(new Set<string>());
   const [rect, setRect] = useState<TourRect | null>(null);
   const [visibleHoles, setVisibleHoles] = useState<TourRect[]>([]);
   const [feedbackState, setFeedback] = useState({ token: "", message: "" });
@@ -106,6 +109,7 @@ export function TourOverlay({
   useEffect(() => {
     if (!activeTourId) {
       preparedStepRef.current = null;
+      capturedStepTokens.current.clear();
       return;
     }
 
@@ -115,36 +119,58 @@ export function TourOverlay({
     }
 
     preparedStepRef.current = token;
+    const returningToExercise =
+      !isReviewing && capturedStepTokens.current.has(token);
     if (
       wantsInspector === "open" ||
       wantsInspectorTab ||
       wantsTool ||
       wantsClearSelection ||
       wantsSelectElement !== null ||
+      wantsSelectSpeed !== null ||
       wantsSimulation ||
       wantsPathHealth
     ) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
-        inspectorTab: wantsInspectorTab ?? undefined,
+        inspectorTab:
+          returningToExercise && stepTarget === "inspector-constraints"
+            ? "constraints"
+            : (wantsInspectorTab ?? undefined),
         tool: wantsTool ?? undefined,
         clearSelection: wantsClearSelection || undefined,
         selectElement: wantsSelectElement ?? undefined,
-        simulation: wantsSimulation ?? undefined,
+        selectSpeed: wantsSelectSpeed ?? undefined,
+        simulation: returningToExercise
+          ? undefined
+          : (wantsSimulation ?? undefined),
         pathHealth: wantsPathHealth ?? undefined,
       });
     }
-    if (!isReviewing) captureTourStepState();
+    const needsCapture = !isReviewing && !capturedStepTokens.current.has(token);
+    if (needsCapture) {
+      captureTourStepState();
+      capturedStepTokens.current.add(token);
+    }
+    if (needsCapture && wantsReference) {
+      const project = projectStore.getState().project;
+      const path = activePathForProjectStore(projectStore.getState())?.path;
+      if (project && path)
+        tourStore.getState().captureReference({ path, config: project.config });
+    }
   }, [
     activeTourId,
     attemptId,
     isReviewing,
     onPrepare,
     stepIndex,
+    stepTarget,
     wantsInspector,
     wantsInspectorTab,
     wantsClearSelection,
     wantsSelectElement,
+    wantsSelectSpeed,
+    wantsReference,
     wantsSimulation,
     wantsPathHealth,
     wantsTool,
@@ -156,9 +182,11 @@ export function TourOverlay({
       const speedOrdinal =
         id === "lesson-corner-speed"
           ? 3
-          : id === "lesson-delivery-speed"
-            ? 4
-            : null;
+          : id === "lesson-pickup-speed"
+            ? 2
+            : id === "lesson-delivery-speed"
+              ? 4
+              : null;
       const element = speedOrdinal
         ? (Array.from(
             document.querySelectorAll<HTMLElement>(
@@ -333,6 +361,12 @@ export function TourOverlay({
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (lab) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setLabState(null);
+          return;
+        }
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
@@ -342,8 +376,7 @@ export function TourOverlay({
           return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (lab) setLabState(null);
-        else tourStore.getState().exit();
+        tourStore.getState().exit();
         return;
       }
       const target = event.target instanceof Element ? event.target : null;
@@ -351,8 +384,26 @@ export function TourOverlay({
       const editable = !!target?.closest(
         'input, textarea, select, [contenteditable="true"]',
       );
+      const editorCommandInField =
+        event.key === "F1" ||
+        ((event.metaKey || event.ctrlKey) &&
+          ![
+            "a",
+            "c",
+            "v",
+            "x",
+            "z",
+            "y",
+            "arrowleft",
+            "arrowright",
+            "arrowup",
+            "arrowdown",
+            "backspace",
+            "delete",
+          ].includes(event.key.toLowerCase()));
       if (
         editable &&
+        !editorCommandInField &&
         (inCoach || (!isReviewing && target && tourAllowsTarget(step, target)))
       )
         return;
@@ -378,7 +429,11 @@ export function TourOverlay({
         tourAllowsTarget(step, target)
       )
         return;
-      if (lab) return;
+      if (lab) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       const complete = assessTourStep(
         step,
         activePathForProjectStore(projectStore.getState())?.path ?? null,
@@ -426,7 +481,9 @@ export function TourOverlay({
   );
 
   const isLastStep = stepIndex === stepCount - 1;
-  const actionGated = Boolean(step.check || step.completeWhen || step.elements);
+  const actionGated = Boolean(
+    step.check || step.completeWhen || step.elements || step.validate,
+  );
   const handleNext = () => {
     if (
       !isReviewing &&
@@ -539,7 +596,7 @@ export function TourOverlay({
             <strong>{step.task}</strong>
           </div>
         ) : null}
-        {actionGated ? (
+        {actionGated && (step.check || step.completeWhen || !actionComplete) ? (
           <div
             className={`tour-card__action-status ${
               actionComplete ? "is-complete" : ""

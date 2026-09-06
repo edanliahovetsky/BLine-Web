@@ -5,6 +5,7 @@ import {
   isWaypoint,
 } from "../../../src/core/model/path";
 import { simulatePathWithTrace } from "../../../src/core/sim";
+import { simulationEventMoments } from "../../../src/canvas/simulationEventPulse";
 import {
   clearance,
   createMissionPath,
@@ -76,5 +77,27 @@ describe("lesson practice scenario", () => {
     const fast = simulatePathWithTrace(speed.before, config);
     const slow = simulatePathWithTrace(speed.after, config);
     expect(slow.total_time_s).toBeGreaterThan(fast.total_time_s);
+  });
+  it("changes event time through speed while preserving geometric trigger position", () => {
+    const { before, after } = demonstrationPaths("events");
+    const config = practiceConfig();
+    const early = simulationEventMoments(
+      before,
+      simulatePathWithTrace(before, config).trace,
+    )[0];
+    const later = simulationEventMoments(
+      after,
+      simulatePathWithTrace(after, config).trace,
+    )[0];
+    expect(early.key).toBe("startIntake");
+    expect(later.key).toBe(early.key);
+    expect(later.distance).toBeCloseTo(early.distance);
+    expect(later.time).toBeGreaterThan(early.time + 0.5);
+  });
+  it("isolates handoff radius from speed and geometry in the controlled comparison", () => {
+    const { before, after } = demonstrationPaths("handoff");
+    expect(before.ranged_constraints).toEqual(after.ranged_constraints);
+    expect(before.constraints).toEqual(after.constraints);
+    expect(before.constraints.max_velocity_meters_per_sec).toBe(1);
   });
 });

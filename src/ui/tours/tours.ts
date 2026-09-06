@@ -1,29 +1,33 @@
 import {
   isEventTrigger,
   isRotationTarget,
-  type PathElement,
+  isTranslationTarget,
+  isWaypoint,
   type PathModel,
 } from "../../core/model/path";
 import {
   activePathForProjectStore,
   projectStore,
 } from "../../state/projectStore";
-import { selectionStore } from "../../state/selectionStore";
 import {
   tourStore,
   type TourAction,
   type TourDefinition,
   type TourFeedback,
   type TourStep,
+  type TourStepPreparation,
+  type TourExperiment,
 } from "./tourStore";
 import {
   anchorPositions,
   buildMarkers,
   createBuildPath,
+  createEventsPath,
+  createHandoffPath,
   createHeadingPath,
   createMissionPath,
   createShapePath,
-  createSpeedPath,
+  createSpeedLessonPath,
   elementPositionSignature,
   mission,
   missionMarkers,
@@ -34,8 +38,8 @@ import {
   checkClearance,
   checkDelivery,
   checkEvent,
-  checkPlan,
   checkMission,
+  checkPlan,
   checkRadius,
   checkSpeed,
   feedback,
@@ -47,9 +51,8 @@ export const tourPracticePathName = "Tour practice";
 let baselinePath: PathModel | null = null;
 let baselineActions: Partial<Record<TourAction, number>> = {};
 let baselineGeneration = 0;
-let middlePosition: string | null = null;
+const stepPaths = new Map<string, PathModel | null>();
 export function createTourPracticePath() {
-  middlePosition = null;
   return createBuildPath();
 }
 function currentPath() {
@@ -66,16 +69,23 @@ function generationCount() {
   );
 }
 export function captureTourStepState() {
+  const state = tourStore.getState();
+  if (state.stepIndex === 0) stepPaths.clear();
   baselinePath = structuredClone(currentPath());
-  baselineActions = { ...tourStore.getState().actions };
+  baselineActions = { ...state.actions };
   baselineGeneration = generationCount();
+  const title = findTour(state.activeTourId)?.steps[state.stepIndex]?.title;
+  if (title) stepPaths.set(title, baselinePath);
 }
 function outcome(check: (path: PathModel) => TourFeedback): () => TourFeedback {
   return () => {
     const path = currentPath();
     return path
       ? check(path)
-      : { complete: false, message: "Open the practice path." };
+      : {
+          complete: false,
+          message: "Open the practice path or restart the exercise.",
+        };
   };
 }
 function action(action: TourAction, waiting: string, done: string) {
@@ -87,729 +97,999 @@ function action(action: TourAction, waiting: string, done: string) {
       done,
     );
 }
-function added(type: PathElement["type"], total?: number) {
-  return outcome((path) => {
-    const previousTypes =
-      baselinePath?.path_elements.map((element) => element.type) ?? [];
-    const expectedAdded = total ? total - previousTypes.length : 1;
-    const expectedTypeCount =
-      previousTypes.filter((candidate) => candidate === type).length +
-      expectedAdded;
-    const complete =
-      path.path_elements.length > (baselinePath?.path_elements.length ?? 0) &&
-      (!total || path.path_elements.length === total) &&
-      path.path_elements.filter((element) => element.type === type).length ===
-        expectedTypeCount;
-    if (complete && type === "waypoint" && total === 3)
-      middlePosition = elementPositionSignature(
-        path.path_elements[selectionStore.getState().selectedElementIndex ?? 2],
-      );
+const endpoint = (path: PathModel) => path.path_elements.length - 1;
+const bend = (path: PathModel) =>
+  path.path_elements.findIndex(isTranslationTarget);
+const rotation = (path: PathModel) =>
+  path.path_elements.findIndex(isRotationTarget);
+const event = (path: PathModel) => path.path_elements.findIndex(isEventTrigger);
+const properties = (
+  selectElement: TourStepPreparation["selectElement"],
+): TourStepPreparation => ({
+  inspector: "open",
+  inspectorTab: "elements",
+  tool: "select",
+  selectElement,
+});
+const constraints = (selectSpeed?: number): TourStepPreparation => ({
+  inspector: "open",
+  inspectorTab: "constraints",
+  tool: "select",
+  selectSpeed,
+});
+function sameAnchors(
+  path: PathModel,
+  before: PathModel | null | undefined = baselinePath,
+) {
+  return (
+    JSON.stringify(
+      anchorPositions(path).map(({ x_meters, y_meters }) => [
+        x_meters,
+        y_meters,
+      ]),
+    ) ===
+    JSON.stringify(
+      before &&
+        anchorPositions(before).map(({ x_meters, y_meters }) => [
+          x_meters,
+          y_meters,
+        ]),
+    )
+  );
+}
+function sameCaps(path: PathModel, ordinals: number[]) {
+  return (
+    !!baselinePath &&
+    ordinals.every(
+      (ordinal) =>
+        speedCap(path, ordinal)?.value ===
+        speedCap(baselinePath!, ordinal)?.value,
+    )
+  );
+}
+const placement = (
+  type: "waypoint" | "translation" | "rotation" | "event_trigger",
+  total: number,
+): (() => TourFeedback) =>
+  outcome((path) => {
+    const expected =
+      (baselinePath?.path_elements.filter((element) => element.type === type)
+        .length ?? 0) +
+      total -
+      (baselinePath?.path_elements.length ?? 0);
+    const count = path.path_elements.filter(
+      (element) => element.type === type,
+    ).length;
+    if (path.path_elements.length > total || count > expected)
+      return {
+        complete: false,
+        message:
+          "There are extra elements. Use Undo last edit until only the requested elements remain.",
+      };
+    const validTypes = [
+      "waypoint",
+      "translation",
+      "rotation",
+      "event_trigger",
+    ].every(
+      (candidate) =>
+        path.path_elements.filter((element) => element.type === candidate)
+          .length ===
+        (candidate === type
+          ? expected
+          : (baselinePath?.path_elements.filter(
+              (element) => element.type === candidate,
+            ).length ?? 0)),
+    );
+    if (path.path_elements.length === total && !validTypes)
+      return {
+        complete: false,
+        message:
+          "An element uses the wrong tool. Undo it, then choose the highlighted tool.",
+      };
     return feedback(
-      complete,
-      `Place ${total === 2 ? "two waypoints" : "one " + (type === "event_trigger" ? "event trigger" : type)} on the field.`,
-      "The new elements are in place.",
+      path.path_elements.length === total && validTypes,
+      "Place " +
+        (type === "waypoint"
+          ? "two waypoints"
+          : "one " +
+            (type === "event_trigger" ? "event trigger" : type + " target")) +
+        ". Undo or restart if you placed the wrong element.",
+      "The requested elements are in place.",
     );
   });
+function pathIntent(path: PathModel | null) {
+  return (
+    path &&
+    JSON.stringify({
+      elements: path.path_elements,
+      constraints: path.constraints,
+      ranges: path.ranged_constraints.map(
+        ({ key, value, start_ordinal, end_ordinal, source }) => ({
+          key,
+          value,
+          start_ordinal,
+          end_ordinal,
+          source,
+        }),
+      ),
+    })
+  );
 }
+const preserveObservation = outcome((path) =>
+  feedback(
+    pathIntent(path) === pathIntent(baselinePath),
+    "The route changed during observation. Undo or redo the change, or restart this exercise to restore the run.",
+    "",
+  ),
+);
 const observe = (title: string, body: string): TourStep => ({
   title,
   body,
   phase: "Observe",
   target: "transport-play",
-  task: "Watch a complete preview run",
+  task: "Watch the preview reach the end",
   interact: ["simulation-transport"],
-  prepare: { simulation: "start" },
+  prepare: { simulation: "start", tool: "select" },
+  validate: preserveObservation,
   check: action(
     "finishRun",
-    "Press Play and let the preview reach the end.",
-    "You watched the full run. Continue or replay it.",
+    "Press Play and watch the robot reach the endpoint.",
+    "The preview reached the end. Replay it or continue.",
+  ),
+});
+const compare = (
+  kind: TourExperiment,
+  title: string,
+  body: string,
+): TourStep => ({
+  title,
+  body,
+  phase: "Observe",
+  experiment: kind,
+  validate: preserveObservation,
+  task: "Replay the focused comparison",
+  check: action(
+    "replay",
+    "Open Compare your path and replay the comparison.",
+    "You observed the comparison. Close it and continue when ready.",
   ),
 });
 const plan = (): TourStep => ({
-  title: "Regenerate the constraints",
-  body: "Generate recalculates Auto constraints while preserving Manual values. If this plan already matches the route, you can continue.",
-  task: "Check that the plan matches the route",
+  title: "Check the generated plan",
+  body: "Generate updates Auto values and preserves your Manual choices. Continue once the plan matches the route.",
+  task: "Check that constraints match the route",
   phase: "Review",
   target: "max-velocity-card",
   interact: ["max-velocity-card"],
-  prepare: { inspector: "open", inspectorTab: "constraints" },
+  prepare: constraints(),
   check: outcome((path) => checkPlan(path, currentConfig())),
 });
-const compare = (kind: "handoff" | "speed", title: string): TourStep => ({
-  title,
-  body: "Open Compare your path and replay both lanes. The saved reference shows what changed. Use half speed or focus on the corner to look closely.",
-  task: "Replay the comparison to its end",
-  phase: "Observe",
-  experiment: kind,
-  check: action(
-    "replay",
-    "Open the comparison and let it finish playing.",
-    "Comparison complete. You can replay or continue.",
-  ),
-});
-const saveReference = (kind: "handoff" | "speed"): TourStep => ({
-  title: "Keep a reference",
-  body: "Open Compare your path and save the current path as a reference. It stays available after you edit the radius or speed.",
-  task: "Save the current path as a reference",
-  phase: "Experiment",
-  experiment: kind,
-  check: action(
-    "reference",
-    "Open the comparison and choose Save current as reference.",
-    "Reference saved. Close the comparison, then continue to the edit.",
-  ),
-});
+function guided(
+  steps: TourStep[],
+  initial: NonNullable<TourStep["elements"]>,
+): TourStep[] {
+  let counts = initial;
+  return steps.map((step) => {
+    if (step.elements) counts = step.elements;
+    // Placement checks explain intermediate counts themselves.
+    return {
+      ...step,
+      elements: step.lockInteractionOnComplete ? undefined : { ...counts },
+    };
+  });
+}
+const pickupMarkers = missionMarkers.filter(
+  (marker) =>
+    marker.id.includes("pickup") ||
+    marker.kind === "game-piece" ||
+    marker.id === "lesson-start-zone",
+);
+const routeMarkers = missionMarkers.filter(
+  (marker) => marker.kind !== "game-piece" && !marker.id.includes("pickup"),
+);
 
 export const buildFirstPathTour: TourDefinition = {
   id: editorBasicsTourId,
   title: "Build a First Path",
-  summary: "Build and revise a delivery route",
-  durationMinutes: 6,
+  summary: "Place two points, preview, and revise",
+  durationMinutes: 4,
   completionMessage:
-    "You can place, order, and revise a route. Shape the Route adds clearance around an obstacle.",
+    "You built, previewed, and revised a path. Shape the Route adds a bend and bumper clearance.",
   markers: buildMarkers,
   practicePath: createTourPracticePath,
   practiceConfig,
-  steps: [
-    {
-      title: "A route to Delivery",
-      body: "Build a route from Start to Delivery. Each point is visited in list order. This practice workspace restores your own project when you leave.",
-      phase: "Build",
-    },
-    {
-      target: "tool-waypoint",
-      title: "Place the endpoints",
-      body: "Choose Waypoint and place a point near Start. Choose Waypoint again and place a second near Delivery. You can refine their positions later.",
-      task: "Place two waypoints",
-      keys: ["1"],
-      interact: ["tool-waypoint", "path-canvas"],
-      check: added("waypoint", 2),
-      lockInteractionOnComplete: true,
-    },
-    {
-      target: "inspector-panel",
-      title: "Start and End",
-      body: "The top row is Start and the bottom row is End. Their arrows also set the robot heading at those positions.",
-      prepare: { inspector: "open", inspectorTab: "elements" },
-      visible: ["inspector-panel"],
-    },
-    {
-      target: "tool-waypoint",
-      title: "Add a middle waypoint",
-      body: "Place one more waypoint between your endpoints. With End selected, the new point is appended to the list.",
-      task: "Place one middle waypoint",
-      keys: ["1"],
-      interact: ["tool-waypoint", "path-canvas"],
-      prepare: { selectElement: 1 },
-      check: added("waypoint", 3),
-      lockInteractionOnComplete: true,
-    },
-    {
-      target: "inspector-panel",
-      title: "Put it in drive order",
-      body: "Drag row 3 above row 2. Your new point should become the middle row, and the original destination should be last again.",
-      task: "Drag the bottom row above the second row",
-      interact: ["inspector-panel"],
-      prepare: { inspector: "open", inspectorTab: "elements" },
-      check: outcome((path) =>
-        feedback(
-          path.path_elements.length === 3 &&
-            !!middlePosition &&
-            elementPositionSignature(path.path_elements[1]) === middlePosition,
-          "Drag using the grip on the bottom row.",
-          "The route now visits Start, your middle point, then Delivery.",
-        ),
-      ),
-      hints: [
-        "List order is drive order. Watch the path segments while reordering.",
-        "Use the row grip at the left edge of the inspector list.",
-      ],
-    },
-    {
-      target: "path-canvas",
-      title: "Move an element",
-      body: "Drag the middle waypoint. The route updates as the waypoint moves.",
-      task: "Move the middle waypoint",
-      keys: ["←", "↑", "↓", "→"],
-      interact: ["path-canvas"],
-      prepare: { tool: "select", selectElement: 1 },
-      check: outcome((path) =>
-        feedback(
-          !!baselinePath &&
-            elementPositionSignature(path.path_elements[1]) !==
-              elementPositionSignature(baselinePath.path_elements[1]),
-          "Move the middle point on the field.",
-          "The middle point moved and both connected segments followed.",
-        ),
-      ),
-    },
-    {
-      target: "element-properties",
-      title: "Type exact values",
-      body: "Put the final waypoint at the center of Delivery. Set X to 15 and Y to 2.5 in Element Properties.",
-      task: "Set the final waypoint to X 15, Y 2.5",
-      interact: ["element-properties"],
-      prepare: {
-        inspector: "open",
-        inspectorTab: "elements",
-        selectElement: 2,
+  steps: guided(
+    [
+      {
+        title: "A route to Delivery",
+        body: "Build a route from Start to Delivery and preview it. These lessons use an example robot and motion settings. Leaving practice restores your own project.",
+        phase: "Build",
       },
-      check: outcome((path) =>
-        feedback(
-          near(anchorPositions(path).at(-1), mission.delivery, 0.02),
-          "Set the selected endpoint to X 15 and Y 2.5.",
-          "The endpoint is at the center of Delivery.",
-        ),
+      {
+        title: "Place the endpoints",
+        body: "Choose Waypoint and place Start, then choose Waypoint again and place Delivery. The list gives their drive order; each waypoint also supplies a heading.",
+        task: "Place two waypoints",
+        target: "tool-waypoint",
+        interact: ["tool-waypoint", "path-canvas"],
+        keys: ["1"],
+        check: placement("waypoint", 2),
+        lockInteractionOnComplete: true,
+        elements: { waypoint: 2 },
+        prepare: { tool: "select", clearSelection: true },
+      },
+      observe(
+        "Play your first path",
+        "Press Play. Watch the robot travel between your two points. This is the basic loop: place, preview, adjust.",
       ),
-    },
-    observe(
-      "Play the preview",
-      "Watch the robot follow the list order from Start through the middle point to Delivery.",
-    ),
-    {
-      title: "Your turn: revise the approach",
-      body: "Change the route by moving only the middle waypoint. Keep both endpoints fixed, then consider how the new approach differs.",
-      task: "Revise the middle while preserving both endpoints",
-      phase: "Challenge",
-      target: "path-canvas",
-      interact: ["path-canvas", "element-properties"],
-      prepare: { tool: "select", selectElement: 1 },
-      check: outcome((path) => {
-        const before = baselinePath?.path_elements;
-        const after = path.path_elements;
-        return feedback(
-          !!before &&
-            after.length === 3 &&
-            elementPositionSignature(before[0]) ===
-              elementPositionSignature(after[0]) &&
-            elementPositionSignature(before[2]) ===
-              elementPositionSignature(after[2]) &&
-            elementPositionSignature(before[1]) !==
-              elementPositionSignature(after[1]),
-          "Move the middle waypoint while leaving Start and End at their original positions.",
-          "You changed the approach without moving the endpoints.",
-        );
-      }),
-      hints: [
-        "The middle waypoint controls the approach from both directions.",
-        "Restart exercise restores the route you had when this challenge began.",
-      ],
-    },
-    observe(
-      "Check your revision",
-      "Watch the revised route. In the next lesson, the robot must also leave room for its bumper around a field structure.",
-    ),
-    {
-      title: "Keep building",
-      body: "A waypoint provides a position and heading. Use the ordered list to choose when the robot visits each one.",
-      phase: "Review",
-    },
-  ],
+      {
+        title: "Move the destination",
+        body: "Select the endpoint and drag it, nudge it with the arrow keys, or edit its coordinates. Watch the straight segment follow.",
+        task: "Move End while keeping Start fixed",
+        target: "path-canvas",
+        interact: ["path-canvas", "element-properties"],
+        prepare: properties(endpoint),
+        check: outcome((path) =>
+          feedback(
+            !!baselinePath &&
+              elementPositionSignature(path.path_elements[0]) ===
+                elementPositionSignature(baselinePath.path_elements[0]) &&
+              elementPositionSignature(path.path_elements[1]) !==
+                elementPositionSignature(baselinePath.path_elements[1]),
+            "Move End. If you moved Start, undo that edit first.",
+            "End moved and the route updated.",
+          ),
+        ),
+        keys: ["←", "↑", "↓", "→"],
+      },
+      {
+        title: "Undo the change",
+        body: "Undo restores the previous edit. Use Undo last edit below or the keyboard shortcut. If you moved the endpoint several times, undo each move.",
+        task: "Return to the route before moving End",
+        target: "path-canvas",
+        interact: ["path-canvas"],
+        prepare: { tool: "select" },
+        keys: ["⌘/Ctrl", "Z"],
+        check: outcome((path) =>
+          feedback(
+            sameAnchors(path, stepPaths.get("Move the destination")),
+            "Undo until End returns to its original position.",
+            "The original route is restored.",
+          ),
+        ),
+      },
+      {
+        title: "Your turn: reach Delivery",
+        body: "Put End inside the Delivery zone. You can drag it or type X 15, Y 2.5. Keep Start where you placed it.",
+        task: "Finish inside Delivery",
+        phase: "Challenge",
+        target: "path-canvas",
+        interact: ["path-canvas", "element-properties"],
+        prepare: properties(endpoint),
+        check: outcome((path) => {
+          if (
+            !baselinePath ||
+            elementPositionSignature(path.path_elements[0]) !==
+              elementPositionSignature(baselinePath.path_elements[0])
+          )
+            return {
+              complete: false,
+              message:
+                "Keep Start fixed. Undo its move or restart this exercise.",
+            };
+          return checkDelivery(path, currentConfig());
+        }),
+        hints: [
+          "The zone is on the right side of the field.",
+          "Show required controls selects End and opens its X and Y fields.",
+        ],
+      },
+      observe(
+        "Check your delivery",
+        "Watch the revised path finish in Delivery. You can repeat this edit and preview loop on your own paths.",
+      ),
+      {
+        title: "Keep the useful points",
+        body: "Two waypoints make a useful first path. Add more position targets when the route needs a bend or clearance.",
+        phase: "Review",
+      },
+    ],
+    {},
+  ),
 };
 
 export const shapeRouteTour: TourDefinition = {
   id: "shape-route",
   title: "Shape the Route",
-  summary: "See how clearance and handoff radius interact",
-  durationMinutes: 8,
+  summary: "Use a bend, drive order, and bumper clearance",
+  durationMinutes: 4,
   completionMessage:
-    "You compared two handoffs and checked the simulated bumper around a structure.",
-  markers: missionMarkers.filter(
-    (marker) => marker.kind !== "game-piece" && !marker.id.includes("pickup"),
-  ),
+    "You shaped the route with a translation target. Plan the Speed controls how the robot approaches those targets.",
+  markers: routeMarkers,
   practicePath: createShapePath,
   practiceConfig,
-  steps: [
-    {
-      title: "The route has a problem",
-      body: "The direct route to Delivery crosses a structure. Add a bend above it, leaving room for the whole robot.",
-      target: "lesson-structure",
-      phase: "Build",
-    },
-    {
-      title: "Bend the route",
-      body: "A translation target adds position without a heading. Select Translation and place one above the structure, near X 10.8, Y 6.8.",
-      task: "Add one translation target above the structure",
-      target: "tool-translation",
-      keys: ["2"],
-      interact: ["tool-translation", "path-canvas"],
-      prepare: { selectElement: 0 },
-      check: added("translation", 3),
-      lockInteractionOnComplete: true,
-    },
-    {
-      title: "Clear the structure",
-      body: "Move the bend until both straight segments leave room for the bumper. The preview may cut farther inside the bend.",
-      task: "Leave bumper clearance around the structure",
-      target: "path-canvas",
-      interact: ["path-canvas"],
-      prepare: { tool: "select", selectElement: 1 },
-      check: outcome((path) => checkClearance(path, currentConfig())),
-      hints: [
-        "The line marks the robot center. Its bumper extends beyond that line.",
-        "Try moving the bend higher, near X 10.8, Y 6.8.",
-      ],
-    },
-    {
-      title: "Tune the handoff",
-      body: "In Constraints, select the radius chip on the right beside the bend. Choose Manual and set 0.25 m. The robot will visit close to that point.",
-      task: "Set the bend radius to Manual 0.25 m",
-      target: "max-velocity-card",
-      interact: ["max-velocity-card"],
-      prepare: {
-        inspector: "open",
-        inspectorTab: "constraints",
-        selectElement: 1,
+  steps: guided(
+    [
+      {
+        title: "Make room for the robot",
+        body: "The direct route crosses a structure. Add a translation target above it. A translation target adds position while leaving heading to separate targets.",
+        target: "lesson-structure",
       },
-      check: outcome((path) => checkRadius(path, 0.25, 0.25)),
-      hints: [
-        "Radius controls when the follower hands off to the next anchor.",
-        "Distance chips are on the right; speed cells are on the left.",
-      ],
-      demo: "handoff",
-    },
-    saveReference("handoff"),
-    {
-      title: "Start the turn earlier",
-      body: "Increase the same Manual radius to 1.5 m. Watch the circle and preview curve change while you edit.",
-      task: "Set a Manual radius of 1.5 m",
-      target: "max-velocity-card",
-      interact: ["max-velocity-card"],
-      prepare: { inspector: "open", inspectorTab: "constraints" },
-      check: outcome((path) => checkRadius(path, 1.5, 1.5)),
-      phase: "Experiment",
-      demo: "handoff",
-      hints: [
-        "A larger handoff radius switches to the next anchor sooner.",
-        "Use the same distance chip on the right, then compare the saved path.",
-      ],
-    },
-    compare("handoff", "Compare the corner"),
-    {
-      title: "Your turn: keep the bumper clear",
-      body: "Choose a radius and bend position that keep the simulated bumper clear. A small radius or a wider route can both work.",
-      task: "Find a clear simulated route",
-      phase: "Challenge",
-      target: "max-velocity-card",
-      interact: ["max-velocity-card", "path-canvas"],
-      prepare: {
-        tool: "select",
-        selectElement: 1,
-        inspector: "open",
-        inspectorTab: "constraints",
+      {
+        title: "Add a bend",
+        body: "Choose Translation and place one target above the structure, near X 10.8, Y 6.8. End is selected, so the new target will be appended after it.",
+        task: "Place one translation target",
+        target: "tool-translation",
+        interact: ["tool-translation", "path-canvas"],
+        prepare: { selectElement: endpoint, tool: "select" },
+        keys: ["2"],
+        check: placement("translation", 3),
+        lockInteractionOnComplete: true,
+        elements: { waypoint: 2, translation: 1 },
       },
-      check: outcome((path) => checkClearance(path, currentConfig(), true)),
-      experiment: "handoff",
-      hints: [
-        "If the robot cuts too close, reduce the radius or move the bend farther out.",
-        "Compare the new trace with your reference and look at the bumper edge.",
-      ],
-    },
-    plan(),
-    observe(
-      "Confirm the route",
-      "Watch the full preview. Check the inside edge of the bumper as the robot passes the structure.",
-    ),
-    {
-      title: "Position and handoff work together",
-      body: "The target sets the planned route. Its handoff radius changes how closely the follower visits it. Judge clearance using the simulated bumper too.",
-      phase: "Review",
-    },
-  ],
+      {
+        title: "Put it in drive order",
+        body: "Drag the Translation row between Start and End. You can also select it and use Alt plus an up arrow. Watch the route change as the list order changes.",
+        task: "Put Translation between the waypoints",
+        target: "inspector-panel",
+        interact: ["inspector-panel"],
+        prepare: properties(bend),
+        keys: ["Alt", "↑"],
+        check: outcome((path) =>
+          feedback(
+            isWaypoint(path.path_elements[0]) &&
+              isTranslationTarget(path.path_elements[1]) &&
+              isWaypoint(path.path_elements[2]),
+            "Move the Translation row above End using its grip or Alt plus an up arrow.",
+            "The route visits Start, the bend, then Delivery.",
+          ),
+        ),
+      },
+      {
+        title: "Clear the structure",
+        body: "Move the bend until the straight segments leave room for the whole bumper. The line marks the robot center.",
+        task: "Leave bumper clearance around the structure",
+        target: "path-canvas",
+        interact: ["path-canvas", "element-properties"],
+        prepare: properties(bend),
+        check: outcome((path) => checkClearance(path, currentConfig())),
+        hints: [
+          "Leave space on both sides of the bend.",
+          "Try X 10.8, Y 6.8. Dragging and coordinate edits both work.",
+        ],
+      },
+      observe(
+        "Watch the bend",
+        "The robot can pass an intermediate target and keep moving. Watch its inside bumper edge; the preview can cut inside the straight segments.",
+      ),
+      {
+        title: "Your turn: a different clear route",
+        body: "Move the bend to another useful position. Keep Start and Delivery in their zones, and leave clearance for the simulated bumper.",
+        task: "Revise the bend and keep the preview clear",
+        phase: "Challenge",
+        target: "path-canvas",
+        interact: ["path-canvas", "element-properties"],
+        prepare: properties(bend),
+        check: outcome((path) => {
+          if (sameAnchors(path))
+            return {
+              complete: false,
+              message: "Move the bend to try a different approach.",
+            };
+          if (
+            !near(anchorPositions(path)[0], mission.start) ||
+            !near(anchorPositions(path).at(-1), mission.delivery)
+          )
+            return {
+              complete: false,
+              message: "Keep Start and Delivery in their marked zones.",
+            };
+          return checkClearance(path, currentConfig(), true);
+        }),
+        hints: [
+          "A wider bend can leave more room for the bumper.",
+          "Try shifting the bend left or right while keeping it above the structure.",
+        ],
+      },
+      {
+        title: "Use the fewest useful anchors",
+        body: "Use a translation target for a bend that does not need its own heading. Keep enough targets to describe the route clearly, then tune the approach speeds.",
+        phase: "Review",
+      },
+    ],
+    { waypoint: 2 },
+  ),
 };
 
 export const planSpeedTour: TourDefinition = {
   id: "plan-speed",
   title: "Plan the Speed",
-  summary: "Compare a turn, preserve a cap, tune the delivery",
-  durationMinutes: 8,
+  summary: "See a local slowdown before editing grouped cells",
+  durationMinutes: 5,
   completionMessage:
-    "You tuned two approaches and verified that generation preserved a Manual cap.",
+    "You compared a local slowdown, kept a Manual cap through Generate, and split a shared cell.",
   markers: missionMarkers,
-  practicePath: createSpeedPath,
+  practicePath: createSpeedLessonPath,
   practiceConfig,
-  steps: [
-    {
-      title: "Where, then how fast",
-      body: "This route passes Pickup, turns above the structure, and approaches Delivery. Geometry sets where it drives; speed caps set how it approaches each anchor.",
-      phase: "Build",
-    },
-    {
-      title: "Open Constraints",
-      body: "Open Constraints. Speed cells are on the left; the aligned distance chips on the right control handoff radius.",
-      task: "Open the Constraints tab",
-      target: "inspector-constraints",
-      interact: ["inspector-constraints"],
-      prepare: { inspector: "open", inspectorTab: "elements" },
-      check: () =>
-        feedback(
-          !!document.querySelector(
-            '[data-tour="inspector-constraints"][aria-selected="true"]',
+  steps: guided(
+    [
+      {
+        title: "Where, then how fast",
+        body: "This route already has a generated speed proposal. You own the final choices. Slow the approach to the second turn and compare the motion.",
+      },
+      {
+        title: "Open Constraints",
+        body: "Open Constraints. Speed cells are on the left, aligned with the targets they approach. Radius chips are on the right.",
+        task: "Open the Constraints tab",
+        target: "inspector-constraints",
+        interact: ["inspector-constraints"],
+        prepare: {
+          inspector: "open",
+          inspectorTab: "elements",
+          tool: "select",
+        },
+        check: () =>
+          feedback(
+            !!document.querySelector(
+              '[data-tour="inspector-constraints"][aria-selected="true"]',
+            ),
+            "Select the Constraints tab.",
+            "The speed and radius ledger is open.",
           ),
-          "Select the Constraints tab.",
-          "The speed and radius ledger is open.",
-        ),
-    },
-    {
-      ...plan(),
-      title: "Generate a plan",
-      body: "Generate proposes speeds from the route and robot settings. Each speed cell controls the approach to its matching anchor.",
-    },
-    {
-      title: "Find the second turn",
-      body: "The highlighted speed cell controls the approach to the second translation target, above and right of the structure. Its row matches that target in drive order.",
-      target: "lesson-corner-speed",
-      visible: ["max-velocity-card"],
-      phase: "Observe",
-    },
-    {
-      title: "Give the turn its own speed cell",
-      body: "Generate can combine adjacent approaches with the same speed. If the highlighted cell spans several rows, select it and click Split. Repeat on the part containing the second turn until that row has its own cell.",
-      task: "Give the second turn a separate speed cell",
-      target: "lesson-corner-speed",
-      visible: ["max-velocity-card"],
-      interact: ["max-velocity-card"],
-      check: outcome((path) => {
-        const cap = speedCap(path, 3);
-        return feedback(
-          cap?.start_ordinal === 3 && cap.end_ordinal === 3,
-          "Split the highlighted segment until only the second-turn row is covered.",
-          "This cell now controls only the approach to the second turn.",
-        );
-      }),
-      hints: [
-        "A tall cell shares one value across several approaches.",
-        "Select the cell, then use Split below its value. Select the part covering the turn again if it needs another split.",
-      ],
-      hintTargets: ["lesson-corner-speed"],
-    },
-    saveReference("speed"),
-    {
-      title: "Take ownership",
-      body: "Select the highlighted speed cell for the second turn. Set its speed to 1.2 m/s. Editing the value makes it Manual.",
-      task: "Cap the second turn at 1.2 m/s or less",
-      target: "lesson-corner-speed",
-      visible: ["max-velocity-card"],
-      interact: ["max-velocity-card"],
-      check: outcome((path) => checkSpeed(path, 3, 1.2)),
-      phase: "Experiment",
-      hints: [
-        "Each cell applies to an approach, so use the cell aligned with the second translation target.",
-        "The speed value is on the left. Do not edit the radius distance chip.",
-      ],
-      hintTargets: ["lesson-corner-speed"],
-      demo: "speed",
-    },
-    compare("speed", "Watch the slowdown"),
-    {
-      title: "Generate without losing your cap",
-      body: "Click Generate again. The Manual corner cap should stay at your chosen value while the Auto plan is recalculated.",
-      task: "Generate and preserve the Manual corner speed",
-      target: "max-velocity-card",
-      interact: ["max-velocity-card"],
-      check: outcome((path) =>
-        feedback(
-          generationCount() > baselineGeneration &&
-            checkPlan(path, currentConfig()).complete &&
-            checkSpeed(path, 3, 1.2).complete &&
-            speedCap(path, 3)?.value ===
-              (baselinePath ? speedCap(baselinePath, 3)?.value : undefined),
-          "Click Generate, then check that the corner cap stays Manual and unchanged.",
-          "Generation finished and your Manual corner cap stayed unchanged.",
-        ),
+      },
+      {
+        title: "Slow the second turn",
+        body: "The selected cell controls the approach above and right of the structure. A reference is saved. Predict how lowering this cap will change that approach, then set 1.2 m/s.",
+        task: "Set the second-turn cap to 1.2 m/s or less",
+        target: "lesson-corner-speed",
+        visible: ["max-velocity-card"],
+        interact: ["max-velocity-card"],
+        prepare: constraints(3),
+        captureReference: true,
+        phase: "Experiment",
+        check: outcome((path) => {
+          const result = checkSpeed(path, 3, 1.2);
+          return result.complete
+            ? feedback(
+                sameAnchors(path) && sameCaps(path, [1, 2, 4]),
+                "Keep the other approaches and geometry unchanged.",
+                "Only the second-turn approach has a lower Manual cap.",
+              )
+            : result;
+        }),
+        hints: [
+          "Editing an Auto value makes that cell Manual.",
+          "Show required controls selects the second-turn cell again.",
+        ],
+        demo: "speed",
+      },
+      compare(
+        "speed",
+        "Watch the local slowdown",
+        "Replay the corner comparison. Watch each speed readout and the time spent approaching the second turn. The dashed reference also remains on the main field.",
       ),
-    },
-    {
-      title: "Your turn: a gentle delivery",
-      body: "Slow the final approach to Delivery to 0.8 m/s or less. Keep the Manual second-turn cap unchanged.",
-      task: "Tune Delivery while preserving the turn cap",
-      target: "lesson-delivery-speed",
-      interact: ["max-velocity-card"],
-      visible: ["max-velocity-card"],
-      phase: "Challenge",
-      check: outcome((path) => {
-        const result = checkSpeed(path, 4, 0.8);
-        return result.complete
-          ? feedback(
-              speedCap(path, 3)?.value ===
-                (baselinePath ? speedCap(baselinePath, 3)?.value : undefined),
-              "Restore the second-turn cap to the value it had before this challenge.",
-              "Delivery is slower and the second-turn cap is unchanged.",
-            )
-          : result;
-      }),
-      hints: [
-        "The last speed cell belongs to the final waypoint.",
-        "If one cap spans both approaches, split the segment before changing Delivery.",
-      ],
-      hintTargets: ["lesson-delivery-speed"],
-      experiment: "speed",
-    },
-    observe(
-      "Watch both approaches",
-      "Watch the second turn and then Delivery. Notice the extra time the final slow approach adds.",
-    ),
-    {
-      title: "Tune the approach that needs it",
-      body: "Start with a generated plan, then own the specific caps your route needs. Use the comparison to see the time and motion cost of a lower cap.",
-      phase: "Review",
-    },
-  ],
+      {
+        title: "Generate without losing your cap",
+        body: "Click Generate. It recalculates Auto values while keeping your chosen Manual speed.",
+        task: "Generate and preserve the Manual corner cap",
+        target: "max-velocity-card",
+        interact: ["max-velocity-card"],
+        prepare: constraints(3),
+        check: outcome((path) =>
+          feedback(
+            generationCount() > baselineGeneration &&
+              checkPlan(path, currentConfig()).complete &&
+              checkSpeed(path, 3, 1.2).complete &&
+              sameCaps(path, [3]),
+            "Click Generate and wait for it to finish. Keep the second-turn cap unchanged.",
+            "Generation finished and your Manual corner cap is unchanged.",
+          ),
+        ),
+      },
+      {
+        title: "Separate a shared approach",
+        body: "Pickup may share a tall speed cell with Start. Select the cell covering Pickup and use Split until Pickup has its own cell. Separate cells let you change just one approach.",
+        task: "Give Pickup its own speed cell",
+        target: "lesson-pickup-speed",
+        visible: ["max-velocity-card"],
+        interact: ["max-velocity-card"],
+        prepare: constraints(2),
+        check: outcome((path) =>
+          feedback(
+            speedCap(path, 2)?.start_ordinal === 2 &&
+              speedCap(path, 2)?.end_ordinal === 2,
+            "Select the cell covering Pickup and click Split. If it is already separate, continue.",
+            "Pickup has a separate speed cell.",
+          ),
+        ),
+        hints: [
+          "A tall cell applies one value to several approaches.",
+          "Split changes the editable ranges. It does not add path targets.",
+        ],
+      },
+      {
+        title: "Your turn: slow Pickup",
+        body: "Set Pickup to 0.9 m/s or less. Preserve your second-turn cap and the Delivery speed. This gives the pickup approach its own intentional slowdown.",
+        task: "Slow Pickup while preserving the later approaches",
+        phase: "Challenge",
+        target: "lesson-pickup-speed",
+        visible: ["max-velocity-card"],
+        interact: ["max-velocity-card"],
+        prepare: constraints(2),
+        check: outcome((path) => {
+          const result = checkSpeed(path, 2, 0.9);
+          return result.complete
+            ? feedback(
+                sameCaps(path, [3, 4]),
+                "Restore the second-turn and Delivery caps, then edit only Pickup.",
+                "Pickup is slower and the later approaches retain their caps.",
+              )
+            : result;
+        }),
+        hints: [
+          "Use the cell aligned with the first translation target.",
+          "If cells have been merged again, split Pickup out before changing its value.",
+        ],
+      },
+      observe(
+        "Watch the two slow approaches",
+        "Watch the robot approach Pickup and then the second turn. Local caps let you spend time where your routine needs it.",
+      ),
+      {
+        title: "Choose speeds through testing",
+        body: "Auto is a starting proposal. Lower the local speed before a difficult turn, preview the change, then tune through robot testing. Practice values are examples, not robot recommendations.",
+        phase: "Review",
+      },
+    ],
+    { waypoint: 2, translation: 2 },
+  ),
 };
 
-export const headingEventsTour: TourDefinition = {
-  id: "heading-events",
-  title: "Add Heading and Events",
-  summary: "Face Pickup and start the intake on approach",
-  durationMinutes: 8,
+export const handoffsTour: TourDefinition = {
+  id: "understand-handoffs",
+  title: "Understand Handoffs",
+  summary: "Compare radii with a fixed approach speed",
+  durationMinutes: 4,
   completionMessage:
-    "You aligned the pickup heading and moved an intake event using geometric progress.",
-  markers: missionMarkers.filter(
-    (marker) =>
-      marker.id.includes("pickup") ||
-      marker.kind === "game-piece" ||
-      marker.id === "lesson-start-zone",
+    "You compared handoff radii at the same speed and checked clearance using the simulated bumper.",
+  markers: routeMarkers,
+  practicePath: createHandoffPath,
+  practiceConfig,
+  steps: guided(
+    [
+      {
+        title: "When does the next target take over?",
+        body: "The bend sets a position to approach. Its handoff radius lets the follower switch to the next target before reaching the center. This experiment keeps every speed cap at 1 m/s.",
+      },
+      {
+        title: "Try a small handoff",
+        body: "Select the bend's radius chip on the right. Keep it Manual and set 0.25 m. The speed stays fixed so you can isolate the radius change.",
+        task: "Set the bend radius to Manual 0.25 m",
+        target: "max-velocity-card",
+        interact: ["max-velocity-card"],
+        prepare: { ...constraints(), selectElement: bend },
+        check: outcome((path) => checkFixedRadius(path, 0.25)),
+        demo: "handoff",
+        hints: [
+          "The distance chip is on the right of the speed ledger.",
+          "Show required controls selects the bend and opens Constraints.",
+        ],
+      },
+      {
+        title: "Switch targets earlier",
+        body: "The small-radius run is saved. Increase the same radius to 1.5 m. Predict where the robot will begin cutting toward Delivery.",
+        task: "Set a Manual radius of 1.5 m",
+        phase: "Experiment",
+        target: "max-velocity-card",
+        interact: ["max-velocity-card"],
+        prepare: { ...constraints(), selectElement: bend },
+        captureReference: true,
+        check: outcome((path) => checkFixedRadius(path, 1.5)),
+      },
+      compare(
+        "handoff",
+        "Compare the corner",
+        "Both runs use the same geometry and speed caps. Replay the focused corner and watch when each robot turns toward Delivery.",
+      ),
+      {
+        title: "Your turn: keep the bumper clear",
+        body: "Choose a radius from 0.25 to 1.5 m that keeps the simulated bumper clear. Keep the bend and 1 m/s speed caps fixed for this experiment.",
+        task: "Find a clear handoff at the controlled speed",
+        phase: "Challenge",
+        target: "max-velocity-card",
+        interact: ["max-velocity-card"],
+        prepare: { ...constraints(), selectElement: bend },
+        experiment: "handoff",
+        check: outcome((path) => {
+          const radius = checkRadius(path, 0.25, 1.5);
+          if (!radius.complete) return radius;
+          if (!sameAnchors(path) || !fixedHandoffSpeed(path))
+            return {
+              complete: false,
+              message:
+                "Keep the geometry and every 1 m/s speed cap unchanged. Restart exercise if needed.",
+            };
+          return checkClearance(path, currentConfig(), true);
+        }),
+        hints: [
+          "Watch the inside bumper edge, not just the robot center.",
+          "Compare a smaller radius at this speed and check the resulting trace.",
+        ],
+      },
+      {
+        title: "A smaller circle is not always better",
+        body: "At higher speed, a tiny circle can be missed and the follower may turn back. Lower the approach speed first, then tune radius and geometry together. Judge the actual motion.",
+        phase: "Review",
+        demo: "handoff",
+      },
+      {
+        title: "Pass-through and finishing are different",
+        body: "Intermediate radius controls handoffs. Final translation and rotation tolerances control completion. This preview uses circle handoffs; robot code can also enable projection handoffs after passing a target. Verify that behavior on your robot.",
+        phase: "Review",
+      },
+    ],
+    { waypoint: 2, translation: 1 },
   ),
+};
+function fixedHandoffSpeed(path: PathModel) {
+  return (
+    path.constraints.max_velocity_meters_per_sec === 1 &&
+    [1, 2, 3].every(
+      (ordinal) =>
+        speedCap(path, ordinal)?.value === 1 &&
+        speedCap(path, ordinal)?.source !== "auto_velocity",
+    )
+  );
+}
+function checkFixedRadius(path: PathModel, radius: number) {
+  return !fixedHandoffSpeed(path) || !sameAnchors(path)
+    ? {
+        complete: false,
+        message:
+          "Keep the geometry and every 1 m/s speed cap fixed. Undo or restart to restore the controlled comparison.",
+      }
+    : checkRadius(path, radius, radius);
+}
+
+export const controlHeadingTour: TourDefinition = {
+  id: "control-heading",
+  title: "Control Heading",
+  summary: "Change facing direction independently of the route",
+  durationMinutes: 4,
+  completionMessage:
+    "You controlled heading without changing the route and compared profiled and non-profiled rotation.",
+  markers: pickupMarkers,
   practicePath: createHeadingPath,
   practiceConfig,
-  steps: [
-    {
-      title: "Face Pickup on arrival",
-      body: "The target pose puts the front bumper at the game piece. Add a 90° heading and startIntake before arrival. The event names a robot-code action; the preview shows its trigger.",
-      phase: "Build",
-      target: "lesson-game-piece",
-    },
-    {
-      title: "Add a rotation target",
-      body: "Choose Rotation and place one target along the segment. It changes heading without bending the route.",
-      task: "Place one rotation target",
-      target: "tool-rotation",
-      keys: ["3"],
-      interact: ["tool-rotation", "path-canvas"],
-      check: added("rotation", 3),
-      lockInteractionOnComplete: true,
-    },
-    {
-      title: "Face the piece",
-      body: "Set Rotation to 90 degrees and Rotation Pos to 0.5. Keep Profiled on so heading changes across the approach.",
-      task: "Set a profiled 90° rotation at 0.5",
-      target: "element-properties",
-      interact: ["element-properties"],
-      prepare: { inspector: "open", inspectorTab: "elements" },
-      check: outcome((path) => {
-        const rotation = path.path_elements.find(isRotationTarget);
-        return feedback(
-          !!rotation &&
-            rotation.profiled_rotation &&
-            Math.abs(rotation.rotation_radians - Math.PI / 2) < 0.02 &&
-            Math.abs(rotation.t_ratio - 0.5) < 0.011,
-          "Set Rotation 90, Rotation Pos 0.5, and enable Profiled.",
-          "The robot has a profiled 90° heading target halfway along the segment.",
-        );
-      }),
-      hints: [
-        "Position 0 is the segment start and 1 is its end.",
-        "Profiled changes heading gradually; the worked example compares both modes.",
-      ],
-      demo: "heading",
-    },
-    observe(
-      "Watch the heading",
-      "Watch the front of the robot turn toward Pickup as it approaches. Its route remains the same straight segment.",
-    ),
-    {
-      title: "Add an event trigger",
-      body: "Choose Event and place one trigger after the rotation target along the segment.",
-      task: "Place one event trigger",
-      target: "tool-event",
-      keys: ["4"],
-      interact: ["tool-event", "path-canvas"],
-      check: added("event_trigger", 4),
-      lockInteractionOnComplete: true,
-    },
-    {
-      title: "Name the action",
-      body: "Set the key to startIntake and the event position to 0.7. Robot code must register the action for that exact key.",
-      task: "Set startIntake at position 0.7",
-      target: "element-properties",
-      interact: ["element-properties"],
-      prepare: { inspector: "open", inspectorTab: "elements" },
-      check: outcome((path) => checkEvent(path)),
-    },
-    observe(
-      "Watch the run",
-      "Watch the robot turn and flash purple as geometric progress reaches the event marker. The flash marks the trigger, not a simulated intake mechanism.",
-    ),
-    {
-      title: "Scrub the timeline",
-      body: "Drag the timeline around the purple flash. The event is attached to progress along the segment, so changing speed changes its time without changing its geometric position.",
-      task: "Scrub around the event",
-      target: "transport-timeline",
-      interact: ["simulation-transport"],
-      check: action(
-        "scrub",
-        "Drag the timeline to inspect the event during the approach.",
-        "You inspected the run with the timeline.",
+  steps: guided(
+    [
+      {
+        title: "Face Pickup on arrival",
+        body: "The robot travels straight to Pickup. Add a rotation target so its front faces the piece before arrival. The route geometry can stay exactly as it is.",
+        target: "lesson-game-piece",
+      },
+      {
+        title: "Add a rotation target",
+        body: "Choose Rotation and place one target along the segment. It sets heading at a fraction of the approach.",
+        task: "Place one rotation target",
+        target: "tool-rotation",
+        interact: ["tool-rotation", "path-canvas"],
+        prepare: { tool: "select", selectElement: 0 },
+        keys: ["3"],
+        check: placement("rotation", 3),
+        lockInteractionOnComplete: true,
+        elements: { waypoint: 1, translation: 1, rotation: 1 },
+      },
+      {
+        title: "Face the piece",
+        body: "Set Rotation to 90 degrees, Rotation Pos to 0.5, and enable Profiled. Position 0.5 means halfway along the segment, not halfway through its time.",
+        task: "Set a profiled 90° rotation at 0.5",
+        target: "element-properties",
+        interact: ["element-properties"],
+        prepare: properties(rotation),
+        demo: "heading",
+        check: outcome((path) => checkHeading(path, true, 0.5, 0.5)),
+        hints: [
+          "Profiled changes the heading setpoint across progress.",
+          "Show required controls selects the rotation target even if another element was selected.",
+        ],
+      },
+      {
+        title: "Compare a fixed heading setpoint",
+        body: "Your profiled run is saved. Turn Profiled off while keeping 90° and position 0.5. Non-profiled switches the desired heading for the active interval; the robot still takes time to turn.",
+        task: "Turn Profiled off without moving the target",
+        phase: "Experiment",
+        target: "element-properties",
+        interact: ["element-properties"],
+        prepare: properties(rotation),
+        captureReference: true,
+        check: outcome((path) => checkHeading(path, false, 0.5, 0.5)),
+      },
+      compare(
+        "heading",
+        "Watch the heading change",
+        "Replay both approaches. Watch the front edge and heading readout while checking that both robots follow the same straight route.",
       ),
-      phase: "Observe",
-    },
-    {
-      title: "Your turn: start the intake earlier",
-      body: "Move the event to position 0.6 while keeping its key and the profiled 90° rotation at 0.5. It should trigger earlier on the same route.",
-      task: "Move startIntake to 0.6",
-      phase: "Challenge",
-      target: "element-properties",
-      interact: ["path-canvas", "inspector-panel", "element-properties"],
-      prepare: { inspector: "open", inspectorTab: "elements" },
-      check: outcome((path) => {
-        const result = checkEvent(path, 0.6);
-        const rotation = path.path_elements.find(isRotationTarget);
-        return result.complete
-          ? feedback(
-              !!rotation &&
-                rotation.profiled_rotation &&
-                Math.abs(rotation.rotation_radians - Math.PI / 2) < 0.02 &&
-                Math.abs(rotation.t_ratio - 0.5) < 0.011,
-              "Keep the rotation at 90° and 0.5 with Profiled enabled.",
-              "The intake event moved earlier and the heading target is preserved.",
-            )
-          : result;
-      }),
-      hints: [
-        "The event position is a fraction of the segment, not seconds.",
-        "Select the event diamond or its inspector row, then change Event Pos.",
-      ],
-    },
-    observe(
-      "Check the earlier trigger",
-      "Watch for the purple flash closer to the rotation marker. The robot should still reach Pickup facing 90°.",
-    ),
-    {
-      title: "Position, heading, and action",
-      body: "Translation sets the route, rotation sets heading, and an event key triggers a registered action. Verify and Export combines these in a complete pickup and delivery routine.",
-      phase: "Review",
-    },
-  ],
+      {
+        title: "Your turn: face Pickup earlier",
+        body: "Enable Profiled again and move the 90° rotation target earlier, to a position from 0.25 to 0.4. Keep both position anchors fixed.",
+        task: "Reach the profiled 90° target earlier",
+        phase: "Challenge",
+        target: "element-properties",
+        interact: ["element-properties", "path-canvas"],
+        prepare: properties(rotation),
+        check: outcome((path) => checkHeading(path, true, 0.25, 0.4)),
+        experiment: "heading",
+        hints: [
+          "Rotation Pos controls geometric progress along this approach.",
+          "Set Profiled on, Rotation 90, and Rotation Pos 0.35 for one valid result.",
+        ],
+      },
+      {
+        title: "Position and heading are separate",
+        body: "Translation targets shape the route. Rotation targets and waypoint headings control facing direction. Trigger Actions adds a named mechanism action along the same approach.",
+        phase: "Review",
+      },
+    ],
+    { waypoint: 1, translation: 1 },
+  ),
+};
+function checkHeading(
+  path: PathModel,
+  profiled: boolean,
+  minimum: number,
+  maximum: number,
+) {
+  const target = path.path_elements.find(isRotationTarget);
+  return feedback(
+    !!target &&
+      target.profiled_rotation === profiled &&
+      Math.abs(target.rotation_radians - Math.PI / 2) < 0.02 &&
+      target.t_ratio >= minimum - 0.01 &&
+      target.t_ratio <= maximum + 0.01 &&
+      sameAnchors(path),
+    "Keep the route fixed. Set Rotation 90, Profiled " +
+      (profiled ? "on" : "off") +
+      ", and Rotation Pos " +
+      (minimum === maximum ? minimum : minimum + " to " + maximum) +
+      ".",
+    "The heading target is set and the route geometry is unchanged.",
+  );
+}
+
+export const triggerActionsTour: TourDefinition = {
+  id: "trigger-actions",
+  title: "Trigger Actions",
+  summary: "Connect event keys to geometric progress",
+  durationMinutes: 4,
+  completionMessage:
+    "You placed a named event, inspected its trigger, and saw how changing speed changes its time.",
+  markers: pickupMarkers,
+  practicePath: createEventsPath,
+  practiceConfig,
+  steps: guided(
+    [
+      {
+        title: "Start the intake on approach",
+        body: "This path already faces Pickup. Add an event that starts the intake while the robot keeps moving. The event key connects the path to an action registered in robot code.",
+      },
+      {
+        title: "Add an event trigger",
+        body: "Choose Event and place one trigger along the approach. The purple marker shows where geometric progress will trigger it.",
+        task: "Place one event trigger",
+        target: "tool-event",
+        interact: ["tool-event", "path-canvas"],
+        prepare: { tool: "select", selectElement: rotation },
+        keys: ["4"],
+        check: placement("event_trigger", 4),
+        lockInteractionOnComplete: true,
+        elements: {
+          waypoint: 1,
+          translation: 1,
+          rotation: 1,
+          event_trigger: 1,
+        },
+      },
+      {
+        title: "Name the action",
+        body: "Set the key to startIntake and Event Pos to 0.7. The exact key must match the action in robot code. Position 0.7 is 70% of the segment.",
+        task: "Set startIntake at position 0.7",
+        target: "element-properties",
+        interact: ["element-properties"],
+        prepare: properties(event),
+        check: outcome((path) => checkEvent(path)),
+        hints: [
+          "The event diamond is separate from the heading marker.",
+          "Show required controls selects the event and opens its key and position fields.",
+        ],
+      },
+      {
+        title: "Scrub the trigger",
+        body: "Drag the timeline around the purple flash and startIntake label. The flash marks the action trigger. The preview does not simulate an intake mechanism.",
+        task: "Scrub around the intake event",
+        phase: "Observe",
+        target: "transport-timeline",
+        interact: ["simulation-transport"],
+        prepare: { simulation: "start", tool: "select" },
+        check: action(
+          "scrub",
+          "Drag the timeline to inspect the intake event.",
+          "You inspected the run with the timeline.",
+        ),
+      },
+      {
+        title: "Change time without moving the event",
+        body: "The 2 m/s run is saved. Reduce the shared approach cap to 1 m/s. Predict which will change: the trigger's time, its geometric position, or both.",
+        task: "Set the shared approach cap to 1 m/s",
+        phase: "Experiment",
+        target: "max-velocity-card",
+        interact: ["max-velocity-card"],
+        prepare: constraints(2),
+        captureReference: true,
+        demo: "events",
+        check: outcome((path) =>
+          feedback(
+            sameAnchors(path) &&
+              !!baselinePath &&
+              JSON.stringify(path.path_elements) ===
+                JSON.stringify(baselinePath.path_elements) &&
+              [1, 2].every(
+                (ordinal) =>
+                  speedCap(path, ordinal)?.value === 1 &&
+                  speedCap(path, ordinal)?.source !== "auto_velocity",
+              ),
+            "Set the shared speed cell to 1 m/s. Keep the heading, event key, and event position unchanged.",
+            "Speed changed while the event and route stayed fixed.",
+          ),
+        ),
+      },
+      compare(
+        "events",
+        "Same position, different time",
+        "Replay both runs on the shared clock. Compare the event times shown under each lane. Both trigger at the same geometric position, with the slower run triggering later.",
+      ),
+      {
+        title: "Your turn: start the intake earlier",
+        body: "Move startIntake earlier on the route, to a position from 0.55 to 0.65. Keep it after the 0.5 rotation target and preserve the 1 m/s cap.",
+        task: "Move the event earlier without changing its key",
+        phase: "Challenge",
+        target: "element-properties",
+        interact: ["element-properties", "path-canvas"],
+        prepare: properties(event),
+        experiment: "events",
+        check: outcome((path) => {
+          const trigger = path.path_elements.find(isEventTrigger);
+          const heading = path.path_elements.find(isRotationTarget);
+          return feedback(
+            !!trigger &&
+              trigger.lib_key === "startIntake" &&
+              trigger.t_ratio >= 0.55 &&
+              trigger.t_ratio <= 0.65 &&
+              !!heading &&
+              heading.profiled_rotation &&
+              Math.abs(heading.t_ratio - 0.5) < 0.01 &&
+              Math.abs(heading.rotation_radians - Math.PI / 2) < 0.02 &&
+              sameAnchors(path) &&
+              sameCaps(path, [1, 2]),
+            "Use startIntake at 0.55 to 0.65. Preserve the heading target, route, and speed.",
+            "The event now triggers earlier along the same approach.",
+          );
+        }),
+        hints: [
+          "Event position is geometric progress, not seconds.",
+          "Event Pos 0.6 is one valid result.",
+        ],
+      },
+      {
+        title: "Triggering is not waiting",
+        body: "An event starts its registered action while path following continues. If the robot must wait for a mechanism to finish, split the routine into paths and coordinate that wait in robot code.",
+        phase: "Review",
+      },
+    ],
+    { waypoint: 1, translation: 1, rotation: 1 },
+  ),
 };
 
 export const verifyExportTour: TourDefinition = {
   id: "verify-export",
-  title: "Verify and Export",
-  summary: "Repair and hand off a pickup and delivery routine",
-  durationMinutes: 9,
+  title: "Verify and Hand Off",
+  summary: "Repair the mission and inspect the actual robot files",
+  durationMinutes: 5,
   completionMessage:
     "You repaired a complete routine and inspected the files that go to the robot.",
   markers: missionMarkers,
   practicePath: () => createMissionPath(true),
   practiceConfig,
-  steps: [
-    {
-      title: "Finish the pickup and delivery",
-      body: "This routine turns toward Pickup, starts the intake, routes above the structure, and prepares Delivery. Its destination is misplaced and the intake event has no key. Repair it and inspect the export.",
-      phase: "Challenge",
-    },
-    {
-      title: "Open Path Health",
-      body: "Open Path Health and read the problems. The panel checks structural issues; you still need to check whether the route accomplishes its mission.",
-      task: "Read Path Health",
-      target: "path-health",
-      visible: ["lesson-health-dialog"],
-      interact: ["path-health", "lesson-health-dialog"],
-      check: () =>
-        feedback(
-          !!document.querySelector('[role="dialog"][aria-label="Path health"]'),
-          "Open Path Health above the field.",
-          "Read the issue list before continuing.",
-        ),
-    },
-    {
-      title: "Restore the delivery pose",
-      body: "Put the final waypoint inside Delivery at X 15, Y 2.5. Moving it anywhere inside the field would clear an error, but would not complete the mission.",
-      task: "Move the endpoint into Delivery",
-      target: "path-canvas",
-      interact: ["path-canvas", "element-properties"],
-      prepare: {
-        tool: "select",
-        selectElement: 6,
-        inspector: "open",
-        inspectorTab: "elements",
-        pathHealth: "closed",
+  steps: (
+    [
+      {
+        title: "Finish the pickup and delivery",
+        body: "Repair this routine so it reaches Pickup facing 90°, triggers startIntake, clears the structure, then reaches Delivery facing -90° with prepareDelivery on the final approach. Start with Path Health.",
+        phase: "Challenge",
       },
-      check: outcome((path) => checkDelivery(path, currentConfig())),
-      hints: [
-        "Delivery is the zone on the right side of the field.",
-        "Use the selected endpoint's X and Y fields for an exact placement.",
-      ],
-    },
-    {
-      title: "Repair the intake event",
-      body: "Select the unnamed event on the first approach and give it the key startIntake. Keep prepareDelivery on the final approach.",
-      task: "Name the intake event startIntake",
-      target: "element-properties",
-      interact: ["path-canvas", "inspector-panel", "element-properties"],
-      prepare: {
-        inspector: "open",
-        inspectorTab: "elements",
-        selectElement: 2,
+      {
+        title: "Open Path Health",
+        body: "Read the issues, then repair the mission. Health checks catch structural problems; the field goals tell you what the routine should accomplish.",
+        task: "Read Path Health",
+        target: "path-health",
+        visible: ["lesson-health-dialog"],
+        interact: ["path-health", "lesson-health-dialog"],
+        check: () =>
+          feedback(
+            !!document.querySelector(
+              '[role="dialog"][aria-label="Path health"]',
+            ),
+            "Open Path Health above the field.",
+            "Read the issue list before continuing.",
+          ),
       },
-      check: outcome((path) => {
-        const events = path.path_elements.filter(isEventTrigger);
-        return feedback(
-          events[0]?.lib_key === "startIntake" &&
-            events[1]?.lib_key === "prepareDelivery",
-          "Use startIntake for the first event and preserve prepareDelivery for the second.",
-          "Both mechanism events now have the intended keys.",
-        );
-      }),
-    },
-    plan(),
-    {
-      title: "Check the whole mission",
-      body: "Check Delivery and the simulated bumper around the structure. Structural health alone cannot tell whether a pickup and delivery routine does what you intended.",
-      task: "Keep the route clear and finish inside Delivery",
-      target: "path-canvas",
-      interact: ["path-canvas", "inspector-panel", "max-velocity-card"],
-      prepare: { tool: "select" },
-      check: outcome((path) => {
-        return checkMission(path, currentConfig());
-      }),
-      phase: "Challenge",
-    },
-    observe(
-      "Run the complete routine",
-      "Watch the pickup heading, the intake flash, clearance above the structure, and the final delivery approach. Both named events should trigger along the route.",
-    ),
-    {
-      title: "Inspect the robot handoff",
-      body: "These are the actual files from your repaired practice project. Inspect the shared configuration and path JSON before downloading the autos folder.",
-      task: "Inspect config.json and the path file",
-      phase: "Review",
-      handoff: true,
-      check: () =>
-        feedback(
-          (tourStore.getState().actions.inspectConfig ?? 0) > 0 &&
-            (tourStore.getState().actions.inspectPath ?? 0) > 0,
-          "Select config.json and then the path JSON below.",
-          "You inspected the robot settings and the path contents. Download is optional.",
-        ),
-    },
-    {
-      title: "From preview to robot",
-      body: "Extract the exported autos folder into src/main/deploy in your robot project. Register both event keys, check the robot dimensions and motion limits, then run WPILib simulation before a low-speed robot test.",
-      phase: "Review",
-    },
-    {
-      title: "Keep your repaired routine",
-      body: "Keep a project archive if you want to continue editing this exercise later. Finishing returns to the lesson menu and restores your own project.",
-      phase: "Review",
-    },
-  ],
+      {
+        title: "Repair the whole mission",
+        body: "Fix the destination and missing intake key. Keep the pickup pose, both named actions, and bumper clearance. Use as many useful bends as your solution needs.",
+        task: "Complete the pickup and delivery mission",
+        phase: "Challenge",
+        target: "path-canvas",
+        interact: [
+          "path-canvas",
+          "inspector-panel",
+          "element-properties",
+          "max-velocity-card",
+          "tool-waypoint",
+          "tool-translation",
+          "tool-rotation",
+          "tool-event",
+        ],
+        prepare: { ...properties(endpoint), pathHealth: "closed" },
+        check: outcome((path) => checkMission(path, currentConfig())),
+        hints: [
+          "Delivery is centered at X 15, Y 2.5. The unnamed event belongs on the Pickup approach.",
+          "Set that event key to startIntake. Keep prepareDelivery on the final approach and leave room for the bumper.",
+        ],
+      },
+      plan(),
+      observe(
+        "Run the complete routine",
+        "Watch the pickup heading, intake flash, structure clearance, and final delivery. This kinematic preview helps inspect intent; robot simulation and physical testing check the real behavior.",
+      ),
+      {
+        title: "Inspect the robot handoff",
+        body: "Inspect these actual files from your repaired project. config.json supplies runtime motion defaults; project.json preserves editor organization and bumper dimensions. The path file carries the route, constraints, and event keys.",
+        task: "Inspect config.json, project.json, and the path file",
+        phase: "Review",
+        handoff: true,
+        check: () =>
+          feedback(
+            ["inspectConfig", "inspectProject", "inspectPath"].every(
+              (name) =>
+                (tourStore.getState().actions[name as TourAction] ?? 0) >
+                (baselineActions[name as TourAction] ?? 0),
+            ),
+            "Select all three files below. Downloading is optional.",
+            "You inspected the runtime defaults, editor metadata, and path contents.",
+          ),
+      },
+      {
+        title: "From preview to robot",
+        body: "Extract autos into src/main/deploy in the robot project. Register both event keys and verify motion limits, tolerances, and handoff settings in robot code. Run WPILib simulation, then a low-speed robot test. Keep a project archive below to edit this practice later.",
+        phase: "Review",
+      },
+    ] satisfies TourStep[]
+  ).map((step, index) =>
+    index > 2
+      ? {
+          ...step,
+          validate: outcome((path) => checkMission(path, currentConfig())),
+        }
+      : step,
+  ),
 };
 export const tours: readonly TourDefinition[] = [
   buildFirstPathTour,
   shapeRouteTour,
   planSpeedTour,
-  headingEventsTour,
+  handoffsTour,
+  controlHeadingTour,
+  triggerActionsTour,
   verifyExportTour,
 ];
 export function findTour(tourId: string | null) {

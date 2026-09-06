@@ -15,6 +15,7 @@ import {
   type SimulationTraceSample,
 } from "../../core/sim";
 import { getElementPosition } from "../../canvas/geometry";
+import { refreshAutoVelocityConstraints } from "../../core/constraints/autoVelocityApply";
 import type { TourMarker, TourExperiment } from "./tourStore";
 
 export const practiceField = { width: 18, height: 9 };
@@ -132,12 +133,65 @@ export function createSpeedPath() {
     ],
   });
 }
+/** The first local-speed exercise begins with a real proposal and a separate turn cell. */
+export function createSpeedLessonPath() {
+  return refreshAutoVelocityConstraints(createSpeedPath(), practiceConfig(), {
+    whenPresentOnly: false,
+  });
+}
+export function createHandoffPath() {
+  return createPathModel({
+    path_elements: [
+      waypoint(5, 2),
+      translation(10.8, 6.8, 0.7),
+      waypoint(15, 2.5, -90),
+    ],
+    constraints: {
+      ...createPathModel().constraints,
+      max_velocity_meters_per_sec: 1,
+    },
+    ranged_constraints: [
+      {
+        key: "max_velocity_meters_per_sec",
+        value: 1,
+        source: "manual",
+        start_ordinal: 1,
+        end_ordinal: 3,
+      },
+    ],
+  });
+}
 export function createHeadingPath() {
   return createPathModel({
     path_elements: [waypoint(5, 2), translation(8, 6)],
   });
 }
+export function createEventsPath() {
+  const path = createHeadingPath();
+  path.path_elements.splice(
+    1,
+    0,
+    createRotationTarget({
+      rotation_radians: Math.PI / 2,
+      t_ratio: 0.5,
+      profiled_rotation: true,
+    }),
+  );
+  path.ranged_constraints = [
+    {
+      key: "max_velocity_meters_per_sec",
+      value: 2,
+      source: "manual",
+      start_ordinal: 1,
+      end_ordinal: 2,
+    },
+  ];
+  return path;
+}
 export function createMissionPath(broken = false): PathModel {
+  const pickup = waypoint(8, 6, 90);
+  pickup.translation_target.intermediate_handoff_radius_meters = 0.15;
+  pickup.translation_target.handoff_radius_source = "manual";
   return createPathModel({
     path_elements: [
       waypoint(5, 2),
@@ -150,7 +204,7 @@ export function createMissionPath(broken = false): PathModel {
         t_ratio: 0.8,
         lib_key: broken ? "" : "startIntake",
       }),
-      translation(8, 6, 0.15),
+      pickup,
       translation(12.8, 6.3, 0.25),
       createEventTrigger({ t_ratio: 0.85, lib_key: "prepareDelivery" }),
       waypoint(15, broken ? -0.25 : 2.5, -90),
@@ -324,18 +378,30 @@ export function demonstrationPaths(kind: TourExperiment): {
   labels: [string, string];
 } {
   if (kind === "handoff") {
-    const before = createPathModel({
-      path_elements: [
-        waypoint(5, 2),
-        translation(10.8, 6.8, 0.25),
-        waypoint(15, 2.5, -90),
-      ],
-    });
+    const before = createHandoffPath();
+    (
+      before.path_elements[1] as ReturnType<typeof translation>
+    ).intermediate_handoff_radius_meters = 0.25;
     const after = structuredClone(before);
     (
       after.path_elements[1] as ReturnType<typeof translation>
     ).intermediate_handoff_radius_meters = 1.5;
     return { before, after, labels: ["0.25 m radius", "1.5 m radius"] };
+  }
+  if (kind === "events") {
+    const before = createEventsPath();
+    before.path_elements.splice(
+      2,
+      0,
+      createEventTrigger({ lib_key: "startIntake", t_ratio: 0.7 }),
+    );
+    const after = structuredClone(before);
+    after.ranged_constraints[0].value = 1;
+    return {
+      before,
+      after,
+      labels: ["2 m/s cap, event at 0.7", "1 m/s cap, event at 0.7"],
+    };
   }
   if (kind === "speed") {
     const before = createSpeedPath();
