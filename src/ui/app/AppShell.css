@@ -4599,25 +4599,6 @@ select {
   gap: 6px;
 }
 
-.tour-card__recovery {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-  border-top: 1px solid var(--bline-border);
-  padding-top: 8px;
-}
-
-.tour-card__recovery button {
-  border: 0;
-  background: transparent;
-  color: var(--bline-text-muted);
-  font: inherit;
-  font-size: 0.7rem;
-  min-height: 28px;
-  cursor: pointer;
-}
-
 .tour-card__actions .tour-card__skip {
   margin-right: auto;
   border-color: var(--bline-border-subtle);
@@ -5982,7 +5963,6 @@ body.is-resizing-inspector * {
 }
 
 .tour-scrim-region { position: absolute; background: rgba(4,8,11,.54); }
-.tour-visibility { position: absolute; pointer-events: auto; background: var(--bline-surface-raised); color: var(--bline-text-secondary); border: 1px solid var(--bline-border-strong); border-radius: 6px; padding: 4px 9px; font-size: .65rem; }
 .tour-card__progress button { padding: 0; border: 0; min-width: 0; height: 7px; cursor: pointer; }
 .tour-card__progress button[aria-current] { outline: 1px solid var(--bline-accent); outline-offset: 2px; }
 .tour-card__hints, .tour-card__copy { margin-top: 10px; display: grid; gap: 6px; }

@@ -28,16 +28,9 @@ export interface TourOverlayProps {
   onPrepare(preparation: TourStepPreparation): void;
   /** Returns the learner to the course menu after a completed lesson. */
   onFinish(): void;
-  onRestartStep(): void;
-  onRestartLesson(): void;
 }
 
-export function TourOverlay({
-  onFinish,
-  onPrepare,
-  onRestartStep,
-  onRestartLesson,
-}: TourOverlayProps) {
+export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const activeTourId = useStoreSelector(
     tourStore,
     (state) => state.activeTourId,
@@ -74,7 +67,6 @@ export function TourOverlay({
   const [rect, setRect] = useState<TourRect | null>(null);
   const [visibleHoles, setVisibleHoles] = useState<TourRect[]>([]);
   const [feedbackState, setFeedback] = useState({ token: "", message: "" });
-  const [hidden, setHidden] = useState(false);
   const [hintState, setHintState] = useState({ token: "", count: 0 });
   const [labState, setLabState] = useState<{
     token: string;
@@ -281,7 +273,6 @@ export function TourOverlay({
     stepIndex,
     activeTourId,
     hintCount,
-    hidden,
     feedback,
   ]);
 
@@ -553,13 +544,6 @@ export function TourOverlay({
           }}
         />
       ))}
-      <button
-        className="tour-visibility"
-        onClick={() => setHidden(!hidden)}
-        style={{ left: cardLeft, top: Math.max(8, cardTop - 30) }}
-      >
-        {hidden ? "Show instructions" : "Hide instructions"} · Practice only
-      </button>
       {lab && <div className="tour-lab-backdrop" />}
       {lab && (step.experiment || step.demo) && (
         <TourLab
@@ -570,7 +554,6 @@ export function TourOverlay({
         />
       )}
       <section
-        hidden={hidden}
         ref={cardRef}
         className="tour-card"
         data-testid="tour-card"
@@ -695,27 +678,6 @@ export function TourOverlay({
               {isLastStep ? "Finish" : "Next"}
             </button>
           ) : null}
-        </div>
-        <div className="tour-card__recovery">
-          {!isReviewing && step.prepare && (
-            <button type="button" onClick={() => onPrepare(step.prepare!)}>
-              Show required controls
-            </button>
-          )}
-          {!isReviewing && (
-            <button
-              type="button"
-              onClick={() => projectStore.getState().undo()}
-            >
-              Undo last edit
-            </button>
-          )}
-          <button type="button" onClick={onRestartStep}>
-            Restart exercise
-          </button>
-          <button type="button" onClick={onRestartLesson}>
-            Restart lesson
-          </button>
         </div>
       </section>
     </div>,

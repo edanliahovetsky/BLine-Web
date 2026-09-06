@@ -10,7 +10,7 @@ export function assessTourStep(
     return {
       complete: false,
       message:
-        "The practice path is missing. Restart the lesson to restore it.",
+        "The practice path is missing. Exit and reopen this lesson from Guided tours to restore it.",
     };
   if (step.elements && path) {
     const types: PathElement["type"][] = [
@@ -35,7 +35,7 @@ export function assessTourStep(
                 : "waypoint";
         return {
           complete: false,
-          message: `${actual > expected ? "Extra" : "Missing"} ${label}: this exercise needs ${expected}, and has ${actual}. Use Undo or Restart exercise to repair the route.`,
+          message: `${actual > expected ? "Extra" : "Missing"} ${label}: this exercise needs ${expected}, and has ${actual}. Press ⌘Z or Ctrl+Z to undo the edit.`,
         };
       }
     }

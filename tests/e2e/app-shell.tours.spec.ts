@@ -76,9 +76,8 @@ test("builds a first path, previews immediately, and recovers edits at every ste
   await next(page, 1);
   await setNumber(page, "X (m)", "13");
   await next(page, 1);
-  await card
-    .getByRole("button", { name: "Undo last edit", exact: true })
-    .click();
+  await card.focus();
+  await page.keyboard.press("ControlOrMeta+z");
   await expect(card).toContainText("The original route is restored.");
   await next(page, 1);
   await setNumber(page, "X (m)", "15");
@@ -94,17 +93,12 @@ test("builds a first path, previews immediately, and recovers edits at every ste
   await expect(card).toContainText("Previously completed");
   await expect(rows(page)).toHaveCount(2);
   await card
-    .getByRole("button", { name: "Restart exercise", exact: true })
+    .getByRole("button", {
+      name: "Review step 8: Keep the useful points",
+      exact: true,
+    })
     .click();
-  await expect(rows(page)).toHaveCount(0);
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toHaveCount(0);
-  await place(page, "Waypoint", 5, 2);
-  await place(page, "Waypoint", 15, 2.5);
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
+  await finish(page);
 });
 
 test("keeps tour actions visible and fades dialogue for inspection", async ({
@@ -273,9 +267,6 @@ test("starts each lesson at zero and keeps its controls reachable after resizing
   await next(page, 1);
   await page.setViewportSize({ width: 1024, height: 768 });
   const card = page.getByTestId("tour-card");
-  await card
-    .getByRole("button", { name: "Show required controls", exact: true })
-    .click();
   await setNumber(page, "Handoff radius 2 value", "0.25");
   await expect(
     card.getByRole("button", { name: "Next", exact: true }),
@@ -303,10 +294,6 @@ async function openLesson(page: Page, id: string): Promise<void> {
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId(`tour-picker-${id}`).click();
   await expect(page.getByTestId("tour-card")).toBeVisible();
-  await page
-    .getByTestId("tour-card")
-    .getByRole("button", { name: "Restart exercise", exact: true })
-    .click();
 }
 
 async function next(page: Page, times: number): Promise<void> {
@@ -314,11 +301,6 @@ async function next(page: Page, times: number): Promise<void> {
   for (let index = 0; index < times; index += 1) {
     await auditStepRecovery(page);
     await card.getByRole("button", { name: "Next", exact: true }).click();
-    const title = await card.getByRole("heading").innerText();
-    await card
-      .getByRole("button", { name: "Restart exercise", exact: true })
-      .click();
-    await expect(card.getByRole("heading")).toHaveText(title);
   }
 }
 
@@ -645,7 +627,8 @@ test("restores heading selection and reports extra or missing elements", async (
   await expect(
     page.getByLabel("Rotation Pos (0-1)", { exact: true }),
   ).toHaveCount(0);
-  await card.getByRole("button", { name: "Show required controls" }).click();
+  await card.getByRole("button", { name: "Back", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(
     page.getByLabel("Rotation Pos (0-1)", { exact: true }),
   ).toBeVisible();
@@ -654,18 +637,20 @@ test("restores heading selection and reports extra or missing elements", async (
   await expect(
     card.getByRole("button", { name: "Next", exact: true }),
   ).toHaveCount(0);
-  await card
-    .getByRole("button", { name: "Restart exercise", exact: true })
-    .click();
+  await card.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await card.getByRole("button", { name: "Back", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(rows(page)).toHaveCount(3);
   await expect(
     page.getByLabel("Rotation Pos (0-1)", { exact: true }),
   ).toBeVisible();
   await mutatePractice(page, "delete-rotation");
   await expect(card).toContainText("Missing rotation target");
-  await card
-    .getByRole("button", { name: "Restart exercise", exact: true })
-    .click();
+  await card.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await card.getByRole("button", { name: "Back", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
   await setNumber(page, "Rotation (deg)", "90");
   await setNumber(page, "Rotation Pos (0-1)", "0.5");
   await page.getByLabel("Profiled Rotation", { exact: true }).check();
@@ -726,20 +711,6 @@ async function auditStepRecovery(page: Page) {
   const title = await card.getByRole("heading").innerText();
   const forward = card.getByRole("button", { name: /^(Next|Finish)$/ });
   await expect(forward).toBeVisible({ timeout: 25_000 });
-  await page
-    .getByRole("button", {
-      name: "Hide instructions · Practice only",
-      exact: true,
-    })
-    .click();
-  await expect(card).toBeHidden();
-  await page
-    .getByRole("button", {
-      name: "Show instructions · Practice only",
-      exact: true,
-    })
-    .click();
-  await expect(card).toBeVisible();
   await card.focus();
   await page.keyboard.press("F1");
   await page.keyboard.press("ControlOrMeta+k");
@@ -841,12 +812,17 @@ async function mutatePractice(
         .selectElement(path.path_elements.length - 1, path);
       return;
     }
+    const previousPath = structuredClone(path);
     if (operation === "extra")
       path.path_elements.push(structuredClone(path.path_elements[0]));
     else
       path.path_elements = path.path_elements.filter(
         (element) => element.type !== "rotation",
       );
-    projectModule.projectStore.setState({ project });
+    state.applyPathCommand({
+      description: `Unexpected lesson edit: ${operation}`,
+      apply: () => path,
+      revert: () => previousPath,
+    });
   }, operation);
 }

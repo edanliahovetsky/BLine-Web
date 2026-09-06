@@ -2303,16 +2303,6 @@ export function AppShell() {
         />
       ) : null}
       <TourOverlay
-        onRestartStep={() => {
-          setShowPathHealth(false);
-          tourSessionRef.current?.restartStep();
-          seekTourSimulation("start");
-        }}
-        onRestartLesson={() => {
-          setShowPathHealth(false);
-          tourSessionRef.current?.restartLesson();
-          seekTourSimulation("start");
-        }}
         onFinish={() => {
           setShowPathHealth(false);
           setShowTourPicker(true);

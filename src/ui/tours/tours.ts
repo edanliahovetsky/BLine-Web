@@ -84,7 +84,8 @@ function outcome(check: (path: PathModel) => TourFeedback): () => TourFeedback {
       ? check(path)
       : {
           complete: false,
-          message: "Open the practice path or restart the exercise.",
+          message:
+            "Exit and reopen this lesson from Guided tours to restore the practice path.",
         };
   };
 }
@@ -164,7 +165,7 @@ const placement = (
       return {
         complete: false,
         message:
-          "There are extra elements. Use Undo last edit until only the requested elements remain.",
+          "There are extra elements. Press ⌘Z or Ctrl+Z until only the requested elements remain.",
       };
     const validTypes = [
       "waypoint",
@@ -194,7 +195,7 @@ const placement = (
           ? "two waypoints"
           : "one " +
             (type === "event_trigger" ? "event trigger" : type + " target")) +
-        ". Undo or restart if you placed the wrong element.",
+        ". Press ⌘Z or Ctrl+Z if you placed the wrong element.",
       "The requested elements are in place.",
     );
   });
@@ -219,7 +220,7 @@ function pathIntent(path: PathModel | null) {
 const preserveObservation = outcome((path) =>
   feedback(
     pathIntent(path) === pathIntent(baselinePath),
-    "The route changed during observation. Undo or redo the change, or restart this exercise to restore the run.",
+    "The route changed during observation. Undo or redo the change to restore the run.",
     "",
   ),
 );
@@ -348,7 +349,7 @@ export const buildFirstPathTour: TourDefinition = {
       },
       {
         title: "Undo the change",
-        body: "Undo restores the previous edit. Use Undo last edit below or the keyboard shortcut. If you moved the endpoint several times, undo each move.",
+        body: "Undo restores the previous edit. Press ⌘Z or Ctrl+Z. If you moved the endpoint several times, undo each move.",
         task: "Return to the route before moving End",
         target: "path-canvas",
         interact: ["path-canvas"],
@@ -378,14 +379,13 @@ export const buildFirstPathTour: TourDefinition = {
           )
             return {
               complete: false,
-              message:
-                "Keep Start fixed. Undo its move or restart this exercise.",
+              message: "Keep Start fixed. Press ⌘Z or Ctrl+Z to undo its move.",
             };
           return checkDelivery(path, currentConfig());
         }),
         hints: [
           "The zone is on the right side of the field.",
-          "Show required controls selects End and opens its X and Y fields.",
+          "Select End on the canvas to open its X and Y fields.",
         ],
       },
       observe(
@@ -563,7 +563,7 @@ export const planSpeedTour: TourDefinition = {
         }),
         hints: [
           "Editing an Auto value makes that cell Manual.",
-          "Show required controls selects the second-turn cell again.",
+          "Select the second-turn speed cell to reopen its value field.",
         ],
         demo: "speed",
       },
@@ -676,7 +676,7 @@ export const handoffsTour: TourDefinition = {
         demo: "handoff",
         hints: [
           "The distance chip is on the right of the speed ledger.",
-          "Show required controls selects the bend and opens Constraints.",
+          "Select the bend's radius chip to open its Manual value field.",
         ],
       },
       {
@@ -711,7 +711,7 @@ export const handoffsTour: TourDefinition = {
             return {
               complete: false,
               message:
-                "Keep the geometry and every 1 m/s speed cap unchanged. Restart exercise if needed.",
+                "Keep the geometry and every 1 m/s speed cap unchanged. Undo any edits to them.",
             };
           return checkClearance(path, currentConfig(), true);
         }),
@@ -750,7 +750,7 @@ function checkFixedRadius(path: PathModel, radius: number) {
     ? {
         complete: false,
         message:
-          "Keep the geometry and every 1 m/s speed cap fixed. Undo or restart to restore the controlled comparison.",
+          "Keep the geometry and every 1 m/s speed cap fixed. Undo any edits to them to restore the comparison.",
       }
     : checkRadius(path, radius, radius);
 }
@@ -795,7 +795,7 @@ export const controlHeadingTour: TourDefinition = {
         check: outcome((path) => checkHeading(path, true, 0.5, 0.5)),
         hints: [
           "Profiled changes the heading setpoint across progress.",
-          "Show required controls selects the rotation target even if another element was selected.",
+          "Back followed by Next reselects the rotation target and opens its fields.",
         ],
       },
       {
@@ -904,7 +904,7 @@ export const triggerActionsTour: TourDefinition = {
         check: outcome((path) => checkEvent(path)),
         hints: [
           "The event diamond is separate from the heading marker.",
-          "Show required controls selects the event and opens its key and position fields.",
+          "Back followed by Next reselects the event and opens its key and position fields.",
         ],
       },
       {
