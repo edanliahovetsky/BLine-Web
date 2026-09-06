@@ -90,3 +90,187 @@
 .delete-projects-dialog__spacer {
   flex: 1;
 }
+
+.delete-paths-dialog.path-removal,
+.delete-path-groups-dialog.path-removal {
+  width: min(560px, calc(100vw - 40px));
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #3a5063;
+  border-radius: 12px;
+  background: #121a22;
+  color: #e4edf4;
+  box-shadow: 0 24px 80px #0009;
+}
+.path-removal button {
+  font: inherit;
+  cursor: pointer;
+}
+.path-removal button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.path-removal button:focus-visible,
+.path-removal input:focus-visible {
+  outline: 2px solid #9ed2ff;
+  outline-offset: 3px;
+}
+.path-removal svg {
+  display: block;
+  flex: none;
+}
+.path-removal__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  border-bottom: 1px solid #2b3945;
+  background: #192532;
+}
+.path-removal__header > div {
+  flex: 1;
+  min-width: 0;
+}
+.path-removal__header strong {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+.path-removal__header p {
+  margin: 6px 0 0;
+  color: #91a9bd;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.path-removal__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #70474f;
+  border-radius: 9px;
+  background: #482d354d;
+  color: #efaba7;
+}
+.path-removal__selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px 10px;
+  font-size: 0.69rem;
+  color: #91a9bd;
+}
+.path-removal__selection > div {
+  display: flex;
+  gap: 4px;
+}
+.path-removal__selection button {
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #b4cfe2;
+}
+.path-removal__selection button:hover:not(:disabled) {
+  background: #263b4d;
+}
+.path-removal .delete-paths-dialog__list {
+  min-height: 0;
+  max-height: 340px;
+  gap: 7px;
+  margin: 0 20px 20px;
+  padding: 3px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.path-removal .delete-path-row {
+  user-select: none;
+  min-height: 46px;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #2d3d4a;
+  border-radius: 7px;
+  background: #192530;
+  cursor: pointer;
+}
+.path-removal .delete-path-row:hover {
+  border-color: #597286;
+  background: #223444;
+}
+.path-removal .delete-path-row.is-selected {
+  border-color: #785059;
+  background: #30262d;
+}
+.path-removal .delete-path-row input {
+  appearance: none;
+  display: grid;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid #688094;
+  border-radius: 4px;
+  background: #101922;
+  cursor: pointer;
+}
+.path-removal .delete-path-row input:checked {
+  border-color: #d29498;
+  background: #a15c66;
+}
+.path-removal .delete-path-row input:checked::after {
+  content: "";
+  width: 8px;
+  height: 5px;
+  margin-top: -2px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg);
+}
+.path-removal .delete-path-row span {
+  font-size: 0.76rem;
+  font-weight: 540;
+  color: #e4edf4;
+}
+.path-removal .delete-path-row small {
+  padding: 3px 6px;
+  border: 1px solid #455562;
+  border-radius: 4px;
+  background: #23313d;
+  color: #b4c5d2;
+  font-size: 0.62rem;
+}
+.path-removal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 14px 20px;
+  border-top: 1px solid #2b3945;
+  background: #161e26;
+}
+.path-removal__footer button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 33px;
+  padding: 7px 11px;
+  border: 1px solid #3b5164;
+  border-radius: 6px;
+  background: #20303e;
+  color: #c4d6e5;
+  font-size: 0.72rem;
+}
+.path-removal__footer button:hover:not(:disabled) {
+  background: #2d465a;
+}
+.path-removal__footer .path-removal__delete {
+  border-color: #a8666d;
+  background: #84434e;
+  color: #fff0ef;
+}
+.path-removal__footer .path-removal__delete:hover:not(:disabled) {
+  background: #9c515d;
+}

@@ -113,9 +113,9 @@ import { useLegacyFieldMigration } from "./useLegacyFieldMigration";
 import {
   CreateProjectDialog,
   DeletePathsDialog,
+  DeletePathGroupsDialog,
   DeleteProjectsDialog,
   NameEntryDialog,
-  NewPathDialog,
 } from "./ProjectDialogs";
 import {
   LinkedTargetsDialog,
@@ -232,12 +232,18 @@ export function AppShell() {
     fieldId: string;
   } | null>(null);
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
-  const [showNewPathDialog, setShowNewPathDialog] = useState(false);
-  const [newPathGroupContextId, setNewPathGroupContextId] = useState<
-    string | null | undefined
-  >(undefined);
+  const [initiallyEditingPathId, setInitiallyEditingPathId] = useState<
+    string | null
+  >(null);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
+  const [showDeletePathGroupDialog, setShowDeletePathGroupDialog] =
+    useState(false);
+  const [deletePathGroupSelectionIds, setDeletePathGroupSelectionIds] =
+    useState<readonly string[]>([]);
   const [showDeletePathDialog, setShowDeletePathDialog] = useState(false);
+  const [deletePathSelectionIds, setDeletePathSelectionIds] = useState<
+    readonly string[]
+  >([]);
   const [showPathGroupsDialog, setShowPathGroupsDialog] = useState(false);
   const [pathNameAction, setPathNameAction] = useState<PathNameAction | null>(
     null,
@@ -359,11 +365,11 @@ export function AppShell() {
         showCommandPalette ||
         showConfigDialog ||
         showDeletePathDialog ||
+        showDeletePathGroupDialog ||
         showDeleteProjectDialog ||
         showLinkedTargetsDialog ||
         showMobileSupportWarning ||
         pathNameAction !== null ||
-        showNewPathDialog ||
         showNewProjectDialog ||
         showOpenPanel ||
         showPathGroupsDialog ||
@@ -398,10 +404,10 @@ export function AppShell() {
     showCommandPalette,
     showConfigDialog,
     showDeletePathDialog,
+    showDeletePathGroupDialog,
     showDeleteProjectDialog,
     showLinkedTargetsDialog,
     showMobileSupportWarning,
-    showNewPathDialog,
     showNewProjectDialog,
     showOpenPanel,
     showPathGroupsDialog,
@@ -857,16 +863,50 @@ export function AppShell() {
     }
   }, [cancelAutosave]);
 
-  const handleCreateNewPath = useCallback(async () => {
+  const handleCreateLibraryPath = useCallback((groupId: string | null) => {
+    const state = projectStore.getState();
+    if (!state.project) return null;
+    const existingPaths = state.project.paths;
+    const names = new Set(
+      existingPaths.map((path) => path.display_name.toLocaleLowerCase()),
+    );
+    let displayName = "New Path",
+      suffix = 2;
+    while (names.has(displayName.toLocaleLowerCase()))
+      displayName = `New Path ${suffix++}`;
+    state.createPath({
+      displayName,
+      path: createBlankCanvasPath(),
+      addToGroupId: groupId,
+      makeActive: false,
+    });
+    return (
+      projectStore
+        .getState()
+        .project?.paths.find(
+          (path) =>
+            !existingPaths.some(
+              (existing) => existing.path_id === path.path_id,
+            ),
+        ) ?? null
+    );
+  }, []);
+
+  const handleCreateNewPath = useCallback(() => {
+    const created = handleCreateLibraryPath(
+      projectStore.getState().activePathGroupId,
+    );
+    if (!created) return;
     setShowOpenPanel(false);
     setOpenTopMenu(null);
-    setNewPathGroupContextId(undefined);
-    setShowNewPathDialog(true);
-  }, []);
+    setInitiallyEditingPathId(created.path_id);
+    setShowPathGroupsDialog(true);
+  }, [handleCreateLibraryPath]);
 
   const handleShowPathLibrary = useCallback(() => {
     setShowOpenPanel(false);
     setOpenTopMenu(null);
+    setInitiallyEditingPathId(null);
     setShowPathGroupsDialog(true);
   }, []);
 
@@ -901,30 +941,6 @@ export function AppShell() {
     setShowLinkedTargetsDialog(false);
     setLinkedTargetPickerRequest(null);
   }, []);
-
-  const handleConfirmCreateNewPath = useCallback(
-    ({
-      addToCurrentGroup,
-      displayName,
-    }: {
-      addToCurrentGroup: boolean;
-      displayName: string;
-    }) => {
-      const activeGroupId =
-        newPathGroupContextId !== undefined
-          ? newPathGroupContextId
-          : projectStore.getState().activePathGroupId;
-      projectStore.getState().createPath({
-        displayName,
-        path: createBlankCanvasPath(),
-        addToGroupId: addToCurrentGroup ? activeGroupId : null,
-      });
-      selectionStore.getState().clearSelection();
-      setNewPathGroupContextId(undefined);
-      setShowNewPathDialog(false);
-    },
-    [newPathGroupContextId],
-  );
 
   const handleSaveProject = useCallback(async () => {
     setShowOpenPanel(false);
@@ -1291,14 +1307,19 @@ export function AppShell() {
     [pathNameAction],
   );
 
-  const handleShowDeletePaths = useCallback(() => {
-    setShowDeletePathDialog(true);
-    setOpenTopMenu(null);
-  }, []);
+  const handleShowDeletePaths = useCallback(
+    (pathIds: readonly string[] = []) => {
+      setDeletePathSelectionIds(pathIds);
+      setShowDeletePathDialog(true);
+      setOpenTopMenu(null);
+    },
+    [],
+  );
 
   const handleDeletePaths = useCallback(async (ids: string[]) => {
     if (ids.length === 0) {
       setShowDeletePathDialog(false);
+      setDeletePathSelectionIds([]);
       return;
     }
 
@@ -1306,6 +1327,26 @@ export function AppShell() {
       projectStore.getState().deletePaths(ids);
       selectionStore.getState().clearSelection();
       setShowDeletePathDialog(false);
+      setDeletePathSelectionIds([]);
+    } catch (caughtError) {
+      projectStore.getState().markSaveError(caughtError);
+    }
+  }, []);
+
+  const handleShowDeletePathGroups = useCallback(
+    (groupIds: readonly string[] = []) => {
+      setDeletePathGroupSelectionIds(groupIds);
+      setShowDeletePathGroupDialog(true);
+      setOpenTopMenu(null);
+    },
+    [],
+  );
+
+  const handleDeletePathGroups = useCallback((ids: string[]) => {
+    try {
+      projectStore.getState().deletePathGroups(ids);
+      setShowDeletePathGroupDialog(false);
+      setDeletePathGroupSelectionIds([]);
     } catch (caughtError) {
       projectStore.getState().markSaveError(caughtError);
     }
@@ -1495,14 +1536,6 @@ export function AppShell() {
     durableProject?.path_groups.find(
       (group) => group.group_id === activePathGroupId,
     ) ?? null;
-  const visiblePathDocuments = activePathGroup
-    ? activePathGroup.path_ids.flatMap((pathId) => {
-        const path = pathDocuments.find(
-          (candidate) => candidate.path_id === pathId,
-        );
-        return path ? [path] : [];
-      })
-    : pathDocuments;
   const projectSummaries = ensureCurrentWorkspaceSummary(
     workspaceSummaries,
     durableProject,
@@ -1660,16 +1693,13 @@ export function AppShell() {
     projectStore.getState().setActivePath(pathId);
     selectionStore.getState().clearSelection();
   }, []);
-  const handleSelectCollectionFromToolbar = useCallback(
-    (groupId: string | null) => {
-      if (projectStore.getState().projectTransitionInProgress) {
-        return;
-      }
-      projectStore.getState().setActivePathGroup(groupId);
-      selectionStore.getState().clearSelection();
-    },
-    [],
-  );
+  const handleShowGhostPathsChange = useCallback((show: boolean) => {
+    setShowGhostPaths(show);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      showGhostPaths: show,
+    });
+  }, []);
   const projectAvailable = Boolean(durableProject);
   const pathAvailable = Boolean(activePath);
   const projectIoAvailable = Boolean(projectIo);
@@ -1677,7 +1707,7 @@ export function AppShell() {
     id: "project.navigator",
     label: "Open project navigator",
     category: "Project",
-    keywords: ["paths", "collections", "library"],
+    keywords: ["paths", "path groups", "groups", "library"],
     disabled: !projectAvailable || toolbarBusy,
     run: handleShowPathLibrary,
   };
@@ -1873,11 +1903,11 @@ export function AppShell() {
         showCommandPalette,
         showConfigDialog,
         showDeletePathDialog,
+        showDeletePathGroupDialog,
         showDeleteProjectDialog,
         showLinkedTargetsDialog,
         showMobileSupportWarning,
         showNameEntryDialog: pathNameAction !== null,
-        showNewPathDialog,
         showNewProjectDialog,
         showOpenPanel,
         showPathGroupsDialog,
@@ -2026,7 +2056,6 @@ export function AppShell() {
           project: durableProject,
           activeGroup: activePathGroup,
           activePath,
-          visiblePaths: visiblePathDocuments,
           projectSummaries,
           supportsProjectFolders,
           projectIoAvailable,
@@ -2088,7 +2117,7 @@ export function AppShell() {
           savePathAs: handleSavePathAs,
           renamePath: handleRenamePath,
           showDeletePaths: handleShowDeletePaths,
-          selectGroup: handleSelectCollectionFromToolbar,
+          showDeletePathGroups: handleShowDeletePathGroups,
           selectPath: handleSelectPathFromToolbar,
           openWorkspaceById: handleOpenWorkspaceById,
           openSample: handleOpenSample,
@@ -2144,13 +2173,7 @@ export function AppShell() {
                 field={activeField}
                 activeTool={activeTool}
                 showGhostPaths={showGhostPaths}
-                onShowGhostPathsChange={(show) => {
-                  setShowGhostPaths(show);
-                  writeEditorUiPreferences({
-                    ...readEditorUiPreferences(),
-                    showGhostPaths: show,
-                  });
-                }}
+                onShowGhostPathsChange={handleShowGhostPathsChange}
                 curveTool={curveToolSession}
                 onToolChange={handleToolChange}
                 onPlaceElement={handlePlaceCanvasElement}
@@ -2259,18 +2282,15 @@ export function AppShell() {
           project={durableProject}
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
-          onCancel={() => setShowPathGroupsDialog(false)}
-          onCreatePath={(groupId) => {
-            setShowOpenPanel(false);
-            setOpenTopMenu(null);
-            setNewPathGroupContextId(groupId);
-            setShowNewPathDialog(true);
+          initiallyEditingPathId={initiallyEditingPathId}
+          onCancel={() => {
+            setShowPathGroupsDialog(false);
+            setInitiallyEditingPathId(null);
           }}
-          onDeletePaths={() => {
-            handleShowDeletePaths();
-          }}
-          onExportPath={() => void handleExportPath()}
-          onImportPath={() => queueFileImport("path")}
+          onCreatePath={handleCreateLibraryPath}
+          onDeletePaths={handleShowDeletePaths}
+          onDeletePathGroups={handleShowDeletePathGroups}
+          onPreviewPathGroup={() => handleShowGhostPathsChange(true)}
         />
       ) : null}
       {pathNameAction ? (
@@ -2303,29 +2323,27 @@ export function AppShell() {
           onCancel={closeLinkedTargetsDialog}
         />
       ) : null}
-      {durableProject && showNewPathDialog ? (
-        <NewPathDialog
-          activeGroup={
-            durableProject.path_groups.find(
-              (group) =>
-                group.group_id ===
-                (newPathGroupContextId !== undefined
-                  ? newPathGroupContextId
-                  : activePathGroupId),
-            ) ?? null
-          }
+      {showDeletePathGroupDialog ? (
+        <DeletePathGroupsDialog
+          activeGroupId={activePathGroupId}
+          initialSelectedIds={deletePathGroupSelectionIds}
+          groups={durableProject?.path_groups ?? []}
           onCancel={() => {
-            setNewPathGroupContextId(undefined);
-            setShowNewPathDialog(false);
+            setDeletePathGroupSelectionIds([]);
+            setShowDeletePathGroupDialog(false);
           }}
-          onCreate={handleConfirmCreateNewPath}
+          onDelete={handleDeletePathGroups}
         />
       ) : null}
       {showDeletePathDialog ? (
         <DeletePathsDialog
           activePathId={activePathId}
+          initialSelectedIds={deletePathSelectionIds}
           paths={pathDocuments}
-          onCancel={() => setShowDeletePathDialog(false)}
+          onCancel={() => {
+            setDeletePathSelectionIds([]);
+            setShowDeletePathDialog(false);
+          }}
           onDelete={(ids) => void handleDeletePaths(ids)}
         />
       ) : null}
@@ -2862,11 +2880,11 @@ function hasActiveBlockingSurface({
   showCommandPalette,
   showConfigDialog,
   showDeletePathDialog,
+  showDeletePathGroupDialog,
   showDeleteProjectDialog,
   showLinkedTargetsDialog,
   showMobileSupportWarning,
   showNameEntryDialog,
-  showNewPathDialog,
   showNewProjectDialog,
   showOpenPanel,
   showPathGroupsDialog,
@@ -2878,11 +2896,11 @@ function hasActiveBlockingSurface({
   showCommandPalette: boolean;
   showConfigDialog: boolean;
   showDeletePathDialog: boolean;
+  showDeletePathGroupDialog: boolean;
   showDeleteProjectDialog: boolean;
   showLinkedTargetsDialog: boolean;
   showMobileSupportWarning: boolean;
   showNameEntryDialog: boolean;
-  showNewPathDialog: boolean;
   showNewProjectDialog: boolean;
   showOpenPanel: boolean;
   showPathGroupsDialog: boolean;
@@ -2895,11 +2913,11 @@ function hasActiveBlockingSurface({
     showCommandPalette ||
     showConfigDialog ||
     showDeletePathDialog ||
+    showDeletePathGroupDialog ||
     showDeleteProjectDialog ||
     showLinkedTargetsDialog ||
     showMobileSupportWarning ||
     showNameEntryDialog ||
-    showNewPathDialog ||
     showNewProjectDialog ||
     showOpenPanel ||
     showPathGroupsDialog ||

@@ -25,7 +25,7 @@ Use these controls by default:
 | Numeric editor value with step buttons                     | `NumberStepperControl`                                                                    |
 | Existing sidebar callsites                                 | `SidebarIconButton`, `SidebarActionButton`, `SidebarSelectControl` compatibility wrappers |
 
-Plain native checkboxes are still correct for multi-select, collection
+Plain native checkboxes are still correct for multi-select, label
 membership, delete selections, and list inclusion. Those are not switches.
 
 ## Accessibility Contract

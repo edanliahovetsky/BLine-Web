@@ -1764,13 +1764,15 @@ function CanvasViewControls({
       <IconButton
         className={showGhostPaths ? "is-active" : ""}
         aria-label={
-          showGhostPaths ? "Hide collection paths" : "Show collection paths"
+          showGhostPaths
+            ? "Hide Path Group overlays"
+            : "Show Path Group overlays"
         }
         aria-pressed={showGhostPaths}
         title={
           showGhostPaths
-            ? "Hide the collection's other paths (shown as faint overlays for reference)"
-            : "Show the collection's other paths as faint overlays for reference"
+            ? "Hide the Path Group's other Paths (shown as faint overlays for reference)"
+            : "Show the Path Group's other Paths as faint overlays for reference"
         }
         onClick={onToggleGhostPaths}
       >
