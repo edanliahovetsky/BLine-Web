@@ -668,6 +668,7 @@ export function PathLibraryDialog({
       isEditing = sameNode(editing, node);
     const isTarget = Boolean(origin && origin.kind !== node.kind);
     const isConnectable = !focus || node.kind !== focus.kind;
+    const showPort = isFocused || isConnectable;
     const endpointLabel = isTarget
       ? `Connect to ${node.name}`
       : isRelated && focus
@@ -788,10 +789,10 @@ export function PathLibraryDialog({
         {/* Keep hidden ports in the layout as anchors for connection lines. */}
         <button
           type="button"
-          className={`fc-port${!isConnectable ? " is-hidden" : ""}${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
+          className={`fc-port${!showPort ? " is-hidden" : ""}${isRelated ? " is-connected" : ""}${sameNode(origin, node) ? " is-origin" : ""}`}
           data-node-key={keyFor(node)}
-          disabled={Boolean(editing) || !isConnectable}
-          aria-hidden={!isConnectable}
+          disabled={Boolean(editing) || !showPort}
+          aria-hidden={!showPort}
           aria-label={endpointLabel}
           title={
             isRelated

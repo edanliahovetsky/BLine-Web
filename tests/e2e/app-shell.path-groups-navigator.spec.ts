@@ -105,31 +105,36 @@ test("creates Paths inline with unique defaults, name validation, and undo @webk
   );
 });
 
-test("shows connection points only opposite the selection and toggles links in one click", async ({
+test("shows the selected connection point and opposite points, and toggles links in one click", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   const nav = await openPathLibraryDialog(page);
+  await action(nav, "Path", sample, "Duplicate");
+  await nameInline(nav, "Path", "Backup");
   await createGroup(nav, "Competition");
   await createGroup(nav, "Testing");
   const groupPorts = nav.locator(".fc-groups .fc-port");
   const pathPorts = nav.locator(".fc-paths .fc-port");
-  for (const point of await groupPorts.all()) {
-    await expect(point).toBeHidden();
-    await expect(point).toBeDisabled();
-  }
-  await expect(pathPorts).toBeVisible();
+  await expect(port(nav, "Competition")).toBeHidden();
+  await expect(port(nav, "Competition")).toBeDisabled();
+  await expect(port(nav, "Testing")).toBeVisible();
+  await expect(port(nav, "Testing")).toBeEnabled();
+  for (const point of await pathPorts.all()) await expect(point).toBeVisible();
   await port(nav, sample).click();
   await expect(focusName(nav)).toHaveText("Testing");
   await expect(focusCount(nav)).toHaveText("1 Path connected");
   await expect(nav.locator(".fc-wire")).toHaveCount(1);
   await nav.getByRole("checkbox", { name: "Show all connections" }).check();
-  for (const point of await groupPorts.all()) await expect(point).toBeHidden();
+  await expect(port(nav, "Competition")).toBeHidden();
+  await expect(port(nav, "Testing")).toBeVisible();
   await nav
     .getByRole("button", { name: `Focus ${sample}`, exact: true })
     .click();
-  await expect(pathPorts).toBeHidden();
-  await expect(pathPorts).toBeDisabled();
+  await expect(port(nav, sample)).toBeVisible();
+  await expect(port(nav, sample)).toBeEnabled();
+  await expect(port(nav, "Backup")).toBeHidden();
+  await expect(port(nav, "Backup")).toBeDisabled();
   for (const point of await groupPorts.all()) await expect(point).toBeVisible();
   await port(nav, "Competition").press("Enter");
   await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
@@ -186,13 +191,9 @@ test("drags links both ways, previews the target, and cancels safely", async ({
   await nav
     .getByRole("button", { name: "Focus Competition", exact: true })
     .click();
-  await startDrag(
-    page,
-    port(nav, sample),
-    row(nav, "Competition").locator(".fc-select"),
-  );
+  await startDrag(page, port(nav, "Competition"), port(nav, sample));
   await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(1);
-  await expect(row(nav, "Competition")).toHaveClass(/is-drop-target/);
+  await expect(row(nav, sample)).toHaveClass(/is-drop-target/);
   await page.mouse.up();
   await expect(focusCount(nav)).toHaveText("1 Path connected");
   await nav
