@@ -270,11 +270,15 @@ function guided(
   initial: NonNullable<TourStep["elements"]>,
 ): TourStep[] {
   let counts = initial;
-  return steps.map((step) => {
+  return steps.map((step, index) => {
     if (step.elements) counts = step.elements;
     // Placement checks explain intermediate counts themselves.
     return {
       ...step,
+      prepare:
+        index === 0
+          ? { ...step.prepare, simulation: "start", tool: "select" }
+          : step.prepare,
       elements: step.lockInteractionOnComplete ? undefined : { ...counts },
     };
   });
@@ -1004,6 +1008,7 @@ export const verifyExportTour: TourDefinition = {
     [
       {
         title: "Finish the pickup and delivery",
+        prepare: { simulation: "start", tool: "select" },
         body: "Repair this routine so it reaches Pickup facing 90°, triggers startIntake, clears the structure, then reaches Delivery facing -90° with prepareDelivery on the final approach. Start with Path Health.",
         phase: "Challenge",
       },

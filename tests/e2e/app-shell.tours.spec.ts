@@ -255,6 +255,49 @@ test("hides guided lessons below the mobile support threshold", async ({
   await expect(page.getByTestId("start-guided-tour")).toBeDisabled();
 });
 
+test("starts each lesson at zero and keeps its controls reachable after resizing", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await page
+    .getByRole("button", { name: "Fast forward simulation", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Help and tutorials", exact: true })
+    .click();
+  await page.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-understand-handoffs").click();
+  await expect(page.getByLabel("Simulation time", { exact: true })).toHaveValue(
+    "0",
+  );
+  await next(page, 1);
+  await page.setViewportSize({ width: 1024, height: 768 });
+  const card = page.getByTestId("tour-card");
+  await card
+    .getByRole("button", { name: "Show required controls", exact: true })
+    .click();
+  await setNumber(page, "Handoff radius 2 value", "0.25");
+  await expect(
+    card.getByRole("button", { name: "Next", exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(
+    card.getByRole("button", { name: "Next", exact: true }),
+  ).toBeVisible();
+  await card.getByRole("button", { name: "Skip tour", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Fast forward simulation", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Help and tutorials", exact: true })
+    .click();
+  await page.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-verify-export").click();
+  await expect(page.getByLabel("Simulation time", { exact: true })).toHaveValue(
+    "0",
+  );
+});
+
 async function openLesson(page: Page, id: string): Promise<void> {
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();

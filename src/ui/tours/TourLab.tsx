@@ -161,7 +161,9 @@ export function TourLab({
       <p>
         {example
           ? "Replay two prepared paths. These controls leave your exercise as you made it."
-          : "Save a reference, close this panel, edit your path, then return to compare the result."}
+          : reference
+            ? "Replay the saved reference beside your current path. Compare their motion and time."
+            : "Save a reference, close this panel, edit your path, then return to compare the result."}
       </p>
       <div className="tour-lab__lanes">
         {runs.map((run, index) => (
