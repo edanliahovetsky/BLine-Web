@@ -2,6 +2,8 @@ import { refreshAutoVelocityConstraints } from "../../../src/core/constraints/au
 import { evaluateRotationFeasibility } from "../../../src/core/sim/rotationFeasibility";
 import { simulatePathWithTrace } from "../../../src/core/sim";
 import { describe, expect, it } from "vitest";
+import { autoHandoffRadiusObjectiveCost } from "../../../src/core/constraints/autoHandoffRadiusObjective";
+import { autoVelocityTieBreakCost } from "../../../src/core/constraints/autoVelocityObjective";
 import {
   solveJointAutoConstraints,
   generateAutoVelocityProfile,
@@ -112,7 +114,7 @@ it("matches an independent two-waypoint cap lattice and preserves manual radii",
   // Independent oracle: both 90 degree unprofiled turns need 1.5 s from rest.
   // Check actual translation arrival, with no dependency on the new angular
   // evaluator or on the preview controller's heading error.
-  let oracle = Infinity;
+  let oracleCost = Infinity;
   for (let first = 0.8; first <= 3.6; first += 0.1) {
     for (let second = 0.8; second <= 3.6; second += 0.1) {
       const candidate = {
@@ -148,15 +150,96 @@ it("matches an independent two-waypoint cap lattice and preserves manual radii",
         safe &&
         handoff >= 1.5 &&
         arrival - handoff >= 1.5
-      )
-        oracle = Math.min(oracle, arrival);
+      ) {
+        // All radii are manual, above the robustness floor, and at right
+        // angles. The public handoff and cap terms are the full translation
+        // objective here. Score pinned policies independently of the search.
+        const profile = generateAutoVelocityProfile(
+          {
+            ...candidate,
+            path_elements: candidate.path_elements.map((element) =>
+              element.type === "waypoint"
+                ? element.translation_target
+                : element,
+            ),
+          },
+          config,
+          options,
+        );
+        const handoffRatios = profile.diagnostics.handoffs.flatMap(
+          (handoff) => [
+            handoff.combinedErrorMeters / handoff.toleranceMeters,
+            handoff.postHandoffPeakErrorMeters /
+              handoff.postHandoffToleranceMeters,
+            handoff.overshootErrorMeters / handoff.overshootToleranceMeters,
+            handoff.corridorDeviationMeters / handoff.corridorToleranceMeters,
+          ],
+        );
+        const score =
+          autoHandoffRadiusObjectiveCost(profile) +
+          autoVelocityTieBreakCost({
+            reachedEndRatio: 1,
+            handoffRatios,
+            totalTimeS: profile.diagnostics.totalTimeS,
+            capsByOrdinal: new Map(
+              profile.segmentCaps
+                .filter((cap) => cap.targetOrdinal > 1)
+                .map((cap) => [cap.targetOrdinal, cap.value]),
+            ),
+          });
+        oracleCost = Math.min(oracleCost, score);
+      }
     }
   }
-  expect(oracle).toBeLessThan(Infinity);
-  expect(result.profile.diagnostics.totalTimeS).toBeLessThanOrEqual(
-    oracle * 1.05 + 0.02,
+  expect(oracleCost).toBeLessThan(Infinity);
+  expect(result.stats.objectiveCost).toBeLessThanOrEqual(
+    oracleCost + 0.05 * Math.abs(oracleCost),
   );
 }, 15_000);
+
+it("uses the same translation score for a pinned policy with feasible rotation", () => {
+  const translations = [
+    createTranslationTarget(),
+    createTranslationTarget({
+      x_meters: 4,
+      intermediate_handoff_radius_meters: 0.45,
+    }),
+    createTranslationTarget({ x_meters: 4, y_meters: 4 }),
+  ];
+  const path = createPathModel({
+    path_elements: translations,
+    ranged_constraints: [1, 2, 3].map((ordinal) => ({
+      key: "max_velocity_meters_per_sec",
+      value: 2,
+      start_ordinal: ordinal,
+      end_ordinal: ordinal,
+    })),
+  });
+  const translated = solveJointAutoConstraints(path, config, options);
+  const rotated = solveJointAutoConstraints(
+    {
+      ...path,
+      path_elements: translations.map((target, index) =>
+        index === 1
+          ? createWaypoint({
+              translation_target: target,
+              rotation_target: createRotationTarget({
+                rotation_radians: Math.PI / 8,
+              }),
+            })
+          : target,
+      ),
+    },
+    config,
+    options,
+  );
+  expect(translated.status).toBe("valid");
+  expect(rotated.status).toBe("valid");
+  expect(rotated.stats.objectiveCost).toBeCloseTo(
+    translated.stats.objectiveCost,
+    6,
+  );
+});
 
 it("validates merged saved caps at all three timesteps", () => {
   const path = createPathModel({

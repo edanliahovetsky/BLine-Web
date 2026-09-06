@@ -11,7 +11,7 @@ export interface RotationSearchEvaluation {
   translationFeasible: boolean;
   translationViolation: number;
   violation: number;
-  timeS: number;
+  objectiveCost: number;
 }
 
 export function rotationSearchBudget(variables: number): number {
@@ -58,10 +58,11 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
     )
       return a.translationViolation < b.translationViolation;
     if (a.feasible !== b.feasible) return a.feasible;
-    if (a.feasible) return a.timeS < b.timeS - 1e-6;
+    if (a.feasible) return a.objectiveCost < b.objectiveCost - 1e-6;
     return (
       a.violation < b.violation - 1e-6 ||
-      (Math.abs(a.violation - b.violation) <= 1e-6 && a.timeS < b.timeS - 1e-6)
+      (Math.abs(a.violation - b.violation) <= 1e-6 &&
+        a.objectiveCost < b.objectiveCost - 1e-6)
     );
   };
   const seedCandidate = trial(seed);
@@ -133,7 +134,7 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
   ) {
     const finalists = [...cache.values()]
       .filter((candidate) => candidate.result.feasible)
-      .sort((a, b) => a.result.timeS - b.result.timeS)
+      .sort((a, b) => a.result.objectiveCost - b.result.objectiveCost)
       .slice(0, 8);
     for (const candidate of finalists) consider(candidate.values, true);
     for (const factor of [0.98, 0.94, 0.85, 0.7, 0.5]) {
@@ -148,11 +149,12 @@ export function searchRotationConstraints<T extends RotationSearchEvaluation>(
     // change. Repair against all validation timesteps, within the same budget.
     if (!best.result.feasible) polish(true);
   }
-  // Feasibility-first ranking can abandon a fast seed for a much slower
+  // Feasibility-first ranking can abandon a promising seed for a much worse
   // candidate with small radii. Use the remaining budget to repair the seed
   // independently, retaining the validated winner if repair does not improve it.
   if (
-    seedCandidate.result.timeS < best.result.timeS - 1e-6 &&
+    (!seedCandidate.result.feasible ||
+      seedCandidate.result.objectiveCost < best.result.objectiveCost - 1e-6) &&
     evaluations < budget
   ) {
     const fallback = best;

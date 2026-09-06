@@ -100,3 +100,36 @@ it("repairs a fast real-path seed instead of accepting a slow feasible basin", (
     ).toBeLessThanOrEqual(0.001);
   }
 }, 10000);
+
+it("keeps nonbinding rotations from inflating handoff radii on the same real path", () => {
+  const withoutRotation = {
+    ...path,
+    path_elements: path.path_elements.map((element) =>
+      element.type === "waypoint"
+        ? setHandoffRadiusSource({ ...element.translation_target }, "auto")
+        : element,
+    ),
+  };
+  const translated = solveJointAutoConstraints(
+    withoutRotation,
+    config,
+    settings,
+  );
+  const rotated = solveJointAutoConstraints(path, config, settings);
+  expect(translated.status).toBe("valid");
+  expect(rotated.status).toBe("valid");
+  expect(rotated.profile.diagnostics.totalTimeS).toBeLessThan(7);
+  expect(
+    rotated.profile.diagnostics.rotationFeasibility?.every(
+      (target) => target.availableTimeS > target.requiredTimeS + 0.1,
+    ),
+  ).toBe(true);
+  // Persisted-cap and timestep validation can still repair the seed. The old
+  // time-only ranking inflated one radius by 33% despite spare angular time.
+  rotated.profile.corners.forEach((corner, index) => {
+    const baseline = translated.profile.corners[index]!.handoffDistanceMeters;
+    expect(Math.abs(corner.handoffDistanceMeters / baseline - 1)).toBeLessThan(
+      0.15,
+    );
+  });
+});

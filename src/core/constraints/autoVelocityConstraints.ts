@@ -340,7 +340,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 11;
+const autoConstraintSolverVersion = 12;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -1359,6 +1359,14 @@ function solveRotationAwareConstraints(
     ...ordinals.map((ordinal) => baselineCaps.get(ordinal)!),
     ...coordinates.map((coordinate) => baselineRadii[coordinate.segmentIndex]!),
   ];
+  const scoringWorkspace: JointSimulationWorkspace = {
+    xMeters: [],
+    yMeters: [],
+    globalSMeters: [],
+    segmentIndices: [],
+    capsMps: [],
+    length: 0,
+  };
   let genericEvaluations = 0;
   const search = searchRotationConstraints(
     variables,
@@ -1395,6 +1403,25 @@ function solveRotationAwareConstraints(
         candidatePath,
         config,
         options,
+      );
+      // Use the same translation simulation, safety margins and objective as
+      // the translation-only search. Rotation adds feasibility constraints;
+      // it must not replace the handoff/error tradeoffs with a time-only score.
+      const scoringEvaluation = evaluateJointCandidateFast(
+        candidateSetup.simulationContext,
+        candidateSetup.segments,
+        candidateSetup.corners,
+        caps,
+        setup.usableMaxVelocityMps,
+        setup.usableMaxAccelerationMps2,
+        scoringWorkspace,
+      );
+      const objectiveCost = jointSearchObjectiveCost(
+        scoringEvaluation,
+        candidateSetup.corners,
+        candidateSetup.segments,
+        caps,
+        candidateSetup.anchors.length,
       );
       // Validate the values that will actually be saved. Keep manual ranges,
       // minimum speeds and acceleration ranges; the generic translation solver
@@ -1572,7 +1599,7 @@ function solveRotationAwareConstraints(
           ...results.map((result) => result.translationViolation),
         ),
         violation: Math.max(...results.map((result) => result.violation)),
-        timeS: Math.max(...results.map((result) => result.timeS)),
+        objectiveCost,
         primaryPassed: primary.feasible,
         path: candidatePath,
         profile,
@@ -1597,7 +1624,7 @@ function solveRotationAwareConstraints(
       cacheHits: baseline?.stats?.cacheHits ?? 0,
       genericEvaluations:
         genericEvaluations + (baseline?.stats?.genericEvaluations ?? 0),
-      objectiveCost: winner.timeS,
+      objectiveCost: winner.objectiveCost,
       genericValidationPassed: winner.primaryPassed,
       stabilityValidationPassed: winner.feasible,
       terminationReason:
