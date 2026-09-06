@@ -34,6 +34,7 @@ export function usePathGroupLinkDrag(
   onStart: (source: LibraryNode) => void,
   onConnect: (source: LibraryNode, target: LibraryNode) => void,
   onTap: (source: LibraryNode) => void,
+  canLink: (source: LibraryNode, target: LibraryNode) => boolean,
 ) {
   const session = useRef<DragSession | null>(null);
   const scrollFrame = useRef<number | null>(null);
@@ -76,7 +77,7 @@ export function usePathGroupLinkDrag(
       board?.contains(row) &&
       id &&
       (kind === "group" || kind === "path") &&
-      kind !== current.source.kind
+      canLink(current.source, { kind, id })
         ? { kind, id }
         : null;
     return {

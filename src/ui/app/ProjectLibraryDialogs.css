@@ -364,7 +364,7 @@
     border-color 130ms,
     opacity 130ms;
 }
-.fc-row:hover {
+:where(.fc-board:not(.is-dragging):not(.is-linking)) .fc-row:hover {
   background: #223444;
   border-color: #4c6477;
 }
@@ -380,7 +380,7 @@
 .fc-row.is-muted {
   opacity: 0.52;
 }
-.fc-row.is-muted:hover,
+:where(.fc-board:not(.is-dragging):not(.is-linking)) .fc-row.is-muted:hover,
 .fc-row.is-muted:focus-within {
   opacity: 1;
 }

@@ -753,6 +753,9 @@ for (const longSide of ["path", "group"] as const) {
     const nav = await seedLongLibrary(page, longSide);
     const label = longSide === "path" ? "Path" : "Group";
     const opposite = longSide === "path" ? "Group" : "Path";
+    await nav
+      .getByRole("button", { name: `Focus ${opposite} 02`, exact: true })
+      .click();
     const ownList = nav.locator(`.fc-list-scroll[data-kind="${longSide}"]`);
     const originalOrder = await ownList.locator(".fc-name").allTextContents();
     // Add a connection to a lower-ranked neighbor without changing focus.
@@ -955,27 +958,56 @@ test("scrolls the destination list during a drag without reordering or moving th
   await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
 });
 
-test("dragging to another group preserves the focused group's existing link", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  const nav = await openPathLibraryDialog(page);
-  await createGroup(nav, "Competition");
-  await link(nav, "Competition", sample);
-  await createGroup(nav, "Testing");
-  await nav
-    .getByRole("button", { name: "Focus Competition", exact: true })
-    .click();
-  await startDrag(
+for (const kind of ["path", "group"] as const) {
+  test(`only highlights, snaps, and connects to the selected ${kind} when dragging from the other column @webkit-canvas`, async ({
     page,
-    port(nav, sample),
-    row(nav, "Testing").locator(".fc-select"),
-  );
-  await page.mouse.up();
-  await expect(focusName(nav)).toHaveText("Competition");
-  await expect(focusCount(nav)).toHaveText("1 Path connected");
-  await nav
-    .getByRole("button", { name: `Focus ${sample}`, exact: true })
-    .click();
-  await expect(focusCount(nav)).toHaveText("2 Path Groups connected");
-});
+  }) => {
+    await gotoSampleEditor(page);
+    const nav = await openPathLibraryDialog(page);
+    await action(nav, "Path", sample, "Duplicate");
+    await nameInline(nav, "Path", "Backup");
+    await createGroup(nav, "Competition");
+    await link(nav, "Competition", sample);
+    await createGroup(nav, "Testing");
+    const selected = kind === "path" ? sample : "Competition";
+    const unsupported = kind === "path" ? "Backup" : "Testing";
+    const source = kind === "path" ? "Testing" : "Backup";
+    await nav
+      .getByRole("button", { name: `Focus ${selected}`, exact: true })
+      .click();
+    await startDrag(
+      page,
+      port(nav, source),
+      row(nav, selected).locator(".fc-select"),
+    );
+    await expect(row(nav, selected)).toHaveClass(/is-drop-target/);
+    await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(1);
+    const invalid = row(nav, unsupported);
+    const bounds = await requiredBox(invalid);
+    await page.mouse.move(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+      { steps: 8 },
+    );
+    await expect(invalid).not.toHaveClass(/is-target|is-drop-target/);
+    await expect(invalid).toHaveCSS("opacity", "0.52");
+    await expect(nav.locator(".fc-row.is-target")).toHaveCount(1);
+    await expect(row(nav, selected)).toHaveClass(/is-target/);
+    await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(0);
+    await expect(nav.locator(".fc-row.is-drop-target")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(invalid.locator(".fc-count")).toHaveText("0");
+    await expect(row(nav, source).locator(".fc-count")).toHaveText("0");
+    await expect(focusName(nav)).toHaveText(selected);
+    await expect(focusCount(nav)).toHaveText(
+      kind === "path" ? "1 Path Group connected" : "1 Path connected",
+    );
+    await startDrag(page, port(nav, source), port(nav, selected));
+    await expect(nav.locator(".fc-wire-preview.is-snapped")).toHaveCount(1);
+    await page.mouse.up();
+    await expect(focusCount(nav)).toHaveText(
+      kind === "path" ? "2 Path Groups connected" : "2 Paths connected",
+    );
+    await expect(invalid.locator(".fc-count")).toHaveText("0");
+  });
+}

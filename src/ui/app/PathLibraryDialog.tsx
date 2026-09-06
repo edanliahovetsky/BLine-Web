@@ -366,8 +366,11 @@ export function PathLibraryDialog({
       return false;
     }
   };
+  const canLink = (source: LibraryNode, target: LibraryNode) =>
+    source.kind !== target.kind &&
+    (!focus || sameNode(focus, source) || sameNode(focus, target));
   const connect = (source: LibraryNode, target: LibraryNode) => {
-    if (source.kind === target.kind || !findNode(source) || !findNode(target))
+    if (!canLink(source, target) || !findNode(source) || !findNode(target))
       return;
     const edge = edgeFor(source, target);
     setPending(null);
@@ -423,6 +426,7 @@ export function PathLibraryDialog({
     },
     connect,
     tapPort,
+    canLink,
   );
   const select = (node: Node) => {
     if (pending && pending.kind !== node.kind) {
@@ -666,7 +670,7 @@ export function PathLibraryDialog({
     const isFocused = sameNode(focus, node),
       isRelated = related(node),
       isEditing = sameNode(editing, node);
-    const isTarget = Boolean(origin && origin.kind !== node.kind);
+    const isTarget = Boolean(origin && canLink(origin, node));
     const isConnectable = !focus || node.kind !== focus.kind;
     const showPort = isFocused || isConnectable;
     const endpointLabel = isTarget
