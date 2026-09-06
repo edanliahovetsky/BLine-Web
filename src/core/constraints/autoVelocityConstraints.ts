@@ -23,6 +23,7 @@ import {
   type RangedConstraint,
 } from "../model/path";
 import {
+  activeTranslationLimit,
   buildGlobalRotationKeyframes,
   buildGlobalRotationTargets,
   buildRotationDomainEvents,
@@ -224,6 +225,8 @@ interface AutoVelocitySimulationContext {
   rotationDomainEvents: readonly RotationDomainEvent[];
   maxRotationVelocityConstraints: readonly RotationLimitConstraint[];
   maxRotationAccelerationConstraints: readonly RotationLimitConstraint[];
+  maxTranslationAccelerationBySegment: readonly (number | null)[];
+  accelerationSafetyFactor: number;
   handoffRadiiBySegmentIndex: readonly number[];
   /**
    * Manual max-velocity caps by target ordinal. The apply step never overwrites
@@ -340,7 +343,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 13;
+const autoConstraintSolverVersion = 14;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -358,17 +361,18 @@ export function generateAutoVelocityProfile(
     return cached;
   }
 
-  if (hasAuthoredRotations(path)) {
-    const profile = solveRotationAwareConstraints(
-      path,
-      config,
-      options,
-      false,
-    ).profile;
-    cacheProfile(cacheKey, profile);
-    return profile;
-  }
+  const profile = needsRuntimeConstraintValidation(path)
+    ? solveRuntimeValidatedConstraints(path, config, options, false).profile
+    : generateTranslationAutoVelocityProfile(path, config, options);
+  cacheProfile(cacheKey, profile);
+  return profile;
+}
 
+function generateTranslationAutoVelocityProfile(
+  path: PathModel,
+  config: SimulationConfig,
+  options: AutoVelocityGenerationOptions,
+): AutoVelocityProfile {
   const {
     anchors,
     segments,
@@ -482,8 +486,6 @@ export function generateAutoVelocityProfile(
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
   };
-  cacheProfile(cacheKey, profile);
-
   return profile;
 }
 
@@ -1242,8 +1244,8 @@ export function solveJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): JointAutoConstraintSolveResult {
-  if (hasAuthoredRotations(path)) {
-    return solveRotationAwareConstraints(path, config, options, true);
+  if (needsRuntimeConstraintValidation(path)) {
+    return solveRuntimeValidatedConstraints(path, config, options, true);
   }
   return solveTranslationJointConstraints(path, config, options);
 }
@@ -1291,8 +1293,27 @@ function hasAuthoredRotations(path: PathModel): boolean {
   );
 }
 
-/** Rotation uses kinematic feasibility; preview controller error stays diagnostic. */
-function solveRotationAwareConstraints(
+function needsRuntimeConstraintValidation(path: PathModel): boolean {
+  if (hasAuthoredRotations(path)) return true;
+  const anchorCount = translationAnchors(path.path_elements).length;
+  for (let ordinal = 2; ordinal <= anchorCount; ordinal += 1) {
+    if (
+      activeTranslationLimit(
+        path,
+        "max_acceleration_meters_per_sec2",
+        ordinal,
+      ) !== null
+    )
+      return true;
+  }
+  return false;
+}
+
+/**
+ * Validate saved ranges at nominal and reduced acceleration across timesteps.
+ * Rotation uses kinematic feasibility; preview controller error stays diagnostic.
+ */
+function solveRuntimeValidatedConstraints(
   path: PathModel,
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions,
@@ -1341,7 +1362,7 @@ function solveRotationAwareConstraints(
         ? solveTranslationJointConstraints(translationPath, config, options)
         : {
             path: translationPath,
-            profile: generateAutoVelocityProfile(
+            profile: generateTranslationAutoVelocityProfile(
               translationPath,
               config,
               options,
@@ -1424,8 +1445,8 @@ function solveRotationAwareConstraints(
         candidateSetup.anchors.length,
       );
       // Validate the values that will actually be saved. Keep manual ranges,
-      // minimum speeds and acceleration ranges; the generic translation solver
-      // intentionally replaces these during its separate safety-margin solve.
+      // minimum speeds and acceleration ranges, using the same local safety
+      // margins as the translation score.
       const persistedPath: PathModel = {
         ...candidatePath,
         ranged_constraints: [
@@ -1444,12 +1465,20 @@ function solveRotationAwareConstraints(
           })),
         ],
       };
-      const cases = (stable ? [0.02, 0.01, 0.005] : [0.02]).map((dt) => ({
+      const timesteps = stable ? [0.02, 0.01, 0.005] : [0.02];
+      const cases = timesteps.map((dt) => ({
         dt,
         margin: false,
       }));
-      if (setup.settings.accelerationSafetyFactor < 1)
-        cases.push({ dt: 0.02, margin: true });
+      if (setup.settings.accelerationSafetyFactor < 1) {
+        const marginTimesteps =
+          setup.simulationContext.maxTranslationAccelerationBySegment.some(
+            (value) => value !== null,
+          )
+            ? timesteps
+            : [0.02];
+        cases.push(...marginTimesteps.map((dt) => ({ dt, margin: true })));
+      }
       const results = cases.map(({ dt, margin }) => {
         genericEvaluations += 1;
         const simulationPath = !margin
@@ -3125,6 +3154,7 @@ function createAutoVelocitySolveSetup(
       segments,
       cumulative,
       defaultHandoffRadius,
+      settings.accelerationSafetyFactor,
     ),
     settings,
     baseMaxVelocityMps: baseMaxVelocity,
@@ -3491,6 +3521,7 @@ function createAutoVelocitySimulationContext(
   segments: readonly SegmentGeometry[],
   cumulativeLengths: readonly number[],
   defaultHandoffRadius: number,
+  accelerationSafetyFactor: number,
 ): AutoVelocitySimulationContext {
   const totalPathLength = cumulativeLengths.at(-1) ?? 0;
   const firstSegment = segments[0];
@@ -3532,6 +3563,15 @@ function createAutoVelocitySimulationContext(
       path,
       "max_acceleration_deg_per_sec2",
     ),
+    maxTranslationAccelerationBySegment: segments.map((_, segmentIndex) => {
+      const ranged = activeTranslationLimit(
+        path,
+        "max_acceleration_meters_per_sec2",
+        segmentIndex + 2,
+      );
+      return ranged === null ? null : ranged * accelerationSafetyFactor;
+    }),
+    accelerationSafetyFactor,
     handoffRadiiBySegmentIndex: segments.map((_, segmentIndex) => {
       const targetAnchor = anchors[segmentIndex + 1];
       return handoffRadiusForAnchor(
@@ -5069,7 +5109,6 @@ function simulateJointCandidate(
   const guardTime = Math.max(3, 2 * estTransTime + 1.5 * estRotTime);
   const epsPos = 1e-3;
   const epsAng = degreesToRadians(0.5);
-  const maxTranslationDelta = usableMaxAccelerationMps2 * solverDtSeconds;
   const tracksRotation = context.rotationKeyframes.length > 0;
 
   while (tS <= guardTime) {
@@ -5120,6 +5159,9 @@ function simulateJointCandidate(
             context.totalPathLength),
       );
     const maxV = workspace.capsMps[segmentIndex] ?? usableMaxVelocityMps;
+    const maxA =
+      context.maxTranslationAccelerationBySegment[segmentIndex] ??
+      usableMaxAccelerationMps2;
     const maxOmegaEff = tracksRotation
       ? activeRotationLimit(
           context.rotationDomainEvents,
@@ -5168,7 +5210,7 @@ function simulateJointCandidate(
     const desiredDelta = Math.sqrt(dvx * dvx + dvy * dvy);
     const obtainableDelta = Math.max(
       0,
-      Math.min(desiredDelta, maxTranslationDelta),
+      Math.min(desiredDelta, maxA * solverDtSeconds),
     );
     const translationScale =
       desiredDelta > minPositive ? obtainableDelta / desiredDelta : 0;
@@ -5672,7 +5714,9 @@ function simulateAutoVelocityCaps(
       capsByOrdinal.get(nextAnchorOrdinal),
       usableMaxVelocityMps,
     );
-    const maxA = usableMaxAccelerationMps2;
+    const maxA =
+      context.maxTranslationAccelerationBySegment[segmentIndex] ??
+      usableMaxAccelerationMps2;
     const maxOmegaEff = activeRotationLimit(
       context.rotationDomainEvents,
       context.maxRotationVelocityConstraints,
@@ -5950,6 +5994,7 @@ function evaluateVelocityCapsWithGenericSimulation(
     capsByOrdinal,
     usableMaxVelocityMps,
     usableMaxAccelerationMps2,
+    simulationContext.accelerationSafetyFactor,
   );
   const result = simulatePathWithTrace(candidate, simulationContext.config, {
     dt_s: dtSeconds,
@@ -6250,6 +6295,7 @@ function pathWithVelocityCaps(
   capsByOrdinal: ReadonlyMap<number, number>,
   usableMaxVelocityMps: number,
   usableMaxAccelerationMps2: number,
+  accelerationSafetyFactor: number,
 ): PathModel {
   const generated = [...capsByOrdinal.entries()].map(([ordinal, value]) => ({
     key: "max_velocity_meters_per_sec" as const,
@@ -6266,7 +6312,15 @@ function pathWithVelocityCaps(
       max_acceleration_meters_per_sec2: usableMaxAccelerationMps2,
     },
     ranged_constraints: path.ranged_constraints
-      .filter((constraint) => !isTranslationRangedConstraintKey(constraint.key))
+      .filter((constraint) => constraint.key !== "max_velocity_meters_per_sec")
+      .map((constraint) =>
+        constraint.key === "max_acceleration_meters_per_sec2"
+          ? {
+              ...constraint,
+              value: constraint.value * accelerationSafetyFactor,
+            }
+          : constraint,
+      )
       .concat(generated),
   };
 }
@@ -6980,13 +7034,6 @@ function windowCapSum(
     sum += caps.get(ordinal) ?? 0;
   }
   return sum;
-}
-
-function isTranslationRangedConstraintKey(key: RangedConstraintKey): boolean {
-  return (
-    key === "max_velocity_meters_per_sec" ||
-    key === "max_acceleration_meters_per_sec2"
-  );
 }
 
 function handoffRadiusForAnchor(

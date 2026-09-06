@@ -891,7 +891,7 @@ function applyRotationMinimumBaseline(
   };
 }
 
-function activeTranslationLimit(
+export function activeTranslationLimit(
   path: PathModel,
   key: RangedConstraintKey,
   nextAnchorOrdinal: number,

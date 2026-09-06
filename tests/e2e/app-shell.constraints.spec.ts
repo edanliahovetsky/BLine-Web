@@ -570,6 +570,81 @@ test("automatically syncs added, edited, and removed acceleration ranges", async
   ).toHaveCount(0);
 });
 
+test("uses edited local acceleration to regenerate radii and speeds", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const choosing = page.waitForEvent("filechooser");
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await page.getByRole("menuitem", { name: "Import Path..." }).click();
+  await (
+    await choosing
+  ).setFiles({
+    name: "local-acceleration.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        path_elements: [
+          [1, 1],
+          [5, 1],
+          [5, 5],
+          [9, 5],
+        ].map(([x, y]) => ({
+          type: "translation",
+          x_meters: x,
+          y_meters: y,
+          intermediate_handoff_radius_meters: 0.45,
+          handoff_radius_source: "auto",
+        })),
+        constraints: {
+          max_acceleration_meters_per_sec2: [
+            { value: 12, start_ordinal: 2, end_ordinal: 2 },
+          ],
+        },
+      }),
+    ),
+  });
+  await openConstraintsTab(page);
+  const velocity = page.getByTestId(
+    "constraint-card-max_velocity_meters_per_sec",
+  );
+  await velocity.getByRole("button", { name: "Generate constraints" }).click();
+  await expect(velocity.getByRole("status")).toHaveText("Up to date");
+  const radii = page.locator(
+    '[data-testid^="handoff-radius-chip-"] .handoff-radius-chip__value',
+  );
+  const previousRadii = await radii.allTextContents();
+  const incoming = page.getByTestId(
+    "constraint-cell-max_velocity_meters_per_sec-2",
+  );
+  expect(Number.parseFloat(await incoming.innerText())).toBeGreaterThan(3);
+
+  const acceleration = page.getByTestId(
+    "constraint-card-max_acceleration_meters_per_sec2",
+  );
+  await acceleration
+    .getByTestId(/^constraint-range-max_acceleration_meters_per_sec2-\d+$/)
+    .click();
+  await acceleration.getByLabel(/^Constraint \d+ value$/).fill("2");
+  const tab = page.getByRole("tab", { name: "Constraints", exact: true });
+  await expect(tab).toHaveClass(/is-optimizing/);
+  await expect(tab).not.toHaveClass(/is-optimizing/);
+  await expect(velocity.getByRole("status")).toHaveText("Up to date");
+  expect(await radii.allTextContents()).not.toEqual(previousRadii);
+  expect(Number.parseFloat(await incoming.innerText())).toBeLessThan(2);
+  expect(
+    Number.parseFloat(
+      await page
+        .getByTestId("constraint-cell-max_velocity_meters_per_sec-4")
+        .innerText(),
+    ),
+  ).toBeGreaterThan(3);
+  await expect(acceleration.getByLabel(/^Constraint \d+ value$/)).toHaveValue(
+    "2",
+  );
+});
+
 test("starts automatic generation after an opened project creates a Path with the Curve tool", async ({
   page,
 }) => {
