@@ -2332,12 +2332,17 @@ export function AppShell() {
           }
           if (preparation.selectElement !== undefined) {
             const state = projectStore.getState();
-            selectionStore
-              .getState()
-              .selectElement(
-                preparation.selectElement,
-                activeProjectPath(state.project, state.activePathId)?.path,
-              );
+            const path = activeProjectPath(
+              state.project,
+              state.activePathId,
+            )?.path;
+            const index =
+              typeof preparation.selectElement === "function"
+                ? path
+                  ? preparation.selectElement(path)
+                  : null
+                : preparation.selectElement;
+            selectionStore.getState().selectElement(index, path);
           }
           if (preparation.simulation) {
             seekTourSimulation(preparation.simulation);

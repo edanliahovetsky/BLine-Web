@@ -89,10 +89,17 @@ function action(action: TourAction, waiting: string, done: string) {
 }
 function added(type: PathElement["type"], total?: number) {
   return outcome((path) => {
+    const previousTypes =
+      baselinePath?.path_elements.map((element) => element.type) ?? [];
+    const expectedAdded = total ? total - previousTypes.length : 1;
+    const expectedTypeCount =
+      previousTypes.filter((candidate) => candidate === type).length +
+      expectedAdded;
     const complete =
       path.path_elements.length > (baselinePath?.path_elements.length ?? 0) &&
       (!total || path.path_elements.length === total) &&
-      path.path_elements.some((element) => element.type === type);
+      path.path_elements.filter((element) => element.type === type).length ===
+        expectedTypeCount;
     if (complete && type === "waypoint" && total === 3)
       middlePosition = elementPositionSignature(
         path.path_elements[selectionStore.getState().selectedElementIndex ?? 2],

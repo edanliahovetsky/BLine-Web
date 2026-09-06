@@ -6,6 +6,17 @@ import { paddedViewportRect, type TourRect } from "./tourGeometry";
 import { TourLab } from "./TourLab";
 import { KeepPracticeCopy, TourHandoff } from "./TourHandoff";
 import { tourStore, type TourStepPreparation } from "./tourStore";
+import {
+  activePathForProjectStore,
+  projectStore,
+} from "../../state/projectStore";
+import { selectionStore } from "../../state/selectionStore";
+import {
+  assessTourStep,
+  tourAllowsShortcut,
+  tourAllowsTarget,
+  tourInteractionTargets,
+} from "./tourInteraction";
 
 const cardWidth = 304;
 const cardGap = 14;
@@ -59,7 +70,7 @@ export function TourOverlay({
   const preparedStepRef = useRef<string | null>(null);
   const [rect, setRect] = useState<TourRect | null>(null);
   const [visibleHoles, setVisibleHoles] = useState<TourRect[]>([]);
-  const [feedback, setFeedback] = useState("");
+  const [feedbackState, setFeedback] = useState({ token: "", message: "" });
   const [hidden, setHidden] = useState(false);
   const [hintState, setHintState] = useState({ token: "", count: 0 });
   const [labState, setLabState] = useState<{
@@ -67,20 +78,26 @@ export function TourOverlay({
     example: boolean;
   } | null>(null);
   const stepToken = `${activeTourId}:${attemptId}:${stepIndex}`;
+  const feedback =
+    feedbackState.token === stepToken ? feedbackState.message : "";
   const hintCount = hintState.token === stepToken ? hintState.count : 0;
   const lab = labState?.token === stepToken ? labState : null;
   const visibleToken = [
     "path-canvas",
     stepTarget,
     ...(step?.visible ?? []),
-    ...(step?.interact ?? []),
+    ...(step ? tourInteractionTargets(step) : []),
   ]
     .filter(Boolean)
     .join("|");
   const hintTarget = hintCount > 1 ? step?.hintTargets?.[0] : null;
   const [holes, setHoles] = useState<TourRect[]>([]);
   const [cardHeight, setCardHeight] = useState(fallbackCardHeight);
-  const interactToken = isReviewing ? "" : (step?.interact?.join("|") ?? "");
+  const interactToken = isReviewing
+    ? ""
+    : step
+      ? tourInteractionTargets(step).join("|")
+      : "";
   const actionComplete = completedSteps.includes(stepIndex);
   const lockInteractionOnComplete = step?.lockInteractionOnComplete ?? false;
 
@@ -198,6 +215,8 @@ export function TourOverlay({
 
     const frame = window.requestAnimationFrame(measure);
     const settleTimer = window.setInterval(measure, 350);
+    const mutationObserver = new MutationObserver(measure);
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
     const resizeObserver = new ResizeObserver(measure);
     document
       .querySelectorAll<HTMLElement>("[data-tour]")
@@ -209,6 +228,7 @@ export function TourOverlay({
       window.cancelAnimationFrame(frame);
       window.clearInterval(settleTimer);
       resizeObserver.disconnect();
+      mutationObserver.disconnect();
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
       document.removeEventListener("transitionend", measure, true);
@@ -246,74 +266,131 @@ export function TourOverlay({
 
     const currentTour = findTour(activeTourId);
     const currentStep = currentTour?.steps[stepIndex];
-    const completeWhen = currentStep?.check
-      ? () => currentStep.check!().complete
-      : currentStep?.completeWhen;
-    if (!completeWhen) {
+    if (!currentStep) {
       return;
     }
-
-    const interval = window.setInterval(() => {
-      const result = currentStep?.check?.();
-      setFeedback(result?.message ?? "");
-      tourStore
-        .getState()
-        .setStepComplete(stepIndex, result?.complete ?? completeWhen());
-    }, 250);
+    const update = () => {
+      const result = assessTourStep(
+        currentStep,
+        activePathForProjectStore(projectStore.getState())?.path ?? null,
+      );
+      setFeedback((previous) =>
+        previous.token === stepToken && previous.message === result.message
+          ? previous
+          : { token: stepToken, message: result.message },
+      );
+      tourStore.getState().setStepComplete(stepIndex, result.complete);
+    };
+    // Defer the first assessment until preparation has captured its baseline.
+    const frame = window.requestAnimationFrame(update);
+    const unsubscribeProject = projectStore.subscribe(update);
+    const unsubscribeSelection = selectionStore.subscribe(update);
+    const unsubscribeActions = tourStore.subscribe((state, previous) => {
+      if (state.actions !== previous.actions) update();
+    });
+    const interval = window.setInterval(update, 250);
     return () => {
+      window.cancelAnimationFrame(frame);
       window.clearInterval(interval);
+      unsubscribeProject();
+      unsubscribeSelection();
+      unsubscribeActions();
     };
-  }, [activeTourId, attemptId, isReviewing, stepIndex]);
+  }, [activeTourId, attemptId, isReviewing, stepIndex, stepToken]);
 
   useEffect(() => {
-    const completeWhen = step?.check
-      ? () => step.check!().complete
-      : step?.completeWhen;
-    if (
-      !activeTourId ||
-      isReviewing ||
-      !lockInteractionOnComplete ||
-      !completeWhen
-    ) {
-      return;
-    }
-
-    const stopCompletedInteraction = (event: PointerEvent) => {
-      if ((event.target as Element | null)?.closest(".tour-card")) {
+    if (!activeTourId || !step) return;
+    const stopDisallowedInteraction = (event: Event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || target.closest(".tour-layer")) return;
+      const complete = assessTourStep(
+        step,
+        activePathForProjectStore(projectStore.getState())?.path ?? null,
+      ).complete;
+      if (
+        !isReviewing &&
+        !(step.lockInteractionOnComplete && complete) &&
+        tourAllowsTarget(step, target) &&
+        event.type !== "contextmenu"
+      )
         return;
-      }
-      if (!completeWhen()) {
-        return;
-      }
-
       event.preventDefault();
-      event.stopPropagation();
-      tourStore.getState().setStepComplete(stepIndex, true);
+      event.stopImmediatePropagation();
     };
-
-    window.addEventListener("pointerdown", stopCompletedInteraction, true);
-    return () =>
-      window.removeEventListener("pointerdown", stopCompletedInteraction, true);
-  }, [activeTourId, isReviewing, lockInteractionOnComplete, step, stepIndex]);
+    const events = ["pointerdown", "click", "contextmenu"];
+    for (const name of events)
+      window.addEventListener(name, stopDisallowedInteraction, true);
+    return () => {
+      for (const name of events)
+        window.removeEventListener(name, stopDisallowedInteraction, true);
+    };
+  }, [activeTourId, isReviewing, step]);
 
   useEffect(() => {
-    if (!activeTourId) {
+    if (!activeTourId || !step) {
       return;
     }
 
-    // Arrow keys are deliberately left alone: the editor uses them to nudge
-    // the selected element, which lessons themselves teach.
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
+        // Let an editor popup consume Escape before the lesson sees it.
+        if (
+          document.querySelector(
+            '[data-tour="constraint-popout"], [role="dialog"][aria-label="Path health"]',
+          )
+        )
+          return;
         event.preventDefault();
+        event.stopImmediatePropagation();
         if (lab) setLabState(null);
         else tourStore.getState().exit();
+        return;
       }
+      const target = event.target instanceof Element ? event.target : null;
+      const inCoach = !!target?.closest(".tour-layer");
+      const editable = !!target?.closest(
+        'input, textarea, select, [contenteditable="true"]',
+      );
+      if (
+        editable &&
+        (inCoach || (!isReviewing && target && tourAllowsTarget(step, target)))
+      )
+        return;
+      // Tab navigation is safe; a focused shielded button still cannot be activated.
+      if (event.key === "Tab") return;
+      if (
+        inCoach &&
+        [
+          "Enter",
+          " ",
+          "ArrowLeft",
+          "ArrowRight",
+          "ArrowUp",
+          "ArrowDown",
+        ].includes(event.key) &&
+        target?.closest("button, input, select")
+      )
+        return;
+      if (
+        ["Enter", " "].includes(event.key) &&
+        target?.closest("button") &&
+        !isReviewing &&
+        tourAllowsTarget(step, target)
+      )
+        return;
+      if (lab) return;
+      const complete = assessTourStep(
+        step,
+        activePathForProjectStore(projectStore.getState())?.path ?? null,
+      ).complete;
+      if (!isReviewing && tourAllowsShortcut(step, event, complete)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeTourId, lab]);
+  }, [activeTourId, lab, isReviewing, step]);
 
   useEffect(() => {
     cardRef.current?.focus();
@@ -349,9 +426,16 @@ export function TourOverlay({
   );
 
   const isLastStep = stepIndex === stepCount - 1;
-  const actionGated = Boolean(step.check || step.completeWhen);
+  const actionGated = Boolean(step.check || step.completeWhen || step.elements);
   const handleNext = () => {
-    if (actionGated && !actionComplete && !isReviewing) return;
+    if (
+      !isReviewing &&
+      !assessTourStep(
+        step,
+        activePathForProjectStore(projectStore.getState())?.path ?? null,
+      ).complete
+    )
+      return;
     tourStore.getState().setStepComplete(stepIndex, true);
     if (isLastStep) {
       tourStore.getState().finish();
@@ -465,7 +549,7 @@ export function TourOverlay({
             <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
             {isReviewing
               ? "Previously completed. Your later work is preserved."
-              : feedback && step.check
+              : feedback
                 ? feedback
                 : actionComplete
                   ? lockInteractionOnComplete
@@ -556,6 +640,19 @@ export function TourOverlay({
           ) : null}
         </div>
         <div className="tour-card__recovery">
+          {!isReviewing && step.prepare && (
+            <button type="button" onClick={() => onPrepare(step.prepare!)}>
+              Show required controls
+            </button>
+          )}
+          {!isReviewing && (
+            <button
+              type="button"
+              onClick={() => projectStore.getState().undo()}
+            >
+              Undo last edit
+            </button>
+          )}
           <button type="button" onClick={onRestartStep}>
             Restart exercise
           </button>

@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { PathModel } from "../../core/model/path";
+import type { PathElement, PathModel } from "../../core/model/path";
 import type { ProjectConfig } from "../../core/model/project";
 import { rememberCompletedTourIds } from "../../userData";
 
@@ -16,7 +16,7 @@ export interface TourMarker {
   rotationDegrees?: number;
 }
 
-export type TourExperiment = "handoff" | "speed" | "heading";
+export type TourExperiment = "handoff" | "speed" | "heading" | "events";
 export interface TourFeedback {
   complete: boolean;
   message: string;
@@ -55,6 +55,8 @@ export interface TourStep {
   experiment?: TourExperiment;
   handoff?: true;
   check?(): TourFeedback;
+  /** Exact element counts only for guided exercises. Challenges may accept alternatives. */
+  elements?: Partial<Record<PathElement["type"], number>>;
   /** Short action shown as a task when the step waits for editor input. */
   task?: string;
   /** Keys worth showing as caps beneath the body. */
@@ -94,7 +96,7 @@ export interface TourStepPreparation {
    * after the selection, so a bend step selects the first waypoint to make
    * the new element land between the existing ones.
    */
-  selectElement?: number;
+  selectElement?: number | ((path: PathModel) => number | null);
   /** Move the simulated robot before the step begins. */
   simulation?: "start" | "end";
   /** Close Path Health after its open-state action has been completed. */

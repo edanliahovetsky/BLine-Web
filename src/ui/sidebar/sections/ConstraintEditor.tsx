@@ -1454,6 +1454,7 @@ function ConstraintPopout({
         aria-modal="false"
         aria-label={`${meta.label} expanded editor`}
         data-testid="constraint-popout-window"
+        data-tour="constraint-popout"
         tabIndex={-1}
         style={{ left: position.left, top: position.top }}
       >
