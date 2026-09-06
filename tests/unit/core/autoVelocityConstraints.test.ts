@@ -251,7 +251,7 @@ describe("generateAutoVelocityProfile", () => {
     ]);
   });
 
-  it("reuses cached profiles when only manual acceleration constraints change", () => {
+  it("invalidates cached profiles when manual acceleration constraints change", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
@@ -282,12 +282,17 @@ describe("generateAutoVelocityProfile", () => {
       },
     ];
 
+    const refreshed = generateAutoVelocityProfile(edited, config, {
+      velocitySafetyFactor: 0.9,
+      accelerationSafetyFactor: 0.8,
+    });
+    expect(refreshed).not.toBe(profile);
     expect(
       generateAutoVelocityProfile(edited, config, {
         velocitySafetyFactor: 0.9,
         accelerationSafetyFactor: 0.8,
       }),
-    ).toBe(profile);
+    ).toBe(refreshed);
   });
 
   it("invalidates cached profiles when a manual velocity cap changes", () => {

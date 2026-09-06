@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   autoVelocityConstraintsByOrdinal,
   autoVelocityConstraintsFromOrdinalMap,
+  autoVelocityInputsChanged,
   autoVelocityRefreshRequest,
   autoVelocitySettingsForPath,
   refreshAutoVelocityConstraints,
@@ -10,6 +11,7 @@ import {
 import {
   createPathModel,
   createTranslationTarget,
+  rangedConstraintKeys,
   setHandoffRadiusSource,
   type PathModel,
   type RangedConstraint,
@@ -28,6 +30,31 @@ const config = {
 };
 
 describe("refreshAutoVelocityConstraints", () => {
+  it("keeps a mixed manual speed and acceleration policy current after cap ranges move", () => {
+    const path = {
+      ...examplePath(),
+      ranged_constraints: [
+        {
+          key: "max_velocity_meters_per_sec" as const,
+          value: 2,
+          start_ordinal: 3,
+          end_ordinal: 4,
+        },
+        {
+          key: "max_acceleration_meters_per_sec2" as const,
+          value: 3,
+          start_ordinal: 2,
+          end_ordinal: 3,
+        },
+      ],
+    };
+    const generated = generate(path);
+    expect(autoVelocityInputsChanged(path, config, generated, config)).toBe(
+      false,
+    );
+    expect(autoVelocityRefreshRequest(generated, config)?.stale).toBe(false);
+  });
+
   it("stamps the inputs it solved from", () => {
     const generated = generate(examplePath());
     const stamped = generated.ranged_constraints.filter(
@@ -127,6 +154,68 @@ describe("auto velocity ordinal constraints", () => {
 });
 
 describe("autoVelocityRefreshRequest", () => {
+  it.each(rangedConstraintKeys)(
+    "detects additions, edits, resizing, and removal of %s ranges",
+    (key) => {
+      const before = generate(examplePath());
+      const range: RangedConstraint = {
+        key,
+        value: 3,
+        start_ordinal: 2,
+        end_ordinal: 4,
+      };
+      const added = {
+        ...before,
+        ranged_constraints: [...before.ranged_constraints, range],
+      };
+      expect(autoVelocityInputsChanged(before, config, added, config)).toBe(
+        true,
+      );
+      expect(autoVelocityRefreshRequest(added, config)?.stale).toBe(true);
+
+      const generated = generate(added);
+      expect(autoVelocityRefreshRequest(generated, config)?.stale).toBe(false);
+      for (const replacement of [
+        { ...range, value: 2 },
+        { ...range, start_ordinal: 3 },
+        { ...range, end_ordinal: 3 },
+        null,
+      ]) {
+        const changed = {
+          ...generated,
+          ranged_constraints: generated.ranged_constraints.flatMap(
+            (constraint) =>
+              constraint.key === key && constraint.source !== "auto_velocity"
+                ? replacement
+                  ? [replacement]
+                  : []
+                : [constraint],
+          ),
+        };
+        expect(
+          autoVelocityInputsChanged(generated, config, changed, config),
+        ).toBe(true);
+        expect(autoVelocityRefreshRequest(changed, config)?.stale).toBe(true);
+      }
+    },
+  );
+
+  it("ignores changes to generated cap values, ranges, and metadata", () => {
+    const generated = generate(examplePath());
+    const changed = {
+      ...generated,
+      ranged_constraints: generated.ranged_constraints.map((constraint) => ({
+        ...constraint,
+        value: constraint.value / 2,
+        end_ordinal: constraint.start_ordinal,
+        auto_velocity: null,
+      })),
+    };
+    expect(autoVelocityInputsChanged(generated, config, changed, config)).toBe(
+      false,
+    );
+  });
+
   it("returns nothing when no optimizer output was generated", () => {
     expect(autoVelocityRefreshRequest(examplePath(), config)).toBeNull();
   });

@@ -340,7 +340,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 12;
+const autoConstraintSolverVersion = 13;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -3221,24 +3221,22 @@ export function autoVelocityInputSignature(
         maxAccelerationDegPerSec:
           path.constraints.max_acceleration_deg_per_sec2,
       },
-      rotationRangedConstraints: path.ranged_constraints
-        .filter((constraint) => isRotationRangedConstraintKey(constraint.key))
-        .map((constraint) => ({
-          key: constraint.key,
-          value: constraint.value,
-          startOrdinal: constraint.start_ordinal,
-          endOrdinal: constraint.end_ordinal,
-        })),
-      // Manual velocity caps are solver inputs (pins), so they must dirty the
-      // signature; generated caps are output and must not, or refresh would
-      // chase itself the way unsigned radii once did.
-      manualVelocityRangedConstraints: path.ranged_constraints
+      // Every authored range is an input, including acceleration and minimum
+      // speed limits. Only generated velocity caps are output: signing those
+      // would make applying a refresh schedule another refresh.
+      rangedConstraints: path.ranged_constraints
         .filter(
           (constraint) =>
-            constraint.key === "max_velocity_meters_per_sec" &&
-            constraint.source !== "auto_velocity",
+            !(
+              constraint.key === "max_velocity_meters_per_sec" &&
+              constraint.source === "auto_velocity"
+            ),
         )
+        // Applying generated caps moves speed ranges after the other keys.
+        // Ignore that cross-key ordering while preserving order within a key.
+        .sort((left, right) => left.key.localeCompare(right.key))
         .map((constraint) => ({
+          key: constraint.key,
           value: constraint.value,
           startOrdinal: constraint.start_ordinal,
           endOrdinal: constraint.end_ordinal,
@@ -6988,13 +6986,6 @@ function isTranslationRangedConstraintKey(key: RangedConstraintKey): boolean {
   return (
     key === "max_velocity_meters_per_sec" ||
     key === "max_acceleration_meters_per_sec2"
-  );
-}
-
-function isRotationRangedConstraintKey(key: RangedConstraintKey): boolean {
-  return (
-    key === "max_velocity_deg_per_sec" ||
-    key === "max_acceleration_deg_per_sec2"
   );
 }
 

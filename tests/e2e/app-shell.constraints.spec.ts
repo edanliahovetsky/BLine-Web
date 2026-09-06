@@ -518,6 +518,58 @@ test("refreshes the generated policy in the background after a path edit", async
   );
 });
 
+test("automatically syncs added, edited, and removed acceleration ranges", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+  const velocity = page.getByTestId(
+    "constraint-card-max_velocity_meters_per_sec",
+  );
+  await page
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    .click();
+  await page.getByLabel("Delete constraint 1").click();
+  await velocity.getByRole("button", { name: "Generate constraints" }).click();
+  await expect(velocity.getByRole("status")).toHaveText("Up to date");
+
+  const tab = page.getByRole("tab", { name: "Constraints", exact: true });
+  const expectAutomaticRefresh = async () => {
+    await expect(tab).toHaveClass(/is-optimizing/);
+    await expect(tab).not.toHaveClass(/is-optimizing/);
+    await expect(velocity.getByRole("status")).toHaveText("Up to date");
+  };
+  await page
+    .getByRole("button", { name: "Add constraint", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Max Acceleration", exact: true })
+    .click();
+  await expectAutomaticRefresh();
+
+  const acceleration = page.getByTestId(
+    "constraint-card-max_acceleration_meters_per_sec2",
+  );
+  await acceleration
+    .getByTestId(/^constraint-range-max_acceleration_meters_per_sec2-\d+$/)
+    .click();
+  await acceleration.getByLabel(/^Constraint \d+ value$/).fill("3");
+  await expectAutomaticRefresh();
+  await expect(acceleration.getByLabel(/^Constraint \d+ value$/)).toHaveValue(
+    "3",
+  );
+
+  await acceleration
+    .getByRole("button", { name: /^Delete constraint \d+$/ })
+    .click();
+  await expectAutomaticRefresh();
+  await expect(
+    acceleration.getByTestId(
+      /^constraint-range-max_acceleration_meters_per_sec2-\d+$/,
+    ),
+  ).toHaveCount(0);
+});
+
 test("starts automatic generation after an opened project creates a Path with the Curve tool", async ({
   page,
 }) => {
@@ -620,7 +672,9 @@ test("warns that a large path may take longer without exposing its evaluation bu
     .click();
 
   const warning = page.getByTestId("auto-velocity-workload-warning");
-  await expect(warning).toHaveText("Large path — optimization may take longer.");
+  await expect(warning).toHaveText(
+    "Large path — optimization may take longer.",
+  );
   await expect(warning).not.toContainText("candidate evaluations");
 });
 

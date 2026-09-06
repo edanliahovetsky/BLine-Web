@@ -22,6 +22,7 @@ import {
   isTranslationTarget,
   type PathElement,
   type PathModel,
+  type RangedConstraint,
 } from "../../../src/core/model/path";
 import { addPathToProject } from "../../../src/core/model/projectOperations";
 import { createCurveTranslationTargets } from "../../../src/core/pathProfile/curveProfile";
@@ -48,6 +49,70 @@ afterEach(() => {
 });
 
 describe("auto velocity sync", () => {
+  it("refreshes acceleration range edits once and keeps them in the same undo step", async () => {
+    const store = await initializedStore(exampleWorkspace(true));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+    try {
+      const range: RangedConstraint = {
+        key: "max_acceleration_meters_per_sec2",
+        value: 3,
+        start_ordinal: 2,
+        end_ordinal: 4,
+      };
+      let calls = 0;
+      for (const replacement of [
+        range,
+        { ...range, value: 2 },
+        { ...range, value: 2, start_ordinal: 3, end_ordinal: 3 },
+        null,
+      ]) {
+        const before = structuredClone(store.getState().project);
+        const previousRanges = activeDocument(store)!.path.ranged_constraints;
+        store.getState().applyPathCommand({
+          description: "Edit acceleration range",
+          apply: (path) => ({
+            ...path,
+            ranged_constraints: [
+              ...path.ranged_constraints.filter((c) => c.key !== range.key),
+              ...(replacement ? [replacement] : []),
+            ],
+          }),
+          revert: (path) => ({ ...path, ranged_constraints: previousRanges }),
+        });
+        expect(status.getState().phase).toBe("pending");
+        await waitForIdle(status);
+        expect(request).toHaveBeenCalledTimes(++calls);
+        expect(
+          autoVelocityRefreshRequest(
+            activeDocument(store)!.path,
+            activeDocument(store)!.config,
+          )?.stale,
+        ).toBe(false);
+        expect(
+          activeDocument(store)!.path.ranged_constraints.filter(
+            (c) => c.key === range.key,
+          ),
+        ).toEqual(replacement ? [replacement] : []);
+        const after = structuredClone(store.getState().project);
+        store.getState().undo();
+        expect(store.getState().project).toEqual(before);
+        store.getState().redo();
+        expect(store.getState().project).toEqual(after);
+      }
+      await new Promise((resolve) => setTimeout(resolve, syncDelayMs * 3));
+      expect(request).toHaveBeenCalledTimes(calls);
+    } finally {
+      stop();
+    }
+  });
+
   it("starts before a Project opens and generates its first curve-tool elements", async () => {
     const store = createProjectStore();
     const status = createAutoVelocityStore();
