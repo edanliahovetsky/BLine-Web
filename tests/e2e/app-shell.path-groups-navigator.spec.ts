@@ -58,6 +58,53 @@ async function startDrag(page: Page, source: Locator, destination: Locator) {
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
 }
 
+test("creates Paths inline with unique defaults, name validation, and undo @webkit-canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const nav = await openPathLibraryDialog(page);
+  const create = nav.getByRole("button", {
+    name: "Create new path",
+    exact: true,
+  });
+  const name = nav.getByRole("textbox", { name: "Path name", exact: true });
+  await create.click();
+  await expect(
+    page.getByRole("dialog", { name: "Create New Path", exact: true }),
+  ).toHaveCount(0);
+  await expect(name).toBeFocused();
+  await expect(name).toHaveValue("New Path");
+  expect(
+    await name.evaluate((el: HTMLInputElement) => [
+      el.selectionStart,
+      el.selectionEnd,
+    ]),
+  ).toEqual([0, 8]);
+  await name.press("Escape");
+  await expect(focusName(nav)).toHaveText("New Path");
+  await expect(focusCount(nav)).toHaveText("0 Path Groups connected");
+  await create.click();
+  await expect(name).toBeFocused();
+  await expect(name).toHaveValue("New Path 2");
+  await name.fill("New Path");
+  await name.press("Enter");
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await name.fill("Testing");
+  await nav.getByRole("searchbox", { name: "Search paths" }).click();
+  await expect(name).toHaveCount(0);
+  await expect(focusName(nav)).toHaveText("Testing");
+  await nav.getByRole("button", { name: "Focus Testing", exact: true }).click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(focusName(nav)).toHaveText("New Path 2");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(3);
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    `Current Path: ${sample}`,
+  );
+});
+
 test("shows connection points only opposite the selection and toggles links in one click", async ({
   page,
 }) => {
@@ -391,6 +438,91 @@ test("selects Path Groups for bulk deletion from row and top menus, with cancel 
   await expect(nav.locator(".fc-groups .fc-name")).toHaveText(["Keep"]);
   await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(1);
 });
+
+for (const kind of ["path", "group"] as const) {
+  test(`supports file-style range and modifier selection when deleting ${kind}s @webkit-canvas`, async ({
+    page,
+  }) => {
+    const nav = await seedLongLibrary(page, kind);
+    const label = kind === "path" ? "Path" : "Group";
+    await action(
+      nav,
+      kind === "path" ? "Path" : "Path Group",
+      `${label} 00`,
+      "Delete",
+    );
+    const dialog = page.getByRole("dialog", {
+      name: kind === "path" ? "Delete Paths" : "Delete Path Groups",
+      exact: true,
+    });
+    const item = (index: number) =>
+      dialog
+        .locator(".delete-path-row")
+        .filter({ hasText: `${label} ${String(index).padStart(2, "0")}` });
+    const selected = async (indices: number[]) => {
+      await expect(
+        dialog.locator(".delete-path-row.is-selected > span"),
+      ).toHaveText(
+        indices.map((index) => `${label} ${String(index).padStart(2, "0")}`),
+      );
+      await expect(dialog.locator("input:checked")).toHaveCount(indices.length);
+    };
+    await selected([0]);
+    await item(3)
+      .locator("span")
+      .click({ modifiers: ["Shift"] });
+    await selected([0, 1, 2, 3]);
+    await item(1)
+      .locator("span")
+      .click({ modifiers: ["Shift"] });
+    await selected([0, 1]);
+    await item(4)
+      .locator("span")
+      .click({ modifiers: ["ControlOrMeta"] });
+    await selected([0, 1, 4]);
+    await item(0)
+      .locator("span")
+      .click({ modifiers: ["ControlOrMeta"] });
+    await selected([1, 4]);
+    await item(2)
+      .locator("span")
+      .click({ modifiers: ["ControlOrMeta"] });
+    await selected([1, 2, 4]);
+    await item(3).locator("span").click();
+    await selected([3]);
+    await item(1)
+      .locator("span")
+      .click({ modifiers: ["Shift"] });
+    await selected([1, 2, 3]);
+    await item(5)
+      .locator("span")
+      .click({ modifiers: ["ControlOrMeta", "Shift"] });
+    await selected([1, 2, 3, 4, 5]);
+    await item(0).getByRole("checkbox").check();
+    await selected([0, 1, 2, 3, 4, 5]);
+    await item(3)
+      .getByRole("checkbox")
+      .click({ modifiers: ["Shift"] });
+    await selected([0, 1, 2, 3]);
+    await page.keyboard.press("Shift+ArrowUp");
+    await selected([0, 1, 2]);
+    await page.keyboard.press("ControlOrMeta+a");
+    await expect(dialog.getByRole("status")).toHaveText("24 of 24 selected");
+    await dialog
+      .getByRole("button", { name: "Select None", exact: true })
+      .click();
+    await selected([]);
+    await item(0).locator("span").click();
+    await page.keyboard.press("Shift+ArrowDown");
+    await selected([0, 1]);
+    await dialog
+      .getByRole("button", { name: "Delete Selected", exact: true })
+      .click();
+    await expect(nav.locator(`.fc-row[data-kind="${kind}"]`)).toHaveCount(22);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(nav.locator(`.fc-row[data-kind="${kind}"]`)).toHaveCount(24);
+  });
+}
 
 test("filters connections, keeps row order stable, and aligns links after resizing", async ({
   page,

@@ -89,83 +89,6 @@ export function CreateProjectDialog({
   );
 }
 
-export function NewPathDialog({
-  activeGroup,
-  onCancel,
-  onCreate,
-}: {
-  activeGroup: ProjectPathGroup | null;
-  onCancel(): void;
-  onCreate(input: { displayName: string; addToCurrentGroup: boolean }): void;
-}) {
-  const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const [displayName, setDisplayName] = useState("new_path");
-  const [addToCurrentGroup, setAddToCurrentGroup] = useState(
-    Boolean(activeGroup),
-  );
-
-  useEffect(() => {
-    nameInputRef.current?.focus();
-    nameInputRef.current?.select();
-  }, []);
-
-  return (
-    <div className="config-dialog-backdrop" role="presentation">
-      <form
-        className="new-path-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create New Path"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onCreate({
-            displayName: displayName.trim() || "Untitled Path",
-            addToCurrentGroup: Boolean(activeGroup) && addToCurrentGroup,
-          });
-        }}
-      >
-        <header className="config-dialog__header">
-          <strong>Create New Path</strong>
-          <CloseButton ariaLabel="Close new path" onClick={onCancel} />
-        </header>
-        <section className="new-path-dialog__body">
-          <label className="dialog-field">
-            <span>Path name</span>
-            <input
-              ref={nameInputRef}
-              aria-label="Path name"
-              type="text"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.currentTarget.value)}
-            />
-          </label>
-          {activeGroup ? (
-            <label className="dialog-checkbox-row">
-              <input
-                aria-label={`Add to ${activeGroup.display_name}`}
-                type="checkbox"
-                checked={addToCurrentGroup}
-                onChange={(event) =>
-                  setAddToCurrentGroup(event.currentTarget.checked)
-                }
-              />
-              <span>Add to {activeGroup.display_name}</span>
-            </label>
-          ) : null}
-        </section>
-        <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="primary-dialog-action">
-            Create Path
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
-
 export function NameEntryDialog({
   ariaLabel,
   description,
@@ -484,6 +407,49 @@ function DeleteLibraryItemsDialog({
         initialSelectedIds.filter((id) => items.some((item) => item.id === id)),
       ),
   );
+  const anchorId = useRef(
+    items.find((item) => initialSelectedIds.includes(item.id))?.id ?? null,
+  );
+  const selectItem = (
+    index: number,
+    modifiers: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+    toggle = false,
+  ) => {
+    const item = items[index];
+    if (!item) return;
+    const anchor = items.findIndex((entry) => entry.id === anchorId.current);
+    const additive = modifiers.ctrlKey || modifiers.metaKey;
+    if (modifiers.shiftKey && anchor !== -1) {
+      const range = items.slice(
+        Math.min(anchor, index),
+        Math.max(anchor, index) + 1,
+      );
+      setSelectedIds(
+        (current) =>
+          new Set([
+            ...(additive ? current : []),
+            ...range.map((entry) => entry.id),
+          ]),
+      );
+    } else {
+      anchorId.current = item.id;
+      setSelectedIds((current) => {
+        if (!additive && !toggle) return new Set([item.id]);
+        const next = new Set(current);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+    }
+  };
+  const selectAll = () => {
+    anchorId.current = items[0]?.id ?? null;
+    setSelectedIds(new Set(items.map((item) => item.id)));
+  };
+  const selectNone = () => {
+    anchorId.current = null;
+    setSelectedIds(new Set());
+  };
   useEffect(() => {
     dialogRef.current?.focus();
   }, [dialogRef]);
@@ -503,6 +469,13 @@ function DeleteLibraryItemsDialog({
             event.preventDefault();
             event.stopPropagation();
             onCancel();
+          } else if (
+            (event.ctrlKey || event.metaKey) &&
+            event.key.toLowerCase() === "a"
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            selectAll();
           }
         }}
         onSubmit={(event) => {
@@ -534,16 +507,14 @@ function DeleteLibraryItemsDialog({
           <div>
             <button
               type="button"
-              onClick={() =>
-                setSelectedIds(new Set(items.map((item) => item.id)))
-              }
+              onClick={selectAll}
               disabled={items.length === 0 || selectedCount === items.length}
             >
               Select All
             </button>
             <button
               type="button"
-              onClick={() => setSelectedIds(new Set())}
+              onClick={selectNone}
               disabled={selectedCount === 0}
             >
               Select None
@@ -559,27 +530,54 @@ function DeleteLibraryItemsDialog({
               No {kind === "paths" ? "paths" : "path groups"} found to delete.
             </div>
           ) : (
-            items.map((item) => {
+            items.map((item, index) => {
               const checked = selectedIds.has(item.id);
               return (
                 <label
                   key={item.id}
                   className={`delete-path-row${checked ? " is-selected" : ""}`}
+                  onClick={(event) => {
+                    // The checkbox has its own additive toggle; the row follows file selection.
+                    if (event.target instanceof HTMLInputElement) return;
+                    event.preventDefault();
+                    event.currentTarget
+                      .querySelector("input")
+                      ?.focus({ preventScroll: true });
+                    selectItem(index, event);
+                  }}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={(event) => {
-                      const nextChecked = event.currentTarget.checked;
-                      setSelectedIds((current) => {
-                        const next = new Set(current);
-                        if (nextChecked) {
-                          next.add(item.id);
-                        } else {
-                          next.delete(item.id);
-                        }
-                        return next;
-                      });
+                    onChange={() => {}}
+                    onClick={(event) => {
+                      event.currentTarget.focus({ preventScroll: true });
+                      selectItem(index, event, true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === " ") {
+                        event.preventDefault();
+                        selectItem(index, event, true);
+                        return;
+                      }
+                      const nextIndex =
+                        event.key === "ArrowDown"
+                          ? Math.min(items.length - 1, index + 1)
+                          : event.key === "ArrowUp"
+                            ? Math.max(0, index - 1)
+                            : event.key === "Home"
+                              ? 0
+                              : event.key === "End"
+                                ? items.length - 1
+                                : null;
+                      if (nextIndex === null) return;
+                      event.preventDefault();
+                      const inputs = event.currentTarget
+                        .closest("section")
+                        ?.querySelectorAll("input");
+                      inputs?.[nextIndex]?.focus();
+                      if (event.shiftKey || !(event.ctrlKey || event.metaKey))
+                        selectItem(nextIndex, event);
                     }}
                   />
                   <span>{item.name}</span>

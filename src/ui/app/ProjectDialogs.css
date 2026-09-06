@@ -127,7 +127,7 @@
   gap: 12px;
   padding: 20px;
   border-bottom: 1px solid #2b3945;
-  background: linear-gradient(105deg, #1b2a38, #141e28);
+  background: #192532;
 }
 .path-removal__header > div {
   flex: 1;
@@ -188,6 +188,7 @@
   background: transparent;
 }
 .path-removal .delete-path-row {
+  user-select: none;
   min-height: 46px;
   gap: 12px;
   padding: 10px 12px;
@@ -202,7 +203,7 @@
 }
 .path-removal .delete-path-row.is-selected {
   border-color: #785059;
-  background: linear-gradient(110deg, #35282f, #26232b);
+  background: #30262d;
 }
 .path-removal .delete-path-row input {
   appearance: none;

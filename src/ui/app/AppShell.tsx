@@ -108,7 +108,6 @@ import {
   DeletePathGroupsDialog,
   DeleteProjectsDialog,
   NameEntryDialog,
-  NewPathDialog,
 } from "./ProjectDialogs";
 import {
   LinkedTargetsDialog,
@@ -221,10 +220,9 @@ export function AppShell() {
     fieldId: string;
   } | null>(null);
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
-  const [showNewPathDialog, setShowNewPathDialog] = useState(false);
-  const [newPathGroupContextId, setNewPathGroupContextId] = useState<
-    string | null | undefined
-  >(undefined);
+  const [initiallyEditingPathId, setInitiallyEditingPathId] = useState<
+    string | null
+  >(null);
   const [showDeleteProjectDialog, setShowDeleteProjectDialog] = useState(false);
   const [showDeletePathGroupDialog, setShowDeletePathGroupDialog] =
     useState(false);
@@ -331,7 +329,6 @@ export function AppShell() {
         showLinkedTargetsDialog ||
         showMobileSupportWarning ||
         pathNameAction !== null ||
-        showNewPathDialog ||
         showNewProjectDialog ||
         showOpenPanel ||
         showPathGroupsDialog ||
@@ -370,7 +367,6 @@ export function AppShell() {
     showDeleteProjectDialog,
     showLinkedTargetsDialog,
     showMobileSupportWarning,
-    showNewPathDialog,
     showNewProjectDialog,
     showOpenPanel,
     showPathGroupsDialog,
@@ -825,16 +821,50 @@ export function AppShell() {
     }
   }, [cancelAutosave]);
 
-  const handleCreateNewPath = useCallback(async () => {
+  const handleCreateLibraryPath = useCallback((groupId: string | null) => {
+    const state = projectStore.getState();
+    if (!state.project) return null;
+    const existingPaths = state.project.paths;
+    const names = new Set(
+      existingPaths.map((path) => path.display_name.toLocaleLowerCase()),
+    );
+    let displayName = "New Path",
+      suffix = 2;
+    while (names.has(displayName.toLocaleLowerCase()))
+      displayName = `New Path ${suffix++}`;
+    state.createPath({
+      displayName,
+      path: createBlankCanvasPath(),
+      addToGroupId: groupId,
+      makeActive: false,
+    });
+    return (
+      projectStore
+        .getState()
+        .project?.paths.find(
+          (path) =>
+            !existingPaths.some(
+              (existing) => existing.path_id === path.path_id,
+            ),
+        ) ?? null
+    );
+  }, []);
+
+  const handleCreateNewPath = useCallback(() => {
+    const created = handleCreateLibraryPath(
+      projectStore.getState().activePathGroupId,
+    );
+    if (!created) return;
     setShowOpenPanel(false);
     setOpenTopMenu(null);
-    setNewPathGroupContextId(undefined);
-    setShowNewPathDialog(true);
-  }, []);
+    setInitiallyEditingPathId(created.path_id);
+    setShowPathGroupsDialog(true);
+  }, [handleCreateLibraryPath]);
 
   const handleShowPathLibrary = useCallback(() => {
     setShowOpenPanel(false);
     setOpenTopMenu(null);
+    setInitiallyEditingPathId(null);
     setShowPathGroupsDialog(true);
   }, []);
 
@@ -869,30 +899,6 @@ export function AppShell() {
     setShowLinkedTargetsDialog(false);
     setLinkedTargetPickerRequest(null);
   }, []);
-
-  const handleConfirmCreateNewPath = useCallback(
-    ({
-      addToCurrentGroup,
-      displayName,
-    }: {
-      addToCurrentGroup: boolean;
-      displayName: string;
-    }) => {
-      const activeGroupId =
-        newPathGroupContextId !== undefined
-          ? newPathGroupContextId
-          : projectStore.getState().activePathGroupId;
-      projectStore.getState().createPath({
-        displayName,
-        path: createBlankCanvasPath(),
-        addToGroupId: addToCurrentGroup ? activeGroupId : null,
-      });
-      selectionStore.getState().clearSelection();
-      setNewPathGroupContextId(undefined);
-      setShowNewPathDialog(false);
-    },
-    [newPathGroupContextId],
-  );
 
   const handleSaveProject = useCallback(async () => {
     setShowOpenPanel(false);
@@ -1758,7 +1764,6 @@ export function AppShell() {
         showLinkedTargetsDialog,
         showMobileSupportWarning,
         showNameEntryDialog: pathNameAction !== null,
-        showNewPathDialog,
         showNewProjectDialog,
         showOpenPanel,
         showPathGroupsDialog,
@@ -2158,11 +2163,12 @@ export function AppShell() {
           project={durableProject}
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
-          onCancel={() => setShowPathGroupsDialog(false)}
-          onCreatePath={(groupId) => {
-            setNewPathGroupContextId(groupId);
-            setShowNewPathDialog(true);
+          initiallyEditingPathId={initiallyEditingPathId}
+          onCancel={() => {
+            setShowPathGroupsDialog(false);
+            setInitiallyEditingPathId(null);
           }}
+          onCreatePath={handleCreateLibraryPath}
           onDeletePaths={handleShowDeletePaths}
           onDeletePathGroups={handleShowDeletePathGroups}
           onPreviewPathGroup={() => handleShowGhostPathsChange(true)}
@@ -2196,24 +2202,6 @@ export function AppShell() {
           project={durableProject}
           field={activeField}
           onCancel={closeLinkedTargetsDialog}
-        />
-      ) : null}
-      {durableProject && showNewPathDialog ? (
-        <NewPathDialog
-          activeGroup={
-            durableProject.path_groups.find(
-              (group) =>
-                group.group_id ===
-                (newPathGroupContextId !== undefined
-                  ? newPathGroupContextId
-                  : activePathGroupId),
-            ) ?? null
-          }
-          onCancel={() => {
-            setNewPathGroupContextId(undefined);
-            setShowNewPathDialog(false);
-          }}
-          onCreate={handleConfirmCreateNewPath}
         />
       ) : null}
       {showDeletePathGroupDialog ? (
@@ -2680,7 +2668,6 @@ function hasActiveBlockingSurface({
   showLinkedTargetsDialog,
   showMobileSupportWarning,
   showNameEntryDialog,
-  showNewPathDialog,
   showNewProjectDialog,
   showOpenPanel,
   showPathGroupsDialog,
@@ -2697,7 +2684,6 @@ function hasActiveBlockingSurface({
   showLinkedTargetsDialog: boolean;
   showMobileSupportWarning: boolean;
   showNameEntryDialog: boolean;
-  showNewPathDialog: boolean;
   showNewProjectDialog: boolean;
   showOpenPanel: boolean;
   showPathGroupsDialog: boolean;
@@ -2715,7 +2701,6 @@ function hasActiveBlockingSurface({
     showLinkedTargetsDialog ||
     showMobileSupportWarning ||
     showNameEntryDialog ||
-    showNewPathDialog ||
     showNewProjectDialog ||
     showOpenPanel ||
     showPathGroupsDialog ||

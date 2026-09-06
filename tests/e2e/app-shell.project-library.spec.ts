@@ -39,13 +39,23 @@ test("creates Path Groups and new Paths from the Project Navigator", async ({
   const navigator = await openPathLibraryDialog(page);
   await navigator.getByRole("button", { name: "Create new path" }).click();
   const newPathDialog = page.getByRole("dialog", { name: "Create New Path" });
-  await expect(newPathDialog).toBeVisible();
-  await newPathDialog.getByLabel("Path name").fill("Group Blank");
-  await expect(newPathDialog.getByLabel("Add to Score Autos")).toBeChecked();
-  await newPathDialog.getByRole("button", { name: "Create Path" }).click();
+  await expect(newPathDialog).toHaveCount(0);
+  const name = navigator.getByRole("textbox", {
+    name: "Path name",
+    exact: true,
+  });
+  await expect(name).toBeFocused();
+  await name.fill("Group Blank");
+  await name.press("Enter");
+  await expect(navigator.getByTestId("path-library-focus-name")).toHaveText(
+    "Group Blank",
+  );
+  await expect(navigator.getByTestId("path-library-focus-count")).toHaveText(
+    "1 Path Group connected",
+  );
 
   await expect(page.getByTestId("current-path-status")).toContainText(
-    "Score Autos / Group Blank",
+    "Score Autos / Phase 1 Canvas Draft",
   );
 
   await navigator
@@ -59,7 +69,9 @@ test("creates Path Groups and new Paths from the Project Navigator", async ({
   await expect(
     navigator.locator(".all-paths__row").filter({ hasText: "Group Blank" }),
   ).toBeVisible();
-  await navigator.getByRole("button", { name: "Close", exact: true }).click();
+  await navigator
+    .getByRole("button", { name: "Open Path", exact: true })
+    .click();
 
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Current Path: Group Blank",

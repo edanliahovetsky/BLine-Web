@@ -175,6 +175,7 @@ export interface ProjectStoreState {
     displayName: string;
     path?: PathModel;
     addToGroupId?: string | null;
+    makeActive?: boolean;
   }): void;
   renamePath(pathId: string, name: string): void;
   duplicatePath(
@@ -856,7 +857,9 @@ export function createProjectStore(
         project,
         added.project,
         navigation,
-        { ...navigation, activePathId: added.createdPathId },
+        input.makeActive === false
+          ? navigation
+          : { ...navigation, activePathId: added.createdPathId },
         "Create path",
         true,
         {},

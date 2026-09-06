@@ -122,8 +122,11 @@ export async function createNewPathFromTopMenu(
 ): Promise<void> {
   await openPathManageMenu(page);
   await page.getByRole("menuitem", { name: "Create New Path" }).click();
-  const dialog = page.getByRole("dialog", { name: "Create New Path" });
+  const dialog = page.getByRole("dialog", { name: "Project Navigator" });
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel("Path name").fill(pathName);
-  await dialog.getByRole("button", { name: "Create Path" }).click();
+  const name = dialog.getByRole("textbox", { name: "Path name", exact: true });
+  await expect(name).toBeFocused();
+  await name.fill(pathName);
+  await name.press("Enter");
+  await dialog.getByRole("button", { name: "Open Path", exact: true }).click();
 }

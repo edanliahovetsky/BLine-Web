@@ -3049,7 +3049,6 @@ select {
 .delete-paths-dialog,
 .delete-path-groups-dialog,
 .delete-projects-dialog,
-.new-path-dialog,
 .delete-path-group-dialog {
   display: grid;
   max-height: calc(100vh - 40px);
@@ -3203,7 +3202,6 @@ select {
   padding: 12px;
 }
 
-.new-path-dialog,
 .delete-path-group-dialog {
   grid-template-rows: auto minmax(0, 1fr) auto;
   width: min(420px, calc(100vw - 40px));
@@ -3598,7 +3596,6 @@ select {
   opacity: 0.5;
 }
 
-.new-path-dialog__body,
 .delete-path-group-dialog__body {
   display: grid;
   gap: 12px;

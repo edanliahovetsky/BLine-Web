@@ -23,7 +23,7 @@ import {
   ArrowDown,
   ArrowUp,
 } from "lucide-react";
-import type { Project } from "../../core/model/project";
+import type { Project, ProjectPath } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import { isEditableShortcutTarget } from "../keyboardShortcuts";
@@ -88,6 +88,7 @@ export function PathLibraryDialog({
   project,
   activePathId,
   activePathGroupId,
+  initiallyEditingPathId = null,
   onCancel,
   onCreatePath,
   onDeletePaths,
@@ -97,8 +98,9 @@ export function PathLibraryDialog({
   project: Project;
   activePathId: string | null;
   activePathGroupId: string | null;
+  initiallyEditingPathId?: string | null;
   onCancel(): void;
-  onCreatePath(groupId: string | null): void;
+  onCreatePath(groupId: string | null): ProjectPath | null;
   onDeletePaths(pathIds: readonly string[]): void;
   onDeletePathGroups(groupIds: readonly string[]): void;
   onPreviewPathGroup(): void;
@@ -107,11 +109,13 @@ export function PathLibraryDialog({
   const boardRef = useRef<HTMLDivElement>(null);
   const skipBlur = useRef(false);
   const [selected, setSelected] = useState<LibraryNode | null>(() =>
-    activePathGroupId
-      ? { kind: "group", id: activePathGroupId }
-      : activePathId
-        ? { kind: "path", id: activePathId }
-        : null,
+    initiallyEditingPathId
+      ? { kind: "path", id: initiallyEditingPathId }
+      : activePathGroupId
+        ? { kind: "group", id: activePathGroupId }
+        : activePathId
+          ? { kind: "path", id: activePathId }
+          : null,
   );
   const [groupContext, setGroupContext] = useState(activePathGroupId);
   const [groupQuery, setGroupQuery] = useState("");
@@ -119,7 +123,14 @@ export function PathLibraryDialog({
   const [showAll, setShowAll] = useState(false);
   const [pending, setPending] = useState<LibraryNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
-  const [editing, setEditing] = useState<InlineEdit | null>(null);
+  const [editing, setEditing] = useState<InlineEdit | null>(() => {
+    const path = project.paths.find(
+      (path) => path.path_id === initiallyEditingPathId,
+    );
+    return path
+      ? { kind: "path", id: path.path_id, value: path.display_name }
+      : null;
+  });
   const [menu, setMenu] = useState<RowMenu | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -240,8 +251,9 @@ export function PathLibraryDialog({
     }
   });
   useEffect(() => {
-    dialogRef.current?.focus({ preventScroll: true });
-  }, [dialogRef]);
+    if (!initiallyEditingPathId)
+      dialogRef.current?.focus({ preventScroll: true });
+  }, [dialogRef, initiallyEditingPathId]);
   const layoutKey = `${focusKey}|${[...displayedNodeKeys].join(",")}|${visibleGroups.map((node) => node.id).join(",")}|${visiblePaths.map((node) => node.id).join(",")}`;
   const { geometry, measure, jumpToConnection } = usePathLibraryGeometry(
     boardRef,
@@ -466,6 +478,26 @@ export function PathLibraryDialog({
       setEditing(null);
       setMessage("Name updated.");
     }
+  };
+  const createPath = () => {
+    mutate(() => {
+      const created = onCreatePath(focus?.kind === "group" ? focus.id : null);
+      if (!created) return;
+      const node: Node = {
+        kind: "path",
+        id: created.path_id,
+        name: created.display_name,
+        count:
+          projectStore
+            .getState()
+            .project?.path_groups.filter((group) =>
+              group.path_ids.includes(created.path_id),
+            ).length ?? 0,
+      };
+      setPathQuery("");
+      inspect(node);
+      startRename(node);
+    });
   };
   const createGroup = (source?: Node) => {
     setMenu(null);
@@ -1039,9 +1071,7 @@ export function PathLibraryDialog({
                   type="button"
                   aria-label="Create new path"
                   title="New Path"
-                  onClick={() =>
-                    onCreatePath(focus?.kind === "group" ? focus.id : null)
-                  }
+                  onClick={createPath}
                 >
                   <Plus size={14} />
                 </button>
