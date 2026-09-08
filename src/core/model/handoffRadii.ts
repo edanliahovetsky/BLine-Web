@@ -17,7 +17,7 @@ export type AnchorRadiusState = "auto" | "manual" | "unset";
 /**
  * One anchor's handoff radius as the editor presents it — on the Constraints
  * tab's chips and on the canvas rings alike. Pure so the ordinal numbering, the
- * endpoint inertness and the auto/manual classification are testable without a
+ * final-anchor inertness and the auto/manual classification are testable without a
  * rendered card or a canvas.
  */
 export interface AnchorHandoffRadius {
@@ -30,9 +30,9 @@ export interface AnchorHandoffRadius {
   source: HandoffRadiusSource | null;
   state: AnchorRadiusState;
   /**
-   * Endpoints carry a radius with no runtime effect: a segment hands off at its
-   * target anchor, so the first anchor is never a target and the last one
-   * finishes by tolerance rather than by a handoff.
+   * The final anchor carries a radius with no runtime effect because the path
+   * finishes there by tolerance rather than by a handoff. The first anchor stays
+   * live so its path-entry handoff radius is visible and editable.
    */
   inert: boolean;
 }
@@ -59,7 +59,7 @@ export function anchorHandoffRadii(
       // over, so it reads as pinned exactly like an explicit manual tag.
       state:
         valueMeters === null ? "unset" : source === "auto" ? "auto" : "manual",
-      inert: position === 0 || position === anchors.length - 1,
+      inert: position === anchors.length - 1,
     };
   });
 }

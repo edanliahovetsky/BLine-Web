@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { tours } from "../../../src/ui/tours/tours";
+import { tours, tourPathIntent } from "../../../src/ui/tours/tours";
 import { speedCap } from "../../../src/ui/tours/tourChecks";
 
 describe("guided lesson content", () => {
+  it("accepts background generation during observation but detects authored changes", () => {
+    const before = tours[1].practicePath();
+    const generated = structuredClone(before);
+    generated.ranged_constraints.push({
+      key: "max_velocity_meters_per_sec",
+      value: 1.2,
+      start_ordinal: 1,
+      end_ordinal: 2,
+      source: "auto_velocity",
+    });
+    expect(tourPathIntent(generated)).toBe(tourPathIntent(before));
+    generated.ranged_constraints.at(-1)!.source = "manual";
+    expect(tourPathIntent(generated)).not.toBe(tourPathIntent(before));
+    const moved = structuredClone(before);
+    const end = moved.path_elements.at(-1)!;
+    if (end.type === "waypoint") end.translation_target.x_meters += 1;
+    expect(tourPathIntent(moved)).not.toBe(tourPathIntent(before));
+  });
   it("teaches seven focused lessons with speed before radius tuning", () => {
     expect(tours.map((tour) => tour.id)).toEqual([
       "build-first-path",

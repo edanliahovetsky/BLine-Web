@@ -178,6 +178,10 @@ export interface AutoVelocityRefreshRequest {
   stale: boolean;
 }
 
+export interface AutoVelocityRefreshRequestOptions {
+  includeUnseeded?: boolean;
+}
+
 /**
  * Describes the regeneration a path is currently owed, or null when it has no
  * generated radius or velocity output to keep in sync.
@@ -189,6 +193,7 @@ export interface AutoVelocityRefreshRequest {
 export function autoVelocityRefreshRequest(
   path: PathModel,
   config: SimulationConfig,
+  requestOptions: AutoVelocityRefreshRequestOptions = {},
 ): AutoVelocityRefreshRequest | null {
   const generated = path.ranged_constraints.filter(
     (constraint) =>
@@ -198,7 +203,11 @@ export function autoVelocityRefreshRequest(
   const hasGeneratedRadii = path.path_elements.some(
     (element) => getHandoffRadiusSource(element) === "auto",
   );
-  if (generated.length === 0 && !hasGeneratedRadii) {
+  if (
+    generated.length === 0 &&
+    !hasGeneratedRadii &&
+    !requestOptions.includeUnseeded
+  ) {
     return null;
   }
 
@@ -322,6 +331,7 @@ function autoVelocityMetadataMatchesSettings(
 export function autoVelocityGenerationOptions(settings: {
   velocitySafetyFactor: number;
   accelerationSafetyFactor: number;
+  mergeToleranceMps?: number;
 }): AutoVelocityGenerationOptions {
   return autoVelocityOptions(settings);
 }
@@ -329,10 +339,14 @@ export function autoVelocityGenerationOptions(settings: {
 function autoVelocityOptions(settings: {
   velocitySafetyFactor: number;
   accelerationSafetyFactor: number;
+  mergeToleranceMps?: number;
 }): AutoVelocityGenerationOptions {
   return {
     velocitySafetyFactor: settings.velocitySafetyFactor,
     accelerationSafetyFactor: settings.accelerationSafetyFactor,
+    ...(settings.mergeToleranceMps === undefined
+      ? {}
+      : { mergeToleranceMps: settings.mergeToleranceMps }),
   };
 }
 

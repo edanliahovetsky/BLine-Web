@@ -15,11 +15,7 @@ import type {
   RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import type {
-  Project,
-  ProjectPath,
-  ProjectPathGroup,
-} from "../../core/model/project";
+import type { Project, ProjectPath } from "../../core/model/project";
 import { ChevronDownIcon } from "../icons";
 import { formatShortcut, type ShortcutBinding } from "./editorCommands";
 
@@ -43,31 +39,16 @@ const TopMenuSubmenuContext = createContext<TopMenuSubmenuContextValue | null>(
 
 export function ToolbarPathNavigator({
   project,
-  activeGroup,
   activePath,
-  visiblePaths,
-  onSelectGroup,
   onSelectPath,
 }: {
   project: Project | null;
-  activeGroup: ProjectPathGroup | null;
   activePath: ProjectPath | null;
-  visiblePaths: ProjectPath[];
-  onSelectGroup(groupId: string | null): void;
   onSelectPath(pathId: string): void;
 }) {
-  const collectionValue = activeGroup?.group_id ?? "__all_paths__";
-  const collectionLabel = activeGroup?.display_name ?? "All Paths";
-  const collectionOptions = [
-    { label: "All Paths", value: "__all_paths__" },
-    ...(project?.path_groups.map((group) => ({
-      label: group.display_name,
-      value: group.group_id,
-    })) ?? []),
-  ];
   const pathOptions =
-    visiblePaths.length > 0
-      ? visiblePaths.map((path) => ({
+    project && project.paths.length > 0
+      ? project.paths.map((path) => ({
           label: path.display_name,
           value: path.path_id,
         }))
@@ -82,30 +63,13 @@ export function ToolbarPathNavigator({
       data-tour="path-breadcrumb"
     >
       <div
-        className="path-toolbar-navigator__field path-toolbar-navigator__field--collection"
-        style={toolbarSelectWidthStyle(collectionLabel, 14, 26)}
-      >
-        <ToolbarSelectControl
-          ariaLabel="Toolbar collection"
-          value={collectionValue}
-          disabled={!project}
-          options={collectionOptions}
-          onChange={(value) =>
-            onSelectGroup(value === "__all_paths__" ? null : value)
-          }
-        />
-      </div>
-      <span className="path-toolbar-navigator__separator" aria-hidden="true">
-        /
-      </span>
-      <div
         className="path-toolbar-navigator__field path-toolbar-navigator__field--path"
         style={toolbarSelectWidthStyle(pathLabel, 15, 34)}
       >
         <ToolbarSelectControl
           ariaLabel="Toolbar path"
           value={pathValue}
-          disabled={visiblePaths.length === 0}
+          disabled={!project || project.paths.length === 0}
           options={pathOptions}
           onChange={(value) => {
             if (value !== "__no_path__") {

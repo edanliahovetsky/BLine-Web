@@ -203,7 +203,7 @@ test("seeds the capstone with real repair work", async ({ page }) => {
   await gotoSampleEditor(page);
   await openLesson(page, "verify-export");
   await expect(
-    page.getByRole("button", { name: "Path health: 2 issues" }),
+    page.getByRole("button", { name: "Path health: 3 issues" }),
   ).toBeVisible();
 
   const card = page.getByTestId("tour-card");
@@ -213,7 +213,7 @@ test("seeds the capstone with real repair work", async ({ page }) => {
     card.getByRole("button", { name: "Next", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
-    "needs a command key",
+    "command key empty",
   );
   await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
     "outside the configured field",
@@ -570,7 +570,7 @@ test("blocks wrong pointer tools and keyboard duplicates, then permits undo repa
   ).toBeVisible();
 });
 
-test("opens and closes expanded constraints without exiting or trapping the lesson", async ({
+test("edits speed inline without requiring the retired popout control", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -578,26 +578,12 @@ test("opens and closes expanded constraints without exiting or trapping the less
   await next(page, 1);
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();
   await next(page, 1);
-  const expand = page.getByRole("button", {
-    name: "Expand Max Velocity editor",
-    exact: true,
-  });
-  await expand.click();
-  const popout = page.getByTestId("constraint-popout-window");
-  await expect(popout).toBeVisible();
-  await popout
-    .getByRole("button", {
-      name: "Close Max Velocity expanded editor",
+  await expect(
+    page.getByRole("button", {
+      name: "Expand Max Velocity editor",
       exact: true,
-    })
-    .click();
-  await expect(popout).toHaveCount(0);
-  await expand.click();
-  await page.keyboard.press("Escape");
-  await expect(popout).toHaveCount(0);
-  await expect(page.getByTestId("tour-card")).toContainText(
-    "Slow the second turn",
-  );
+    }),
+  ).toHaveCount(0);
   await setSpeed(page, 3, "1.2");
   await expect(
     page

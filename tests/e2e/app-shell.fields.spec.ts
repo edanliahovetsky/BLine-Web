@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { canvasNodePosition } from "./support/app-shell-canvas";
+import { canvasNodePositionOrNull } from "./support/app-shell-canvas";
 import { runEditMenuAction } from "./support/app-shell-commands";
 import {
   activeFieldImageLoaded,
@@ -28,7 +28,7 @@ test("edits project config with undo support", async ({ page }) => {
     "Robot",
     "Path Defaults",
     "Field",
-    "Optimizer",
+    "Generator",
   ]);
   await expect(
     dialog.getByRole("heading", { name: "Auto Velocity" }),
@@ -37,12 +37,12 @@ test("edits project config with undo support", async ({ page }) => {
     "aria-current",
     "page",
   );
-  await dialog.getByRole("button", { name: "Optimizer" }).click();
+  await dialog.getByRole("button", { name: "Generator" }).click();
   await expect(
     dialog.getByRole("heading", { name: "Constraint Generation" }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("heading", { name: "Optimizer" }),
+    dialog.getByRole("heading", { name: "Generator" }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Robot" }).click();
   await expect(dialog.getByLabel("Protrusion Distance (m)")).toBeDisabled();
@@ -133,8 +133,21 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
   await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
   await expect(page.getByRole("button", { name: /^Path health/ })).toHaveClass(
-    /has-diagnostics--warning/,
+    /workspace-status__diagnostics--warning/,
   );
+
+  // A repairable warning moves its waypoint to the nearest valid coordinate.
+  await page.getByRole("button", { name: /^Path health/ }).click();
+  const healthDialog = page.getByRole("dialog", { name: "Path health" });
+  await healthDialog
+    .getByRole("button")
+    .filter({ hasText: "Element 1 is outside" })
+    .click();
+  await expect(page.getByLabel("X (m)")).toHaveValue("3.5");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("1.5");
+  await runEditMenuAction(page, "Undo");
+  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
 
   // Numeric edits can recover preserved overflow gradually, but cannot move
   // farther away from the active field's effective coordinate bounds.
@@ -169,71 +182,13 @@ test("uploads and restores a custom field image from Settings", async ({
     y_meters: 2.5,
   });
 
-  // Pointer-down alone keeps the raw coordinates, and a cancelled moved drag
-  // discards its bounded preview without creating a Path edit.
-  const pathStageCanvas = page.getByTestId("path-stage-canvas");
-  let boundedNode = await canvasNodePosition(page, "path-element-node-0");
-  await page.mouse.move(boundedNode.x, boundedNode.y);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect(xField).toHaveValue("5.7");
-  await expect(yField).toHaveValue("2.5");
-
-  await pathStageCanvas.evaluate((canvas) => {
-    canvas.addEventListener(
-      "pointerdown",
-      (event) => {
-        canvas.setAttribute(
-          "data-e2e-pointer-id",
-          String((event as PointerEvent).pointerId),
-        );
-      },
-      { once: true },
-    );
-  });
-  const cancelledPoint = {
-    x: boundedNode.x - 24,
-    y: boundedNode.y + 24,
-  };
-  await page.mouse.move(boundedNode.x, boundedNode.y);
-  await page.mouse.down();
-  await page.mouse.move(cancelledPoint.x, cancelledPoint.y, { steps: 4 });
-  await expect
-    .poll(() => pathStageCanvas.getAttribute("data-e2e-pointer-id"))
-    .not.toBeNull();
-  const pointerId = Number(
-    await pathStageCanvas.getAttribute("data-e2e-pointer-id"),
+  // Offscreen elements have no canvas-edge indicator or substitute node.
+  await expect(page.getByTestId("path-element-overflow-marker-0")).toHaveCount(
+    0,
   );
-  await pathStageCanvas.dispatchEvent("pointercancel", {
-    bubbles: true,
-    button: 0,
-    buttons: 0,
-    cancelable: true,
-    clientX: cancelledPoint.x,
-    clientY: cancelledPoint.y,
-    pointerId,
-    pointerType: "mouse",
-  });
-  await page.mouse.up();
-  await expect(xField).toHaveValue("5.7");
-  await expect(yField).toHaveValue("2.5");
-
-  // The off-field node is shown at the nearest edge. Its first drag commits
-  // the snap as one normal undoable Path edit.
-  boundedNode = await canvasNodePosition(page, "path-element-node-0");
-  await page.mouse.move(boundedNode.x, boundedNode.y);
-  await page.mouse.down();
-  await page.mouse.move(boundedNode.x - 24, boundedNode.y + 24, { steps: 4 });
-  await page.mouse.up();
   await expect
-    .poll(async () => Number(await page.getByLabel("X (m)").inputValue()))
-    .toBeLessThanOrEqual(3.5);
-  await expect
-    .poll(async () => Number(await page.getByLabel("Y (m)").inputValue()))
-    .toBeLessThanOrEqual(1.5);
-  await runEditMenuAction(page, "Undo");
-  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
+    .poll(() => canvasNodePositionOrNull(page, "path-element-node-0"))
+    .toBeNull();
 
   await page.reload();
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();

@@ -84,6 +84,7 @@ describe("sidebar commands", () => {
 
     expect(inserted.path_elements).toHaveLength(3);
     expect(isEventTrigger(inserted.path_elements[1])).toBe(true);
+    expect(inserted.path_elements[1]).toMatchObject({ lib_key: "" });
     expect(project.path.path_elements).toHaveLength(2);
 
     const insertedDocument = { ...project, path: inserted };
@@ -425,6 +426,7 @@ describe("sidebar commands", () => {
       return;
     }
     expect(isEventTrigger(converted)).toBe(true);
+    expect(converted).toMatchObject({ lib_key: "" });
 
     const updated = applyStructureToDocument(project, {
       kind: "convert",
@@ -668,7 +670,7 @@ describe("handoffRadiusChipsForPath", () => {
     ]);
   });
 
-  it("marks both endpoint anchors inert and leaves the interior live", () => {
+  it("keeps the first and interior anchors live and marks only the final anchor inert", () => {
     const chips = chipsForProject(
       chipProject([
         createTranslationTarget({ x_meters: 1, y_meters: 1 }),
@@ -678,7 +680,12 @@ describe("handoffRadiusChipsForPath", () => {
       ]),
     );
 
-    expect(chips.map((chip) => chip.inert)).toEqual([true, false, false, true]);
+    expect(chips.map((chip) => chip.inert)).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ]);
   });
 
   it("classifies generated, pinned and unset radii", () => {

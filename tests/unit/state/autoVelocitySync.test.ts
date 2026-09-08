@@ -22,8 +22,10 @@ import {
   isTranslationTarget,
   type PathElement,
   type PathModel,
+  type RangedConstraint,
 } from "../../../src/core/model/path";
 import { addPathToProject } from "../../../src/core/model/projectOperations";
+import { createCurveTranslationTargets } from "../../../src/core/pathProfile/curveProfile";
 import { createAutoVelocityStore } from "../../../src/state/autoVelocityStore";
 import { startAutomaticConstraintSync } from "../../../src/state/automaticConstraints";
 import {
@@ -47,6 +49,109 @@ afterEach(() => {
 });
 
 describe("auto velocity sync", () => {
+  it("refreshes acceleration range edits once and keeps them in the same undo step", async () => {
+    const store = await initializedStore(exampleWorkspace(true));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+    try {
+      const range: RangedConstraint = {
+        key: "max_acceleration_meters_per_sec2",
+        value: 3,
+        start_ordinal: 2,
+        end_ordinal: 4,
+      };
+      let calls = 0;
+      for (const replacement of [
+        range,
+        { ...range, value: 2 },
+        { ...range, value: 2, start_ordinal: 3, end_ordinal: 3 },
+        null,
+      ]) {
+        const before = structuredClone(store.getState().project);
+        const previousRanges = activeDocument(store)!.path.ranged_constraints;
+        store.getState().applyPathCommand({
+          description: "Edit acceleration range",
+          apply: (path) => ({
+            ...path,
+            ranged_constraints: [
+              ...path.ranged_constraints.filter((c) => c.key !== range.key),
+              ...(replacement ? [replacement] : []),
+            ],
+          }),
+          revert: (path) => ({ ...path, ranged_constraints: previousRanges }),
+        });
+        expect(status.getState().phase).toBe("pending");
+        await waitForIdle(status);
+        expect(request).toHaveBeenCalledTimes(++calls);
+        expect(
+          autoVelocityRefreshRequest(
+            activeDocument(store)!.path,
+            activeDocument(store)!.config,
+          )?.stale,
+        ).toBe(false);
+        expect(
+          activeDocument(store)!.path.ranged_constraints.filter(
+            (c) => c.key === range.key,
+          ),
+        ).toEqual(replacement ? [replacement] : []);
+        const after = structuredClone(store.getState().project);
+        store.getState().undo();
+        expect(store.getState().project).toEqual(before);
+        store.getState().redo();
+        expect(store.getState().project).toEqual(after);
+      }
+      await new Promise((resolve) => setTimeout(resolve, syncDelayMs * 3));
+      expect(request).toHaveBeenCalledTimes(calls);
+    } finally {
+      stop();
+    }
+  });
+
+  it("starts before a Project opens and generates its first curve-tool elements", async () => {
+    const store = createProjectStore();
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    store
+      .getState()
+      .setProjectIoService(
+        new MemoryIo(blankWorkspace()) as unknown as ProjectIoService,
+      );
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+
+    await store.getState().initializeWorkspace();
+    const result = store.getState().applyPathStructureEdit({
+      kind: "insert-many",
+      index: 0,
+      elements: createCurveTranslationTargets([
+        { x_meters: 3, y_meters: 1.4 },
+        { x_meters: 3.5, y_meters: 0.8 },
+      ]),
+    });
+
+    expect(result.status).toBe("applied");
+    expect(generatedValues(store)).toEqual([]);
+    expect(
+      activeDocument(store)?.path.path_elements.some(
+        (element) => getHandoffRadiusSource(element) === "auto",
+      ),
+    ).toBe(true);
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(generatedValues(store).length).toBeGreaterThan(0);
+    stop();
+  });
+
   it("regenerates stale caps after the path settles", async () => {
     const { store, stop, status } = await startedSync();
 
@@ -209,6 +314,103 @@ describe("auto velocity sync", () => {
     expect(store.getState().project).toEqual(before);
     store.getState().redo();
     expect(store.getState().project).toEqual(after);
+    stop();
+  });
+
+  it("generates an initially unseeded Path after curve-tool insert-many", async () => {
+    const store = await initializedStore(exampleWorkspace(false));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+
+    const result = store.getState().applyPathStructureEdit({
+      kind: "insert-many",
+      index: 2,
+      elements: [
+        createTranslationTarget({ x_meters: 3, y_meters: 1.4 }),
+        createTranslationTarget({ x_meters: 3.5, y_meters: 0.8 }),
+      ],
+    });
+
+    expect(result.status).toBe("applied");
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(generatedValues(store).length).toBeGreaterThan(0);
+    expect(
+      activeDocument(store)?.path.path_elements.some(
+        (element) => getHandoffRadiusSource(element) === "auto",
+      ),
+    ).toBe(true);
+    stop();
+  });
+
+  it("coalesces two quick insertions into one initial generation", async () => {
+    const store = await initializedStore(exampleWorkspace(false));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+
+    for (const [index, x, y] of [
+      [1, 1.1, 0.2],
+      [2, 1.6, 0.45],
+    ] as const) {
+      expect(
+        store.getState().applyPathStructureEdit({
+          kind: "insert",
+          index,
+          element: createTranslationTarget({
+            x_meters: x,
+            y_meters: y,
+          }),
+        }).status,
+      ).toBe("applied");
+    }
+
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(generatedValues(store).length).toBeGreaterThan(0);
+    stop();
+  });
+
+  it("generates a newly created nonempty Path after an immediate rename", async () => {
+    const store = await initializedStore(exampleWorkspace(false));
+    const status = createAutoVelocityStore();
+    const request = vi.fn(requestAutoRadiiAndCaps);
+    const stop = startAutomaticConstraintSync({
+      projects: store,
+      status,
+      request,
+      delayMs: syncDelayMs,
+    });
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 1.5, y_meters: 0.4 }),
+        createTranslationTarget({ x_meters: 3, y_meters: 0 }),
+      ],
+    });
+
+    store.getState().createPath({ displayName: "New Path", path });
+    const createdPathId = store.getState().activePathId;
+    expect(createdPathId).not.toBeNull();
+    store.getState().renamePath(createdPathId!, "Renamed Before Generation");
+
+    await waitForIdle(status);
+    expect(request).toHaveBeenCalledOnce();
+    expect(activeDocument(store)?.display_name).toBe(
+      "Renamed Before Generation",
+    );
+    expect(generatedValues(store).length).toBeGreaterThan(0);
     stop();
   });
 
@@ -730,6 +932,16 @@ function exampleWorkspace(generated: boolean): ProjectWorkspaceDocument {
           }),
         }
       : project,
+  );
+}
+
+function blankWorkspace(): ProjectWorkspaceDocument {
+  return projectDocumentToWorkspaceDocument(
+    createProjectDocument({
+      project_id: "blank-sync-project",
+      display_name: "Blank Sync",
+      path: createPathModel(),
+    }),
   );
 }
 

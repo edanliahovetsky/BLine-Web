@@ -1,4 +1,9 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import {
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { X } from "lucide-react";
 import type { LinkedTargetKind } from "../../core/io/projectSchema";
 import type { Project, ProjectPath } from "../../core/model/project";
@@ -36,6 +41,11 @@ import {
   writeEditorUiPreferences,
 } from "../app/editorCommands";
 import { IconButton } from "../controls";
+import {
+  updateOrderedSelection,
+  type OrderedSelectionGesture,
+  type OrderedSelectionState,
+} from "./orderedSelection";
 
 interface SidebarProps {
   project: Project | null;
@@ -45,11 +55,11 @@ interface SidebarProps {
   open?: boolean;
   activeTab: "elements" | "constraints";
   inspectorWidth: number;
+  footer?: ReactNode;
   curveToolActive?: boolean;
   onClose?(): void;
-  onSelectTab?(tab: "elements" | "constraints"): void;
+  onActiveTabChange?(tab: "elements" | "constraints"): void;
   onInspectorResize?(width: number): void;
-  onStartCurve?(insertionIndex: number): void;
   onOpenLinkedTargetPicker?(): void;
   onDialogOpenChange?(open: boolean): void;
 }
@@ -62,11 +72,11 @@ export function Sidebar({
   open = false,
   activeTab,
   inspectorWidth,
+  footer,
   curveToolActive = false,
   onClose,
-  onSelectTab,
+  onActiveTabChange,
   onInspectorResize,
-  onStartCurve,
   onOpenLinkedTargetPicker,
   onDialogOpenChange,
 }: SidebarProps) {
@@ -82,8 +92,68 @@ export function Sidebar({
     activePath && selectedElementIndex !== null
       ? (activePath.path.path_elements[selectedElementIndex] ?? null)
       : null;
-  const handleSelectElement = (index: number) => {
-    selectionStore.getState().selectElement(index, activePath?.path);
+  const [elementSelectionState, setElementSelectionState] = useState<
+    OrderedSelectionState & { pathId: string | null }
+  >({
+    anchorIndex: null,
+    focusIndex: null,
+    indexes: [],
+    pathId: null,
+  });
+  const elementIndexes =
+    activePath?.path.path_elements.map((_, index) => index) ?? [];
+  const selectableElementIndexes = new Set(elementIndexes);
+  const elementSelectionIsCurrent =
+    elementSelectionState.pathId === (activePath?.path_id ?? null) &&
+    elementSelectionState.focusIndex === selectedElementIndex;
+  const selectedElementIndexes = (
+    elementSelectionIsCurrent && elementSelectionState.indexes.length > 0
+      ? elementSelectionState.indexes
+      : selectedElementIndex !== null
+        ? [selectedElementIndex]
+        : []
+  ).filter((index) => selectableElementIndexes.has(index));
+  const selectedElements = selectedElementIndexes.flatMap((index) => {
+    const element = activePath?.path.path_elements[index];
+    return element ? [{ index, element }] : [];
+  });
+
+  const selectOnlyElement = (index: number | null) => {
+    setElementSelectionState({
+      anchorIndex: index,
+      focusIndex: index,
+      indexes: index === null ? [] : [index],
+      pathId: activePath?.path_id ?? null,
+    });
+    selectionStore
+      .getState()
+      .selectElement(
+        index,
+        activePathForProjectStore(projectStore.getState())?.path ??
+          activePath?.path,
+      );
+  };
+
+  const handleSelectElement = (
+    index: number,
+    gesture: OrderedSelectionGesture,
+  ) => {
+    const nextSelection = updateOrderedSelection({
+      orderedIndexes: elementIndexes,
+      selectedIndexes: selectedElementIndexes,
+      anchorIndex: elementSelectionIsCurrent
+        ? elementSelectionState.anchorIndex
+        : selectedElementIndex,
+      targetIndex: index,
+      gesture,
+    });
+    setElementSelectionState({
+      ...nextSelection,
+      pathId: activePath?.path_id ?? null,
+    });
+    selectionStore
+      .getState()
+      .selectElement(nextSelection.focusIndex, activePath?.path);
   };
 
   const handleAddElement = (type: AddableElementType) => {
@@ -112,22 +182,7 @@ export function Sidebar({
     if (result.status !== "applied") {
       return;
     }
-    selectionStore
-      .getState()
-      .selectElement(
-        result.consequences.selectedElementIndex,
-        activePathForProjectStore(projectStore.getState())?.path,
-      );
-  };
-
-  const handleAddCurve = () => {
-    if (!activePath || !onStartCurve || curveToolActive) {
-      return;
-    }
-
-    onStartCurve(
-      getInsertionIndex(activePath.path, "translation", selectedElementIndex),
-    );
+    selectOnlyElement(result.consequences.selectedElementIndex);
   };
 
   const handleRemoveElement = (index: number) => {
@@ -144,12 +199,7 @@ export function Sidebar({
     if (result.status !== "applied") {
       return;
     }
-    selectionStore
-      .getState()
-      .selectElement(
-        result.consequences.selectedElementIndex,
-        activePathForProjectStore(projectStore.getState())?.path,
-      );
+    selectOnlyElement(result.consequences.selectedElementIndex);
   };
 
   const handleDuplicateElement = (index: number) => {
@@ -166,12 +216,7 @@ export function Sidebar({
     if (result.status !== "applied") {
       return;
     }
-    selectionStore
-      .getState()
-      .selectElement(
-        result.consequences.selectedElementIndex,
-        activePathForProjectStore(projectStore.getState())?.path,
-      );
+    selectOnlyElement(result.consequences.selectedElementIndex);
   };
 
   const handleMoveElement = (fromIndex: number, toIndex: number) => {
@@ -191,12 +236,7 @@ export function Sidebar({
     if (result.status !== "applied") {
       return;
     }
-    selectionStore
-      .getState()
-      .selectElement(
-        result.consequences.selectedElementIndex,
-        activePathForProjectStore(projectStore.getState())?.path,
-      );
+    selectOnlyElement(result.consequences.selectedElementIndex);
   };
 
   const handleChangeElementType = (type: AddableElementType) => {
@@ -253,6 +293,25 @@ export function Sidebar({
       .getState()
       .selectElement(
         selectedElementIndex,
+        activePathForProjectStore(projectStore.getState())?.path,
+      );
+  };
+
+  const handleUpdateSelectedElements = (
+    replacements: readonly { index: number; element: PathElement }[],
+  ) => {
+    if (!activePath || replacements.length < 2) {
+      return;
+    }
+
+    projectStore.getState().applyPathElementEdit({
+      kind: "replace-many",
+      replacements,
+    });
+    selectionStore
+      .getState()
+      .selectElement(
+        elementSelectionState.focusIndex,
         activePathForProjectStore(projectStore.getState())?.path,
       );
   };
@@ -315,7 +374,11 @@ export function Sidebar({
   };
 
   const handleSelectTab = (tab: "elements" | "constraints") => {
-    onSelectTab?.(tab);
+    onActiveTabChange?.(tab);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      inspectorTab: tab,
+    });
   };
 
   const commitInspectorWidth = (width: number) => {
@@ -438,10 +501,10 @@ export function Sidebar({
           <ElementList
             path={activePath?.path ?? null}
             selectedElementIndex={selectedElementIndex}
+            selectedElementIndexes={selectedElementIndexes}
             curveToolActive={curveToolActive}
             open
             onAddElement={handleAddElement}
-            onAddCurve={handleAddCurve}
             onSelectElement={handleSelectElement}
             onRemoveElement={handleRemoveElement}
             onDuplicateElement={handleDuplicateElement}
@@ -449,6 +512,7 @@ export function Sidebar({
           />
           <PropertyEditor
             element={selectedElement}
+            selectedElements={selectedElements}
             project={project}
             selectedElementIndex={selectedElementIndex}
             open
@@ -463,6 +527,7 @@ export function Sidebar({
             fieldGeometry={fieldGeometry}
             onChangeType={handleChangeElementType}
             onUpdateElement={handleUpdateElement}
+            onUpdateSelectedElements={handleUpdateSelectedElements}
             onUnlinkTarget={handleUnlinkTarget}
             onCreateLinkedTarget={handleCreateLinkedTarget}
             onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
@@ -478,6 +543,9 @@ export function Sidebar({
           />
         </div>
       )}
+      {footer ? (
+        <div className="inspector-sidebar__status">{footer}</div>
+      ) : null}
     </aside>
   );
 }

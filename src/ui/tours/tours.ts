@@ -199,27 +199,44 @@ const placement = (
       "Targets placed.",
     );
   });
-function pathIntent(path: PathModel | null) {
+export function tourPathIntent(path: PathModel | null) {
   return (
     path &&
     JSON.stringify({
-      elements: path.path_elements,
+      elements: path.path_elements.map((element) => {
+        const copy = structuredClone(element);
+        const target = isWaypoint(copy)
+          ? copy.translation_target
+          : isTranslationTarget(copy)
+            ? copy
+            : null;
+        if (
+          target &&
+          (target.handoff_radius_source === "auto" ||
+            (target.intermediate_handoff_radius_meters === null &&
+              !target.handoff_radius_source))
+        ) {
+          target.intermediate_handoff_radius_meters = null;
+          delete target.handoff_radius_source;
+        }
+        return copy;
+      }),
       constraints: path.constraints,
-      ranges: path.ranged_constraints.map(
-        ({ key, value, start_ordinal, end_ordinal, source }) => ({
+      ranges: path.ranged_constraints
+        .filter((constraint) => constraint.source !== "auto_velocity")
+        .map(({ key, value, start_ordinal, end_ordinal, source }) => ({
           key,
           value,
           start_ordinal,
           end_ordinal,
           source,
-        }),
-      ),
+        })),
     })
   );
 }
 const preserveObservation = outcome((path) =>
   feedback(
-    pathIntent(path) === pathIntent(baselinePath),
+    tourPathIntent(path) === tourPathIntent(baselinePath),
     "The path changed. Undo or redo the edit to restore the preview.",
     "",
   ),
@@ -1038,7 +1055,7 @@ export const verifyExportTour: TourDefinition = {
             !!document.querySelector(
               '[role="dialog"][aria-label="Path health"]',
             ),
-            "Open Path Health above the field.",
+            "Open Path Health at the bottom of the inspector.",
             "Read the issue list before continuing.",
           ),
       },

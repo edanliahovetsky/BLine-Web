@@ -675,10 +675,7 @@ export class UserDataService {
         ...next,
         field_backgrounds: desiredEntries,
         field_asset_cleanup_ids: [
-          ...new Set([
-            ...next.field_asset_cleanup_ids,
-            ...retiredAssetIds,
-          ]),
+          ...new Set([...next.field_asset_cleanup_ids, ...retiredAssetIds]),
         ],
         field_asset_staging: next.field_asset_staging.filter(
           (staging) => !writtenAssetIds.includes(staging.asset_id),
@@ -720,9 +717,7 @@ export class UserDataService {
           durable.field_backgrounds.map((entry) => entry.asset_id),
         );
         await this.discardStagedAssetsBestEffort(
-          writtenAssetIds.filter(
-            (assetId) => !referencedAssetIds.has(assetId),
-          ),
+          writtenAssetIds.filter((assetId) => !referencedAssetIds.has(assetId)),
         );
         throw new UserDataVerificationError();
       }
@@ -914,10 +909,7 @@ export class UserDataService {
       await this.verifyDurableEntry(durableEntry);
       return { entry: structuredClone(durableEntry), created: false };
     }
-    this.snapshot = removeFieldAssetStaging(
-      this.snapshot,
-      new Set([assetId]),
-    );
+    this.snapshot = removeFieldAssetStaging(this.snapshot, new Set([assetId]));
     this.recordDurableWrite(writtenRevision);
     await this.verifyDurableEntry(durableEntry);
     return { entry: structuredClone(durableEntry), created: true };
@@ -1469,9 +1461,9 @@ function mergeConcurrentUserData(
   const fieldAssetCleanupIds = [
     ...new Set([
       ...mergeCleanupIds(
-    base.field_asset_cleanup_ids,
-    local.field_asset_cleanup_ids,
-    remote.field_asset_cleanup_ids,
+        base.field_asset_cleanup_ids,
+        local.field_asset_cleanup_ids,
+        remote.field_asset_cleanup_ids,
       ),
       ...displacedAssetIds,
     ]),

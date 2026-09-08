@@ -83,6 +83,7 @@ export function duplicatePathInProject(
   pathId: string,
   name: string,
   addToGroupId?: string | null,
+  copyMemberships = false,
 ): { project: Project; createdPathId: string | null } {
   const source = project.paths.find((path) => path.path_id === pathId);
   if (!source) {
@@ -93,6 +94,16 @@ export function duplicatePathInProject(
     path: source.path,
     addToGroupId,
   });
+  if (copyMemberships) {
+    added.project.path_groups = added.project.path_groups.map((group) =>
+      group.path_ids.includes(pathId)
+        ? {
+            ...group,
+            path_ids: uniqueStrings([...group.path_ids, added.createdPathId]),
+          }
+        : group,
+    );
+  }
   return added;
 }
 

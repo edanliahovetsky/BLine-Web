@@ -22,13 +22,13 @@ export function optimizerBeamTitle(
   fallback?: string,
 ): string | undefined {
   if (phase === "pending") {
-    return "Optimizer queued — velocity caps refresh once the path settles.";
+    return "Generator queued — velocity caps refresh once the path settles.";
   }
   if (phase === "running") {
-    return "Optimizer running — generating handoff radii and velocity caps.";
+    return "Generator running — generating handoff radii and velocity caps.";
   }
   if (lastError) {
-    return `The velocity optimizer could not finish: ${lastError}`;
+    return `The velocity generator could not finish: ${lastError}`;
   }
   return fallback;
 }
@@ -38,10 +38,10 @@ export function optimizerBeamLabel(
   lastError: string | null,
 ): string {
   if (phase === "pending") {
-    return "Optimizer queued";
+    return "Generator queued";
   }
   if (phase === "running") {
-    return "Optimizing constraints";
+    return "Generating constraints";
   }
-  return lastError ? "Optimizer failed" : "Optimizer idle";
+  return lastError ? "Generator failed" : "Generator idle";
 }

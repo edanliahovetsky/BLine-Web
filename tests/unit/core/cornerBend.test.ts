@@ -87,6 +87,18 @@ describe("feasible radius range", () => {
     );
     expect(feasibleRadiusRange(null)).toBeNull();
   });
+
+  it("requires both adjacent straight legs to be at least 0.3 meters", () => {
+    expect(feasibleRadiusRange(cornerGeometry(corner(0.299, 1, 90), 1))).toBe(
+      null,
+    );
+    expect(feasibleRadiusRange(cornerGeometry(corner(1, 0.299, 90), 1))).toBe(
+      null,
+    );
+    expect(
+      feasibleRadiusRange(cornerGeometry(corner(0.3, 0.3, 90), 1)),
+    ).toEqual({ minMeters: 0.05, maxMeters: 0.27 });
+  });
 });
 
 describe("seed radius", () => {

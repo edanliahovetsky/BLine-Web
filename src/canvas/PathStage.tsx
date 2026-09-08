@@ -520,26 +520,7 @@ export function PathStage({
     }),
     [baseViewport, panOffset, viewScale],
   );
-  const boundedPositionPreview = useMemo<PositionOverrides>(() => {
-    const preview = new Map<number, PointMeters>();
-    const elements = activePath?.path.path_elements ?? [];
-    for (const { index, position } of getRenderableElementPositions(elements)) {
-      if (!isTranslationBearingElement(elements[index])) {
-        continue;
-      }
-      const bounded = clampModelPoint(position, activeField.geometry);
-      if (!pointsAlmostEqual(position, bounded)) {
-        preview.set(index, bounded);
-      }
-    }
-    return preview;
-  }, [activeField.geometry, activePath]);
-  const positionPreview = useMemo<PositionOverrides>(() => {
-    if (dragPreview.size === 0) {
-      return boundedPositionPreview;
-    }
-    return new Map([...boundedPositionPreview, ...dragPreview]);
-  }, [boundedPositionPreview, dragPreview]);
+  const positionPreview = dragPreview;
 
   const simulationResult: SimTraceResult | null = useMemo(() => {
     if (!activePath || !durableProject) {
@@ -1838,13 +1819,15 @@ function CanvasViewControls({
       <IconButton
         className={showGhostPaths ? "is-active" : ""}
         aria-label={
-          showGhostPaths ? "Hide collection paths" : "Show collection paths"
+          showGhostPaths
+            ? "Hide Path Group overlays"
+            : "Show Path Group overlays"
         }
         aria-pressed={showGhostPaths}
         title={
           showGhostPaths
-            ? "Hide the collection's other paths (shown as faint overlays for reference)"
-            : "Show the collection's other paths as faint overlays for reference"
+            ? "Hide the Path Group's other Paths (shown as faint overlays for reference)"
+            : "Show the Path Group's other Paths as faint overlays for reference"
         }
         onClick={onToggleGhostPaths}
       >
@@ -2302,9 +2285,16 @@ function hitTestPathElement(
   const elements = path.path_elements;
   const renderedNodes = elements.flatMap((element, index) => {
     const position = getElementPosition(elements, index, positionPreview);
-    return position
-      ? [{ element, index, point: modelToStagePoint(position, viewport) }]
-      : [];
+    if (!position) {
+      return [];
+    }
+    return [
+      {
+        element,
+        index,
+        point: modelToStagePoint(position, viewport),
+      },
+    ];
   });
   const orderedNodes =
     selectedElementIndex === null

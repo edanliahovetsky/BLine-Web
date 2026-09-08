@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { getElementPosition } from "../../../canvas/geometry";
-import type { PathModel } from "../../../core/model/path";
+import {
+  isEventTrigger,
+  isRotationTarget,
+  isTranslationTarget,
+  isWaypoint,
+  type PathElement,
+  type PathModel,
+} from "../../../core/model/path";
 import { canMovePathElement } from "../../../core/model/projectPathEdits";
 import { formatPointMeters } from "../../../canvas/modelSync";
-import {
-  CopyIcon,
-  CurveIcon,
-  ElementIcon,
-  GripIcon,
-  RemoveIcon,
-} from "../../icons";
+import { CopyIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
-import { SidebarIconButton } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
+import {
+  orderedSelectionGesture,
+  type OrderedSelectionGesture,
+} from "../orderedSelection";
 import {
   elementTypeLabel,
   elementTypeValue,
@@ -23,11 +27,11 @@ import {
 interface ElementListProps {
   path: PathModel | null;
   selectedElementIndex: number | null;
+  selectedElementIndexes: readonly number[];
   curveToolActive?: boolean;
   open: boolean;
   onAddElement(type: AddableElementType): void;
-  onAddCurve(): void;
-  onSelectElement(index: number): void;
+  onSelectElement(index: number, gesture: OrderedSelectionGesture): void;
   onRemoveElement(index: number): void;
   onDuplicateElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
@@ -37,10 +41,10 @@ interface ElementListProps {
 export function ElementList({
   path,
   selectedElementIndex,
+  selectedElementIndexes,
   curveToolActive = false,
   open,
   onAddElement,
-  onAddCurve,
   onSelectElement,
   onRemoveElement,
   onDuplicateElement,
@@ -137,22 +141,11 @@ export function ElementList({
   return (
     <SidebarSection
       actions={
-        <>
-          <SidebarIconButton
-            className="sidebar-icon-button--add"
-            disabled={!path || curveToolActive}
-            aria-label="Add curve"
-            title="Add curve"
-            onClick={onAddCurve}
-          >
-            <CurveIcon />
-          </SidebarIconButton>
-          <AddElementMenu
-            disabled={!path || curveToolActive}
-            options={addableTypes}
-            onAdd={onAddElement}
-          />
-        </>
+        <AddElementMenu
+          disabled={!path || curveToolActive}
+          options={addableTypes}
+          onAdd={onAddElement}
+        />
       }
       className="path-elements-section"
       open={open}
@@ -161,99 +154,203 @@ export function ElementList({
       onToggle={onToggleSection}
     >
       {elements.length > 0 ? (
-        <ol
-          ref={listRef}
-          className="path-element-list"
-          aria-label="Path elements"
-        >
-          {elements.map((element, index) => {
-            const selected = selectedElementIndex === index;
-            const position = getElementPosition(elements, index);
-            const type = elementTypeValue(element);
+        <>
+          <ol
+            ref={listRef}
+            className="path-element-list"
+            aria-label="Path elements"
+          >
+            {elements.map((element, index) => {
+              const selected = selectedElementIndexes.includes(index);
+              const position = getElementPosition(elements, index);
+              const type = elementTypeValue(element);
+              const detail = elementRowDetail(element, position);
 
-            return (
-              <li
-                key={`${element.type}-${index}`}
-                ref={selected ? selectedRowRef : undefined}
-                className={[
-                  selected ? "is-selected" : "",
-                  dragIndex === index ? "is-dragging" : "",
-                  dragOverIndex === index ? "is-drop-target" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                data-testid={`path-element-item-${index}`}
-                data-path-element-index={index}
-              >
-                <button
-                  type="button"
-                  className="path-element-row"
-                  data-testid={`path-element-row-${index}`}
-                  aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
-                  aria-pressed={selected}
-                  onMouseDown={(event) => handleMouseDown(event, index)}
-                  onClick={() => {
-                    if (suppressClickRef.current) {
-                      suppressClickRef.current = false;
-                      return;
-                    }
-                    onSelectElement(index);
-                  }}
+              return (
+                <li
+                  key={`${element.type}-${index}`}
+                  ref={
+                    selectedElementIndex === index ? selectedRowRef : undefined
+                  }
+                  className={[
+                    selected ? "is-selected" : "",
+                    dragIndex === index ? "is-dragging" : "",
+                    dragOverIndex === index ? "is-drop-target" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  data-testid={`path-element-item-${index}`}
+                  data-path-element-index={index}
                 >
-                  <span className="drag-grip" aria-hidden="true">
-                    <GripIcon />
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className={`element-type-mark type-${type}`}
+                  <button
+                    type="button"
+                    className="path-element-row"
+                    data-testid={`path-element-row-${index}`}
+                    aria-label={elementRowAccessibleLabel(
+                      elementTypeLabel(element),
+                      index,
+                      elements.length,
+                      detail.accessibleText,
+                    )}
+                    aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
+                    aria-pressed={selected}
+                    onMouseDown={(event) => handleMouseDown(event, index)}
+                    onClick={(event) => {
+                      if (suppressClickRef.current) {
+                        suppressClickRef.current = false;
+                        return;
+                      }
+                      onSelectElement(index, orderedSelectionGesture(event));
+                    }}
                   >
-                    <ElementIcon type={type} />
-                  </span>
-                  <span className="path-element-row__label">
-                    {index + 1}. {elementTypeLabel(element)}
-                    {index === 0 || index === elements.length - 1 ? (
-                      <span
-                        className="path-element-row__role"
-                        title={
-                          index === 0
-                            ? "Start of the path"
-                            : "Final target — the path finishes here by tolerance, not by a handoff"
-                        }
-                      >
-                        {index === 0 ? "Start" : "End"}
+                    <span className="drag-grip" aria-hidden="true">
+                      <GripIcon />
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className={`element-type-mark type-${type}`}
+                    >
+                      <ElementIcon type={type} />
+                    </span>
+                    <span className="visually-hidden">
+                      {index + 1}. {elementTypeLabel(element)}{" "}
+                      {detail.accessibleText}
+                    </span>
+                    <span
+                      className="path-element-row__content"
+                      aria-hidden="true"
+                    >
+                      <span className="path-element-row__label">
+                        <span className="path-element-row__type">
+                          {elementTypeLabel(element)}
+                        </span>
+                        {index === 0 || index === elements.length - 1 ? (
+                          <span
+                            className="path-element-row__role"
+                            title={
+                              index === 0
+                                ? "Start of the path"
+                                : "Final target — the path finishes here by tolerance, not by a handoff"
+                            }
+                          >
+                            {index === 0 ? "Start" : "End"}
+                          </span>
+                        ) : null}
                       </span>
-                    ) : null}
-                  </span>
-                  <span className="path-element-row__meta">
-                    {formatPointMeters(position)}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="duplicate-element-button"
-                  aria-label={`Duplicate ${elementTypeLabel(element)} ${index + 1}`}
-                  title="Duplicate element"
-                  onClick={() => onDuplicateElement(index)}
-                >
-                  <CopyIcon />
-                </button>
-                <button
-                  type="button"
-                  className="remove-element-button"
-                  aria-label={`Remove ${elementTypeLabel(element)} ${index + 1}`}
-                  onClick={() => onRemoveElement(index)}
-                >
-                  <RemoveIcon />
-                </button>
-              </li>
-            );
-          })}
-        </ol>
+                      <span
+                        className={[
+                          "path-element-row__detail",
+                          detail.empty ? "path-element-row__detail--empty" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        title={detail.title}
+                      >
+                        {detail.visibleText}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="duplicate-element-button"
+                    aria-label={`Duplicate ${elementTypeLabel(element)} ${index + 1}`}
+                    title="Duplicate element"
+                    onClick={() => onDuplicateElement(index)}
+                  >
+                    <CopyIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className="remove-element-button"
+                    aria-label={`Remove ${elementTypeLabel(element)} ${index + 1}`}
+                    onClick={() => onRemoveElement(index)}
+                  >
+                    <RemoveIcon />
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </>
       ) : (
         <div className="sidebar-empty-state">No path elements</div>
       )}
     </SidebarSection>
   );
+}
+
+function elementRowAccessibleLabel(
+  typeLabel: string,
+  index: number,
+  total: number,
+  detail: string,
+): string {
+  const role =
+    index === 0
+      ? ", start of path"
+      : index === total - 1
+        ? ", end of path"
+        : "";
+  return `Element ${index + 1}: ${typeLabel}${role}, ${detail}`;
+}
+
+interface ElementRowDetail {
+  accessibleText: string;
+  visibleText: string;
+  title: string;
+  empty?: boolean;
+}
+
+function elementRowDetail(
+  element: PathElement,
+  position: ReturnType<typeof getElementPosition>,
+): ElementRowDetail {
+  if (isTranslationTarget(element) || isWaypoint(element)) {
+    const point = formatPointMeters(position);
+    return {
+      accessibleText: point,
+      visibleText: point,
+      title: point,
+    };
+  }
+
+  if (isRotationTarget(element)) {
+    const rotation = formatDegrees(element.rotation_radians);
+    return {
+      accessibleText: `${rotation} rotation`,
+      visibleText: rotation,
+      title: rotation,
+    };
+  }
+
+  if (isEventTrigger(element)) {
+    const label = element.lib_key.trim();
+    if (label) {
+      return {
+        accessibleText: `action ${label}`,
+        visibleText: label,
+        title: label,
+      };
+    }
+
+    return {
+      accessibleText: "no action set",
+      visibleText: "No action",
+      title: "No event action set",
+      empty: true,
+    };
+  }
+
+  return {
+    accessibleText: "",
+    visibleText: "",
+    title: "",
+  };
+}
+
+function formatDegrees(radians: number): string {
+  const degrees = (radians * 180) / Math.PI;
+  return `${Number(degrees.toFixed(2))}°`;
 }
 
 function getDropIndexFromPoint(

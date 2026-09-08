@@ -273,10 +273,7 @@ export class TauriStorage implements ProjectFolderAdapter {
       expectedVersion,
       storageId ?? null,
     );
-    if (
-      storageId &&
-      hasRecoveryAttestation
-    ) {
+    if (storageId && hasRecoveryAttestation) {
       const cleanup = await this.invoke<ProjectFileSetWritePayload>(
         "storage_delete_legacy_project_files",
         {

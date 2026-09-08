@@ -76,12 +76,14 @@ export type ProjectStatus =
 interface WorkspaceHistoryMetadata {
   createdPathId?: string;
   focusPathId?: string;
+  initialAutomaticConstraintPathIds?: readonly string[];
 }
 
 interface ProjectSnapshotHistoryCommand extends HistoryCommand<Project> {
   kind: "project-snapshot";
   createdPathId?: string;
   focusPathId?: string;
+  initialAutomaticConstraintPathIds?: readonly string[];
   previousSnapshot: Project;
   nextSnapshot: Project;
   previousNavigation: EditorNavigation;
@@ -121,6 +123,7 @@ interface ProjectTransitionOwnership {
 export interface ProjectEditOwnership extends ProjectMutationOwnership {
   historyEntry: HistoryCommand<Project>;
   previousProject: Project;
+  initialAutomaticConstraintPathIds: readonly string[];
 }
 
 export type DerivedPathCommandResult = "applied" | "noop" | "stale";
@@ -175,12 +178,17 @@ export interface ProjectStoreState {
     displayName: string;
     path?: PathModel;
     addToGroupId?: string | null;
+    makeActive?: boolean;
   }): void;
   renamePath(pathId: string, name: string): void;
   duplicatePath(
     pathId: string,
     name: string,
-    options?: { addToGroupId?: string | null },
+    options?: {
+      addToGroupId?: string | null;
+      copyMemberships?: boolean;
+      makeActive?: boolean;
+    },
   ): void;
   deletePaths(pathIds: readonly string[]): void;
   createPathGroup(input: {
@@ -194,8 +202,13 @@ export interface ProjectStoreState {
     groupId: string,
     options?: { deleteMemberPaths?: boolean },
   ): void;
+  deletePathGroups(groupIds: readonly string[]): void;
   addPathsToGroup(groupId: string, pathIds: readonly string[]): void;
-  removePathsFromGroup(groupId: string, pathIds: readonly string[]): void;
+  removePathsFromGroup(
+    groupId: string,
+    pathIds: readonly string[],
+    options?: { preserveActivePath?: boolean },
+  ): void;
   createLinkedTarget(
     input: Omit<CreateLinkedTargetInput, "target_id"> & {
       target_id?: string;
@@ -847,11 +860,16 @@ export function createProjectStore(
         project,
         added.project,
         navigation,
-        { ...navigation, activePathId: added.createdPathId },
+        input.makeActive === false
+          ? navigation
+          : { ...navigation, activePathId: added.createdPathId },
         "Create path",
         true,
         {},
-        { createdPathId: added.createdPathId },
+        {
+          createdPathId: added.createdPathId,
+          initialAutomaticConstraintPathIds: [added.createdPathId],
+        },
       );
     },
     renamePath(pathId, name) {
@@ -882,10 +900,12 @@ export function createProjectStore(
         pathId,
         name,
         options?.addToGroupId,
+        options?.copyMemberships,
       );
-      const nextNavigation = duplicated.createdPathId
-        ? { ...navigation, activePathId: duplicated.createdPathId }
-        : navigation;
+      const nextNavigation =
+        duplicated.createdPathId && options?.makeActive !== false
+          ? { ...navigation, activePathId: duplicated.createdPathId }
+          : navigation;
       applyProjectTransition(
         set,
         history,
@@ -930,7 +950,7 @@ export function createProjectStore(
         grouped.project,
         navigation,
         { activePathId, activePathGroupId },
-        "Create path collection",
+        "Create Path Group",
       );
     },
     renamePathGroup(groupId, name) {
@@ -945,7 +965,7 @@ export function createProjectStore(
         renamePathGroupInProject(project, groupId, name),
         navigation,
         navigation,
-        "Rename path collection",
+        "Rename Path Group",
       );
     },
     deletePathGroup(groupId, options) {
@@ -968,7 +988,28 @@ export function createProjectStore(
         nextProject,
         navigation,
         nextNavigation,
-        "Delete path collection",
+        "Delete Path Group",
+      );
+    },
+    deletePathGroups(groupIds) {
+      requireProjectMutationAllowed();
+      const state = get();
+      const project = requireProject(state.project);
+      const ids = new Set(groupIds);
+      const remainingGroups = project.path_groups.filter(
+        (group) => !ids.has(group.group_id),
+      );
+      if (remainingGroups.length === project.path_groups.length) return;
+      const navigation = currentNavigation(state);
+      const nextProject = { ...project, path_groups: remainingGroups };
+      applyProjectTransition(
+        set,
+        history,
+        project,
+        nextProject,
+        navigation,
+        normalizeEditorNavigation(nextProject, navigation),
+        ids.size === 1 ? "Delete Path Group" : "Delete Path Groups",
       );
     },
     addPathsToGroup(groupId, pathIds) {
@@ -996,10 +1037,10 @@ export function createProjectStore(
         nextProject,
         navigation,
         navigation,
-        "Add paths to collection",
+        "Add Paths to Path Group",
       );
     },
-    removePathsFromGroup(groupId, pathIds) {
+    removePathsFromGroup(groupId, pathIds, options) {
       requireProjectMutationAllowed();
       const state = get();
       const project = requireProject(state.project);
@@ -1009,8 +1050,17 @@ export function createProjectStore(
         groupId,
         pathIds,
       );
-      const nextNavigation =
-        navigation.activePathGroupId === groupId
+      const nextNavigation = options?.preserveActivePath
+        ? {
+            ...navigation,
+            activePathGroupId:
+              navigation.activePathGroupId === groupId &&
+              navigation.activePathId !== null &&
+              pathIds.includes(navigation.activePathId)
+                ? null
+                : navigation.activePathGroupId,
+          }
+        : navigation.activePathGroupId === groupId
           ? navigationForActiveGroup(nextProject, navigation, groupId)
           : navigation;
       applyProjectTransition(
@@ -1020,7 +1070,7 @@ export function createProjectStore(
         nextProject,
         navigation,
         nextNavigation,
-        "Remove paths from collection",
+        "Remove Paths from Path Group",
       );
     },
     createLinkedTarget(input) {
@@ -1339,7 +1389,13 @@ export function createProjectStore(
         result.description,
         true,
         {},
-        { focusPathId: result.consequences.focusPathId },
+        {
+          focusPathId: result.consequences.focusPathId,
+          initialAutomaticConstraintPathIds:
+            edit.kind === "insert" || edit.kind === "insert-many"
+              ? [pathId]
+              : [],
+        },
       );
       return result;
     },
@@ -1542,6 +1598,11 @@ export function captureProjectEditOwnership(
         ...mutation,
         historyEntry,
         previousProject: historyEntry.revert(cloneProject(state.project)),
+        initialAutomaticConstraintPathIds: isProjectSnapshotCommand(
+          historyEntry,
+        )
+          ? (historyEntry.initialAutomaticConstraintPathIds ?? [])
+          : [],
       }
     : null;
 }
@@ -1635,6 +1696,8 @@ function projectSnapshotCommand(
     description,
     createdPathId: metadata.createdPathId,
     focusPathId: metadata.focusPathId,
+    initialAutomaticConstraintPathIds:
+      metadata.initialAutomaticConstraintPathIds,
     previousSnapshot,
     nextSnapshot,
     previousNavigation: structuredClone(previousNavigation),
@@ -1660,6 +1723,8 @@ function historyMetadataForAmendedCommand(
     return {
       createdPathId: command.createdPathId,
       focusPathId: command.focusPathId,
+      initialAutomaticConstraintPathIds:
+        command.initialAutomaticConstraintPathIds,
     };
   }
   return (command as Partial<ProjectPathHistoryCommand>).kind === "path-command"
@@ -1693,7 +1758,11 @@ function mergeCreatedPathMembershipTransition(
     nextProject,
     previousCommand.previousNavigation,
     nextNavigation,
-    { createdPathId: previousCommand.createdPathId },
+    {
+      createdPathId: previousCommand.createdPathId,
+      initialAutomaticConstraintPathIds:
+        previousCommand.initialAutomaticConstraintPathIds,
+    },
   );
   const undoStack = [...state.undoStack.slice(0, -1), mergedCommand];
 

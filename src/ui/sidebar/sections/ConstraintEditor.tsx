@@ -241,10 +241,6 @@ type NonAutoRangedConstraintKey = Exclude<
   typeof autoVelocityKey
 >;
 const handoffRadiusStep = 0.05;
-// The property pane says the same thing about the final anchor; the first one is
-// inert for the mirror-image reason, so both endpoints explain themselves here.
-const startAnchorHandoffNote =
-  "Not used on the first element — a handoff happens at the anchor a segment drives to, and nothing drives to the start.";
 const finalAnchorHandoffNote =
   "Not used on the final element — the path finishes here by tolerance, not by a handoff.";
 const minimumConstraintWarning =
@@ -252,6 +248,9 @@ const minimumConstraintWarning =
 const minimumConflictWarningTitle =
   "Above max constraint; BLine will use the global default and disable the minimum baseline.";
 const minimumConstraintTooltipDelayMs = 1000;
+// Keep the expanded editor implementation available while the affordance is
+// intentionally withheld from the current UI.
+const constraintPopoutEnabled = false;
 const defaultAutoVelocitySettings: AutoVelocitySettings = {
   velocitySafetyFactor: defaultAutoVelocityVelocitySafetyFactor,
   accelerationSafetyFactor: defaultAutoVelocityAccelerationSafetyFactor,
@@ -2666,7 +2665,7 @@ function RangedConstraintControls({
         >
           Split
         </SidebarActionButton>
-        {onOpenPopout ? (
+        {constraintPopoutEnabled && onOpenPopout ? (
           <SidebarIconButton
             className="constraint-popout-button"
             onClick={(event) => onOpenPopout(event.currentTarget)}
@@ -2708,10 +2707,7 @@ function AutoVelocityWorkloadWarning({
       role="note"
     >
       <WarningIcon aria-hidden="true" />
-      <span>
-        Large path — optimization may take longer. Up to{" "}
-        {searchPlan.evaluationBudget} candidate evaluations are expected.
-      </span>
+      <span>Large path — optimization may take longer.</span>
     </p>
   );
 }
@@ -3193,7 +3189,9 @@ function clearHandoffRadii(chips: readonly HandoffRadiusChip[]): void {
       chips.map((chip) => ({
         index: chip.elementIndex,
         previous: storedHandoffState(chip),
-        next: { radiusMeters: null, source: null },
+        // Null remains visually unset, while manual ownership records the
+        // user's intent so background generation cannot immediately reclaim it.
+        next: { radiusMeters: null, source: "manual" },
       })),
       `Clear ${chips.length} handoff radii`,
     ),
@@ -3206,7 +3204,7 @@ function storedHandoffState(chip: HandoffRadiusChip): HandoffRadiusState {
 
 function handoffRadiusChipTitle(chip: HandoffRadiusChip): string {
   if (chip.inert) {
-    return chip.ordinal === 1 ? startAnchorHandoffNote : finalAnchorHandoffNote;
+    return finalAnchorHandoffNote;
   }
 
   switch (chip.state) {
@@ -3363,14 +3361,14 @@ function autoVelocityStatusTooltip(
   running: boolean,
 ): string {
   if (running) {
-    return "The optimizer is generating velocity constraints.";
+    return "The generator is creating velocity constraints.";
   }
 
   if (autoVelocityStatusIsCurrent(status)) {
-    return "Generated constraints match the current path and optimizer settings.";
+    return "Generated constraints match the current path and generator settings.";
   }
   if (status.hasAutoConstraints) {
-    return "The path or optimizer settings changed after these constraints were generated.";
+    return "The path or generator settings changed after these constraints were generated.";
   }
   return "No generated velocity constraints are currently applied.";
 }

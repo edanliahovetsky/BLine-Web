@@ -349,7 +349,7 @@ test("creates every path element type from the inspector menu", async ({
     "Waypoint",
   ]);
   await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.5");
-  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
 test("places every path element type with the canvas tools", async ({
@@ -422,17 +422,16 @@ test("places every path element type with the canvas tools", async ({
     "Translation",
   ]);
   await expect(page.getByLabel("Event Pos (0-1)")).toHaveValue("0.75");
-  await expect(page.getByLabel("Lib Key")).toHaveValue("event");
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
 });
 
-test("draws curves at the requested insertion point and cancels safely", async ({
+test("draws curves from the canvas tool and cancels safely", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
 
   const canvas = page.getByTestId("path-stage-canvas");
   const canvasBox = await requiredBox(canvas);
-  const addCurve = page.getByRole("button", { name: "Add curve" });
   const curveTool = page.getByRole("button", { name: "Curve tool" });
   const selectTool = page.getByRole("button", { name: "Select tool" });
   const cancelledStart = modelToCanvasPoint(canvasBox, {
@@ -440,9 +439,8 @@ test("draws curves at the requested insertion point and cancels safely", async (
     y_meters: 3.3,
   });
 
-  await page.getByTestId("path-element-row-0").click();
-  await addCurve.click();
-  await expect(addCurve).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Add curve" })).toHaveCount(0);
+  await curveTool.click();
   await page.mouse.move(cancelledStart.x, cancelledStart.y);
   await page.mouse.down();
   await page.keyboard.press("Escape");
@@ -451,25 +449,6 @@ test("draws curves at the requested insertion point and cancels safely", async (
     6,
   );
   await expect(selectTool).toHaveAttribute("aria-pressed", "true");
-
-  const insertedEnd = modelToCanvasPoint(canvasBox, {
-    x_meters: 6.6,
-    y_meters: 3.6,
-  });
-  await addCurve.click();
-  await page.mouse.move(cancelledStart.x, cancelledStart.y);
-  await page.mouse.down();
-  await page.mouse.move(insertedEnd.x, insertedEnd.y, { steps: 8 });
-  await page.mouse.up();
-  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
-    8,
-  );
-  await expect(page.getByTestId("path-element-row-1")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(page.getByLabel("X (m)")).toHaveValue("6.1");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("3.3");
 
   const appendedStart = modelToCanvasPoint(canvasBox, {
     x_meters: 12,
@@ -487,8 +466,6 @@ test("draws curves at the requested insertion point and cancels safely", async (
   await expectPathElementTypes(page, [
     "Waypoint",
     "Translation",
-    "Translation",
-    "Translation",
     "Rotation",
     "Translation",
     "Event Trigger",
@@ -496,7 +473,7 @@ test("draws curves at the requested insertion point and cancels safely", async (
     "Translation",
     "Translation",
   ]);
-  await expect(page.getByTestId("path-element-row-8")).toHaveAttribute(
+  await expect(page.getByTestId("path-element-row-6")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -514,7 +491,7 @@ test("adds edits and removes path elements from the inspector", async ({
   await expect(addElementIcon).toBeVisible();
   expect((await requiredBox(addElementIcon)).width).toBeGreaterThanOrEqual(24);
 
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
   await expect(page.getByTestId("path-element-row-6")).toContainText(
@@ -570,13 +547,75 @@ test("adds edits and removes path elements from the inspector", async ({
   await expect(page.getByTestId("path-element-row-6")).toHaveCount(0);
 });
 
+test("keeps the top element removable while the icon-only add menu is open", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const addElement = page.getByRole("button", { name: "Add element" });
+  await expect(addElement).toHaveText("");
+  await expect(addElement).toHaveAttribute("title", "Add element");
+  await expect(page.getByRole("button", { name: "Add curve" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Curve tool" })).toBeVisible();
+
+  await addElement.click();
+  await expect(page.getByRole("menuitem", { name: "Waypoint" })).toBeVisible();
+  await page.getByRole("button", { name: "Remove Waypoint 1" }).click();
+
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    5,
+  );
+  await expect(page.getByTestId("path-element-row-0")).toHaveAttribute(
+    "aria-label",
+    /Element 1: Translation, start of path/,
+  );
+});
+
+test("range-selects and toggles elements for shared property editing", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const first = page.getByTestId("path-element-row-0");
+  const second = page.getByTestId("path-element-row-1");
+  const toggleModifier = process.platform === "darwin" ? "Meta" : "Control";
+
+  await first.click();
+  await second.click({ modifiers: ["Shift"] });
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("property-editor")).toHaveAttribute(
+    "aria-label",
+    "2 selected element properties",
+  );
+  await expect(page.getByText("2 elements selected")).toHaveCount(0);
+  await expect(page.getByText(/Shift-click selects a range/)).toHaveCount(0);
+  await expect(page.getByLabel("X (m)")).toHaveValue("");
+
+  await second.click({ modifiers: [toggleModifier] });
+  await expect(second).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("2 elements selected")).toHaveCount(0);
+
+  await second.click({ modifiers: [toggleModifier] });
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  const sharedX = page.getByLabel("X (m)");
+  await sharedX.fill("6.5");
+  await sharedX.press("Enter");
+  await expect(first).toHaveAttribute("aria-label", /6\.50, 2\.50 m/);
+  await expect(second).toHaveAttribute("aria-label", /6\.50, 4\.00 m/);
+
+  await runEditMenuAction(page, "Undo");
+  await expect(first).toHaveAttribute("aria-label", /5\.70, 2\.50 m/);
+  await expect(second).toHaveAttribute("aria-label", /7\.00, 4\.00 m/);
+});
+
 test("persists the inspector tab while keeping header actions available", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   await page.getByTestId("path-element-row-0").click();
 
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await expect(page.getByTestId("path-element-row-1")).toContainText(
     "2. Waypoint",
@@ -635,7 +674,7 @@ test("scrolls selected rows into view", async ({ page }) => {
   );
 
   for (let index = 0; index < 12; index += 1) {
-    await page.getByText("Add element").click();
+    await page.getByRole("button", { name: "Add element" }).click();
     await page.getByRole("menuitem", { name: "Waypoint" }).click();
   }
 
@@ -659,7 +698,7 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
   await gotoSampleEditor(page);
 
   for (let index = 0; index < 12; index += 1) {
-    await page.getByText("Add element").click();
+    await page.getByRole("button", { name: "Add element" }).click();
     await page.getByRole("menuitem", { name: "Waypoint" }).click();
   }
 
@@ -902,25 +941,212 @@ test("marks the start and end of the path in the element list", async ({
   await expect(page.locator(".path-element-row__role")).toHaveCount(2);
 });
 
-test("escalates path health styling for errors and names the count", async ({
+test("shows element-specific row details and sheds them at minimum width", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
 
-  const health = page.getByRole("button", { name: /^Path health/ });
-  await expect(health).toHaveAttribute(
-    "title",
-    "Path health — editor checks for this path",
+  await expect(page.getByTestId("path-element-row-0")).toContainText(
+    "Waypoint",
   );
-  await expect(health).not.toHaveClass(/has-diagnostics/);
+  await expect(page.getByTestId("path-element-row-0")).toContainText(
+    "5.70, 2.50 m",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText(
+    "Rotation",
+  );
+  await expect(page.getByTestId("path-element-row-2")).toContainText("45°");
+
+  await page.getByRole("button", { name: "Add element" }).click();
+  await page.getByRole("menuitem", { name: "Event Trigger" }).click();
+  const eventRow = page.getByTestId("path-element-row-5");
+  await expect(eventRow).toContainText("Event Trigger");
+  await expect(eventRow).toContainText("No action");
+  await expect(eventRow.locator(".path-element-row__detail")).toHaveClass(
+    /path-element-row__detail--empty/,
+  );
+
+  await page.getByLabel("Lib Key").fill("Intake note");
+  await expect(eventRow).toContainText("Intake note");
+  await expect(eventRow.locator(".path-element-row__detail")).not.toHaveClass(
+    /path-element-row__detail--empty/,
+  );
+
+  await page.getByRole("separator", { name: "Resize inspector" }).press("Home");
+  await expect(
+    page.getByRole("separator", { name: "Resize inspector" }),
+  ).toHaveAttribute("aria-valuenow", "280");
+  await expect(eventRow.locator(".path-element-row__detail")).toBeHidden();
+  await expect(eventRow.locator(".path-element-row__type")).toBeVisible();
+});
+
+test("uses a visual empty state when selected elements share no properties", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  const toggleModifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.getByTestId("path-element-row-0").click();
+  await page
+    .getByTestId("path-element-row-4")
+    .click({ modifiers: [toggleModifier] });
+
+  const emptyState = page.getByTestId("property-editor-common-empty");
+  await expect(emptyState).toBeVisible();
+  await expect(emptyState).toHaveAttribute(
+    "aria-label",
+    "Selected elements do not share editable properties",
+  );
+  await expect(
+    page.getByText("These elements do not share editable properties."),
+  ).toHaveCount(0);
+});
+
+test("highlights, dismisses, and resolves path health issues", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+
+  await expect(page.getByRole("button", { name: /^Path health/ })).toHaveCount(
+    0,
+  );
 
   // An event trigger with no command key is a warning-level issue.
-  await page.getByText("Add element").click();
+  await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
-  await page.getByLabel("Lib Key").fill("");
 
-  await expect(health).toHaveClass(/has-diagnostics--warning/);
-  await expect(health).toHaveAttribute("title", /issue/);
+  const health = page.getByRole("button", { name: "Path health: 1 issue" });
+  await expect(health).toHaveClass(/workspace-status__diagnostics--warning/);
+  await expect(
+    page
+      .locator(".inspector-sidebar__status")
+      .getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
+  await health.click();
+  const openHealthDialog = page.getByRole("dialog", { name: "Path health" });
+  await expect(openHealthDialog).toContainText("command key empty");
+  expect(
+    await openHealthDialog.evaluate((popover) => {
+      const bounds = popover.getBoundingClientRect();
+      const inspector = popover.closest(".inspector-sidebar");
+      const inspectorBounds = inspector?.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        bounds.left + 6,
+        bounds.top + bounds.height / 2,
+      );
+      return Boolean(
+        inspectorBounds &&
+        bounds.left < inspectorBounds.left &&
+        hit &&
+        popover.contains(hit),
+      );
+    }),
+  ).toBe(true);
+  await expect(
+    page.getByRole("dialog", { name: "Path health" }),
+  ).not.toContainText("Fix these before heading to the robot");
+  await page.getByRole("button", { name: "Fit view" }).click();
+  await expect(page.getByRole("dialog", { name: "Path health" })).toHaveCount(
+    0,
+  );
+  await expect(health).toHaveAttribute("aria-expanded", "false");
+
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+  await expect(
+    page
+      .locator(".workspace-status--floating")
+      .getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
+  await expect(health).toHaveText("");
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+
+  await openConstraintsTab(page);
+  await expect(page.getByRole("tab", { name: /Constraints/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await health.click();
+  const dialog = page.getByRole("dialog", { name: "Path health" });
+  await dialog
+    .getByRole("button")
+    .filter({ hasText: "command key empty" })
+    .click();
+  await expect(page.getByLabel("Lib Key")).toHaveValue("");
+  await expect(page.getByLabel("Lib Key")).toHaveAttribute(
+    "placeholder",
+    "No action",
+  );
+  await expect(page.getByLabel("Lib Key")).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(dialog).toHaveCount(0);
+  await expect(health).toHaveAttribute("aria-expanded", "false");
+  await page.getByLabel("Lib Key").fill("intake");
+  await expect(page.getByRole("button", { name: /^Path health/ })).toHaveCount(
+    0,
+  );
+});
+
+test("shows persistent save feedback in the sidebar and collapsed canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await page.getByTestId("path-element-row-1").click();
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
+  await page.getByTestId("path-stage").focus();
+  await page.keyboard.press("ArrowRight");
+
+  const saveStatus = page.getByTestId("save-status");
+  const floatingStatus = page.locator(".workspace-status--floating");
+  await expect(floatingStatus).toBeVisible();
+  await expect(saveStatus).toBeVisible();
+  await expect(saveStatus).toContainText("Saving");
+  await expect(saveStatus.locator(".workspace-status__save-glyph")).toHaveText(
+    "🚀",
+  );
+
+  await expect(saveStatus).toContainText("Saved");
+  await expect(saveStatus.locator(".workspace-status__save-glyph")).toHaveText(
+    "✅",
+  );
+  await expect(floatingStatus).toBeVisible();
+  await page.waitForTimeout(2_100);
+  await expect(saveStatus).toBeVisible();
+  await expect(saveStatus.locator(".workspace-status__save-glyph")).toHaveText(
+    "✅",
+  );
+});
+
+test("adds missing waypoints from path health as one undoable fix", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await createNewProject(page);
+
+  const rows = page.locator('[data-testid^="path-element-row-"]');
+  await expect(rows).toHaveCount(0);
+
+  const health = page.getByRole("button", { name: "Path health: 1 issue" });
+  await health.click();
+  const dialog = page.getByRole("dialog", { name: "Path health" });
+  await expect(dialog).toContainText("Add two waypoints");
+  await dialog
+    .getByRole("button")
+    .filter({ hasText: "Add two waypoints" })
+    .click();
+
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByRole("button", { name: /^Path health/ })).toHaveCount(
+    0,
+  );
+
+  await runEditMenuAction(page, "Undo");
+  await expect(rows).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Path health: 1 issue" }),
+  ).toBeVisible();
 });
 
 test("keeps the element properties card tight to its content", async ({
@@ -942,6 +1168,35 @@ test("keeps the element properties card tight to its content", async ({
   expect(
     sectionBox.y + sectionBox.height - (bodyBox.y + bodyBox.height),
   ).toBeLessThanOrEqual(2);
+});
+
+test("scrolls element properties only on genuinely short viewports", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await gotoSampleEditor(page);
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("Profiled Rotation")).toBeVisible();
+
+  const propertyBody = page.locator(
+    ".property-editor-section > .sidebar-section__body",
+  );
+  const scrollMetrics = () =>
+    propertyBody.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+
+  const normal = await scrollMetrics();
+  expect(normal.scrollHeight).toBeLessThanOrEqual(normal.clientHeight + 1);
+
+  await page.setViewportSize({ width: 1200, height: 430 });
+  await expect
+    .poll(async () => {
+      const constrained = await scrollMetrics();
+      return constrained.scrollHeight - constrained.clientHeight;
+    })
+    .toBeGreaterThan(1);
 });
 
 test("gives the element list the panel height the properties leave over", async ({

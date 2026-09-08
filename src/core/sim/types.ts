@@ -74,6 +74,22 @@ export interface RotationKeyframe {
   profiled_rotation: boolean;
 }
 
+/** One authored target before controller keyframes at equal distances dedupe. */
+export interface AuthoredRotationTarget extends RotationKeyframe {
+  path_element_index: number;
+}
+
+export interface RotationTargetDiagnostic {
+  event_ordinal_1b: number;
+  path_element_index: number;
+  s_m: number;
+  target_theta_rad: number;
+  actual_theta_rad: number | null;
+  error_rad: number;
+  tolerance_rad: number;
+  passed: boolean;
+}
+
 export interface RotationDomainEvent {
   s_m: number;
   event_ordinal_1b: number;

@@ -52,6 +52,71 @@ export function stagePointsDiffer(
   return first.x !== second.x || first.y !== second.y;
 }
 
+export function isStagePointWithinCanvas(
+  point: StagePoint,
+  size: CanvasSize,
+  margin = 0,
+): boolean {
+  return (
+    Number.isFinite(point.x) &&
+    Number.isFinite(point.y) &&
+    point.x >= -margin &&
+    point.x <= size.width + margin &&
+    point.y >= -margin &&
+    point.y <= size.height + margin
+  );
+}
+
+/**
+ * Clips a polyline to a small canvas overscan region before Pixi builds GPU
+ * geometry. This preserves the visible portion of true model geometry while
+ * keeping arbitrarily large imported coordinates away from the renderer.
+ */
+export function clipStagePolyline(
+  points: readonly StagePoint[],
+  size: CanvasSize,
+  margin = 96,
+): StagePoint[][] {
+  if (points.length < 2) {
+    return [];
+  }
+
+  const rect = {
+    minX: -margin,
+    maxX: Math.max(1, size.width) + margin,
+    minY: -margin,
+    maxY: Math.max(1, size.height) + margin,
+  };
+  const coordinateLimit =
+    Math.max(1, size.width, size.height, Math.abs(margin)) * 64;
+  const runs: StagePoint[][] = [];
+
+  for (let index = 1; index < points.length; index += 1) {
+    const segment = clipStageSegment(
+      renderSafeStagePoint(points[index - 1], coordinateLimit),
+      renderSafeStagePoint(points[index], coordinateLimit),
+      rect,
+    );
+    if (!segment) {
+      continue;
+    }
+
+    const previousRun = runs.at(-1);
+    const previousEnd = previousRun?.at(-1);
+    if (
+      previousRun &&
+      previousEnd &&
+      stagePointsAlmostEqual(previousEnd, segment[0])
+    ) {
+      previousRun.push(segment[1]);
+    } else {
+      runs.push(segment);
+    }
+  }
+
+  return runs;
+}
+
 export interface PointMeters {
   x_meters: number;
   y_meters: number;
@@ -370,6 +435,126 @@ function clamp(value: number, min: number, max: number): number {
 
   return Math.min(Math.max(value, min), max);
 }
+
+interface StageClipRect {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+function renderSafeStagePoint(
+  point: StagePoint,
+  coordinateLimit: number,
+): StagePoint {
+  return {
+    x: renderSafeCoordinate(point.x, coordinateLimit),
+    y: renderSafeCoordinate(point.y, coordinateLimit),
+  };
+}
+
+function renderSafeCoordinate(value: number, limit: number): number {
+  if (Number.isNaN(value)) {
+    return 0;
+  }
+  if (value === Number.POSITIVE_INFINITY) {
+    return limit;
+  }
+  if (value === Number.NEGATIVE_INFINITY) {
+    return -limit;
+  }
+  return clamp(value, -limit, limit);
+}
+
+function clipStageSegment(
+  start: StagePoint,
+  end: StagePoint,
+  rect: StageClipRect,
+): [StagePoint, StagePoint] | null {
+  let startPoint = start;
+  let endPoint = end;
+  let startCode = stageClipCode(startPoint, rect);
+  let endCode = stageClipCode(endPoint, rect);
+
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    if ((startCode | endCode) === 0) {
+      return [startPoint, endPoint];
+    }
+    if ((startCode & endCode) !== 0) {
+      return null;
+    }
+
+    const code = startCode || endCode;
+    const dx = endPoint.x - startPoint.x;
+    const dy = endPoint.y - startPoint.y;
+    let next: StagePoint;
+
+    if ((code & stageClipTop) !== 0) {
+      next = {
+        x: startPoint.x + (dx * (rect.minY - startPoint.y)) / dy,
+        y: rect.minY,
+      };
+    } else if ((code & stageClipBottom) !== 0) {
+      next = {
+        x: startPoint.x + (dx * (rect.maxY - startPoint.y)) / dy,
+        y: rect.maxY,
+      };
+    } else if ((code & stageClipRight) !== 0) {
+      next = {
+        x: rect.maxX,
+        y: startPoint.y + (dy * (rect.maxX - startPoint.x)) / dx,
+      };
+    } else {
+      next = {
+        x: rect.minX,
+        y: startPoint.y + (dy * (rect.minX - startPoint.x)) / dx,
+      };
+    }
+
+    if (!Number.isFinite(next.x) || !Number.isFinite(next.y)) {
+      return null;
+    }
+    if (code === startCode) {
+      startPoint = next;
+      startCode = stageClipCode(startPoint, rect);
+    } else {
+      endPoint = next;
+      endCode = stageClipCode(endPoint, rect);
+    }
+  }
+
+  return null;
+}
+
+function stageClipCode(point: StagePoint, rect: StageClipRect): number {
+  let code = 0;
+  if (point.x < rect.minX) {
+    code |= stageClipLeft;
+  } else if (point.x > rect.maxX) {
+    code |= stageClipRight;
+  }
+  if (point.y < rect.minY) {
+    code |= stageClipTop;
+  } else if (point.y > rect.maxY) {
+    code |= stageClipBottom;
+  }
+  return code;
+}
+
+function stagePointsAlmostEqual(
+  first: StagePoint,
+  second: StagePoint,
+): boolean {
+  return (
+    Math.abs(first.x - second.x) <= 0.001 &&
+    Math.abs(first.y - second.y) <= 0.001
+  );
+}
+
+const stageClipLeft = 1;
+const stageClipRight = 2;
+const stageClipTop = 4;
+const stageClipBottom = 8;
 
 const emptyOverrides = new Map<number, PointMeters>();
 const emptyRotationOverrides = new Map<number, number>();
