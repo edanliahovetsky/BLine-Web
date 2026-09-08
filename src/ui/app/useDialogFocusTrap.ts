@@ -58,8 +58,12 @@ export function useDialogFocusTrap<T extends HTMLElement>(
     eventRoot.addEventListener("keydown", handleKeyDown as EventListener);
     return () => {
       eventRoot.removeEventListener("keydown", handleKeyDown as EventListener);
-      if (previouslyFocused instanceof HTMLElement) {
-        previouslyFocused.focus();
+      const returnTarget = additionalFocusScope
+        ? (document.querySelector<HTMLElement>(additionalFocusScope) ??
+          previouslyFocused)
+        : previouslyFocused;
+      if (returnTarget instanceof HTMLElement && returnTarget.isConnected) {
+        returnTarget.focus();
       }
     };
   }, [additionalFocusScope]);

@@ -818,6 +818,7 @@ for (const width of [1280, 1024]) {
       .getByRole("button", { name: "Preview Path Group", exact: true })
       .click();
     await expect(nav).toHaveCount(0);
+    await expect(card).toBeFocused();
     await expect(
       page.getByRole("button", {
         name: "Hide Path Group overlays",
@@ -851,6 +852,7 @@ for (const width of [1280, 1024]) {
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await advance();
     await expect(nav).toHaveCount(0);
+    await expect(card).toBeFocused();
     await auditLessonLayout(page);
     await card.getByRole("button", { name: "Finish", exact: true }).click();
     await expect(page.getByTestId("tour-picker-progress")).toHaveText(
