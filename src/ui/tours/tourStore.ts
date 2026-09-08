@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { PathElement, PathModel } from "../../core/model/path";
-import type { ProjectConfig } from "../../core/model/project";
+import type { ProjectConfig, ProjectPath } from "../../core/model/project";
 import { rememberCompletedTourIds } from "../../userData";
 
 export type TourPlacement = "above" | "below" | "left" | "right";
@@ -90,7 +90,7 @@ export interface TourStep {
 }
 
 export interface TourStepPreparation {
-  inspector?: "open";
+  inspector?: "open" | "closed";
   inspectorTab?: "elements" | "constraints";
   /** Reset to the Select tool, e.g. right after a placement step. */
   tool?: "select";
@@ -108,6 +108,8 @@ export interface TourStepPreparation {
   simulation?: "start" | "end";
   /** Close Path Health after its open-state action has been completed. */
   pathHealth?: "closed";
+  navigator?: "open" | "closed";
+  showGhostPaths?: boolean;
 }
 
 export interface TourDefinition {
@@ -124,6 +126,8 @@ export interface TourDefinition {
    * steps assume — a straight line to bend, a sharp corner to constrain.
    */
   practicePath(): PathModel;
+  /** Multiple practice paths for lessons about project organization. */
+  practicePaths?(): ProjectPath[];
   practiceConfig?(): ProjectConfig;
   steps: readonly TourStep[];
 }

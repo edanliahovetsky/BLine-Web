@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStoreSelector } from "../../state/react";
 import { captureTourStepState, findTour } from "./tours";
-import { paddedViewportRect, type TourRect } from "./tourGeometry";
+import { visibleTourRect, type TourRect } from "./tourGeometry";
 import { TourLab } from "./TourLab";
 import { KeepPracticeCopy, TourHandoff } from "./TourHandoff";
 import { tourStore, type TourStepPreparation } from "./tourStore";
@@ -60,6 +60,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const wantsReference = step?.captureReference ?? false;
   const wantsSimulation = step?.prepare?.simulation ?? null;
   const wantsPathHealth = step?.prepare?.pathHealth ?? null;
+  const wantsNavigator = step?.prepare?.navigator ?? null;
+  const wantsGhostPaths = step?.prepare?.showGhostPaths;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
@@ -114,14 +116,16 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     const returningToExercise =
       !isReviewing && capturedStepTokens.current.has(token);
     if (
-      wantsInspector === "open" ||
+      wantsInspector ||
       wantsInspectorTab ||
       wantsTool ||
       wantsClearSelection ||
       wantsSelectElement !== null ||
       wantsSelectSpeed !== null ||
       wantsSimulation ||
-      wantsPathHealth
+      wantsPathHealth ||
+      wantsNavigator ||
+      wantsGhostPaths !== undefined
     ) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
@@ -137,6 +141,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           ? undefined
           : (wantsSimulation ?? undefined),
         pathHealth: wantsPathHealth ?? undefined,
+        navigator: wantsNavigator ?? undefined,
+        showGhostPaths: wantsGhostPaths,
       });
     }
     const needsCapture = !isReviewing && !capturedStepTokens.current.has(token);
@@ -165,12 +171,21 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     wantsReference,
     wantsSimulation,
     wantsPathHealth,
+    wantsNavigator,
+    wantsGhostPaths,
     wantsTool,
   ]);
 
   // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {
     const measureTour = (id: string): TourRect | null => {
+      // The open drawer covers its toolbar button. Do not leave a spotlight
+      // floating over the drawer header where that button used to be.
+      if (
+        id === "navigator-button" &&
+        document.querySelector('[data-tour="project-navigator"]')
+      )
+        return null;
       const speedOrdinal =
         id === "lesson-corner-speed"
           ? 3
@@ -201,11 +216,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
         return null;
       }
 
-      return paddedViewportRect(
-        element.getBoundingClientRect(),
-        window.innerWidth,
-        window.innerHeight,
-      );
+      return visibleTourRect(element);
     };
 
     const measure = () => {
@@ -220,6 +231,11 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       setVisibleHoles(
         visibleToken
           .split("|")
+          .filter(
+            (id) =>
+              id !== "path-canvas" ||
+              !document.querySelector('[data-tour="project-navigator"]'),
+          )
           .map(measureTour)
           .filter((hole): hole is TourRect => hole !== null),
       );
@@ -361,7 +377,7 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
-            '[data-tour="constraint-popout"], [role="dialog"][aria-label="Path health"]',
+            '[data-tour="constraint-popout"], [data-tour="project-navigator"], [role="dialog"][aria-label="Path health"]',
           )
         )
           return;
@@ -392,6 +408,24 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
             "backspace",
             "delete",
           ].includes(event.key.toLowerCase()));
+      // The navigator owns history shortcuts while open. The coach shares that
+      // workspace, so keyboard recovery must also work when it has focus.
+      if (
+        inCoach &&
+        !editable &&
+        !isReviewing &&
+        document.querySelector('[data-tour="project-navigator"]') &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        ["z", "y"].includes(event.key.toLowerCase())
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.shiftKey || event.key.toLowerCase() === "y")
+          projectStore.getState().redo();
+        else projectStore.getState().undo();
+        return;
+      }
       if (
         editable &&
         !editorCommandInField &&
@@ -452,6 +486,9 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     ?.getBoundingClientRect();
   let cardLeft = (canvas?.left ?? 0) + 64;
   let cardTop = (canvas?.top ?? 40) + 18;
+  const navigator = document
+    .querySelector('[data-tour="project-navigator"]')
+    ?.getBoundingClientRect();
   if (
     rect &&
     stepTarget !== "path-canvas" &&
@@ -460,6 +497,10 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     if (stepPlacement === "right") cardLeft = rect.left + rect.width + cardGap;
     else if (stepPlacement === "left")
       cardLeft = Math.min(cardLeft, rect.left - cardWidth - cardGap);
+  }
+  if (navigator) {
+    cardLeft = navigator.right + cardGap;
+    cardTop = 64;
   }
 
   cardLeft = Math.max(
@@ -503,7 +544,11 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   );
 
   return createPortal(
-    <div className="tour-layer" data-testid="tour-layer">
+    <div
+      className="tour-layer"
+      data-testid="tour-layer"
+      data-tour-target={stepTarget ?? undefined}
+    >
       {computeShieldRegions(
         visibleHoles,
         window.innerWidth,

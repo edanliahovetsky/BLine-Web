@@ -160,19 +160,20 @@ export function createTourSessionController<View>(
       const practiceSessionId = createSessionId("practice");
       const practiceProjectId =
         state.project?.project_id ?? `${practiceSessionId}-project`;
-      const practicePathId = state.activePathId ?? `${practiceSessionId}-path`;
+      const practicePaths = definition.practicePaths?.() ?? [
+        {
+          path_id: state.activePathId ?? `${practiceSessionId}-path`,
+          display_name: tourPracticePathName,
+          file_name: "tour-practice.json",
+          path: definition.practicePath(),
+        },
+      ];
+      const practicePathId = practicePaths[0].path_id;
       const practiceProject = createProject({
         project_id: practiceProjectId,
         display_name: state.project?.display_name ?? tourPracticePathName,
         config: definition.practiceConfig?.() ?? state.project?.config,
-        paths: [
-          {
-            path_id: practicePathId,
-            display_name: tourPracticePathName,
-            file_name: "tour-practice.json",
-            path: definition.practicePath(),
-          },
-        ],
+        paths: practicePaths,
       });
 
       active = {

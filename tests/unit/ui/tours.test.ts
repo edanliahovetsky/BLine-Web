@@ -21,7 +21,7 @@ describe("guided lesson content", () => {
     if (end.type === "waypoint") end.translation_target.x_meters += 1;
     expect(tourPathIntent(moved)).not.toBe(tourPathIntent(before));
   });
-  it("teaches seven focused lessons with speed before radius tuning", () => {
+  it("teaches eight focused lessons with speed before radius tuning", () => {
     expect(tours.map((tour) => tour.id)).toEqual([
       "build-first-path",
       "shape-route",
@@ -29,6 +29,7 @@ describe("guided lesson content", () => {
       "understand-handoffs",
       "control-heading",
       "trigger-actions",
+      "organize-path-groups",
       "verify-export",
     ]);
     for (const tour of tours) {
@@ -69,7 +70,9 @@ describe("guided lesson content", () => {
     );
   });
   it("prepares properties by element role and gives guided steps a structural contract", () => {
-    for (const tour of tours.slice(0, -1)) {
+    for (const tour of tours.filter(
+      (tour) => !tour.practicePaths && tour.id !== "verify-export",
+    )) {
       for (const step of tour.steps) {
         if (step.target === "element-properties")
           expect(step.prepare?.selectElement).toBeTypeOf("function");

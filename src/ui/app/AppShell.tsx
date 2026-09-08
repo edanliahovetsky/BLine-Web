@@ -448,6 +448,8 @@ export function AppShell() {
         setActiveTool("select");
       },
       restoreView: (view) => {
+        setShowPathGroupsDialog(false);
+        setShowPathHealth(false);
         writeEditorUiPreferences(view.editorPreferences);
         setFieldSelectionOverride(view.fieldSelectionOverride);
         setInspectorOpen(view.inspectorOpen);
@@ -2073,7 +2075,7 @@ export function AppShell() {
 
   return (
     <main
-      className="app-shell"
+      className={`app-shell${activeTourId === "organize-path-groups" ? " app-shell--navigator-lesson" : ""}`}
       data-testid="app-shell"
       aria-busy={projectTransitionInProgress}
     >
@@ -2317,6 +2319,7 @@ export function AppShell() {
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
           initiallyEditingPathId={initiallyEditingPathId}
+          lessonMode={activeTourId === "organize-path-groups"}
           onCancel={() => {
             setShowPathGroupsDialog(false);
             setInitiallyEditingPathId(null);
@@ -2431,8 +2434,15 @@ export function AppShell() {
           setShowTourPicker(true);
         }}
         onPrepare={(preparation) => {
-          if (preparation.inspector === "open") {
-            setInspectorOpen(true);
+          if (preparation.navigator) {
+            setInitiallyEditingPathId(null);
+            setShowPathGroupsDialog(preparation.navigator === "open");
+          }
+          if (preparation.showGhostPaths !== undefined) {
+            setShowGhostPaths(preparation.showGhostPaths);
+          }
+          if (preparation.inspector) {
+            setInspectorOpen(preparation.inspector === "open");
           }
           if (preparation.inspectorTab) {
             setInspectorTab(preparation.inspectorTab);

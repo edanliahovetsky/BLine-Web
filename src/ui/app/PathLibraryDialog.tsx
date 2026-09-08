@@ -89,6 +89,7 @@ export function PathLibraryDialog({
   activePathId,
   activePathGroupId,
   initiallyEditingPathId = null,
+  lessonMode = false,
   onCancel,
   onCreatePath,
   onDeletePaths,
@@ -99,13 +100,16 @@ export function PathLibraryDialog({
   activePathId: string | null;
   activePathGroupId: string | null;
   initiallyEditingPathId?: string | null;
+  lessonMode?: boolean;
   onCancel(): void;
   onCreatePath(groupId: string | null): ProjectPath | null;
   onDeletePaths(pathIds: readonly string[]): void;
   onDeletePathGroups(groupIds: readonly string[]): void;
   onPreviewPathGroup(): void;
 }) {
-  const dialogRef = useDialogFocusTrap<HTMLElement>();
+  const dialogRef = useDialogFocusTrap<HTMLElement>(
+    lessonMode ? ".tour-card" : undefined,
+  );
   const boardRef = useRef<HTMLDivElement>(null);
   const skipBlur = useRef(false);
   const [selected, setSelected] = useState<LibraryNode | null>(() =>
@@ -244,7 +248,7 @@ export function PathLibraryDialog({
     ].at(-1);
     if (
       dialog &&
-      topDialog === dialog &&
+      (topDialog === dialog || (lessonMode && !topDialog)) &&
       document.activeElement === document.body
     ) {
       dialog.focus({ preventScroll: true });
@@ -892,10 +896,11 @@ export function PathLibraryDialog({
         ref={dialogRef}
         className="project-navigator fc-navigator"
         role="dialog"
-        aria-modal="true"
+        aria-modal={!lessonMode}
         aria-label="Project Navigator"
         tabIndex={-1}
         data-testid="path-library-dialog"
+        data-tour="project-navigator"
         onKeyDown={handleKeyDown}
         onPointerDown={(event) => {
           if (
@@ -913,7 +918,7 @@ export function PathLibraryDialog({
           </div>
           <CloseButton ariaLabel="Close" onClick={onCancel} />
         </header>
-        <div className="fc-focusbar">
+        <div className="fc-focusbar" data-tour="navigator-focus">
           <div className="fc-focus-meta">
             <span className="fc-focus-icon">
               {focus?.kind === "group" ? (
@@ -938,6 +943,7 @@ export function PathLibraryDialog({
               <button
                 type="button"
                 className="fc-open"
+                data-tour="navigator-preview"
                 disabled={focus.kind === "group" && focus.count === 0}
                 onClick={() => openOnCanvas(focus)}
               >
@@ -1038,7 +1044,11 @@ export function PathLibraryDialog({
                 </>
               )}
             </svg>
-            <section className="fc-column fc-groups" aria-label="Path Groups">
+            <section
+              className="fc-column fc-groups"
+              aria-label="Path Groups"
+              data-tour="navigator-groups"
+            >
               <header>
                 <h2>
                   Path Groups <span>{groups.length}</span>
@@ -1067,7 +1077,11 @@ export function PathLibraryDialog({
               </label>
               {renderColumnRows("group", visibleGroups)}
             </section>
-            <section className="fc-column fc-paths" aria-label="All Paths">
+            <section
+              className="fc-column fc-paths"
+              aria-label="All Paths"
+              data-tour="navigator-paths"
+            >
               <header>
                 <h2>
                   All Paths <span>{paths.length}</span>

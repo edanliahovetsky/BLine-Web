@@ -148,6 +148,7 @@ export function AppToolbar({
       <nav className="app-tabs" aria-label="Top menu">
         <IconButton
           className="app-toolbar__navigator-button"
+          data-tour="navigator-button"
           aria-label={commands.navigator.label}
           title={commands.navigator.label}
           disabled={commands.navigator.disabled}

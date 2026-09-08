@@ -9,7 +9,7 @@ import {
   requiredBox,
 } from "./support/app-shell-shared";
 
-test("opens help and the seven-lesson course", async ({ page }) => {
+test("opens help and the eight-lesson course", async ({ page }) => {
   await gotoSampleEditor(page);
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   const hub = page.getByTestId("help-hub");
@@ -25,12 +25,13 @@ test("opens help and the seven-lesson course", async ({ page }) => {
     "Understand Handoffs",
     "Control Heading",
     "Trigger Actions",
+    "Organize Path Groups",
     "Check and Export",
   ]) {
     await expect(picker.getByText(title, { exact: true })).toBeVisible();
   }
   await expect(page.getByTestId("tour-picker-progress")).toHaveText(
-    "0 of 7 lessons complete",
+    "0 of 8 lessons complete",
   );
 });
 
@@ -338,6 +339,8 @@ async function replayComparison(page: Page) {
   await expect(lab.getByRole("button", { name: "Replay" })).toBeVisible({
     timeout: 20_000,
   });
+  if (process.env.BLINE_TOUR_SCREENSHOTS)
+    await page.screenshot({ path: test.info().outputPath("Comparison.png") });
   await lab.getByRole("button", { name: "Close comparison" }).click();
 }
 
@@ -525,6 +528,8 @@ test("changes an event's time while preserving its geometric position", async ({
   await expect(lab.getByRole("button", { name: "Replay" })).toBeVisible({
     timeout: 20_000,
   });
+  if (process.env.BLINE_TOUR_SCREENSHOTS)
+    await page.screenshot({ path: test.info().outputPath("Comparison.png") });
   await lab.getByRole("button", { name: "Close comparison" }).click();
   await next(page, 1);
   await setNumber(page, "Event Pos (0-1)", "0.6");
@@ -681,12 +686,207 @@ async function finish(page: Page) {
     .getByRole("button", { name: "Finish", exact: true })
     .click();
   await expect(page.getByTestId("tour-picker-progress")).toHaveText(
-    "1 of 7 lessons complete",
+    "1 of 8 lessons complete",
   );
 }
 
+async function auditLessonLayout(page: Page) {
+  const card = page.getByTestId("tour-card");
+  await expect(card).toBeVisible();
+  await expect
+    .poll(async () => {
+      const box = await requiredBox(card);
+      const viewport = page.viewportSize()!;
+      return (
+        box.x >= 0 &&
+        box.y >= 0 &&
+        box.x + box.width <= viewport.width &&
+        box.y + box.height <= viewport.height
+      );
+    })
+    .toBe(true);
+  await expect
+    .poll(async () => {
+      return card.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      );
+    })
+    .toBe(true);
+  // Wait for the coach to finish docking or returning from the navigator.
+  await expect
+    .poll(async () => {
+      const navigator = page.getByTestId("path-library-dialog");
+      const nav = (await navigator.count())
+        ? await navigator.boundingBox()
+        : null;
+      const canvas = await requiredBox(
+        page.locator('[data-tour="path-canvas"]'),
+      );
+      const box = await requiredBox(card);
+      const expected = Math.max(
+        12,
+        Math.min(
+          nav ? nav.x + nav.width + 14 : canvas.x + 64,
+          page.viewportSize()!.width - 316,
+        ),
+      );
+      return Math.abs(box.x - expected) < 1;
+    })
+    .toBe(true);
+  const spotlight = page.locator(".tour-spotlight");
+  if (await spotlight.count()) {
+    await expect
+      .poll(async () => {
+        const a = await requiredBox(card),
+          b = await requiredBox(spotlight);
+        return (
+          a.x + a.width <= b.x ||
+          b.x + b.width <= a.x ||
+          a.y + a.height <= b.y ||
+          b.y + b.height <= a.y
+        );
+      })
+      .toBe(true);
+  }
+  if (process.env.BLINE_TOUR_SCREENSHOTS) {
+    await page.mouse.move(0, 0);
+    await expect(card).toHaveCSS("opacity", "1");
+    const name = (await card.getByRole("heading").innerText()).replace(
+      /[^a-z0-9]+/gi,
+      "-",
+    );
+    await page.screenshot({ path: test.info().outputPath(`${name}.png`) });
+  }
+}
+
+for (const width of [1280, 1024]) {
+  test(`organizes practice Path Groups with a clear navigator at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await gotoSampleEditor(page);
+    const original = await page.getByTestId("current-path-status").innerText();
+    await openLesson(page, "organize-path-groups");
+    const card = page.getByTestId("tour-card");
+    const nav = page.getByTestId("path-library-dialog");
+    const advance = async () => {
+      await expect(
+        card.getByRole("button", { name: "Next", exact: true }),
+      ).toBeVisible();
+      await auditLessonLayout(page);
+      await card.getByRole("button", { name: "Next", exact: true }).click();
+    };
+    await page
+      .getByRole("button", { name: "Open project navigator", exact: true })
+      .click();
+    await expect(nav).toBeVisible();
+    await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
+    await advance();
+    await nav
+      .getByRole("button", { name: "Create Path Group", exact: true })
+      .click();
+    const name = nav.getByRole("textbox", {
+      name: "Path Group name",
+      exact: true,
+    });
+    await name.fill("Practice");
+    await name.press("Enter");
+    await advance();
+    await nav
+      .getByRole("button", { name: "Focus Practice", exact: true })
+      .click();
+    await nav
+      .getByRole("button", { name: "Connect to Approach", exact: true })
+      .click();
+    await nav
+      .getByRole("button", { name: "Connect to Return", exact: true })
+      .click();
+    await expect(nav.locator(".fc-wire")).toHaveCount(2);
+    // Tab moves from the navigator into the lesson's controls, and back again.
+    await nav.getByRole("button", { name: "Close", exact: true }).focus();
+    await page.keyboard.press("Shift+Tab");
+    await expect(
+      card.getByRole("button", { name: "Next", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      nav.getByRole("button", { name: "Close", exact: true }),
+    ).toBeFocused();
+    await advance();
+    await auditLessonLayout(page);
+    await nav
+      .getByRole("button", { name: "Preview Path Group", exact: true })
+      .click();
+    await expect(nav).toHaveCount(0);
+    await expect(
+      page.getByRole("button", {
+        name: "Hide Path Group overlays",
+        exact: true,
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await advance();
+    await page
+      .getByRole("button", { name: "Open project navigator", exact: true })
+      .click();
+    await nav
+      .getByRole("button", { name: "Focus Practice", exact: true })
+      .click();
+    await nav
+      .getByRole("button", {
+        name: "Disconnect Return from Practice",
+        exact: true,
+      })
+      .click();
+    await expect(nav.getByTestId("path-library-focus-count")).toHaveText(
+      "1 Path connected",
+    );
+    await expect(
+      nav.getByRole("button", { name: "Focus Return", exact: true }),
+    ).toBeVisible();
+    await card.focus();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(
+      card.getByRole("button", { name: "Next", exact: true }),
+    ).toHaveCount(0);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await advance();
+    await expect(nav).toHaveCount(0);
+    await auditLessonLayout(page);
+    await card.getByRole("button", { name: "Finish", exact: true }).click();
+    await expect(page.getByTestId("tour-picker-progress")).toHaveText(
+      "1 of 8 lessons complete",
+    );
+    await expect(page.getByTestId("current-path-status")).toHaveText(original);
+    await page.reload();
+    await dismissMobileSupportWarning(page);
+    await openPathLibraryDialog(page);
+    await expect(
+      nav.getByRole("button", { name: "Focus Practice", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      nav.getByRole("button", { name: "Focus Return", exact: true }),
+    ).toHaveCount(0);
+  });
+}
+
+test("keeps the complete course reachable in a short window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await gotoSampleEditor(page);
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  const picker = page.getByTestId("tour-picker");
+  const box = await requiredBox(picker);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(600);
+  await page.getByTestId("tour-picker-verify-export").click();
+  await expect(page.getByTestId("tour-card")).toBeVisible();
+});
+
 // Every completed step in the walkthroughs exercises history and backward review.
 async function auditStepRecovery(page: Page) {
+  await auditLessonLayout(page);
   const card = page.getByTestId("tour-card");
   const title = await card.getByRole("heading").innerText();
   const forward = card.getByRole("button", { name: /^(Next|Finish)$/ });

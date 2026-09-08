@@ -45,6 +45,7 @@ import {
   feedback,
   speedCap,
 } from "./tourChecks";
+import { pathGroupsTour } from "./pathGroupsTour";
 
 export const editorBasicsTourId = "build-first-path";
 export const tourPracticePathName = "Tour practice";
@@ -1126,6 +1127,7 @@ export const tours: readonly TourDefinition[] = [
   handoffsTour,
   controlHeadingTour,
   triggerActionsTour,
+  pathGroupsTour,
   verifyExportTour,
 ];
 export function findTour(tourId: string | null) {
