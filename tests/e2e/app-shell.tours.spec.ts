@@ -25,7 +25,7 @@ test("opens help and the seven-lesson course", async ({ page }) => {
     "Understand Handoffs",
     "Control Heading",
     "Trigger Actions",
-    "Verify and Hand Off",
+    "Check and Export",
   ]) {
     await expect(picker.getByText(title, { exact: true })).toBeVisible();
   }
@@ -68,17 +68,17 @@ test("builds a first path, previews immediately, and recovers edits at every ste
   await next(page, 1);
   await place(page, "Waypoint", 5, 2);
   await place(page, "Waypoint", 14, 2.5);
-  await expect(card).toContainText("The requested elements are in place.");
+  await expect(card).toContainText("Targets placed.");
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 2 of 8");
   await next(page, 1);
-  await expect(card).toContainText("Play your first path");
+  await expect(card).toContainText("Preview the path");
   await watchRun(page);
   await next(page, 1);
   await setNumber(page, "X (m)", "13");
   await next(page, 1);
   await card.focus();
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(card).toContainText("The original route is restored.");
+  await expect(card).toContainText("End’s original position restored.");
   await next(page, 1);
   await setNumber(page, "X (m)", "15");
   await next(page, 1);
@@ -86,7 +86,7 @@ test("builds a first path, previews immediately, and recovers edits at every ste
   await next(page, 1);
   await card
     .getByRole("button", {
-      name: "Review step 2: Place the endpoints",
+      name: "Review step 2: Place two waypoints",
       exact: true,
     })
     .click();
@@ -94,7 +94,7 @@ test("builds a first path, previews immediately, and recovers edits at every ste
   await expect(rows(page)).toHaveCount(2);
   await card
     .getByRole("button", {
-      name: "Review step 8: Keep the useful points",
+      name: "Review step 8: Adding more targets",
       exact: true,
     })
     .click();
@@ -123,7 +123,7 @@ test("keeps tour actions visible and fades dialogue for inspection", async ({
   await page.mouse.up();
 
   await page.waitForTimeout(500);
-  await card.getByRole("heading", { name: "Add a bend" }).hover();
+  await card.getByRole("heading", { name: "Add a translation target" }).hover();
   await expect(card).toHaveCSS("opacity", "0.2");
 
   await card.getByRole("button", { name: "Back" }).hover();
@@ -143,9 +143,7 @@ test("shapes a route with translation order and bumper clearance", async ({
   await next(page, 1);
   await page.getByTestId("path-element-row-2").click();
   await page.keyboard.press("Alt+ArrowUp");
-  await expect(card).toContainText(
-    "The route visits Start, the bend, then Delivery.",
-  );
+  await expect(card).toContainText("Order: Start, Translation, End.");
   await next(page, 1);
   await setNumber(page, "X (m)", "10.8");
   await setNumber(page, "Y (m)", "6.8");
@@ -331,17 +329,15 @@ async function setNumber(page: Page, label: string, value: string) {
   await input.press("Enter");
 }
 async function replayComparison(page: Page) {
-  await page
-    .getByRole("button", { name: "Compare your path", exact: true })
-    .click();
-  const lab = page.getByRole("dialog", { name: "Compare your path" });
+  await page.getByRole("button", { name: "Compare runs", exact: true }).click();
+  const lab = page.getByRole("dialog", { name: "Compare runs" });
   await lab.getByLabel("Half speed").uncheck();
   if (await lab.getByLabel(/Focus on/).count())
     await lab.getByLabel(/Focus on/).check();
-  await lab.getByRole("button", { name: "Replay comparison" }).click();
-  await expect(
-    lab.getByRole("button", { name: "Replay comparison" }),
-  ).toBeVisible({ timeout: 20_000 });
+  await lab.getByRole("button", { name: "Replay" }).click();
+  await expect(lab.getByRole("button", { name: "Replay" })).toBeVisible({
+    timeout: 20_000,
+  });
   await lab.getByRole("button", { name: "Close comparison" }).click();
 }
 
@@ -467,7 +463,7 @@ test("repairs the complete mission and exports the actual practice files", async
   expect(bytes.includes(Buffer.from("startIntake"))).toBe(true);
   await next(page, 1);
   const copied = page.waitForEvent("download");
-  await card.getByRole("button", { name: "Keep a practice copy" }).click();
+  await card.getByRole("button", { name: "Save practice project" }).click();
   const copy = await copied;
   const archive = JSON.parse(await readFile((await copy.path())!, "utf8"));
   expect(JSON.stringify(archive)).toContain("prepareDelivery");
@@ -514,10 +510,8 @@ test("changes an event's time while preserving its geometric position", async ({
   await next(page, 1);
   await setSpeed(page, 2, "1");
   await next(page, 1);
-  await page
-    .getByRole("button", { name: "Compare your path", exact: true })
-    .click();
-  const lab = page.getByRole("dialog", { name: "Compare your path" });
+  await page.getByRole("button", { name: "Compare runs", exact: true }).click();
+  const lab = page.getByRole("dialog", { name: "Compare runs" });
   const eventTimes = await lab
     .locator(".tour-lab__event-time")
     .allTextContents();
@@ -527,10 +521,10 @@ test("changes an event's time while preserving its geometric position", async ({
   );
   expect(Number(values[1][1])).toBeGreaterThan(Number(values[0][1]));
   expect(values[1][2]).toBe(values[0][2]);
-  await lab.getByRole("button", { name: "Replay comparison" }).click();
-  await expect(
-    lab.getByRole("button", { name: "Replay comparison" }),
-  ).toBeVisible({ timeout: 20_000 });
+  await lab.getByRole("button", { name: "Replay" }).click();
+  await expect(lab.getByRole("button", { name: "Replay" })).toBeVisible({
+    timeout: 20_000,
+  });
   await lab.getByRole("button", { name: "Close comparison" }).click();
   await next(page, 1);
   await setNumber(page, "Event Pos (0-1)", "0.6");
@@ -722,7 +716,7 @@ async function auditStepRecovery(page: Page) {
   await expect(forward).toBeVisible({ timeout: 10_000 });
   // A future command or a stale editor state must not turn malformed practice
   // into a completed step. The two capstone opening cards intentionally allow repair work.
-  if (!["Finish the pickup and delivery", "Open Path Health"].includes(title)) {
+  if (!["Complete the routine", "Check Path Health"].includes(title)) {
     for (const damage of ["extra", "missing", "wrong-type"] as const) {
       const snapshot = await damagePractice(page, damage);
       if (!snapshot) continue;

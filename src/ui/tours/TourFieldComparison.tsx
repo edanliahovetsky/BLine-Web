@@ -43,7 +43,7 @@ export function TourFieldComparison({
         <svg
           className="tour-reference-trace"
           data-testid="tour-reference-trace"
-          aria-label="Saved reference route and robot"
+          aria-label="Path and robot before changes"
           style={{
             left: viewport.x,
             top: viewport.y,
@@ -96,7 +96,7 @@ export function TourFieldComparison({
         </span>
         {before && (
           <span>
-            Dashed: reference {before.total_time_s.toFixed(2)} s · Current{" "}
+            Before (dashed): {before.total_time_s.toFixed(2)} s · After{" "}
             {result.total_time_s.toFixed(2)} s
           </span>
         )}

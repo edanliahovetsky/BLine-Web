@@ -15,12 +15,12 @@ export function KeepPracticeCopy() {
         if (!project) return;
         downloadBlob(
           serializeBLineProjectArchive(project, new Date().toISOString()),
-          "Pickup-and-delivery.bline-project.json",
+          "Practice.bline-project.json",
         );
         tourStore.getState().recordAction("keepCopy");
       }}
     >
-      Keep a practice copy
+      Save practice project
     </button>
   );
 }
@@ -51,7 +51,7 @@ export function TourHandoff() {
         Practice robot: {project.config.gui.robot.length_meters.toFixed(2)} ×{" "}
         {project.config.gui.robot.width_meters.toFixed(2)} m. Field: Blank Grid.
       </p>
-      <p>Select each file to inspect the actual export.</p>
+      <p>Select a file to view its contents.</p>
       <div className="tour-handoff__files">
         {folder.files.map((file) => (
           <button
@@ -75,10 +75,10 @@ export function TourHandoff() {
         <>
           <p>
             {selected.startsWith("paths/")
-              ? "The path contains ordered elements, event keys, and constraints for the robot."
+              ? "Targets, constraints, and event keys."
               : selected === "config.json"
-                ? "Runtime motion defaults, including speed, acceleration, tolerances, and handoff radius. Match them to your robot."
-                : "Editor metadata, including project organization and the bumper dimensions used for this preview. Robot code configures the physical robot separately."}
+                ? "Runtime defaults for speed, acceleration, tolerances, and handoff radius."
+                : "Editor settings, project organization, and preview bumper dimensions. Physical robot settings belong in robot code."}
           </p>
           <pre aria-label="Export file contents">{contents}</pre>
         </>

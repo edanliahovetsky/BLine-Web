@@ -27,14 +27,14 @@ describe("guided lesson content", () => {
   });
   it("gets two waypoints moving before teaching other editor mechanics", () => {
     const build = tours[0];
-    expect(build.steps[1].title).toBe("Place the endpoints");
+    expect(build.steps[1].title).toBe("Place two waypoints");
     expect(build.steps[2].target).toBe("transport-play");
     expect(build.steps[2].elements).toEqual({ waypoint: 2 });
     expect(build.steps.some((step) => step.title.includes("order"))).toBe(
       false,
     );
     expect(
-      tours[1].steps.some((step) => step.title === "Put it in drive order"),
+      tours[1].steps.some((step) => step.title === "Reorder the targets"),
     ).toBe(true);
   });
   it("starts the local-speed edit with a separate generated turn cap", () => {
@@ -61,8 +61,7 @@ describe("guided lesson content", () => {
     }
     const capstone = tours.at(-1)!;
     expect(
-      capstone.steps.find((step) => step.title === "Repair the whole mission")
-        ?.elements,
+      capstone.steps.find((step) => step.title === "Fix the path")?.elements,
     ).toBeUndefined();
     expect(capstone.steps.slice(3).every((step) => step.validate)).toBe(true);
   });

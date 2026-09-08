@@ -2423,7 +2423,7 @@ function TourPickerDialog({
             <strong>
               <span aria-hidden="true">🧭</span> Guided tours
             </strong>
-            <span>Build one skill at a time. Leave any time.</span>
+            <span>Choose a lesson. Leaving restores your project.</span>
             <span
               className="tour-picker__course-progress"
               data-testid="tour-picker-progress"

@@ -588,14 +588,12 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           >
             <span aria-hidden="true">{actionComplete ? "✓" : "○"}</span>
             {isReviewing
-              ? "Previously completed. Your later work is preserved."
+              ? "Previously completed."
               : feedback
                 ? feedback
                 : actionComplete
-                  ? lockInteractionOnComplete
-                    ? "Done. Continue to the next step."
-                    : "Done. Keep experimenting or continue."
-                  : "Waiting for this action"}
+                  ? "Done."
+                  : "Complete the task to continue."}
           </div>
         ) : null}
         {(step.hints?.length || step.demo) && (
@@ -624,14 +622,14 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
             className="tour-card__experiment"
             onClick={() => setLabState({ token: stepToken, example: false })}
           >
-            Compare your path
+            Compare runs
           </button>
         )}
         {step.handoff && <TourHandoff />}
         {isLastStep && (
           <div className="tour-card__copy">
             <KeepPracticeCopy />
-            <p>Reopen the copy with Import Project Archive after the lesson.</p>
+            <p>Reopen it with Import Project Archive.</p>
           </div>
         )}
         {isLastStep && (!actionGated || actionComplete) ? (

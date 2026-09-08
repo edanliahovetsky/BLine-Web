@@ -54,8 +54,12 @@ export function TourLab({
     }
     if (!current || !project) return [];
     return [
-      ...(reference ? [{ ...reference, label: "Saved reference" }] : []),
-      { path: current, config: project.config, label: "Your current path" },
+      ...(reference ? [{ ...reference, label: "Before" }] : []),
+      {
+        path: current,
+        config: project.config,
+        label: reference ? "After" : "Current path",
+      },
     ];
   }, [current, example, kind, project, reference]);
   const runs = useMemo(
@@ -139,19 +143,19 @@ export function TourLab({
           last?.focus();
         }
       }}
-      aria-label={example ? "Worked example" : "Compare your path"}
+      aria-label={example ? "Worked example" : "Compare runs"}
     >
       <header>
         <div>
-          <small>{example ? "WORKED EXAMPLE" : "YOUR EXPERIMENT"}</small>
+          <small>{example ? "WORKED EXAMPLE" : "COMPARISON"}</small>
           <h3>
             {kind === "handoff"
-              ? "When does the robot cut the corner?"
+              ? "Compare the turns"
               : kind === "speed"
-                ? "Watch the approach speed"
+                ? "Compare the speeds"
                 : kind === "events"
-                  ? "Same event position, different time"
-                  : "Watch the heading change"}
+                  ? "Compare event times"
+                  : "Compare the heading"}
           </h3>
         </div>
         <button onClick={onClose} aria-label="Close comparison">
@@ -160,10 +164,10 @@ export function TourLab({
       </header>
       <p>
         {example
-          ? "Replay two prepared paths. These controls leave your exercise as you made it."
+          ? "Replay the two example paths."
           : reference
-            ? "Replay the saved reference beside your current path. Compare their motion and time."
-            : "Save a reference, close this panel, edit your path, then return to compare the result."}
+            ? "Replay the path before and after your changes."
+            : "Save the current path, make an edit, then reopen this panel to compare."}
       </p>
       <div className="tour-lab__lanes">
         {runs.map((run, index) => (
@@ -210,7 +214,7 @@ export function TourLab({
             setPlaying(!playing);
           }}
         >
-          {playing ? "Pause" : "Replay comparison"}
+          {playing ? "Pause" : "Replay"}
         </button>
         <label>
           <input
@@ -261,14 +265,13 @@ export function TourLab({
               }
             }}
           >
-            Save current as reference
+            Save current path
           </button>
         )}
       </div>
       {focused && (
         <p>
-          Each lane begins just before its own corner. Total times above still
-          describe the whole path.
+          Each run starts just before its turn. Total times cover the full path.
         </p>
       )}
     </section>

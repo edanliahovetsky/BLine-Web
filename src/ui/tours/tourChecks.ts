@@ -45,8 +45,8 @@ export function checkSpeed(
       cap.source !== "auto_velocity" &&
       cap.value > 0 &&
       cap.value <= maximum,
-    `Choose the speed cell for ${ordinal === 2 ? "Pickup" : ordinal === 3 ? "the second turn" : "Delivery"} and set a Manual cap above 0 and at most ${maximum} m/s. Split a shared cell if needed.`,
-    `The ${ordinal === 2 ? "Pickup approach" : ordinal === 3 ? "second turn" : "Delivery approach"} now has a Manual ${cap?.value.toFixed(2)} m/s cap.`,
+    `Set the ${ordinal === 2 ? "first-bend" : ordinal === 3 ? "second-turn" : "End approach"} Manual limit above 0 and at most ${maximum} m/s. Split a shared cell if needed.`,
+    `Manual limit set to ${cap?.value.toFixed(2)} m/s.`,
   );
 }
 export function checkClearance(
@@ -59,22 +59,23 @@ export function checkClearance(
   return feedback(
     clear,
     preview
-      ? "The simulated bumper still clips the structure or a field edge. Adjust the approach speed, handoff radius, or bend position allowed in this exercise."
-      : "Leave room for the whole bumper, not just the line. Move the bend farther above the structure.",
+      ? "The bumper clips the structure or field edge. Adjust the speed, radius, or bend using the highlighted controls."
+      : "Move the bend farther above the structure to leave room for the bumper.",
     preview
-      ? "The simulated bumper clears the structure and stays inside the field."
-      : "Both route segments leave room for the bumper.",
+      ? "Bumper clearance checked."
+      : "Both segments leave bumper clearance.",
   );
 }
 export function checkDelivery(
   path: PathModel,
   config: ProjectConfig,
+  zone: "End" | "Delivery" = "Delivery",
 ): TourFeedback {
   return feedback(
     near(anchorPositions(path).at(-1), mission.delivery) &&
       withinField(path, config),
-    "Move the final waypoint into Delivery at X 15, Y 2.5. Keep the bumper inside the field.",
-    "The final waypoint is inside Delivery with room for the bumper.",
+    `Move End into ${zone === "End" ? "the End zone" : "Delivery"} at X 15, Y 2.5. Keep the bumper inside the field.`,
+    `End is inside ${zone === "End" ? "its zone" : "Delivery"}.`,
   );
 }
 export function checkEvent(path: PathModel, ratio = 0.7): TourFeedback {
@@ -86,8 +87,8 @@ export function checkEvent(path: PathModel, ratio = 0.7): TourFeedback {
       event.lib_key.trim() === "startIntake" &&
       Math.abs(event.t_ratio - ratio) < 0.015 &&
       event.t_ratio > rotation.t_ratio,
-    `Set the event key to startIntake and its position to ${ratio}. It should follow the rotation target.`,
-    "startIntake follows the rotation target at the requested position.",
+    `Set Lib Key to startIntake and Event Pos to ${ratio}, after the rotation target.`,
+    `startIntake set to position ${ratio}.`,
   );
 }
 export function checkRadius(
@@ -103,7 +104,7 @@ export function checkRadius(
       target.intermediate_handoff_radius_meters >= minimum &&
       target.intermediate_handoff_radius_meters <= maximum,
     `Select the bend's radius chip, choose Manual, and use ${minimum === maximum ? minimum : `${minimum} to ${maximum}`} m.`,
-    `The bend now uses a Manual ${target?.intermediate_handoff_radius_meters?.toFixed(2)} m handoff radius.`,
+    `Manual radius set to ${target?.intermediate_handoff_radius_meters?.toFixed(2)} m.`,
   );
 }
 export function checkPlan(
@@ -113,7 +114,7 @@ export function checkPlan(
   return feedback(
     !autoVelocityStatusForPath(path, config).stale,
     "Generate the constraints for this route.",
-    "The generated constraints already match this route and its settings.",
+    "Constraints are up to date.",
   );
 }
 
@@ -138,7 +139,7 @@ export function checkMission(
     return {
       complete: false,
       message:
-        "Keep Start in its zone and a target at the Pickup pose before Delivery.",
+        "Keep Start in its zone and place a target at Pickup before End.",
     };
   const intake = events.filter(
     ({ element }) => element.lib_key === "startIntake",
@@ -171,7 +172,7 @@ export function checkMission(
   )
     return {
       complete: false,
-      message: "Keep the final waypoint heading at -90° for Delivery.",
+      message: "Set End’s heading to −90° for Delivery.",
     };
   const delivery = checkDelivery(path, config);
   if (!delivery.complete) return delivery;
@@ -216,6 +217,6 @@ export function checkMission(
       near({ x_meters: end.x_m, y_meters: end.y_m }, mission.delivery) &&
       headingError(end.theta_rad, -Math.PI / 2) < Math.PI / 18,
     "The preview must finish inside Delivery facing -90°.",
-    "The preview reaches both poses, carries both named events, and keeps the bumper clear.",
+    "Headings, events, and bumper clearance checked.",
   );
 }

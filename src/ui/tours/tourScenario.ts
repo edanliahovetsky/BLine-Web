@@ -85,9 +85,12 @@ export const missionMarkers: readonly TourMarker[] = [
     heightMeters: 0.85,
   },
 ];
-export const buildMarkers = missionMarkers.filter(
-  (marker) => marker.kind === "zone",
-);
+export const buildMarkers = missionMarkers
+  .filter((marker) => marker.kind === "zone")
+  .map((marker) => ({
+    ...marker,
+    label: marker.id === "lesson-goal-zone" ? "End" : marker.label,
+  }));
 
 export function practiceConfig(): ProjectConfig {
   const config = createProjectConfig();
@@ -400,7 +403,7 @@ export function demonstrationPaths(kind: TourExperiment): {
     return {
       before,
       after,
-      labels: ["2 m/s cap, event at 0.7", "1 m/s cap, event at 0.7"],
+      labels: ["2 m/s limit, event at 0.7", "1 m/s limit, event at 0.7"],
     };
   }
   if (kind === "speed") {
