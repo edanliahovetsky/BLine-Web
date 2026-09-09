@@ -66,6 +66,7 @@ export function TourHandoffGuide({
         x={anchors[1]?.x_meters}
         y={9 - (anchors[1]?.y_meters ?? 0) - 0.3}
         className="tour-handoff-guide__label"
+        fill="#dce8ec"
         textAnchor="middle"
       >
         Bend

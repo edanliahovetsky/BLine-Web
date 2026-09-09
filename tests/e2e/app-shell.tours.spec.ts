@@ -505,11 +505,12 @@ for (const width of [1280, 1024]) {
     });
     await expect(advance).toBeVisible({ timeout: 15_000 });
     await next(page, 1);
+    await expect(page.getByTestId("tour-saved-handoff")).toHaveCount(0);
+    await setNumber(page, "Handoff radius 2 value", "1.5");
     await expect(page.getByTestId("tour-saved-handoff")).toHaveAttribute(
       "data-radius",
       "0.25",
     );
-    await setNumber(page, "Handoff radius 2 value", "1.5");
     await expect(page.getByTestId("tour-current-handoff")).toHaveAttribute(
       "data-radius",
       "1.5",
@@ -538,7 +539,11 @@ for (const width of [1280, 1024]) {
     await next(page, 1);
     await expect(advance).toHaveCount(0);
     await expect(card).toContainText("too little bumper clearance");
-    await setNumber(page, "Handoff radius 2 value", "0.25");
+    const chosenRadius = width === 1280 ? "0.4" : "0.25";
+    await setNumber(page, "Handoff radius 2 value", chosenRadius);
+    await expect(page.getByTestId("tour-saved-handoff")).toHaveCount(
+      width === 1280 ? 1 : 0,
+    );
     await next(page, 1);
     await expect(advance).toHaveCount(0);
     await watchRun(page);

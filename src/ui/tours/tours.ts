@@ -699,6 +699,7 @@ export const handoffsTour: TourDefinition = {
       {
         title: "Drive toward the active target",
         body: "BLine steers from the robot’s live position toward one translation target at a time. This bend shapes a pass-through route. Entering its handoff circle switches the target to End, without requiring a stop at the bend.",
+        prepare: { inspector: "closed" },
       },
       {
         title: "Set a small radius",
@@ -722,7 +723,7 @@ export const handoffsTour: TourDefinition = {
       },
       {
         title: "Increase the radius",
-        body: "The run you watched stays on the canvas as a dashed trace. Set the radius to 1.5 m. The larger circle lets steering switch farther from the bend; the robot still needs space to change direction.",
+        body: "The run you watched stays as a dashed trace. Set 1.5 m to switch toward End earlier. An earlier handoff gives the robot more room to change direction smoothly, but can cut farther inside the bend.",
         task: "Set a Manual radius of 1.5 m",
         phase: "Experiment",
         target: "max-velocity-card",

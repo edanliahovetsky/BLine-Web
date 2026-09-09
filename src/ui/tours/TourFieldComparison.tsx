@@ -43,9 +43,13 @@ export function TourFieldComparison({
   const robot = before ? sampleAtTime(before.trace, time) : null;
   const current = sampleAtTime(result.trace, time);
   const events = simulationEventKeysAtTime(path, result.trace, time);
+  const showReference =
+    before &&
+    reference &&
+    (!handoffLesson || JSON.stringify(reference.path) !== JSON.stringify(path));
   return (
     <>
-      {before && reference && (
+      {showReference && before && reference && (
         <svg
           className="tour-reference-trace"
           data-testid="tour-reference-trace"
@@ -99,7 +103,7 @@ export function TourFieldComparison({
           result={result}
           time={time}
           saved={
-            before && reference
+            showReference && before && reference
               ? { path: reference.path, result: before }
               : undefined
           }
@@ -125,7 +129,7 @@ export function TourFieldComparison({
         {handoffLesson && (
           <span>
             {reference &&
-              `Dashed: saved ${reference.path.path_elements.find(isTranslationTarget)?.intermediate_handoff_radius_meters?.toFixed(2)} m · `}
+              `${showReference ? "Dashed: saved" : "Saved"} ${reference.path.path_elements.find(isTranslationTarget)?.intermediate_handoff_radius_meters?.toFixed(2)} m · `}
             Current radius:{" "}
             {path.path_elements
               .find(isTranslationTarget)
