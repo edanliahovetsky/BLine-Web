@@ -6,6 +6,7 @@ import {
 } from "../../../src/core/model/path";
 import { simulatePathWithTrace } from "../../../src/core/sim";
 import { simulationEventMoments } from "../../../src/canvas/simulationEventPulse";
+import { firstHandoff } from "../../../src/ui/tours/handoffTrace";
 import {
   clearance,
   createMissionPath,
@@ -99,5 +100,16 @@ describe("lesson practice scenario", () => {
     expect(before.ranged_constraints).toEqual(after.ranged_constraints);
     expect(before.constraints).toEqual(after.constraints);
     expect(before.constraints.max_velocity_meters_per_sec).toBe(1);
+    const small = firstHandoff(
+      simulatePathWithTrace(before, practiceConfig()).trace,
+    )!;
+    const large = firstHandoff(
+      simulatePathWithTrace(after, practiceConfig()).trace,
+    )!;
+    expect(large.time).toBeLessThan(small.time - 1);
+    expect(Math.hypot(small.x - 10.8, small.y - 6.8)).toBeLessThanOrEqual(0.25);
+    expect(Math.hypot(large.x - 10.8, large.y - 6.8)).toBeGreaterThan(1.45);
+    expect(Math.hypot(large.x - 10.8, large.y - 6.8)).toBeLessThanOrEqual(1.5);
+    expect(clearance(after, practiceConfig(), true)).toBe(false);
   });
 });

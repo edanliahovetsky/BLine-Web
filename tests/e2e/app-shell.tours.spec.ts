@@ -476,22 +476,77 @@ test("repairs the complete mission and exports the actual practice files", async
   );
 });
 
-test("compares handoff radii at a controlled speed", async ({ page }) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await gotoSampleEditor(page);
-  await openLesson(page, "understand-handoffs");
-  await next(page, 1);
-  await setNumber(page, "Handoff radius 2 value", "0.25");
-  await next(page, 1);
-  await setNumber(page, "Handoff radius 2 value", "1.5");
-  await next(page, 1);
-  await replayComparison(page);
-  await next(page, 1);
-  await setNumber(page, "Handoff radius 2 value", "0.25");
-  await next(page, 2);
-  await finish(page);
-});
+for (const width of [1280, 1024]) {
+  test(`runs each handoff radius on the main canvas at ${width}px @webkit-canvas`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width, height: 800 });
+    await gotoSampleEditor(page);
+    await openLesson(page, "understand-handoffs");
+    const card = page.getByTestId("tour-card");
+    const advance = card.getByRole("button", { name: "Next", exact: true });
+    const steering = page.getByTestId("tour-active-target");
+    await expect(page.getByTestId("tour-handoff-guide")).toBeVisible();
+    await next(page, 1);
+    await setNumber(page, "Handoff radius 2 value", "0.25");
+    await next(page, 1);
+    await expect(advance).toHaveCount(0);
+    await expect(steering).toHaveAttribute("data-target", "Bend");
+    await expect(
+      page.getByRole("button", { name: "Compare runs", exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByTestId("tour-reference-trace")).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Play simulation", exact: true })
+      .click();
+    await expect(steering).toHaveAttribute("data-target", "End", {
+      timeout: 15_000,
+    });
+    await expect(advance).toBeVisible({ timeout: 15_000 });
+    await next(page, 1);
+    await expect(page.getByTestId("tour-saved-handoff")).toHaveAttribute(
+      "data-radius",
+      "0.25",
+    );
+    await setNumber(page, "Handoff radius 2 value", "1.5");
+    await expect(page.getByTestId("tour-current-handoff")).toHaveAttribute(
+      "data-radius",
+      "1.5",
+    );
+    await next(page, 1);
+    await expect(advance).toHaveCount(0);
+    await expect(
+      page.getByLabel("Simulation time", { exact: true }),
+    ).toHaveValue("0");
+    await expect(steering).toHaveAttribute("data-target", "Bend");
+    await expect(page.getByTestId("tour-reference-trace")).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "Compare runs", exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Play simulation", exact: true })
+      .click();
+    await expect(steering).toHaveAttribute("data-target", "End", {
+      timeout: 15_000,
+    });
+    if (process.env.BLINE_TOUR_SCREENSHOTS)
+      await page.screenshot({
+        path: test.info().outputPath("Earlier-handoff-in-motion.png"),
+      });
+    await expect(advance).toBeVisible({ timeout: 15_000 });
+    await next(page, 1);
+    await expect(advance).toHaveCount(0);
+    await expect(card).toContainText("too little bumper clearance");
+    await setNumber(page, "Handoff radius 2 value", "0.25");
+    await next(page, 1);
+    await expect(advance).toHaveCount(0);
+    await watchRun(page);
+    await next(page, 1);
+    await expect(card).toContainText("t-ratio handoffs");
+    await finish(page);
+  });
+}
 
 test("changes an event's time while preserving its geometric position", async ({
   page,

@@ -688,57 +688,64 @@ export const planSpeedTour: TourDefinition = {
 export const handoffsTour: TourDefinition = {
   id: "understand-handoffs",
   title: "Understand Handoffs",
-  summary: "Compare radii with a fixed approach speed",
-  durationMinutes: 4,
+  summary: "Watch the target change, then tune where it happens",
+  durationMinutes: 5,
   completionMessage: "Lesson complete.",
-  markers: routeMarkers,
+  markers: routeMarkers.filter((marker) => marker.kind !== "pose"),
   practicePath: createHandoffPath,
   practiceConfig,
   steps: guided(
     [
       {
-        title: "Handoff radius",
-        body: "The handoff radius lets the follower switch to the next target before reaching the current target’s center. This path uses 1 m/s speed limits.",
+        title: "Drive toward the active target",
+        body: "BLine steers from the robot’s live position toward one translation target at a time. This bend shapes a pass-through route. Entering its handoff circle switches the target to End, without requiring a stop at the bend.",
       },
       {
         title: "Set a small radius",
-        body: "Select the bend’s radius, choose Manual, and enter 0.25 m. Keep the speed limits unchanged.",
+        body: "Set the bend’s Manual radius to 0.25 m. The circle marks how close the robot’s center must get before steering switches to End. Keep the 1 m/s limits so only the handoff location changes.",
         task: "Set the bend radius to Manual 0.25 m",
         target: "max-velocity-card",
         interact: ["max-velocity-card"],
         prepare: { ...constraints(), selectElement: bend },
         check: outcome((path) => checkFixedRadius(path, 0.25)),
-        demo: "handoff",
         hints: [
           "The distance chip is on the right of the speed ledger.",
           "Select the bend's radius chip to open its Manual value field.",
         ],
       },
       {
+        ...observe(
+          "Watch the small-circle handoff",
+          "Press Play. Watch the steering line point at the bend, then switch to End when the robot’s center enters the circle. The robot keeps moving through the handoff.",
+        ),
+        prepare: { simulation: "start", tool: "select", inspector: "closed" },
+      },
+      {
         title: "Increase the radius",
-        body: "Change the radius to 1.5 m. The 0.25 m run is saved for comparison.",
+        body: "The run you watched stays on the canvas as a dashed trace. Set the radius to 1.5 m. The larger circle lets steering switch farther from the bend; the robot still needs space to change direction.",
         task: "Set a Manual radius of 1.5 m",
         phase: "Experiment",
         target: "max-velocity-card",
         interact: ["max-velocity-card"],
-        prepare: { ...constraints(), selectElement: bend },
+        prepare: { ...constraints(), selectElement: bend, simulation: "start" },
         captureReference: true,
         check: outcome((path) => checkFixedRadius(path, 1.5)),
       },
-      compare(
-        "handoff",
-        "Compare the turns",
-        "Replay both runs. Watch where each robot turns toward End.",
-      ),
       {
-        title: "Clear the structure",
-        body: "Choose a radius between 0.25 and 1.5 m that keeps the bumper clear. Keep the target positions and speed limits unchanged.",
-        task: "Choose a radius that keeps the bumper clear",
+        ...observe(
+          "Watch the earlier handoff",
+          "Press Play again. The solid steering line switches to End earlier than in your dashed 0.25 m run. Compare the handoff dots and the room each turn leaves around the structure.",
+        ),
+        prepare: { simulation: "start", tool: "select", inspector: "closed" },
+      },
+      {
+        title: "Choose where to hand off",
+        body: "Choose a radius between 0.25 and 1.5 m that leaves bumper clearance around the structure. Use the traces to decide how early the robot may leave the bend. Keep the target positions and 1 m/s limits unchanged.",
+        task: "Set a radius with bumper clearance",
         phase: "Challenge",
         target: "max-velocity-card",
         interact: ["max-velocity-card"],
-        prepare: { ...constraints(), selectElement: bend },
-        experiment: "handoff",
+        prepare: { ...constraints(), selectElement: bend, simulation: "start" },
         check: outcome((path) => {
           const radius = checkRadius(path, 0.25, 1.5);
           if (!radius.complete) return radius;
@@ -748,22 +755,30 @@ export const handoffsTour: TourDefinition = {
               message:
                 "Keep the target positions and 1 m/s speed limits unchanged. Undo any edits to them.",
             };
-          return checkClearance(path, currentConfig(), true);
+          const clear = checkClearance(path, currentConfig(), true);
+          return clear.complete
+            ? clear
+            : {
+                complete: false,
+                message:
+                  "The preview leaves too little bumper clearance. Try a smaller radius to hand off closer to the bend.",
+              };
         }),
         hints: [
           "Watch the inside bumper edge, not just the robot center.",
-          "Compare a smaller radius at this speed and check the resulting trace.",
+          "A larger radius lets the robot leave the bend sooner and can cut into the space beside the structure.",
         ],
       },
       {
-        title: "Missing a handoff",
-        body: "At speed, the robot can miss a small handoff circle and turn back toward it. Reduce the approach speed before reducing the radius further.",
-        phase: "Review",
-        demo: "handoff",
+        ...observe(
+          "Test your chosen radius",
+          "Press Play and check the bumper through the turn. Radius chooses where steering may switch. If the robot struggles to reach that region at speed, lower the approach velocity before enlarging the circle and changing the route.",
+        ),
+        prepare: { simulation: "start", tool: "select", inspector: "closed" },
       },
       {
-        title: "Finishing at End",
-        body: "Intermediate targets use handoffs. At End, position and heading tolerances determine completion. This preview uses circle handoffs; robot code can also enable projection handoffs after passing a target.",
+        title: "Pass through, then finish",
+        body: "End uses position and heading tolerances. This preview uses circle entry at intermediate targets. For ordinary pass-through points, the docs recommend enabling t-ratio handoffs in robot code: circle entry or enough projected progress can advance the target, avoiding a return to a missed circle.",
         phase: "Review",
       },
     ],

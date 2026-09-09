@@ -2,10 +2,12 @@ import { useMemo } from "react";
 import type { FieldViewport } from "../../canvas/geometry";
 import { simulationEventKeysAtTime } from "../../canvas/simulationEventPulse";
 import type { PathModel } from "../../core/model/path";
+import { isTranslationTarget } from "../../core/model/path";
 import { simulatePathWithTrace, type SimTraceResult } from "../../core/sim";
 import { useStoreSelector } from "../../state/react";
 import { sampleAtTime } from "./tourScenario";
 import { tourStore } from "./tourStore";
+import { TourHandoffGuide } from "./TourHandoffGuide";
 
 /** A saved run remains visible on the editable field while the learner tunes. */
 export function TourFieldComparison({
@@ -20,6 +22,10 @@ export function TourFieldComparison({
   time: number;
 }) {
   const reference = useStoreSelector(tourStore, (state) => state.reference);
+  const handoffLesson = useStoreSelector(
+    tourStore,
+    (state) => state.activeTourId === "understand-handoffs",
+  );
   const before = useMemo(
     () =>
       reference
@@ -86,15 +92,48 @@ export function TourFieldComparison({
           )}
         </svg>
       )}
+      {handoffLesson && (
+        <TourHandoffGuide
+          viewport={viewport}
+          path={path}
+          result={result}
+          time={time}
+          saved={
+            before && reference
+              ? { path: reference.path, result: before }
+              : undefined
+          }
+        />
+      )}
       <div
-        className="tour-simulation-readout"
+        className={`tour-simulation-readout${handoffLesson ? " tour-simulation-readout--handoff" : ""}`}
         data-tour="lesson-simulation-readout"
       >
-        <span>
-          {(current?.speed_mps ?? 0).toFixed(2)} m/s ·{" "}
-          {(((current?.theta_rad ?? 0) * 180) / Math.PI).toFixed(0)}°
-        </span>
-        {before && (
+        {handoffLesson ? (
+          <span>
+            {time >= result.total_time_s
+              ? "End reached"
+              : `Steering to ${current?.target_anchor_ordinal_1b === 2 ? "Bend" : "End"}`}{" "}
+            · {(current?.speed_mps ?? 0).toFixed(2)} m/s
+          </span>
+        ) : (
+          <span>
+            {(current?.speed_mps ?? 0).toFixed(2)} m/s ·{" "}
+            {(((current?.theta_rad ?? 0) * 180) / Math.PI).toFixed(0)}°
+          </span>
+        )}
+        {handoffLesson && (
+          <span>
+            {reference &&
+              `Dashed: saved ${reference.path.path_elements.find(isTranslationTarget)?.intermediate_handoff_radius_meters?.toFixed(2)} m · `}
+            Current radius:{" "}
+            {path.path_elements
+              .find(isTranslationTarget)
+              ?.intermediate_handoff_radius_meters?.toFixed(2)}{" "}
+            m
+          </span>
+        )}
+        {before && !handoffLesson && (
           <span>
             Before (dashed): {before.total_time_s.toFixed(2)} s · After{" "}
             {result.total_time_s.toFixed(2)} s
