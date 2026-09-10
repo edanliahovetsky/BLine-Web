@@ -9,8 +9,6 @@ import type { LinkedTarget } from "../../core/model/project";
 import {
   buildGlobalRotationTargets,
   buildSegments,
-  evaluateRotationTargets,
-  radiansToDegrees,
   simulatePathWithTrace,
   type SimulationConfig,
 } from "../../core/sim";
@@ -149,23 +147,6 @@ export function derivePathDiagnostics(
             severity: "warning",
             summary: `Rotation ${target.eventOrdinal} ${detail}`,
             elementIndex: target.elementIndex,
-          });
-        }
-        for (const target of evaluateRotationTargets(
-          rotationTargets,
-          result.trace,
-        )) {
-          if (target.passed) {
-            continue;
-          }
-          const missDegrees = Number.isFinite(target.error_rad)
-            ? `${radiansToDegrees(target.error_rad).toFixed(1)}°`
-            : "an unknown amount";
-          diagnostics.push({
-            id: `rotation-target-${target.event_ordinal_1b}`,
-            severity: "warning",
-            summary: `Preview tracking: rotation ${target.event_ordinal_1b} misses its target by ${missDegrees} on arrival.`,
-            elementIndex: target.path_element_index,
           });
         }
       } catch {

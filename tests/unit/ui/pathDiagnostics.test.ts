@@ -118,12 +118,12 @@ describe("path diagnostics", () => {
 
     expect(
       derivePathDiagnostics(path, defaultFieldGeometry, [], {}).find(
-        (diagnostic) => diagnostic.id === "rotation-target-1",
+        (diagnostic) => diagnostic.id === "rotation-feasibility-1",
       ),
     ).toMatchObject({ severity: "warning", elementIndex: 1 });
   });
 
-  it("keeps achievable target timing separate from preview tracking", () => {
+  it("does not warn about preview tracking misses for an achievable rotation", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 1, y_meters: 1 }),
@@ -146,12 +146,7 @@ describe("path diagnostics", () => {
       [],
       {},
     );
-    expect(
-      diagnostics.find((item) => item.id === "rotation-feasibility-1"),
-    ).toBeUndefined();
-    expect(
-      diagnostics.find((item) => item.id === "rotation-target-1")?.summary,
-    ).toMatch(/^Preview tracking:/);
+    expect(diagnostics).toEqual([]);
   });
 
   it("offers to remove a reference to a missing linked target", () => {
