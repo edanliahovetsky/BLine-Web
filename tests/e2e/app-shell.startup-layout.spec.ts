@@ -604,6 +604,13 @@ async function expectUsablePanel(panel: Locator) {
 test("preserves toolbar ordering and access across responsive breakpoints", async ({
   page,
 }) => {
+  // The media-query warning can appear after a resize has already completed.
+  await page.addLocatorHandler(
+    page.getByRole("dialog", { name: "Mobile support warning" }),
+    async (warning) => {
+      await warning.getByRole("button", { name: "Continue" }).click();
+    },
+  );
   await gotoSampleEditor(page);
   const toolbar = page.locator(".app-toolbar");
   const expectedLabels = [
@@ -621,7 +628,6 @@ test("preserves toolbar ordering and access across responsive breakpoints", asyn
     1440, 1281, 1280, 1121, 1120, 981, 980, 821, 820, 641, 640, 450, 390, 320,
   ]) {
     await page.setViewportSize({ width, height: 900 });
-    await dismissMobileSupportWarning(page);
     await expect(
       page.getByRole("button", { name: "Actions", exact: true }),
     ).toHaveCount(0);
