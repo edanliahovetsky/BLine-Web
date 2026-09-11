@@ -2202,7 +2202,7 @@ function hitTestPathElement(
         element,
         point,
         pointer,
-        getElementHeadingRadians(elements, index),
+        getElementHeadingRadians(elements, index, undefined, positionPreview),
         viewport,
         robotSizeMeters,
       )

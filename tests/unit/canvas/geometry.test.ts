@@ -321,6 +321,54 @@ describe("canvas geometry", () => {
     ).toBeCloseTo(Math.PI, 6);
   });
 
+  it.each([
+    {
+      anchorIndex: 0,
+      position: { x_meters: 1, y_meters: -3 },
+      heading: (3 * Math.PI) / 4,
+    },
+    {
+      anchorIndex: 3,
+      position: { x_meters: 1, y_meters: 5 },
+      heading: Math.PI,
+    },
+  ])(
+    "keeps event headings perpendicular while anchor $anchorIndex is previewed",
+    ({ anchorIndex, position, heading }) => {
+      const elements = [
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 1,
+            y_meters: 1,
+          }),
+          rotation_target: createRotationTarget({
+            rotation_radians: Math.PI / 4,
+          }),
+        }),
+        createRotationTarget({ t_ratio: 0.25, rotation_radians: Math.PI / 3 }),
+        createEventTrigger({ t_ratio: 0.5 }),
+        createTranslationTarget({ x_meters: 5, y_meters: 1 }),
+      ];
+      const positions = new Map([[anchorIndex, position]]);
+
+      expect(
+        getElementHeadingRadians(elements, 2, undefined, positions),
+      ).toBeCloseTo(heading, 6);
+      expect(getElementHeadingRadians(elements, 2)).toBeCloseTo(Math.PI / 2, 6);
+      expect(
+        getElementHeadingRadians(elements, 0, undefined, positions),
+      ).toBeCloseTo(Math.PI / 4, 6);
+      expect(
+        getElementHeadingRadians(
+          elements,
+          1,
+          new Map([[1, Math.PI]]),
+          positions,
+        ),
+      ).toBeCloseTo(Math.PI, 6);
+    },
+  );
+
   it("keeps the anchor node exclusion ring on a pixel floor as the view zooms", () => {
     // The formula mirrors the translation node circle hit-test, so overlay
     // grabs outside the ring can never contest a node grab.
