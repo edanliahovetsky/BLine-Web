@@ -947,7 +947,8 @@ test("keeps inert handoff radii in the Constraints card", async ({ page }) => {
   const rows = page.locator('[data-testid^="path-element-row-"]');
   const lastIndex = (await rows.count()) - 1;
 
-  // Element properties stay about path geometry; tuning lives in Constraints.
+  // Element Properties never exposes handoff radii. Constraints owns the
+  // full path-ordered ledger, including inert endpoints.
   await rows.nth(lastIndex).click();
   await expect(page.getByLabel("Handoff Radius (m)")).toHaveCount(0);
   await rows.nth(1).click();

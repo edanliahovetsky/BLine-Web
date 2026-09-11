@@ -79,6 +79,7 @@ export function PropertyEditor({
   onOpenLinkedTargetPicker,
   fieldGeometry = defaultFieldGeometry,
 }: PropertyEditorProps) {
+  const [tourEditCount, setTourEditCount] = useState(0);
   if (!element) {
     return null;
   }
@@ -108,6 +109,8 @@ export function PropertyEditor({
       <div
         className="property-editor"
         data-testid="property-editor"
+        data-tour="element-properties"
+        data-tour-edit-count={tourEditCount}
         aria-label={
           multiple
             ? `${selectedElements.length} selected element properties`
@@ -131,26 +134,38 @@ export function PropertyEditor({
               <TranslationFields
                 element={element}
                 fieldGeometry={fieldGeometry}
-                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+                onUpdateElement={(nextElement) => {
+                  setTourEditCount((count) => count + 1);
+                  onUpdateElement(nextElement);
+                }}
               />
             ) : null}
             {isWaypoint(element) ? (
               <WaypointFields
                 element={element}
                 fieldGeometry={fieldGeometry}
-                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+                onUpdateElement={(nextElement) => {
+                  setTourEditCount((count) => count + 1);
+                  onUpdateElement(nextElement);
+                }}
               />
             ) : null}
             {isRotationTarget(element) ? (
               <RotationFields
                 element={element}
-                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+                onUpdateElement={(nextElement) => {
+                  setTourEditCount((count) => count + 1);
+                  onUpdateElement(nextElement);
+                }}
               />
             ) : null}
             {isEventTrigger(element) ? (
               <EventFields
                 element={element}
-                onUpdateElement={(nextElement) => onUpdateElement(nextElement)}
+                onUpdateElement={(nextElement) => {
+                  setTourEditCount((count) => count + 1);
+                  onUpdateElement(nextElement);
+                }}
               />
             ) : null}
           </>
@@ -628,7 +643,7 @@ function LinkedTargetMenu({
         .filter(Boolean)
         .join(" ")}
     >
-      <summary {...triggerProps} aria-label={linkLabel} role="button">
+      <summary data-tour="element-link" {...triggerProps} aria-label={linkLabel} role="button">
         <LinkIcon size={15} />
         {currentTarget ? (
           <Check

@@ -177,7 +177,7 @@ export function StartCenter({
               disabled={actionsDisabled || !tourSupported}
               title={
                 !tourSupported
-                  ? "Guided lessons require a wider window."
+                  ? "Lessons require a wider window."
                   : undefined
               }
               onClick={onOpenLessons}
@@ -185,7 +185,7 @@ export function StartCenter({
               <span className="start-center__emoji" aria-hidden="true">
                 🧭
               </span>
-              <span>Guided lessons</span>
+              <span>Lessons</span>
               <ArrowRight aria-hidden="true" size={13} />
             </button>
           </div>

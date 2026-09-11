@@ -142,10 +142,11 @@ export function AppToolbar({
   const helpHubRef = useRef<HTMLDivElement>(null);
 
   return (
-    <header className="app-toolbar" ref={toolbarRef}>
+    <header className="app-toolbar" ref={toolbarRef} data-tour="editor-toolbar">
       <nav className="app-tabs" aria-label="Top menu">
         <IconButton
           className="app-toolbar__navigator-button"
+          data-tour="navigator-button"
           aria-label={commands.navigator.label}
           title={commands.navigator.label}
           disabled={commands.navigator.disabled}
@@ -156,6 +157,7 @@ export function AppToolbar({
         <TopMenuButton
           id="project"
           label="File"
+          dataTour="export-menu-entry"
           openTopMenu={menu.open}
           setOpenTopMenu={menu.setOpen}
           onBeforeOpen={menu.refreshWorkspaces}
@@ -274,6 +276,7 @@ export function AppToolbar({
         </TopMenuButton>
         <TopMenuButton
           id="path"
+          dataTour="path-menu-entry"
           label="Path"
           active
           triggerRef={menu.pathTriggerRef}
@@ -342,7 +345,7 @@ export function AppToolbar({
             onSelectPath={actions.selectPath}
           />
         </div>
-        <div className="toolbar-actions__buttons">
+        <div className="toolbar-actions__buttons" data-tour="edit-controls">
           <IconButton
             aria-label="Undo"
             aria-keyshortcuts="Meta+Z Control+Z"
@@ -405,6 +408,7 @@ export function AppToolbar({
           </div>
           <IconButton
             aria-label="Settings"
+            data-tour="settings-menu-entry"
             title="Project settings"
             disabled={commands.settings.disabled}
             onClick={() => executeCommand(commands.settings)}
@@ -420,6 +424,7 @@ export function AppToolbar({
           ref={setFileInput}
           className="file-import-input"
           aria-label="Import BLine JSON"
+          data-tour="lesson-import-file"
           type="file"
           accept="application/json,.json,.bline-project,.bline-project.json"
           onChange={onImportFile}
@@ -428,6 +433,7 @@ export function AppToolbar({
           ref={setFolderInput}
           className="file-import-input"
           aria-label="Import autos folder"
+          data-tour="lesson-import-folder"
           type="file"
           accept="application/json,.json"
           multiple
@@ -458,6 +464,7 @@ function InspectorButton({
     <IconButton
       className={open ? "" : optimizerBeamClass(optimizerPhase, optimizerError)}
       aria-label="Toggle inspector"
+      data-tour="inspector-toggle"
       aria-expanded={open}
       aria-keyshortcuts="Meta+B Control+B"
       title={
@@ -528,7 +535,7 @@ function HelpHubPopover({
           <span className="help-hub-popover__glyph" aria-hidden="true">
             🧭
           </span>
-          <span>Guided lessons</span>
+          <span>Lessons</span>
         </button>
         <button type="button" onClick={onShortcuts}>
           <span className="help-hub-popover__glyph" aria-hidden="true">

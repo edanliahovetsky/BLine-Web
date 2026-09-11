@@ -106,6 +106,11 @@ function ToolbarSelectControl<T extends string>({
     }
 
     const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".tour-layer")
+      )
+        return;
       if (!rootRef.current?.contains(event.target as Node)) {
         setOpen(false);
       }
@@ -178,6 +183,7 @@ function ToolbarSelectControl<T extends string>({
           className="toolbar-select-control__menu"
           id={listboxId}
           role="listbox"
+          data-tour="path-breadcrumb-menu"
           aria-label={`${ariaLabel} options`}
         >
           {options.map((option) => (
@@ -225,6 +231,7 @@ export function TopMenuButton({
   onBeforeOpen,
   align = "start",
   children,
+  dataTour,
 }: {
   id: TopMenuId;
   label: string;
@@ -236,6 +243,7 @@ export function TopMenuButton({
   onBeforeOpen?: () => Promise<unknown> | void;
   align?: "start" | "end";
   children: ReactNode;
+  dataTour?: string;
 }) {
   const open = openTopMenu === id;
   const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
@@ -256,6 +264,7 @@ export function TopMenuButton({
         className={active ? "is-active" : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
+        data-tour={dataTour}
         disabled={disabled}
         onClick={() => {
           if (disabled) {
@@ -282,6 +291,7 @@ export function TopMenuButton({
             className="top-menu__panel"
             role="menu"
             data-testid={`top-menu-${id}`}
+            data-tour={dataTour?.replace(/-entry$/, "-panel")}
           >
             {children}
           </div>
@@ -574,6 +584,7 @@ export function MenuSubmenu({
               className="top-menu__submenu-panel"
               role="menu"
               data-testid={testId}
+              data-tour={testId}
               style={placement}
               onBlur={handleBlur}
               onFocus={openSubmenu}

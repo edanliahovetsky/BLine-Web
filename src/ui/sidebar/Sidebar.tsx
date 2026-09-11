@@ -461,6 +461,7 @@ export function Sidebar({
             type="button"
             role="tab"
             aria-selected={activeTab === "elements"}
+            data-tour="inspector-elements"
             className={activeTab === "elements" ? "is-active" : ""}
             onClick={() => handleSelectTab("elements")}
           >

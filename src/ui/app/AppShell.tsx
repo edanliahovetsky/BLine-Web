@@ -8,7 +8,11 @@ import {
 } from "react";
 import type { ChangeEvent, CSSProperties, RefObject } from "react";
 import { CircleAlert } from "lucide-react";
-import { PathStage, type CanvasElementPlacement } from "../../canvas/PathStage";
+import {
+  PathStage,
+  type CanvasElementPlacement,
+  type SimulationSeekRequest,
+} from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
 import { activeProjectPath } from "../../core/model/editorNavigation";
 import type { ProjectConfig } from "../../core/model/project";
@@ -88,6 +92,13 @@ import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
 import {
+  capturePracticeTransfer,
+  importPracticeFolder,
+  isCurrentPracticeTransfer,
+} from "../tours/tourTransfer";
+import { serializeBLineProjectFolder } from "../../core/io/projectFolder";
+import { detectEnvironmentCapabilities } from "../../env/capabilities";
+import {
   createTourSessionController,
   type TourSessionController,
 } from "../tours/tourSession";
@@ -99,7 +110,7 @@ import {
   selectedFieldBackgroundForProject,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { tours } from "../tours/tours";
+import { findTour, tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -130,6 +141,7 @@ interface PathNameAction {
 }
 
 interface TourEditorViewSnapshot {
+  autoSyncEnabled: boolean;
   activeTool: EditorTool;
   autosaveStatus: AutosaveStatus;
   editorPreferences: EditorUiPreferencesV1;
@@ -268,15 +280,25 @@ export function AppShell() {
       !window.matchMedia(mobileSupportMediaQuery).matches,
   );
   const [showTourPicker, setShowTourPicker] = useState(false);
+  const activeTourId = useStoreSelector(
+    tourStore,
+    (state) => state.activeTourId,
+  );
+  const tourStepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
+  const activeTour = findTour(activeTourId);
+  const activeTourStep = activeTour?.steps[tourStepIndex];
+  const autoGenerationAllowed = activeTourStep?.autoGenerate !== false;
+  const [tourSimulationSeekRequest, setTourSimulationSeekRequest] =
+    useState<SimulationSeekRequest | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1120,
-  );
-  const [inspectorTab, setInspectorTab] = useState<"elements" | "constraints">(
-    () => readEditorUiPreferences().inspectorTab,
   );
   const [inspectorWidth, setInspectorWidth] = useState(
     () => readEditorUiPreferences().inspectorWidth,
   );
+  const [inspectorTab, setInspectorTab] = useState<
+    EditorUiPreferencesV1["inspectorTab"]
+  >(() => readEditorUiPreferences().inspectorTab);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [showGhostPaths, setShowGhostPaths] = useState(
     () => readEditorUiPreferences().showGhostPaths,
@@ -295,9 +317,12 @@ export function AppShell() {
   const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false);
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
+  const nextTourSimulationSeekIdRef = useRef(1);
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const practiceFolderImportRef =
+    useRef<ReturnType<typeof capturePracticeTransfer>>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
   const pathMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const tourViewRef = useRef<{
@@ -347,7 +372,12 @@ export function AppShell() {
     const closePathHealthOutside = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
-        !pathHealthControlRef.current?.contains(event.target)
+        !pathHealthControlRef.current?.contains(event.target) &&
+        !(
+          tourStore.getState().activeTourId &&
+          event.target instanceof Element &&
+          event.target.closest(".tour-layer")
+        )
       ) {
         setShowPathHealth(false);
       }
@@ -382,6 +412,7 @@ export function AppShell() {
         showPathGroupsDialog ||
         showShortcutHelp,
       snapshot: {
+        autoSyncEnabled: autoVelocityStore.getState().autoSyncEnabled,
         activeTool,
         autosaveStatus,
         editorPreferences: readEditorUiPreferences(),
@@ -433,16 +464,25 @@ export function AppShell() {
         }
         return {
           ...current.snapshot,
+          autoSyncEnabled: autoVelocityStore.getState().autoSyncEnabled,
           editorPreferences: readEditorUiPreferences(),
         };
       },
       canStart: () => tourViewRef.current?.blocked === false,
       showPracticeView: (projectId) => {
+        autoVelocityStore.setState({ autoSyncEnabled: true });
         setFieldSelectionOverride({ projectId, fieldId: "blank-grid" });
         setInspectorOpen(true);
+        setInspectorTab("elements");
         setActiveTool("select");
       },
       restoreView: (view) => {
+        autoVelocityStore.setState({ autoSyncEnabled: view.autoSyncEnabled });
+        setShowLinkedTargetsDialog(false);
+        setLinkedTargetPickerRequest(null);
+        setOpenTopMenu(null);
+        setShowPathGroupsDialog(false);
+        setShowPathHealth(false);
         writeEditorUiPreferences(view.editorPreferences);
         setFieldSelectionOverride(view.fieldSelectionOverride);
         setInspectorOpen(view.inspectorOpen);
@@ -585,7 +625,10 @@ export function AppShell() {
     [fieldBackgrounds, selectedFieldId],
   );
 
-  useEffect(() => startAutomaticConstraintSync(), []);
+  useEffect(
+    () => (autoGenerationAllowed ? startAutomaticConstraintSync() : undefined),
+    [autoGenerationAllowed],
+  );
 
   useEffect(() => {
     const mobileQuery = window.matchMedia(mobileSupportMediaQuery);
@@ -620,6 +663,7 @@ export function AppShell() {
 
       if (
         !toolbarRef.current?.contains(target) &&
+        !targetElement?.closest(".tour-layer") &&
         !targetElement?.closest(".top-menu__submenu-panel")
       ) {
         setOpenTopMenu(null);
@@ -719,6 +763,17 @@ export function AppShell() {
     [],
   );
 
+  const seekTourSimulation = useCallback(
+    (position: SimulationSeekRequest["position"]) => {
+      setTourSimulationSeekRequest({
+        id: nextTourSimulationSeekIdRef.current,
+        position,
+      });
+      nextTourSimulationSeekIdRef.current += 1;
+    },
+    [],
+  );
+
   const handleToolChange = useCallback(
     (tool: EditorTool) => {
       setActiveTool(tool);
@@ -788,8 +843,11 @@ export function AppShell() {
             projectStore.getState().activePathId,
           )?.path,
         );
+      if (tourStore.getState().activeTourId) {
+        seekTourSimulation("end");
+      }
     },
-    [activeField.geometry],
+    [activeField.geometry, seekTourSimulation],
   );
 
   const handleDismissMobileSupportWarning = useCallback(() => {
@@ -1012,7 +1070,10 @@ export function AppShell() {
 
   useEffect(() => {
     const inputs = [fileInputRef.current, folderInputRef.current];
-    const cancelImport = () => endToolbarAction("import");
+    const cancelImport = () => {
+      practiceFolderImportRef.current = null;
+      endToolbarAction("import");
+    };
     for (const input of inputs) {
       input?.addEventListener("cancel", cancelImport);
     }
@@ -1171,13 +1232,24 @@ export function AppShell() {
       return;
     }
 
+    const practice = capturePracticeTransfer();
     try {
-      const projectFolder = await projectStore.getState().exportProjectFolder();
+      const state = projectStore.getState();
+      const projectFolder =
+        practice && state.project
+          ? serializeBLineProjectFolder(state.project)
+          : await state.exportProjectFolder();
       if (projectFolder) {
         await writeProjectFolder(projectFolder);
+        if (practice && isCurrentPracticeTransfer(practice)) {
+          tourStore.getState().recordAction("exportFolder");
+        }
       }
     } catch (caughtError) {
-      if (!isAbortError(caughtError)) {
+      if (
+        !isAbortError(caughtError) &&
+        (!practice || isCurrentPracticeTransfer(practice))
+      ) {
         projectStore.getState().markSaveError(caughtError);
       }
     } finally {
@@ -1260,6 +1332,9 @@ export function AppShell() {
       return;
     }
 
+    // A folder choice belongs to the lesson attempt that opened its picker,
+    // even if the learner exits or restarts before selecting the files.
+    practiceFolderImportRef.current = capturePracticeTransfer();
     input.click();
   }, [beginToolbarAction, endToolbarAction]);
 
@@ -1417,12 +1492,22 @@ export function AppShell() {
       const files = Array.from(event.currentTarget.files ?? []);
       event.currentTarget.value = "";
 
-      if (files.length === 0 || !projectStore.getState().io) {
+      const practice = practiceFolderImportRef.current;
+      practiceFolderImportRef.current = null;
+      if (
+        files.length === 0 ||
+        (practice && !isCurrentPracticeTransfer(practice)) ||
+        (!projectStore.getState().io && !practice)
+      ) {
         endToolbarAction("import");
         return;
       }
 
       try {
+        if (practice) {
+          await importPracticeFolder(files, practice);
+          return;
+        }
         await projectStore.getState().importProjectFolder(files, {
           migrateLegacyFieldBackgrounds: migrateImportedFieldsForProject,
         });
@@ -1430,7 +1515,9 @@ export function AppShell() {
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
-        projectStore.getState().markSaveError(caughtError);
+        if (!practice || isCurrentPracticeTransfer(practice)) {
+          projectStore.getState().markSaveError(caughtError);
+        }
       } finally {
         endToolbarAction("import");
       }
@@ -1531,9 +1618,10 @@ export function AppShell() {
       ? getElementPosition(activePath.path.path_elements, selectedElementIndex)
       : null;
   const ioCapabilities = projectIo?.capabilities;
-  const supportsProjectFolders = Boolean(
-    ioCapabilities?.supportsProjectFolders,
-  );
+  const supportsProjectFolders =
+    ioCapabilities?.supportsProjectFolders ??
+    (Boolean(activeTourId) &&
+      detectEnvironmentCapabilities().shell === "tauri");
   const pathDocuments = editorProject?.paths ?? [];
   const currentWorkspaceSummary = useStoreSelector(
     projectStore,
@@ -1710,7 +1798,9 @@ export function AppShell() {
   }, []);
   const projectAvailable = Boolean(editorProject);
   const pathAvailable = Boolean(activePath);
-  const projectIoAvailable = Boolean(projectIo);
+  const projectIoAvailable =
+    Boolean(projectIo) ||
+    (activeTourId === "import-export" && !supportsProjectFolders);
   const navigatorCommand: EditorCommand = {
     id: "project.navigator",
     label: "Open project navigator",
@@ -2052,7 +2142,7 @@ export function AppShell() {
 
   return (
     <main
-      className="app-shell"
+      className={`app-shell${activeTourId && showPathGroupsDialog ? " app-shell--navigator-lesson" : ""}`}
       data-testid="app-shell"
       aria-busy={projectTransitionInProgress}
     >
@@ -2181,13 +2271,17 @@ export function AppShell() {
                 showGhostPaths={showGhostPaths}
                 onShowGhostPathsChange={handleShowGhostPathsChange}
                 curveTool={curveToolSession}
+                simulationSeekRequest={
+                  activeTourId ? tourSimulationSeekRequest : null
+                }
+                tourMarkers={activeTourStep?.markers ?? activeTour?.markers}
                 onToolChange={handleToolChange}
                 onPlaceElement={handlePlaceCanvasElement}
                 onInteractionStateChange={handleCanvasInteractionStateChange}
                 onCurveToolCommit={handleCommitCurveTool}
                 onCurveToolCancel={handleCancelCurveTool}
               />
-              {activePath?.path.path_elements.length === 0 ? (
+              {activePath?.path.path_elements.length === 0 && !activeTourId ? (
                 <div className="canvas-empty-guide">
                   <strong>Place your first waypoint</strong>
                   <button
@@ -2252,6 +2346,7 @@ export function AppShell() {
           <button
             type="button"
             data-testid="save-status"
+            data-tour="save-status"
             title={`${storageLabel}. ${saveStatus}`}
             aria-label="Save"
             disabled={saveCommand.disabled}
@@ -2301,6 +2396,7 @@ export function AppShell() {
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
           initiallyEditingPathId={initiallyEditingPathId}
+          lessonMode={Boolean(activeTourId)}
           onCancel={() => {
             setShowPathGroupsDialog(false);
             setInitiallyEditingPathId(null);
@@ -2335,6 +2431,7 @@ export function AppShell() {
       ) : null}
       {durableProject && showLinkedTargetsDialog ? (
         <LinkedTargetsDialog
+          lessonMode={Boolean(activeTourId)}
           linkRequest={linkedTargetPickerRequest}
           project={durableProject}
           field={activeField}
@@ -2410,21 +2507,87 @@ export function AppShell() {
         />
       ) : null}
       <TourOverlay
+        onRestartStep={() => tourSessionRef.current?.restartStep()}
+        onRestartLesson={() => tourSessionRef.current?.restartLesson()}
+        onFinish={() => {
+          setShowPathHealth(false);
+          setShowTourPicker(true);
+        }}
         onPrepare={(preparation) => {
-          if (preparation.inspector === "open") {
-            setInspectorOpen(true);
+          if (preparation.closeMenus) setOpenTopMenu(null);
+          if (preparation.navigator) {
+            setInitiallyEditingPathId(null);
+            setShowPathGroupsDialog(preparation.navigator === "open");
+          }
+          if (preparation.showGhostPaths !== undefined) {
+            setShowGhostPaths(preparation.showGhostPaths);
+          }
+          if (preparation.inspector) {
+            setInspectorOpen(preparation.inspector === "open");
+          }
+          if (preparation.inspectorTab) {
+            setInspectorTab(preparation.inspectorTab);
           }
           if (preparation.tool === "select") {
             handleToolChange("select");
           }
+          if (preparation.clearSelection) {
+            selectionStore.getState().clearSelection();
+          }
           if (preparation.selectElement !== undefined) {
             const state = projectStore.getState();
-            selectionStore
-              .getState()
-              .selectElement(
-                preparation.selectElement,
-                activeProjectPath(state.project, state.activePathId)?.path,
+            const path = activeProjectPath(
+              state.project,
+              state.activePathId,
+            )?.path;
+            const index =
+              typeof preparation.selectElement === "function"
+                ? path
+                  ? preparation.selectElement(path)
+                  : null
+                : preparation.selectElement;
+            selectionStore.getState().selectElement(index, path);
+          }
+          if (activeTourStep?.canvasLesson) {
+            // The canvas phase owns its exact playback range and speed.
+          } else if (preparation.autoPlay) {
+            setTourSimulationSeekRequest({
+              id: nextTourSimulationSeekIdRef.current++,
+              position: "start",
+              autoPlay: true,
+            });
+          } else if (preparation.simulation) {
+            seekTourSimulation(preparation.simulation);
+          }
+          if (preparation.selectSpeed !== undefined) {
+            const state = projectStore.getState();
+            const path = activeProjectPath(
+              state.project,
+              state.activePathId,
+            )?.path;
+            const ordinal = preparation.selectSpeed;
+            const index =
+              path?.ranged_constraints.findIndex(
+                (constraint) =>
+                  constraint.key === "max_velocity_meters_per_sec" &&
+                  constraint.start_ordinal <= ordinal &&
+                  constraint.end_ordinal >= ordinal,
+              ) ?? -1;
+            if (path && index >= 0) {
+              const constraint = path.ranged_constraints[index];
+              selectionStore.getState().selectRangedConstraint(
+                {
+                  key: constraint.key,
+                  index,
+                  startOrdinal: constraint.start_ordinal,
+                  endOrdinal: constraint.end_ordinal,
+                },
+                path,
               );
+            }
+          }
+          if (preparation.pathHealth === "closed") {
+            setShowPathHealth(false);
           }
         }}
       />
@@ -2554,6 +2717,12 @@ function TourPickerDialog({
     tourStore,
     (state) => state.completedTourIds,
   );
+  const completedCount = tours.filter((tour) =>
+    completedTourIds.includes(tour.id),
+  ).length;
+  const recommendedTourId = tours.find(
+    (tour) => !completedTourIds.includes(tour.id),
+  )?.id;
 
   return (
     <div
@@ -2570,7 +2739,7 @@ function TourPickerDialog({
         className="tour-picker"
         role="dialog"
         aria-modal="true"
-        aria-label="Guided lessons"
+        aria-label="Lessons"
         data-testid="tour-picker"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -2582,15 +2751,15 @@ function TourPickerDialog({
         <header className="tour-picker__header">
           <div>
             <strong>
-              <span aria-hidden="true">🧭</span> Guided lessons
+              <span aria-hidden="true">🧭</span> Lessons
             </strong>
-            <span>Lessons use a practice path.</span>
           </div>
-          <CloseButton ariaLabel="Close guided lessons" onClick={onClose} />
+          <CloseButton ariaLabel="Close lessons" onClick={onClose} />
         </header>
         <div className="tour-picker__list">
           {tours.map((tour, index) => {
             const done = completedTourIds.includes(tour.id);
+            const recommended = tour.id === recommendedTourId;
             return (
               <button
                 key={tour.id}
@@ -2604,10 +2773,17 @@ function TourPickerDialog({
                 </span>
                 <span className="tour-picker__copy">
                   <strong>{tour.title}</strong>
-                  <small>
-                    {tour.summary} · {tour.steps.length}{" "}
-                    {tour.steps.length === 1 ? "step" : "steps"}
-                  </small>
+                  {recommended ? (
+                    <span className="tour-picker__recommended">
+                      {completedCount === 0
+                        ? "Recommended first"
+                        : "Recommended next"}
+                    </span>
+                  ) : null}
+                  <small>{tour.summary}</small>
+                </span>
+                <span className="tour-picker__duration">
+                  {tour.durationMinutes} min
                 </span>
               </button>
             );

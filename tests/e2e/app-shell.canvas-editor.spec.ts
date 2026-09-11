@@ -163,7 +163,7 @@ for (const background of ["built-in", "grid", "custom"] as const) {
   });
 }
 
-test("keeps handoff radius tuning in the Constraints tab", async ({ page }) => {
+test("keeps handoff radius editing in Constraints", async ({ page }) => {
   await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-1").click();
@@ -275,6 +275,7 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 
   const transport = page.getByTestId("simulation-transport");
   await expect(transport).toBeVisible();
+  await expect(transport).toHaveAttribute("data-tour-play-count", "0");
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
   await expect(
     transport.getByRole("button", { name: "Reset simulation" }),
@@ -297,6 +298,7 @@ test("plays and seeks the simulation transport", async ({ page }) => {
 
   await page.getByTestId("path-stage").focus();
   await page.keyboard.press("Space");
+  await expect(transport).toHaveAttribute("data-tour-play-count", "1");
   await expect(
     transport.getByRole("button", { name: "Pause simulation" }),
   ).toBeVisible();
@@ -345,6 +347,20 @@ test("plays and seeks the simulation transport", async ({ page }) => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
+
+  await transport.getByRole("button", { name: "Play simulation" }).click();
+  await expect
+    .poll(
+      async () =>
+        Number(
+          (await page
+            .getByTestId("path-stage-canvas")
+            .getAttribute("data-simulation-event-pulse")) ?? 0,
+        ),
+      { timeout: 10_000, intervals: [50, 50, 50, 50, 100] },
+    )
+    .toBeGreaterThan(0.4);
+  await transport.getByRole("button", { name: "Pause simulation" }).click();
 });
 
 test("creates every path element type from the inspector menu", async ({

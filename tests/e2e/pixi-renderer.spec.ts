@@ -65,6 +65,7 @@ test("cached layers match a full redraw through canvas edits @webkit-canvas", as
       trajectoryMaxSpeedMps: 1,
       simulationTimeS: 0,
       simulationPlaying: false,
+      simulationEventPulse: 0,
       config: null,
       curvePreview: null,
     };

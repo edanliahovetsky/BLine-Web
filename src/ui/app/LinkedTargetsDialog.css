@@ -184,3 +184,16 @@
   vertical-align: middle;
   margin-right: 6px;
 }
+
+.linked-lesson-backdrop {
+  background: transparent;
+  place-items: start;
+  padding: 64px 12px 12px;
+}
+.linked-lesson-backdrop .linked-targets-dialog {
+  width: calc(100vw - 344px);
+  max-height: calc(100vh - 80px);
+}
+.linked-lesson-backdrop .linked-targets-dialog__body {
+  grid-template-columns: minmax(160px, .7fr) minmax(180px, 1fr) minmax(240px, .9fr);
+}
