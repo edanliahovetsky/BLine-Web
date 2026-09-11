@@ -177,6 +177,10 @@ test("keeps start actions and imports usable in a narrow window", async ({
   await expect(
     start.getByRole("button", { name: "Guided lessons", exact: true }),
   ).toBeDisabled();
+  await expect(
+    start.getByRole("link", { name: "Download desktop editor" }),
+  ).toBeVisible();
+  await expect(start.getByRole("link", { name: "GitHub" })).toBeVisible();
 
   await start.getByRole("button", { name: "Import", exact: true }).click();
   const options = start.getByRole("group", { name: "Import options" });

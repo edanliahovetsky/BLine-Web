@@ -21,6 +21,21 @@ test.describe("app shell visual baselines", () => {
     await expect(
       page.getByRole("button", { name: "Sample path" }),
     ).toBeVisible();
+    const links = page.getByRole("navigation", { name: "BLine links" });
+    const desktop = links.getByRole("link", {
+      name: "Download desktop editor",
+    });
+    await expect(desktop).toHaveAttribute(
+      "href",
+      "https://github.com/edanliahovetsky/BLine-Web/releases",
+    );
+    await expect(desktop).toHaveAttribute("target", "_blank");
+    const github = links.getByRole("link", { name: "GitHub" });
+    await expect(github).toHaveAttribute(
+      "href",
+      "https://github.com/edanliahovetsky/BLine-Web",
+    );
+    await expect(github).toHaveAttribute("target", "_blank");
 
     await expectVisualSnapshot(page, "start-center.png");
   });

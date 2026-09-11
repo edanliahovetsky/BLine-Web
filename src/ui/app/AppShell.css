@@ -5544,6 +5544,37 @@ body.is-resizing-inspector * {
   color: #8faeca;
 }
 
+.start-center__links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 20px;
+  margin-top: 16px;
+}
+
+.start-center__links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px 2px;
+  border-radius: 3px;
+  color: #9aafbe;
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.start-center__links a:hover {
+  color: #e9eff5;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.start-center__links a:focus-visible {
+  outline: 2px solid var(--bline-accent);
+  outline-offset: 3px;
+}
+
 @media (max-width: 600px) {
   .start-center {
     padding: 48px 22px;

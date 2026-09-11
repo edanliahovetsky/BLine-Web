@@ -5,6 +5,8 @@ import {
   ChevronDown,
   Download,
   FolderOpen,
+  Github,
+  MonitorDown,
   Plus,
 } from "lucide-react";
 import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
@@ -163,6 +165,9 @@ export function StartCenter({
               disabled={actionsDisabled}
               onClick={onOpenSample}
             >
+              <span className="start-center__emoji" aria-hidden="true">
+                🗺️
+              </span>
               <span>Sample path</span>
               <ArrowRight aria-hidden="true" size={13} />
             </button>
@@ -185,6 +190,24 @@ export function StartCenter({
             </button>
           </div>
         </section>
+        <nav className="start-center__links" aria-label="BLine links">
+          <a
+            href="https://github.com/edanliahovetsky/BLine-Web/releases"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <MonitorDown aria-hidden="true" size={15} />
+            <span>Download desktop editor</span>
+          </a>
+          <a
+            href="https://github.com/edanliahovetsky/BLine-Web"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <Github aria-hidden="true" size={15} />
+            <span>GitHub</span>
+          </a>
+        </nav>
       </div>
     </section>
   );
