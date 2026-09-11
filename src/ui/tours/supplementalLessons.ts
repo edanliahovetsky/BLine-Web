@@ -495,7 +495,7 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Set the speed near End",
-    body: "Click the grey Start to Pickup path on the canvas to switch back, then open Constraints. A minimum velocity keeps the robot moving near End until it is close enough to finish the path.",
+    body: "Click the grey Start to Pickup path on the canvas to switch back, then open Constraints. Minimum velocity prevents the robot from slowing to a stop near End, helping it transition smoothly into the next path.",
     target: "path-canvas",
     interact: ["path-breadcrumb", ...constraints],
     prepare: {
@@ -515,7 +515,7 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Try a small minimum velocity",
-    body: "Click Add constraint and choose Min Velocity. Drag its cell to End (W2) and set it between 0.1 and 0.5 m/s. A value that is too high can make the robot overshoot or shake near End.",
+    body: "Click Add constraint and choose Min Velocity. Drag its cell to End (W2) and set it between 0.1 and 0.5 m/s. This keeps some speed for the transition. Start small: too much speed can cause overshoot.",
     target: "inspector-panel",
     visible: ["path-canvas"],
     interact: constraints,
@@ -530,7 +530,7 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Play the first path",
-    body: "Play the path and watch the robot near End. Tune the controller and maximum velocity first. Use a minimum velocity only when testing shows that it helps.",
+    body: "Play the path and watch it approach End. The minimum velocity keeps it moving toward the shared waypoint, ready to continue along Pickup to Score. This preview plays one path at a time.",
     target: "transport-play",
     visible: ["path-canvas"],
     interact: [...transport, ...constraints],
@@ -545,7 +545,7 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Run both paths in robot code",
-    body: "A Path Group does not run paths in sequence. Run them in order in your robot code. FollowPath commands the robot to stop when it ends, so minimum velocity alone will not keep it moving between paths.",
+    body: "Run the next path immediately after the first in your robot code. Matching End and Start poses, plus a small minimum velocity on the first path’s approach, help the robot move smoothly between them without pausing. A Path Group organizes the paths; your robot code controls the sequence.",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...transport],
     prepare: { inspector: "closed", showGhostPaths: true },

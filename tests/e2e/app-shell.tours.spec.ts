@@ -854,7 +854,7 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
   await advance(page);
   await heading(page, "Run both paths in robot code");
   await expect(page.getByTestId("tour-card")).toContainText(
-    "does not run paths in sequence",
+    "your robot code controls the sequence",
   );
   await finish(page);
 });

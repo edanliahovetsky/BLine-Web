@@ -155,16 +155,14 @@ describe("supplemental lessons", () => {
       );
     }
 
-    projectStore
-      .getState()
-      .applyPathElementEdit(
-        {
-          kind: "position",
-          index: 2,
-          position: { x_meters: 6.8, y_meters: 6.5 },
-        },
-        { pathId: managementIds.topStartScore },
-      );
+    projectStore.getState().applyPathElementEdit(
+      {
+        kind: "position",
+        index: 2,
+        position: { x_meters: 6.8, y_meters: 6.5 },
+      },
+      { pathId: managementIds.topStartScore },
+    );
     const updated = projectStore.getState().project!;
     const firstEnd = updated.paths[0].path.path_elements.at(-1);
     expect(firstEnd).not.toEqual(initial.paths[0].path.path_elements.at(-1));
@@ -378,10 +376,10 @@ describe("supplemental lessons", () => {
       .find((tour) => tour.id === "path-linking")!
       .steps.map((step) => step.body)
       .join(" ");
-    expect(lessonCopy).toContain("Run them in order in your robot code");
+    expect(lessonCopy).toContain("prevents the robot from slowing to a stop");
     expect(lessonCopy).toContain(
-      "FollowPath commands the robot to stop when it ends",
+      "Run the next path immediately after the first in your robot code",
     );
-    expect(lessonCopy).toContain("will not keep it moving between paths");
+    expect(lessonCopy).toContain("This preview plays one path at a time");
   });
 });
