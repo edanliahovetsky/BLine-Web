@@ -2,7 +2,15 @@ import { expect, test, type Page } from "@playwright/test";
 import type { PathModel } from "../../src/core/model/path";
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import { activeFieldLabel } from "./support/app-shell-fields";
-import { openPathLibraryDialog } from "./support/app-shell-project-library";
+import {
+  openPathLibraryDialog,
+  selectToolbarOption,
+} from "./support/app-shell-project-library";
+import {
+  installSaveFilePickerSpy,
+  savedFile,
+  savedFileCount,
+} from "./support/app-shell-persistence";
 import {
   dismissMobileSupportWarning,
   gotoSampleEditor,
@@ -439,12 +447,18 @@ test("slides an event and creates the requested key on a different segment", asy
   await setNumber(page, "Event Pos (0-1)", "0.35");
   await advance(page);
   await heading(page, "Watch the event fire");
+  const eventPulse = page.waitForFunction(
+    () =>
+      document
+        .querySelector(".tour-event-cue")
+        ?.textContent?.includes("startIntake"),
+    undefined,
+    { polling: "raf", timeout: 15_000 },
+  );
   await page
     .getByRole("button", { name: "Play simulation", exact: true })
     .click();
-  await expect(page.locator(".tour-event-cue")).toContainText("startIntake", {
-    timeout: 15_000,
-  });
+  await eventPulse;
   await expect(advanceButton(page)).toBeVisible({ timeout: 20_000 });
   await advance(page);
   await heading(page, "Add an event on the next segment");
@@ -516,6 +530,236 @@ test("restores the user's path, field, tab, and clean practice on reopening", as
   );
 });
 
+test("exports a runtime path and imports its matching practice copy", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await installSaveFilePickerSpy(page);
+  await gotoSampleEditor(page);
+  await openLesson(page, "Importing and Exporting");
+  await heading(page, "Export one path");
+  await page.getByRole("button", { name: "Path", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Export Path...", exact: true })
+    .click();
+  await expect.poll(() => savedFileCount(page)).toBe(1);
+  const saved = await savedFile(page, 0);
+  expect(JSON.parse(saved.text).path_elements).toHaveLength(4);
+  expect(saved.text).toContain("prepareScore");
+  await advance(page);
+  await heading(page, "Import the saved path");
+  const choosing = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Path", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Import Path...", exact: true })
+    .click();
+  const chooser = await choosing;
+  await chooser.setFiles({
+    buffer: Buffer.from(saved.text),
+    mimeType: "application/json",
+    name: "roundtrip-lesson.json",
+  });
+  await advance(page);
+  await heading(page, "Inspect the imported copy");
+  await selectToolbarOption(page, "Toolbar path", "roundtrip lesson");
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "Back up the whole project");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .click();
+  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
+  await finish(page);
+});
+
+test("organizes three routes into a new Path Group and previews each leg", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Path Management");
+  await heading(page, "Choose a route");
+  await selectToolbarOption(page, "Toolbar path", "Score to Pickup");
+  await advance(page);
+  await heading(page, "See the existing combinations");
+  const navigator = await openPathLibraryDialog(page);
+  await expect(
+    navigator.getByText("Opening score", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    navigator.getByText("Pickup cycle", { exact: true }),
+  ).toBeVisible();
+  await advance(page);
+  await heading(page, "Make a complete cycle");
+  await navigator
+    .getByRole("button", { name: "Create Path Group", exact: true })
+    .click();
+  const name = navigator.getByRole("textbox", {
+    name: "Path Group name",
+    exact: true,
+  });
+  await name.fill("Two-piece cycle");
+  await name.press("Enter");
+  await advance(page);
+  await heading(page, "Connect its three paths");
+  await navigator
+    .getByRole("button", { name: "Focus Two-piece cycle", exact: true })
+    .click();
+  for (const route of [
+    "Staging to Score",
+    "Score to Pickup",
+    "Pickup to Score",
+  ]) {
+    await navigator
+      .getByRole("button", { name: "Connect to " + route, exact: true })
+      .click();
+  }
+  await advance(page);
+  await heading(page, "Preview the combination");
+  await navigator
+    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .click();
+  await expect(navigator).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Hide Path Group overlays", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await advance(page);
+  await heading(page, "Work on one leg");
+  await selectToolbarOption(page, "Toolbar path", "Pickup to Score");
+  await advance(page);
+  await heading(page, "Explore your groups");
+  await playAndInspect(page);
+  await finish(page);
+});
+
+test("links one shared waypoint and propagates position and heading to both paths", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Advanced — Linked Elements");
+  await heading(page, "View the shared scoring area");
+  await previewGroup(page, "Score and collect");
+  await advance(page);
+  await heading(page, "Create the shared score pose");
+  await page.getByRole("button", { name: "Link element", exact: true }).click();
+  const actions = page.getByRole("group", {
+    name: "Linked element actions",
+    exact: true,
+  });
+  await actions.getByRole("button", { name: /New Linked Waypoint/ }).click();
+  await actions
+    .getByLabel("Linked element name", { exact: true })
+    .fill("Score pose");
+  await actions
+    .getByRole("button", { name: "Create & Link", exact: true })
+    .click();
+  await advance(page);
+  await heading(page, "Link the next path's Start");
+  await selectToolbarOption(page, "Toolbar path", "Score to Pickup");
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByRole("button", { name: "Link element", exact: true }).click();
+  await actions.getByRole("button", { name: /Choose Existing/ }).click();
+  const picker = page.getByRole("dialog", {
+    name: "Choose Linked Element",
+    exact: true,
+  });
+  await picker.getByRole("listitem").filter({ hasText: "Score pose" }).click();
+  await picker
+    .getByRole("button", { name: "Link Selected", exact: true })
+    .click();
+  await advance(page);
+  await heading(page, "Edit once, update both paths");
+  await setNumber(page, "X (m)", "11.2");
+  await setNumber(page, "Rotation (deg)", "35");
+  await advance(page);
+  await heading(page, "Inspect the other use");
+  await selectToolbarOption(page, "Toolbar path", "Staging to Score");
+  await page.getByTestId("path-element-row-2").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("11.2");
+  await expect(page.getByLabel("Rotation (deg)", { exact: true })).toHaveValue(
+    "35",
+  );
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "Keep each route's tuning local");
+  await finish(page);
+});
+
+test("keeps linked endpoints aligned and tunes only the final minimum velocity", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Advanced — Path Linking");
+  await heading(page, "View the two-path plan");
+  await previewGroup(page, "Pickup chain");
+  await advance(page);
+  await heading(page, "Inspect the next Start");
+  await selectToolbarOption(page, "Toolbar path", "Pickup to Score");
+  await page.getByTestId("path-element-row-0").click();
+  await expect(
+    page.getByRole("button", { name: /Pickup handoff/ }),
+  ).toBeVisible();
+  await advance(page);
+  await heading(page, "Tune the incoming approach");
+  await selectToolbarOption(page, "Toolbar path", "Staging to Pickup");
+  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+  await advance(page);
+  await heading(page, "Try a small final-approach minimum");
+  await page
+    .getByRole("button", { name: "Add constraint", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Min Velocity", exact: true })
+    .click();
+  const minimum = page.getByTestId(
+    "constraint-card-min_velocity_meters_per_sec",
+  );
+  const range = minimum.getByRole("option", {
+    name: "Select Min Velocity segment 1",
+    exact: true,
+  });
+  const endCell = minimum.getByTestId(
+    "constraint-cell-min_velocity_meters_per_sec-3",
+  );
+  const from = await requiredBox(range);
+  const to = await requiredBox(endCell);
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, {
+    steps: 12,
+  });
+  await page.mouse.up();
+  await minimum.getByLabel(/^Constraint \d+ value$/).fill("0.3");
+  await minimum.getByLabel(/^Constraint \d+ value$/).press("Enter");
+  expect(
+    (await practice(page)).path.ranged_constraints.filter(
+      (constraint) => constraint.key === "min_velocity_meters_per_sec",
+    ),
+  ).toEqual([
+    expect.objectContaining({ value: 0.3, start_ordinal: 3, end_ordinal: 3 }),
+  ]);
+  await advance(page);
+  await heading(page, "Inspect the arrival");
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "Your robot code connects the commands");
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "does not run paths in sequence",
+  );
+  await finish(page);
+});
+
 test("starts at home and restores home after exiting", async ({ page }) => {
   await page.goto("/");
   await dismissMobileSupportWarning(page);
@@ -549,6 +793,20 @@ async function openLesson(page: Page, title: string) {
     .getByText(title, { exact: true })
     .click();
   await expect(page.getByTestId("tour-card")).toBeVisible();
+}
+
+async function previewGroup(page: Page, name: string) {
+  const navigator = page.getByRole("dialog", {
+    name: "Project Navigator",
+    exact: true,
+  });
+  await navigator
+    .getByRole("button", { name: "Focus " + name, exact: true })
+    .click();
+  await navigator
+    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .click();
+  await expect(navigator).toHaveCount(0);
 }
 
 async function exitLesson(page: Page) {
