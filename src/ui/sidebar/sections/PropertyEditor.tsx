@@ -26,12 +26,12 @@ import {
 } from "../../../core/model/path";
 import {
   NumberStepperControl,
-  SidebarSelectControl,
   SwitchInput,
   useControlTooltip,
 } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
 import { useFloatingMenu } from "../../controls/useFloatingMenu";
+import { DropdownSelectControl } from "../../controls/DropdownSelectControl";
 import {
   type AddableElementType,
   elementTypeValue,
@@ -530,10 +530,11 @@ function TypeField({
     : [currentType, ...options];
 
   return (
-    <label className="property-row property-row--type">
+    <div className="property-row property-row--type">
       <span className="sr-only">Type</span>
-      <SidebarSelectControl
+      <DropdownSelectControl
         ariaLabel="Type"
+        menuTourTarget="element-type-menu"
         value={currentType}
         options={visibleOptions.map((type) => ({
           label: typeOptionLabel(type),
@@ -541,7 +542,7 @@ function TypeField({
         }))}
         onChange={onChangeType}
       />
-    </label>
+    </div>
   );
 }
 

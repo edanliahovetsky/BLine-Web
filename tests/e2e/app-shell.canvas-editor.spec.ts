@@ -491,7 +491,9 @@ test("adds edits and removes path elements from the inspector", async ({
 
   const typeSelect = page.getByLabel("Type");
   const typeRow = page.locator(".property-row").filter({ has: typeSelect });
-  const typeIndicatorIcon = typeRow.locator(".sidebar-select-indicator svg");
+  const typeIndicatorIcon = typeRow.locator(
+    ".dropdown-select-control__indicator svg",
+  );
   await expect(typeIndicatorIcon).toBeVisible();
   expect((await requiredBox(typeIndicatorIcon)).width).toBeGreaterThan(6);
 
@@ -812,7 +814,8 @@ test("reorders and converts path elements from the inspector", async ({
   );
 
   await page.getByTestId("path-element-row-3").click();
-  await page.getByLabel("Type").selectOption("translation");
+  await page.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Translation", exact: true }).click();
   await expect(page.getByTestId("path-element-row-3")).toContainText(
     "4. Translation",
   );
@@ -1165,7 +1168,8 @@ test("keeps the element properties card tight to its content", async ({
     // Translation and Event Trigger have fewer rows than Rotation and
     // Waypoint. Only the card padding and border should follow the last row.
     expect(
-      sectionBox.y + sectionBox.height -
+      sectionBox.y +
+        sectionBox.height -
         (lastPropertyBox.y + lastPropertyBox.height),
     ).toBeLessThanOrEqual(10);
   }
@@ -1252,6 +1256,65 @@ test("gives the element list the panel height the properties leave over", async 
   // The list keeps the lion's share: the old fixed 38% row wasted the space a
   // short properties card gave back.
   expect(listBox.height).toBeGreaterThan(panelBox.height * 0.5);
+});
+
+test("chooses element types from a styled dropdown with pointer and keyboard @webkit-canvas", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 430 });
+  await gotoSampleEditor(page);
+  await page.getByRole("separator", { name: "Resize inspector" }).press("Home");
+  const row = page.getByTestId("path-element-row-1");
+  await row.click();
+  const type = page.getByRole("combobox", { name: "Type", exact: true });
+  const options = page.getByRole("listbox", { name: "Type options" });
+
+  await type.click();
+  await expect(options).toBeVisible();
+  await expect(
+    options.getByRole("option", { name: "Translation", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  const menuBox = await requiredBox(options);
+  const typeBox = await requiredBox(type);
+  expect(menuBox.width).toBeCloseTo(typeBox.width, 0);
+  expect(menuBox.x).toBeGreaterThanOrEqual(0);
+  expect(menuBox.y).toBeGreaterThanOrEqual(0);
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(1200);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(430);
+
+  // Arrow navigation previews choices. Escape retains the original type.
+  await type.press("End");
+  await expect(row).toContainText("Translation");
+  await type.press("Escape");
+  await expect(options).toHaveCount(0);
+  await expect(type).toBeFocused();
+  await type.press("Delete");
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    6,
+  );
+
+  await type.press("ArrowDown");
+  await type.press("e");
+  await type.press("Enter");
+  await expect(row).toContainText("Event Trigger");
+  await expect(type).toBeFocused();
+  await expect(options).toHaveCount(0);
+
+  await type.click();
+  await options.getByRole("option", { name: "Rotation", exact: true }).click();
+  await expect(row).toContainText("Rotation");
+  await expect(page.getByLabel("Rotation Pos (0-1)")).toBeVisible();
+  await type.click();
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await expect(options).toHaveCount(0);
+
+  // Boundary elements still offer only the compatible position types.
+  await page.getByTestId("path-element-row-0").click();
+  await type.click();
+  await expect(options.getByRole("option")).toHaveText([
+    "Translation",
+    "Waypoint",
+  ]);
 });
 
 test("keeps inline link controls and their menu accessible in a short inspector", async ({

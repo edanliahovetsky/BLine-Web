@@ -14,6 +14,7 @@ const editableSelector = [
   "input",
   "textarea",
   "select",
+  "[role='combobox']",
   "[contenteditable]:not([contenteditable='false'])",
   "[role='searchbox']",
   "[role='spinbutton']",

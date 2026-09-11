@@ -2,9 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 /** Anchor a portaled menu without clipping it inside the inspector's scrollers. */
-export function useFloatingMenu(width: number) {
+export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
+  width: number | "trigger",
+  focusOnOpen = true,
+) {
   const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLElement | null>(null);
+  const triggerRef = useRef<T | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<CSSProperties>({});
 
@@ -17,7 +20,10 @@ export function useFloatingMenu(width: number) {
       const padding = 8;
       const gap = 6;
       const rect = trigger.getBoundingClientRect();
-      const panelWidth = Math.min(width, window.innerWidth - padding * 2);
+      const panelWidth = Math.min(
+        width === "trigger" ? rect.width : width,
+        window.innerWidth - padding * 2,
+      );
       const below = window.innerHeight - rect.bottom - gap - padding;
       const above = rect.top - gap - padding;
       const showBelow = below >= panel.scrollHeight || below >= above;
@@ -44,15 +50,19 @@ export function useFloatingMenu(width: number) {
     observer.observe(panel);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
-    panel
-      .querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled)")
-      ?.focus({ preventScroll: true });
+    if (focusOnOpen) {
+      panel
+        .querySelector<HTMLElement>(
+          "button:not(:disabled), input:not(:disabled)",
+        )
+        ?.focus({ preventScroll: true });
+    }
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open, width]);
+  }, [open, width, focusOnOpen]);
 
   useEffect(() => {
     if (!open) return;

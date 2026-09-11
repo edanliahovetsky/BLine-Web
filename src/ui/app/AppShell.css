@@ -189,13 +189,15 @@ select {
   white-space: nowrap;
 }
 
-.toolbar-select-control {
+.toolbar-select-control,
+.dropdown-select-control {
   position: relative;
   width: 100%;
   min-width: 0;
 }
 
-.toolbar-actions .toolbar-select-control__button {
+.toolbar-actions .toolbar-select-control__button,
+.dropdown-select-control__button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 23px;
   align-items: center;
@@ -215,17 +217,22 @@ select {
 .toolbar-actions .toolbar-select-control__button:focus-visible:not(:disabled),
 .toolbar-actions
   .toolbar-select-control.is-open
-  .toolbar-select-control__button {
+  .toolbar-select-control__button,
+.dropdown-select-control__button:hover:not(:disabled),
+.dropdown-select-control__button:focus-visible:not(:disabled),
+.dropdown-select-control.is-open .dropdown-select-control__button {
   border-color: #4d8fe8;
   background: #16202a;
 }
 
-.toolbar-actions .toolbar-select-control__button:disabled {
+.toolbar-actions .toolbar-select-control__button:disabled,
+.dropdown-select-control__button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
 
-.toolbar-select-control__value {
+.toolbar-select-control__value,
+.dropdown-select-control__value {
   min-width: 0;
   overflow: hidden;
   padding: 0 8px;
@@ -234,7 +241,8 @@ select {
   white-space: nowrap;
 }
 
-.toolbar-select-control__indicator {
+.toolbar-select-control__indicator,
+.dropdown-select-control__indicator {
   display: grid;
   height: 100%;
   place-items: center;
@@ -244,13 +252,15 @@ select {
   background: #182028;
 }
 
-.toolbar-select-control__indicator svg {
+.toolbar-select-control__indicator svg,
+.dropdown-select-control__indicator svg {
   display: block;
   width: 12px;
   height: 12px;
 }
 
-.toolbar-select-control__menu {
+.toolbar-select-control__menu,
+.dropdown-select-control__menu {
   position: absolute;
   z-index: 90;
   top: calc(100% + 5px);
@@ -267,7 +277,8 @@ select {
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.52);
 }
 
-.toolbar-actions .toolbar-select-control__option {
+.toolbar-actions .toolbar-select-control__option,
+.dropdown-select-control__option {
   width: 100%;
   min-height: 30px;
   padding: 0 8px;
@@ -281,17 +292,29 @@ select {
 }
 
 .toolbar-actions .toolbar-select-control__option:hover,
-.toolbar-actions .toolbar-select-control__option:focus-visible {
+.toolbar-actions .toolbar-select-control__option:focus-visible,
+.dropdown-select-control__option:hover:not(:disabled),
+.dropdown-select-control__option.is-active {
   border-color: rgba(88, 166, 255, 0.4);
   color: #f7fbff;
   background: #213149;
 }
 
-.toolbar-actions .toolbar-select-control__option.is-selected {
+.toolbar-actions .toolbar-select-control__option.is-selected,
+.dropdown-select-control__option.is-selected {
   border-color: rgba(88, 166, 255, 0.54);
   color: #ffffff;
   background: #1b2f49;
   box-shadow: inset 3px 0 0 #58a6ff;
+}
+
+.dropdown-select-control__button .dropdown-select-control__value {
+  font-weight: 400;
+}
+
+.dropdown-select-control__option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .path-toolbar-navigator__library {
