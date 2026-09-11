@@ -2080,7 +2080,8 @@ select {
   padding: 10px;
 }
 
-.constraint-add-surface {
+.constraint-add-surface,
+.element-add-surface {
   min-width: 0;
   overflow: visible;
   border: 1px solid #344654;
@@ -2088,11 +2089,13 @@ select {
   background: #18242c;
 }
 
-.constraint-add-surface > .add-constraint-menu {
+.constraint-add-surface > .add-constraint-menu,
+.element-add-surface > .add-element-menu {
   width: 100%;
 }
 
-.constraint-add-surface .add-element-button {
+.constraint-add-surface .add-element-button,
+.element-add-surface .add-element-button {
   justify-content: center;
   width: 100%;
   min-height: 30px;
@@ -2102,17 +2105,25 @@ select {
 }
 
 .constraint-add-surface .add-element-button:hover,
-.constraint-add-surface .add-element-button:focus-visible {
+.constraint-add-surface .add-element-button:focus-visible,
+.element-add-surface .add-element-button:hover,
+.element-add-surface .add-element-button:focus-visible {
   background: #1d2d38;
 }
 
-.constraint-add-surface .sidebar-add-icon {
+.constraint-add-surface .sidebar-add-icon,
+.element-add-surface .sidebar-add-icon {
   width: 17px;
   height: 17px;
   flex-basis: 17px;
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.element-add-surface {
+  flex: 0 0 auto;
+  margin-top: 8px;
 }
 
 .constraint-card {
@@ -5060,6 +5071,9 @@ body.is-resizing-inspector * {
   /* The percentage keeps the floor and the properties cap below from adding
      up to more than the panel on very short windows. */
   min-height: min(140px, 34%);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .inspector-sidebar__panel--elements > .property-editor-section {
@@ -5082,6 +5096,10 @@ body.is-resizing-inspector * {
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
+  padding: 0;
+  border: 1px solid var(--bline-border-subtle);
+  border-radius: 7px;
+  background: #181e23;
 }
 
 .inspector-sidebar__panel--elements .sidebar-section__body {
@@ -5951,7 +5969,32 @@ body.is-resizing-inspector * {
 }
 
 .property-row--type {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.property-editor__type-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.property-editor__type-controls .linked-element-menu summary {
+  width: 32px;
+  min-height: 32px;
+}
+
+.property-editor__type-controls .linked-element-menu summary > svg:first-child {
+  width: 19px;
+  height: 19px;
+  flex-basis: 19px;
 }
 
 .linked-element-menu summary {

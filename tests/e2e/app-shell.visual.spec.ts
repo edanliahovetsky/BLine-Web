@@ -52,6 +52,14 @@ test.describe("app shell visual baselines", () => {
     await expectVisualSnapshot(page, "editor-constraints.png");
   });
 
+  test("inline element properties", async ({ page }) => {
+    await gotoSampleEditor(page);
+    await page.getByTestId("path-element-row-0").click();
+    await expect(page.getByLabel("Profiled Rotation")).toBeVisible();
+
+    await expectVisualSnapshot(page, "element-properties.png");
+  });
+
   test("project navigator", async ({ page }) => {
     await gotoSampleEditor(page);
     await page

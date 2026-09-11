@@ -1,5 +1,7 @@
+import { createPortal } from "react-dom";
 import type { AddableElementType } from "../sidebar/sidebarCommands";
 import { ElementIcon, PlusIcon } from "../icons";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 interface AddElementMenuProps {
   disabled?: boolean;
@@ -19,20 +21,36 @@ export function AddElementMenu({
   options,
   onAdd,
 }: AddElementMenuProps) {
+  const {
+    open: menuOpen,
+    setOpen: setMenuOpen,
+    triggerRef: menuTriggerRef,
+    panelRef: menuPanelRef,
+    position: menuPosition,
+  } = useFloatingMenu(220);
   const visibleOptions = addOptions.filter((option) =>
     options.includes(option.type),
   );
 
   return (
-    <details className="add-element-menu">
+    <details className="add-element-menu" open={menuOpen}>
       <summary
+        ref={menuTriggerRef}
         aria-label="Add element"
+        aria-expanded={menuOpen}
         aria-disabled={disabled || visibleOptions.length === 0}
         className={
-          disabled || visibleOptions.length === 0 ? "is-disabled" : undefined
+          disabled || visibleOptions.length === 0
+            ? "add-element-button is-disabled"
+            : "add-element-button"
         }
         role="button"
         title="Add element"
+        onClick={(event) => {
+          event.preventDefault();
+          if (!disabled && visibleOptions.length > 0)
+            setMenuOpen((open) => !open);
+        }}
       >
         <span
           className="sidebar-add-icon"
@@ -42,29 +60,38 @@ export function AddElementMenu({
           <PlusIcon size={17} />
         </span>
       </summary>
-      {!disabled && visibleOptions.length > 0 ? (
-        <div className="add-element-menu__panel" role="menu">
-          {visibleOptions.map((option) => (
-            <button
-              key={option.type}
-              type="button"
-              role="menuitem"
-              onClick={(event) => {
-                onAdd(option.type);
-                event.currentTarget.closest("details")?.removeAttribute("open");
-              }}
+      {menuOpen && !disabled && visibleOptions.length > 0
+        ? createPortal(
+            <div
+              ref={menuPanelRef}
+              className="add-element-menu__panel"
+              role="menu"
+              aria-label="Add element"
+              style={menuPosition}
             >
-              <span
-                aria-hidden="true"
-                className={`element-type-mark type-${option.type}`}
-              >
-                <ElementIcon type={option.type} />
-              </span>
-              <span>{option.label}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+              {visibleOptions.map((option) => (
+                <button
+                  key={option.type}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onAdd(option.type);
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`element-type-mark type-${option.type}`}
+                  >
+                    <ElementIcon type={option.type} />
+                  </span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </details>
   );
 }

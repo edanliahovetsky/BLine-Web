@@ -1280,7 +1280,6 @@ function HandoffRadiusControls({
               onModeChange={(mode) => setHandoffRadiusMode(chip, mode)}
             />
             <label className="ranged-constraint-controls__value">
-              <span>Anchor {chip.ordinal}</span>
               <div className="constraint-value-input">
                 <NumberStepperControl
                   ariaLabel={`Handoff radius ${chip.ordinal} value`}

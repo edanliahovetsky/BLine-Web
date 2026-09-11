@@ -35,7 +35,6 @@ interface ElementListProps {
   onRemoveElement(index: number): void;
   onDuplicateElement(index: number): void;
   onMoveElement(fromIndex: number, toIndex: number): void;
-  onToggleSection?(): void;
 }
 
 export function ElementList({
@@ -49,7 +48,6 @@ export function ElementList({
   onRemoveElement,
   onDuplicateElement,
   onMoveElement,
-  onToggleSection,
 }: ElementListProps) {
   const elements = path?.path_elements ?? [];
   const listRef = useRef<HTMLOListElement | null>(null);
@@ -140,19 +138,11 @@ export function ElementList({
 
   return (
     <SidebarSection
-      actions={
-        <AddElementMenu
-          disabled={!path || curveToolActive}
-          options={addableTypes}
-          onAdd={onAddElement}
-        />
-      }
       className="path-elements-section"
+      headerless
       open={open}
       sectionId="path-elements"
       title="Path Elements"
-      hideTitle
-      onToggle={onToggleSection}
     >
       {elements.length > 0 ? (
         <>
@@ -276,6 +266,13 @@ export function ElementList({
       ) : (
         <div className="sidebar-empty-state">No elements</div>
       )}
+      <div className="element-add-surface">
+        <AddElementMenu
+          disabled={!path || curveToolActive}
+          options={addableTypes}
+          onAdd={onAddElement}
+        />
+      </div>
     </SidebarSection>
   );
 }
