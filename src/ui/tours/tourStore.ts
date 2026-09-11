@@ -4,6 +4,7 @@ import type {
   ProjectConfig,
   ProjectPath,
   ProjectPathGroup,
+  LinkedTarget,
 } from "../../core/model/project";
 import { rememberCompletedTourIds } from "../../userData";
 
@@ -35,6 +36,7 @@ export type TourAction =
   | "inspectProject"
   | "inspectPath"
   | "export"
+  | "import"
   | "keepCopy";
 export interface TourReference {
   path: PathModel;
@@ -147,6 +149,7 @@ export interface TourDefinition {
   /** Multiple practice paths for lessons about project organization. */
   practicePaths?(): ProjectPath[];
   practiceGroups?(): ProjectPathGroup[];
+  practiceLinkedTargets?(): LinkedTarget[];
   practiceConfig?(): ProjectConfig;
   steps: readonly TourStep[];
 }

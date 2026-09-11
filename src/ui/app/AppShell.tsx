@@ -91,6 +91,7 @@ import {
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
+import { exportPracticePath, parsePracticePath } from "../tours/tourTransfer";
 import {
   createTourSessionController,
   type TourSessionController,
@@ -457,6 +458,9 @@ export function AppShell() {
       },
       restoreView: (view) => {
         autoVelocityStore.setState({ autoSyncEnabled: view.autoSyncEnabled });
+        setShowLinkedTargetsDialog(false);
+        setLinkedTargetPickerRequest(null);
+        setOpenTopMenu(null);
         setShowPathGroupsDialog(false);
         setShowPathHealth(false);
         writeEditorUiPreferences(view.editorPreferences);
@@ -1209,9 +1213,10 @@ export function AppShell() {
     }
 
     try {
-      const blob = await projectStore
-        .getState()
-        .exportPath(currentPath.path_id);
+      const practice = tourStore.getState().activeTourId === "import-export";
+      const blob = practice
+        ? exportPracticePath(currentPath.path)
+        : await projectStore.getState().exportPath(currentPath.path_id);
       if (blob) {
         await saveBlobAs(blob, currentPath.file_name, {
           title: "Export BLine Path",
@@ -1219,6 +1224,7 @@ export function AppShell() {
             projectStore.getState().io?.capabilities.directFileAutosave,
           ),
         });
+        if (practice) tourStore.getState().recordAction("export");
       }
     } catch (caughtError) {
       if (!isAbortError(caughtError)) {
@@ -1405,13 +1411,38 @@ export function AppShell() {
         return;
       }
 
-      if (!projectStore.getState().io) {
+      const practiceImport =
+        tourStore.getState().activeTourId === "import-export" &&
+        pendingImportMode === "path";
+      if (!projectStore.getState().io && !practiceImport) {
         importHandlingRef.current = false;
         endToolbarAction("import");
         return;
       }
 
       try {
+        if (practiceImport) {
+          const state = projectStore.getState();
+          const session = state.projectSessionId;
+          const text = await file.text();
+          if (
+            !state.project ||
+            projectStore.getState().projectSessionId !== session ||
+            tourStore.getState().activeTourId !== "import-export"
+          )
+            return;
+          const path = parsePracticePath(text, state.project.config);
+          projectStore.getState().createPath({
+            displayName: file.name
+              .replace(/\.json$/i, "")
+              .replace(/[-_]+/g, " "),
+            path,
+            makeActive: true,
+          });
+          selectionStore.getState().clearSelection();
+          tourStore.getState().recordAction("import");
+          return;
+        }
         if (pendingImportMode === "path") {
           await projectStore.getState().importPath(file);
           selectionStore.getState().clearSelection();
@@ -1745,7 +1776,8 @@ export function AppShell() {
   }, []);
   const projectAvailable = Boolean(durableProject);
   const pathAvailable = Boolean(activePath);
-  const projectIoAvailable = Boolean(projectIo);
+  const projectIoAvailable =
+    Boolean(projectIo) || activeTourId === "import-export";
   const navigatorCommand: EditorCommand = {
     id: "project.navigator",
     label: "Open project navigator",
@@ -2087,7 +2119,7 @@ export function AppShell() {
 
   return (
     <main
-      className={`app-shell${activeTourId === "organize-path-groups" ? " app-shell--navigator-lesson" : ""}`}
+      className={`app-shell${activeTourId && showPathGroupsDialog ? " app-shell--navigator-lesson" : ""}`}
       data-testid="app-shell"
       aria-busy={projectTransitionInProgress}
     >
@@ -2331,7 +2363,7 @@ export function AppShell() {
           activePathId={activePathId}
           activePathGroupId={activePathGroupId}
           initiallyEditingPathId={initiallyEditingPathId}
-          lessonMode={activeTourId === "organize-path-groups"}
+          lessonMode={Boolean(activeTourId)}
           onCancel={() => {
             setShowPathGroupsDialog(false);
             setInitiallyEditingPathId(null);
@@ -2366,6 +2398,7 @@ export function AppShell() {
       ) : null}
       {durableProject && showLinkedTargetsDialog ? (
         <LinkedTargetsDialog
+          lessonMode={Boolean(activeTourId)}
           linkRequest={linkedTargetPickerRequest}
           project={durableProject}
           field={activeField}
@@ -2482,7 +2515,9 @@ export function AppShell() {
                 : preparation.selectElement;
             selectionStore.getState().selectElement(index, path);
           }
-          if (preparation.autoPlay) {
+          if (activeTourStep?.canvasLesson) {
+            // The canvas phase owns its exact playback range and speed.
+          } else if (preparation.autoPlay) {
             setTourSimulationSeekRequest({
               id: nextTourSimulationSeekIdRef.current++,
               position: "start",

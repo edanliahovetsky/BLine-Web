@@ -91,6 +91,9 @@ export function TourOverlay({
   const visibleToken = [
     "path-canvas",
     stepTarget,
+    stepTarget?.endsWith("-menu-entry")
+      ? stepTarget.replace(/-entry$/, "-panel")
+      : null,
     ...(step?.visible ?? []),
     ...(step ? tourInteractionTargets(step) : []),
   ]
@@ -508,7 +511,9 @@ export function TourOverlay({
   let cardLeft = (canvas?.left ?? 0) + 64;
   let cardTop = (canvas?.top ?? 40) + 18;
   const navigator = document
-    .querySelector('[data-tour="project-navigator"]')
+    .querySelector(
+      '[data-tour="project-navigator"], [data-tour="linked-elements-dialog"]',
+    )
     ?.getBoundingClientRect();
   if (
     rect &&
@@ -522,6 +527,20 @@ export function TourOverlay({
   if (navigator) {
     cardLeft = navigator.right + cardGap;
     cardTop = 64;
+  }
+  const openMenus = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      ".top-menu__panel, .top-menu__submenu-panel",
+    ),
+  )
+    .map((element) => element.getBoundingClientRect())
+    .filter((bounds) => bounds.width > 0 && bounds.height > 0);
+  if (openMenus.length) {
+    const menuRight = Math.max(...openMenus.map((bounds) => bounds.right));
+    const menuBottom = Math.max(...openMenus.map((bounds) => bounds.bottom));
+    if (menuRight + cardGap + cardWidth < window.innerWidth - viewportMargin)
+      cardLeft = menuRight + cardGap;
+    else cardTop = menuBottom + cardGap;
   }
 
   cardLeft = Math.max(
@@ -748,7 +767,7 @@ export function TourOverlay({
           </button>
           {!actionGated || actionComplete || isReviewing ? (
             <button type="button" className="is-primary" onClick={handleNext}>
-              {isLastStep ? "Finish" : "Next"}
+              {isLastStep ? "Finish" : "Continue"}
             </button>
           ) : null}
         </div>

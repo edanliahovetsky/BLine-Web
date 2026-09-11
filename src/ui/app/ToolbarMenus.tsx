@@ -291,6 +291,7 @@ export function TopMenuButton({
             className="top-menu__panel"
             role="menu"
             data-testid={`top-menu-${id}`}
+            data-tour={dataTour?.replace(/-entry$/, "-panel")}
           >
             {children}
           </div>
@@ -583,6 +584,7 @@ export function MenuSubmenu({
               className="top-menu__submenu-panel"
               role="menu"
               data-testid={testId}
+              data-tour={testId}
               style={placement}
               onBlur={handleBlur}
               onFocus={openSubmenu}

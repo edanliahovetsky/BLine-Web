@@ -1792,7 +1792,7 @@ export function PathStage({
             onUnlink={unlinkContextElement}
           />
         ) : null}
-        {tourMarkers.length > 0 && activePath && simulationResult && (
+        {activeTourId && activePath && simulationResult && (
           <TourFieldComparison
             viewport={viewport}
             path={activePath.path}
@@ -1879,7 +1879,9 @@ function CanvasToolRail({
                   ? "tool-rotation"
                   : tool === "event"
                     ? "tool-event"
-                    : undefined
+                    : tool === "select"
+                      ? "tool-select"
+                      : undefined
           }
           disabled={!path || disabled}
           title={

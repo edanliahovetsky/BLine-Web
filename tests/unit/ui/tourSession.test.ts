@@ -89,6 +89,12 @@ describe("Tour session", () => {
     expect(projects.getState().project!.paths[0].display_name).toBe(
       "Tour practice",
     );
+    tours.getState().next(3);
+    controller.restartLesson();
+    expect(current().path_elements).toHaveLength(2);
+    tours.getState().next(3);
+    tours.getState().next(3);
+    expect(current()).toEqual(seed());
     controller.dispose();
   });
   it("preserves later edits on Back and restores only the requested exercise checkpoint", () => {

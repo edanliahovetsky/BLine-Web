@@ -27,6 +27,7 @@ import {
   practiceConfig,
 } from "./tourScenario";
 import { checkPlan, feedback } from "./tourChecks";
+import { supplementalTours } from "./supplementalLessons";
 import {
   createEventLessonPath,
   createFastRotationPath,
@@ -831,7 +832,10 @@ export const foundationalTours: readonly TourDefinition[] = [
   rotationTargetsTour,
   eventTriggersTour,
 ];
-export const tours: readonly TourDefinition[] = foundationalTours;
+export const tours: readonly TourDefinition[] = [
+  ...foundationalTours,
+  ...supplementalTours,
+];
 export function findTour(tourId: string | null) {
   return tours.find((tour) => tour.id === tourId) ?? null;
 }

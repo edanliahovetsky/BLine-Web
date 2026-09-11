@@ -61,12 +61,15 @@ export function createTourSessionController<View>(
   let active: ActiveTourSession<View> | null = null;
   let unsubscribeProject: (() => void) | null = null;
   let unsubscribeTour: (() => void) | null = null;
+  let restoringCheckpoint = false;
   const checkpoints = new Map<
     number,
     {
       project: Project;
       history: HistoryStoreState<Project>;
       selection: SelectionState;
+      activePathId: string | null;
+      activePathGroupId: string | null;
     }
   >();
   const visitedStates = new Map<
@@ -80,6 +83,8 @@ export function createTourSessionController<View>(
           project: structuredClone(state.project),
           history: { ...state.history.getState() },
           selection: { ...selections.getState() },
+          activePathId: state.activePathId,
+          activePathGroupId: state.activePathGroupId,
         }
       : null;
   }
@@ -87,6 +92,8 @@ export function createTourSessionController<View>(
     projects.getState().history.setState(saved.history);
     projects.setState({
       project: structuredClone(saved.project),
+      activePathId: saved.activePathId,
+      activePathGroupId: saved.activePathGroupId,
       projectSessionId: createSessionId("practice"),
       revision: 0,
       activeSave: null,
@@ -103,6 +110,8 @@ export function createTourSessionController<View>(
       project: structuredClone(state.project),
       history: { ...state.history.getState() },
       selection: { ...selections.getState() },
+      activePathId: state.activePathId,
+      activePathGroupId: state.activePathGroupId,
     });
   };
 
@@ -112,6 +121,8 @@ export function createTourSessionController<View>(
     projects.getState().history.setState(checkpoint.history);
     projects.setState({
       project: structuredClone(checkpoint.project),
+      activePathId: checkpoint.activePathId,
+      activePathGroupId: checkpoint.activePathGroupId,
       projectSessionId: createSessionId("practice"),
       revision: 0,
       activeSave: null,
@@ -125,7 +136,12 @@ export function createTourSessionController<View>(
     for (const key of visitedStates.keys()) {
       if (key >= index) visitedStates.delete(key);
     }
-    tours.getState().restartAt(index);
+    restoringCheckpoint = true;
+    try {
+      tours.getState().restartAt(index);
+    } finally {
+      restoringCheckpoint = false;
+    }
   };
 
   const restoreSession = () => {
@@ -205,6 +221,7 @@ export function createTourSessionController<View>(
         config: definition.practiceConfig?.() ?? state.project?.config,
         paths: practicePaths,
         path_groups: definition.practiceGroups?.(),
+        linked_targets: definition.practiceLinkedTargets?.(),
       });
 
       active = {
@@ -253,8 +270,9 @@ export function createTourSessionController<View>(
           restoreSession();
         } else if (nextState.activeTourId) {
           if (
-            nextState.stepIndex !== previousState.stepIndex ||
-            !previousState.activeTourId
+            !restoringCheckpoint &&
+            (nextState.stepIndex !== previousState.stepIndex ||
+              !previousState.activeTourId)
           ) {
             const departing = snapshot();
             if (previousState.activeTourId && departing)

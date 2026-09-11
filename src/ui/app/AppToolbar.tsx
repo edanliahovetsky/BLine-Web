@@ -434,7 +434,7 @@ export function AppToolbar({
             />
           </TopMenuButton>
         </div>
-        <div className="toolbar-actions__buttons">
+        <div className="toolbar-actions__buttons" data-tour="edit-controls">
           <IconButton
             aria-label="Undo"
             aria-keyshortcuts="Meta+Z Control+Z"
@@ -509,6 +509,7 @@ export function AppToolbar({
           ref={setFileInput}
           className="file-import-input"
           aria-label="Import BLine JSON"
+          data-tour="lesson-import-file"
           type="file"
           accept="application/json,.json,.bline-project,.bline-project.json"
           onChange={onImportFile}
