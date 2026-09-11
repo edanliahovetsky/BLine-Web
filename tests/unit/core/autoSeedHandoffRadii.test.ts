@@ -176,7 +176,7 @@ describe("seedHandoffRadii", () => {
     expect(seeded).toBeCloseTo(0.49 * 1.2, 9);
   });
 
-  it("enforces the inclusive 0.3 meter leg rule without taking manual ownership", () => {
+  it("reseeds below 0.3 meters without taking manual ownership", () => {
     const atBoundary = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
@@ -216,13 +216,58 @@ describe("seedHandoffRadii", () => {
     expect(radiusOf(seedHandoffRadii(atBoundary).path.path_elements[1])).toBe(
       0.147,
     );
-    const cleared = seedHandoffRadii(belowBoundary).path.path_elements[1];
-    expect(radiusOf(cleared)).toBeNull();
-    expect(getHandoffRadiusSource(cleared)).toBeNull();
+    const reseeded = seedHandoffRadii(belowBoundary).path.path_elements[1];
+    expect(radiusOf(reseeded)).toBe(0.147);
+    expect(getHandoffRadiusSource(reseeded)).toBe("auto");
     const manual = seedHandoffRadii(manualBelowBoundary).path.path_elements[1];
     expect(radiusOf(manual)).toBe(0.2);
     expect(getHandoffRadiusSource(manual)).toBe("manual");
   });
+
+  it.each(["translation", "waypoint"] as const)(
+    "keeps %s seeds at the minimum and clears stale auto radii only when it cannot fit",
+    (kind) => {
+      for (const [length, expectedRadius] of [
+        [0.0556, 0.05],
+        [0.0555, null],
+      ] as const) {
+        for (const source of [null, "auto", "manual"] as const) {
+          const target = createTranslationTarget({
+            x_meters: length,
+            intermediate_handoff_radius_meters: source === null ? null : 0.2,
+          });
+          const element = setHandoffRadiusSource(
+            kind === "translation"
+              ? target
+              : createWaypoint({ translation_target: target }),
+            source,
+          );
+          const path = createPathModel({
+            path_elements: [
+              createTranslationTarget(),
+              element,
+              createTranslationTarget({ x_meters: length, y_meters: 1 }),
+            ],
+          });
+          const seeded = seedHandoffRadii(path).path.path_elements[1];
+
+          expect(radiusOf(seeded)).toBe(
+            source === "manual" ? 0.2 : expectedRadius,
+          );
+          expect(getHandoffRadiusSource(seeded)).toBe(
+            source === "manual"
+              ? "manual"
+              : expectedRadius === null
+                ? null
+                : "auto",
+          );
+          expect(radiusOf(path.path_elements[1])).toBe(
+            source === null ? null : 0.2,
+          );
+        }
+      }
+    },
+  );
 
   it("returns the path unchanged when nothing is seedable", () => {
     const path = createPathModel({

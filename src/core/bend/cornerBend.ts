@@ -25,7 +25,6 @@ export interface FeasibleRadiusRange {
 export const autoCorridorDeviationBudgetMeters = 0.26;
 
 const minRadiusMeters = 0.05;
-export const minimumAutomaticHandoffStraightLegMeters = 0.3;
 const maxRadiusIncomingLegRatio = 0.9;
 const seedRadiusIncomingLegRatio = 0.49;
 const collinearTurnAngleRadians = 0.02;
@@ -109,13 +108,6 @@ export function feasibleRadiusRange(
   if (!geometry) {
     return null;
   }
-  if (
-    geometry.legInMeters < minimumAutomaticHandoffStraightLegMeters ||
-    geometry.legOutMeters < minimumAutomaticHandoffStraightLegMeters
-  ) {
-    return null;
-  }
-
   const maxMeters = maxRadiusIncomingLegRatio * geometry.legInMeters;
   return maxMeters < minRadiusMeters
     ? null
@@ -134,9 +126,10 @@ export function seedRadius(geometry: CornerGeometry | null): number | null {
     return null;
   }
 
-  return Math.min(
-    range.maxMeters,
+  return clamp(
     seedRadiusIncomingLegRatio * geometry.legInMeters,
+    range.minMeters,
+    range.maxMeters,
   );
 }
 

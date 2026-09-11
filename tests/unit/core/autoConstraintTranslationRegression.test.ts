@@ -13,6 +13,7 @@ interface BaselineScenario {
   name: string;
   points: Array<[number, number]>;
   legacy_completion_time_s: number;
+  legacy_status?: "valid" | "best-effort";
   expected: {
     status: "valid" | "best-effort";
     completion_time_s: number;
@@ -61,9 +62,13 @@ describe("translation generator regression corpus", () => {
       expect(result.profile.diagnostics.totalTimeS).toBe(
         scenario.expected.completion_time_s,
       );
-      expect(result.profile.diagnostics.totalTimeS).toBeLessThanOrEqual(
-        scenario.legacy_completion_time_s + 0.02,
-      );
+      // A previously failing policy is not a useful speed target for a valid
+      // solve; short legs can now trade a little traversal time for fidelity.
+      if (scenario.legacy_status !== "best-effort") {
+        expect(result.profile.diagnostics.totalTimeS).toBeLessThanOrEqual(
+          scenario.legacy_completion_time_s + 0.02,
+        );
+      }
       expect(result.stats).toMatchObject({
         evaluations: scenario.expected.evaluations,
         evaluationBudget: scenario.expected.budget,
@@ -75,6 +80,14 @@ describe("translation generator regression corpus", () => {
         scenario.expected.caps,
       );
       expect(result.profile.diagnostics.reachedEnd).toBe(true);
+      if (scenario.expected.status === "valid") {
+        expect(result.stats.stabilityValidationPassed).toBe(true);
+        expect(
+          result.profile.diagnostics.handoffs.every(
+            (handoff) => handoff.passed,
+          ),
+        ).toBe(true);
+      }
       expect(result.radii[0]).toMatchObject({
         elementIndex: 0,
         radiusMeters: 0.45,

@@ -9,7 +9,9 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-export function useDialogFocusTrap<T extends HTMLElement>() {
+export function useDialogFocusTrap<T extends HTMLElement>(
+  additionalFocusScope?: string,
+) {
   const dialogRef = useRef<T | null>(null);
 
   useEffect(() => {
@@ -26,6 +28,11 @@ export function useDialogFocusTrap<T extends HTMLElement>() {
 
       const focusable = [
         ...dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+        ...(additionalFocusScope
+          ? (document
+              .querySelector(additionalFocusScope)
+              ?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [])
+          : []),
       ].filter((element) => !element.hidden && element.offsetParent !== null);
       if (focusable.length === 0) {
         event.preventDefault();
@@ -47,14 +54,19 @@ export function useDialogFocusTrap<T extends HTMLElement>() {
       }
     };
 
-    dialog.addEventListener("keydown", handleKeyDown);
+    const eventRoot = additionalFocusScope ? document : dialog;
+    eventRoot.addEventListener("keydown", handleKeyDown as EventListener);
     return () => {
-      dialog.removeEventListener("keydown", handleKeyDown);
-      if (previouslyFocused instanceof HTMLElement) {
-        previouslyFocused.focus();
+      eventRoot.removeEventListener("keydown", handleKeyDown as EventListener);
+      const returnTarget = additionalFocusScope
+        ? (document.querySelector<HTMLElement>(additionalFocusScope) ??
+          previouslyFocused)
+        : previouslyFocused;
+      if (returnTarget instanceof HTMLElement && returnTarget.isConnected) {
+        returnTarget.focus();
       }
     };
-  }, []);
+  }, [additionalFocusScope]);
 
   return dialogRef;
 }

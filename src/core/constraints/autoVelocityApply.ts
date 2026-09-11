@@ -37,6 +37,7 @@ export interface AutoVelocityStatus {
   expectedMetadata: AutoVelocityConstraintMetadata;
   autoConstraintCount: number;
   hasAutoConstraints: boolean;
+  hasGeneratedValues: boolean;
   stale: boolean;
 }
 
@@ -276,6 +277,9 @@ export function autoVelocityStatusForPath(
     expectedMetadata,
     autoConstraintCount: generated.length,
     hasAutoConstraints: generated.length > 0,
+    hasGeneratedValues: generated.some((constraint) =>
+      Boolean(constraint.auto_velocity?.input_signature),
+    ),
     stale:
       generated.length === 0 ||
       generated.some(

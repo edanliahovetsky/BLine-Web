@@ -30,6 +30,8 @@ const definition: TourDefinition = {
   id: "test-tour",
   title: "Test Tour",
   summary: "Exercises the isolated practice session",
+  durationMinutes: 1,
+  completionMessage: "Tour complete",
   practicePath: () =>
     createPathModel({
       path_elements: [
@@ -41,6 +43,115 @@ const definition: TourDefinition = {
 };
 
 describe("Tour session", () => {
+  it("restores the right seeded scenario on Back, return, and Restart", () => {
+    const projects = createProjectStore();
+    const selections = createSelectionStore();
+    const tours = createTourStore();
+    const seed = () =>
+      createPathModel({
+        path_elements: [createTranslationTarget({ x_meters: 12, y_meters: 4 })],
+      });
+    const controller = createTourSessionController({
+      projects,
+      selections,
+      tours,
+      resolveTour: () => ({
+        ...definition,
+        steps: [
+          { title: "First", body: "First scenario" },
+          {
+            title: "Second",
+            body: "New scenario",
+            prepare: { practicePath: seed },
+          },
+          { title: "Third", body: "Explore" },
+        ],
+      }),
+      captureView: () => null,
+      showPracticeView: () => {},
+      restoreView: () => {},
+    });
+    controller.start("test-tour");
+    tours.getState().next(3);
+    const current = () => projects.getState().project!.paths[0].path;
+    expect(current()).toEqual(seed());
+    const pathId = projects.getState().activePathId!;
+    projects.getState().renamePath(pathId, "Learner edit");
+    tours.getState().back();
+    expect(current().path_elements).toHaveLength(2);
+    tours.getState().goTo(1);
+    expect(current()).toEqual(seed());
+    expect(projects.getState().project!.paths[0].display_name).toBe(
+      "Learner edit",
+    );
+    controller.restartStep();
+    expect(current()).toEqual(seed());
+    expect(projects.getState().project!.paths[0].display_name).toBe(
+      "Tour practice",
+    );
+    tours.getState().next(3);
+    controller.restartLesson();
+    expect(current().path_elements).toHaveLength(2);
+    tours.getState().next(3);
+    tours.getState().next(3);
+    expect(current()).toEqual(seed());
+    controller.dispose();
+  });
+  it("preserves later edits on Back and restores only the requested exercise checkpoint", () => {
+    const projects = createProjectStore();
+    const selections = createSelectionStore();
+    const tours = createTourStore();
+    const original = createProject({
+      project_id: "original",
+      display_name: "Original",
+      paths: [],
+    });
+    projects.setState({
+      project: original,
+      activePathId: original.paths[0]?.path_id ?? null,
+    });
+    const controller = createTourSessionController({
+      projects,
+      selections,
+      tours,
+      resolveTour: () => definition,
+      captureView: () => null,
+      showPracticeView: () => {},
+      restoreView: () => {},
+    });
+    expect(controller.start("test-tour")).toBe(true);
+    const pathId = projects.getState().activePathId!;
+    projects.getState().renamePath(pathId, "First edit");
+    tours.getState().setStepComplete(0, true);
+    tours.getState().next(3);
+    projects.getState().renamePath(pathId, "Second edit");
+    tours.getState().setStepComplete(1, true);
+    tours.getState().next(3);
+    tours.getState().back();
+    expect(projects.getState().project?.paths[0].display_name).toBe(
+      "Second edit",
+    );
+    expect(tours.getState().completedStepIndexes).toEqual([0, 1]);
+    const previousSession = projects.getState().projectSessionId;
+    controller.restartStep();
+    expect(projects.getState().project?.paths[0].display_name).toBe(
+      "First edit",
+    );
+    expect(projects.getState().projectSessionId).not.toBe(previousSession);
+    expect(tours.getState().completedStepIndexes).toEqual([0]);
+    expect(tours.getState().furthestStepIndex).toBe(1);
+    projects.getState().renamePath(pathId, "Another attempt");
+    expect(projects.getState().dirty).toBe(false);
+    controller.restartLesson();
+    expect(projects.getState().project?.paths[0].display_name).toBe(
+      "Tour practice",
+    );
+    expect(tours.getState().stepIndex).toBe(0);
+    expect(tours.getState().completedStepIndexes).toEqual([]);
+    controller.restore();
+    expect(projects.getState().project).toBe(original);
+  });
+
   it("isolates practice and restores the exact unsaved editor session", async () => {
     const projects = createProjectStore();
     const selections = createSelectionStore();

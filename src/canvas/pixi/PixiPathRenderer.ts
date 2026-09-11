@@ -93,6 +93,7 @@ export interface PixiRenderInput {
   trajectoryMaxSpeedMps: number;
   simulationTimeS: number;
   simulationPlaying: boolean;
+  simulationEventPulse: number;
   config: ProjectConfig | null;
   curvePreview: CurveAuthoringPreview | null;
   linkedTargets?: readonly PixiLinkedTargetOverlay[];
@@ -124,6 +125,8 @@ export interface PixiCanvasMetrics {
   ratio: number;
   renderer: string;
   renderCount: number;
+  fieldDrawCount: number;
+  overlayDrawCount: number;
 }
 
 export interface PixiDebugApi {
@@ -157,7 +160,15 @@ export class PixiPathRenderer {
   private readonly rotationGraphics = new Graphics();
   private readonly simulationGraphics = new Graphics();
   private readonly debugNodes = new Map<string, StagePoint>();
+  // Viewports and overlay path arrays are immutable render inputs.
+  private drawnFieldViewport: FieldViewport | null = null;
+  private drawnOverlayViewport: FieldViewport | null = null;
+  private drawnOverlayStageSize: CanvasSize | null = null;
+  private drawnOverlayPaths: readonly PixiPathOverlay[] | null = null;
+  private drawnHoveredOverlayPathId: string | null = null;
   private renderCount = 0;
+  private fieldDrawCount = 0;
+  private overlayDrawCount = 0;
 
   private constructor(
     app: Application<Renderer<HTMLCanvasElement>>,
@@ -221,8 +232,24 @@ export class PixiPathRenderer {
   update(input: PixiRenderInput): void {
     this.resize(input.stageSize);
     this.debugNodes.clear();
-    this.drawField(input.viewport);
-    this.drawOverlayPaths(input);
+    if (this.drawnFieldViewport !== input.viewport) {
+      this.drawField(input.viewport);
+      this.drawnFieldViewport = input.viewport;
+    }
+    if (
+      this.drawnOverlayViewport !== input.viewport ||
+      this.drawnOverlayStageSize?.width !== input.stageSize.width ||
+      this.drawnOverlayStageSize?.height !== input.stageSize.height ||
+      this.drawnOverlayPaths !== input.overlayPaths ||
+      this.drawnHoveredOverlayPathId !== input.hoveredOverlayPathId
+    ) {
+      this.drawOverlayPaths(input);
+      this.drawnOverlayViewport = input.viewport;
+      // Ghost paths clip to canvas bounds even when the viewport is unchanged.
+      this.drawnOverlayStageSize = { ...input.stageSize };
+      this.drawnOverlayPaths = input.overlayPaths;
+      this.drawnHoveredOverlayPathId = input.hoveredOverlayPathId;
+    }
     this.drawPath(input);
     this.drawTrajectory(input);
     this.drawCurvePreview(input);
@@ -284,10 +311,13 @@ export class PixiPathRenderer {
           : 0,
       renderer: this.app.renderer.name,
       renderCount: this.renderCount,
+      fieldDrawCount: this.fieldDrawCount,
+      overlayDrawCount: this.overlayDrawCount,
     };
   }
 
   private drawField(viewport: FieldViewport): void {
+    this.fieldDrawCount += 1;
     this.fieldGraphics
       .clear()
       .rect(viewport.x, viewport.y, viewport.width, viewport.height)
@@ -394,6 +424,7 @@ export class PixiPathRenderer {
   }
 
   private drawOverlayPaths(input: PixiRenderInput): void {
+    this.overlayDrawCount += 1;
     const graphics = this.overlayGraphics.clear();
     for (const overlay of input.overlayPaths) {
       const points = getRenderableElementPositions(
@@ -596,7 +627,12 @@ export class PixiPathRenderer {
 
     const element = elements[firstDomainIndex];
     const point = modelToStagePoint(firstPosition, input.viewport);
-    const headingRadians = getElementHeadingRadians(elements, firstDomainIndex);
+    const headingRadians = getElementHeadingRadians(
+      elements,
+      firstDomainIndex,
+      input.rotationPreview,
+      input.positionPreview,
+    );
     const robotSize = robotSizeFromConfig(config);
     drawConstraintStartHighlight(
       graphics,
@@ -667,6 +703,7 @@ export class PixiPathRenderer {
           elements,
           index,
           input.rotationPreview,
+          input.positionPreview,
         ),
         handoffRadiusMeters:
           handoffRadius && !handoffRadius.inert
@@ -869,11 +906,16 @@ export class PixiPathRenderer {
       protrusionSide: protrusions?.side ?? "none",
     });
 
-    drawSimulationRobot(graphics, robotBounds, {
-      x: robotPoint.x,
-      y: robotPoint.y,
-      rotation: -pose[2],
-    });
+    drawSimulationRobot(
+      graphics,
+      robotBounds,
+      {
+        x: robotPoint.x,
+        y: robotPoint.y,
+        rotation: -pose[2],
+      },
+      input.simulationEventPulse,
+    );
   }
 }
 
@@ -1559,7 +1601,10 @@ function drawSimulationRobot(
   graphics: Graphics,
   bounds: RobotLocalBounds,
   transform: LocalTransform,
+  eventPulse: number,
 ): void {
+  const pulse = Math.max(0, Math.min(1, eventPulse));
+  const accent = mixRgbColor(simulationRobotColor, simulationEventColor, pulse);
   const triangleSize = Math.min(bounds.width, bounds.height) * 0.28;
   const triangleOffset = bounds.width * 0.26;
   const halo = robotHaloMetrics(bounds.width, bounds.height);
@@ -1581,13 +1626,27 @@ function drawSimulationRobot(
     },
     transform,
   );
+  if (pulse > 0) {
+    drawRect(
+      graphics,
+      haloOutline.rect,
+      {
+        fill: simulationEventColor,
+        fillAlpha: 0.08 * pulse,
+        stroke: simulationEventColor,
+        strokeAlpha: 0.72 * pulse,
+        strokeWidth: haloOutline.strokeWidth,
+      },
+      transform,
+    );
+  }
   drawRect(
     graphics,
     robotOutline.rect,
     {
-      fill: 0x62c7ff,
-      fillAlpha: 0.13,
-      stroke: elementColors.simulation,
+      fill: accent,
+      fillAlpha: 0.13 + 0.34 * pulse,
+      stroke: accent,
       strokeAlpha: 1,
       strokeWidth: robotOutline.strokeWidth,
     },
@@ -1604,9 +1663,9 @@ function drawSimulationRobot(
       -triangleSize / 2,
     ],
     {
-      fill: 0x62c7ff,
-      fillAlpha: 0.38,
-      stroke: elementColors.simulation,
+      fill: accent,
+      fillAlpha: 0.38 + 0.28 * pulse,
+      stroke: accent,
       strokeWidth: 1.9,
     },
     transform,
@@ -1619,9 +1678,11 @@ function drawSimulationRobot(
       Math.max(2.5, Math.min(bounds.width, bounds.height) * 0.08),
     )
     .fill({ color: 0x05080b, alpha: 0.36 })
-    .stroke({ color: elementColors.simulation, width: 1.5, alpha: 0.94 });
+    .stroke({ color: accent, width: 1.5, alpha: 0.94 });
 }
 
+const simulationRobotColor = 0x62c7ff;
+const simulationEventColor = 0xa78bfa;
 const trajectorySpeedBuckets = 20;
 const trajectoryMinSegmentPx = 1.5;
 const trajectorySlowColor = { r: 0x27, g: 0x45, b: 0x5c };
@@ -1639,6 +1700,13 @@ function trajectorySpeedColor(ratio: number): number {
     trajectorySlowColor.b + (trajectoryFastColor.b - trajectorySlowColor.b) * t,
   );
   return (r << 16) | (g << 8) | b;
+}
+
+function mixRgbColor(from: number, to: number, ratio: number): number {
+  const t = Math.max(0, Math.min(1, ratio));
+  const channel = (shift: number) =>
+    Math.round(((from >> shift) & 0xff) * (1 - t) + ((to >> shift) & 0xff) * t);
+  return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 }
 
 function drawPolyline(

@@ -112,10 +112,8 @@ test("returns to Home after a guided lesson with an existing project", async ({
   await page.getByRole("button", { name: "File", exact: true }).click();
   await page.getByRole("menuitem", { name: "Home", exact: true }).click();
   const start = page.getByTestId("start-center");
-  await start
-    .getByRole("button", { name: "Guided lessons", exact: true })
-    .click();
-  await page.getByTestId("tour-picker-editor-basics").click();
+  await start.getByRole("button", { name: "Lessons", exact: true }).click();
+  await page.getByTestId("tour-picker-getting-started").click();
   await expect(page.getByTestId("tour-card")).toBeVisible();
   await expect(start).toHaveCount(0);
   await page.keyboard.press("Escape");
@@ -175,7 +173,7 @@ test("keeps start actions and imports usable in a narrow window", async ({
     start.getByRole("button", { name: "Sample path", exact: true }),
   ).toBeVisible();
   await expect(
-    start.getByRole("button", { name: "Guided lessons", exact: true }),
+    start.getByRole("button", { name: "Lessons", exact: true }),
   ).toBeDisabled();
   await expect(
     start.getByRole("link", { name: "Download desktop editor" }),

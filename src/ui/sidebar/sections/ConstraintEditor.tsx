@@ -319,6 +319,12 @@ export function ConstraintEditor({
     selectionStore,
     (state) => state.selectedRangedConstraint,
   );
+  const visibleSelectedByKey = selectedRangedConstraint
+    ? {
+        ...selectedByKey,
+        [selectedRangedConstraint.key]: selectedRangedConstraint.index,
+      }
+    : selectedByKey;
   const availableSections = useMemo(
     () => (path ? buildConstraintMenuSections(path) : []),
     [path],
@@ -436,10 +442,12 @@ export function ConstraintEditor({
     const clearIfOutsideSelectedRange = (event: Event) => {
       const target = event.target;
       if (target instanceof Element) {
+        if (target.closest(".tour-layer")) return;
         const clickedRange = target.closest<HTMLElement>(
           "[data-ranged-constraint-key]",
         );
         if (
+          target.closest(".constraint-popout") ||
           target.closest(
             `[data-ranged-constraint-selection="${selectedToken}"]`,
           ) ||
@@ -475,7 +483,7 @@ export function ConstraintEditor({
             path={path}
             config={config}
             constraintKey={popoutKey}
-            selectedByKey={selectedByKey}
+            selectedByKey={visibleSelectedByKey}
             autoSettings={autoSettings}
             autoVelocityRunning={autoVelocityRunning}
             runAutoVelocityTask={runAutoVelocityTask}
@@ -505,7 +513,7 @@ export function ConstraintEditor({
                     key={`${key}-${projectConfigSignature(config)}`}
                     path={path}
                     config={config}
-                    selectedIndex={selectedByKey[key] ?? null}
+                    selectedIndex={visibleSelectedByKey[key] ?? null}
                     autoSettings={autoSettings}
                     autoVelocityRunning={autoVelocityRunning}
                     runAutoVelocityTask={runAutoVelocityTask}
@@ -519,7 +527,7 @@ export function ConstraintEditor({
                     path={path}
                     config={config}
                     constraintKey={key}
-                    selectedIndex={selectedByKey[key] ?? null}
+                    selectedIndex={visibleSelectedByKey[key] ?? null}
                     onSelect={(index) => setSelectedForKey(key, index)}
                     onOpenPopout={(trigger) => openPopout(key, trigger)}
                   />
@@ -697,14 +705,28 @@ function AutoConstraintLedgerCard({
     [path],
   );
   const selectedEntry = chooseSelectedEntry(entries, selectedIndex);
-  const initialSelectedElementIndex =
-    selectionStore.getState().selectedElementIndex;
+  const selectedElementIndex = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedElementIndex,
+  );
+  const selectedRangedConstraint = useStoreSelector(
+    selectionStore,
+    (state) => state.selectedRangedConstraint,
+  );
+  const initialSelectedElementIndex = selectedElementIndex;
   const initiallySelectedRadius = chips.some(
     (chip) => !chip.inert && chip.elementIndex === initialSelectedElementIndex,
   );
-  const [activeType, setActiveType] = useState<"velocity" | "radius" | null>(
-    initiallySelectedRadius ? "radius" : selectedEntry ? "velocity" : null,
-  );
+  const [lastActiveType, setActiveType] = useState<
+    "velocity" | "radius" | null
+  >(initiallySelectedRadius ? "radius" : selectedEntry ? "velocity" : null);
+  const activeType =
+    selectedRangedConstraint?.key === constraintKey
+      ? "velocity"
+      : initiallySelectedRadius
+        ? "radius"
+        : lastActiveType;
+  const [tourGenerateCount, setTourGenerateCount] = useState(0);
   const [velocitySelectionState, setVelocitySelectionState] =
     useState<OrderedSelectionState>(
       selectedEntry
@@ -759,10 +781,6 @@ function AutoConstraintLedgerCard({
   const selectedSegmentNumber =
     selectedLocalIndex >= 0 ? selectedLocalIndex + 1 : 1;
 
-  const selectedElementIndex = useStoreSelector(
-    selectionStore,
-    (state) => state.selectedElementIndex,
-  );
   const [radiusSelectionState, setRadiusSelectionState] =
     useState<OrderedSelectionState>(
       initiallySelectedRadius && initialSelectedElementIndex !== null
@@ -826,6 +844,7 @@ function AutoConstraintLedgerCard({
       className="constraint-card constraint-card--auto-ledger"
       data-testid={`constraint-card-${constraintKey}`}
       data-tour="max-velocity-card"
+      data-tour-generate-count={tourGenerateCount}
       aria-label="Path constraints"
     >
       <div className="constraint-card__header constraint-card__header--auto constraint-card__header--auto-ledger">
@@ -835,7 +854,10 @@ function AutoConstraintLedgerCard({
         />
         <div className="constraint-card__auto-actions">
           <SidebarActionButton
-            onClick={onGenerateAutoVelocity}
+            onClick={() => {
+              setTourGenerateCount((count) => count + 1);
+              onGenerateAutoVelocity();
+            }}
             disabled={total === 0 || autoVelocityRunning || !canGenerate}
             aria-label="Generate constraints"
             title={
@@ -1433,6 +1455,7 @@ function ConstraintPopout({
         aria-modal="false"
         aria-label={`${meta.label} expanded editor`}
         data-testid="constraint-popout-window"
+        data-tour="constraint-popout"
         tabIndex={-1}
         style={{ left: position.left, top: position.top }}
       >
@@ -2144,6 +2167,8 @@ function ConstraintSegmentBar({
             )}
             data-ranged-constraint-key={constraintKey}
             data-ranged-constraint-index={entry.index}
+            data-range-start={start}
+            data-range-end={end}
             role="option"
             aria-selected={selected}
             aria-keyshortcuts="Delete Backspace"
@@ -2445,6 +2470,7 @@ function RangedConstraintControls({
   onOpenPopout?(trigger: HTMLButtonElement): void;
   compact?: boolean;
 }) {
+  const [tourEditCount, setTourEditCount] = useState(0);
   const meta = rangedMeta[constraintKey];
   const constraint = entry?.constraint ?? null;
   const constraintSelectionToken = entry
@@ -2478,6 +2504,7 @@ function RangedConstraintControls({
       }
       data-testid={rowTestId}
       data-ranged-constraint-selection={constraintSelectionToken}
+      data-tour-velocity-edit-count={tourEditCount}
     >
       <div className="ranged-constraint-controls__fields">
         {entry ? (
@@ -2531,6 +2558,7 @@ function RangedConstraintControls({
                       return;
                     }
 
+                    setTourEditCount((count) => count + 1);
                     updateRangedConstraint(path, entry.index, {
                       ...constraint,
                       value: value ?? constraint.value,
@@ -2678,7 +2706,7 @@ function AutoVelocityStatusIndicator({
     ? "Generating…"
     : isCurrent
       ? "Up to date"
-      : status.hasAutoConstraints
+      : status.hasGeneratedValues
         ? "Path changed"
         : "Not generated";
   return (
@@ -3321,7 +3349,7 @@ function autoVelocityStatusTooltip(
   if (autoVelocityStatusIsCurrent(status)) {
     return "Generated constraints match the current path and generator settings.";
   }
-  if (status.hasAutoConstraints) {
+  if (status.hasGeneratedValues) {
     return "The path or generator settings changed after these constraints were generated.";
   }
   return "No generated velocity constraints are currently applied.";

@@ -224,6 +224,8 @@ describe("Project platform lifecycle", () => {
               id: "tour",
               title: "Tour",
               summary: "Tour",
+              durationMinutes: 1,
+              completionMessage: "Complete",
               steps: [{ title: "Step", body: "Body" }],
               practicePath: createPathModel,
             }

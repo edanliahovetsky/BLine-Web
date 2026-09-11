@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { gotoSampleEditor } from "./support/app-shell-shared";
 
-test("completes the offline lesson through Guided tours and remembers completion @webkit-canvas", async ({
+test("completes the offline lesson and remembers completion @webkit-canvas", async ({
   page,
 }) => {
   await page.goto("/");
@@ -11,7 +11,7 @@ test("completes the offline lesson through Guided tours and remembers completion
   const picker = page.getByTestId("tour-picker");
   const lesson = picker.getByTestId("tour-picker-use-bline-offline");
   await expect(lesson).toContainText("How to use BLine offline");
-  await expect(lesson).toContainText("1 step");
+  await expect(lesson).toContainText("1 min");
   await lesson.click();
 
   const card = page.getByTestId("tour-card");

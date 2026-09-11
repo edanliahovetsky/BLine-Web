@@ -65,6 +65,7 @@ export function AddElementMenu({
             <div
               ref={menuPanelRef}
               className="add-element-menu__panel"
+              data-tour="element-add-menu"
               role="menu"
               aria-label="Add element"
               style={menuPosition}

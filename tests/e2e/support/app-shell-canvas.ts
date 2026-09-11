@@ -1,4 +1,8 @@
 import { expect, type Page } from "@playwright/test";
+import type {
+  PixiCanvasMetrics,
+  PixiDebugWindow,
+} from "../../../src/canvas/pixi/PixiPathRenderer";
 
 import type { Bounds } from "./app-shell-shared";
 
@@ -7,20 +11,17 @@ interface PointMeters {
   y_meters: number;
 }
 
-type PixiDebugWindow = Window & {
-  __blinePixiDebug?: {
-    canvasMetrics(): {
-      canvasHeight: number;
-      canvasWidth: number;
-      cssHeight: number;
-      cssWidth: number;
-      ratio: number;
-      renderer: string;
-      renderCount: number;
-    };
-    nodePosition(testId: string): { x: number; y: number } | null;
-  };
-};
+export async function canvasMetrics(page: Page): Promise<PixiCanvasMetrics> {
+  return page.evaluate(() => {
+    const metrics = (
+      window as PixiDebugWindow
+    ).__blinePixiDebug?.canvasMetrics();
+    if (!metrics) {
+      throw new Error("Expected Pixi canvas metrics");
+    }
+    return metrics;
+  });
+}
 
 export async function canvasNodePosition(
   page: Page,

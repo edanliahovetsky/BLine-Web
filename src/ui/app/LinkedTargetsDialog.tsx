@@ -43,11 +43,13 @@ export function LinkedTargetsDialog({
   project,
   field,
   onCancel,
+  lessonMode = false,
 }: {
   linkRequest?: LinkedTargetPickerRequest | null;
   project: Project;
   field: ResolvedFieldDefinition;
   onCancel(): void;
+  lessonMode?: boolean;
 }) {
   const [requestedTargetId, setSelectedTargetId] = useState<
     string | null | undefined
@@ -154,13 +156,17 @@ export function LinkedTargetsDialog({
   };
 
   return (
-    <div className="config-dialog-backdrop" role="presentation">
+    <div
+      className={`config-dialog-backdrop${lessonMode ? " linked-lesson-backdrop" : ""}`}
+      role="presentation"
+    >
       <section
         className="library-dialog linked-targets-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={linkRequest ? "Choose Linked Element" : "Linked Elements"}
         data-testid="linked-targets-dialog"
+        data-tour="linked-elements-dialog"
       >
         <header className="config-dialog__header">
           <strong>
