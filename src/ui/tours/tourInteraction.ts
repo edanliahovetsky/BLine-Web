@@ -61,6 +61,16 @@ export function assessTourStep(
 export function tourInteractionTargets(step: TourStep): readonly string[] {
   const targets = [...(step.interact ?? [])];
   if (targets.includes("max-velocity-card")) targets.push("constraint-popout");
+  // Inspector menus render in a portal, outside their owning control's DOM.
+  if (!step.lockGeometry) {
+    if (targets.includes("inspector-panel")) targets.push("element-add-menu");
+    if (
+      targets.includes("inspector-panel") ||
+      targets.includes("element-properties") ||
+      targets.includes("element-link")
+    )
+      targets.push("element-link-menu");
+  }
   return targets;
 }
 

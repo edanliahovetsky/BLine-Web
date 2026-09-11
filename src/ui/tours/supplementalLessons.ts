@@ -265,7 +265,7 @@ const linkedElementSteps: TourStep[] = [
   },
   {
     title: "Create a linked waypoint",
-    body: "Select End on Start to Score. Open Link in Element Properties, choose New Linked Waypoint, and name it Score. Click Create & Link.",
+    body: "Select End on Start to Score. Open Link beside the element type, choose New Linked Waypoint, and name it Score. Click Create & Link.",
     target: "element-link",
     visible: ["path-canvas"],
     interact: linkedEditing,

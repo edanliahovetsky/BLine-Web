@@ -1095,6 +1095,15 @@ test("pins and releases handoff radii around the optimizer", async ({
 
 test("uses range and toggle selection for handoff radii", async ({ page }) => {
   await gotoSampleEditor(page);
+  // Keep deleted radii unset while testing bulk edits. Background regeneration
+  // is covered separately and can otherwise replace them before the assertion.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Edit Config" });
+  await settings
+    .getByRole("button", { name: "Generator", exact: true })
+    .click();
+  await settings.getByLabel("Keep in sync").uncheck();
+  await settings.getByRole("button", { name: "Save", exact: true }).click();
   await openConstraintsTab(page);
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 

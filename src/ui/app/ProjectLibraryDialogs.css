@@ -8,6 +8,7 @@
   backdrop-filter: blur(2px);
 }
 .project-navigator.fc-navigator {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: min(1060px, calc(100vw - 20px));
@@ -158,42 +159,6 @@
   border-color: #9ed2ff;
   background: #386b94;
   box-shadow: inset 0 0 0 1px #9ed2ff;
-}
-.fc-navigator .project-navigator__header .fc-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.fc-help {
-  position: relative;
-}
-.fc-help summary {
-  list-style: none;
-  cursor: pointer;
-}
-.fc-help summary::-webkit-details-marker {
-  display: none;
-}
-.fc-help summary:focus-visible {
-  outline: 2px solid #9ed2ff;
-  outline-offset: 3px;
-}
-.fc-help__content {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 8px);
-  right: 0;
-  width: min(300px, calc(100vw - 80px));
-  padding: 8px 12px;
-  border: 1px solid #48677f;
-  border-radius: 8px;
-  background: #20313f;
-  box-shadow: 0 8px 24px #0006;
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-.fc-help__content p {
-  margin: 8px 0;
 }
 .fc-scroll {
   overflow-x: auto;
@@ -629,15 +594,21 @@
   border-radius: 8px;
 }
 .fc-status {
+  position: absolute;
+  z-index: 8;
+  right: 20px;
+  bottom: 12px;
+  left: 20px;
   display: flex;
-  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 15px;
-  min-height: 50px;
-  padding: 12px 20px;
-  border-top: 1px solid #293c4c;
-  background: #111a22;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #18242cf2;
+  box-shadow: 0 4px 16px #0004;
+  pointer-events: none;
   font-size: 0.7rem;
   color: #8fa5b6;
 }
@@ -656,6 +627,7 @@
   border-color: #3b5770;
 }
 .fc-status button {
+  pointer-events: auto;
   padding: 6px 9px;
   font-size: 0.7rem;
   color: #ffb9b0;

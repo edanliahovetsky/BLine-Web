@@ -176,9 +176,7 @@ export function StartCenter({
               data-testid="start-center-guided-tour"
               disabled={actionsDisabled || !tourSupported}
               title={
-                !tourSupported
-                  ? "Lessons require a wider window."
-                  : undefined
+                !tourSupported ? "Lessons require a wider window." : undefined
               }
               onClick={onOpenLessons}
             >

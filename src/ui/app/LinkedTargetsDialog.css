@@ -195,5 +195,8 @@
   max-height: calc(100vh - 80px);
 }
 .linked-lesson-backdrop .linked-targets-dialog__body {
-  grid-template-columns: minmax(160px, .7fr) minmax(180px, 1fr) minmax(240px, .9fr);
+  grid-template-columns: minmax(160px, 0.7fr) minmax(180px, 1fr) minmax(
+      240px,
+      0.9fr
+    );
 }

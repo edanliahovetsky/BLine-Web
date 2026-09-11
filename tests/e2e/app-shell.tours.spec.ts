@@ -211,6 +211,17 @@ for (const [width, height] of [
       );
       await advance(page);
       await heading(page, "Try more route points");
+      await page
+        .getByRole("button", { name: "Add element", exact: true })
+        .click();
+      const addMenu = page.getByRole("menu", {
+        name: "Add element",
+        exact: true,
+      });
+      await expect(addMenu).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(addMenu).toHaveCount(0);
+      await heading(page, "Try more route points");
       await place(page, "Waypoint", 12.4, 6.8);
       await place(page, "Translation", 13.5, 5.4);
       expect((await practice(page)).path.path_elements).toHaveLength(5);
@@ -881,6 +892,11 @@ test("links one shared waypoint and propagates position and heading to both path
     name: "Linked element actions",
     exact: true,
   });
+  await expect(actions).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(actions).toHaveCount(0);
+  await heading(page, "Create a linked waypoint");
+  await page.getByRole("button", { name: "Link element", exact: true }).click();
   await actions.getByRole("button", { name: /New Linked Waypoint/ }).click();
   await actions
     .getByLabel("Linked element name", { exact: true })

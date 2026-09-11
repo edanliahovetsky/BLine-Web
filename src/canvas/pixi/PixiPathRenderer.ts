@@ -1598,11 +1598,7 @@ function drawSimulationRobot(
   eventPulse: number,
 ): void {
   const pulse = Math.max(0, Math.min(1, eventPulse));
-  const accent = mixRgbColor(
-    simulationRobotColor,
-    simulationEventColor,
-    pulse,
-  );
+  const accent = mixRgbColor(simulationRobotColor, simulationEventColor, pulse);
   const triangleSize = Math.min(bounds.width, bounds.height) * 0.28;
   const triangleOffset = bounds.width * 0.26;
   const halo = robotHaloMetrics(bounds.width, bounds.height);
@@ -1703,9 +1699,7 @@ function trajectorySpeedColor(ratio: number): number {
 function mixRgbColor(from: number, to: number, ratio: number): number {
   const t = Math.max(0, Math.min(1, ratio));
   const channel = (shift: number) =>
-    Math.round(
-      ((from >> shift) & 0xff) * (1 - t) + ((to >> shift) & 0xff) * t,
-    );
+    Math.round(((from >> shift) & 0xff) * (1 - t) + ((to >> shift) & 0xff) * t);
   return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 }
 

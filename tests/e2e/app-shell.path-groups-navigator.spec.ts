@@ -105,22 +105,11 @@ test("creates Paths inline with unique defaults, name validation, and undo @webk
   );
 });
 
-test("keeps connection help and icon actions usable with the keyboard", async ({
+test("keeps navigator icon actions usable with the keyboard", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   const nav = await openPathLibraryDialog(page);
-  const help = nav.getByRole("button", { name: "Connection help" });
-  await help.focus();
-  await help.press("Enter");
-  await expect(
-    nav.getByText(
-      "Click a connection point to link or unlink. Drag a point onto a row to connect.",
-    ),
-  ).toBeVisible();
-  await help.press("Escape");
-  await expect(nav.locator(".fc-help")).not.toHaveAttribute("open", "");
-  await expect(nav).toBeVisible();
   const all = nav.getByRole("button", { name: "Show all connections" });
   await all.focus();
   await all.press("Space");
@@ -132,6 +121,52 @@ test("keeps connection help and icon actions usable with the keyboard", async ({
     .press("Enter");
   await expect(nav).toHaveCount(0);
   await expect(page.getByTestId("path-stage")).toBeVisible();
+});
+
+test("opens paths and previews groups on double-click, with rename in the row menu @webkit-canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  let nav = await openPathLibraryDialog(page);
+  await expect(
+    nav.getByRole("button", { name: "Connection help" }),
+  ).toHaveCount(0);
+  await expect(nav.locator(".fc-status")).toHaveCount(0);
+  await action(nav, "Path", sample, "Duplicate");
+  await nameInline(nav, "Path", "Backup");
+  await nav
+    .getByRole("button", { name: `Focus ${sample}`, exact: true })
+    .click();
+  await nav
+    .getByRole("button", { name: "Focus Backup", exact: true })
+    .dblclick();
+  await expect(nav).toHaveCount(0);
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    "Current Path: Backup",
+  );
+
+  nav = await openPathLibraryDialog(page);
+  await action(nav, "Path", "Backup", "Rename");
+  await nameInline(nav, "Path", "Alternate");
+  await createGroup(nav, "Competition");
+  const group = nav.getByRole("button", {
+    name: "Focus Competition",
+    exact: true,
+  });
+  await group.dblclick();
+  await expect(nav).toBeVisible();
+  await expect(
+    nav.getByRole("textbox", { name: "Path Group name", exact: true }),
+  ).toHaveCount(0);
+  await link(nav, "Competition", sample);
+  await group.dblclick();
+  await expect(nav).toHaveCount(0);
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    `Current Path: Competition / ${sample}`,
+  );
+  await expect(
+    page.getByRole("button", { name: "Hide Path Group overlays" }),
+  ).toHaveAttribute("aria-pressed", "true");
 });
 
 test("shows the selected connection point and opposite points, and toggles links in one click", async ({
@@ -837,6 +872,8 @@ for (const longSide of ["path", "group"] as const) {
     page,
   }, testInfo) => {
     const nav = await seedLongLibrary(page, longSide);
+    // Keep a connected row offscreen even with the extra room from removing the footer.
+    await page.setViewportSize({ width: 1200, height: 600 });
     const oppositeName = longSide === "path" ? "Path" : "Group";
     const sourceName = longSide === "path" ? "Group 00" : "Path 00";
     const selection = row(nav, sourceName);

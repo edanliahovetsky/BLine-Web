@@ -546,7 +546,10 @@ test("adds edits and removes path elements from the inspector", async ({
 
   const addElementIcon = page.getByTestId("add-element-icon");
   await expect(addElementIcon).toBeVisible();
-  expect((await requiredBox(addElementIcon)).width).toBeGreaterThanOrEqual(24);
+  expect(
+    (await requiredBox(page.getByRole("button", { name: "Add element" })))
+      .height,
+  ).toBeGreaterThanOrEqual(30);
 
   await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
@@ -1292,6 +1295,20 @@ test("gives the element list the panel height the properties leave over", async 
   await expect(page.getByTestId("path-element-row-21")).toHaveCount(1);
   expect(await scrolls()).toBe(true);
 
+  const add = page.getByRole("button", { name: "Add element" });
+  const addBefore = await requiredBox(add);
+  const scrollBefore = await rows.evaluate((node) => node.scrollTop);
+  await rows.hover();
+  await page.mouse.wheel(0, -1500);
+  await expect
+    .poll(() => rows.evaluate((node) => node.scrollTop))
+    .toBeLessThan(scrollBefore);
+  const addAfter = await requiredBox(add);
+  expect(addAfter.y).toBeCloseTo(addBefore.y, 1);
+  const rowsBox = await requiredBox(rows);
+  expect(addAfter.y - (rowsBox.y + rowsBox.height)).toBeGreaterThanOrEqual(6);
+  expect(Math.abs(addAfter.width - rowsBox.width)).toBeLessThanOrEqual(2);
+
   const panelBox = await requiredBox(panel);
   const listBox = await requiredBox(list);
   const propertiesBox = await requiredBox(properties);
@@ -1302,6 +1319,41 @@ test("gives the element list the panel height the properties leave over", async 
   // The list keeps the lion's share: the old fixed 38% row wasted the space a
   // short properties card gave back.
   expect(listBox.height).toBeGreaterThan(panelBox.height * 0.5);
+});
+
+test("keeps inline link controls and their menu accessible in a short inspector", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 430 });
+  await gotoSampleEditor(page);
+  await page.getByRole("separator", { name: "Resize inspector" }).press("Home");
+  await page.getByTestId("path-element-row-0").click();
+
+  const link = page.getByRole("button", { name: "Link element", exact: true });
+  const type = page.getByRole("combobox", { name: "Type", exact: true });
+  const linkBox = await requiredBox(link);
+  const typeBox = await requiredBox(type);
+  expect(linkBox.x + linkBox.width).toBeLessThan(typeBox.x);
+  expect(
+    Math.abs(linkBox.y + linkBox.height / 2 - typeBox.y - typeBox.height / 2),
+  ).toBeLessThan(2);
+
+  await link.press("Enter");
+  const menu = page.getByRole("group", { name: "Linked element actions" });
+  await menu.getByRole("button", { name: "New Linked Waypoint..." }).click();
+  await expect(
+    menu.getByRole("textbox", { name: "Linked element name" }),
+  ).toBeFocused();
+  const menuBox = await requiredBox(menu);
+  expect(menuBox.x).toBeGreaterThanOrEqual(0);
+  expect(menuBox.y).toBeGreaterThanOrEqual(0);
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(1200);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(430);
+  await page.keyboard.press("Escape");
+  await expect(menu.getByRole("textbox")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(link).toBeFocused();
 });
 
 test("keeps velocity status and actions on one centered row", async ({
