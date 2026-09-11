@@ -21,7 +21,7 @@ export function assessTourStep(
     return {
       complete: false,
       message:
-        "Practice path missing. Exit and reopen this lesson from Guided tours.",
+        "Practice path missing. Exit and reopen this lesson from Lessons.",
     };
   if (step.elements && path) {
     const types: PathElement["type"][] = [

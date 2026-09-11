@@ -638,7 +638,7 @@ function HelpHubPopover({
           <span className="help-hub-popover__glyph" aria-hidden="true">
             🧭
           </span>
-          <span>Guided tours</span>
+          <span>Lessons</span>
           <small>{tours.length} lessons</small>
         </button>
         <button type="button" onClick={onShortcuts}>

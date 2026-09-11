@@ -37,15 +37,16 @@ test("opens help and the nine requested lessons", async ({ page }) => {
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   const hub = page.getByTestId("help-hub");
   await expect(hub.getByRole("link", { name: /Documentation/ })).toBeVisible();
-  await hub.getByTestId("start-guided-tour").click();
+  await hub
+    .getByRole("button", { name: "Lessons 9 lessons", exact: true })
+    .click();
   const picker = page.getByTestId("tour-picker");
   for (const title of lessonTitles) {
     await expect(picker.getByText(title, { exact: true })).toBeVisible();
   }
   await expect(picker.locator(".tour-picker__copy > strong")).toHaveCount(9);
-  await expect(page.getByTestId("tour-picker-progress")).toHaveText(
-    "0 of 9 lessons complete",
-  );
+  await expect(picker).toHaveAttribute("aria-label", "Lessons");
+  await expect(picker.locator(".tour-picker__header")).toHaveText("🧭 Lessons");
 });
 
 test("keeps the course reachable in a short window", async ({ page }) => {
@@ -66,7 +67,7 @@ test("keeps lesson actions and dialogue visible on hover", async ({ page }) => {
   await gotoSampleEditor(page);
   await openLesson(page, "Getting Started");
   const card = page.getByTestId("tour-card");
-  const skip = card.getByRole("button", { name: "Skip tour" });
+  const skip = card.getByRole("button", { name: "Skip lesson" });
   await expect(skip).toHaveCSS("border-top-style", "solid");
   await expect(skip).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
   await skip.hover();
@@ -982,7 +983,7 @@ async function previewGroup(page: Page, name: string) {
 async function exitLesson(page: Page) {
   await page
     .getByTestId("tour-card")
-    .getByRole("button", { name: "Skip tour", exact: true })
+    .getByRole("button", { name: "Skip lesson", exact: true })
     .click();
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 }
@@ -1005,8 +1006,11 @@ async function finish(page: Page) {
     .getByTestId("tour-card")
     .getByRole("button", { name: "Finish", exact: true })
     .click();
-  await expect(page.getByTestId("tour-picker-progress")).toHaveText(
-    /^1 of \d+ lessons complete$/,
+  await expect(
+    page.getByRole("dialog", { name: "Lessons", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".tour-picker__list > button.is-done")).toHaveCount(
+    1,
   );
 }
 
@@ -1180,7 +1184,7 @@ async function auditLayout(page: Page) {
     ),
   ).toBe(true);
   await card
-    .getByRole("button", { name: "Skip tour", exact: true })
+    .getByRole("button", { name: "Skip lesson", exact: true })
     .click({ trial: true });
   if (process.env.BLINE_TOUR_SCREENSHOTS) {
     const title = (await card.getByRole("heading").innerText()).replace(

@@ -164,7 +164,7 @@ export function StartCenter({
                   disabled={actionsDisabled}
                   onClick={onStartTour}
                 >
-                  <span aria-hidden="true">🧭</span> Take the guided tour
+                  <span aria-hidden="true">🧭</span> Lessons
                 </button>
               ) : null}
             </div>

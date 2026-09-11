@@ -2694,7 +2694,7 @@ function TourPickerDialog({
         className="tour-picker"
         role="dialog"
         aria-modal="true"
-        aria-label="Guided tours"
+        aria-label="Lessons"
         data-testid="tour-picker"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -2706,19 +2706,10 @@ function TourPickerDialog({
         <header className="tour-picker__header">
           <div>
             <strong>
-              <span aria-hidden="true">🧭</span> Guided tours
+              <span aria-hidden="true">🧭</span> Lessons
             </strong>
-            <span>Choose a lesson. Leaving restores your project.</span>
-            <span
-              className="tour-picker__course-progress"
-              data-testid="tour-picker-progress"
-            >
-              {completedCount === tours.length
-                ? "Course complete. Replay any lesson."
-                : `${completedCount} of ${tours.length} lessons complete`}
-            </span>
           </div>
-          <CloseButton ariaLabel="Close guided tours" onClick={onClose} />
+          <CloseButton ariaLabel="Close lessons" onClick={onClose} />
         </header>
         <div className="tour-picker__list">
           {tours.map((tour, index) => {

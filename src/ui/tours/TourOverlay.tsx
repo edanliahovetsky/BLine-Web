@@ -815,7 +815,7 @@ export function TourOverlay({
             className="tour-card__skip"
             onClick={() => tourStore.getState().exit()}
           >
-            Skip tour
+            Skip lesson
           </button>
           <button
             type="button"

@@ -4100,7 +4100,7 @@ select {
 
 /* Streamlined editor shell */
 
-/* Defined on :root so overlays portaled outside .app-shell (guided tours)
+/* Defined on :root so overlays portaled outside .app-shell (lessons)
    still resolve these tokens. */
 :root {
   --bline-surface-app: #0f1316;
@@ -4328,7 +4328,7 @@ select {
   filter: brightness(0.92);
 }
 
-/* Guided tours */
+/* Lessons */
 
 .tour-picker {
   display: flex;
@@ -4356,18 +4356,6 @@ select {
   display: block;
   color: var(--bline-text-primary);
   font-size: 0.92rem;
-}
-
-.tour-picker__header span:not([aria-hidden]) {
-  color: var(--bline-text-muted);
-  font-size: 0.72rem;
-}
-
-.tour-picker__header .tour-picker__course-progress {
-  display: block;
-  margin-top: 5px;
-  color: var(--bline-accent);
-  font-weight: 680;
 }
 
 .tour-picker__list {
