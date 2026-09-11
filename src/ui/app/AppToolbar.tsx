@@ -144,7 +144,7 @@ export function AppToolbar({
   const pathLabel = activePath?.display_name ?? "No path";
 
   return (
-    <header className="app-toolbar" ref={toolbarRef}>
+    <header className="app-toolbar" ref={toolbarRef} data-tour="editor-toolbar">
       <nav className="app-tabs" aria-label="Top menu">
         <IconButton
           className="app-toolbar__navigator-button"
@@ -272,6 +272,7 @@ export function AppToolbar({
         </TopMenuButton>
         <TopMenuButton
           id="path"
+          dataTour="path-menu-entry"
           label="Path"
           active
           triggerRef={menu.pathTriggerRef}
@@ -342,6 +343,7 @@ export function AppToolbar({
         <div className="toolbar-actions__overflow">
           <TopMenuButton
             id="actions"
+            dataTour="edit-menu-entry"
             label="Actions"
             align="end"
             openTopMenu={menu.open}
@@ -562,6 +564,7 @@ function InspectorButton({
     <IconButton
       className={open ? "" : optimizerBeamClass(optimizerPhase, optimizerError)}
       aria-label="Toggle inspector"
+      data-tour="inspector-toggle"
       aria-expanded={open}
       aria-keyshortcuts="Meta+B Control+B"
       title={

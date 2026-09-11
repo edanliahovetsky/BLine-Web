@@ -133,6 +133,7 @@ interface PathNameAction {
 }
 
 interface TourEditorViewSnapshot {
+  autoSyncEnabled: boolean;
   activeTool: EditorTool;
   autosaveStatus: AutosaveStatus;
   editorPreferences: EditorUiPreferencesV1;
@@ -265,6 +266,10 @@ export function AppShell() {
     tourStore,
     (state) => state.activeTourId,
   );
+  const tourStepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
+  const activeTour = findTour(activeTourId);
+  const activeTourStep = activeTour?.steps[tourStepIndex];
+  const autoGenerationAllowed = activeTourStep?.autoGenerate !== false;
   const [tourSimulationSeekRequest, setTourSimulationSeekRequest] =
     useState<SimulationSeekRequest | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(
@@ -388,6 +393,7 @@ export function AppShell() {
         showPathGroupsDialog ||
         showShortcutHelp,
       snapshot: {
+        autoSyncEnabled: autoVelocityStore.getState().autoSyncEnabled,
         activeTool,
         autosaveStatus,
         editorPreferences: readEditorUiPreferences(),
@@ -437,17 +443,20 @@ export function AppShell() {
         }
         return {
           ...current.snapshot,
+          autoSyncEnabled: autoVelocityStore.getState().autoSyncEnabled,
           editorPreferences: readEditorUiPreferences(),
         };
       },
       canStart: () => tourViewRef.current?.blocked === false,
       showPracticeView: (projectId) => {
+        autoVelocityStore.setState({ autoSyncEnabled: true });
         setFieldSelectionOverride({ projectId, fieldId: "blank-grid" });
         setInspectorOpen(true);
         setInspectorTab("elements");
         setActiveTool("select");
       },
       restoreView: (view) => {
+        autoVelocityStore.setState({ autoSyncEnabled: view.autoSyncEnabled });
         setShowPathGroupsDialog(false);
         setShowPathHealth(false);
         writeEditorUiPreferences(view.editorPreferences);
@@ -589,7 +598,10 @@ export function AppShell() {
     [fieldBackgrounds, selectedFieldId],
   );
 
-  useEffect(() => startAutomaticConstraintSync(), []);
+  useEffect(
+    () => (autoGenerationAllowed ? startAutomaticConstraintSync() : undefined),
+    [autoGenerationAllowed],
+  );
 
   useEffect(() => {
     const mobileQuery = window.matchMedia(mobileSupportMediaQuery);
@@ -2207,7 +2219,7 @@ export function AppShell() {
                 simulationSeekRequest={
                   activeTourId ? tourSimulationSeekRequest : null
                 }
-                tourMarkers={findTour(activeTourId)?.markers}
+                tourMarkers={activeTourStep?.markers ?? activeTour?.markers}
                 onToolChange={handleToolChange}
                 onPlaceElement={handlePlaceCanvasElement}
                 onInteractionStateChange={handleCanvasInteractionStateChange}
@@ -2429,11 +2441,14 @@ export function AppShell() {
         />
       ) : null}
       <TourOverlay
+        onRestartStep={() => tourSessionRef.current?.restartStep()}
+        onRestartLesson={() => tourSessionRef.current?.restartLesson()}
         onFinish={() => {
           setShowPathHealth(false);
           setShowTourPicker(true);
         }}
         onPrepare={(preparation) => {
+          if (preparation.closeMenus) setOpenTopMenu(null);
           if (preparation.navigator) {
             setInitiallyEditingPathId(null);
             setShowPathGroupsDialog(preparation.navigator === "open");
@@ -2467,7 +2482,13 @@ export function AppShell() {
                 : preparation.selectElement;
             selectionStore.getState().selectElement(index, path);
           }
-          if (preparation.simulation) {
+          if (preparation.autoPlay) {
+            setTourSimulationSeekRequest({
+              id: nextTourSimulationSeekIdRef.current++,
+              position: "start",
+              autoPlay: true,
+            });
+          } else if (preparation.simulation) {
             seekTourSimulation(preparation.simulation);
           }
           if (preparation.selectSpeed !== undefined) {

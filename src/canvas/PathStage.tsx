@@ -94,6 +94,12 @@ import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
 import { readFieldBackgroundImage } from "../userData";
 import { TourFieldComparison } from "../ui/tours/TourFieldComparison";
 import { tourStore, type TourMarker } from "../ui/tours/tourStore";
+import { findTour } from "../ui/tours/tours";
+import {
+  canvasLessonTiming,
+  firstHandoff,
+  handoffPulseAtTime,
+} from "../ui/tours/handoffTrace";
 
 const fallbackStageSize: CanvasSize = {
   width: 960,
@@ -121,6 +127,7 @@ interface PathStageProps {
 export interface SimulationSeekRequest {
   id: number;
   position: "start" | "end";
+  autoPlay?: boolean;
 }
 
 export interface CanvasElementPlacement {
@@ -198,6 +205,29 @@ export function PathStage({
   const rotationFrameRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
+  const activeTourId = useStoreSelector(
+    tourStore,
+    (state) => state.activeTourId,
+  );
+  const tourStepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
+  const tourAttempt = useStoreSelector(tourStore, (state) => state.attemptId);
+  const tourStep = findTour(activeTourId)?.steps[tourStepIndex];
+  const canvasLesson = tourStep?.canvasLesson;
+  const lockedGeometry = tourStep?.lockGeometry ?? false;
+  const [lessonCamera, setLessonCamera] = useState<{
+    zoom: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const lessonCameraRef = useRef<{ zoom: number; x: number; y: number } | null>(
+    null,
+  );
+  const capturedTourView = useRef<{
+    scale: number;
+    pan: StagePoint;
+    time: number;
+    playing: boolean;
+  } | null>(null);
   const [panOffset, setPanOffsetState] = useState<StagePoint>({ x: 0, y: 0 });
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [customFieldImage, setCustomFieldImage] = useState<{
@@ -509,16 +539,32 @@ export function PathStage({
     [activeField.geometry, stageSize],
   );
   const viewport = useMemo(
-    () => ({
-      ...baseViewport,
-      x: baseViewport.x + panOffset.x,
-      y: baseViewport.y + panOffset.y,
-      width: baseViewport.width * viewScale,
-      height: baseViewport.height * viewScale,
-      scale: baseViewport.scale * viewScale,
-      field: baseViewport.field,
-    }),
-    [baseViewport, panOffset, viewScale],
+    () =>
+      lessonCamera
+        ? {
+            ...baseViewport,
+            x:
+              stageSize.width / 2 -
+              lessonCamera.x * baseViewport.scale * lessonCamera.zoom,
+            y:
+              stageSize.height / 2 -
+              (baseViewport.field.width_meters - lessonCamera.y) *
+                baseViewport.scale *
+                lessonCamera.zoom,
+            width: baseViewport.width * lessonCamera.zoom,
+            height: baseViewport.height * lessonCamera.zoom,
+            scale: baseViewport.scale * lessonCamera.zoom,
+          }
+        : {
+            ...baseViewport,
+            x: baseViewport.x + panOffset.x,
+            y: baseViewport.y + panOffset.y,
+            width: baseViewport.width * viewScale,
+            height: baseViewport.height * viewScale,
+            scale: baseViewport.scale * viewScale,
+            field: baseViewport.field,
+          },
+    [baseViewport, panOffset, viewScale, lessonCamera, stageSize],
   );
   const positionPreview = dragPreview;
 
@@ -535,6 +581,80 @@ export function PathStage({
       return null;
     }
   }, [activePath, durableProject]);
+
+  // A lesson owns camera/playback temporarily; exiting restores the user's view.
+  useEffect(() => {
+    if (activeTourId && !capturedTourView.current) {
+      capturedTourView.current = {
+        scale: viewScale,
+        pan: panOffsetRef.current,
+        time: simulationTime,
+        playing: simulationPlaying,
+      };
+      setViewScale(1);
+      setPanOffsetState({ x: 0, y: 0 });
+      panOffsetRef.current = { x: 0, y: 0 };
+    } else if (!activeTourId && capturedTourView.current) {
+      const saved = capturedTourView.current;
+      capturedTourView.current = null;
+      setViewScale(saved.scale);
+      setPanOffsetState(saved.pan);
+      panOffsetRef.current = saved.pan;
+      setSimulationTime(saved.time);
+      setSimulationPlaying(saved.playing);
+    }
+    // Capture only on entry, never on a playback frame.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTourId]);
+
+  useEffect(() => {
+    if (!canvasLesson || !simulationResult) {
+      lessonCameraRef.current = null;
+      const frame = requestAnimationFrame(() => setLessonCamera(null));
+      return () => cancelAnimationFrame(frame);
+    }
+    const timing = canvasLessonTiming(
+      canvasLesson,
+      simulationResult.trace,
+      simulationResult.total_time_s,
+    );
+    const handoff = firstHandoff(simulationResult.trace);
+    const center =
+      canvasLesson === "handoff-crossing" && handoff
+        ? { x: handoff.x, y: handoff.y }
+        : canvasLesson === "handoff-approach" && handoff
+          ? { x: handoff.x - 1.4, y: handoff.y - 0.6 }
+          : { x: 10, y: 4.5 };
+    const from = lessonCameraRef.current ?? { zoom: 1, x: 9, y: 4.5 };
+    const to = { ...center, zoom: timing.zoom };
+    let frame = 0;
+    let started: number | null = null;
+    const animate = (now: number) => {
+      if (started === null) setSimulationPlaying(true);
+      started ??= now;
+      const elapsed = (now - started) / 1000;
+      const t = Math.min(1, elapsed / 1.2);
+      const ease = t * t * (3 - 2 * t);
+      const camera = {
+        zoom: from.zoom + (to.zoom - from.zoom) * ease,
+        x: from.x + (to.x - from.x) * ease,
+        y: from.y + (to.y - from.y) * ease,
+      };
+      lessonCameraRef.current = camera;
+      setLessonCamera(camera);
+      const time = Math.min(
+        timing.end,
+        timing.start + Math.max(0, elapsed - 0.65) * timing.rate,
+      );
+      setSimulationTime(time);
+      if (time >= timing.end && t === 1) {
+        setSimulationPlaying(false);
+        tourStore.getState().recordAction("finishRun");
+      } else frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [canvasLesson, simulationResult, tourAttempt, tourStepIndex]);
 
   const trajectoryMaxSpeedMps = useMemo(() => {
     const fromPath = Number(
@@ -641,7 +761,7 @@ export function PathStage({
   }, [canvasInteractionActive, selectedElementIndex]);
 
   useEffect(() => {
-    if (!simulationPlaying || !simulationResult) {
+    if (!simulationPlaying || !simulationResult || canvasLesson) {
       return;
     }
 
@@ -660,7 +780,9 @@ export function PathStage({
           setSimulationPlaying(false);
           if (!runFinished) {
             runFinished = true;
-            queueMicrotask(() => tourStore.getState().recordAction("finishRun"));
+            queueMicrotask(() =>
+              tourStore.getState().recordAction("finishRun"),
+            );
           }
         }
         return next;
@@ -670,7 +792,7 @@ export function PathStage({
 
     frameId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frameId);
-  }, [simulationPlaying, simulationResult]);
+  }, [simulationPlaying, simulationResult, canvasLesson]);
 
   const toggleSimulationPlaying = useCallback(() => {
     if (!simulationResult || simulationResult.total_time_s <= 0) {
@@ -706,13 +828,17 @@ export function PathStage({
   }, [simulationResult]);
 
   useEffect(() => {
-    if (!simulationSeekRequest || !simulationResult || appliedSeekRequest.current === simulationSeekRequest) {
+    if (
+      !simulationSeekRequest ||
+      !simulationResult ||
+      appliedSeekRequest.current === simulationSeekRequest
+    ) {
       return;
     }
 
     const frame = window.requestAnimationFrame(() => {
       appliedSeekRequest.current = simulationSeekRequest;
-      setSimulationPlaying(false);
+      setSimulationPlaying(simulationSeekRequest.autoPlay ?? false);
       setSimulationTime(
         simulationSeekRequest.position === "end"
           ? simulationResult.total_time_s
@@ -758,55 +884,58 @@ export function PathStage({
       window.removeEventListener("keydown", handleSimulationShortcut);
   }, [finishSimulation, resetSimulation, toggleSimulationPlaying]);
 
-  const renderInput = useMemo<PixiRenderInput>(
-    () => {
-      const simulationEventPulse = simulationEventPulseAtTime(
+  const renderInput = useMemo<PixiRenderInput>(() => {
+    const simulationEventPulse = Math.max(
+      canvasLesson?.startsWith("handoff-")
+        ? handoffPulseAtTime(simulationResult?.trace ?? [], simulationTime)
+        : 0,
+      simulationEventPulseAtTime(
         activePath?.path ?? null,
         simulationResult?.trace ?? null,
         simulationTime,
-      );
-      return {
-        stageSize,
-        viewport,
-        field: renderField,
-        path: activePath?.path ?? null,
-        overlayPaths,
-        hoveredOverlayPathId,
-        selectedElementIndex,
-        selectedRangedConstraint,
-        positionPreview,
-        rotationPreview,
-        selectedPulse: selectedPulseValue,
-        simulationResult,
-        simulationTrace: simulationResult?.trace ?? null,
-        trajectoryMaxSpeedMps,
-        simulationTimeS: simulationTime,
-        simulationPlaying,
-        simulationEventPulse,
-        config: durableProject?.config ?? null,
-        curvePreview,
-      };
-    },
-    [
-      renderField,
-      activePath,
-      curvePreview,
-      positionPreview,
-      durableProject,
+      ),
+    );
+    return {
+      stageSize,
+      viewport,
+      field: renderField,
+      path: activePath?.path ?? null,
       overlayPaths,
       hoveredOverlayPathId,
-      rotationPreview,
       selectedElementIndex,
-      selectedPulseValue,
       selectedRangedConstraint,
-      simulationPlaying,
+      positionPreview,
+      rotationPreview,
+      selectedPulse: selectedPulseValue,
       simulationResult,
-      simulationTime,
-      stageSize,
+      simulationTrace: simulationResult?.trace ?? null,
       trajectoryMaxSpeedMps,
-      viewport,
-    ],
-  );
+      simulationTimeS: simulationTime,
+      simulationPlaying,
+      simulationEventPulse,
+      config: durableProject?.config ?? null,
+      curvePreview,
+    };
+  }, [
+    renderField,
+    activePath,
+    curvePreview,
+    positionPreview,
+    durableProject,
+    overlayPaths,
+    hoveredOverlayPathId,
+    rotationPreview,
+    selectedElementIndex,
+    selectedPulseValue,
+    selectedRangedConstraint,
+    simulationPlaying,
+    simulationResult,
+    simulationTime,
+    stageSize,
+    trajectoryMaxSpeedMps,
+    viewport,
+    canvasLesson,
+  ]);
 
   useEffect(() => {
     latestRenderInputRef.current = renderInput;
@@ -921,6 +1050,10 @@ export function PathStage({
   }, [setPanOffset]);
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (canvasLesson) {
+      event.preventDefault();
+      return;
+    }
     if (isCanvasChromeEventTarget(event.target)) {
       return;
     }
@@ -950,6 +1083,19 @@ export function PathStage({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const pointer = stagePointFromEvent(event);
+    if (lockedGeometry) {
+      const hit = hitTestPathElement(
+        activePath.path,
+        durableProject.config,
+        viewport,
+        positionPreview,
+        pointer,
+        selectedElementIndex,
+      );
+      if (hit !== null)
+        selectionStore.getState().selectElement(hit, activePath.path);
+      return;
+    }
 
     if (curveTool) {
       const sample = stageToModelPoint(pointer, viewport);
@@ -1539,6 +1685,9 @@ export function PathStage({
       className="path-stage"
       data-testid="path-stage"
       data-tour="path-canvas"
+      data-lesson-phase={canvasLesson}
+      data-lesson-zoom={lessonCamera?.zoom ?? 1}
+      data-lesson-time={simulationTime}
       aria-label="Path canvas"
       tabIndex={0}
       onKeyDown={handleKeyDown}
@@ -1555,7 +1704,9 @@ export function PathStage({
           .filter(Boolean)
           .join(" ")}
         data-testid="path-stage-canvas"
-        data-simulation-event-pulse={renderInput.simulationEventPulse.toFixed(3)}
+        data-simulation-event-pulse={renderInput.simulationEventPulse.toFixed(
+          3,
+        )}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1641,7 +1792,14 @@ export function PathStage({
             onUnlink={unlinkContextElement}
           />
         ) : null}
-        {tourMarkers.length > 0 && activePath && simulationResult && <TourFieldComparison viewport={viewport} path={activePath.path} result={simulationResult} time={simulationTime} />}
+        {tourMarkers.length > 0 && activePath && simulationResult && (
+          <TourFieldComparison
+            viewport={viewport}
+            path={activePath.path}
+            result={simulationResult}
+            time={simulationTime}
+          />
+        )}
         <SimulationTransport
           result={simulationResult}
           currentTimeS={simulationTime}
@@ -1721,7 +1879,7 @@ function CanvasToolRail({
                   ? "tool-rotation"
                   : tool === "event"
                     ? "tool-event"
-                : undefined
+                    : undefined
           }
           disabled={!path || disabled}
           title={

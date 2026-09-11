@@ -4,7 +4,7 @@ import { useStoreSelector } from "../../state/react";
 import { captureTourStepState, findTour } from "./tours";
 import { visibleTourRect, type TourRect } from "./tourGeometry";
 import { TourLab } from "./TourLab";
-import { KeepPracticeCopy, TourHandoff } from "./TourHandoff";
+import { TourHandoff } from "./TourHandoff";
 import { tourStore, type TourStepPreparation } from "./tourStore";
 import {
   activePathForProjectStore,
@@ -28,9 +28,16 @@ export interface TourOverlayProps {
   onPrepare(preparation: TourStepPreparation): void;
   /** Returns the learner to the course menu after a completed lesson. */
   onFinish(): void;
+  onRestartStep?(): void;
+  onRestartLesson?(): void;
 }
 
-export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
+export function TourOverlay({
+  onFinish,
+  onPrepare,
+  onRestartStep,
+  onRestartLesson,
+}: TourOverlayProps) {
   const activeTourId = useStoreSelector(
     tourStore,
     (state) => state.activeTourId,
@@ -62,6 +69,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
   const wantsPathHealth = step?.prepare?.pathHealth ?? null;
   const wantsNavigator = step?.prepare?.navigator ?? null;
   const wantsGhostPaths = step?.prepare?.showGhostPaths;
+  const wantsAutoPlay = step?.prepare?.autoPlay;
+  const wantsCloseMenus = step?.prepare?.closeMenus;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const preparedStepRef = useRef<string | null>(null);
@@ -125,7 +134,9 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
       wantsSimulation ||
       wantsPathHealth ||
       wantsNavigator ||
-      wantsGhostPaths !== undefined
+      wantsGhostPaths !== undefined ||
+      wantsAutoPlay ||
+      wantsCloseMenus
     ) {
       onPrepare({
         inspector: wantsInspector ?? undefined,
@@ -143,6 +154,9 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
         pathHealth: wantsPathHealth ?? undefined,
         navigator: wantsNavigator ?? undefined,
         showGhostPaths: wantsGhostPaths,
+        autoPlay:
+          !isReviewing && !returningToExercise ? wantsAutoPlay : undefined,
+        closeMenus: wantsCloseMenus,
       });
     }
     const needsCapture = !isReviewing && !capturedStepTokens.current.has(token);
@@ -173,6 +187,8 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
     wantsPathHealth,
     wantsNavigator,
     wantsGhostPaths,
+    wantsAutoPlay,
+    wantsCloseMenus,
     wantsTool,
   ]);
 
@@ -474,7 +490,12 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
 
   useEffect(() => {
     cardRef.current?.focus();
-  }, [stepIndex, activeTourId]);
+    if (stepTarget && stepTarget !== "path-canvas") {
+      document
+        .querySelector<HTMLElement>(`[data-tour="${stepTarget}"]`)
+        ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    }
+  }, [stepIndex, activeTourId, stepTarget]);
 
   if (!tour || !step) {
     return null;
@@ -671,12 +692,6 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
           </button>
         )}
         {step.handoff && <TourHandoff />}
-        {isLastStep && (
-          <div className="tour-card__copy">
-            <KeepPracticeCopy />
-            <p>Reopen it with Import Project Archive.</p>
-          </div>
-        )}
         {isLastStep && (!actionGated || actionComplete) ? (
           <p className="tour-card__completion">{tour.completionMessage}</p>
         ) : null}
@@ -700,6 +715,21 @@ export function TourOverlay({ onFinish, onPrepare }: TourOverlayProps) {
               className={index <= stepIndex ? "is-done" : ""}
             />
           ))}
+        </div>
+        <div className="tour-card__recovery">
+          {onRestartStep && (
+            <button
+              onClick={onRestartStep}
+              title="Reset this exercise to its starting state"
+            >
+              Restart step
+            </button>
+          )}
+          {onRestartLesson && (
+            <button onClick={onRestartLesson} title="Start this lesson again">
+              Restart lesson
+            </button>
+          )}
         </div>
         <div className="tour-card__actions">
           <button

@@ -1,6 +1,10 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { PathElement, PathModel } from "../../core/model/path";
-import type { ProjectConfig, ProjectPath } from "../../core/model/project";
+import type {
+  ProjectConfig,
+  ProjectPath,
+  ProjectPathGroup,
+} from "../../core/model/project";
 import { rememberCompletedTourIds } from "../../userData";
 
 export type TourPlacement = "above" | "below" | "left" | "right";
@@ -38,6 +42,17 @@ export interface TourReference {
 }
 
 export interface TourStep {
+  /** Optional scenario cues for a new exercise within this lesson. */
+  markers?: readonly TourMarker[];
+  canvasLesson?:
+    | "handoff-approach"
+    | "handoff-crossing"
+    | "handoff-departure"
+    | "low-acceleration";
+  /** Keep the fixed tuning exercise's positions, headings and ordering intact. */
+  lockGeometry?: true;
+  /** Explicit Generate remains available while background generation is paused. */
+  autoGenerate?: false;
   /**
    * Value of the `data-tour` attribute this step points at. Steps without a
    * target are concept cards: they explain an idea over the dimmed editor
@@ -90,6 +105,9 @@ export interface TourStep {
 }
 
 export interface TourStepPreparation {
+  practicePath?(): PathModel;
+  autoPlay?: boolean;
+  closeMenus?: true;
   inspector?: "open" | "closed";
   inspectorTab?: "elements" | "constraints";
   /** Reset to the Select tool, e.g. right after a placement step. */
@@ -128,6 +146,7 @@ export interface TourDefinition {
   practicePath(): PathModel;
   /** Multiple practice paths for lessons about project organization. */
   practicePaths?(): ProjectPath[];
+  practiceGroups?(): ProjectPathGroup[];
   practiceConfig?(): ProjectConfig;
   steps: readonly TourStep[];
 }

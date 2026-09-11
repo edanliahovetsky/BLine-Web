@@ -69,6 +69,32 @@ export function createTourSessionController<View>(
       selection: SelectionState;
     }
   >();
+  const visitedStates = new Map<
+    number,
+    NonNullable<ReturnType<typeof snapshot>>
+  >();
+  function snapshot() {
+    const state = projects.getState();
+    return state.project
+      ? {
+          project: structuredClone(state.project),
+          history: { ...state.history.getState() },
+          selection: { ...selections.getState() },
+        }
+      : null;
+  }
+  function loadSnapshot(saved: NonNullable<ReturnType<typeof snapshot>>) {
+    projects.getState().history.setState(saved.history);
+    projects.setState({
+      project: structuredClone(saved.project),
+      projectSessionId: createSessionId("practice"),
+      revision: 0,
+      activeSave: null,
+      dirty: false,
+      saveQueued: false,
+    });
+    selections.setState(saved.selection);
+  }
 
   const captureCheckpoint = (index: number) => {
     const state = projects.getState();
@@ -96,6 +122,9 @@ export function createTourSessionController<View>(
     for (const key of checkpoints.keys()) {
       if (key > index) checkpoints.delete(key);
     }
+    for (const key of visitedStates.keys()) {
+      if (key >= index) visitedStates.delete(key);
+    }
     tours.getState().restartAt(index);
   };
 
@@ -107,6 +136,7 @@ export function createTourSessionController<View>(
 
     active = null;
     checkpoints.clear();
+    visitedStates.clear();
     unsubscribeProject?.();
     unsubscribeProject = null;
     unsubscribeTour?.();
@@ -174,6 +204,7 @@ export function createTourSessionController<View>(
         display_name: state.project?.display_name ?? tourPracticePathName,
         config: definition.practiceConfig?.() ?? state.project?.config,
         paths: practicePaths,
+        path_groups: definition.practiceGroups?.(),
       });
 
       active = {
@@ -221,6 +252,45 @@ export function createTourSessionController<View>(
         if (previousState.activeTourId && !nextState.activeTourId) {
           restoreSession();
         } else if (nextState.activeTourId) {
+          if (
+            nextState.stepIndex !== previousState.stepIndex ||
+            !previousState.activeTourId
+          ) {
+            const departing = snapshot();
+            if (previousState.activeTourId && departing)
+              visitedStates.set(previousState.stepIndex, departing);
+            const saved = visitedStates.get(nextState.stepIndex);
+            const seed =
+              definition.steps[nextState.stepIndex]?.prepare?.practicePath;
+            if (saved) {
+              loadSnapshot(saved);
+            } else if (seed) {
+              const current = projects.getState();
+              if (current.project) {
+                projects.setState({
+                  project: {
+                    ...current.project,
+                    paths: current.project.paths.map((path) =>
+                      path.path_id === current.activePathId
+                        ? { ...path, path: seed() }
+                        : path,
+                    ),
+                  },
+                  projectSessionId: createSessionId("practice"),
+                  revision: 0,
+                  dirty: false,
+                  saveQueued: false,
+                });
+                current.history.setState({
+                  undoStack: [],
+                  redoStack: [],
+                  canUndo: false,
+                  canRedo: false,
+                });
+                selections.getState().clearSelection();
+              }
+            }
+          }
           captureCheckpoint(nextState.stepIndex);
         }
       });

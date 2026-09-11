@@ -55,6 +55,14 @@ export function tourInteractionTargets(step: TourStep): readonly string[] {
 
 /** Tool buttons live inside the canvas rectangle; they need their own permission. */
 export function tourAllowsTarget(step: TourStep, target: Element): boolean {
+  if (
+    step.lockGeometry &&
+    target.closest('[data-tour="inspector-panel"]') &&
+    !target.closest(
+      '[data-tour="max-velocity-card"], [data-tour="constraint-popout"], [data-tour="inspector-constraints"]',
+    )
+  )
+    return false;
   const targets = tourInteractionTargets(step);
   const tool = target.closest('[data-tour^="tool-"]');
   if (tool) return targets.includes(tool.getAttribute("data-tour") ?? "");
@@ -75,6 +83,7 @@ export function tourAllowsShortcut(
   if (event.metaKey || event.ctrlKey) {
     // History is always available as a repair route, including after placement.
     if (key === "z" || key === "y") return true;
+    if (step.lockGeometry) return false;
     if (key === "d")
       return (
         !step.lockInteractionOnComplete && targets.includes("inspector-panel")
@@ -82,6 +91,11 @@ export function tourAllowsShortcut(
     return false;
   }
   if (complete && step.lockInteractionOnComplete) return false;
+  if (
+    step.lockGeometry &&
+    (["delete", "backspace", "[", "]"].includes(key) || key.startsWith("arrow"))
+  )
+    return false;
   const tool = (
     {
       "1": "waypoint",
