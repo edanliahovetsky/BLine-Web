@@ -15,7 +15,7 @@ export async function gotoSampleEditor(page: Page): Promise<void> {
     name: "Mobile support warning",
   });
   const startHeading = page.getByRole("heading", {
-    name: "Simple, rapid, robust.",
+    name: "BLine Web",
   });
   const initializationError = page.getByRole("alert");
   await expect(
@@ -39,7 +39,7 @@ export async function gotoSampleEditor(page: Page): Promise<void> {
     );
   }
   if (await startHeading.isVisible()) {
-    await page.getByRole("button", { name: "Open sample" }).click();
+    await page.getByRole("button", { name: "Sample path" }).click();
   }
 
   await expect(pathStage).toBeVisible();

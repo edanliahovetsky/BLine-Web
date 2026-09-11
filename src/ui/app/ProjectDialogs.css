@@ -1,3 +1,195 @@
+.project-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(480px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: hidden;
+  border: 1px solid #35495b;
+  border-radius: 10px;
+  color: #e4edf4;
+  background: #121a22;
+  box-shadow: 0 24px 80px #0009;
+}
+.project-dialog button {
+  cursor: pointer;
+}
+.project-dialog button:disabled {
+  cursor: default;
+}
+.project-dialog button:focus-visible,
+.project-dialog input:focus-visible {
+  outline: 2px solid #9ed2ff;
+  outline-offset: 3px;
+}
+.project-dialog svg {
+  display: block;
+  flex: none;
+}
+.project-dialog__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #2b3945;
+  background: #192532;
+}
+.project-dialog__header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.project-dialog__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #3b5164;
+  border-radius: 8px;
+  color: #9fc8e9;
+  background: #223545;
+}
+.project-dialog__body {
+  display: grid;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+}
+.project-dialog__field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.project-dialog__field > span {
+  color: #b4c5d2;
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+.project-dialog__field input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 11px;
+  border: 1px solid #3b5061;
+  border-radius: 6px;
+  color: #e4edf4;
+  background: #101820;
+  font-size: 0.8125rem;
+}
+.project-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 14px 20px;
+  border-top: 1px solid #2b3945;
+  background: #161e26;
+}
+.project-dialog__footer .bline-control-button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.project-dialog__footer .bline-control-button--primary {
+  border-color: #497de0;
+  background: #225ed0;
+}
+.project-dialog__footer .bline-control-button--primary:hover:not(:disabled) {
+  border-color: #76a2f0;
+  background: #2d6dde;
+}
+.open-project-dialog {
+  width: min(560px, 100%);
+}
+.open-project-dialog .project-dialog__body {
+  gap: 10px;
+}
+.open-project-dialog__labels {
+  display: flex;
+  justify-content: space-between;
+  padding-right: 32px;
+  color: #8197a9;
+  font-size: 0.69rem;
+  font-weight: 550;
+}
+.open-project-dialog__list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 3px;
+  list-style: none;
+}
+.open-project-dialog__list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px;
+  border: 1px solid #2d3d4a;
+  border-radius: 7px;
+  color: #91afc6;
+  background: #192530;
+  text-align: left;
+}
+.open-project-dialog__list button:hover:not(:disabled) {
+  border-color: #597286;
+  background: #223444;
+}
+.open-project-dialog__name {
+  overflow: hidden;
+  color: #e4edf4;
+  font-size: 0.8rem;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.open-project-dialog__list time {
+  color: #8197a9;
+  font-size: 0.69rem;
+  white-space: nowrap;
+}
+.open-project-dialog__empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px 0;
+  color: #8197a9;
+  text-align: center;
+}
+.open-project-dialog__empty p {
+  margin: 5px 0 0;
+  color: #c4d6e5;
+  font-size: 0.8125rem;
+}
+.open-project-dialog__empty > span {
+  font-size: 0.72rem;
+}
+@media (max-width: 540px) {
+  .open-project-dialog__labels > span:last-child {
+    display: none;
+  }
+  .open-project-dialog__list button {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 5px 12px;
+  }
+  .open-project-dialog__list time {
+    grid-column: 2;
+  }
+  .open-project-dialog__list button > svg {
+    grid-row: 1 / 3;
+  }
+  .open-project-dialog__list button > svg:last-child {
+    grid-column: 3;
+  }
+}
+
 .delete-paths-dialog__list,
 .delete-projects-dialog__list {
   display: grid;

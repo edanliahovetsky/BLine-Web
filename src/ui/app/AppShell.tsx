@@ -99,7 +99,7 @@ import {
   selectedFieldBackgroundForProject,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { editorBasicsTour, tours } from "../tours/tours";
+import { tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -109,6 +109,7 @@ import { useProjectLifecycle } from "./useProjectLifecycle";
 import { useLegacyFieldMigration } from "./useLegacyFieldMigration";
 import {
   CreateProjectDialog,
+  OpenProjectDialog,
   DeletePathsDialog,
   DeletePathGroupsDialog,
   DeleteProjectsDialog,
@@ -140,6 +141,7 @@ interface TourEditorViewSnapshot {
   inspectorWidth: number;
   optimizerError: string | null;
   showGhostPaths: boolean;
+  showHome: boolean;
 }
 
 export function AppShell() {
@@ -155,14 +157,23 @@ export function AppShell() {
     projectStore,
     (state) => state.activePathGroupId,
   );
-  const activePath = useMemo(
-    () => activeProjectPath(durableProject, activePathId),
-    [activePathId, durableProject],
-  );
   const projectIo = useStoreSelector(projectStore, (state) => state.io);
   const projectSessionId = useStoreSelector(
     projectStore,
     (state) => state.projectSessionId,
+  );
+  // Keep the project alive on Home; opening a different session shows its editor.
+  const [homeProjectSessionId, setHomeProjectSessionId] = useState<
+    string | null
+  >(null);
+  const showHome =
+    !durableProject ||
+    (homeProjectSessionId !== null &&
+      homeProjectSessionId === projectSessionId);
+  const editorProject = showHome ? null : durableProject;
+  const activePath = useMemo(
+    () => activeProjectPath(editorProject, activePathId),
+    [activePathId, editorProject],
   );
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
   const projectRevision = useStoreSelector(
@@ -284,7 +295,6 @@ export function AppShell() {
   const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false);
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
-  const importHandlingRef = useRef(false);
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -380,6 +390,7 @@ export function AppShell() {
         inspectorWidth,
         optimizerError,
         showGhostPaths,
+        showHome,
       },
     };
   }, [
@@ -410,6 +421,7 @@ export function AppShell() {
     showPathGroupsDialog,
     showShortcutHelp,
     showGhostPaths,
+    showHome,
   ]);
 
   useEffect(() => {
@@ -440,6 +452,9 @@ export function AppShell() {
         setAutosaveStatus(view.autosaveStatus);
         autoVelocityStore.getState().setLastError(view.optimizerError);
         setShowGhostPaths(view.showGhostPaths);
+        setHomeProjectSessionId(
+          view.showHome ? projectStore.getState().projectSessionId : null,
+        );
       },
       protectCapturedSession: (state) => {
         const protectedSession = projectRecoveryLifecycle.protectSnapshot({
@@ -626,38 +641,38 @@ export function AppShell() {
     };
   }, [openTopMenu]);
 
-  useEffect(() => {
-    if (!showOpenPanel) {
-      return undefined;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!toolbarRef.current?.contains(target)) {
-        setShowOpenPanel(false);
-      }
-    };
-
-    const handleEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setShowOpenPanel(false);
-      }
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleEscape);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, [showOpenPanel]);
-
   const handleNewProject = useCallback(() => {
     setShowOpenPanel(false);
     setOpenTopMenu(null);
     setShowNewProjectDialog(true);
   }, []);
+
+  const handleHome = useCallback(() => {
+    setHomeProjectSessionId(projectStore.getState().projectSessionId);
+    setOpenTopMenu(null);
+    setShowOpenPanel(false);
+    setShowHelpHub(false);
+    setShowPathHealth(false);
+    setCurveToolSession(null);
+    setActiveTool("select");
+    void refreshWorkspaceSummaries();
+  }, [refreshWorkspaceSummaries]);
+
+  const resumeCurrentWorkspace = useCallback(
+    (id: string) => {
+      if (
+        !showHome ||
+        projectStore.getState().currentWorkspaceSummary?.id !== id
+      ) {
+        return false;
+      }
+      setHomeProjectSessionId(null);
+      setShowOpenPanel(false);
+      setOpenTopMenu(null);
+      return true;
+    },
+    [showHome],
+  );
 
   const handleConfirmCreateProject = useCallback(
     async ({
@@ -995,8 +1010,24 @@ export function AppShell() {
     setOpenTopMenu(null);
   }, [refreshWorkspaceSummaries]);
 
+  useEffect(() => {
+    const inputs = [fileInputRef.current, folderInputRef.current];
+    const cancelImport = () => endToolbarAction("import");
+    for (const input of inputs) {
+      input?.addEventListener("cancel", cancelImport);
+    }
+    return () => {
+      for (const input of inputs) {
+        input?.removeEventListener("cancel", cancelImport);
+      }
+    };
+  }, [endToolbarAction]);
+
   const handleOpenWorkspaceById = useCallback(
     async (id: string) => {
+      if (resumeCurrentWorkspace(id)) {
+        return;
+      }
       cancelAutosave();
 
       try {
@@ -1009,7 +1040,7 @@ export function AppShell() {
         // The project store already records the error for the status bar.
       }
     },
-    [cancelAutosave, refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries, resumeCurrentWorkspace],
   );
 
   const handleOpenWorkspaceFromMenu = useCallback(
@@ -1090,6 +1121,9 @@ export function AppShell() {
 
   const handleSwitchWorkspace = useCallback(
     async (id: string) => {
+      if (resumeCurrentWorkspace(id)) {
+        return;
+      }
       cancelAutosave();
 
       try {
@@ -1103,7 +1137,7 @@ export function AppShell() {
         setOpenTopMenu(null);
       }
     },
-    [cancelAutosave, refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries, resumeCurrentWorkspace],
   );
 
   const handleExportProjectArchive = useCallback(async () => {
@@ -1210,15 +1244,6 @@ export function AppShell() {
         return;
       }
 
-      const clearPendingOnCancel = () => {
-        window.setTimeout(() => {
-          if (!input.files?.length && !importHandlingRef.current) {
-            endToolbarAction("import");
-          }
-        }, 400);
-      };
-
-      window.addEventListener("focus", clearPendingOnCancel, { once: true });
       input.click();
     },
     [beginToolbarAction, endToolbarAction],
@@ -1235,15 +1260,6 @@ export function AppShell() {
       return;
     }
 
-    const clearPendingOnCancel = () => {
-      window.setTimeout(() => {
-        if (!input.files?.length && !importHandlingRef.current) {
-          endToolbarAction("import");
-        }
-      }, 400);
-    };
-
-    window.addEventListener("focus", clearPendingOnCancel, { once: true });
     input.click();
   }, [beginToolbarAction, endToolbarAction]);
 
@@ -1352,7 +1368,6 @@ export function AppShell() {
   const handleImportProject = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.currentTarget.files?.[0];
-      importHandlingRef.current = Boolean(file);
       event.currentTarget.value = "";
 
       if (!file) {
@@ -1361,7 +1376,6 @@ export function AppShell() {
       }
 
       if (!projectStore.getState().io) {
-        importHandlingRef.current = false;
         endToolbarAction("import");
         return;
       }
@@ -1387,7 +1401,6 @@ export function AppShell() {
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
       } finally {
-        importHandlingRef.current = false;
         endToolbarAction("import");
       }
     },
@@ -1402,11 +1415,9 @@ export function AppShell() {
   const handleImportProjectFolder = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.currentTarget.files ?? []);
-      importHandlingRef.current = files.length > 0;
       event.currentTarget.value = "";
 
       if (files.length === 0 || !projectStore.getState().io) {
-        importHandlingRef.current = false;
         endToolbarAction("import");
         return;
       }
@@ -1421,7 +1432,6 @@ export function AppShell() {
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
       } finally {
-        importHandlingRef.current = false;
         endToolbarAction("import");
       }
     },
@@ -1524,13 +1534,13 @@ export function AppShell() {
   const supportsProjectFolders = Boolean(
     ioCapabilities?.supportsProjectFolders,
   );
-  const pathDocuments = durableProject?.paths ?? [];
+  const pathDocuments = editorProject?.paths ?? [];
   const currentWorkspaceSummary = useStoreSelector(
     projectStore,
     (state) => state.currentWorkspaceSummary,
   );
   const activePathGroup =
-    durableProject?.path_groups.find(
+    editorProject?.path_groups.find(
       (group) => group.group_id === activePathGroupId,
     ) ?? null;
   const projectSummaries = ensureCurrentWorkspaceSummary(
@@ -1698,7 +1708,7 @@ export function AppShell() {
       showGhostPaths: show,
     });
   }, []);
-  const projectAvailable = Boolean(durableProject);
+  const projectAvailable = Boolean(editorProject);
   const pathAvailable = Boolean(activePath);
   const projectIoAvailable = Boolean(projectIo);
   const navigatorCommand: EditorCommand = {
@@ -1744,7 +1754,7 @@ export function AppShell() {
     category: "Edit",
     shortcut: { key: "z", metaOrCtrl: true },
     scope: "editor",
-    disabled: !canUndo || toolbarBusy,
+    disabled: !projectAvailable || !canUndo || toolbarBusy,
     run: () => projectStore.getState().undo(),
   };
   const redoCommand: EditorCommand = {
@@ -1754,7 +1764,7 @@ export function AppShell() {
     shortcut: { key: "z", metaOrCtrl: true, shift: true },
     shortcutAliases: [{ key: "y", metaOrCtrl: true }],
     scope: "editor",
-    disabled: !canRedo || toolbarBusy,
+    disabled: !projectAvailable || !canRedo || toolbarBusy,
     run: () => projectStore.getState().redo(),
   };
   const generateConstraintsCommand: EditorCommand = {
@@ -1782,7 +1792,7 @@ export function AppShell() {
     keywords: ["copy", "clone"],
     shortcut: { key: "d", metaOrCtrl: true },
     scope: "editor",
-    disabled: selectedElementIndex === null || toolbarBusy,
+    disabled: !pathAvailable || selectedElementIndex === null || toolbarBusy,
     run: () => {
       duplicateSelectedPathElement();
     },
@@ -1963,7 +1973,7 @@ export function AppShell() {
       return;
     }
 
-    if (runShortcut("editor")) {
+    if (showHome || runShortcut("editor")) {
       return;
     }
 
@@ -2024,7 +2034,7 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
 
-  const workspaceStatusVisible = Boolean(durableProject);
+  const workspaceStatusVisible = Boolean(editorProject);
   const workspaceStatus = workspaceStatusVisible ? (
     <WorkspaceStatus
       compact={!inspectorOpen}
@@ -2049,7 +2059,7 @@ export function AppShell() {
       <AppToolbar
         toolbarRef={toolbarRef}
         model={{
-          project: durableProject,
+          project: editorProject,
           activeGroup: activePathGroup,
           activePath,
           projectSummaries,
@@ -2077,7 +2087,6 @@ export function AppShell() {
           refreshWorkspaces: refreshWorkspaceSummaries,
         }}
         panels={{
-          showOpenPanel,
           showHelpHub,
           inspectorOpen,
           openCommandPalette: () => setShowCommandPalette(true),
@@ -2096,6 +2105,7 @@ export function AppShell() {
           onImportFolder: handleImportProjectFolder,
         }}
         actions={{
+          home: handleHome,
           openWorkspace: handleOpenWorkspace,
           createWorkspace: handleCreateWorkspace,
           createProject: handleNewProject,
@@ -2115,7 +2125,6 @@ export function AppShell() {
           showDeletePaths: handleShowDeletePaths,
           showDeletePathGroups: handleShowDeletePathGroups,
           selectPath: handleSelectPathFromToolbar,
-          openWorkspaceById: handleOpenWorkspaceById,
           openSample: handleOpenSample,
         }}
       />
@@ -2123,7 +2132,7 @@ export function AppShell() {
       <div
         className={[
           "workspace",
-          durableProject && !inspectorOpen ? "is-inspector-collapsed" : "",
+          editorProject && !inspectorOpen ? "is-inspector-collapsed" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -2134,10 +2143,11 @@ export function AppShell() {
         }
         inert={projectTransitionInProgress ? true : undefined}
       >
-        {!durableProject ? (
+        {showHome ? (
           <StartCenter
             initializing={initializing}
             initializationError={initializationError}
+            actionError={status === "error" ? error : null}
             recentWorkspaces={projectSummaries}
             supportsProjectFolders={supportsProjectFolders}
             onCreateProject={handleNewProject}
@@ -2159,7 +2169,7 @@ export function AppShell() {
             }}
             onOpenSample={() => void handleOpenSample()}
             tourSupported={toursSupported}
-            onStartTour={() => startGuidedTour(editorBasicsTour.id)}
+            onOpenLessons={() => setShowTourPicker(true)}
             onRetryInitialization={retryInitialization}
           />
         ) : (
@@ -2265,6 +2275,14 @@ export function AppShell() {
         <CreateProjectDialog
           onCancel={() => setShowNewProjectDialog(false)}
           onCreate={(input) => void handleConfirmCreateProject(input)}
+        />
+      ) : null}
+      {showOpenPanel ? (
+        <OpenProjectDialog
+          workspaces={projectSummaries}
+          busy={toolbarBusy}
+          onCancel={() => setShowOpenPanel(false)}
+          onOpen={(id) => void handleOpenWorkspaceById(id)}
         />
       ) : null}
       {showDeleteProjectDialog ? (

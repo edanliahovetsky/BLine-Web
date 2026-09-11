@@ -71,7 +71,6 @@ interface ToolbarMenuState {
 }
 
 interface ToolbarPanelState {
-  showOpenPanel: boolean;
   showHelpHub: boolean;
   inspectorOpen: boolean;
   openCommandPalette(): void;
@@ -89,6 +88,7 @@ interface ToolbarImportControls {
 }
 
 interface ToolbarActions {
+  home(): void;
   openWorkspace(): void | Promise<void>;
   createWorkspace(): void | Promise<void>;
   createProject(): void | Promise<void>;
@@ -108,7 +108,6 @@ interface ToolbarActions {
   showDeletePaths(): void;
   showDeletePathGroups(): void;
   selectPath(pathId: string): void;
-  openWorkspaceById(id: string): void | Promise<void>;
   openSample(): void | Promise<void>;
 }
 
@@ -162,6 +161,12 @@ export function AppToolbar({
           setOpenTopMenu={menu.setOpen}
           onBeforeOpen={menu.refreshWorkspaces}
         >
+          <MenuAction
+            label="Home"
+            disabled={!project || !projectIoAvailable || toolbarBusy}
+            onAction={actions.home}
+          />
+          <div className="top-menu__separator" role="separator" />
           <MenuAction
             label="New Path"
             disabled={commands.newPath.disabled}
@@ -424,23 +429,6 @@ export function AppToolbar({
           multiple
           onChange={onImportFolder}
         />
-        {panels.showOpenPanel ? (
-          <div className="project-open-panel" data-testid="open-project-panel">
-            <strong>Saved Workspaces</strong>
-            <div className="project-open-panel__list">
-              {projectSummaries.map((summary) => (
-                <button
-                  key={summary.id}
-                  type="button"
-                  onClick={() => void actions.openWorkspaceById(summary.id)}
-                >
-                  <span>{summary.displayName}</span>
-                  <small>{formatTimestamp(summary.updatedAt)}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </nav>
     </header>
   );

@@ -161,22 +161,22 @@ test("restores editor navigation, history, selection, inspector, and tool after 
   );
 });
 
-test("starts the guided tour from the start center", async ({ page }) => {
+test("opens lessons and starts a guided tour from the start center", async ({
+  page,
+}) => {
   await page.goto("/");
   await dismissMobileSupportWarning(page);
-  await expect(
-    page.getByRole("heading", { name: "Simple, rapid, robust." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "BLine Web" })).toBeVisible();
 
   await page.getByTestId("start-center-guided-tour").click();
+  await expect(page.getByTestId("tour-picker")).toBeVisible();
+  await page.getByTestId("tour-picker-editor-basics").click();
 
   await expect(page.getByTestId("tour-card")).toBeVisible();
   await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 7");
 
   await page.keyboard.press("Escape");
-  await expect(
-    page.getByRole("heading", { name: "Simple, rapid, robust." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "BLine Web" })).toBeVisible();
   await expect(page.getByTestId("current-path-status")).toContainText(
     "No path",
   );

@@ -16,10 +16,10 @@ test.describe("app shell visual baselines", () => {
     await page.goto("/");
 
     await expect(
-      page.getByRole("heading", { name: "Simple, rapid, robust." }),
+      page.getByRole("heading", { name: "BLine Web" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Open sample" }),
+      page.getByRole("button", { name: "Sample path" }),
     ).toBeVisible();
 
     await expectVisualSnapshot(page, "start-center.png");
@@ -91,7 +91,7 @@ test.describe("app shell visual baselines", () => {
 
 async function gotoSampleEditor(page: Page): Promise<void> {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open sample" }).click();
+  await page.getByRole("button", { name: "Sample path" }).click();
 
   await expect(page.getByTestId("path-stage")).toBeVisible();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
