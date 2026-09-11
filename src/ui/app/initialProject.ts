@@ -28,7 +28,7 @@ function createExampleCanvasPath() {
       }),
       createRotationTarget({
         t_ratio: 0.5,
-        rotation_radians: Math.PI / 4,
+        rotation_radians: (3 * Math.PI) / 4,
       }),
       createTranslationTarget({
         x_meters: 9.6,

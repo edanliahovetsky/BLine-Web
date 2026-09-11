@@ -863,7 +863,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
   await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-2").click();
-  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("135");
 
   const canvas = page.getByTestId("path-stage-canvas");
   const center = modelToCanvasPoint(await requiredBox(canvas), {
@@ -871,7 +871,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
     y_meters: 4.0,
   });
 
-  await page.mouse.move(center.x + 30, center.y - 30);
+  await page.mouse.move(center.x - 30, center.y - 30);
   await page.mouse.down();
   await page.mouse.move(center.x + 42, center.y, { steps: 8 });
   await page.mouse.up();
@@ -887,7 +887,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
     )
     .toBeLessThan(5);
   await runEditMenuAction(page, "Undo");
-  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("135");
 });
 
 test("keeps rotation handles hidden until an element is selected", async ({
@@ -939,7 +939,7 @@ test("shows element-specific row details and sheds them at minimum width", async
   await expect(page.getByTestId("path-element-row-2")).toContainText(
     "Rotation",
   );
-  await expect(page.getByTestId("path-element-row-2")).toContainText("45°");
+  await expect(page.getByTestId("path-element-row-2")).toContainText("135°");
 
   await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
