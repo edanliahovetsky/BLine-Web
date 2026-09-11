@@ -83,7 +83,7 @@
       }
     },
     {
-      "name": "minimum-eligible-legs",
+      "name": "alternating-short-corners",
       "points": [
         [0, 0],
         [0.3, 0],
