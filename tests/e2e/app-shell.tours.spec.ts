@@ -1,246 +1,820 @@
-import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
+import type { PathModel } from "../../src/core/model/path";
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import { activeFieldLabel } from "./support/app-shell-fields";
-import { openPathLibraryDialog } from "./support/app-shell-project-library";
+import {
+  openPathLibraryDialog,
+  selectToolbarOption,
+} from "./support/app-shell-project-library";
+import {
+  installSaveFilePickerSpy,
+  savedFile,
+  savedFileCount,
+} from "./support/app-shell-persistence";
 import {
   dismissMobileSupportWarning,
   gotoSampleEditor,
   requiredBox,
 } from "./support/app-shell-shared";
 
-test("opens help and the eight-lesson course", async ({ page }) => {
+const lessonTitles = [
+  "Getting Started",
+  "BLine Fundamentals",
+  "Path Tuning",
+  "Rotation targets",
+  "Event triggers",
+  "Importing and Exporting",
+  "Path Management",
+  "Advanced — Linked Elements",
+  "Advanced — Path Linking",
+];
+
+test("opens help and the nine requested lessons", async ({ page }) => {
   await gotoSampleEditor(page);
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   const hub = page.getByTestId("help-hub");
   await expect(hub.getByRole("link", { name: /Documentation/ })).toBeVisible();
   await hub.getByTestId("start-guided-tour").click();
-
   const picker = page.getByTestId("tour-picker");
-  await expect(picker).toBeVisible();
-  for (const title of [
-    "Build a First Path",
-    "Shape the Route",
-    "Plan the Speed",
-    "Understand Handoffs",
-    "Control Heading",
-    "Trigger Actions",
-    "Organize Path Groups",
-    "Check and Export",
-  ]) {
+  for (const title of lessonTitles) {
     await expect(picker.getByText(title, { exact: true })).toBeVisible();
   }
+  await expect(picker.locator(".tour-picker__copy > strong")).toHaveCount(9);
   await expect(page.getByTestId("tour-picker-progress")).toHaveText(
-    "0 of 8 lessons complete",
+    "0 of 9 lessons complete",
   );
 });
 
-test("runs lessons in an isolated practice session", async ({ page }) => {
+test("keeps the course reachable in a short window", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 600 });
   await gotoSampleEditor(page);
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    "Phase 1 Canvas Draft",
-  );
-
-  await openLesson(page, "build-first-path");
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    "Tour practice",
-  );
-
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    "Phase 1 Canvas Draft",
-  );
-  await page.reload();
-  await dismissMobileSupportWarning(page);
-  const dialog = await openPathLibraryDialog(page);
-  await expect(dialog.getByText("Tour practice", { exact: true })).toHaveCount(
-    0,
-  );
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  await page.getByTestId("start-guided-tour").click();
+  const picker = page.getByTestId("tour-picker");
+  const box = await requiredBox(picker);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(600);
+  await picker.getByText("Advanced — Path Linking", { exact: true }).click();
+  await auditLayout(page);
 });
 
-test("builds a first path, previews immediately, and recovers edits at every step", async ({
+test("keeps lesson actions visible and fades dialogue for inspection", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
-  await openLesson(page, "build-first-path");
-  const card = page.getByTestId("tour-card");
-  await next(page, 1);
-  await place(page, "Waypoint", 5, 2);
-  await place(page, "Waypoint", 14, 2.5);
-  await expect(card).toContainText("Targets placed.");
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 2 of 8");
-  await next(page, 1);
-  await expect(card).toContainText("Preview the path");
-  await watchRun(page);
-  await next(page, 1);
-  await setNumber(page, "X (m)", "13");
-  await next(page, 1);
-  await card.focus();
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(card).toContainText("End’s original position restored.");
-  await next(page, 1);
-  await setNumber(page, "X (m)", "15");
-  await next(page, 1);
-  await watchRun(page);
-  await next(page, 1);
-  await card
-    .getByRole("button", {
-      name: "Review step 2: Place two waypoints",
-      exact: true,
-    })
-    .click();
-  await expect(card).toContainText("Previously completed");
-  await expect(rows(page)).toHaveCount(2);
-  await card
-    .getByRole("button", {
-      name: "Review step 8: Adding more targets",
-      exact: true,
-    })
-    .click();
-  await finish(page);
-});
-
-test("keeps tour actions visible and fades dialogue for inspection", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await gotoSampleEditor(page);
-  await openLesson(page, "shape-route");
-  await next(page, 1);
-
+  await openLesson(page, "Getting Started");
   const card = page.getByTestId("tour-card");
   const skip = card.getByRole("button", { name: "Skip tour" });
-
   await expect(skip).toHaveCSS("border-top-style", "solid");
   await expect(skip).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-
   await skip.hover();
   await page.mouse.down();
   await expect(skip).toHaveCSS("transform", "none");
   await page.mouse.move(0, 0);
   await page.mouse.up();
-
-  await page.waitForTimeout(500);
-  await card.getByRole("heading", { name: "Add a translation target" }).hover();
+  await card.getByRole("heading", { name: "Canvas", exact: true }).hover();
   await expect(card).toHaveCSS("opacity", "0.2");
-
-  await card.getByRole("button", { name: "Back" }).hover();
+  await skip.hover();
   await expect(card).toHaveCSS("opacity", "1");
 });
 
-test("shapes a route with translation order and bumper clearance", async ({
+for (const [width, height] of [
+  [1600, 900],
+  [1280, 800],
+]) {
+  test(
+    "opens each overview panel and menu at " + width + "px",
+    async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await gotoSampleEditor(page);
+      await openLesson(page, "Getting Started");
+      const original = await practice(page);
+      await heading(page, "Canvas");
+      await advance(page);
+      await heading(page, "Toolbar");
+      await advance(page);
+      await heading(page, "Sidebar");
+      await expect(advanceButton(page)).toHaveCount(0);
+      await page
+        .getByRole("button", { name: "Toggle inspector", exact: true })
+        .click();
+      await advance(page);
+      await heading(page, "Elements");
+      await page.getByRole("tab", { name: "Elements", exact: true }).click();
+      await advance(page);
+      await heading(page, "Constraints");
+      await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+      await advance(page);
+      await heading(page, "Play bar");
+      await expect(
+        page.getByLabel("Simulation time", { exact: true }),
+      ).toBeVisible();
+      await advance(page);
+      await heading(page, "File menu");
+      await page.locator('[data-tour="export-menu-entry"]').click();
+      await expect(
+        page.locator('[data-tour="export-menu-entry"]'),
+      ).toHaveAttribute("aria-expanded", "true");
+      await advance(page);
+      await heading(page, "Edit actions");
+      await expect(page.locator('[data-tour="edit-controls"]')).toBeVisible();
+      await advance(page);
+      await heading(page, "Path menu");
+      await page.locator('[data-tour="path-menu-entry"]').click();
+      await expect(
+        page.locator('[data-tour="path-menu-entry"]'),
+      ).toHaveAttribute("aria-expanded", "true");
+      await advance(page);
+      await heading(page, "Path dropdown");
+      await page
+        .getByRole("button", { name: "Toolbar path", exact: true })
+        .click();
+      await expect(
+        page.getByRole("listbox", {
+          name: "Toolbar path options",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await advance(page);
+      await heading(page, "Path Groups");
+      await page
+        .getByRole("button", { name: "Open project navigator", exact: true })
+        .click();
+      const navigator = page.locator('[data-tour="project-navigator"]');
+      await expect(navigator).toBeVisible();
+      await expect(
+        navigator.getByText("Example routine", { exact: true }),
+      ).toBeVisible();
+      expect((await practice(page)).path).toEqual(original.path);
+      await finish(page);
+    },
+  );
+
+  test(
+    "builds and freely explores a route with bumper clearance at " +
+      width +
+      "px",
+    async ({ page }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize({ width, height });
+      await gotoSampleEditor(page);
+      await openLesson(page, "BLine Fundamentals");
+      await heading(page, "See a complete path");
+      expect(elementCounts((await practice(page)).path)).toEqual({
+        waypoint: 2,
+        translation: 2,
+        rotation: 1,
+        event_trigger: 1,
+      });
+      await playAndInspect(page);
+      await advance(page);
+      await heading(page, "Place Start and End");
+      expect((await practice(page)).path.path_elements).toHaveLength(0);
+      await place(page, "Waypoint", 5, 2);
+      await place(page, "Waypoint", 15, 2.5);
+      await advance(page);
+      await heading(page, "Change a waypoint heading");
+      await setNumber(page, "Rotation (deg)", "-90");
+      await playAndInspect(page);
+      if (width === 1600) {
+        await page
+          .getByTestId("tour-card")
+          .getByRole("button", { name: "Restart step", exact: true })
+          .click();
+        await heading(page, "Change a waypoint heading");
+        await expect(
+          page.getByLabel("Rotation (deg)", { exact: true }),
+        ).toHaveValue("0");
+        await expect(advanceButton(page)).toHaveCount(0);
+        await setNumber(page, "Rotation (deg)", "-90");
+        await playAndInspect(page);
+      }
+      await advance(page);
+      await heading(page, "Route around the obstacle");
+      await place(page, "Translation", 10, 4.5);
+      await expect(advanceButton(page)).toHaveCount(0);
+      await expect(page.getByTestId("tour-card")).toContainText("bumpers");
+      await setNumber(page, "X (m)", "10.8");
+      await setNumber(page, "Y (m)", "6.8");
+      await expect(page.getByTestId("tour-card")).toContainText(
+        "The simulated bumpers clear the obstacle.",
+        { timeout: 30_000 },
+      );
+      await advance(page);
+      await heading(page, "Try more route points");
+      await place(page, "Waypoint", 12.4, 6.8);
+      await place(page, "Translation", 13.5, 5.4);
+      expect((await practice(page)).path.path_elements).toHaveLength(5);
+      await expect(advanceButton(page)).toBeVisible();
+      await page.getByTestId("tour-card").focus();
+      await page.keyboard.press("ControlOrMeta+z");
+      expect((await practice(page)).path.path_elements).toHaveLength(4);
+      await page.keyboard.press("ControlOrMeta+Shift+z");
+      expect((await practice(page)).path.path_elements).toHaveLength(5);
+      await advance(page);
+      await heading(page, "Read the drive order");
+      const beforeOrder = geometry((await practice(page)).path);
+      await page.getByTestId("path-element-row-1").click();
+      await page.keyboard.press("Alt+ArrowDown");
+      expect(geometry((await practice(page)).path)).not.toEqual(beforeOrder);
+      await page.keyboard.press("ControlOrMeta+z");
+      expect(geometry((await practice(page)).path)).toEqual(beforeOrder);
+      await page
+        .getByTestId("tour-card")
+        .getByRole("button", { name: "Back", exact: true })
+        .click();
+      await heading(page, "Try more route points");
+      await advance(page);
+      await heading(page, "Read the drive order");
+      expect((await practice(page)).path.path_elements).toHaveLength(5);
+      await expect(
+        page
+          .getByTestId("tour-card")
+          .getByRole("button", { name: /Download|Keep a copy/ }),
+      ).toHaveCount(0);
+      expect((await practice(page)).dirty).toBe(false);
+      await finish(page);
+    },
+  );
+
+  test(
+    "animates handoffs on the canvas and preserves manual tuning at " +
+      width +
+      "px @webkit-canvas",
+    async ({ page }) => {
+      test.setTimeout(180_000);
+      await page.setViewportSize({ width, height });
+      await gotoSampleEditor(page);
+      await openLesson(page, "Path Tuning");
+      const stage = page.getByTestId("path-stage");
+      const canvas = page.getByTestId("path-stage-canvas");
+      await heading(page, "Approach the translation");
+      await expect(stage).toHaveAttribute(
+        "data-lesson-phase",
+        "handoff-approach",
+      );
+      await expect(page.getByTestId("tour-handoff-guide")).toBeVisible();
+      await expect(page.getByTestId("tour-active-target")).toHaveAttribute(
+        "data-target",
+        /Bend|Translation/,
+      );
+      await expect
+        .poll(async () => Number(await stage.getAttribute("data-lesson-time")))
+        .toBeGreaterThan(0);
+      await advance(page);
+      await heading(page, "Cross the handoff radius");
+      await expect(stage).toHaveAttribute(
+        "data-lesson-phase",
+        "handoff-crossing",
+      );
+      await expect
+        .poll(async () => Number(await stage.getAttribute("data-lesson-zoom")))
+        .toBeGreaterThan(1.5);
+      await expect
+        .poll(
+          async () =>
+            Number(await canvas.getAttribute("data-simulation-event-pulse")),
+          { timeout: 15_000 },
+        )
+        .toBeGreaterThan(0.1);
+      await expect(page.getByTestId("tour-active-target")).toHaveAttribute(
+        "data-target",
+        "End",
+        { timeout: 15_000 },
+      );
+      const closeZoom = Number(await stage.getAttribute("data-lesson-zoom"));
+      await advance(page);
+      await heading(page, "Target the next element");
+      await expect(stage).toHaveAttribute(
+        "data-lesson-phase",
+        "handoff-departure",
+      );
+      await expect
+        .poll(async () => Number(await stage.getAttribute("data-lesson-zoom")))
+        .toBeLessThan(closeZoom);
+      await expect(
+        page.getByRole("dialog", { name: "Compare runs", exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Compare runs", exact: true }),
+      ).toHaveCount(0);
+      await advance(page);
+      await heading(page, "Lower acceleration makes a wider turn");
+      expect(
+        (await practice(page)).path.constraints
+          .max_acceleration_meters_per_sec2,
+      ).toBe(0.6);
+      await expect
+        .poll(async () => Number(await stage.getAttribute("data-lesson-time")))
+        .toBeGreaterThan(0.5);
+      await advance(page);
+      await heading(page, "A new route to tune");
+      const rectangle = (await practice(page)).path;
+      expect(geometry(rectangle)).toEqual([
+        { type: "waypoint", x: 6, y: 7.6, rotation: 0 },
+        { type: "translation", x: 12.3, y: 7.6 },
+        { type: "translation", x: 12.3, y: 4.5 },
+        { type: "translation", x: 12.3, y: 1.4 },
+        { type: "waypoint", x: 6, y: 1.4, rotation: 0 },
+      ]);
+      expect(hasGeneratedValues(rectangle)).toBe(false);
+      await page.waitForTimeout(900);
+      expect(hasGeneratedValues((await practice(page)).path)).toBe(false);
+      await dragField(page, [12.3, 4.5], [14, 5]);
+      await page.getByTestId("tour-card").focus();
+      await page.keyboard.press("Delete");
+      await page.keyboard.press("ControlOrMeta+d");
+      expect(geometry((await practice(page)).path)).toEqual(
+        geometry(rectangle),
+      );
+      if (width === 1280) {
+        await page
+          .getByTestId("tour-card")
+          .getByRole("button", { name: "Restart step", exact: true })
+          .click();
+        expect(geometry((await practice(page)).path)).toEqual(
+          geometry(rectangle),
+        );
+        expect(hasGeneratedValues((await practice(page)).path)).toBe(false);
+      }
+      await advance(page);
+      await heading(page, "Open Constraints");
+      await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+      await advance(page);
+      await heading(page, "Select a constraint range");
+      await expect(
+        page.locator('[data-tour="max-velocity-card"]').getByRole("status"),
+      ).toHaveText("Not generated");
+      await selectSpeed(page, 3);
+      expect((await practice(page)).selection).toMatchObject({
+        key: "max_velocity_meters_per_sec",
+        startOrdinal: 3,
+        endOrdinal: 3,
+      });
+      await advance(page);
+      await heading(page, "The first slot");
+      expect((await practice(page)).selection).toMatchObject({
+        startOrdinal: 1,
+      });
+      await advance(page);
+      await heading(page, "Generate starting values");
+      expect(hasGeneratedValues((await practice(page)).path)).toBe(false);
+      await generate(page);
+      await advance(page);
+      await heading(page, "Play the generated path");
+      await playAndInspect(page);
+      await advance(page);
+      await heading(page, "Make a radius Manual");
+      await page.getByTestId("handoff-radius-chip-1").click();
+      await page
+        .getByRole("group", { name: "Handoff radius mode", exact: true })
+        .getByRole("button", { name: "Manual", exact: true })
+        .click();
+      await setNumber(page, "Handoff radius 2 value", "0.4");
+      await advance(page);
+      await heading(page, "Make a velocity Manual");
+      await selectSpeed(page, 4);
+      await page
+        .getByRole("group", { name: "Velocity constraint mode", exact: true })
+        .getByRole("button", { name: "Manual", exact: true })
+        .click();
+      const value = page.getByLabel(/^Constraint \d+ value$/);
+      await value.fill("1.1");
+      await value.press("Enter");
+      await advance(page);
+      await heading(page, "Explore radii and velocities");
+      await generate(page);
+      const manual = (await practice(page)).path;
+      expect(manual.path_elements[1]).toMatchObject({
+        intermediate_handoff_radius_meters: 0.4,
+        handoff_radius_source: "manual",
+      });
+      const cap = manual.ranged_constraints.find(
+        (constraint) =>
+          constraint.key === "max_velocity_meters_per_sec" &&
+          constraint.start_ordinal <= 4 &&
+          constraint.end_ordinal >= 4,
+      );
+      expect(cap?.value).toBe(1.1);
+      expect(cap?.source).not.toBe("auto_velocity");
+      expect(geometry(manual)).toEqual(geometry(rectangle));
+      await playAndInspect(page);
+      await finish(page);
+    },
+  );
+}
+
+test("moves rotation targets, tests both heading modes, and shows the fast-turn limit", async ({
   page,
 }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
-  await openLesson(page, "shape-route");
-  const card = page.getByTestId("tour-card");
-  await next(page, 1);
-  await place(page, "Translation", 10.8, 6.8);
-  await next(page, 1);
-  await page.getByTestId("path-element-row-2").click();
-  await page.keyboard.press("Alt+ArrowUp");
-  await expect(card).toContainText("Order: Start, Translation, End.");
-  await next(page, 1);
-  await setNumber(page, "X (m)", "10.8");
-  await setNumber(page, "Y (m)", "6.8");
-  await next(page, 1);
-  await watchRun(page);
-  await next(page, 1);
-  await setNumber(page, "X (m)", "10.5");
-  await setNumber(page, "Y (m)", "7");
-  await next(page, 1);
+  await openLesson(page, "Rotation targets");
+  await heading(page, "Add a rotation target");
+  expect((await practice(page)).path.ranged_constraints[0].value).toBe(2);
+  expect((await practice(page)).path.ranged_constraints[0].source).not.toBe(
+    "auto_velocity",
+  );
+  await place(page, "Rotation", 10, 4.5);
+  await advance(page);
+  await heading(page, "Move the rotation target");
+  await dragField(page, [10, 4.5], [11, 4.5]);
+  await expect
+    .poll(async () => {
+      const target = (await practice(page)).path.path_elements.find(
+        (element) => element.type === "rotation",
+      );
+      return target?.t_ratio ?? 0;
+    })
+    .toBeGreaterThan(0.55);
+  await setNumber(page, "Rotation Pos (0-1)", "0.3");
+  await advance(page);
+  await heading(page, "Try a heading in motion");
+  await setNumber(page, "Rotation (deg)", "90");
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "Try Profiled Rotation");
+  await page.getByLabel("Profiled Rotation", { exact: true }).uncheck();
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "When translation is too fast");
+  const fast = (await practice(page)).path;
+  expect(fast.path_elements).toHaveLength(3);
+  expect(fast.path_elements[1]).toMatchObject({
+    type: "rotation",
+    rotation_radians: Math.PI,
+    t_ratio: 0.5,
+  });
+  expect(fast.ranged_constraints[0].value).toBe(6);
+  expect(fast.ranged_constraints[0].source).not.toBe("auto_velocity");
+  await playAndInspect(page);
+  await page.getByRole("button", { name: /^Path health/ }).click();
+  const health = page.getByRole("dialog", { name: "Path health", exact: true });
+  await expect(health).toContainText(/rotation|turn/i);
+  await expect(health).not.toContainText("Preview tracking");
+  await advance(page);
+  await heading(page, "Give the turn enough time");
+  await selectSpeed(page, 2);
+  const value = page.getByLabel(/^Constraint \d+ value$/);
+  await value.fill("1");
+  await value.press("Enter");
+  await playAndInspect(page);
   await finish(page);
 });
 
-test("uses each simulation control for one clear purpose", async ({ page }) => {
+test("slides an event and creates the requested key on a different segment", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
   await gotoSampleEditor(page);
-  await openLesson(page, "control-heading");
-  const card = page.getByTestId("tour-card");
-  await expect(page.getByLabel("Pickup", { exact: true })).toBeVisible();
-  await next(page, 1);
-
-  await expect(card).toContainText("Add a rotation target");
-  await expect(
-    page.getByRole("button", { name: "Rotation tool" }),
-  ).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Event tool" })).toBeEnabled();
-  await expect(page.locator('[data-tour="transport-timeline"]')).toBeVisible();
+  await openLesson(page, "Event triggers");
+  await heading(page, "Slide an event trigger");
+  await dragField(page, [6.8, 3.8], [7.4, 4.4]);
+  await expect
+    .poll(async () => {
+      const event = (await practice(page)).path.path_elements.find(
+        (element) => element.type === "event_trigger",
+      );
+      return event?.t_ratio ?? 0;
+    })
+    .toBeGreaterThan(0.55);
+  await setNumber(page, "Event Pos (0-1)", "0.35");
+  await advance(page);
+  await heading(page, "Watch the event fire");
+  const eventPulse = page.waitForFunction(
+    () =>
+      document
+        .querySelector(".tour-event-cue")
+        ?.textContent?.includes("startIntake"),
+    undefined,
+    { polling: "raf", timeout: 15_000 },
+  );
+  await page
+    .getByRole("button", { name: "Play simulation", exact: true })
+    .click();
+  await eventPulse;
+  await expect(advanceButton(page)).toBeVisible({ timeout: 20_000 });
+  await advance(page);
+  await heading(page, "Add an event on the next segment");
+  await place(page, "Event", 12.6, 3.9);
+  await setNumber(page, "Event Pos (0-1)", "0.6");
+  const key = page.getByLabel("Lib Key", { exact: true });
+  await key.fill("wrongKey");
+  await key.press("Tab");
+  await expect(advanceButton(page)).toHaveCount(0);
+  await key.fill("stopIntake");
+  await key.press("Tab");
+  await advance(page);
+  await heading(page, "Try both events");
+  const elements = (await practice(page)).path.path_elements;
+  expect(elements.map((element) => element.type)).toEqual([
+    "waypoint",
+    "event_trigger",
+    "translation",
+    "event_trigger",
+    "waypoint",
+  ]);
+  expect(elements[3]).toMatchObject({ lib_key: "stopIntake", t_ratio: 0.6 });
+  await playAndInspect(page);
+  await finish(page);
 });
 
-test("starts inspector lessons on Elements and restores the previous tab", async ({
+test("restores the user's path, field, tab, and clean practice on reopening", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
+  const before = await practice(page);
   const fieldBefore = await activeFieldLabel(page);
-  await openLesson(page, "plan-speed");
-  const card = page.getByTestId("tour-card");
-  await next(page, 1);
-
-  await expect(card).toContainText("Open Constraints");
-  await expect(page.getByRole("tab", { name: "Elements" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await page.getByRole("tab", { name: "Constraints" }).click();
+  const statusBefore = await page
+    .getByTestId("current-path-status")
+    .innerText();
+  await openLesson(page, "Rotation targets");
+  expect((await practice(page)).hasPersistence).toBe(false);
+  await place(page, "Rotation", 10, 4.5);
+  await advance(page);
+  await setNumber(page, "Rotation Pos (0-1)", "0.3");
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Restart lesson", exact: true })
+    .click();
+  await heading(page, "Add a rotation target");
+  expect((await practice(page)).path.path_elements).toHaveLength(2);
+  await exitLesson(page);
+  expect((await practice(page)).path).toEqual(before.path);
   await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
-
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("tab", { name: "Constraints" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+    page.getByRole("tab", { name: "Constraints", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => activeFieldLabel(page)).toBe(fieldBefore);
-});
-
-test("seeds the capstone with real repair work", async ({ page }) => {
-  await gotoSampleEditor(page);
-  await openLesson(page, "verify-export");
-  await expect(
-    page.getByRole("button", { name: "Path health: 3 issues" }),
-  ).toBeVisible();
-
-  const card = page.getByTestId("tour-card");
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-  await page.getByRole("button", { name: /^Path health/ }).click();
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
-    "command key empty",
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    statusBefore,
   );
-  await expect(page.getByRole("dialog", { name: "Path health" })).toContainText(
-    "outside the configured field",
+  await openLesson(page, "Rotation targets");
+  await heading(page, "Add a rotation target");
+  expect((await practice(page)).path.path_elements).toHaveLength(2);
+  await expect(page.getByLabel("Simulation time", { exact: true })).toHaveValue(
+    "0",
+  );
+  await exitLesson(page);
+  await page.reload();
+  await dismissMobileSupportWarning(page);
+  const library = await openPathLibraryDialog(page);
+  await expect(library.getByText("Tour practice", { exact: true })).toHaveCount(
+    0,
   );
 });
 
-test("starts from the home page and returns there when skipped", async ({
+test("exports a runtime path and imports its matching practice copy", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await installSaveFilePickerSpy(page);
+  await gotoSampleEditor(page);
+  await openLesson(page, "Importing and Exporting");
+  await heading(page, "Export one path");
+  await page.getByRole("button", { name: "Path", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Export Path...", exact: true })
+    .click();
+  await expect.poll(() => savedFileCount(page)).toBe(1);
+  const saved = await savedFile(page, 0);
+  expect(JSON.parse(saved.text).path_elements).toHaveLength(4);
+  expect(saved.text).toContain("prepareScore");
+  await advance(page);
+  await heading(page, "Import the saved path");
+  const choosing = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Path", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Import Path...", exact: true })
+    .click();
+  const chooser = await choosing;
+  await chooser.setFiles({
+    buffer: Buffer.from(saved.text),
+    mimeType: "application/json",
+    name: "roundtrip-lesson.json",
+  });
+  await advance(page);
+  await heading(page, "Inspect the imported copy");
+  await selectToolbarOption(page, "Toolbar path", "roundtrip lesson");
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "Back up the whole project");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Import / Export", exact: true })
+    .click();
+  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
+  await finish(page);
+});
+
+test("organizes three routes into a new Path Group and previews each leg", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Path Management");
+  await heading(page, "Choose a route");
+  await selectToolbarOption(page, "Toolbar path", "Score to Pickup");
+  await advance(page);
+  await heading(page, "See the existing combinations");
+  const navigator = await openPathLibraryDialog(page);
+  await expect(
+    navigator.getByText("Opening score", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    navigator.getByText("Pickup cycle", { exact: true }),
+  ).toBeVisible();
+  await advance(page);
+  await heading(page, "Make a complete cycle");
+  await navigator
+    .getByRole("button", { name: "Create Path Group", exact: true })
+    .click();
+  const name = navigator.getByRole("textbox", {
+    name: "Path Group name",
+    exact: true,
+  });
+  await name.fill("Two-piece cycle");
+  await name.press("Enter");
+  await advance(page);
+  await heading(page, "Connect its three paths");
+  await navigator
+    .getByRole("button", { name: "Focus Two-piece cycle", exact: true })
+    .click();
+  for (const route of [
+    "Staging to Score",
+    "Score to Pickup",
+    "Pickup to Score",
+  ]) {
+    await navigator
+      .getByRole("button", { name: "Connect to " + route, exact: true })
+      .click();
+  }
+  await advance(page);
+  await heading(page, "Preview the combination");
+  await navigator
+    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .click();
+  await expect(navigator).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Hide Path Group overlays", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await advance(page);
+  await heading(page, "Work on one leg");
+  await selectToolbarOption(page, "Toolbar path", "Pickup to Score");
+  await advance(page);
+  await heading(page, "Explore your groups");
+  await playAndInspect(page);
+  await finish(page);
+});
+
+test("links one shared waypoint and propagates position and heading to both paths", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Advanced — Linked Elements");
+  await heading(page, "View the shared scoring area");
+  await previewGroup(page, "Score and collect");
+  await advance(page);
+  await heading(page, "Create the shared score pose");
+  await page.getByRole("button", { name: "Link element", exact: true }).click();
+  const actions = page.getByRole("group", {
+    name: "Linked element actions",
+    exact: true,
+  });
+  await actions.getByRole("button", { name: /New Linked Waypoint/ }).click();
+  await actions
+    .getByLabel("Linked element name", { exact: true })
+    .fill("Score pose");
+  await actions
+    .getByRole("button", { name: "Create & Link", exact: true })
+    .click();
+  await advance(page);
+  await heading(page, "Link the next path's Start");
+  await selectToolbarOption(page, "Toolbar path", "Score to Pickup");
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByRole("button", { name: "Link element", exact: true }).click();
+  await actions.getByRole("button", { name: /Choose Existing/ }).click();
+  const picker = page.getByRole("dialog", {
+    name: "Choose Linked Element",
+    exact: true,
+  });
+  await picker.getByRole("listitem").filter({ hasText: "Score pose" }).click();
+  await picker
+    .getByRole("button", { name: "Link Selected", exact: true })
+    .click();
+  await advance(page);
+  await heading(page, "Edit once, update both paths");
+  await setNumber(page, "X (m)", "11.2");
+  await setNumber(page, "Rotation (deg)", "35");
+  await advance(page);
+  await heading(page, "Inspect the other use");
+  await selectToolbarOption(page, "Toolbar path", "Staging to Score");
+  await page.getByTestId("path-element-row-2").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("11.2");
+  await expect(page.getByLabel("Rotation (deg)", { exact: true })).toHaveValue(
+    "35",
+  );
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "Keep each route's tuning local");
+  await finish(page);
+});
+
+test("keeps linked endpoints aligned and tunes only the final minimum velocity", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Advanced — Path Linking");
+  await heading(page, "View the two-path plan");
+  await previewGroup(page, "Pickup chain");
+  await advance(page);
+  await heading(page, "Inspect the next Start");
+  await selectToolbarOption(page, "Toolbar path", "Pickup to Score");
+  await page.getByTestId("path-element-row-0").click();
+  await expect(
+    page.getByRole("button", { name: /Pickup handoff/ }),
+  ).toBeVisible();
+  await advance(page);
+  await heading(page, "Tune the incoming approach");
+  await selectToolbarOption(page, "Toolbar path", "Staging to Pickup");
+  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+  await advance(page);
+  await heading(page, "Try a small final-approach minimum");
+  await page
+    .getByRole("button", { name: "Add constraint", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Min Velocity", exact: true })
+    .click();
+  const minimum = page.getByTestId(
+    "constraint-card-min_velocity_meters_per_sec",
+  );
+  const range = minimum.getByRole("option", {
+    name: "Select Min Velocity segment 1",
+    exact: true,
+  });
+  const endCell = minimum.getByTestId(
+    "constraint-cell-min_velocity_meters_per_sec-3",
+  );
+  const from = await requiredBox(range);
+  const to = await requiredBox(endCell);
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, {
+    steps: 12,
+  });
+  await page.mouse.up();
+  await minimum.getByLabel(/^Constraint \d+ value$/).fill("0.3");
+  await minimum.getByLabel(/^Constraint \d+ value$/).press("Enter");
+  expect(
+    (await practice(page)).path.ranged_constraints.filter(
+      (constraint) => constraint.key === "min_velocity_meters_per_sec",
+    ),
+  ).toEqual([
+    expect.objectContaining({ value: 0.3, start_ordinal: 3, end_ordinal: 3 }),
+  ]);
+  await advance(page);
+  await heading(page, "Inspect the arrival");
+  await playAndInspect(page);
+  await advance(page);
+  await heading(page, "Your robot code connects the commands");
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "does not run paths in sequence",
+  );
+  await finish(page);
+});
+
+test("starts at home and restores home after exiting", async ({ page }) => {
   await page.goto("/");
   await dismissMobileSupportWarning(page);
   await page.getByTestId("start-center-guided-tour").click();
-  await expect(page.getByTestId("tour-picker")).toBeVisible();
-  await page.getByTestId("tour-picker-build-first-path").click();
+  await page
+    .getByTestId("tour-picker")
+    .getByText("Getting Started", { exact: true })
+    .click();
   await expect(page.getByTestId("tour-card")).toBeVisible();
-  await page.keyboard.press("Escape");
+  await exitLesson(page);
   await expect(
     page.getByRole("heading", { name: "Simple, rapid, robust." }),
   ).toBeVisible();
 });
 
-test("hides guided lessons below the mobile support threshold", async ({
-  page,
-}) => {
+test("closes practice below the mobile support threshold", async ({ page }) => {
   await gotoSampleEditor(page);
-  await openLesson(page, "shape-route");
+  await openLesson(page, "Rotation targets");
   await page.setViewportSize({ width: 700, height: 800 });
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
   await dismissMobileSupportWarning(page);
@@ -248,79 +822,64 @@ test("hides guided lessons below the mobile support threshold", async ({
   await expect(page.getByTestId("start-guided-tour")).toBeDisabled();
 });
 
-test("starts each lesson at zero and keeps its controls reachable after resizing", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  await page
-    .getByRole("button", { name: "Fast forward simulation", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Help and tutorials", exact: true })
-    .click();
-  await page.getByTestId("start-guided-tour").click();
-  await page.getByTestId("tour-picker-understand-handoffs").click();
-  await expect(page.getByLabel("Simulation time", { exact: true })).toHaveValue(
-    "0",
-  );
-  await next(page, 1);
-  await page.setViewportSize({ width: 1024, height: 768 });
-  const card = page.getByTestId("tour-card");
-  await setNumber(page, "Handoff radius 2 value", "0.25");
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
-  await card.getByRole("button", { name: "Skip tour", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Fast forward simulation", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Help and tutorials", exact: true })
-    .click();
-  await page.getByTestId("start-guided-tour").click();
-  await page.getByTestId("tour-picker-verify-export").click();
-  await expect(page.getByLabel("Simulation time", { exact: true })).toHaveValue(
-    "0",
-  );
-});
-
-async function openLesson(page: Page, id: string): Promise<void> {
+async function openLesson(page: Page, title: string) {
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
-  await page.getByTestId(`tour-picker-${id}`).click();
+  await page
+    .getByTestId("tour-picker")
+    .getByText(title, { exact: true })
+    .click();
   await expect(page.getByTestId("tour-card")).toBeVisible();
 }
 
-async function next(page: Page, times: number): Promise<void> {
-  const card = page.getByTestId("tour-card");
-  for (let index = 0; index < times; index += 1) {
-    await auditStepRecovery(page);
-    await card.getByRole("button", { name: "Next", exact: true }).click();
-  }
+async function previewGroup(page: Page, name: string) {
+  const navigator = page.getByRole("dialog", {
+    name: "Project Navigator",
+    exact: true,
+  });
+  await navigator
+    .getByRole("button", { name: "Focus " + name, exact: true })
+    .click();
+  await navigator
+    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .click();
+  await expect(navigator).toHaveCount(0);
 }
 
-async function clickFieldPoint(
-  page: Page,
-  xMeters: number,
-  yMeters: number,
-): Promise<void> {
-  const stage = page.getByTestId("path-stage");
-  const box = await requiredBox(stage);
-  const padding = 24;
-  const availableWidth = box.width - padding * 2;
-  const availableHeight = box.height - padding * 2;
-  const scale = Math.min(availableWidth / 18, availableHeight / 9);
-  const fieldWidth = 18 * scale;
-  const fieldHeight = 9 * scale;
-  const fieldLeft = box.x + (box.width - fieldWidth) / 2;
-  const fieldTop = box.y + (box.height - fieldHeight) / 2;
-  await page.mouse.click(
-    fieldLeft + xMeters * scale,
-    fieldTop + (9 - yMeters) * scale,
+async function exitLesson(page: Page) {
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Skip tour", exact: true })
+    .click();
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+}
+
+function advanceButton(page: Page) {
+  return page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: /^(Continue|Next)$/ });
+}
+
+async function advance(page: Page) {
+  await auditLayout(page);
+  await expect(advanceButton(page)).toBeVisible({ timeout: 30_000 });
+  await advanceButton(page).click();
+}
+
+async function finish(page: Page) {
+  await auditLayout(page);
+  await page
+    .getByTestId("tour-card")
+    .getByRole("button", { name: "Finish", exact: true })
+    .click();
+  await expect(page.getByTestId("tour-picker-progress")).toHaveText(
+    /^1 of \d+ lessons complete$/,
+  );
+}
+
+async function heading(page: Page, title: string) {
+  await expect(page.getByTestId("tour-card").getByRole("heading")).toHaveText(
+    title,
   );
 }
 
@@ -329,388 +888,66 @@ async function setNumber(page: Page, label: string, value: string) {
   await input.fill(value);
   await input.press("Enter");
 }
-async function replayComparison(page: Page) {
-  await page.getByRole("button", { name: "Compare runs", exact: true }).click();
-  const lab = page.getByRole("dialog", { name: "Compare runs" });
-  await lab.getByLabel("Half speed").uncheck();
-  if (await lab.getByLabel(/Focus on/).count())
-    await lab.getByLabel(/Focus on/).check();
-  await lab.getByRole("button", { name: "Replay" }).click();
-  await expect(lab.getByRole("button", { name: "Replay" })).toBeVisible({
-    timeout: 20_000,
-  });
-  if (process.env.BLINE_TOUR_SCREENSHOTS)
-    await page.screenshot({ path: test.info().outputPath("Comparison.png") });
-  await lab.getByRole("button", { name: "Close comparison" }).click();
+
+async function fieldPoint(page: Page, x: number, y: number) {
+  const box = await requiredBox(page.getByTestId("path-stage"));
+  const scale = Math.min((box.width - 48) / 18, (box.height - 48) / 9);
+  return {
+    x: box.x + (box.width - 18 * scale) / 2 + x * scale,
+    y: box.y + (box.height - 9 * scale) / 2 + (9 - y) * scale,
+  };
 }
 
-async function watchRun(page: Page) {
+async function clickField(page: Page, x: number, y: number) {
+  const point = await fieldPoint(page, x, y);
+  await page.mouse.click(point.x, point.y);
+}
+
+async function dragField(
+  page: Page,
+  from: [number, number],
+  to: [number, number],
+) {
+  const start = await fieldPoint(page, ...from);
+  const end = await fieldPoint(page, ...to);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 12 });
+  await page.mouse.up();
+}
+
+async function place(page: Page, tool: string, x: number, y: number) {
+  await page.getByRole("button", { name: tool + " tool", exact: true }).click();
+  await clickField(page, x, y);
+}
+
+async function scrub(page: Page, ratio: number) {
+  const box = await requiredBox(
+    page.getByLabel("Simulation time", { exact: true }),
+  );
+  await page.mouse.click(box.x + box.width * ratio, box.y + box.height / 2);
+}
+
+async function playAndInspect(page: Page) {
   await page
     .getByRole("button", { name: "Play simulation", exact: true })
     .click();
   await expect(
-    page
-      .getByTestId("tour-card")
-      .getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible({ timeout: 25_000 });
-}
-
-test("compares heading modes while keeping the route fixed", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await gotoSampleEditor(page);
-  await openLesson(page, "control-heading");
-  await next(page, 1);
-  await place(page, "Rotation", 7.4, 5.2);
-  await next(page, 1);
-  await setNumber(page, "Rotation (deg)", "90");
-  await setNumber(page, "Rotation Pos (0-1)", "0.5");
-  await page.getByLabel("Profiled Rotation", { exact: true }).check();
-  await next(page, 1);
-  await expect(page.getByTestId("tour-reference-trace")).toBeVisible();
-  await page.getByLabel("Profiled Rotation", { exact: true }).uncheck();
-  await next(page, 1);
-  await replayComparison(page);
-  await next(page, 1);
-  await page.getByLabel("Profiled Rotation", { exact: true }).check();
-  await setNumber(page, "Rotation Pos (0-1)", "0.35");
-  await next(page, 1);
-  await finish(page);
-});
-
-test("compares a local speed before splitting a shared cell", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await gotoSampleEditor(page);
-  await openLesson(page, "plan-speed");
-  await next(page, 1);
-  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
-  await next(page, 1);
-  await expect(page.getByTestId("tour-reference-trace")).toBeVisible();
-  await setSpeed(page, 3, "1.2");
-  await next(page, 1);
-  await replayComparison(page);
-  await next(page, 1);
+    page.getByRole("button", { name: "Pause simulation", exact: true }),
+  ).toBeVisible();
   await page
-    .getByRole("button", { name: "Generate constraints", exact: true })
+    .getByRole("button", { name: "Pause simulation", exact: true })
     .click();
-  await next(page, 1);
-  await isolateSpeed(page, 2);
-  await next(page, 1);
-  await setSpeed(page, 2, "0.9");
-  await next(page, 1);
-  await watchRun(page);
-  await next(page, 1);
-  await finish(page);
-});
-
-test("repairs the complete mission and exports the actual practice files", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await gotoSampleEditor(page);
-  await openLesson(page, "verify-export");
-  await next(page, 1);
-  await page.getByRole("button", { name: /^Path health/ }).click();
-  const card = page.getByTestId("tour-card");
-  const health = page.getByRole("dialog", { name: "Path health", exact: true });
-  const coachBox = await requiredBox(card);
-  const healthBox = await requiredBox(health);
-  expect(coachBox.x + coachBox.width).toBeLessThan(healthBox.x);
-  await next(page, 1);
-  await setNumber(page, "Y (m)", "2.5");
-  await page.getByTestId("path-element-row-2").click();
-  await page.getByLabel("Lib Key", { exact: true }).fill("startIntake");
-  await page.getByLabel("Lib Key", { exact: true }).press("Tab");
-  await next(page, 1);
-  await page
-    .getByRole("button", { name: "Generate constraints", exact: true })
-    .click();
-  await next(page, 1);
-  await watchRun(page);
-  await next(page, 1);
-  await card.getByRole("button", { name: "config.json", exact: true }).click();
-  await expect(card.getByLabel("Export file contents")).toContainText(
-    "kinematic_constraints",
-  );
-  await expect(card.getByLabel("Export file contents")).not.toContainText(
-    "robot",
-  );
-  await card.getByRole("button", { name: "project.json", exact: true }).click();
-  await expect(card.getByLabel("Export file contents")).toContainText(
-    "editor_config",
-  );
-  await expect(card.getByLabel("Export file contents")).toContainText(
-    "length_meters",
-  );
-  await card.getByRole("button", { name: /^paths\// }).click();
-  await expect(card.getByLabel("Export file contents")).toContainText(
-    "startIntake",
-  );
-  await expect(card.getByLabel("Export file contents")).toContainText(
-    "prepareDelivery",
-  );
-  const downloaded = page.waitForEvent("download");
-  await card
-    .getByRole("button", { name: "Download practice autos.zip" })
-    .click();
-  const zip = await downloaded;
-  expect(zip.suggestedFilename()).toBe("practice-autos.zip");
-  const bytes = await readFile((await zip.path())!);
-  expect(bytes.includes(Buffer.from("autos/config.json"))).toBe(true);
-  expect(bytes.includes(Buffer.from("startIntake"))).toBe(true);
-  await next(page, 1);
-  const copied = page.waitForEvent("download");
-  await card.getByRole("button", { name: "Save practice project" }).click();
-  const copy = await copied;
-  const archive = JSON.parse(await readFile((await copy.path())!, "utf8"));
-  expect(JSON.stringify(archive)).toContain("prepareDelivery");
-  await finish(page);
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    "Phase 1 Canvas Draft",
-  );
-});
-
-for (const width of [1280, 1024]) {
-  test(`runs each handoff radius on the main canvas at ${width}px @webkit-canvas`, async ({
-    page,
-  }) => {
-    test.setTimeout(120_000);
-    await page.setViewportSize({ width, height: 800 });
-    await gotoSampleEditor(page);
-    await openLesson(page, "understand-handoffs");
-    const card = page.getByTestId("tour-card");
-    const advance = card.getByRole("button", { name: "Next", exact: true });
-    const steering = page.getByTestId("tour-active-target");
-    await expect(page.getByTestId("tour-handoff-guide")).toBeVisible();
-    await next(page, 1);
-    await setNumber(page, "Handoff radius 2 value", "0.25");
-    await next(page, 1);
-    await expect(advance).toHaveCount(0);
-    await expect(steering).toHaveAttribute("data-target", "Bend");
-    await expect(
-      page.getByRole("button", { name: "Compare runs", exact: true }),
-    ).toHaveCount(0);
-    await expect(page.getByTestId("tour-reference-trace")).toHaveCount(0);
-    await page
-      .getByRole("button", { name: "Play simulation", exact: true })
-      .click();
-    await expect(steering).toHaveAttribute("data-target", "End", {
-      timeout: 15_000,
-    });
-    await expect(advance).toBeVisible({ timeout: 15_000 });
-    await next(page, 1);
-    await expect(page.getByTestId("tour-saved-handoff")).toHaveCount(0);
-    await setNumber(page, "Handoff radius 2 value", "1.5");
-    await expect(page.getByTestId("tour-saved-handoff")).toHaveAttribute(
-      "data-radius",
-      "0.25",
-    );
-    await expect(page.getByTestId("tour-current-handoff")).toHaveAttribute(
-      "data-radius",
-      "1.5",
-    );
-    await next(page, 1);
-    await expect(advance).toHaveCount(0);
-    await expect(
-      page.getByLabel("Simulation time", { exact: true }),
-    ).toHaveValue("0");
-    await expect(steering).toHaveAttribute("data-target", "Bend");
-    await expect(page.getByTestId("tour-reference-trace")).toBeVisible();
-    await expect(
-      page.getByRole("dialog", { name: "Compare runs", exact: true }),
-    ).toHaveCount(0);
-    await page
-      .getByRole("button", { name: "Play simulation", exact: true })
-      .click();
-    await expect(steering).toHaveAttribute("data-target", "End", {
-      timeout: 15_000,
-    });
-    if (process.env.BLINE_TOUR_SCREENSHOTS)
-      await page.screenshot({
-        path: test.info().outputPath("Earlier-handoff-in-motion.png"),
-      });
-    await expect(advance).toBeVisible({ timeout: 15_000 });
-    await next(page, 1);
-    await expect(advance).toHaveCount(0);
-    await expect(card).toContainText("too little bumper clearance");
-    const chosenRadius = width === 1280 ? "0.4" : "0.25";
-    await setNumber(page, "Handoff radius 2 value", chosenRadius);
-    await expect(page.getByTestId("tour-saved-handoff")).toHaveCount(
-      width === 1280 ? 1 : 0,
-    );
-    await next(page, 1);
-    await expect(advance).toHaveCount(0);
-    await watchRun(page);
-    await next(page, 1);
-    await expect(card).toContainText("t-ratio handoffs");
-    await finish(page);
-  });
+  await scrub(page, 0.55);
+  await expect
+    .poll(async () =>
+      Number(
+        await page.getByLabel("Simulation time", { exact: true }).inputValue(),
+      ),
+    )
+    .toBeGreaterThan(0);
 }
 
-test("changes an event's time while preserving its geometric position", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await gotoSampleEditor(page);
-  await openLesson(page, "trigger-actions");
-  await next(page, 1);
-  await place(page, "Event", 7.5, 5.3);
-  await next(page, 1);
-  await page.getByLabel("Lib Key", { exact: true }).fill("startIntake");
-  await page.getByLabel("Lib Key", { exact: true }).press("Tab");
-  await setNumber(page, "Event Pos (0-1)", "0.7");
-  await next(page, 1);
-  const timeline = page.locator('[data-tour="transport-timeline"]');
-  const box = await requiredBox(timeline);
-  await page.mouse.click(box.x + box.width * 0.6, box.y + box.height / 2);
-  await next(page, 1);
-  await setSpeed(page, 2, "1");
-  await next(page, 1);
-  await page.getByRole("button", { name: "Compare runs", exact: true }).click();
-  const lab = page.getByRole("dialog", { name: "Compare runs" });
-  const eventTimes = await lab
-    .locator(".tour-lab__event-time")
-    .allTextContents();
-  expect(eventTimes).toHaveLength(2);
-  const values = eventTimes.map(
-    (text) => text.match(/: ([\d.]+) s · ([\d.]+) m/)!,
-  );
-  expect(Number(values[1][1])).toBeGreaterThan(Number(values[0][1]));
-  expect(values[1][2]).toBe(values[0][2]);
-  await lab.getByRole("button", { name: "Replay" }).click();
-  await expect(lab.getByRole("button", { name: "Replay" })).toBeVisible({
-    timeout: 20_000,
-  });
-  if (process.env.BLINE_TOUR_SCREENSHOTS)
-    await page.screenshot({ path: test.info().outputPath("Comparison.png") });
-  await lab.getByRole("button", { name: "Close comparison" }).click();
-  await next(page, 1);
-  await setNumber(page, "Event Pos (0-1)", "0.6");
-  await next(page, 1);
-  await finish(page);
-});
-
-test("blocks wrong pointer tools and keyboard duplicates, then permits undo repair", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  await openLesson(page, "build-first-path");
-  await next(page, 1);
-  const card = page.getByTestId("tour-card");
-  const wrongTool = await requiredBox(
-    page.getByRole("button", { name: "Translation tool", exact: true }),
-  );
-  await page.mouse.click(
-    wrongTool.x + wrongTool.width / 2,
-    wrongTool.y + wrongTool.height / 2,
-  );
-  await clickFieldPoint(page, 14, 6);
-  await expect(rows(page)).toHaveCount(0);
-  await card.focus();
-  await page.keyboard.press("2");
-  await clickFieldPoint(page, 14, 6);
-  await expect(rows(page)).toHaveCount(0);
-  await place(page, "Waypoint", 5, 2);
-  await place(page, "Waypoint", 15, 2.5);
-  await card.focus();
-  await page.keyboard.press("ControlOrMeta+d");
-  await clickFieldPoint(page, 14, 6);
-  await expect(rows(page)).toHaveCount(2);
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(rows(page)).toHaveCount(1);
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toHaveCount(0);
-  await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(rows(page)).toHaveCount(2);
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
-});
-
-test("edits speed inline without requiring the retired popout control", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  await openLesson(page, "plan-speed");
-  await next(page, 1);
-  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
-  await next(page, 1);
-  await expect(
-    page.getByRole("button", {
-      name: "Expand Max Velocity editor",
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await setSpeed(page, 3, "1.2");
-  await expect(
-    page
-      .getByTestId("tour-card")
-      .getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
-});
-
-test("restores heading selection and reports extra or missing elements", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await gotoSampleEditor(page);
-  await openLesson(page, "control-heading");
-  await next(page, 1);
-  await place(page, "Rotation", 7.4, 5.2);
-  await next(page, 1);
-  const card = page.getByTestId("tour-card");
-  // Reproduce a stale selection from an editor action before the coach prepares it.
-  await mutatePractice(page, "select-end");
-  await expect(
-    page.getByLabel("Rotation Pos (0-1)", { exact: true }),
-  ).toHaveCount(0);
-  await card.getByRole("button", { name: "Back", exact: true }).click();
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(
-    page.getByLabel("Rotation Pos (0-1)", { exact: true }),
-  ).toBeVisible();
-  await mutatePractice(page, "extra");
-  await expect(card).toContainText("Extra waypoint");
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toHaveCount(0);
-  await card.focus();
-  await page.keyboard.press("ControlOrMeta+z");
-  await card.getByRole("button", { name: "Back", exact: true }).click();
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(rows(page)).toHaveCount(3);
-  await expect(
-    page.getByLabel("Rotation Pos (0-1)", { exact: true }),
-  ).toBeVisible();
-  await mutatePractice(page, "delete-rotation");
-  await expect(card).toContainText("Missing rotation target");
-  await card.focus();
-  await page.keyboard.press("ControlOrMeta+z");
-  await card.getByRole("button", { name: "Back", exact: true }).click();
-  await card.getByRole("button", { name: "Next", exact: true }).click();
-  await setNumber(page, "Rotation (deg)", "90");
-  await setNumber(page, "Rotation Pos (0-1)", "0.5");
-  await page.getByLabel("Profiled Rotation", { exact: true }).check();
-  await expect(
-    card.getByRole("button", { name: "Next", exact: true }),
-  ).toBeVisible();
-});
-
-function rows(page: Page) {
-  return page.locator('[data-testid^="path-element-row-"]');
-}
-async function place(page: Page, tool: string, x: number, y: number) {
-  await page.getByRole("button", { name: tool + " tool", exact: true }).click();
-  await clickFieldPoint(page, x, y);
-}
 async function selectSpeed(page: Page, ordinal: number) {
   const cells = page.locator(
     '[data-ranged-constraint-key="max_velocity_meters_per_sec"][data-range-start]',
@@ -720,37 +957,76 @@ async function selectSpeed(page: Page, ordinal: number) {
     const end = Number(await cell.getAttribute("data-range-end"));
     if (start <= ordinal && end >= ordinal) {
       await cell.click();
-      return { start, end };
+      return;
     }
   }
-  throw new Error("No speed cell for approach " + ordinal);
+  throw new Error("No velocity constraint for approach " + ordinal);
 }
-async function setSpeed(page: Page, ordinal: number, value: string) {
-  await selectSpeed(page, ordinal);
-  const input = page.getByLabel(/^Constraint \d+ value$/);
-  await input.fill(value);
-  await input.press("Enter");
+
+async function generate(page: Page) {
+  const button = page.getByRole("button", {
+    name: "Generate constraints",
+    exact: true,
+  });
+  await button.click();
+  await expect
+    .poll(async () => hasGeneratedValues((await practice(page)).path), {
+      timeout: 45_000,
+    })
+    .toBe(true);
+  await expect(button).toBeEnabled({ timeout: 45_000 });
 }
-async function isolateSpeed(page: Page, ordinal: number) {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const range = await selectSpeed(page, ordinal);
-    if (range.start === ordinal && range.end === ordinal) return;
-    await page.getByRole("button", { name: /^Split constraint/ }).click();
-  }
-  throw new Error("Could not split approach " + ordinal);
-}
-async function finish(page: Page) {
-  await auditStepRecovery(page);
-  await page
-    .getByTestId("tour-card")
-    .getByRole("button", { name: "Finish", exact: true })
-    .click();
-  await expect(page.getByTestId("tour-picker-progress")).toHaveText(
-    "1 of 8 lessons complete",
+
+function hasGeneratedValues(path: PathModel) {
+  return path.ranged_constraints.some((constraint) =>
+    Boolean(constraint.auto_velocity?.input_signature),
   );
 }
 
-async function auditLessonLayout(page: Page) {
+function elementCounts(path: PathModel) {
+  const counts = { waypoint: 0, translation: 0, rotation: 0, event_trigger: 0 };
+  for (const element of path.path_elements) counts[element.type]++;
+  return counts;
+}
+
+function geometry(path: PathModel) {
+  return path.path_elements.map((element) => {
+    if (element.type === "waypoint")
+      return {
+        type: element.type,
+        x: element.translation_target.x_meters,
+        y: element.translation_target.y_meters,
+        rotation: element.rotation_target.rotation_radians,
+      };
+    if (element.type === "translation")
+      return { type: element.type, x: element.x_meters, y: element.y_meters };
+    return element;
+  });
+}
+
+async function practice(page: Page) {
+  return page.evaluate(async () => {
+    const { projectStore }: typeof import("../../src/state/projectStore") =
+      await import(/* @vite-ignore */ "/src/state/projectStore.ts" as string);
+    const { selectionStore }: typeof import("../../src/state/selectionStore") =
+      await import(/* @vite-ignore */ "/src/state/selectionStore.ts" as string);
+    const state = projectStore.getState();
+    const project = state.project!;
+    const path = project.paths.find(
+      (entry) => entry.path_id === state.activePathId,
+    )!.path;
+    return {
+      path: structuredClone(path),
+      config: structuredClone(project.config),
+      session: state.projectSessionId,
+      dirty: state.dirty,
+      hasPersistence: state.io !== null,
+      selection: selectionStore.getState().selectedRangedConstraint,
+    };
+  });
+}
+
+async function auditLayout(page: Page) {
   const card = page.getByTestId("tour-card");
   await expect(card).toBeVisible();
   await expect
@@ -765,306 +1041,19 @@ async function auditLessonLayout(page: Page) {
       );
     })
     .toBe(true);
-  await expect
-    .poll(async () => {
-      return card.evaluate(
-        (element) => element.scrollWidth <= element.clientWidth,
-      );
-    })
-    .toBe(true);
-  // Wait for the coach to finish docking or returning from the navigator.
-  await expect
-    .poll(async () => {
-      const navigator = page.getByTestId("path-library-dialog");
-      const nav = (await navigator.count())
-        ? await navigator.boundingBox()
-        : null;
-      const canvas = await requiredBox(
-        page.locator('[data-tour="path-canvas"]'),
-      );
-      const box = await requiredBox(card);
-      const expected = Math.max(
-        12,
-        Math.min(
-          nav ? nav.x + nav.width + 14 : canvas.x + 64,
-          page.viewportSize()!.width - 316,
-        ),
-      );
-      return Math.abs(box.x - expected) < 1;
-    })
-    .toBe(true);
-  const spotlight = page.locator(".tour-spotlight");
-  if (await spotlight.count()) {
-    await expect
-      .poll(async () => {
-        const a = await requiredBox(card),
-          b = await requiredBox(spotlight);
-        return (
-          a.x + a.width <= b.x ||
-          b.x + b.width <= a.x ||
-          a.y + a.height <= b.y ||
-          b.y + b.height <= a.y
-        );
-      })
-      .toBe(true);
-  }
+  expect(
+    await card.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  await card
+    .getByRole("button", { name: "Skip tour", exact: true })
+    .click({ trial: true });
   if (process.env.BLINE_TOUR_SCREENSHOTS) {
-    await page.mouse.move(0, 0);
-    await expect(card).toHaveCSS("opacity", "1");
-    const name = (await card.getByRole("heading").innerText()).replace(
+    const title = (await card.getByRole("heading").innerText()).replace(
       /[^a-z0-9]+/gi,
       "-",
     );
-    await page.screenshot({ path: test.info().outputPath(`${name}.png`) });
+    await page.screenshot({ path: test.info().outputPath(title + ".png") });
   }
-}
-
-for (const width of [1280, 1024]) {
-  test(`organizes practice Path Groups with a clear navigator at ${width}px`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 800 });
-    await gotoSampleEditor(page);
-    const original = await page.getByTestId("current-path-status").innerText();
-    await openLesson(page, "organize-path-groups");
-    const card = page.getByTestId("tour-card");
-    const nav = page.getByTestId("path-library-dialog");
-    const advance = async () => {
-      await expect(
-        card.getByRole("button", { name: "Next", exact: true }),
-      ).toBeVisible();
-      await auditLessonLayout(page);
-      await card.getByRole("button", { name: "Next", exact: true }).click();
-    };
-    await page
-      .getByRole("button", { name: "Open project navigator", exact: true })
-      .click();
-    await expect(nav).toBeVisible();
-    await expect(nav.locator(".fc-paths .fc-row")).toHaveCount(2);
-    await advance();
-    await nav
-      .getByRole("button", { name: "Create Path Group", exact: true })
-      .click();
-    const name = nav.getByRole("textbox", {
-      name: "Path Group name",
-      exact: true,
-    });
-    await name.fill("Practice");
-    await name.press("Enter");
-    await advance();
-    await nav
-      .getByRole("button", { name: "Focus Practice", exact: true })
-      .click();
-    await nav
-      .getByRole("button", { name: "Connect to Approach", exact: true })
-      .click();
-    await nav
-      .getByRole("button", { name: "Connect to Return", exact: true })
-      .click();
-    await expect(nav.locator(".fc-wire")).toHaveCount(2);
-    // Tab moves from the navigator into the lesson's controls, and back again.
-    await nav.getByRole("button", { name: "Close", exact: true }).focus();
-    await page.keyboard.press("Shift+Tab");
-    await expect(
-      card.getByRole("button", { name: "Next", exact: true }),
-    ).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(
-      nav.getByRole("button", { name: "Close", exact: true }),
-    ).toBeFocused();
-    await advance();
-    await auditLessonLayout(page);
-    await nav
-      .getByRole("button", { name: "Preview Path Group", exact: true })
-      .click();
-    await expect(nav).toHaveCount(0);
-    await expect(card).toBeFocused();
-    await expect(
-      page.getByRole("button", {
-        name: "Hide Path Group overlays",
-        exact: true,
-      }),
-    ).toHaveAttribute("aria-pressed", "true");
-    await advance();
-    await page
-      .getByRole("button", { name: "Open project navigator", exact: true })
-      .click();
-    await nav
-      .getByRole("button", { name: "Focus Practice", exact: true })
-      .click();
-    await nav
-      .getByRole("button", {
-        name: "Disconnect Return from Practice",
-        exact: true,
-      })
-      .click();
-    await expect(nav.getByTestId("path-library-focus-count")).toHaveText(
-      "1 Path connected",
-    );
-    await expect(
-      nav.getByRole("button", { name: "Focus Return", exact: true }),
-    ).toBeVisible();
-    await card.focus();
-    await page.keyboard.press("ControlOrMeta+z");
-    await expect(
-      card.getByRole("button", { name: "Next", exact: true }),
-    ).toHaveCount(0);
-    await page.keyboard.press("ControlOrMeta+Shift+z");
-    await advance();
-    await expect(nav).toHaveCount(0);
-    await expect(card).toBeFocused();
-    await auditLessonLayout(page);
-    await card.getByRole("button", { name: "Finish", exact: true }).click();
-    await expect(page.getByTestId("tour-picker-progress")).toHaveText(
-      "1 of 8 lessons complete",
-    );
-    await expect(page.getByTestId("current-path-status")).toHaveText(original);
-    await page.reload();
-    await dismissMobileSupportWarning(page);
-    await openPathLibraryDialog(page);
-    await expect(
-      nav.getByRole("button", { name: "Focus Practice", exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      nav.getByRole("button", { name: "Focus Return", exact: true }),
-    ).toHaveCount(0);
-  });
-}
-
-test("keeps the complete course reachable in a short window", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1024, height: 600 });
-  await gotoSampleEditor(page);
-  await page.getByRole("button", { name: "Help and tutorials" }).click();
-  await page.getByTestId("start-guided-tour").click();
-  const picker = page.getByTestId("tour-picker");
-  const box = await requiredBox(picker);
-  expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.y + box.height).toBeLessThanOrEqual(600);
-  await page.getByTestId("tour-picker-verify-export").click();
-  await expect(page.getByTestId("tour-card")).toBeVisible();
-});
-
-// Every completed step in the walkthroughs exercises history and backward review.
-async function auditStepRecovery(page: Page) {
-  await auditLessonLayout(page);
-  const card = page.getByTestId("tour-card");
-  const title = await card.getByRole("heading").innerText();
-  const forward = card.getByRole("button", { name: /^(Next|Finish)$/ });
-  await expect(forward).toBeVisible({ timeout: 25_000 });
-  await card.focus();
-  await page.keyboard.press("F1");
-  await page.keyboard.press("ControlOrMeta+k");
-  await expect(
-    page.getByRole("dialog", { name: /Command palette/i }),
-  ).toHaveCount(0);
-  await page.keyboard.press("ControlOrMeta+z");
-  await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(forward).toBeVisible({ timeout: 10_000 });
-  // A future command or a stale editor state must not turn malformed practice
-  // into a completed step. The two capstone opening cards intentionally allow repair work.
-  if (!["Complete the routine", "Check Path Health"].includes(title)) {
-    for (const damage of ["extra", "missing", "wrong-type"] as const) {
-      const snapshot = await damagePractice(page, damage);
-      if (!snapshot) continue;
-      await expect(forward).toHaveCount(0);
-      await page.evaluate(async (snapshot) => {
-        const { projectStore }: typeof import("../../src/state/projectStore") =
-          await import(
-            /* @vite-ignore */ "/src/state/projectStore.ts" as string
-          );
-        const {
-          selectionStore,
-        }: typeof import("../../src/state/selectionStore") = await import(
-          /* @vite-ignore */ "/src/state/selectionStore.ts" as string
-        );
-        projectStore.setState({ project: snapshot.project });
-        selectionStore.setState(snapshot.selection);
-      }, snapshot);
-      await expect(forward).toBeVisible();
-    }
-  }
-  if (
-    await card.getByRole("button", { name: "Back", exact: true }).isEnabled()
-  ) {
-    await card.getByRole("button", { name: "Back", exact: true }).click();
-    await card.getByRole("button", { name: "Next", exact: true }).click();
-    await expect(card.getByRole("heading")).toHaveText(title);
-    await expect(forward).toBeVisible();
-  }
-}
-
-async function damagePractice(
-  page: Page,
-  damage: "extra" | "missing" | "wrong-type",
-) {
-  return page.evaluate(async (damage) => {
-    const { projectStore }: typeof import("../../src/state/projectStore") =
-      await import(/* @vite-ignore */ "/src/state/projectStore.ts" as string);
-    const { selectionStore }: typeof import("../../src/state/selectionStore") =
-      await import(/* @vite-ignore */ "/src/state/selectionStore.ts" as string);
-    const model: typeof import("../../src/core/model/path") = await import(
-      /* @vite-ignore */ "/src/core/model/path.ts" as string
-    );
-    const state = projectStore.getState();
-    const project = structuredClone(state.project!);
-    const path = project.paths.find(
-      (path) => path.path_id === state.activePathId,
-    )!.path;
-    if (!path.path_elements.length && damage !== "extra") return null;
-    const selection = selectionStore.getState();
-    const snapshot = {
-      project: structuredClone(state.project!),
-      selection: {
-        selectedElementIndex: selection.selectedElementIndex,
-        selectedRangedConstraint: selection.selectedRangedConstraint,
-      },
-    };
-    if (damage === "extra") path.path_elements.push(model.createWaypoint());
-    else if (damage === "missing") path.path_elements.shift();
-    else
-      path.path_elements[path.path_elements.length - 1] = model.isWaypoint(
-        path.path_elements.at(-1)!,
-      )
-        ? model.createTranslationTarget({ x_meters: 15, y_meters: 2.5 })
-        : model.createWaypoint();
-    projectStore.setState({ project });
-    return snapshot;
-  }, damage);
-}
-
-async function mutatePractice(
-  page: Page,
-  operation: "extra" | "select-end" | "delete-rotation",
-) {
-  await page.evaluate(async (operation) => {
-    const projectModule: typeof import("../../src/state/projectStore") =
-      await import(/* @vite-ignore */ "/src/state/projectStore.ts" as string);
-    const selectionModule: typeof import("../../src/state/selectionStore") =
-      await import(/* @vite-ignore */ "/src/state/selectionStore.ts" as string);
-    const state = projectModule.projectStore.getState();
-    const project = structuredClone(state.project!);
-    const path = project.paths.find(
-      (path) => path.path_id === state.activePathId,
-    )!.path;
-    if (operation === "select-end") {
-      selectionModule.selectionStore
-        .getState()
-        .selectElement(path.path_elements.length - 1, path);
-      return;
-    }
-    const previousPath = structuredClone(path);
-    if (operation === "extra")
-      path.path_elements.push(structuredClone(path.path_elements[0]));
-    else
-      path.path_elements = path.path_elements.filter(
-        (element) => element.type !== "rotation",
-      );
-    state.applyPathCommand({
-      description: `Unexpected lesson edit: ${operation}`,
-      apply: () => path,
-      revert: () => previousPath,
-    });
-  }, operation);
 }

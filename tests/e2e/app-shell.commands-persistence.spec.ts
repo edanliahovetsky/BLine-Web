@@ -662,7 +662,7 @@ test("keeps global shortcuts behind the guided tour picker", async ({
   await page.getByTestId("start-guided-tour").click();
 
   const picker = page.getByTestId("tour-picker");
-  const firstTour = page.getByTestId("tour-picker-build-first-path");
+  const firstTour = page.getByTestId("tour-picker-getting-started");
   await firstTour.focus();
 
   await expectGlobalShortcutsBlockedByDialog(page, picker, firstTour);
