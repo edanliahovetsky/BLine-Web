@@ -189,7 +189,7 @@ test("starts new users in a focused start center", async ({ page }) => {
   const addConstraint = page.getByRole("button", { name: "Add constraint" });
   const addConstraintSurface = page.getByTestId("constraint-add-surface");
   await expect(addConstraint).toBeVisible();
-  await expect(addConstraint).toHaveText("Add constraint");
+  await expect(addConstraint).toHaveText("");
   await expect(
     page.locator(".constraint-list > .constraint-add-surface"),
   ).toHaveCount(1);

@@ -2154,8 +2154,8 @@ select {
 .constraint-add-surface .add-element-button {
   justify-content: center;
   width: 100%;
-  min-height: 42px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 0;
   border-radius: 7px;
   color: #80bdff;
 }

@@ -575,7 +575,6 @@ export function ConstraintEditor({
                 >
                   <PlusIcon size={17} />
                 </span>
-                <span>Add constraint</span>
               </summary>
               <div
                 ref={menuPanelRef}
