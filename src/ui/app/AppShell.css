@@ -5187,13 +5187,18 @@ body.is-resizing-inspector * {
 }
 
 .start-center__title {
-  margin: 0 0 30px;
+  width: fit-content;
+  margin: 0 auto 30px;
   color: #e9eff5;
   font-size: 3.25rem;
   line-height: 1.2;
   font-weight: 620;
   letter-spacing: -0.03em;
   text-align: center;
+}
+
+.start-center__title:hover {
+  font-style: italic;
 }
 
 .start-center__initialization-error {
