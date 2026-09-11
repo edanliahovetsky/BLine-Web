@@ -1,0 +1,40 @@
+.offline-info-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  border: 1px solid #3b4650;
+  border-radius: 10px;
+  background: #181e23;
+  box-shadow: 0 24px 68px rgba(0, 0, 0, 0.58);
+}
+
+.offline-info-dialog header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 24px 0;
+  color: #68b7ce;
+}
+
+.offline-info-dialog h2 {
+  margin: 0;
+  color: #e8eef3;
+  font-size: 1.05rem;
+}
+
+.offline-info-dialog__body {
+  padding: 6px 24px 8px;
+  color: #c9d3db;
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.offline-info-dialog__body p {
+  margin: 14px 0 0;
+}
+
+.offline-info-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 24px 22px;
+}

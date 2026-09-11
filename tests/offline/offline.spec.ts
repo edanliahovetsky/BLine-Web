@@ -6,6 +6,12 @@ import {
   tinyPngBuffer,
 } from "../e2e/support/app-shell-fields";
 import { gotoSampleEditor } from "../e2e/support/app-shell-shared";
+import {
+  installSaveFilePickerSpy,
+  savedFile,
+  savedFileCount,
+} from "../e2e/support/app-shell-persistence";
+import { openPathMenu } from "../e2e/support/app-shell-project-library";
 import { test } from "./productionServer";
 
 async function prepareOffline(page: Page): Promise<void> {
@@ -43,6 +49,7 @@ test("reopens, edits, simulates, and starts the optimizer offline", async ({
   context,
   production,
 }) => {
+  await installSaveFilePickerSpy(page);
   await prepareOffline(page);
   expect(page.workers()).toHaveLength(0);
   await context.setOffline(true);
@@ -82,6 +89,12 @@ test("reopens, edits, simulates, and starts the optimizer offline", async ({
   await page.reload();
   await page.getByTestId("path-element-row-0").click();
   await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
+  await openPathMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await page.getByRole("menuitem", { name: "Export Path..." }).click();
+  await expect.poll(() => savedFileCount(page)).toBe(1);
+  const exported = JSON.parse((await savedFile(page, 0)).text);
+  expect(exported.path_elements[0].translation_target.x_meters).toBe(6.25);
   await page
     .getByRole("button", { name: "Play simulation", exact: true })
     .click();

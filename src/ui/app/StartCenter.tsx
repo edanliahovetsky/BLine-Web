@@ -6,6 +6,7 @@ import {
   Download,
   FolderOpen,
   Plus,
+  WifiOff,
 } from "lucide-react";
 import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
 import { parseProjectTimestamp } from "./projectTimestamp";
@@ -24,6 +25,7 @@ export function StartCenter({
   onOpenSample,
   tourSupported,
   onOpenLessons,
+  onOpenOfflineHelp,
   onRetryInitialization,
 }: {
   initializing: boolean;
@@ -39,6 +41,7 @@ export function StartCenter({
   onOpenSample(): void;
   tourSupported: boolean;
   onOpenLessons(): void;
+  onOpenOfflineHelp?(): void;
   onRetryInitialization(): void;
 }) {
   const actionsDisabled = initializing || initializationError !== null;
@@ -183,6 +186,19 @@ export function StartCenter({
               <span>Guided lessons</span>
               <ArrowRight aria-hidden="true" size={13} />
             </button>
+            {onOpenOfflineHelp ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.focus();
+                  onOpenOfflineHelp();
+                }}
+              >
+                <WifiOff aria-hidden="true" size={16} />
+                <span>Using BLine offline</span>
+                <ArrowRight aria-hidden="true" size={13} />
+              </button>
+            ) : null}
           </div>
         </section>
       </div>
