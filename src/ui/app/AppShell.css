@@ -2156,8 +2156,8 @@ select {
 
 .constraint-list {
   display: grid;
-  gap: 10px;
-  padding: 10px;
+  gap: 8px;
+  padding: 0;
 }
 
 .constraint-add-surface,
@@ -3025,6 +3025,10 @@ select {
 .constraint-terminal-group {
   display: grid;
   gap: 8px;
+}
+
+.constraint-terminal-group:empty {
+  display: none;
 }
 
 .scalar-constraint-row {
