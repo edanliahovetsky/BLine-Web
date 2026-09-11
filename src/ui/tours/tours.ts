@@ -237,6 +237,7 @@ export const gettingStartedTour: TourDefinition = {
       title: "Play bar",
       body: "The play bar lets you play, pause, and scrub through the robot’s motion.",
       target: "simulation-transport",
+      interact: playback,
       prepare: { inspector: "closed" },
     },
     {

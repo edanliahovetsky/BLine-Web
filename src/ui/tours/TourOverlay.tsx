@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useStoreSelector } from "../../state/react";
 import { captureTourStepState, findTour } from "./tours";
@@ -11,6 +17,7 @@ import {
   projectStore,
 } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
+import { useDialogFocusTrap } from "../app/useDialogFocusTrap";
 import {
   assessTourStep,
   tourAllowsShortcut,
@@ -22,6 +29,8 @@ const cardWidth = 304;
 const cardGap = 14;
 const viewportMargin = 12;
 const fallbackCardHeight = 200;
+// Keep the hover treatment available without fading lesson instructions.
+const tourHoverFadeEnabled = false;
 
 export interface TourOverlayProps {
   /** Applies any editor state a step needs before it can be shown. */
@@ -73,6 +82,7 @@ export function TourOverlay({
   const wantsCloseMenus = step?.prepare?.closeMenus;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const restartLessonButtonRef = useRef<HTMLButtonElement>(null);
   const preparedStepRef = useRef<string | null>(null);
   const capturedStepTokens = useRef(new Set<string>());
   const [rect, setRect] = useState<TourRect | null>(null);
@@ -83,7 +93,16 @@ export function TourOverlay({
     token: string;
     example: boolean;
   } | null>(null);
+  const [restartConfirmationToken, setRestartConfirmationToken] = useState<
+    string | null
+  >(null);
   const stepToken = `${activeTourId}:${attemptId}:${stepIndex}`;
+  const confirmingRestart = restartConfirmationToken === stepToken;
+  const cancelRestart = useCallback(() => {
+    setRestartConfirmationToken(null);
+    // The card must stop being inert before its trigger can receive focus.
+    window.requestAnimationFrame(() => restartLessonButtonRef.current?.focus());
+  }, [setRestartConfirmationToken]);
   const feedback =
     feedbackState.token === stepToken ? feedbackState.message : "";
   const hintCount = hintState.token === stepToken ? hintState.count : 0;
@@ -363,6 +382,14 @@ export function TourOverlay({
     if (!activeTourId || !step) return;
     const stopDisallowedInteraction = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
+      if (
+        confirmingRestart &&
+        !target?.closest('[data-tour="lesson-restart-confirmation"]')
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (!target || target.closest(".tour-layer")) return;
       const complete = assessTourStep(
         step,
@@ -385,7 +412,7 @@ export function TourOverlay({
       for (const name of events)
         window.removeEventListener(name, stopDisallowedInteraction, true);
     };
-  }, [activeTourId, isReviewing, step]);
+  }, [activeTourId, confirmingRestart, isReviewing, step]);
 
   useEffect(() => {
     if (!activeTourId || !step) {
@@ -393,6 +420,21 @@ export function TourOverlay({
     }
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (confirmingRestart) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          cancelRestart();
+        } else if (
+          !["Tab", "Enter", " "].includes(event.key) ||
+          !(event.target instanceof Element) ||
+          !event.target.closest('[data-tour="lesson-restart-confirmation"]')
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
       if (event.key === "Escape") {
         if (lab) {
           event.preventDefault();
@@ -496,7 +538,7 @@ export function TourOverlay({
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeTourId, lab, isReviewing, step]);
+  }, [activeTourId, confirmingRestart, cancelRestart, lab, isReviewing, step]);
 
   useEffect(() => {
     cardRef.current?.focus();
@@ -649,6 +691,8 @@ export function TourOverlay({
         ref={cardRef}
         className="tour-card"
         data-testid="tour-card"
+        data-hover-fade={tourHoverFadeEnabled}
+        inert={confirmingRestart}
         role="dialog"
         aria-modal="false"
         aria-label={`${tour.title}: step ${stepIndex + 1} of ${stepCount}`}
@@ -746,13 +790,21 @@ export function TourOverlay({
           {onRestartStep && (
             <button
               onClick={onRestartStep}
-              title="Reset this exercise to its starting state"
+              title={
+                step.canvasLesson
+                  ? "Replay this animation"
+                  : "Reset this exercise to its starting state"
+              }
             >
-              Restart step
+              {step.canvasLesson ? "Replay" : "Restart step"}
             </button>
           )}
           {onRestartLesson && (
-            <button onClick={onRestartLesson} title="Start this lesson again">
+            <button
+              ref={restartLessonButtonRef}
+              onClick={() => setRestartConfirmationToken(stepToken)}
+              title="Start this lesson again"
+            >
               Restart lesson
             </button>
           )}
@@ -779,8 +831,57 @@ export function TourOverlay({
           ) : null}
         </div>
       </section>
+      {confirmingRestart && onRestartLesson && (
+        <RestartLessonDialog
+          onCancel={cancelRestart}
+          onConfirm={() => {
+            setRestartConfirmationToken(null);
+            onRestartLesson();
+          }}
+        />
+      )}
     </div>,
     document.body,
+  );
+}
+
+function RestartLessonDialog({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLDivElement>();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+  return (
+    <div className="tour-restart-backdrop">
+      <div
+        ref={dialogRef}
+        className="tour-restart-dialog"
+        data-tour="lesson-restart-confirmation"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="tour-restart-title"
+        aria-describedby="tour-restart-description"
+      >
+        <h4 id="tour-restart-title">Restart this lesson?</h4>
+        <p id="tour-restart-description">
+          This resets your practice edits and returns to the first step.
+        </p>
+        <div className="tour-card__actions">
+          <button ref={cancelRef} type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="is-primary" onClick={onConfirm}>
+            Restart lesson
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -2,6 +2,7 @@ import type { PathModel } from "../../core/model/path";
 import { isTranslationTarget } from "../../core/model/path";
 import type { SimTraceResult } from "../../core/sim";
 import type { FieldViewport } from "../../canvas/geometry";
+import { handoffRingColors } from "../../canvas/elementStyle";
 import { anchorPositions, sampleAtTime } from "./tourScenario";
 import { firstHandoff } from "./handoffTrace";
 
@@ -48,7 +49,7 @@ export function TourHandoffGuide({
             y1={9 - current.y_m}
             x2={active.x_meters}
             y2={9 - active.y_meters}
-            stroke="#76e0cb"
+            stroke={handoffRingColors.manual}
             strokeWidth={0.035}
             opacity={0.8}
           />
@@ -57,7 +58,7 @@ export function TourHandoffGuide({
             cy={9 - active.y_meters}
             r={0.2}
             fill="none"
-            stroke="#76e0cb"
+            stroke={handoffRingColors.manual}
             strokeWidth={0.045}
           />
         </g>
@@ -88,7 +89,7 @@ function HandoffCircle({
   const radius = target?.intermediate_handoff_radius_meters;
   const handoff = firstHandoff(result.trace);
   if (!target || radius == null) return null;
-  const color = saved ? "#c5ccdc" : "#76e0cb";
+  const color = saved ? "#c5ccdc" : handoffRingColors.manual;
   return (
     <g
       data-testid={saved ? "tour-saved-handoff" : "tour-current-handoff"}

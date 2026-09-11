@@ -58,9 +58,7 @@ test("keeps the course reachable in a short window", async ({ page }) => {
   await auditLayout(page);
 });
 
-test("keeps lesson actions visible and fades dialogue for inspection", async ({
-  page,
-}) => {
+test("keeps lesson actions and dialogue visible on hover", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
   await openLesson(page, "Getting Started");
@@ -74,7 +72,9 @@ test("keeps lesson actions visible and fades dialogue for inspection", async ({
   await page.mouse.move(0, 0);
   await page.mouse.up();
   await card.getByRole("heading", { name: "Canvas", exact: true }).hover();
-  await expect(card).toHaveCSS("opacity", "0.2");
+  await expect(card).toHaveAttribute("data-hover-fade", "false");
+  await page.waitForTimeout(900);
+  await expect(card).toHaveCSS("opacity", "1");
   await skip.hover();
   await expect(card).toHaveCSS("opacity", "1");
 });
@@ -110,6 +110,7 @@ for (const [width, height] of [
       await expect(
         page.getByLabel("Simulation time", { exact: true }),
       ).toBeVisible();
+      await playAndInspect(page);
       await advance(page);
       await heading(page, "File menu");
       await page.locator('[data-tour="export-menu-entry"]').click();
@@ -255,6 +256,17 @@ for (const [width, height] of [
         "handoff-approach",
       );
       await expect(page.getByTestId("tour-handoff-guide")).toBeVisible();
+      await expect(
+        page.getByTestId("tour-active-target").locator("line"),
+      ).toHaveAttribute("stroke", "#ff5cf4");
+      await expect(
+        page.getByTestId("tour-current-handoff").locator(":scope > circle"),
+      ).toHaveAttribute("stroke", "#ff5cf4");
+      await expect(
+        page
+          .getByTestId("tour-card")
+          .getByRole("button", { name: "Replay", exact: true }),
+      ).toBeVisible();
       await expect(page.getByTestId("tour-active-target")).toHaveAttribute(
         "data-target",
         /Bend|Translation/,
@@ -282,6 +294,14 @@ for (const [width, height] of [
         "data-target",
         "End",
         { timeout: 15_000 },
+      );
+      await page
+        .getByTestId("tour-card")
+        .getByRole("button", { name: "Replay", exact: true })
+        .click();
+      await expect(page.getByTestId("tour-active-target")).toHaveAttribute(
+        "data-target",
+        "Bend",
       );
       const closeZoom = Number(await stage.getAttribute("data-lesson-zoom"));
       await advance(page);
@@ -537,8 +557,32 @@ test("restores the user's path, field, tab, and clean practice on reopening", as
   await place(page, "Rotation", 10, 4.5);
   await advance(page);
   await setNumber(page, "Rotation Pos (0-1)", "0.3");
-  await page
+  const editedPath = (await practice(page)).path;
+  const restart = page
     .getByTestId("tour-card")
+    .getByRole("button", { name: "Restart lesson", exact: true });
+  await restart.click();
+  const confirmation = page.getByRole("alertdialog", {
+    name: "Restart this lesson?",
+    exact: true,
+  });
+  await expect(confirmation).toContainText("resets your practice edits");
+  await expect(
+    confirmation.getByRole("button", { name: "Cancel", exact: true }),
+  ).toBeFocused();
+  expect((await practice(page)).path).toEqual(editedPath);
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await heading(page, "Move the rotation target");
+  await expect(restart).toBeFocused();
+  await restart.click();
+  await confirmation
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  expect((await practice(page)).path).toEqual(editedPath);
+  await restart.click();
+  await page
+    .getByRole("alertdialog", { name: "Restart this lesson?", exact: true })
     .getByRole("button", { name: "Restart lesson", exact: true })
     .click();
   await heading(page, "Add a rotation target");
