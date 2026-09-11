@@ -54,7 +54,7 @@ export function StartCenter({
     >
       <div className="start-center__content">
         <h1 id="start-center-title" className="start-center__title">
-          BLine
+          <span className="start-center__wordmark">BLine</span>
         </h1>
 
         {initializationError ? (
