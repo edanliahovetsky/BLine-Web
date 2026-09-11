@@ -59,7 +59,7 @@ import {
   removeSelectedRangedConstraint,
   selectAdjacentPathElement,
 } from "../keyboardShortcuts";
-import { CloseButton } from "../controls";
+import { CloseButton, useControlTooltip } from "../controls";
 import { Sidebar } from "../sidebar/Sidebar";
 import { createDefaultElement } from "../sidebar/sidebarCommands";
 import "./AppShell.css";
@@ -2190,13 +2190,15 @@ export function AppShell() {
               {activePath?.path.path_elements.length === 0 ? (
                 <div className="canvas-empty-guide">
                   <strong>Place your first waypoint</strong>
-                  <span>Choose Waypoint or press 1, then click the field.</span>
                   <button
                     type="button"
+                    aria-label="Use waypoint tool"
+                    title="Waypoint (1)"
                     onClick={() => handleToolChange("waypoint")}
                   >
-                    Use waypoint tool
+                    Waypoint
                   </button>
+                  <span>Then click the field.</span>
                 </div>
               ) : null}
             </section>
@@ -2320,7 +2322,7 @@ export function AppShell() {
           description={
             pathNameAction.kind === "duplicate"
               ? "Create a separate editable copy of this path."
-              : "Update the path name everywhere it appears in this project."
+              : undefined
           }
           fieldLabel="Path name"
           initialValue={pathNameAction.initialName}
@@ -2458,6 +2460,8 @@ function WorkspaceStatus({
     issueCount === 1 ? "issue" : "issues"
   }`;
   const saveLabel = workspaceSaveStatusLabel(saveStatusTone);
+  const saveDescription = `${storageLabel}. ${saveStatus}`;
+  const saveTooltip = useControlTooltip(saveDescription);
 
   return (
     <aside
@@ -2477,7 +2481,7 @@ function WorkspaceStatus({
             className={`workspace-status__diagnostics workspace-status__diagnostics--${pathHealthSeverity(diagnostics)}`}
             aria-label={issueLabel}
             aria-expanded={showPathHealth}
-            title={compact ? issueLabel : undefined}
+            title={issueLabel}
             onClick={onTogglePathHealth}
           >
             <span
@@ -2486,11 +2490,7 @@ function WorkspaceStatus({
             >
               <CircleAlert aria-hidden="true" size={16} strokeWidth={2.4} />
             </span>
-            {compact ? null : (
-              <span>
-                {issueCount} {issueCount === 1 ? "issue" : "issues"}
-              </span>
-            )}
+            {compact ? null : <span>{issueCount}</span>}
           </button>
           {showPathHealth ? (
             <PathHealthPopover
@@ -2502,6 +2502,7 @@ function WorkspaceStatus({
         </div>
       ) : null}
       <button
+        {...saveTooltip.triggerProps}
         type="button"
         className={[
           "workspace-status__save",
@@ -2510,20 +2511,33 @@ function WorkspaceStatus({
           .filter(Boolean)
           .join(" ")}
         data-testid="save-status"
-        title={`${storageLabel}. ${saveStatus}`}
+        title={saveDescription}
         aria-label="Save"
-        aria-live="polite"
         disabled={saveCommand.disabled}
-        onClick={() => executeCommand(saveCommand)}
+        onClick={() => {
+          saveTooltip.triggerProps.onClick();
+          executeCommand(saveCommand);
+        }}
       >
         <span className="workspace-status__save-glyph" aria-hidden="true">
           {workspaceSaveStatusGlyph(saveStatusTone)}
         </span>
-        <span className={compact ? "sr-only" : undefined}>{saveLabel}</span>
+        <span
+          className={
+            compact || saveStatusTone === "saved" ? "sr-only" : undefined
+          }
+          aria-hidden="true"
+        >
+          {saveLabel}
+        </span>
         {!compact && saveStatusTone === "danger" ? (
           <strong>Retry</strong>
         ) : null}
       </button>
+      {saveTooltip.tooltip}
+      <span className="sr-only" role="status">
+        {saveLabel}
+      </span>
     </aside>
   );
 }
@@ -2556,7 +2570,7 @@ function TourPickerDialog({
         className="tour-picker"
         role="dialog"
         aria-modal="true"
-        aria-label="Guided tours"
+        aria-label="Guided lessons"
         data-testid="tour-picker"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -2568,11 +2582,11 @@ function TourPickerDialog({
         <header className="tour-picker__header">
           <div>
             <strong>
-              <span aria-hidden="true">🧭</span> Guided tours
+              <span aria-hidden="true">🧭</span> Guided lessons
             </strong>
-            <span>Short lessons on a practice path. Leave any time.</span>
+            <span>Lessons use a practice path.</span>
           </div>
-          <CloseButton ariaLabel="Close guided tours" onClick={onClose} />
+          <CloseButton ariaLabel="Close guided lessons" onClick={onClose} />
         </header>
         <div className="tour-picker__list">
           {tours.map((tour, index) => {

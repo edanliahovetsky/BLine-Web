@@ -254,7 +254,7 @@ export function TourOverlay({ onPrepare }: TourOverlayProps) {
             <span aria-hidden="true">🧭</span> {tour.title}
           </span>
           <span data-testid="tour-step-count">
-            Step {stepIndex + 1} of {stepCount}
+            {stepIndex + 1} / {stepCount}
           </span>
         </div>
         <h4>{step.title}</h4>

@@ -105,6 +105,35 @@ test("creates Paths inline with unique defaults, name validation, and undo @webk
   );
 });
 
+test("keeps connection help and icon actions usable with the keyboard", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const nav = await openPathLibraryDialog(page);
+  const help = nav.getByRole("button", { name: "Connection help" });
+  await help.focus();
+  await help.press("Enter");
+  await expect(
+    nav.getByText(
+      "Click a connection point to link or unlink. Drag a point onto a row to connect.",
+    ),
+  ).toBeVisible();
+  await help.press("Escape");
+  await expect(nav.locator(".fc-help")).not.toHaveAttribute("open", "");
+  await expect(nav).toBeVisible();
+  const all = nav.getByRole("button", { name: "Show all connections" });
+  await all.focus();
+  await all.press("Space");
+  await expect(all).toHaveAttribute("aria-pressed", "true");
+  await all.press("Space");
+  await expect(all).toHaveAttribute("aria-pressed", "false");
+  await nav
+    .getByRole("button", { name: "Open Path", exact: true })
+    .press("Enter");
+  await expect(nav).toHaveCount(0);
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+});
+
 test("shows the selected connection point and opposite points, and toggles links in one click", async ({
   page,
 }) => {
@@ -125,7 +154,7 @@ test("shows the selected connection point and opposite points, and toggles links
   await expect(focusName(nav)).toHaveText("Testing");
   await expect(focusCount(nav)).toHaveText("1 Path connected");
   await expect(nav.locator(".fc-wire")).toHaveCount(1);
-  await nav.getByRole("checkbox", { name: "Show all connections" }).check();
+  await nav.getByRole("button", { name: "Show all connections" }).click();
   await expect(port(nav, "Competition")).toBeHidden();
   await expect(port(nav, "Testing")).toBeVisible();
   await nav
@@ -265,7 +294,7 @@ test("undo and redo work immediately after renaming, dragging, toggling, and del
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect(focusCount(nav)).toHaveText("1 Path connected");
 
-  await nav.getByRole("checkbox", { name: "Show all connections" }).check();
+  await nav.getByRole("button", { name: "Show all connections" }).click();
   await page.keyboard.press("ControlOrMeta+z");
   await expect(focusCount(nav)).toHaveText("0 Paths connected");
   await page.keyboard.press("ControlOrMeta+y");
@@ -544,7 +573,7 @@ test("filters connections, keeps row order stable, and aligns links after resizi
   await expect(focusCount(nav)).toContainText("1 hidden by search");
   await expect(nav.locator(".fc-wire")).toHaveCount(1);
   await nav.getByRole("searchbox", { name: "Find a Path Group" }).fill("");
-  await nav.getByRole("checkbox", { name: "Show all connections" }).check();
+  await nav.getByRole("button", { name: "Show all connections" }).click();
   await expect(nav.locator(".fc-wire")).toHaveCount(4);
   await port(nav, "Testing").click();
   await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
@@ -831,7 +860,8 @@ for (const longSide of ["path", "group"] as const) {
     const bar = nav.getByRole("button", {
       name: /^\d+ (Paths?|Path Groups?) above$/,
     });
-    await expect(bar).toHaveText(
+    await expect(bar).toHaveText("5");
+    await expect(bar).toHaveAccessibleName(
       longSide === "path" ? "5 Paths above" : "5 Path Groups above",
     );
     expect((await requiredBox(bar)).height).toBeLessThan(
@@ -905,7 +935,7 @@ test("includes every displayed connection in overflow bars when showing all conn
     nav.getByRole("button", { name: "1 Path above", exact: true }),
   ).toBeVisible();
   await expect(nav.locator(".fc-overflow-wire")).toHaveCount(1);
-  await nav.getByRole("checkbox", { name: "Show all connections" }).check();
+  await nav.getByRole("button", { name: "Show all connections" }).click();
   // Path 00 counts once across both groups; Path 22 remains visible below.
   await expect(
     nav.getByRole("button", { name: "4 Paths above", exact: true }),
@@ -913,7 +943,7 @@ test("includes every displayed connection in overflow bars when showing all conn
   await expect(nav.locator(".fc-wire")).toHaveCount(1);
   await expect(nav.locator(".fc-overflow-wire")).toHaveCount(2);
   await expect(nav.locator(".fc-overflow-wire.is-dim")).toHaveCount(1);
-  await nav.getByRole("checkbox", { name: "Show all connections" }).uncheck();
+  await nav.getByRole("button", { name: "Show all connections" }).click();
   await expect(
     nav.getByRole("button", { name: "1 Path above", exact: true }),
   ).toBeVisible();

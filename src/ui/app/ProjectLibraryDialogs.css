@@ -141,44 +141,59 @@
 .fc-open:hover:not(:disabled) {
   background: #345771;
 }
-.fc-toggle {
-  display: flex;
-  gap: 8px;
+.fc-icon-action {
+  display: inline-flex;
   align-items: center;
-  font-size: 0.66rem;
-  color: #b2c2cf;
-  cursor: pointer;
-  white-space: nowrap;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #3c5870;
+  border-radius: 6px;
+  background: #253e52;
+  color: #c4dff3;
 }
-.fc-toggle input {
-  appearance: none;
+.fc-toggle[aria-pressed="true"] {
+  border-color: #9ed2ff;
+  background: #386b94;
+  box-shadow: inset 0 0 0 1px #9ed2ff;
+}
+.fc-navigator .project-navigator__header .fc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fc-help {
   position: relative;
-  width: 29px;
-  height: 17px;
-  border: 1px solid #455564;
-  border-radius: 20px;
-  margin: 0;
-  background: #202e3a;
+}
+.fc-help summary {
+  list-style: none;
   cursor: pointer;
 }
-.fc-toggle input::after {
-  content: "";
+.fc-help summary::-webkit-details-marker {
+  display: none;
+}
+.fc-help summary:focus-visible {
+  outline: 2px solid #9ed2ff;
+  outline-offset: 3px;
+}
+.fc-help__content {
   position: absolute;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  top: 2px;
-  left: 2px;
-  background: #8b9aa7;
-  transition: transform 120ms;
+  z-index: 10;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(300px, calc(100vw - 80px));
+  padding: 8px 12px;
+  border: 1px solid #48677f;
+  border-radius: 8px;
+  background: #20313f;
+  box-shadow: 0 8px 24px #0006;
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
-.fc-toggle input:checked {
-  background: #27547b;
-  border-color: #4779a0;
-}
-.fc-toggle input:checked::after {
-  transform: translateX(12px);
-  background: #c5e3ff;
+.fc-help__content p {
+  margin: 8px 0;
 }
 .fc-scroll {
   overflow-x: auto;
@@ -647,6 +662,9 @@
   background: #3f272b;
   border: 1px solid #75444a;
   border-radius: 5px;
+}
+.fc-status .fc-icon-action {
+  padding: 0;
 }
 .fc-status .fc-resort {
   color: #b9d9ef;

@@ -5,6 +5,14 @@ type IconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
 };
 
+export function SplitSegmentIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <path d="M3 8h6v8H3zM15 8h6v8h-6zM12 4v16" />
+    </svg>
+  );
+}
+
 export function PlusIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>

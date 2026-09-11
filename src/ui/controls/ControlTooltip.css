@@ -1,0 +1,14 @@
+.bline-control-tooltip {
+  position: fixed;
+  z-index: 1200;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #48677f;
+  border-radius: 6px;
+  background: #20313f;
+  color: #e4edf4;
+  box-shadow: 0 6px 20px #0006;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}

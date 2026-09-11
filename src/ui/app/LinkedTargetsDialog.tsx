@@ -170,37 +170,39 @@ export function LinkedTargetsDialog({
         </header>
 
         <div className="library-dialog__utility-bar">
-          <div className="library-dialog__selection-summary">
-            <strong>
-              {linkRequest
-                ? `Element ${linkRequest.elementIndex + 1}`
-                : (selectedTarget?.display_name ?? "No linked element")}
-            </strong>
-            <span>
-              {linkRequest
-                ? `${pickerCompatibleTargets.length} compatible / ${project.linked_targets.length} total`
-                : `${project.linked_targets.length} ${
-                    project.linked_targets.length === 1 ? "element" : "elements"
-                  } / ${activeUseCount} ${
-                    activeUseCount === 1 ? "use" : "uses"
-                  }`}
-            </span>
-          </div>
+          {linkRequest || selectedTarget ? (
+            <div className="library-dialog__selection-summary">
+              <strong>
+                {linkRequest
+                  ? `Element ${linkRequest.elementIndex + 1}`
+                  : selectedTarget?.display_name}
+              </strong>
+              <span>
+                {linkRequest
+                  ? `${pickerCompatibleTargets.length} compatible / ${project.linked_targets.length} total`
+                  : `${activeUseCount} ${
+                      activeUseCount === 1 ? "use" : "uses"
+                    }`}
+              </span>
+            </div>
+          ) : null}
           <button
             type="button"
             className="library-dialog__utility-button"
+            aria-label="New Translation"
             onClick={() => createTarget("translation")}
           >
             <PlusIcon size={17} />
-            <span>New Translation</span>
+            <span>Translation</span>
           </button>
           <button
             type="button"
             className="library-dialog__utility-button"
+            aria-label="New Waypoint"
             onClick={() => createTarget("waypoint")}
           >
             <PlusIcon size={17} />
-            <span>New Waypoint</span>
+            <span>Waypoint</span>
           </button>
         </div>
 
@@ -260,7 +262,16 @@ export function LinkedTargetsDialog({
                         <span>{target.display_name}</span>
                       </span>
                       <small>
-                        {target.locked ? "Locked / " : ""}
+                        {target.locked ? (
+                          <span
+                            className="linked-targets-dialog__locked"
+                            role="img"
+                            aria-label="Locked"
+                            title="Locked"
+                          >
+                            <LockIcon size={12} />
+                          </span>
+                        ) : null}
                         {formatLinkedTargetKind(target.kind)} / {useCount}{" "}
                         {useCount === 1 ? "use" : "uses"}
                       </small>
@@ -268,9 +279,7 @@ export function LinkedTargetsDialog({
                   );
                 })
               ) : (
-                <div className="library-dialog__empty">
-                  No linked elements yet.
-                </div>
+                <div className="library-dialog__empty">No linked elements</div>
               )}
             </div>
           </aside>
@@ -280,7 +289,6 @@ export function LinkedTargetsDialog({
             aria-label="Linked element preview"
           >
             <div className="library-dialog__column-header">
-              <strong>Field Preview</strong>
               <span>{field.label}</span>
             </div>
             <div
@@ -319,11 +327,6 @@ export function LinkedTargetsDialog({
           >
             <div className="library-dialog__column-header">
               <strong>Details</strong>
-              <span>
-                {selectedTarget
-                  ? formatLinkedTargetKind(selectedTarget.kind)
-                  : ""}
-              </span>
             </div>
             <div className="library-dialog__details-scroll">
               {selectedTarget ? (
@@ -416,6 +419,8 @@ export function LinkedTargetsDialog({
                   <button
                     type="button"
                     className="linked-targets-dialog__danger"
+                    aria-label="Delete Linked Element"
+                    title={`Delete linked element ${selectedTarget.display_name}`}
                     onClick={() => {
                       const nextSelection =
                         project.linked_targets.find(
@@ -428,20 +433,18 @@ export function LinkedTargetsDialog({
                       setSelectedTargetId(nextSelection);
                     }}
                   >
-                    Delete Linked Element
+                    Delete
                   </button>
                 </div>
-              ) : (
-                <div className="library-dialog__empty">
-                  Select or create a linked element.
-                </div>
-              )}
+              ) : project.linked_targets.length > 0 ? (
+                <div className="library-dialog__empty">Select an element.</div>
+              ) : null}
             </div>
           </section>
         </div>
 
-        <footer className="config-dialog__footer library-dialog__footer">
-          {linkRequest ? (
+        {linkRequest ? (
+          <footer className="config-dialog__footer library-dialog__footer">
             <button
               type="button"
               className="primary-dialog-action linked-targets-dialog__link-selected"
@@ -450,11 +453,11 @@ export function LinkedTargetsDialog({
             >
               Link Selected
             </button>
-          ) : null}
-          <button type="button" onClick={onCancel}>
-            Close
-          </button>
-        </footer>
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
+          </footer>
+        ) : null}
       </section>
     </div>
   );

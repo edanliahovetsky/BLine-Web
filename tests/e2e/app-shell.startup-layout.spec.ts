@@ -116,7 +116,9 @@ test("starts new users in a focused start center", async ({ page }) => {
   await expect(
     page.getByText("Current Path: Phase 1 Canvas Draft"),
   ).toBeVisible();
-  await expect(page.getByText("Path Elements")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Path Elements", exact: true }),
+  ).toBeVisible();
   await expect(page.getByTestId("path-element-row-0")).toContainText(
     "1. Waypoint",
   );

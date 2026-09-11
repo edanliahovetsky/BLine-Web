@@ -121,7 +121,9 @@ export function CommandPalette({
                 </span>
                 <span className="command-palette__result-copy">
                   <strong>{command.label}</strong>
-                  <small>{command.category}</small>
+                  {command.category === "Paths" ? (
+                    <small>{command.category}</small>
+                  ) : null}
                 </span>
                 {command.shortcut ? (
                   <kbd>{formatShortcut(command.shortcut)}</kbd>
@@ -129,9 +131,7 @@ export function CommandPalette({
               </button>
             ))
           ) : (
-            <div className="command-palette__empty">
-              No matching commands or paths.
-            </div>
+            <div className="command-palette__empty">No matches.</div>
           )}
         </div>
       </section>
@@ -179,7 +179,6 @@ export function ShortcutHelpDialog({
         <header className="config-dialog__header">
           <div>
             <strong>Keyboard shortcuts</strong>
-            <span>Everything important stays within reach.</span>
           </div>
           <CloseButton ariaLabel="Close keyboard shortcuts" onClick={onClose} />
         </header>
@@ -230,6 +229,25 @@ export function ShortcutHelpDialog({
                 <dt>Delete element</dt>
                 <dd>
                   <kbd>Delete</kbd>
+                </dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>Selection</h3>
+            <dl>
+              <div>
+                <dt>Select a range of elements or constraint values</dt>
+                <dd>
+                  <kbd>Shift + click</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Toggle individual elements or constraint values</dt>
+                <dd>
+                  <kbd>
+                    {formatShortcut({ key: "click", metaOrCtrl: true })}
+                  </kbd>
                 </dd>
               </div>
             </dl>

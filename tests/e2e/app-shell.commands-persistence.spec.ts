@@ -116,7 +116,9 @@ test("keeps linked elements after reload", async ({ page }) => {
   await dialog.getByLabel("Linked element name").fill("Persistent Note");
   await dialog.getByLabel("X (m)").fill("4.25");
   await dialog.getByLabel("Y (m)").fill("2.75");
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Close linked elements", exact: true })
+    .click();
 
   await expect(page.getByTestId("save-status")).toContainText("Saved", {
     timeout: 5_000,
@@ -221,7 +223,9 @@ test("synchronizes linked inspector and keyboard edits while respecting locks", 
     const lockedSwitch = dialog.getByRole("switch", { name: "Locked" });
     await lockedSwitch.check();
     await expect(lockedSwitch).toBeChecked();
-    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await dialog
+      .getByRole("button", { name: "Close linked elements", exact: true })
+      .click();
 
     await firstLinkedRow.click();
     await firstLinkedRow.focus();
@@ -619,7 +623,7 @@ test("keeps global shortcuts behind the linked element picker", async ({
     .getByRole("button", { name: "New Translation" })
     .click();
   await linkedElementsDialog
-    .getByRole("button", { name: "Close", exact: true })
+    .getByRole("button", { name: "Close linked elements", exact: true })
     .click();
   await expect(page.getByTestId("save-status")).toContainText("Saved", {
     timeout: 5_000,

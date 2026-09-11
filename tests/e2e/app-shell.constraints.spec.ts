@@ -34,6 +34,37 @@ test("keeps the expanded constraint editor out of the current UI", async ({
   await expect(page.getByTestId("constraint-popout-window")).toHaveCount(0);
 });
 
+test("explains the split icon on keyboard focus and keeps its action available", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await openConstraintsTab(page);
+  await page
+    .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
+    .click();
+  await page
+    .getByRole("button", { name: "Delete constraint 1", exact: true })
+    .focus();
+  await page.keyboard.press("Tab");
+  const split = page.getByRole("button", {
+    name: "Split constraint 1",
+    exact: true,
+  });
+  await expect(split).toBeFocused();
+  await expect(page.getByRole("tooltip")).toHaveText("Split constraint 1");
+  await expect(split).toHaveAttribute(
+    "aria-describedby",
+    (await page.getByRole("tooltip").getAttribute("id")) ?? "",
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect(split).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByTestId("constraint-range-max_velocity_meters_per_sec-1"),
+  ).toBeVisible();
+});
+
 test("adds edits and deletes ranged constraints", async ({ page }) => {
   await gotoSampleEditor(page);
   await openConstraintsTab(page);
@@ -199,10 +230,10 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
     "ranged-constraint-row-max_velocity_meters_per_sec-empty",
   );
   await expect(emptyConstraintRow).toBeVisible();
-  // With nothing selected the fields are replaced by a single hint.
+  // With nothing selected, hide the fields and keep the segment actions available.
   await expect(
     emptyConstraintRow.getByText("Select a segment to edit its value."),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(emptyConstraintRow.getByLabel("Max Velocity value")).toHaveCount(
     0,
   );
@@ -906,9 +937,7 @@ test("guides the user when every velocity segment is manual", async ({
     card.getByRole("button", { name: "Generate constraints" }),
   ).toBeDisabled();
   await expect(
-    card.getByText(
-      "All values are set manually. Switch one to Auto to generate.",
-    ),
+    card.getByText("Set a value to Auto to enable Generate."),
   ).toBeVisible();
 });
 

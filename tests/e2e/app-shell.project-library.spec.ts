@@ -316,8 +316,8 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
 
   await page.getByRole("button", { name: "Path", exact: true }).click();
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
-  await expect(page.getByText("Current: Phase 1 Canvas Draft")).toBeVisible();
-  await expect(page.getByText("Path Group: None")).toBeVisible();
+  await expect(page.getByText("Current: Phase 1 Canvas Draft")).toHaveCount(0);
+  await expect(page.getByText("Path Group: None")).toHaveCount(0);
   await expect(
     page.getByRole("menuitem", { name: "Linked Elements..." }),
   ).toBeVisible();
@@ -332,9 +332,7 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
   ).toBeVisible();
   await page.getByRole("menuitem", { name: "Manage Paths" }).click();
   await expect(page.getByTestId("top-menu-path-manage")).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Create New Path" }),
-  ).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "New Path" })).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Save Path As..." }),
   ).toBeVisible();

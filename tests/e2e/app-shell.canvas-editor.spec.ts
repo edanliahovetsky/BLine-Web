@@ -610,7 +610,7 @@ test("persists the inspector tab while keeping header actions available", async 
   await expect(
     page.locator(".add-constraint-menu [role='menuitem']"),
   ).toHaveText([
-    "Max Velocity (+)",
+    "Max Velocity",
     "Max Acceleration",
     "Min Velocity",
     "Max Rot Velocity",
@@ -1095,6 +1095,14 @@ test("shows persistent save feedback in the sidebar and collapsed canvas", async
   await expect(saveStatus.locator(".workspace-status__save-glyph")).toHaveText(
     "✅",
   );
+  await page.keyboard.press("Tab");
+  await saveStatus.focus();
+  await expect(page.getByRole("tooltip")).toContainText("Saved");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect(saveStatus).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(saveStatus).toContainText("Saved");
   await expect(floatingStatus).toBeVisible();
   await page.waitForTimeout(2_100);
   await expect(saveStatus).toBeVisible();

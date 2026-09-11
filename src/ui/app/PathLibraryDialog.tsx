@@ -10,6 +10,10 @@ import {
 import { flushSync } from "react-dom";
 import {
   Check,
+  CircleHelp,
+  Network,
+  ListFilter,
+  Unlink,
   Copy,
   Eye,
   Folder,
@@ -27,7 +31,7 @@ import type { Project, ProjectPath } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import { isEditableShortcutTarget } from "../keyboardShortcuts";
-import { CloseButton } from "../controls";
+import { CloseButton, TooltipIconButton, useControlTooltip } from "../controls";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import {
   usePathGroupLinkDrag,
@@ -652,9 +656,7 @@ export function PathLibraryDialog({
   const previewEnd = drag.view?.target
     ? geometry.points.get(keyFor(drag.view.target))
     : drag.view?.point;
-  let status =
-    message ||
-    "Click a connection point to link or unlink. Drag a point onto a row to connect.";
+  let status = message === "Already connected." ? message : "";
   if (pending)
     status = `Choose a ${pending.kind === "group" ? "Path" : "Path Group"} to connect. Esc to cancel.`;
   if (drag.view)
@@ -662,7 +664,7 @@ export function PathLibraryDialog({
       ? connected(edgeFor(drag.view.source, drag.view.target))
         ? "Already connected."
         : `Release to connect to ${findNode(drag.view.target)?.name ?? "the destination"}.`
-      : "Drag to the other column. Pause near an edge to scroll. Esc to cancel.";
+      : `Drag to a ${drag.view.source.kind === "group" ? "path" : "group"} · Esc to cancel.`;
   if (selectedEdge)
     status = `${groups.find((node) => node.id === selectedEdge.groupId)?.name} ↔ ${paths.find((node) => node.id === selectedEdge.pathId)?.name}`;
 
@@ -740,6 +742,7 @@ export function PathLibraryDialog({
               type="button"
               className="fc-select"
               aria-label={`Focus ${node.name}`}
+              aria-description={`${node.count} ${node.kind === "group" ? "Paths" : "Path Groups"}`}
               aria-pressed={isFocused}
               onClick={() => select(node)}
               onDoubleClick={() => startRename(node)}
@@ -838,12 +841,12 @@ export function PathLibraryDialog({
               {!nodes.length && (
                 <div className="fc-empty">
                   {query.trim()
-                    ? `No ${kind === "group" ? "Path Groups" : "Paths"} match your search.`
+                    ? "No matches"
                     : total
-                      ? "Select an item to see its connections."
+                      ? "Select a path or group."
                       : kind === "group"
-                        ? "Create a Path Group, then link your Paths."
-                        : "Create your first Path."}
+                        ? "No path groups"
+                        : "No paths"}
                 </div>
               )}
             </div>
@@ -856,6 +859,7 @@ export function PathLibraryDialog({
                 type="button"
                 className={`fc-edge-cap is-${direction}`}
                 title={`Show connections ${direction}`}
+                aria-label={`${ids.length} ${kind === "group" ? (ids.length === 1 ? "Path Group" : "Path Groups") : ids.length === 1 ? "Path" : "Paths"} ${direction}`}
                 onClick={() => jumpToConnection(kind, ids, direction)}
               >
                 {direction === "above" ? (
@@ -863,15 +867,7 @@ export function PathLibraryDialog({
                 ) : (
                   <ArrowDown size={12} />
                 )}
-                {ids.length}{" "}
-                {kind === "group"
-                  ? ids.length === 1
-                    ? "Path Group"
-                    : "Path Groups"
-                  : ids.length === 1
-                    ? "Path"
-                    : "Paths"}{" "}
-                {direction}
+                {ids.length}
               </button>
             ) : null;
           })}
@@ -900,7 +896,7 @@ export function PathLibraryDialog({
         onPointerDown={(event) => {
           if (
             event.target instanceof Element &&
-            !event.target.closest("button, input, label")
+            !event.target.closest("button, input, label, summary, .fc-help")
           ) {
             event.currentTarget.focus({ preventScroll: true });
           }
@@ -911,7 +907,10 @@ export function PathLibraryDialog({
             <strong>Project Navigator</strong>
             <span>{project.display_name}</span>
           </div>
-          <CloseButton ariaLabel="Close" onClick={onCancel} />
+          <div className="fc-header-actions">
+            <ConnectionHelp />
+            <CloseButton ariaLabel="Close" onClick={onCancel} />
+          </div>
         </header>
         <div className="fc-focusbar">
           <div className="fc-focus-meta">
@@ -926,18 +925,29 @@ export function PathLibraryDialog({
               <strong data-testid="path-library-focus-name">
                 {focus?.name ?? "Paths & Path Groups"}
               </strong>
-              <span data-testid="path-library-focus-count">
+              <span className="sr-only" data-testid="path-library-focus-count">
                 {focus
                   ? `${focus.count} ${focus.kind === "group" ? "Path" : "Path Group"}${focus.count === 1 ? "" : "s"} connected${hiddenCount ? ` · ${hiddenCount} hidden by search` : ""}`
-                  : "Create a Path or Path Group to begin."}
+                  : ""}
               </span>
+              {hiddenCount > 0 ? (
+                <span
+                  aria-hidden="true"
+                  data-testid="path-library-hidden-count"
+                >
+                  {hiddenCount} hidden by search
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="fc-focus-actions">
             {focus && (
-              <button
-                type="button"
-                className="fc-open"
+              <TooltipIconButton
+                className="fc-open fc-icon-action"
+                aria-label={
+                  focus.kind === "group" ? "Preview Path Group" : "Open Path"
+                }
+                title={`${focus.kind === "group" ? "Preview" : "Open"} ${focus.name} on canvas`}
                 disabled={focus.kind === "group" && focus.count === 0}
                 onClick={() => openOnCanvas(focus)}
               >
@@ -946,17 +956,16 @@ export function PathLibraryDialog({
                 ) : (
                   <ExternalLink size={14} />
                 )}
-                {focus.kind === "group" ? "Preview Path Group" : "Open Path"}
-              </button>
+              </TooltipIconButton>
             )}
-            <label className="fc-toggle">
-              <input
-                type="checkbox"
-                checked={showAll}
-                onChange={(event) => setShowAll(event.currentTarget.checked)}
-              />
-              Show all connections
-            </label>
+            <TooltipIconButton
+              className="fc-toggle fc-icon-action"
+              aria-label="Show all connections"
+              aria-pressed={showAll}
+              onClick={() => setShowAll((value) => !value)}
+            >
+              <Network aria-hidden="true" size={17} />
+            </TooltipIconButton>
           </div>
         </div>
         <div
@@ -1057,7 +1066,6 @@ export function PathLibraryDialog({
                 <input
                   type="search"
                   aria-label="Find a Path Group"
-                  placeholder="Find a Path Group"
                   value={groupQuery}
                   onChange={(event) => {
                     setGroupQuery(event.currentTarget.value);
@@ -1086,7 +1094,6 @@ export function PathLibraryDialog({
                 <input
                   type="search"
                   aria-label="Search paths"
-                  placeholder="Find a Path"
                   value={pathQuery}
                   onChange={(event) => {
                     setPathQuery(event.currentTarget.value);
@@ -1098,20 +1105,34 @@ export function PathLibraryDialog({
             </section>
           </div>
         </div>
+        <span className="sr-only" role="status">
+          {message}
+        </span>
+        {/* Keep the list edges fixed when connection guidance appears during a drag. */}
         <footer className={`fc-status${origin ? " is-linking" : ""}`}>
           <span role={error ? "alert" : "status"}>
-            <Link2 size={14} />
+            {error || status ? <Link2 aria-hidden="true" size={14} /> : null}
             {error || status}
           </span>
           {sortDirty && !origin && !selectedEdge && (
-            <button type="button" className="fc-resort" onClick={refreshOrder}>
-              Re-sort connected first
-            </button>
+            <TooltipIconButton
+              className="fc-resort fc-icon-action"
+              aria-label="Re-sort connected first"
+              title="Sort connected first"
+              onClick={refreshOrder}
+            >
+              <ListFilter aria-hidden="true" size={16} />
+            </TooltipIconButton>
           )}
           {selectedEdge && (
-            <button type="button" onClick={() => disconnect(selectedEdge)}>
-              Remove connection
-            </button>
+            <TooltipIconButton
+              className="fc-icon-action"
+              aria-label="Remove connection"
+              title={`Disconnect ${paths.find((path) => path.id === selectedEdge.pathId)?.name} from ${groups.find((group) => group.id === selectedEdge.groupId)?.name}`}
+              onClick={() => disconnect(selectedEdge)}
+            >
+              <Unlink aria-hidden="true" size={16} />
+            </TooltipIconButton>
           )}
           {pending && !drag.view && (
             <button type="button" onClick={() => setPending(null)}>
@@ -1130,6 +1151,45 @@ export function PathLibraryDialog({
         )}
       </section>
     </div>
+  );
+}
+
+function ConnectionHelp() {
+  const { triggerProps, tooltip } = useControlTooltip("Connection help");
+  return (
+    <details
+      className="fc-help"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          event.currentTarget.open = false;
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && event.currentTarget.open) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.currentTarget.open = false;
+          event.currentTarget.querySelector("summary")?.focus();
+        }
+      }}
+    >
+      <summary
+        {...triggerProps}
+        aria-label="Connection help"
+        role="button"
+        className="fc-icon-action"
+      >
+        <CircleHelp aria-hidden="true" size={17} />
+      </summary>
+      {tooltip}
+      <div className="fc-help__content">
+        <p>
+          Click a connection point to link or unlink. Drag a point onto a row to
+          connect.
+        </p>
+        <p>Pause near an edge to scroll. Unlinking keeps the path.</p>
+        <p>Use Tab and Enter to choose connection points. Esc cancels.</p>
+      </div>
+    </details>
   );
 }
 

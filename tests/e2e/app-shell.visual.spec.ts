@@ -46,7 +46,9 @@ test.describe("app shell visual baselines", () => {
     await expect(
       page.getByRole("complementary", { name: "Path inspector" }),
     ).toBeVisible();
-    await expect(page.getByText("Path Elements")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Path Elements", exact: true }),
+    ).toBeVisible();
 
     await expectVisualSnapshot(page, "editor-elements.png");
   });
@@ -101,6 +103,18 @@ test.describe("app shell visual baselines", () => {
     ).toBeVisible();
 
     await expectVisualSnapshot(page, "compact-inspector.png");
+  });
+
+  test("empty linked elements library", async ({ page }) => {
+    await gotoSampleEditor(page);
+    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Linked Elements..." }).click();
+
+    await expect(
+      page.getByRole("dialog", { name: "Linked Elements", exact: true }),
+    ).toBeVisible();
+
+    await expectVisualSnapshot(page, "linked-elements-empty.png");
   });
 });
 

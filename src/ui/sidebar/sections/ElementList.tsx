@@ -151,6 +151,7 @@ export function ElementList({
       open={open}
       sectionId="path-elements"
       title="Path Elements"
+      hideTitle
       onToggle={onToggleSection}
     >
       {elements.length > 0 ? (
@@ -273,7 +274,7 @@ export function ElementList({
           </ol>
         </>
       ) : (
-        <div className="sidebar-empty-state">No path elements</div>
+        <div className="sidebar-empty-state">No elements</div>
       )}
     </SidebarSection>
   );

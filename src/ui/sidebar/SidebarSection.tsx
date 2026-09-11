@@ -7,6 +7,7 @@ interface SidebarSectionProps {
   children: ReactNode;
   className?: string;
   headerless?: boolean;
+  hideTitle?: boolean;
   meta?: string;
   onToggle?(): void;
   open: boolean;
@@ -20,6 +21,7 @@ export function SidebarSection({
   children,
   className,
   headerless = false,
+  hideTitle = false,
   meta,
   onToggle,
   open,
@@ -50,11 +52,19 @@ export function SidebarSection({
                 onClick={onToggle}
               >
                 <ChevronDownIcon size={15} />
-                <span className="sidebar-section-title">{title}</span>
+                <span
+                  className={hideTitle ? "sr-only" : "sidebar-section-title"}
+                >
+                  {title}
+                </span>
               </button>
             ) : (
               <span className="sidebar-section-toggle sidebar-section-toggle--static">
-                <span className="sidebar-section-title">{title}</span>
+                <span
+                  className={hideTitle ? "sr-only" : "sidebar-section-title"}
+                >
+                  {title}
+                </span>
               </span>
             )}
             {meta ? <span className="sidebar-section-meta">{meta}</span> : null}

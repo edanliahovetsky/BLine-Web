@@ -10,7 +10,7 @@ import {
   type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2 } from "lucide-react";
+import { Eraser, Maximize2 } from "lucide-react";
 
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
@@ -64,11 +64,18 @@ import { selectionStore } from "../../../state/selectionStore";
 import { useStoreSelector } from "../../../state/react";
 import {
   CloseButton,
+  TooltipIconButton,
   SidebarActionButton,
   SidebarIconButton,
   NumberStepperControl,
 } from "../../controls";
-import { ElementIcon, PlusIcon, RemoveIcon, WarningIcon } from "../../icons";
+import {
+  ElementIcon,
+  PlusIcon,
+  RemoveIcon,
+  SplitSegmentIcon,
+  WarningIcon,
+} from "../../icons";
 import {
   cloneRangedEntries,
   hitTestRangeBoundary,
@@ -534,7 +541,7 @@ export function ConstraintEditor({
 
               {!hasAnyConstraint(path) &&
               domainLabelsForKey(path, autoVelocityKey).length === 0 ? (
-                <p className="constraint-empty-state">No path limits added.</p>
+                <p className="constraint-empty-state">No constraints</p>
               ) : null}
             </>
           ) : (
@@ -585,7 +592,7 @@ export function ConstraintEditor({
               >
                 {availableItemCount === 0 ? (
                   <p className="constraint-empty-state">
-                    Everything is already active.
+                    All constraints added
                   </p>
                 ) : (
                   availableSections.map((section) => (
@@ -839,7 +846,8 @@ function AutoConstraintLedgerCard({
           >
             Generate
           </SidebarActionButton>
-          <SidebarActionButton
+          <TooltipIconButton
+            className="sidebar-icon-button"
             onClick={() => clearGeneratedConstraints(path)}
             disabled={
               autoVelocityRunning || !canClearAutomaticConstraints(path)
@@ -847,19 +855,18 @@ function AutoConstraintLedgerCard({
             aria-label="Clear generated constraints"
             title="Clear generated handoff radii and velocity constraints"
           >
-            Clear
-          </SidebarActionButton>
+            <Eraser aria-hidden="true" size={16} />
+          </TooltipIconButton>
         </div>
       </div>
 
       {!autoVelocityRunning && !canGenerate ? (
         <p className="auto-velocity-hint" role="note">
-          All values are set manually. Switch one to Auto to generate.
+          Set a value to Auto to enable Generate.
         </p>
       ) : entries.length === 0 && total > 0 ? (
         <p className="auto-velocity-hint" role="note">
-          No caps yet, so this path drives at the global maximum. Generate
-          proposes caps and radii from its shape.
+          No velocity caps; using the global maximum.
         </p>
       ) : null}
 
@@ -937,12 +944,6 @@ function AutoConstraintLedgerCard({
         </div>
       </div>
 
-      {entries.length > 1 || chips.filter((chip) => !chip.inert).length > 1 ? (
-        <p className="bulk-selection-hint">
-          Shift-click selects a range · ⌘/Ctrl-click toggles values.
-        </p>
-      ) : null}
-
       {activeType === "radius" ? (
         selectedChips.length > 1 ? (
           <HandoffRadiusBulkControls
@@ -1000,11 +1001,7 @@ function AutoConstraintLedgerCard({
             onOpenPopout={onOpenPopout}
           />
         )
-      ) : (
-        <div className="auto-constraint-ledger__empty" role="note">
-          Select a speed or distance value to edit it.
-        </div>
-      )}
+      ) : null}
     </article>
   );
 }
@@ -1116,12 +1113,6 @@ function RangedConstraintCard({
           }
         }}
       />
-      {entries.length > 1 ? (
-        <p className="bulk-selection-hint">
-          Shift-click segments to edit them together.
-        </p>
-      ) : null}
-
       {selectedEntries.length > 1 ? (
         <BulkRangedConstraintControls
           path={path}
@@ -1230,7 +1221,7 @@ function HandoffRadiusBulkControls({
           onModeChange={(nextMode) => setHandoffRadiusModes(chips, nextMode)}
         />
         <label className="ranged-constraint-controls__value">
-          <span>Set all values</span>
+          <span>Value</span>
           <div className="constraint-value-input">
             <NumberStepperControl
               allowEmpty
@@ -1308,11 +1299,7 @@ function HandoffRadiusControls({
               </div>
             </label>
           </>
-        ) : (
-          <p className="ranged-constraint-controls__empty" role="note">
-            Select an anchor to pin its radius.
-          </p>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -2389,7 +2376,7 @@ function BulkRangedConstraintControls(
           />
         ) : null}
         <label className="ranged-constraint-controls__value">
-          <span>Set all values</span>
+          <span>Value</span>
           <div className="constraint-value-input">
             <NumberStepperControl
               allowEmpty
@@ -2529,7 +2516,6 @@ function RangedConstraintControls({
               />
             ) : null}
             <label className="ranged-constraint-controls__value">
-              <span>Value</span>
               <div className="constraint-value-input">
                 <NumberStepperControl
                   allowEmpty
@@ -2584,11 +2570,7 @@ function RangedConstraintControls({
               </span>
             ) : null}
           </>
-        ) : (
-          <p className="ranged-constraint-controls__empty" role="note">
-            Select a segment to edit its value.
-          </p>
-        )}
+        ) : null}
       </div>
       <div className="ranged-constraint-controls__actions">
         <SidebarIconButton
@@ -2622,7 +2604,8 @@ function RangedConstraintControls({
         >
           <RemoveIcon size={16} />
         </SidebarIconButton>
-        <SidebarActionButton
+        <TooltipIconButton
+          className="sidebar-icon-button"
           onClick={() => {
             if (entry) {
               splitRangedConstraint(entry.index);
@@ -2635,8 +2618,8 @@ function RangedConstraintControls({
           }
           aria-label={`Split ${selectedActionLabel}`}
         >
-          Split
-        </SidebarActionButton>
+          <SplitSegmentIcon size={16} />
+        </TooltipIconButton>
         {constraintPopoutEnabled && onOpenPopout ? (
           <SidebarIconButton
             className="constraint-popout-button"
@@ -2842,7 +2825,7 @@ function buildConstraintMenuItem(
     }
 
     return canAddMoreRanged(path, key)
-      ? [{ key, label: `${rangedMeta[key].label} (+)` }]
+      ? [{ key, label: rangedMeta[key].label }]
       : [];
   }
 

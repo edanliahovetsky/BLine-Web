@@ -18,7 +18,7 @@ test("completes the offline lesson through Guided tours and remembers completion
   await expect(card).toContainText("same browser on this device");
   await expect(card).toContainText("No installation needed");
   await expect(card).toBeFocused();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 1");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("1 / 1");
   await card.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(card).toHaveCount(0);
   await expect(home).toBeVisible();

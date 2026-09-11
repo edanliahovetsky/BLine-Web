@@ -19,9 +19,7 @@ test("opens help and tutorials from the toolbar", async ({ page }) => {
   const hub = page.getByTestId("help-hub");
   await expect(hub).toBeVisible();
   await expect(hub.getByRole("link", { name: /Documentation/ })).toBeVisible();
-  await expect(
-    hub.getByRole("button", { name: /Open sample path/ }),
-  ).toBeVisible();
+  await expect(hub.getByRole("button", { name: /Sample path/ })).toBeVisible();
 
   await hub.getByRole("button", { name: /Keyboard shortcuts/ }).click();
   await expect(
@@ -80,7 +78,7 @@ test("runs the guided tour in an isolated practice session", async ({
   await pathStage.click({
     position: { x: canvas.width / 2, y: canvas.height / 2 },
   });
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 7");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("3 / 7");
   await ghostPathsToggle.click();
   await expect(ghostPathsToggle).not.toHaveAttribute(
     "aria-pressed",
@@ -173,7 +171,7 @@ test("opens lessons and starts a guided tour from the start center", async ({
   await page.getByTestId("tour-picker-editor-basics").click();
 
   await expect(page.getByTestId("tour-card")).toBeVisible();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 1 of 7");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("1 / 7");
 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "BLine Web" })).toBeVisible();
@@ -221,7 +219,7 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
     canvas.x + canvas.width / 2,
     canvas.y + canvas.height / 2,
   );
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 4 of 8");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("4 / 8");
 
   // Two informational steps, then the handoff step waits for a real
   // selection of the element the learner just added.
@@ -235,7 +233,7 @@ test("teaches concepts across multiple lessons", async ({ page }) => {
     canvas.x + canvas.width / 2,
     canvas.y + canvas.height / 2,
   );
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 7 of 8");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("7 / 8");
   await expect(card).toContainText("Bigger circle, earlier turn");
 
   await card.getByRole("button", { name: "Next", exact: true }).click();
@@ -263,7 +261,7 @@ test("advances lessons when the user performs the taught action", async ({
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(card).toContainText("Open the Constraints tab");
   await page.getByRole("tab", { name: /Constraints/ }).click();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 6");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("3 / 6");
   await expect(page.locator(".tour-spotlight")).toBeVisible();
   await page.keyboard.press("Escape");
 
@@ -275,7 +273,7 @@ test("advances lessons when the user performs the taught action", async ({
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(card).toContainText("Watch the run");
   await page.getByRole("button", { name: "Play simulation" }).click();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("Step 3 of 6");
+  await expect(page.getByTestId("tour-step-count")).toHaveText("3 / 6");
   await expect(card).toContainText("not a robot sim");
   await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(card).toContainText("Check path health");
@@ -332,9 +330,7 @@ test("walks the guided tour with a spotlight on every step", async ({
 
   // Every step must anchor to something real and on screen.
   for (let step = 1; step <= 7; step += 1) {
-    await expect(page.getByTestId("tour-step-count")).toHaveText(
-      `Step ${step} of 7`,
-    );
+    await expect(page.getByTestId("tour-step-count")).toHaveText(`${step} / 7`);
     await expect(spotlight).toBeVisible();
     const box = await spotlight.boundingBox();
     expect(box?.width ?? 0).toBeGreaterThan(0);

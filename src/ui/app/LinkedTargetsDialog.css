@@ -162,3 +162,25 @@
     overflow-y: auto;
   }
 }
+
+.linked-targets-dialog .library-dialog__utility-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.linked-targets-dialog .library-dialog__selection-summary {
+  flex: 1 1 0;
+}
+
+@media (max-width: 980px) {
+  .linked-targets-dialog .library-dialog__selection-summary {
+    flex-basis: 100%;
+  }
+}
+
+.linked-targets-dialog__target-row small .linked-targets-dialog__locked {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 6px;
+}
