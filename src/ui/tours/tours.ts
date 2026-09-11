@@ -795,12 +795,19 @@ export const eventTriggersTour: TourDefinition = {
             path.path_elements.some(
               (element, index) =>
                 isEventTrigger(element) &&
+                index > 0 &&
+                index < bendIndex &&
+                element.lib_key.trim() === "startIntake",
+            ) &&
+            path.path_elements.some(
+              (element, index) =>
+                isEventTrigger(element) &&
                 index > bendIndex &&
                 index < endIndex &&
                 element.lib_key.trim() === "stopIntake" &&
                 Math.abs(element.t_ratio - 0.6) < 0.015,
             ),
-          "Place the new event after the translation target, then set Event Pos 0.6 and Lib Key stopIntake.",
+          "Keep startIntake on the first segment and add stopIntake on the second at Event Pos 0.6.",
           "stopIntake is on the second segment at 0.6.",
         );
       }),

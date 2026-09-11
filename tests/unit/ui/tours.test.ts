@@ -279,6 +279,7 @@ describe("foundational lesson content", () => {
       0,
       createEventTrigger({ lib_key: "stopIntake", t_ratio: 0.6 }),
     );
+    loadPractice(path);
     expect(step.check?.().complete).toBe(false);
     path.path_elements.splice(1, 1);
     path.path_elements.splice(
@@ -289,6 +290,11 @@ describe("foundational lesson content", () => {
     // Project creation copies the path so write the changed exercise into the store.
     loadPractice(path);
     expect(step.check?.().complete).toBe(true);
+    const original = path.path_elements[1];
+    path.path_elements.splice(1, 1);
+    loadPractice(path);
+    expect(step.check?.().complete).toBe(false);
+    path.path_elements.splice(1, 0, original);
     const added = path.path_elements[3];
     if (added.type === "event_trigger") added.t_ratio = 0.3;
     loadPractice(path);
