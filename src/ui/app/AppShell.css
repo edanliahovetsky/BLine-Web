@@ -254,7 +254,8 @@ select {
   position: absolute;
   z-index: 90;
   top: calc(100% + 5px);
-  left: 0;
+  left: 50%;
+  transform: translateX(-50%);
   display: grid;
   gap: 2px;
   width: max(100%, 180px);
@@ -3810,32 +3811,6 @@ select {
   line-height: 1.35;
 }
 
-@media (max-width: 1280px) {
-  .toolbar-actions {
-    position: relative;
-    overflow: visible;
-  }
-
-  .toolbar-actions__quick {
-    position: static;
-    transform: none;
-    flex: 1 1 auto;
-    justify-content: flex-end;
-  }
-
-  .path-toolbar-navigator {
-    justify-content: flex-end;
-  }
-
-  .path-toolbar-navigator__field .toolbar-select-control {
-    width: min(var(--path-toolbar-field-width, 20ch), 24vw);
-  }
-
-  .path-toolbar-navigator__count {
-    display: none;
-  }
-}
-
 @media (max-width: 980px) {
   .app-tabs {
     justify-content: flex-start;
@@ -3998,7 +3973,8 @@ select {
 }
 
 .app-toolbar {
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  /* Equal side tracks keep the selector centered on the whole app. */
+  grid-template-columns: minmax(180px, 1fr) minmax(0, auto) minmax(180px, 1fr);
   min-height: 48px;
   padding: 6px 8px;
   border-color: var(--bline-border-subtle);
@@ -4038,14 +4014,22 @@ select {
 }
 
 .toolbar-actions {
-  gap: 8px;
+  display: contents;
 }
 
 .toolbar-actions__quick {
-  max-width: min(46vw, 700px);
+  position: static;
+  grid-column: 2;
+  grid-row: 1;
+  justify-content: center;
+  max-width: 100%;
+  transform: none;
 }
 
 .toolbar-actions__buttons {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -6034,31 +6018,7 @@ body.is-resizing-inspector * {
   display: none;
 }
 
-@media (max-width: 1280px) {
-  .app-toolbar {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .toolbar-actions__quick {
-    position: absolute;
-    left: 50%;
-    max-width: 36vw;
-    transform: translate(-50%, -50%);
-  }
-}
-
 @media (max-width: 1120px) {
-  .app-toolbar {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .toolbar-actions__quick {
-    position: static;
-    display: flex;
-    max-width: min(46vw, 430px);
-    transform: none;
-  }
-
   .workspace {
     /* Toolbar dropdowns must stay above the inspector overlay. */
     isolation: isolate;
@@ -6145,28 +6105,23 @@ body.is-resizing-inspector * {
   }
 }
 
-/* Keep the desktop controls in their normal order. A second row gives the
-   path selector and action buttons room without hiding commands. */
+/* Give the centered selector its own row before the side controls crowd it. */
 @media (max-width: 640px) {
   .app-shell {
     grid-template-rows: auto minmax(0, 1fr);
   }
 
   .app-toolbar {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .toolbar-actions__quick {
-    justify-content: flex-start;
-    max-width: none;
-  }
-
-  .path-toolbar-navigator__field .toolbar-select-control {
-    width: var(--path-toolbar-field-width, 20ch);
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 
   .toolbar-actions__buttons {
-    flex: 0 0 auto;
+    grid-column: 2;
   }
 
   .toolbar-select-control__menu {
@@ -6182,6 +6137,22 @@ body.is-resizing-inspector * {
     max-height: calc(100dvh - 90px);
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+}
+
+/* At the smallest widths the two side groups also need separate rows. */
+@media (max-width: 360px) {
+  .app-tabs {
+    grid-column: 1 / -1;
+  }
+
+  .toolbar-actions__buttons {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .help-hub-popover {
+    max-height: calc(100dvh - 124px);
   }
 }
 
