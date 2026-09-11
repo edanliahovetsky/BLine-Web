@@ -19,13 +19,7 @@ import type { Project, ProjectPath } from "../../core/model/project";
 import { ChevronDownIcon } from "../icons";
 import { formatShortcut, type ShortcutBinding } from "./editorCommands";
 
-export type TopMenuId =
-  | "project"
-  | "path"
-  | "edit"
-  | "view"
-  | "help"
-  | "actions";
+export type TopMenuId = "project" | "path" | "edit" | "view" | "help";
 
 interface TopMenuSubmenuContextValue {
   activeSubmenuId: string | null;

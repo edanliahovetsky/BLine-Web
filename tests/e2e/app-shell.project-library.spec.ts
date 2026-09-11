@@ -463,15 +463,15 @@ test("switches paths from the toolbar path selector", async ({ page }) => {
   );
 });
 
-test("keeps actions flyouts stable and closes them after leaving", async ({
+test("keeps narrow File flyouts stable and closes them after leaving", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 800, height: 700 });
   await gotoSampleEditor(page);
 
-  await page.getByRole("button", { name: "Actions" }).click();
-  await page.getByRole("menuitem", { name: "Import" }).hover();
-  const importMenu = page.getByTestId("top-menu-actions-import");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Import / Export" }).hover();
+  const importMenu = page.getByTestId("top-menu-project-transfer");
   await expect(importMenu).toBeVisible();
 
   const importBox = await requiredBox(importMenu);
@@ -480,9 +480,9 @@ test("keeps actions flyouts stable and closes them after leaving", async ({
   await page.waitForTimeout(350);
   await expect(importMenu).toBeVisible();
 
-  const actionsMenu = page.getByTestId("top-menu-actions");
+  const fileMenu = page.getByTestId("top-menu-project");
   const importTriggerBox = await requiredBox(
-    actionsMenu.getByRole("menuitem", { name: "Import" }),
+    fileMenu.getByRole("menuitem", { name: "Import / Export" }),
   );
   const importBridgePoint = pointBetweenFlyoutAndTrigger(
     importTriggerBox,
@@ -491,14 +491,14 @@ test("keeps actions flyouts stable and closes them after leaving", async ({
   await page.mouse.move(importBridgePoint.x, importBridgePoint.y);
   await expect(importMenu).toHaveCount(0, { timeout: 500 });
 
-  await page.getByRole("menuitem", { name: "Import" }).hover();
+  await page.getByRole("menuitem", { name: "Import / Export" }).hover();
   await expect(importMenu).toBeVisible();
   await page.mouse.move(16, 16);
   await expect(importMenu).toHaveCount(0);
 
-  await page.getByRole("menuitem", { name: "Import" }).hover();
+  await page.getByRole("menuitem", { name: "Import / Export" }).hover();
   await expect(importMenu).toBeVisible();
-  await page.getByRole("menuitem", { name: "Save" }).hover();
+  await page.getByRole("menuitem", { name: "New Path", exact: true }).hover();
   await expect(importMenu).toHaveCount(0);
 });
 

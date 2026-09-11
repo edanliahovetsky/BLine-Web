@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
+import { createNewPathFromTopMenu } from "./support/app-shell-project-library";
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import {
   dismissMobileSupportWarning,
@@ -289,7 +290,8 @@ test("keeps the canvas bounded on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 450, height: 900 });
   await gotoSampleEditor(page);
 
-  await expect(page.getByRole("button", { name: "Actions" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Actions" })).toHaveCount(0);
+  await expect(page.getByLabel("Toolbar path")).toBeVisible();
 
   const documentHeight = await page.evaluate(
     () => document.documentElement.scrollHeight,
@@ -505,7 +507,7 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
 });
 
-test("keeps the compact top menu on one row without page overflow", async ({
+test("reflows the same toolbar controls without page overflow", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 360 });
@@ -516,7 +518,10 @@ test("keeps the compact top menu on one row without page overflow", async ({
   const metrics = await topMenu.evaluate((element) => {
     const buttonRows = Array.from(element.querySelectorAll("button"))
       .filter((button) => button.getBoundingClientRect().width > 0)
-      .map((button) => Math.round(button.getBoundingClientRect().top));
+      .map((button) => {
+        const rect = button.getBoundingClientRect();
+        return Math.round(rect.top + rect.height / 2);
+      });
 
     return {
       clientWidth: element.clientWidth,
@@ -527,10 +532,21 @@ test("keeps the compact top menu on one row without page overflow", async ({
     };
   });
 
-  expect(metrics.overflowX).toBe("auto");
-  expect(metrics.scrollWidth).toBeGreaterThanOrEqual(metrics.clientWidth);
+  expect(metrics.overflowX).toBe("visible");
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
   expect(metrics.pageOverflowX).toBeLessThanOrEqual(1);
-  expect(metrics.rowCount).toBeLessThanOrEqual(2);
+  expect(metrics.rowCount).toBe(1);
+  await expect(page.getByLabel("Toolbar path")).toBeInViewport();
+  for (const name of [
+    "Undo",
+    "Redo",
+    "Help and tutorials",
+    "Toggle inspector",
+  ]) {
+    await expect(
+      page.getByRole("button", { name, exact: true }),
+    ).toBeInViewport();
+  }
 
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
@@ -560,4 +576,180 @@ test("bounds compact dropdown panels to the viewport", async ({ page }) => {
   expect(panelMetrics.overflowY).toBe("auto");
   expect(panelMetrics.bottom).toBeLessThanOrEqual(panelMetrics.viewportHeight);
   expect(panelMetrics.scrollHeight).toBeGreaterThan(panelMetrics.clientHeight);
+});
+
+async function expectUsablePanel(panel: Locator) {
+  await expect(panel).toBeVisible();
+  const metrics = await panel.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      unobscured: element.contains(
+        document.elementFromPoint(rect.left + rect.width / 2, rect.top + 12),
+      ),
+    };
+  });
+  expect(metrics.left).toBeGreaterThanOrEqual(0);
+  expect(metrics.top).toBeGreaterThanOrEqual(0);
+  expect(metrics.right).toBeLessThanOrEqual(metrics.viewportWidth);
+  expect(metrics.bottom).toBeLessThanOrEqual(metrics.viewportHeight);
+  expect(metrics.unobscured).toBe(true);
+}
+
+test("preserves toolbar ordering and access across responsive breakpoints", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const toolbar = page.locator(".app-toolbar");
+  const expectedLabels = [
+    "Open project navigator",
+    "File",
+    "Path",
+    "Toolbar path",
+    "Undo",
+    "Redo",
+    "Help and tutorials",
+    "Settings",
+    "Toggle inspector",
+  ];
+  for (const width of [
+    1440, 1281, 1280, 1121, 1120, 981, 980, 821, 820, 641, 640, 450, 390, 320,
+  ]) {
+    await page.setViewportSize({ width, height: 900 });
+    await dismissMobileSupportWarning(page);
+    await expect(
+      page.getByRole("button", { name: "Actions", exact: true }),
+    ).toHaveCount(0);
+    const buttons = toolbar.getByRole("button");
+    await expect(buttons).toHaveCount(expectedLabels.length);
+    for (const [index, label] of expectedLabels.entries()) {
+      await expect(buttons.nth(index)).toHaveAccessibleName(label);
+      await expect(buttons.nth(index)).toBeInViewport({ ratio: 1 });
+    }
+    const metrics = await buttons.evaluateAll((elements) => {
+      const boxes = elements.map((element) => element.getBoundingClientRect());
+      return {
+        overlaps: boxes.some((a, i) =>
+          boxes
+            .slice(i + 1)
+            .some(
+              (b) =>
+                Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+                Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1,
+            ),
+        ),
+        pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
+      };
+    });
+    expect(metrics.overlaps, `Toolbar controls overlap at ${width}px`).toBe(
+      false,
+    );
+    expect(metrics.pageOverflow).toBeLessThanOrEqual(1);
+    await page.getByLabel("Toolbar path", { exact: true }).click();
+    await expectUsablePanel(
+      page.getByRole("listbox", { name: "Toolbar path options" }),
+    );
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await expectUsablePanel(page.getByTestId("top-menu-path"));
+    await page.keyboard.press("Escape");
+  }
+});
+
+for (const viewport of [
+  { width: 800, height: 700 },
+  { width: 390, height: 900 },
+  { width: 320, height: 180 },
+]) {
+  test(`keeps dropdowns usable with the inspector open at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await gotoSampleEditor(page);
+    const inspectorToggle = page.getByRole("button", {
+      name: "Toggle inspector",
+    });
+    if ((await inspectorToggle.getAttribute("aria-expanded")) !== "true") {
+      await inspectorToggle.click();
+    }
+    await page.getByRole("button", { name: "File", exact: true }).click();
+    await expectUsablePanel(page.getByTestId("top-menu-project"));
+    await page
+      .getByRole("menuitem", { name: "Import / Export", exact: true })
+      .click();
+    await expectUsablePanel(page.getByTestId("top-menu-project-transfer"));
+    await page.keyboard.press("Escape");
+    await page.getByLabel("Toolbar path", { exact: true }).click();
+    await expectUsablePanel(
+      page.getByRole("listbox", { name: "Toolbar path options" }),
+    );
+    await page
+      .getByRole("option", { name: "Phase 1 Canvas Draft", exact: true })
+      .click();
+    await expect(
+      page.getByRole("listbox", { name: "Toolbar path options" }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Help and tutorials", exact: true })
+      .click();
+    await expectUsablePanel(page.getByTestId("help-hub"));
+    await page.getByRole("button", { name: /Keyboard shortcuts/ }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+    ).toBeVisible();
+  });
+}
+
+test("selects paths and operates the portrait toolbar with the keyboard", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await gotoSampleEditor(page);
+  await createNewPathFromTopMenu(
+    page,
+    "Second path with a long name for the compact selector",
+  );
+  const pathMenu = page.getByRole("button", { name: "Path", exact: true });
+  await pathMenu.focus();
+  await page.keyboard.press("Enter");
+  await expectUsablePanel(page.getByTestId("top-menu-path"));
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Tab");
+  const selector = page.getByLabel("Toolbar path", { exact: true });
+  await expect(selector).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expectUsablePanel(
+    page.getByRole("listbox", { name: "Toolbar path options" }),
+  );
+  await page.keyboard.press("ArrowUp");
+  await expect(selector).toContainText("Phase 1 Canvas Draft");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "Undo", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Redo", exact: true }),
+  ).toBeEnabled();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "Redo", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "Help and tutorials", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "Settings", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
 });
