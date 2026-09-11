@@ -310,6 +310,14 @@ test("walks the guided tour with a spotlight on every step", async ({
 }) => {
   await gotoSampleEditor(page);
 
+  // Exercise the explicit Generate action without background sync completing
+  // that lesson step before the click reaches its spotlight.
+  await page.getByRole("button", { name: "Settings" }).click();
+  const settings = page.getByRole("dialog", { name: "Edit Config" });
+  await settings.getByRole("button", { name: "Generator" }).click();
+  await settings.getByLabel("Keep in sync").uncheck();
+  await settings.getByRole("button", { name: "Save" }).click();
+
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId("tour-picker-editor-basics").click();
