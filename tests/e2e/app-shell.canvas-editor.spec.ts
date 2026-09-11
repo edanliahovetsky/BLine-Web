@@ -1220,22 +1220,28 @@ test("adds missing waypoints from path health as one undoable fix", async ({
 test("keeps the element properties card tight to its content", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
   await gotoSampleEditor(page);
 
-  // A rotation element has few properties, so a card that stretched to fill
-  // the panel would leave a large empty band inside its own border.
-  await page.getByTestId("path-element-row-2").click();
-  await expect(page.getByLabel("Rotation Pos (0-1)")).toBeVisible();
-
   const section = page.locator(".property-editor-section");
-  const body = section.locator(".sidebar-section__body");
-  const sectionBox = await requiredBox(section);
-  const bodyBox = await requiredBox(body);
+  for (const index of [1, 4, 2, 0]) {
+    await page.getByTestId(`path-element-row-${index}`).click();
+    await expect(page.getByTestId("property-editor")).toHaveAttribute(
+      "aria-label",
+      `Element ${index + 1} properties`,
+    );
+    const sectionBox = await requiredBox(section);
+    const lastPropertyBox = await requiredBox(
+      section.locator(".property-row").last(),
+    );
 
-  // Nothing but the card's own border sits below the last property.
-  expect(
-    sectionBox.y + sectionBox.height - (bodyBox.y + bodyBox.height),
-  ).toBeLessThanOrEqual(2);
+    // Translation and Event Trigger have fewer rows than Rotation and
+    // Waypoint. Only the card padding and border should follow the last row.
+    expect(
+      sectionBox.y + sectionBox.height -
+        (lastPropertyBox.y + lastPropertyBox.height),
+    ).toBeLessThanOrEqual(10);
+  }
 });
 
 test("scrolls element properties only on genuinely short viewports", async ({
