@@ -367,14 +367,19 @@ export function ConstraintEditor({
             window.innerHeight - viewportPadding - panelHeight,
           )
         : Math.max(viewportPadding, summaryRect.top - menuGap - panelHeight);
-      const right = Math.max(
+      const panelWidth = panel.getBoundingClientRect().width;
+      const left = Math.max(
         viewportPadding,
-        window.innerWidth - summaryRect.right,
+        Math.min(
+          summaryRect.left + (summaryRect.width - panelWidth) / 2,
+          window.innerWidth - viewportPadding - panelWidth,
+        ),
       );
 
       setMenuPanelStyle({
         maxHeight: `${Math.round(availableSpace)}px`,
-        right: `${Math.round(right)}px`,
+        left: `${Math.round(left)}px`,
+        right: "auto",
         top: `${Math.round(top)}px`,
       });
     };

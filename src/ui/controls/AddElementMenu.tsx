@@ -27,7 +27,7 @@ export function AddElementMenu({
     triggerRef: menuTriggerRef,
     panelRef: menuPanelRef,
     position: menuPosition,
-  } = useFloatingMenu(220);
+  } = useFloatingMenu(220, true, "center");
   const visibleOptions = addOptions.filter((option) =>
     options.includes(option.type),
   );

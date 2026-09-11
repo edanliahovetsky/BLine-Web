@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
   width: number | "trigger",
   focusOnOpen = true,
+  align: "start" | "center" = "start",
 ) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<T | null>(null);
@@ -38,7 +39,12 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
         overflowY: "auto",
         left: Math.max(
           padding,
-          Math.min(rect.left, window.innerWidth - panelWidth - padding),
+          Math.min(
+            align === "center"
+              ? rect.left + (rect.width - panelWidth) / 2
+              : rect.left,
+            window.innerWidth - panelWidth - padding,
+          ),
         ),
         right: "auto",
         top: showBelow ? rect.bottom + gap : rect.top - gap - height,
@@ -62,7 +68,7 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open, width, focusOnOpen]);
+  }, [open, width, focusOnOpen, align]);
 
   useEffect(() => {
     if (!open) return;
