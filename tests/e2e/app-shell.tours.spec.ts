@@ -885,7 +885,7 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
   ).toHaveText("Start to Pickup");
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();
   await advance(page);
-  await heading(page, "Try a small minimum velocity");
+  await heading(page, "Choose the transition speed");
   await page
     .getByRole("button", { name: "Add constraint", exact: true })
     .click();
@@ -910,14 +910,14 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
     steps: 12,
   });
   await page.mouse.up();
-  await minimum.getByLabel(/^Constraint \d+ value$/).fill("0.3");
+  await minimum.getByLabel(/^Constraint \d+ value$/).fill("1.5");
   await minimum.getByLabel(/^Constraint \d+ value$/).press("Enter");
   expect(
     (await practice(page)).path.ranged_constraints.filter(
       (constraint) => constraint.key === "min_velocity_meters_per_sec",
     ),
   ).toEqual([
-    expect.objectContaining({ value: 0.3, start_ordinal: 3, end_ordinal: 3 }),
+    expect.objectContaining({ value: 1.5, start_ordinal: 3, end_ordinal: 3 }),
   ]);
   await advance(page);
   await heading(page, "Play the first path");

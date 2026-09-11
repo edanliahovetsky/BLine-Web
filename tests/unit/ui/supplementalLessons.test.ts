@@ -261,9 +261,9 @@ describe("supplemental lessons", () => {
     expect(runtime).not.toContain("linked_target");
   });
 
-  it("only accepts a small final-approach minimum below its actual maximum", () => {
+  it("accepts the 1.5 m/s transition speed only on the final approach and below its maximum", () => {
     seed(practice(createPathLinkingPaths()), "path-linking");
-    const title = "Try a small minimum velocity";
+    const title = "Choose the transition speed";
     expect(check("path-linking", title)).toBe(false);
     const updateMinimum = (value: number, start = 3) => {
       const updated = structuredClone(projectStore.getState().project!);
@@ -279,14 +279,14 @@ describe("supplemental lessons", () => {
       });
       projectStore.setState({ project: updated });
     };
-    updateMinimum(0.3, 1);
+    updateMinimum(1.5, 1);
     expect(check("path-linking", title)).toBe(false);
     updateMinimum(1);
     expect(check("path-linking", title)).toBe(false);
-    updateMinimum(0.3);
+    updateMinimum(1.5);
     expect(check("path-linking", title)).toBe(true);
     const capped = structuredClone(projectStore.getState().project!);
-    capped.paths[0].path.ranged_constraints[0].value = 0.2;
+    capped.paths[0].path.ranged_constraints[0].value = 1.5;
     projectStore.setState({ project: capped });
     expect(check("path-linking", title)).toBe(false);
     const lessonCopy = supplementalTours
@@ -298,5 +298,7 @@ describe("supplemental lessons", () => {
       "Run the next path immediately after the first in your robot code",
     );
     expect(lessonCopy).toContain("This preview plays one path at a time");
+    expect(lessonCopy).toContain("1.5 m/s minimum is your chosen entry speed");
+    expect(lessonCopy).toContain("smooth, unbroken transition");
   });
 });

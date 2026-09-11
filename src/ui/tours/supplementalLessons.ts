@@ -118,7 +118,7 @@ function changedSharedScorePose() {
   );
 }
 
-function gentleFinalMinimum(path: PathModel | undefined) {
+function hasTransitionMinimum(path: PathModel | undefined) {
   if (!path) return false;
   const lastOrdinal = path.path_elements.filter(
     (element) => element.type === "waypoint" || element.type === "translation",
@@ -141,8 +141,7 @@ function gentleFinalMinimum(path: PathModel | undefined) {
       (constraint) =>
         constraint.start_ordinal === lastOrdinal &&
         constraint.end_ordinal === lastOrdinal &&
-        constraint.value >= 0.1 &&
-        constraint.value <= 0.5 &&
+        Math.abs(constraint.value - 1.5) < 1e-6 &&
         constraint.value < maximum,
     )
   );
@@ -408,23 +407,23 @@ const pathLinkingSteps: TourStep[] = [
       ),
   },
   {
-    title: "Try a small minimum velocity",
-    body: "Click Add constraint and choose Min Velocity. Drag its cell to End (W2) and set it between 0.1 and 0.5 m/s. This keeps some speed for the transition. Start small: too much speed can cause overshoot.",
+    title: "Choose the transition speed",
+    body: "Click Add constraint and choose Min Velocity. Drag its cell to End (W2) and set it to 1.5 m/s. This is the speed you want the robot to carry into Pickup to Score for a smooth, unbroken transition.",
     target: "inspector-panel",
     visible: ["path-canvas"],
     interact: constraints,
     prepare: { inspector: "open", inspectorTab: "constraints" },
-    task: "Set Min Velocity between 0.1 and 0.5 m/s on End",
+    task: "Set Min Velocity to 1.5 m/s on End",
     check: () =>
       feedback(
-        gentleFinalMinimum(pathById(ids.stagingPickup)?.path),
-        "Set Min Velocity between 0.1 and 0.5 m/s on End only.",
-        "Min Velocity now applies only near End.",
+        hasTransitionMinimum(pathById(ids.stagingPickup)?.path),
+        "Set Min Velocity to 1.5 m/s on End only.",
+        "The transition speed is set to 1.5 m/s.",
       ),
   },
   {
     title: "Play the first path",
-    body: "Play the path and watch it approach End. The minimum velocity keeps it moving toward the shared waypoint, ready to continue along Pickup to Score. This preview plays one path at a time.",
+    body: "Play the path and watch how it keeps speed approaching End. The 1.5 m/s minimum is your chosen entry speed for Pickup to Score, so the robot can continue without stopping. This preview plays one path at a time.",
     target: "transport-play",
     visible: ["path-canvas"],
     interact: [...transport, ...constraints],
@@ -439,7 +438,7 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Run both paths in robot code",
-    body: "Run the next path immediately after the first in your robot code. Matching End and Start poses, plus a small minimum velocity on the first path’s approach, help the robot move smoothly between them without pausing. A Path Group organizes the paths; your robot code controls the sequence.",
+    body: "Run the next path immediately after the first in your robot code. Match End and Start poses, and choose the first path’s minimum velocity for the speed you want to enter the next path. Here, 1.5 m/s carries the robot through a smooth, unbroken transition. A Path Group organizes the paths; your robot code controls the sequence.",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...transport],
     prepare: { inspector: "closed", showGhostPaths: true },
