@@ -89,6 +89,7 @@ interface ToolbarImportControls {
 }
 
 interface ToolbarActions {
+  home(): void;
   openWorkspace(): void | Promise<void>;
   createWorkspace(): void | Promise<void>;
   createProject(): void | Promise<void>;
@@ -162,6 +163,12 @@ export function AppToolbar({
           setOpenTopMenu={menu.setOpen}
           onBeforeOpen={menu.refreshWorkspaces}
         >
+          <MenuAction
+            label="Home"
+            disabled={!project || !projectIoAvailable || toolbarBusy}
+            onAction={actions.home}
+          />
+          <div className="top-menu__separator" role="separator" />
           <MenuAction
             label="New Path"
             disabled={commands.newPath.disabled}

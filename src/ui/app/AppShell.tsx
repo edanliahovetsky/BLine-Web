@@ -140,6 +140,7 @@ interface TourEditorViewSnapshot {
   inspectorWidth: number;
   optimizerError: string | null;
   showGhostPaths: boolean;
+  showHome: boolean;
 }
 
 export function AppShell() {
@@ -155,14 +156,23 @@ export function AppShell() {
     projectStore,
     (state) => state.activePathGroupId,
   );
-  const activePath = useMemo(
-    () => activeProjectPath(durableProject, activePathId),
-    [activePathId, durableProject],
-  );
   const projectIo = useStoreSelector(projectStore, (state) => state.io);
   const projectSessionId = useStoreSelector(
     projectStore,
     (state) => state.projectSessionId,
+  );
+  // Keep the project alive on Home; opening a different session shows its editor.
+  const [homeProjectSessionId, setHomeProjectSessionId] = useState<
+    string | null
+  >(null);
+  const showHome =
+    !durableProject ||
+    (homeProjectSessionId !== null &&
+      homeProjectSessionId === projectSessionId);
+  const editorProject = showHome ? null : durableProject;
+  const activePath = useMemo(
+    () => activeProjectPath(editorProject, activePathId),
+    [activePathId, editorProject],
   );
   const dirty = useStoreSelector(projectStore, (state) => state.dirty);
   const projectRevision = useStoreSelector(
@@ -380,6 +390,7 @@ export function AppShell() {
         inspectorWidth,
         optimizerError,
         showGhostPaths,
+        showHome,
       },
     };
   }, [
@@ -410,6 +421,7 @@ export function AppShell() {
     showPathGroupsDialog,
     showShortcutHelp,
     showGhostPaths,
+    showHome,
   ]);
 
   useEffect(() => {
@@ -440,6 +452,9 @@ export function AppShell() {
         setAutosaveStatus(view.autosaveStatus);
         autoVelocityStore.getState().setLastError(view.optimizerError);
         setShowGhostPaths(view.showGhostPaths);
+        setHomeProjectSessionId(
+          view.showHome ? projectStore.getState().projectSessionId : null,
+        );
       },
       protectCapturedSession: (state) => {
         const protectedSession = projectRecoveryLifecycle.protectSnapshot({
@@ -658,6 +673,33 @@ export function AppShell() {
     setOpenTopMenu(null);
     setShowNewProjectDialog(true);
   }, []);
+
+  const handleHome = useCallback(() => {
+    setHomeProjectSessionId(projectStore.getState().projectSessionId);
+    setOpenTopMenu(null);
+    setShowOpenPanel(false);
+    setShowHelpHub(false);
+    setShowPathHealth(false);
+    setCurveToolSession(null);
+    setActiveTool("select");
+    void refreshWorkspaceSummaries();
+  }, [refreshWorkspaceSummaries]);
+
+  const resumeCurrentWorkspace = useCallback(
+    (id: string) => {
+      if (
+        !showHome ||
+        projectStore.getState().currentWorkspaceSummary?.id !== id
+      ) {
+        return false;
+      }
+      setHomeProjectSessionId(null);
+      setShowOpenPanel(false);
+      setOpenTopMenu(null);
+      return true;
+    },
+    [showHome],
+  );
 
   const handleConfirmCreateProject = useCallback(
     async ({
@@ -997,6 +1039,9 @@ export function AppShell() {
 
   const handleOpenWorkspaceById = useCallback(
     async (id: string) => {
+      if (resumeCurrentWorkspace(id)) {
+        return;
+      }
       cancelAutosave();
 
       try {
@@ -1009,7 +1054,7 @@ export function AppShell() {
         // The project store already records the error for the status bar.
       }
     },
-    [cancelAutosave, refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries, resumeCurrentWorkspace],
   );
 
   const handleOpenWorkspaceFromMenu = useCallback(
@@ -1090,6 +1135,9 @@ export function AppShell() {
 
   const handleSwitchWorkspace = useCallback(
     async (id: string) => {
+      if (resumeCurrentWorkspace(id)) {
+        return;
+      }
       cancelAutosave();
 
       try {
@@ -1103,7 +1151,7 @@ export function AppShell() {
         setOpenTopMenu(null);
       }
     },
-    [cancelAutosave, refreshWorkspaceSummaries],
+    [cancelAutosave, refreshWorkspaceSummaries, resumeCurrentWorkspace],
   );
 
   const handleExportProjectArchive = useCallback(async () => {
@@ -1524,13 +1572,13 @@ export function AppShell() {
   const supportsProjectFolders = Boolean(
     ioCapabilities?.supportsProjectFolders,
   );
-  const pathDocuments = durableProject?.paths ?? [];
+  const pathDocuments = editorProject?.paths ?? [];
   const currentWorkspaceSummary = useStoreSelector(
     projectStore,
     (state) => state.currentWorkspaceSummary,
   );
   const activePathGroup =
-    durableProject?.path_groups.find(
+    editorProject?.path_groups.find(
       (group) => group.group_id === activePathGroupId,
     ) ?? null;
   const projectSummaries = ensureCurrentWorkspaceSummary(
@@ -1698,7 +1746,7 @@ export function AppShell() {
       showGhostPaths: show,
     });
   }, []);
-  const projectAvailable = Boolean(durableProject);
+  const projectAvailable = Boolean(editorProject);
   const pathAvailable = Boolean(activePath);
   const projectIoAvailable = Boolean(projectIo);
   const navigatorCommand: EditorCommand = {
@@ -1744,7 +1792,7 @@ export function AppShell() {
     category: "Edit",
     shortcut: { key: "z", metaOrCtrl: true },
     scope: "editor",
-    disabled: !canUndo || toolbarBusy,
+    disabled: !projectAvailable || !canUndo || toolbarBusy,
     run: () => projectStore.getState().undo(),
   };
   const redoCommand: EditorCommand = {
@@ -1754,7 +1802,7 @@ export function AppShell() {
     shortcut: { key: "z", metaOrCtrl: true, shift: true },
     shortcutAliases: [{ key: "y", metaOrCtrl: true }],
     scope: "editor",
-    disabled: !canRedo || toolbarBusy,
+    disabled: !projectAvailable || !canRedo || toolbarBusy,
     run: () => projectStore.getState().redo(),
   };
   const generateConstraintsCommand: EditorCommand = {
@@ -1782,7 +1830,7 @@ export function AppShell() {
     keywords: ["copy", "clone"],
     shortcut: { key: "d", metaOrCtrl: true },
     scope: "editor",
-    disabled: selectedElementIndex === null || toolbarBusy,
+    disabled: !pathAvailable || selectedElementIndex === null || toolbarBusy,
     run: () => {
       duplicateSelectedPathElement();
     },
@@ -1963,7 +2011,7 @@ export function AppShell() {
       return;
     }
 
-    if (runShortcut("editor")) {
+    if (showHome || runShortcut("editor")) {
       return;
     }
 
@@ -2024,7 +2072,7 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
 
-  const workspaceStatusVisible = Boolean(durableProject);
+  const workspaceStatusVisible = Boolean(editorProject);
   const workspaceStatus = workspaceStatusVisible ? (
     <WorkspaceStatus
       compact={!inspectorOpen}
@@ -2049,7 +2097,7 @@ export function AppShell() {
       <AppToolbar
         toolbarRef={toolbarRef}
         model={{
-          project: durableProject,
+          project: editorProject,
           activeGroup: activePathGroup,
           activePath,
           projectSummaries,
@@ -2096,6 +2144,7 @@ export function AppShell() {
           onImportFolder: handleImportProjectFolder,
         }}
         actions={{
+          home: handleHome,
           openWorkspace: handleOpenWorkspace,
           createWorkspace: handleCreateWorkspace,
           createProject: handleNewProject,
@@ -2123,7 +2172,7 @@ export function AppShell() {
       <div
         className={[
           "workspace",
-          durableProject && !inspectorOpen ? "is-inspector-collapsed" : "",
+          editorProject && !inspectorOpen ? "is-inspector-collapsed" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -2134,7 +2183,7 @@ export function AppShell() {
         }
         inert={projectTransitionInProgress ? true : undefined}
       >
-        {!durableProject ? (
+        {showHome ? (
           <StartCenter
             initializing={initializing}
             initializationError={initializationError}
