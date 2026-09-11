@@ -1,5 +1,7 @@
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
-import { serializePath } from "../../core/io/projectSerde";
+import { projectConfigDefaultLookup } from "../../core/config/projectConfig";
+import { stringifyBLineJson } from "../../core/io/blineJson";
+import { deserializePath, serializePath } from "../../core/io/projectSerde";
 import { isWaypoint, type PathModel } from "../../core/model/path";
 import type { LinkedTarget, ProjectPathGroup } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
@@ -123,16 +125,26 @@ function changedSharedScorePose() {
 }
 
 function importedMatchingPath() {
+  const currentProject = project();
   const original = pathById(ids.stagingScore);
-  return (
-    !!original &&
-    hasAction("import") &&
-    project()?.paths.some(
-      (path) =>
-        path.path_id !== original.path_id &&
-        JSON.stringify(serializePath(path.path)) ===
-          JSON.stringify(serializePath(original.path)),
-    )
+  if (!currentProject || !original || !hasAction("import")) return false;
+  const defaultLookup = projectConfigDefaultLookup(currentProject.config);
+  // Runtime files round numbers and resolve omitted radii through the current
+  // project defaults on import. Compare both paths after that same round trip.
+  const runtimeSignature = (path: PathModel) =>
+    stringifyBLineJson(
+      serializePath(
+        deserializePath(
+          JSON.parse(stringifyBLineJson(serializePath(path))),
+          defaultLookup,
+        ),
+      ),
+    );
+  const expected = runtimeSignature(original.path);
+  return currentProject.paths.some(
+    (path) =>
+      path.path_id !== original.path_id &&
+      runtimeSignature(path.path) === expected,
   );
 }
 
