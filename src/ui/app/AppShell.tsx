@@ -74,7 +74,6 @@ import { writeProjectFolder } from "./projectFolderExport";
 import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
-import { OfflineInfoDialog } from "./OfflineInfoDialog";
 import {
   clampInspectorWidth,
   commandForShortcut,
@@ -260,7 +259,6 @@ export function AppShell() {
   const [showLinkedTargetsDialog, setShowLinkedTargetsDialog] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
-  const [showOfflineHelp, setShowOfflineHelp] = useState(false);
   const [showPathHealth, setShowPathHealth] = useState(false);
   const pathHealthControlRef = useRef<HTMLDivElement | null>(null);
   const [showHelpHub, setShowHelpHub] = useState(false);
@@ -382,8 +380,7 @@ export function AppShell() {
         showNewProjectDialog ||
         showOpenPanel ||
         showPathGroupsDialog ||
-        showShortcutHelp ||
-        showOfflineHelp,
+        showShortcutHelp,
       snapshot: {
         activeTool,
         autosaveStatus,
@@ -423,7 +420,6 @@ export function AppShell() {
     showOpenPanel,
     showPathGroupsDialog,
     showShortcutHelp,
-    showOfflineHelp,
     showGhostPaths,
     showHome,
   ]);
@@ -1925,7 +1921,6 @@ export function AppShell() {
         showPathGroupsDialog,
         showSaveConflict: status === "conflict" || status === "damaged",
         showShortcutHelp,
-        showOfflineHelp,
         showTourPicker,
       })
     ) {
@@ -2102,9 +2097,6 @@ export function AppShell() {
           },
           closeHelpHub: () => setShowHelpHub(false),
           openTourPicker: () => setShowTourPicker(true),
-          openOfflineHelp: ioCapabilities?.browserPersistentAutosave
-            ? () => setShowOfflineHelp(true)
-            : undefined,
         }}
         imports={{
           setFileInput: attachFileInput,
@@ -2178,11 +2170,6 @@ export function AppShell() {
             onOpenSample={() => void handleOpenSample()}
             tourSupported={toursSupported}
             onOpenLessons={() => setShowTourPicker(true)}
-            onOpenOfflineHelp={
-              ioCapabilities?.browserPersistentAutosave
-                ? () => setShowOfflineHelp(true)
-                : undefined
-            }
             onRetryInitialization={retryInitialization}
           />
         ) : (
@@ -2412,9 +2399,6 @@ export function AppShell() {
           onClose={() => setShowShortcutHelp(false)}
         />
       ) : null}
-      {showOfflineHelp ? (
-        <OfflineInfoDialog onClose={() => setShowOfflineHelp(false)} />
-      ) : null}
       {showTourPicker ? (
         <TourPickerDialog
           onClose={() => setShowTourPicker(false)}
@@ -2621,7 +2605,8 @@ function TourPickerDialog({
                 <span className="tour-picker__copy">
                   <strong>{tour.title}</strong>
                   <small>
-                    {tour.summary} · {tour.steps.length} steps
+                    {tour.summary} · {tour.steps.length}{" "}
+                    {tour.steps.length === 1 ? "step" : "steps"}
                   </small>
                 </span>
               </button>
@@ -2936,7 +2921,6 @@ function hasActiveBlockingSurface({
   showPathGroupsDialog,
   showSaveConflict,
   showShortcutHelp,
-  showOfflineHelp,
   showTourPicker,
 }: {
   openTopMenu: TopMenuId | null;
@@ -2953,7 +2937,6 @@ function hasActiveBlockingSurface({
   showPathGroupsDialog: boolean;
   showSaveConflict: boolean;
   showShortcutHelp: boolean;
-  showOfflineHelp: boolean;
   showTourPicker: boolean;
 }): boolean {
   return Boolean(
@@ -2971,7 +2954,6 @@ function hasActiveBlockingSurface({
     showPathGroupsDialog ||
     showSaveConflict ||
     showShortcutHelp ||
-    showOfflineHelp ||
     showTourPicker,
   );
 }

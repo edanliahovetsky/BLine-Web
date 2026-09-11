@@ -1,29 +1,32 @@
 import { expect, test } from "@playwright/test";
 import { gotoSampleEditor } from "./support/app-shell-shared";
 
-test("explains offline use from Learn without starting a lesson @webkit-canvas", async ({
+test("completes the offline lesson through Guided tours and remembers completion @webkit-canvas", async ({
   page,
 }) => {
   await page.goto("/");
   const home = page.getByTestId("start-center");
-  const entry = home.getByRole("button", { name: "Offline use" });
-  const dialog = page.getByRole("dialog", { name: "Using BLine offline" });
-  await expect(entry).toBeVisible();
-  await expect(dialog).toHaveCount(0);
-  await entry.click();
-  await expect(dialog).toContainText("same browser on this device");
-  await expect(dialog).toContainText("No installation needed");
-  const done = dialog.getByRole("button", { name: "Got it" });
-  await expect(done).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(done).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(done).toBeFocused();
-  await done.click();
-  await expect(entry).toBeFocused();
+  await expect(home.getByRole("button", { name: /offline/i })).toHaveCount(0);
+  await home.getByTestId("start-center-guided-tour").click();
+  const picker = page.getByTestId("tour-picker");
+  const lesson = picker.getByTestId("tour-picker-use-bline-offline");
+  await expect(lesson).toContainText("How to use BLine offline");
+  await expect(lesson).toContainText("1 step");
+  await lesson.click();
+
+  const card = page.getByTestId("tour-card");
+  await expect(card).toContainText("same browser on this device");
+  await expect(card).toContainText("No installation needed");
+  await expect(card).toBeFocused();
+  await expect(page.getByTestId("tour-step-count")).toHaveText("1 / 1");
+  await card.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(card).toHaveCount(0);
   await expect(home).toBeVisible();
   await expect(page.getByTestId("path-stage")).toHaveCount(0);
-  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+
+  await page.reload();
+  await home.getByTestId("start-center-guided-tour").click();
+  await expect(lesson).toHaveClass("is-done");
   // The normal development server must remain free of offline caches.
   expect(
     await page.evaluate(() =>
@@ -34,58 +37,27 @@ test("explains offline use from Learn without starting a lesson @webkit-canvas",
   ).toBe(0);
 });
 
-test("opens offline help from the editor without changing the project @webkit-canvas", async ({
+test("opens the offline lesson through editor tours and restores the project @webkit-canvas", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   await page.getByTestId("path-element-row-0").click();
   const name = await page.getByTestId("current-project-status").innerText();
+  const pathName = await page.getByTestId("current-path-status").innerText();
   const elements = page.locator('[data-testid^="path-element-row-"]');
   const count = await elements.count();
   const x = await page.getByLabel("X (m)", { exact: true }).inputValue();
-  const help = page.getByRole("button", { name: "Help and tutorials" });
-  await help.click();
-  await page.getByRole("button", { name: "Offline use" }).click();
-  const dialog = page.getByRole("dialog", { name: "Using BLine offline" });
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press("Delete");
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(elements).toHaveCount(count);
+  await page.getByRole("button", { name: "Help and tutorials" }).click();
+  const help = page.getByTestId("help-hub");
+  await expect(help.getByRole("button", { name: /offline/i })).toHaveCount(0);
+  await help.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-use-bline-offline").click();
+  const card = page.getByTestId("tour-card");
+  await expect(card).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
-  await expect(help).toBeFocused();
+  await expect(card).toHaveCount(0);
+  await expect(elements).toHaveCount(count);
   await expect(page.getByTestId("current-project-status")).toHaveText(name);
+  await expect(page.getByTestId("current-path-status")).toHaveText(pathName);
   await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue(x);
-  await expect(page.getByTestId("tour-card")).toHaveCount(0);
-});
-
-test("keeps the Learn actions and offline dialog within narrow windows @webkit-canvas", async ({
-  page,
-}) => {
-  await page.addInitScript(() =>
-    sessionStorage.setItem(
-      "bline-web:mobile-support-warning-dismissed",
-      "true",
-    ),
-  );
-  await page.goto("/");
-  const entry = page.getByRole("button", { name: "Offline use" });
-  await expect(entry).toBeVisible();
-  for (const width of [600, 480, 390, 360]) {
-    await page.setViewportSize({ width, height: 760 });
-    const layout = await page
-      .locator(".start-center__learning")
-      .evaluate((element) => ({
-        width: element.clientWidth,
-        content: element.scrollWidth,
-      }));
-    expect(layout.content).toBeLessThanOrEqual(layout.width);
-    await entry.click();
-    const dialog = page.getByRole("dialog", { name: "Using BLine offline" });
-    const bounds = await dialog.boundingBox();
-    expect(bounds).not.toBeNull();
-    expect(bounds!.x).toBeGreaterThanOrEqual(0);
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
-    await dialog.getByRole("button", { name: "Got it" }).click();
-  }
 });

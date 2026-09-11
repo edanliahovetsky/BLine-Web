@@ -7,7 +7,6 @@ import {
   Redo2,
   Settings,
   Undo2,
-  WifiOff,
 } from "lucide-react";
 import type {
   Project,
@@ -78,7 +77,6 @@ interface ToolbarPanelState {
   toggleHelpHub(): void;
   closeHelpHub(): void;
   openTourPicker(): void;
-  openOfflineHelp?(): void;
 }
 
 interface ToolbarImportControls {
@@ -402,19 +400,6 @@ export function AppToolbar({
                   panels.closeHelpHub();
                   void actions.openSample();
                 }}
-                onOpenOfflineHelp={
-                  panels.openOfflineHelp
-                    ? () => {
-                        // The menu item is about to unmount. Restore focus to the
-                        // help trigger when the informational dialog closes.
-                        helpHubRef.current
-                          ?.querySelector<HTMLButtonElement>("button")
-                          ?.focus();
-                        panels.closeHelpHub();
-                        panels.openOfflineHelp?.();
-                      }
-                    : undefined
-                }
               />
             ) : null}
           </div>
@@ -500,7 +485,6 @@ function HelpHubPopover({
   onShortcuts,
   onCommandPalette,
   onOpenSample,
-  onOpenOfflineHelp,
 }: {
   tourAvailable: boolean;
   tourUnavailableReason: string;
@@ -509,7 +493,6 @@ function HelpHubPopover({
   onShortcuts(): void;
   onCommandPalette(): void;
   onOpenSample(): void;
-  onOpenOfflineHelp?(): void;
 }) {
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -547,14 +530,6 @@ function HelpHubPopover({
           </span>
           <span>Guided lessons</span>
         </button>
-        {onOpenOfflineHelp ? (
-          <button type="button" onClick={onOpenOfflineHelp}>
-            <span className="help-hub-popover__glyph" aria-hidden="true">
-              <WifiOff size={16} />
-            </span>
-            <span>Offline use</span>
-          </button>
-        ) : null}
         <button type="button" onClick={onShortcuts}>
           <span className="help-hub-popover__glyph" aria-hidden="true">
             ⌨️

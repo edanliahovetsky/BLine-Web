@@ -5,8 +5,9 @@ import {
   ChevronDown,
   Download,
   FolderOpen,
+  Github,
+  MonitorDown,
   Plus,
-  WifiOff,
 } from "lucide-react";
 import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
 import { parseProjectTimestamp } from "./projectTimestamp";
@@ -25,7 +26,6 @@ export function StartCenter({
   onOpenSample,
   tourSupported,
   onOpenLessons,
-  onOpenOfflineHelp,
   onRetryInitialization,
 }: {
   initializing: boolean;
@@ -41,7 +41,6 @@ export function StartCenter({
   onOpenSample(): void;
   tourSupported: boolean;
   onOpenLessons(): void;
-  onOpenOfflineHelp?(): void;
   onRetryInitialization(): void;
 }) {
   const actionsDisabled = initializing || initializationError !== null;
@@ -166,6 +165,9 @@ export function StartCenter({
               disabled={actionsDisabled}
               onClick={onOpenSample}
             >
+              <span className="start-center__emoji" aria-hidden="true">
+                🗺️
+              </span>
               <span>Sample path</span>
               <ArrowRight aria-hidden="true" size={13} />
             </button>
@@ -186,21 +188,26 @@ export function StartCenter({
               <span>Guided lessons</span>
               <ArrowRight aria-hidden="true" size={13} />
             </button>
-            {onOpenOfflineHelp ? (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.currentTarget.focus();
-                  onOpenOfflineHelp();
-                }}
-              >
-                <WifiOff aria-hidden="true" size={16} />
-                <span>Offline use</span>
-                <ArrowRight aria-hidden="true" size={13} />
-              </button>
-            ) : null}
           </div>
         </section>
+        <nav className="start-center__links" aria-label="BLine links">
+          <a
+            href="https://github.com/edanliahovetsky/BLine-Web/releases"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <MonitorDown aria-hidden="true" size={15} />
+            <span>Download desktop editor</span>
+          </a>
+          <a
+            href="https://github.com/edanliahovetsky/BLine-Web"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <Github aria-hidden="true" size={15} />
+            <span>GitHub</span>
+          </a>
+        </nav>
       </div>
     </section>
   );

@@ -204,6 +204,19 @@ export const editorBasicsTour: TourDefinition = {
   ],
 };
 
+export const offlineTour: TourDefinition = {
+  id: "use-bline-offline",
+  title: "How to use BLine offline",
+  summary: "Keep editing in your browser without internet",
+  practicePath: createTourPracticePath,
+  steps: [
+    {
+      title: "Same address, same browser",
+      body: "BLine automatically prepares for offline use while you’re online. Once ready, open this same address in the same browser on this device—even without internet. You can edit paths, run simulations, and save your work locally. Updates download automatically when you’re connected. Bookmark BLine so it’s easy to find. No installation needed.",
+    },
+  ],
+};
+
 export const shapePathsTour: TourDefinition = {
   id: "shape-paths",
   title: "Draw better paths",
@@ -353,6 +366,7 @@ export const simulateTour: TourDefinition = {
 
 export const tours: readonly TourDefinition[] = [
   editorBasicsTour,
+  offlineTour,
   shapePathsTour,
   constraintsTour,
   simulateTour,
