@@ -77,7 +77,9 @@ test.describe("Pixi canvas rendering", () => {
   });
 });
 
-test("selects and drags a canvas anchor", async ({ page }) => {
+test("selects and drags a canvas anchor without replacing the renderer @webkit-canvas", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
 
   const stage = page.getByTestId("path-stage");
@@ -94,15 +96,28 @@ test("selects and drags a canvas anchor", async ({ page }) => {
   await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
   await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
+  const pixiCanvas = page.getByTestId("path-stage-pixi-canvas");
+  const rendererInstanceId = await pixiCanvas.getAttribute(
+    "data-renderer-instance-id",
+  );
+  if (!rendererInstanceId) {
+    throw new Error("Expected a mounted Pixi renderer");
+  }
 
   await page.mouse.move(firstAnchor.x, firstAnchor.y);
   await page.mouse.down();
   await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, { steps: 8 });
+  await expect(pixiCanvas).toHaveAttribute(
+    "data-renderer-instance-id",
+    rendererInstanceId,
+  );
   await page.mouse.up();
 
   await expect(selectedRow).not.toContainText("5.70, 2.50 m");
-  await expect(page.getByTestId("save-status")).toContainText(
-    /Autosave pending|Saved/,
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await expect(pixiCanvas).toHaveAttribute(
+    "data-renderer-instance-id",
+    rendererInstanceId,
   );
 });
 
