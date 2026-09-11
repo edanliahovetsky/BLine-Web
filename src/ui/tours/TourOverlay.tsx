@@ -238,6 +238,15 @@ export function TourOverlay({
       return visibleTourRect(element);
     };
 
+    const measureTargets = (token: string) =>
+      token
+        .split("|")
+        .flatMap((id) =>
+          id === "path-breadcrumb" ? [id, "path-breadcrumb-menu"] : [id],
+        )
+        .map(measureTour)
+        .filter((hole): hole is TourRect => hole !== null);
+
     const measure = () => {
       // Concept steps have no target; drop any previous spotlight.
       setRect(
@@ -248,22 +257,20 @@ export function TourOverlay({
             : null,
       );
       setVisibleHoles(
-        visibleToken
-          .split("|")
-          .filter(
-            (id) =>
-              id !== "path-canvas" ||
-              !document.querySelector('[data-tour="project-navigator"]'),
-          )
-          .map(measureTour)
-          .filter((hole): hole is TourRect => hole !== null),
+        measureTargets(
+          visibleToken
+            .split("|")
+            .filter(
+              (id) =>
+                id !== "path-canvas" ||
+                !document.querySelector('[data-tour="project-navigator"]'),
+            )
+            .join("|"),
+        ),
       );
       setHoles(
         interactToken && !(lockInteractionOnComplete && actionComplete)
-          ? interactToken
-              .split("|")
-              .map(measureTour)
-              .filter((hole): hole is TourRect => hole !== null)
+          ? measureTargets(interactToken)
           : [],
       );
     };
@@ -396,7 +403,7 @@ export function TourOverlay({
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
-            '[data-tour="constraint-popout"], [data-tour="project-navigator"], [role="dialog"][aria-label="Path health"]',
+            '[data-tour="constraint-popout"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
           )
         )
           return;

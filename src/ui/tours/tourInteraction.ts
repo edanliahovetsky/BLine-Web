@@ -1,5 +1,16 @@
 import type { PathElement, PathModel } from "../../core/model/path";
-import type { TourFeedback, TourStep } from "./tourStore";
+import { tourStore, type TourFeedback, type TourStep } from "./tourStore";
+
+/** Opening a control is an action; closing it again does not undo learning it. */
+export function observedTourCondition(condition: () => boolean): () => boolean {
+  let observedToken = "";
+  return () => {
+    const state = tourStore.getState();
+    const token = `${state.activeTourId}:${state.attemptId}:${state.stepIndex}`;
+    if (condition()) observedToken = token;
+    return observedToken === token;
+  };
+}
 
 /** The same assessment is used for feedback, placement locks, and Next. */
 export function assessTourStep(

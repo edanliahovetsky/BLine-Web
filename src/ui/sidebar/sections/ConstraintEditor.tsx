@@ -435,6 +435,7 @@ export function ConstraintEditor({
     const clearIfOutsideSelectedRange = (event: Event) => {
       const target = event.target;
       if (target instanceof Element) {
+        if (target.closest(".tour-layer")) return;
         const clickedRange = target.closest<HTMLElement>(
           "[data-ranged-constraint-key]",
         );

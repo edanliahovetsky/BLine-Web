@@ -640,6 +640,7 @@ export function AppShell() {
 
       if (
         !toolbarRef.current?.contains(target) &&
+        !targetElement?.closest(".tour-layer") &&
         !targetElement?.closest(".top-menu__submenu-panel")
       ) {
         setOpenTopMenu(null);

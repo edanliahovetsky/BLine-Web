@@ -6,6 +6,7 @@ import { isWaypoint, type PathModel } from "../../core/model/path";
 import type { LinkedTarget, ProjectPathGroup } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { feedback } from "./tourChecks";
+import { observedTourCondition } from "./tourInteraction";
 import { practiceConfig } from "./tourScenario";
 import {
   createLinkedElementGroups,
@@ -57,6 +58,9 @@ const activePathIs = (id: string) =>
 const present = (selector: string) =>
   typeof document !== "undefined" && !!document.querySelector(selector);
 const navigatorOpen = () => present('[data-tour="project-navigator"]');
+const archiveMenuOpened = observedTourCondition(() =>
+  present('[data-testid="top-menu-project-transfer"]'),
+);
 const groupNamed = (name: string) =>
   project()?.path_groups.find(
     (group) => group.display_name.trim().toLowerCase() === name.toLowerCase(),
@@ -241,7 +245,7 @@ const transferSteps: TourStep[] = [
     task: "Expand Import / Export in File",
     check: () =>
       feedback(
-        present('[data-testid="top-menu-project-transfer"]'),
+        archiveMenuOpened(),
         "Open File, then expand Import / Export.",
         "Use a project archive when you need the complete editable project.",
       ),
@@ -502,7 +506,7 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Try a small final-approach minimum",
-    body: "Use Add constraint to add Min Velocity, then drag its range's left edge to End (W2). Try 0.1 to 0.5 m/s, below the 2 m/s maximum; too much minimum can cause overshoot or chatter.",
+    body: "Use Add constraint to add Min Velocity, then drag its cell to End (W2). Try 0.1 to 0.5 m/s, below the 2 m/s maximum; too much minimum can cause overshoot or chatter.",
     target: "inspector-panel",
     visible: ["path-canvas"],
     interact: constraints,

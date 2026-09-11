@@ -28,6 +28,7 @@ import {
 } from "./tourScenario";
 import { checkPlan, feedback } from "./tourChecks";
 import { supplementalTours } from "./supplementalLessons";
+import { observedTourCondition } from "./tourInteraction";
 import {
   createEventLessonPath,
   createFastRotationPath,
@@ -93,7 +94,8 @@ function shown(selector: string) {
   return !!document.querySelector(selector);
 }
 function openControl(selector: string, waiting: string) {
-  return () => feedback(shown(selector), waiting, "Ready to continue.");
+  const opened = observedTourCondition(() => shown(selector));
+  return () => feedback(opened(), waiting, "Ready to continue.");
 }
 const endpoint = (path: PathModel) => path.path_elements.length - 1;
 const bend = (path: PathModel) =>

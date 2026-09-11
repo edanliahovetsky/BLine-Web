@@ -112,6 +112,11 @@ function ToolbarSelectControl<T extends string>({
     }
 
     const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".tour-layer")
+      )
+        return;
       if (!rootRef.current?.contains(event.target as Node)) {
         setOpen(false);
       }
@@ -184,6 +189,7 @@ function ToolbarSelectControl<T extends string>({
           className="toolbar-select-control__menu"
           id={listboxId}
           role="listbox"
+          data-tour="path-breadcrumb-menu"
           aria-label={`${ariaLabel} options`}
         >
           {options.map((option) => (
