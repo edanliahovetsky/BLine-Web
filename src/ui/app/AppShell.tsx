@@ -99,7 +99,7 @@ import {
   selectedFieldBackgroundForProject,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { editorBasicsTour, tours } from "../tours/tours";
+import { tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -2159,7 +2159,7 @@ export function AppShell() {
             }}
             onOpenSample={() => void handleOpenSample()}
             tourSupported={toursSupported}
-            onStartTour={() => startGuidedTour(editorBasicsTour.id)}
+            onOpenLessons={() => setShowTourPicker(true)}
             onRetryInitialization={retryInitialization}
           />
         ) : (
