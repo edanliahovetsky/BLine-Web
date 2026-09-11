@@ -1,4 +1,5 @@
 import {
+  createPathModel,
   isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
@@ -9,6 +10,7 @@ import {
   activePathForProjectStore,
   projectStore,
 } from "../../state/projectStore";
+import { selectionStore } from "../../state/selectionStore";
 import {
   tourStore,
   type TourAction,
@@ -16,45 +18,38 @@ import {
   type TourFeedback,
   type TourStep,
   type TourStepPreparation,
-  type TourExperiment,
 } from "./tourStore";
 import {
   anchorPositions,
-  buildMarkers,
-  createBuildPath,
-  createEventsPath,
-  createHandoffPath,
-  createHeadingPath,
-  createMissionPath,
-  createShapePath,
-  createSpeedLessonPath,
-  elementPositionSignature,
+  clearance,
   mission,
-  missionMarkers,
   near,
   practiceConfig,
 } from "./tourScenario";
+import { checkPlan, feedback } from "./tourChecks";
 import {
-  checkClearance,
-  checkDelivery,
-  checkEvent,
-  checkMission,
-  checkPlan,
-  checkRadius,
-  checkSpeed,
-  feedback,
-  speedCap,
-} from "./tourChecks";
-import { pathGroupsTour } from "./pathGroupsTour";
+  createEventLessonPath,
+  createFastRotationPath,
+  createFundamentalsDemoPath,
+  createHandoffLessonPath,
+  createLowAccelerationPath,
+  createOverviewGroups,
+  createOverviewPaths,
+  createRotationLessonPath,
+  createTuningRectanglePath,
+  fundamentalsMarkers,
+  fundamentalsZones,
+  tuningMarkers,
+} from "./courseScenarios";
 
-export const editorBasicsTourId = "build-first-path";
+export const editorBasicsTourId = "getting-started";
 export const tourPracticePathName = "Tour practice";
 let baselinePath: PathModel | null = null;
 let baselineActions: Partial<Record<TourAction, number>> = {};
 let baselineGeneration = 0;
-const stepPaths = new Map<string, PathModel | null>();
+
 export function createTourPracticePath() {
-  return createBuildPath();
+  return createFundamentalsDemoPath();
 }
 function currentPath() {
   return activePathForProjectStore(projectStore.getState())?.path ?? null;
@@ -70,13 +65,9 @@ function generationCount() {
   );
 }
 export function captureTourStepState() {
-  const state = tourStore.getState();
-  if (state.stepIndex === 0) stepPaths.clear();
   baselinePath = structuredClone(currentPath());
-  baselineActions = { ...state.actions };
+  baselineActions = { ...tourStore.getState().actions };
   baselineGeneration = generationCount();
-  const title = findTour(state.activeTourId)?.steps[state.stepIndex]?.title;
-  if (title) stepPaths.set(title, baselinePath);
 }
 function outcome(check: (path: PathModel) => TourFeedback): () => TourFeedback {
   return () => {
@@ -85,19 +76,23 @@ function outcome(check: (path: PathModel) => TourFeedback): () => TourFeedback {
       ? check(path)
       : {
           complete: false,
-          message:
-            "Exit and reopen this lesson from Guided tours to restore the practice path.",
+          message: "Reopen this lesson to restore its practice path.",
         };
   };
 }
-function action(action: TourAction, waiting: string, done: string) {
-  return () =>
-    feedback(
-      (tourStore.getState().actions[action] ?? 0) >
-        (baselineActions[action] ?? 0),
-      waiting,
-      done,
-    );
+function acted(name: TourAction) {
+  return (
+    (tourStore.getState().actions[name] ?? 0) > (baselineActions[name] ?? 0)
+  );
+}
+function action(name: TourAction, waiting: string, done: string) {
+  return () => feedback(acted(name), waiting, done);
+}
+function shown(selector: string) {
+  return !!document.querySelector(selector);
+}
+function openControl(selector: string, waiting: string) {
+  return () => feedback(shown(selector), waiting, "Ready to continue.");
 }
 const endpoint = (path: PathModel) => path.path_elements.length - 1;
 const bend = (path: PathModel) =>
@@ -119,87 +114,22 @@ const constraints = (selectSpeed?: number): TourStepPreparation => ({
   tool: "select",
   selectSpeed,
 });
-function sameAnchors(
-  path: PathModel,
-  before: PathModel | null | undefined = baselinePath,
-) {
-  return (
-    JSON.stringify(
-      anchorPositions(path).map(({ x_meters, y_meters }) => [
-        x_meters,
-        y_meters,
-      ]),
-    ) ===
-    JSON.stringify(
-      before &&
-        anchorPositions(before).map(({ x_meters, y_meters }) => [
-          x_meters,
-          y_meters,
-        ]),
-    )
-  );
-}
-function sameCaps(path: PathModel, ordinals: number[]) {
-  return (
-    !!baselinePath &&
-    ordinals.every(
-      (ordinal) =>
-        speedCap(path, ordinal)?.value ===
-        speedCap(baselinePath!, ordinal)?.value,
-    )
-  );
-}
-const placement = (
-  type: "waypoint" | "translation" | "rotation" | "event_trigger",
-  total: number,
-): (() => TourFeedback) =>
-  outcome((path) => {
-    const expected =
-      (baselinePath?.path_elements.filter((element) => element.type === type)
-        .length ?? 0) +
-      total -
-      (baselinePath?.path_elements.length ?? 0);
-    const count = path.path_elements.filter(
-      (element) => element.type === type,
-    ).length;
-    if (path.path_elements.length > total || count > expected)
-      return {
-        complete: false,
-        message:
-          "There are extra elements. Press ⌘Z or Ctrl+Z until only the requested elements remain.",
-      };
-    const validTypes = [
-      "waypoint",
-      "translation",
-      "rotation",
-      "event_trigger",
-    ].every(
-      (candidate) =>
-        path.path_elements.filter((element) => element.type === candidate)
-          .length ===
-        (candidate === type
-          ? expected
-          : (baselinePath?.path_elements.filter(
-              (element) => element.type === candidate,
-            ).length ?? 0)),
-    );
-    if (path.path_elements.length === total && !validTypes)
-      return {
-        complete: false,
-        message:
-          "An element uses the wrong tool. Undo it, then choose the highlighted tool.",
-      };
-    return feedback(
-      path.path_elements.length === total && validTypes,
-      "Place " +
-        (type === "waypoint"
-          ? "two waypoints"
-          : "one " +
-            (type === "event_trigger" ? "event trigger" : type + " target")) +
-        ". Press ⌘Z or Ctrl+Z if you placed the wrong element.",
-      "Targets placed.",
-    );
-  });
+const playback = ["simulation-transport"];
+const elementExploration = [
+  "path-canvas",
+  "inspector-panel",
+  "element-properties",
+  "tool-select",
+  ...playback,
+];
+const routeExploration = [
+  ...elementExploration,
+  "tool-waypoint",
+  "tool-translation",
+];
+const constraintExploration = ["max-velocity-card", ...playback];
+
+/** Ignore generated values when comparing what the learner authored. */
 export function tourPathIntent(path: PathModel | null) {
   return (
     path &&
@@ -235,917 +165,666 @@ export function tourPathIntent(path: PathModel | null) {
     })
   );
 }
-const preserveObservation = outcome((path) =>
-  feedback(
-    tourPathIntent(path) === tourPathIntent(baselinePath),
-    "The path changed. Undo or redo the edit to restore the preview.",
-    "",
-  ),
-);
-const observe = (title: string, body: string): TourStep => ({
-  title,
-  body,
-  phase: "Observe",
-  target: "transport-play",
-  task: "Watch the robot reach End",
-  interact: ["simulation-transport"],
-  prepare: { simulation: "start", tool: "select" },
-  validate: preserveObservation,
-  check: action(
-    "finishRun",
-    "Press Play and watch the robot reach End.",
-    "Preview complete.",
-  ),
-});
-const compare = (
-  kind: TourExperiment,
-  title: string,
-  body: string,
-): TourStep => ({
-  title,
-  body,
-  phase: "Observe",
-  experiment: kind,
-  validate: preserveObservation,
-  task: "Replay both runs",
-  check: action(
-    "replay",
-    "Open Compare runs and press Replay.",
-    "Comparison complete.",
-  ),
-});
-const plan = (): TourStep => ({
-  title: "Update the constraints",
-  body: "Click Generate if the Auto values are out of date. Manual values stay unchanged.",
-  task: "Update any outdated Auto values",
-  phase: "Review",
-  target: "max-velocity-card",
-  interact: ["max-velocity-card"],
-  prepare: constraints(),
-  check: outcome((path) => checkPlan(path, currentConfig())),
-});
-function guided(
-  steps: TourStep[],
-  initial: NonNullable<TourStep["elements"]>,
-): TourStep[] {
-  let counts = initial;
-  return steps.map((step, index) => {
-    if (step.elements) counts = step.elements;
-    // Placement checks explain intermediate counts themselves.
-    return {
-      ...step,
-      prepare:
-        index === 0
-          ? { ...step.prepare, simulation: "start", tool: "select" }
-          : step.prepare,
-      elements: step.lockInteractionOnComplete ? undefined : { ...counts },
-    };
-  });
-}
-const pickupMarkers = missionMarkers
-  .filter(
-    (marker) =>
-      marker.id.includes("pickup") ||
-      marker.kind === "game-piece" ||
-      marker.id === "lesson-start-zone",
-  )
-  .map((marker) => ({
-    ...marker,
-    label: marker.id === "lesson-pickup-pose" ? "End" : marker.label,
-  }));
-const routeMarkers = missionMarkers
-  .filter(
-    (marker) => marker.kind !== "game-piece" && !marker.id.includes("pickup"),
-  )
-  .map((marker) => ({
-    ...marker,
-    label:
-      marker.id === "lesson-goal-zone"
-        ? "End"
-        : marker.id === "lesson-delivery-pose"
-          ? "End heading"
-          : marker.label,
-  }));
-const speedMarkers = [
-  ...routeMarkers,
-  ...missionMarkers
-    .filter((marker) => marker.id === "lesson-pickup-pose")
-    .map((marker) => ({ ...marker, label: "First bend" })),
-];
 
-export const buildFirstPathTour: TourDefinition = {
+export const gettingStartedTour: TourDefinition = {
   id: editorBasicsTourId,
-  title: "Build a First Path",
-  summary: "Place two points, preview, and revise",
-  durationMinutes: 4,
-  completionMessage: "Lesson complete.",
-  markers: buildMarkers,
-  practicePath: createTourPracticePath,
+  title: "Getting Started",
+  summary: "Find the canvas, panels, menus, and Path Groups",
+  durationMinutes: 3,
+  completionMessage: "You know where to find the editor controls.",
+  practicePath: createFundamentalsDemoPath,
+  practicePaths: createOverviewPaths,
+  practiceGroups: createOverviewGroups,
   practiceConfig,
-  steps: guided(
-    [
-      {
-        title: "Start and End",
-        body: "Build a path between two waypoints, then preview it. This lesson uses a temporary project with example robot settings.",
-        phase: "Build",
+  steps: [
+    {
+      title: "Canvas",
+      body: "The canvas shows your path, targets, and the robot’s preview motion.",
+      target: "path-canvas",
+      prepare: {
+        inspector: "closed",
+        navigator: "closed",
+        tool: "select",
+        simulation: "start",
+        clearSelection: true,
       },
-      {
-        title: "Place two waypoints",
-        body: "Select Waypoint and place Start. Select Waypoint again and place End. Their order in the list determines the drive order. Each waypoint also sets a heading.",
-        task: "Place two waypoints",
-        target: "tool-waypoint",
-        interact: ["tool-waypoint", "path-canvas"],
-        keys: ["1"],
-        check: placement("waypoint", 2),
-        lockInteractionOnComplete: true,
-        elements: { waypoint: 2 },
-        prepare: { tool: "select", clearSelection: true },
-      },
-      observe(
-        "Preview the path",
-        "Press Play and watch the robot travel from Start to End.",
+    },
+    {
+      title: "Toolbar",
+      body: "The canvas toolbar contains the tools for selecting and adding path elements.",
+      target: "tool-rail",
+    },
+    {
+      title: "Sidebar",
+      body: "Open the sidebar to see the selected path’s elements and constraints.",
+      target: "inspector-toggle",
+      visible: ["inspector-panel"],
+      interact: ["inspector-toggle"],
+      task: "Open the sidebar",
+      prepare: { inspector: "closed" },
+      check: openControl(
+        '[data-tour="inspector-toggle"][aria-expanded="true"]',
+        "Click Toggle inspector.",
       ),
-      {
-        title: "Move End",
-        body: "Select End and drag it, use the arrow keys, or edit its coordinates. Keep Start in place.",
-        task: "Move End while keeping Start fixed",
-        target: "path-canvas",
-        interact: ["path-canvas", "element-properties"],
-        prepare: properties(endpoint),
-        check: outcome((path) =>
-          feedback(
-            !!baselinePath &&
-              elementPositionSignature(path.path_elements[0]) ===
-                elementPositionSignature(baselinePath.path_elements[0]) &&
-              elementPositionSignature(path.path_elements[1]) !==
-                elementPositionSignature(baselinePath.path_elements[1]),
-            "Move End. If you moved Start, undo that edit first.",
-            "End moved.",
-          ),
-        ),
-        keys: ["←", "↑", "↓", "→"],
-      },
-      {
-        title: "Undo the move",
-        body: "Press ⌘Z or Ctrl+Z to restore End’s position. If you moved it several times, undo each move.",
-        task: "Return to the route before moving End",
-        target: "path-canvas",
-        interact: ["path-canvas"],
-        prepare: { tool: "select" },
-        keys: ["⌘/Ctrl", "Z"],
-        check: outcome((path) =>
-          feedback(
-            sameAnchors(path, stepPaths.get("Move End")),
-            "Undo until End returns to its original position.",
-            "End’s original position restored.",
-          ),
-        ),
-      },
-      {
-        title: "Set End’s position",
-        body: "Move End into the marked End zone at X 15, Y 2.5. Keep Start in place.",
-        task: "Place End in its marked zone",
-        phase: "Challenge",
-        target: "path-canvas",
-        interact: ["path-canvas", "element-properties"],
-        prepare: properties(endpoint),
-        check: outcome((path) => {
-          if (
-            !baselinePath ||
-            elementPositionSignature(path.path_elements[0]) !==
-              elementPositionSignature(baselinePath.path_elements[0])
-          )
-            return {
-              complete: false,
-              message: "Keep Start fixed. Press ⌘Z or Ctrl+Z to undo its move.",
-            };
-          return checkDelivery(path, currentConfig(), "End");
-        }),
-        hints: [
-          "The zone is on the right side of the field.",
-          "Select End on the canvas to open its X and Y fields.",
-        ],
-      },
-      observe(
-        "Preview the change",
-        "Press Play and check where the robot finishes.",
+    },
+    {
+      title: "Elements",
+      body: "Switch to Elements to see the path’s drive order and selected element properties.",
+      target: "inspector-elements",
+      interact: ["inspector-elements"],
+      task: "Open Elements",
+      prepare: { inspector: "open", inspectorTab: "constraints" },
+      check: openControl(
+        '[data-tour="inspector-elements"][aria-selected="true"]',
+        "Select Elements.",
       ),
-      {
-        title: "Adding more targets",
-        body: "Two waypoints define a straight path. Add intermediate targets when you need a bend or more clearance.",
-        phase: "Review",
-      },
-    ],
-    {},
-  ),
+    },
+    {
+      title: "Constraints",
+      body: "Switch to Constraints to see the robot’s motion limits and handoff radii.",
+      target: "inspector-constraints",
+      interact: ["inspector-constraints"],
+      task: "Open Constraints",
+      check: openControl(
+        '[data-tour="inspector-constraints"][aria-selected="true"]',
+        "Select Constraints.",
+      ),
+    },
+    {
+      title: "Play bar",
+      body: "The play bar lets you play, pause, and scrub through the robot’s motion.",
+      target: "simulation-transport",
+      prepare: { inspector: "closed" },
+    },
+    {
+      title: "File menu",
+      body: "Open File to find project, import, and export commands.",
+      target: "export-menu-entry",
+      interact: ["export-menu-entry"],
+      task: "Open File",
+      prepare: { closeMenus: true },
+      check: openControl(
+        '[data-tour="export-menu-entry"][aria-expanded="true"]',
+        "Open File.",
+      ),
+    },
+    {
+      title: "Edit actions",
+      body: "Undo and Redo reverse or restore edits; the Actions menu holds these commands on compact screens.",
+      target: "edit-controls",
+      prepare: { closeMenus: true },
+    },
+    {
+      title: "Path menu",
+      body: "Open Path to find commands for the current path.",
+      target: "path-menu-entry",
+      interact: ["path-menu-entry"],
+      task: "Open Path",
+      prepare: { closeMenus: true },
+      check: openControl(
+        '[data-tour="path-menu-entry"][aria-expanded="true"]',
+        "Open Path.",
+      ),
+    },
+    {
+      title: "Path dropdown",
+      body: "Open the path dropdown to see the paths available in this project.",
+      target: "path-breadcrumb",
+      interact: ["path-breadcrumb"],
+      task: "Open the path dropdown",
+      prepare: { closeMenus: true },
+      check: openControl(
+        '[data-tour="path-breadcrumb"] [aria-expanded="true"]',
+        "Open the path dropdown.",
+      ),
+    },
+    {
+      title: "Path Groups",
+      body: "Open the Project Navigator to see how Path Groups collect related paths for viewing together.",
+      target: "navigator-button",
+      visible: ["project-navigator", "navigator-groups"],
+      interact: ["navigator-button"],
+      task: "Open the Project Navigator",
+      prepare: { closeMenus: true, navigator: "closed" },
+      check: openControl(
+        '[data-tour="project-navigator"]',
+        "Open the Project Navigator.",
+      ),
+    },
+  ],
 };
 
-export const shapeRouteTour: TourDefinition = {
-  id: "shape-route",
-  title: "Shape the Route",
-  summary: "Use a bend, drive order, and bumper clearance",
-  durationMinutes: 4,
-  completionMessage: "Lesson complete.",
-  markers: routeMarkers,
-  practicePath: createShapePath,
-  practiceConfig,
-  steps: guided(
-    [
-      {
-        title: "Route around the structure",
-        body: "The straight path crosses the structure. Add a translation target to route around it. Translation targets set position without setting heading.",
-        target: "lesson-structure",
-      },
-      {
-        title: "Add a translation target",
-        body: "Select Translation and place a target above the structure, near X 10.8, Y 6.8. With End selected, the new target is added after End.",
-        task: "Place one translation target",
-        target: "tool-translation",
-        interact: ["tool-translation", "path-canvas"],
-        prepare: { selectElement: endpoint, tool: "select" },
-        keys: ["2"],
-        check: placement("translation", 3),
-        lockInteractionOnComplete: true,
-        elements: { waypoint: 2, translation: 1 },
-      },
-      {
-        title: "Reorder the targets",
-        body: "Drag the Translation row between Start and End, or select it and press Alt+↑.",
-        task: "Put Translation between the waypoints",
-        target: "inspector-panel",
-        interact: ["inspector-panel"],
-        prepare: properties(bend),
-        keys: ["Alt", "↑"],
-        check: outcome((path) =>
-          feedback(
-            isWaypoint(path.path_elements[0]) &&
-              isTranslationTarget(path.path_elements[1]) &&
-              isWaypoint(path.path_elements[2]),
-            "Move Translation above End using its grip or Alt+↑.",
-            "Order: Start, Translation, End.",
-          ),
-        ),
-      },
-      {
-        title: "Leave bumper clearance",
-        body: "Move the translation target until both segments clear the structure. The path line follows the robot’s center, so leave room for the bumper.",
-        task: "Leave bumper clearance around the structure",
-        target: "path-canvas",
-        interact: ["path-canvas", "element-properties"],
-        prepare: properties(bend),
-        check: outcome((path) => checkClearance(path, currentConfig())),
-        hints: [
-          "Leave space on both sides of the bend.",
-          "Try X 10.8, Y 6.8. Dragging and coordinate edits both work.",
-        ],
-      },
-      observe(
-        "Preview the turn",
-        "Press Play. Watch the inside bumper as the robot turns. It can cut inside the drawn segments.",
-      ),
-      {
-        title: "Adjust the bend",
-        body: "Move the translation target to another position that clears the structure. Keep Start and End in their marked zones.",
-        task: "Revise the bend and keep the preview clear",
-        phase: "Challenge",
-        target: "path-canvas",
-        interact: ["path-canvas", "element-properties"],
-        prepare: properties(bend),
-        check: outcome((path) => {
-          if (sameAnchors(path))
-            return {
-              complete: false,
-              message: "Move the bend to try a different approach.",
-            };
-          if (
-            !near(anchorPositions(path)[0], mission.start) ||
-            !near(anchorPositions(path).at(-1), mission.delivery)
-          )
-            return {
-              complete: false,
-              message: "Keep Start and End in their marked zones.",
-            };
-          return checkClearance(path, currentConfig(), true);
-        }),
-        hints: [
-          "A wider bend can leave more room for the bumper.",
-          "Try shifting the bend left or right while keeping it above the structure.",
-        ],
-      },
-      {
-        title: "Choosing targets",
-        body: "Use translation targets for bends that do not need a heading. Add targets where the route needs them.",
-        phase: "Review",
-      },
-    ],
-    { waypoint: 2 },
-  ),
-};
-
-export const planSpeedTour: TourDefinition = {
-  id: "plan-speed",
-  title: "Plan the Speed",
-  summary: "Adjust speed limits and split shared cells",
+export const fundamentalsTour: TourDefinition = {
+  id: "bline-fundamentals",
+  title: "BLine Fundamentals",
+  summary: "Build a route with waypoints and translation targets",
   durationMinutes: 5,
-  completionMessage: "Lesson complete.",
-  markers: speedMarkers,
-  practicePath: createSpeedLessonPath,
+  completionMessage:
+    "You built a route and checked the robot’s bumper clearance.",
+  practicePath: createFundamentalsDemoPath,
   practiceConfig,
-  steps: guided(
-    [
-      {
-        title: "Adjust an approach speed",
-        body: "This path has generated speed limits. Lower the limit before the second turn, then compare the previews.",
-      },
-      {
-        title: "Open Constraints",
-        body: "Open the Constraints tab. Speed cells are on the left, beside the targets they approach. Handoff radii are on the right.",
-        task: "Open the Constraints tab",
-        target: "inspector-constraints",
-        interact: ["inspector-constraints"],
-        prepare: {
-          inspector: "open",
-          inspectorTab: "elements",
-          tool: "select",
-        },
-        check: () =>
-          feedback(
-            !!document.querySelector(
-              '[data-tour="inspector-constraints"][aria-selected="true"]',
-            ),
-            "Select the Constraints tab.",
-            "Constraints open.",
-          ),
-      },
-      {
-        title: "Slow the second turn",
-        body: "Set the selected speed limit to 1.2 m/s or less. The original run is saved for comparison. Keep the other limits unchanged.",
-        task: "Set the second-turn limit to 1.2 m/s or less",
-        target: "lesson-corner-speed",
-        visible: ["max-velocity-card"],
-        interact: ["max-velocity-card"],
-        prepare: constraints(3),
-        captureReference: true,
-        phase: "Experiment",
-        check: outcome((path) => {
-          const result = checkSpeed(path, 3, 1.2);
-          return result.complete
-            ? feedback(
-                sameAnchors(path) && sameCaps(path, [1, 2, 4]),
-                "Keep the other speed limits and target positions unchanged.",
-                "Second-turn limit set.",
-              )
-            : result;
-        }),
-        hints: [
-          "Editing an Auto value makes that cell Manual.",
-          "Select the second-turn speed cell to reopen its value field.",
-        ],
-        demo: "speed",
-      },
-      compare(
-        "speed",
-        "Compare the speeds",
-        "Open Compare runs and press Replay. Watch the speed and time through the second turn.",
+  markers: fundamentalsZones,
+  steps: [
+    {
+      title: "See a complete path",
+      body: "This example has two waypoints, two translation targets, one rotation target, and one event trigger. Press Play, then pause or scrub as you like; Continue when you are done.",
+      target: "transport-play",
+      visible: ["path-canvas"],
+      interact: playback,
+      prepare: { inspector: "closed", simulation: "start", tool: "select" },
+      task: "Try playback",
+      phase: "Observe",
+      check: action(
+        "play",
+        "Press Play to try the example.",
+        "Explore playback, then Continue when ready.",
       ),
-      {
-        title: "Regenerate Auto values",
-        body: "Click Generate. Auto values are recalculated; your Manual limit stays unchanged.",
-        task: "Generate and keep the Manual limit",
-        target: "max-velocity-card",
-        interact: ["max-velocity-card"],
-        prepare: constraints(3),
-        check: outcome((path) =>
-          feedback(
-            generationCount() > baselineGeneration &&
-              checkPlan(path, currentConfig()).complete &&
-              checkSpeed(path, 3, 1.2).complete &&
-              sameCaps(path, [3]),
-            "Click Generate. Keep the second-turn limit unchanged.",
-            "Constraints updated. Manual limit unchanged.",
-          ),
+    },
+    {
+      title: "Place Start and End",
+      body: "Choose Waypoint and place one in Start, then choose Waypoint again and place one in End. A waypoint sets both position and heading.",
+      target: "tool-waypoint",
+      visible: ["path-canvas"],
+      interact: ["tool-waypoint", "path-canvas", "element-properties"],
+      prepare: {
+        practicePath: createPathModel,
+        inspector: "closed",
+        clearSelection: true,
+        tool: "select",
+      },
+      task: "Place two waypoints in the marked zones",
+      phase: "Build",
+      check: outcome((path) =>
+        feedback(
+          path.path_elements.filter(isWaypoint).length === 2 &&
+            near(anchorPositions(path)[0], mission.start) &&
+            near(anchorPositions(path).at(-1), mission.delivery),
+          "Place Start in the left zone and End in the right zone; drag a waypoint to adjust it.",
+          "Start and End are in their zones.",
         ),
-      },
-      {
-        title: "Split a shared speed cell",
-        body: "Select the cell covering the first bend. Click Split until that bend has its own cell.",
-        task: "Give the first bend its own speed cell",
-        target: "lesson-pickup-speed",
-        visible: ["max-velocity-card"],
-        interact: ["max-velocity-card"],
-        prepare: constraints(2),
-        check: outcome((path) =>
-          feedback(
-            speedCap(path, 2)?.start_ordinal === 2 &&
-              speedCap(path, 2)?.end_ordinal === 2,
-            "Select the cell covering the first bend and click Split.",
-            "The first bend has its own speed cell.",
-          ),
-        ),
-        hints: [
-          "A tall cell applies one value to several approaches.",
-          "Split changes the editable ranges. It does not add path targets.",
-        ],
-      },
-      {
-        title: "Slow the first bend",
-        body: "Set its limit to 0.9 m/s or less. Keep the second-turn and End approach limits unchanged.",
-        task: "Set the first-bend limit to 0.9 m/s or less",
-        phase: "Challenge",
-        target: "lesson-pickup-speed",
-        visible: ["max-velocity-card"],
-        interact: ["max-velocity-card"],
-        prepare: constraints(2),
-        check: outcome((path) => {
-          const result = checkSpeed(path, 2, 0.9);
-          return result.complete
-            ? feedback(
-                sameCaps(path, [3, 4]),
-                "Undo changes to the second-turn and End limits. Edit only the first-bend limit.",
-                "First-bend limit set.",
-              )
-            : result;
-        }),
-        hints: [
-          "Use the cell aligned with the first translation target.",
-          "Split a shared cell before changing the first-bend limit.",
-        ],
-      },
-      observe(
-        "Preview both approaches",
-        "Press Play and watch the speed before the first bend and second turn.",
       ),
-      {
-        title: "Tune on the robot",
-        body: "Use Auto values as a starting point. Adjust local limits through previewing and robot testing. The values in this lesson are examples.",
-        phase: "Review",
-      },
-    ],
-    { waypoint: 2, translation: 2 },
-  ),
+    },
+    {
+      title: "Change a waypoint heading",
+      body: "Drag a waypoint’s heading handle or enter a degree value, then play the path to see the robot turn. Keep exploring and Continue when ready.",
+      target: "element-properties",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: elementExploration,
+      prepare: properties(endpoint),
+      task: "Change a heading and play the path",
+      check: outcome((path) =>
+        feedback(
+          path.path_elements.some((element, index) => {
+            const before = baselinePath?.path_elements[index];
+            return (
+              isWaypoint(element) &&
+              before &&
+              isWaypoint(before) &&
+              Math.abs(
+                element.rotation_target.rotation_radians -
+                  before.rotation_target.rotation_radians,
+              ) > 0.01
+            );
+          }) && acted("play"),
+          "Change either waypoint’s heading, then press Play.",
+          "Try other headings or Continue when ready.",
+        ),
+      ),
+    },
+    {
+      title: "Route around the obstacle",
+      body: "A translation target changes the route without setting the robot’s heading. Add one between Start and End, then move it until the simulated bumpers clear the obstacle.",
+      target: "tool-translation",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: [...elementExploration, "tool-translation"],
+      markers: fundamentalsMarkers,
+      prepare: { ...properties(0), simulation: "start" },
+      task: "Add a translation target and leave bumper clearance",
+      phase: "Build",
+      check: outcome((path) =>
+        feedback(
+          path.path_elements.some(isTranslationTarget) &&
+            clearance(path, currentConfig(), true),
+          "Add a translation target and adjust the route until the moving robot’s bumpers clear the obstacle.",
+          "The simulated bumpers clear the obstacle.",
+        ),
+      ),
+    },
+    {
+      title: "Try more route points",
+      body: "Try two or three points around the obstacle and watch the motion; waypoints also set headings. Use as few path elements as the route needs, then Continue when you are done.",
+      target: "path-canvas",
+      visible: ["tool-rail", "simulation-transport"],
+      interact: routeExploration,
+      markers: fundamentalsMarkers,
+      prepare: { ...properties(bend), simulation: "start" },
+      phase: "Experiment",
+    },
+    {
+      title: "Read the drive order",
+      body: "The Elements list is the drive order. Drag its rows to reorder targets, then play to see the result; Continue when you are done exploring.",
+      target: "inspector-panel",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: routeExploration,
+      markers: fundamentalsMarkers,
+      prepare: properties(bend),
+    },
+  ],
 };
 
-export const handoffsTour: TourDefinition = {
-  id: "understand-handoffs",
-  title: "Understand Handoffs",
-  summary: "Watch the target change, then tune where it happens",
-  durationMinutes: 5,
-  completionMessage: "Lesson complete.",
-  markers: routeMarkers.filter((marker) => marker.kind !== "pose"),
-  practicePath: createHandoffPath,
+const tuningStep = (step: TourStep): TourStep => ({
+  ...step,
+  markers: tuningMarkers,
+  lockGeometry: true,
+  autoGenerate: false,
+});
+export const pathTuningTour: TourDefinition = {
+  id: "path-tuning",
+  title: "Path Tuning",
+  summary: "See target handoffs, then tune radii and velocity limits",
+  durationMinutes: 6,
+  completionMessage:
+    "You generated starting values and tried your own manual settings.",
+  practicePath: createHandoffLessonPath,
   practiceConfig,
-  steps: guided(
-    [
-      {
-        title: "Drive toward the active target",
-        body: "BLine steers from the robot’s live position toward one translation target at a time. This bend shapes a pass-through route. Entering its handoff circle switches the target to End, without requiring a stop at the bend.",
-        prepare: { inspector: "closed" },
+  markers: fundamentalsMarkers,
+  steps: [
+    {
+      title: "Approach the translation",
+      body: "The robot steers from its current position toward the translation target. Watch the active target as the preview slows down.",
+      target: "path-canvas",
+      canvasLesson: "handoff-approach",
+      autoGenerate: false,
+      prepare: { inspector: "closed", simulation: "start", autoPlay: true },
+    },
+    {
+      title: "Cross the handoff radius",
+      body: "When the robot’s center enters this radius, BLine switches the active target. The purple flash marks that exact handoff.",
+      target: "path-canvas",
+      canvasLesson: "handoff-crossing",
+      autoGenerate: false,
+      prepare: { inspector: "closed", autoPlay: true },
+    },
+    {
+      title: "Target the next element",
+      body: "The robot now steers toward End and keeps moving through the turn. The radius chooses where that target change can happen.",
+      target: "path-canvas",
+      canvasLesson: "handoff-departure",
+      autoGenerate: false,
+      prepare: { inspector: "closed", autoPlay: true },
+    },
+    {
+      title: "Lower acceleration makes a wider turn",
+      body: "Acceleration is temporarily reduced from 3 to 0.6 m/s². The robot has less ability to change direction quickly, so its turn is wider at the same speed; higher acceleration allows a tighter turn.",
+      target: "path-canvas",
+      canvasLesson: "low-acceleration",
+      autoGenerate: false,
+      prepare: {
+        practicePath: createLowAccelerationPath,
+        inspector: "closed",
+        simulation: "start",
+        autoPlay: true,
       },
-      {
-        title: "Set a small radius",
-        body: "Set the bend’s Manual radius to 0.25 m. The circle marks how close the robot’s center must get before steering switches to End. Keep the 1 m/s limits so only the handoff location changes.",
-        task: "Set the bend radius to Manual 0.25 m",
-        target: "max-velocity-card",
-        interact: ["max-velocity-card"],
-        prepare: { ...constraints(), selectElement: bend },
-        check: outcome((path) => checkFixedRadius(path, 0.25)),
-        hints: [
-          "The distance chip is on the right of the speed ledger.",
-          "Select the bend's radius chip to open its Manual value field.",
-        ],
+    },
+    tuningStep({
+      title: "A new route to tune",
+      body: "This route goes around a tall obstacle through the Intermediate zone. Its positions and headings stay fixed while you tune radii and velocities; the generator has not run yet.",
+      target: "path-canvas",
+      prepare: {
+        practicePath: createTuningRectanglePath,
+        inspector: "closed",
+        simulation: "start",
+        clearSelection: true,
       },
-      {
-        ...observe(
-          "Watch the small-circle handoff",
-          "Press Play. Watch the steering line point at the bend, then switch to End when the robot’s center enters the circle. The robot keeps moving through the handoff.",
+    }),
+    tuningStep({
+      title: "Open Constraints",
+      body: "Constraints set how fast the robot can move and accelerate. Velocity limits are the main way to control speed along the path.",
+      target: "inspector-constraints",
+      interact: ["inspector-constraints"],
+      prepare: {
+        inspector: "open",
+        inspectorTab: "elements",
+        clearSelection: true,
+      },
+      task: "Open Constraints",
+      check: openControl(
+        '[data-tour="inspector-constraints"][aria-selected="true"]',
+        "Select Constraints.",
+      ),
+    }),
+    tuningStep({
+      title: "Select a constraint range",
+      body: "Each velocity constraint applies to a range of approaches. Select a cell near the middle to see its range highlighted green on the canvas.",
+      target: "max-velocity-card",
+      visible: ["path-canvas"],
+      interact: ["max-velocity-card"],
+      prepare: { ...constraints(), clearSelection: true },
+      task: "Select a middle velocity cell",
+      check: () => {
+        const selected = selectionStore.getState().selectedRangedConstraint;
+        return feedback(
+          !!selected &&
+            selected.key === "max_velocity_meters_per_sec" &&
+            selected.startOrdinal <= 3 &&
+            selected.endOrdinal >= 3,
+          "Select the velocity cell beside the middle translation target.",
+          "The green highlight shows where this limit applies.",
+        );
+      },
+    }),
+    tuningStep({
+      title: "The first slot",
+      body: "The first velocity and radius slots govern the approach to Start when the robot begins away from it. This preview begins at Start, so that approach has no distance.",
+      target: "max-velocity-card",
+      visible: ["path-canvas"],
+      prepare: constraints(1),
+    }),
+    tuningStep({
+      title: "Generate starting values",
+      body: "Generate suggests handoff radii and maximum velocities for this route. Use these values to build intuition, then preview and test your tuning on the robot.",
+      target: "max-velocity-card",
+      interact: ["max-velocity-card"],
+      prepare: constraints(),
+      task: "Click Generate",
+      check: outcome((path) =>
+        feedback(
+          generationCount() > baselineGeneration &&
+            checkPlan(path, currentConfig()).complete,
+          "Click Generate to calculate the Auto values.",
+          "Auto radii and velocities are ready to try.",
         ),
-        prepare: { simulation: "start", tool: "select", inspector: "closed" },
-      },
-      {
-        title: "Increase the radius",
-        body: "The run you watched stays as a dashed trace. Set 1.5 m to switch toward End earlier. An earlier handoff gives the robot more room to change direction smoothly, but can cut farther inside the bend.",
-        task: "Set a Manual radius of 1.5 m",
-        phase: "Experiment",
-        target: "max-velocity-card",
-        interact: ["max-velocity-card"],
-        prepare: { ...constraints(), selectElement: bend, simulation: "start" },
-        captureReference: true,
-        check: outcome((path) => checkFixedRadius(path, 1.5)),
-      },
-      {
-        ...observe(
-          "Watch the earlier handoff",
-          "Press Play again. The solid steering line switches to End earlier than in your dashed 0.25 m run. Compare the handoff dots and the room each turn leaves around the structure.",
+      ),
+    }),
+    tuningStep({
+      title: "Play the generated path",
+      body: "Play the route and watch how the robot rounds each turn. You can pause and scrub before continuing.",
+      target: "transport-play",
+      visible: ["path-canvas"],
+      interact: playback,
+      prepare: { simulation: "start" },
+      task: "Play the generated path",
+      check: action(
+        "play",
+        "Press Play to try the generated values.",
+        "Continue when you are ready to tune.",
+      ),
+    }),
+    tuningStep({
+      title: "Make a radius Manual",
+      body: "Select a translation target’s radius on the right and choose Manual. Change its value to try an earlier or later handoff.",
+      target: "max-velocity-card",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: constraintExploration,
+      prepare: { ...constraints(), selectElement: bend },
+      task: "Set a translation radius to Manual",
+      check: outcome((path) =>
+        feedback(
+          path.path_elements.some(
+            (element) =>
+              isTranslationTarget(element) &&
+              element.handoff_radius_source === "manual" &&
+              element.intermediate_handoff_radius_meters !== null,
+          ),
+          "Select a translation radius chip and switch it to Manual.",
+          "This radius now keeps your value when you generate.",
         ),
-        prepare: { simulation: "start", tool: "select", inspector: "closed" },
-      },
-      {
-        title: "Choose where to hand off",
-        body: "Choose a radius between 0.25 and 1.5 m that leaves bumper clearance around the structure. Use the traces to decide how early the robot may leave the bend. Keep the target positions and 1 m/s limits unchanged.",
-        task: "Set a radius with bumper clearance",
-        phase: "Challenge",
-        target: "max-velocity-card",
-        interact: ["max-velocity-card"],
-        prepare: { ...constraints(), selectElement: bend, simulation: "start" },
-        check: outcome((path) => {
-          const radius = checkRadius(path, 0.25, 1.5);
-          if (!radius.complete) return radius;
-          if (!sameAnchors(path) || !fixedHandoffSpeed(path))
-            return {
-              complete: false,
-              message:
-                "Keep the target positions and 1 m/s speed limits unchanged. Undo any edits to them.",
-            };
-          const clear = checkClearance(path, currentConfig(), true);
-          return clear.complete
-            ? clear
-            : {
-                complete: false,
-                message:
-                  "The preview leaves too little bumper clearance. Try a smaller radius to hand off closer to the bend.",
-              };
-        }),
-        hints: [
-          "Watch the inside bumper edge, not just the robot center.",
-          "A larger radius lets the robot leave the bend sooner and can cut into the space beside the structure.",
-        ],
-      },
-      {
-        ...observe(
-          "Test your chosen radius",
-          "Press Play and check the bumper through the turn. Radius chooses where steering may switch. If the robot struggles to reach that region at speed, lower the approach velocity before enlarging the circle and changing the route.",
+      ),
+    }),
+    tuningStep({
+      title: "Make a velocity Manual",
+      body: "Select a velocity cell and choose Manual, then change its speed limit. This can be on any segment; manual values remain yours when you generate again.",
+      target: "max-velocity-card",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: constraintExploration,
+      prepare: constraints(4),
+      task: "Set a velocity constraint to Manual",
+      check: outcome((path) =>
+        feedback(
+          path.ranged_constraints.some(
+            (constraint) =>
+              constraint.key === "max_velocity_meters_per_sec" &&
+              constraint.source !== "auto_velocity" &&
+              constraint.value > 0,
+          ),
+          "Select a velocity cell and switch it to Manual.",
+          "This velocity limit now keeps your value when you generate.",
         ),
-        prepare: { simulation: "start", tool: "select", inspector: "closed" },
-      },
-      {
-        title: "Pass through, then finish",
-        body: "End uses position and heading tolerances. This preview uses circle entry at intermediate targets. For ordinary pass-through points, the docs recommend enabling t-ratio handoffs in robot code: circle entry or enough projected progress can advance the target, avoiding a return to a missed circle.",
-        phase: "Review",
-      },
-    ],
-    { waypoint: 2, translation: 1 },
-  ),
+      ),
+    }),
+    tuningStep({
+      title: "Explore radii and velocities",
+      body: "Try combinations of radii and velocity limits, then play or scrub to see how they change the motion. Generate again if useful; Continue when you are done.",
+      target: "max-velocity-card",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: constraintExploration,
+      prepare: constraints(),
+      phase: "Experiment",
+    }),
+  ],
 };
-function fixedHandoffSpeed(path: PathModel) {
-  return (
-    path.constraints.max_velocity_meters_per_sec === 1 &&
-    [1, 2, 3].every(
-      (ordinal) =>
-        speedCap(path, ordinal)?.value === 1 &&
-        speedCap(path, ordinal)?.source !== "auto_velocity",
-    )
-  );
-}
-function checkFixedRadius(path: PathModel, radius: number) {
-  return !fixedHandoffSpeed(path) || !sameAnchors(path)
-    ? {
-        complete: false,
-        message:
-          "Undo changes to the target positions or 1 m/s speed limits before comparing radii.",
-      }
-    : checkRadius(path, radius, radius);
-}
 
-export const controlHeadingTour: TourDefinition = {
-  id: "control-heading",
-  title: "Control Heading",
-  summary: "Change facing direction independently of the route",
+export const rotationTargetsTour: TourDefinition = {
+  id: "rotation-targets",
+  title: "Rotation targets",
+  summary:
+    "Set headings along a segment and see the limits of turning at speed",
   durationMinutes: 4,
-  completionMessage: "Lesson complete.",
-  markers: pickupMarkers,
-  practicePath: createHeadingPath,
+  completionMessage: "You placed rotation targets and explored their timing.",
+  practicePath: createRotationLessonPath,
   practiceConfig,
-  steps: guided(
-    [
-      {
-        title: "Face the piece",
-        body: "The path ends at Pickup. Add a rotation target so the robot faces the piece before reaching End.",
-        target: "lesson-game-piece",
-      },
-      {
-        title: "Add a rotation target",
-        body: "Select Rotation and place a target along the segment. Its position determines where the heading target applies.",
-        task: "Place one rotation target",
-        target: "tool-rotation",
-        interact: ["tool-rotation", "path-canvas"],
-        prepare: { tool: "select", selectElement: 0 },
-        keys: ["3"],
-        check: placement("rotation", 3),
-        lockInteractionOnComplete: true,
-        elements: { waypoint: 1, translation: 1, rotation: 1 },
-      },
-      {
-        title: "Set the heading",
-        body: "Set Rotation to 90°, Rotation Pos to 0.5, and enable Profiled Rotation. Position 0.5 is halfway along the segment.",
-        task: "Set a profiled 90° rotation at 0.5",
-        target: "element-properties",
-        interact: ["element-properties"],
-        prepare: properties(rotation),
-        demo: "heading",
-        check: outcome((path) => checkHeading(path, true, 0.5, 0.5)),
-        hints: [
-          "Profiled changes the desired heading along the segment.",
-          "Back followed by Next reselects the rotation target and opens its fields.",
-        ],
-      },
-      {
-        title: "Turn Profiled off",
-        body: "Disable Profiled Rotation. Keep Rotation at 90° and Rotation Pos at 0.5. The desired heading changes immediately; the robot still takes time to turn.",
-        task: "Turn Profiled off without moving the target",
-        phase: "Experiment",
-        target: "element-properties",
-        interact: ["element-properties"],
-        prepare: properties(rotation),
-        captureReference: true,
-        check: outcome((path) => checkHeading(path, false, 0.5, 0.5)),
-      },
-      compare(
-        "heading",
-        "Compare the heading",
-        "Replay both runs. Watch the robot’s front edge and heading readout.",
-      ),
-      {
-        title: "Set the heading earlier",
-        body: "Enable Profiled Rotation and set Rotation Pos between 0.25 and 0.4. Keep Rotation at 90° and leave Start and End in place.",
-        task: "Set Rotation Pos between 0.25 and 0.4",
-        phase: "Challenge",
-        target: "element-properties",
-        interact: ["element-properties", "path-canvas"],
-        prepare: properties(rotation),
-        check: outcome((path) => checkHeading(path, true, 0.25, 0.4)),
-        experiment: "heading",
-        hints: [
-          "Rotation Pos controls geometric progress along this approach.",
-          "Enable Profiled Rotation, keep Rotation at 90°, and try Rotation Pos 0.35.",
-        ],
-      },
-      {
-        title: "Position and heading",
-        body: "Translation targets set position. Rotation targets set heading. Waypoints combine both.",
-        phase: "Review",
-      },
-    ],
-    { waypoint: 1, translation: 1 },
-  ),
-};
-function checkHeading(
-  path: PathModel,
-  profiled: boolean,
-  minimum: number,
-  maximum: number,
-) {
-  const target = path.path_elements.find(isRotationTarget);
-  return feedback(
-    !!target &&
-      target.profiled_rotation === profiled &&
-      Math.abs(target.rotation_radians - Math.PI / 2) < 0.02 &&
-      target.t_ratio >= minimum - 0.01 &&
-      target.t_ratio <= maximum + 0.01 &&
-      sameAnchors(path),
-    "Keep the route fixed. Set Rotation 90, Profiled " +
-      (profiled ? "on" : "off") +
-      ", and Rotation Pos " +
-      (minimum === maximum ? minimum : minimum + " to " + maximum) +
-      ".",
-    "Heading set to 90°.",
-  );
-}
-
-export const triggerActionsTour: TourDefinition = {
-  id: "trigger-actions",
-  title: "Trigger Actions",
-  summary: "Place events and compare trigger times",
-  durationMinutes: 4,
-  completionMessage: "Lesson complete.",
-  markers: pickupMarkers,
-  practicePath: createEventsPath,
-  practiceConfig,
-  steps: guided(
-    [
-      {
-        title: "Start the intake",
-        body: "Add an event to start the intake before reaching Pickup. Its key identifies an action registered in robot code.",
-      },
-      {
-        title: "Add an event",
-        body: "Select Event and place a trigger along the segment. The purple marker shows its position.",
-        task: "Place one event trigger",
-        target: "tool-event",
-        interact: ["tool-event", "path-canvas"],
-        prepare: { tool: "select", selectElement: rotation },
-        keys: ["4"],
-        check: placement("event_trigger", 4),
-        lockInteractionOnComplete: true,
-        elements: {
-          waypoint: 1,
-          translation: 1,
-          rotation: 1,
-          event_trigger: 1,
-        },
-      },
-      {
-        title: "Set the event key",
-        body: "Set Lib Key to startIntake and Event Pos to 0.7. The key must match the action in robot code. Position 0.7 is 70% along the segment.",
-        task: "Set startIntake at position 0.7",
-        target: "element-properties",
-        interact: ["element-properties"],
-        prepare: properties(event),
-        check: outcome((path) => checkEvent(path)),
-        hints: [
-          "The event diamond is separate from the heading marker.",
-          "Back followed by Next reselects the event and opens its key and position fields.",
-        ],
-      },
-      {
-        title: "Find the trigger",
-        body: "Drag the timeline through the event. The purple flash marks when startIntake triggers. The preview does not simulate the intake itself.",
-        task: "Scrub around the intake event",
-        phase: "Observe",
-        target: "transport-timeline",
-        interact: ["simulation-transport"],
-        prepare: { simulation: "start", tool: "select" },
-        check: action(
-          "scrub",
-          "Drag the timeline to inspect the intake event.",
-          "Timeline inspected.",
+  steps: [
+    {
+      title: "Add a rotation target",
+      body: "Rotation targets set a heading along a path segment. Choose Rotation and place one between Start and End; this path has a manual speed limit of 2 m/s.",
+      target: "tool-rotation",
+      visible: ["path-canvas"],
+      interact: [...elementExploration, "tool-rotation"],
+      autoGenerate: false,
+      prepare: { ...properties(0), simulation: "start" },
+      task: "Place a rotation target on the segment",
+      check: outcome((path) =>
+        feedback(
+          path.path_elements.some(isRotationTarget),
+          "Choose Rotation and click the segment.",
+          "Rotation target placed.",
         ),
-      },
-      {
-        title: "Reduce the speed",
-        body: "Change the shared speed limit from 2 m/s to 1 m/s. Keep the event at 0.7. The original run is saved.",
-        task: "Set the shared speed limit to 1 m/s",
-        phase: "Experiment",
-        target: "max-velocity-card",
-        interact: ["max-velocity-card"],
-        prepare: constraints(2),
-        captureReference: true,
-        demo: "events",
-        check: outcome((path) =>
-          feedback(
-            sameAnchors(path) &&
-              !!baselinePath &&
-              JSON.stringify(path.path_elements) ===
-                JSON.stringify(baselinePath.path_elements) &&
-              [1, 2].every(
-                (ordinal) =>
-                  speedCap(path, ordinal)?.value === 1 &&
-                  speedCap(path, ordinal)?.source !== "auto_velocity",
-              ),
-            "Set the shared speed cell to 1 m/s. Keep the heading, event key, and event position unchanged.",
-            "Speed set to 1 m/s. Event position unchanged.",
-          ),
-        ),
-      },
-      compare(
-        "events",
-        "Compare event times",
-        "Replay both runs and compare the event times. The slower run triggers later, at the same position along the path.",
       ),
-      {
-        title: "Move the event earlier",
-        body: "Set Event Pos between 0.55 and 0.65. Keep the key as startIntake, the rotation target at 0.5, and the speed limit at 1 m/s.",
-        task: "Move the event earlier without changing its key",
-        phase: "Challenge",
-        target: "element-properties",
-        interact: ["element-properties", "path-canvas"],
-        prepare: properties(event),
-        experiment: "events",
-        check: outcome((path) => {
-          const trigger = path.path_elements.find(isEventTrigger);
-          const heading = path.path_elements.find(isRotationTarget);
-          return feedback(
-            !!trigger &&
-              trigger.lib_key === "startIntake" &&
-              trigger.t_ratio >= 0.55 &&
-              trigger.t_ratio <= 0.65 &&
-              !!heading &&
-              heading.profiled_rotation &&
-              Math.abs(heading.t_ratio - 0.5) < 0.01 &&
-              Math.abs(heading.rotation_radians - Math.PI / 2) < 0.02 &&
-              sameAnchors(path) &&
-              sameCaps(path, [1, 2]),
-            "Use startIntake at 0.55 to 0.65. Preserve the heading target, route, and speed.",
-            "Event moved earlier.",
-          );
-        }),
-        hints: [
-          "Event position is geometric progress, not seconds.",
-          "Try Event Pos 0.6.",
-        ],
+    },
+    {
+      title: "Move the rotation target",
+      body: "Drag the target along its segment or change Rotation Pos. This t-ratio is how far along the segment it sits: 0 is the start and 1 is the end.",
+      target: "element-properties",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: elementExploration,
+      autoGenerate: false,
+      prepare: properties(rotation),
+      task: "Try a different position",
+      check: outcome((path) => {
+        const target = path.path_elements.find(isRotationTarget);
+        const before = baselinePath?.path_elements.find(isRotationTarget);
+        return feedback(
+          !!target &&
+            !!before &&
+            Math.abs(target.t_ratio - before.t_ratio) > 0.01,
+          "Drag the rotation target or edit Rotation Pos.",
+          "Keep exploring or Continue when ready.",
+        );
+      }),
+    },
+    {
+      title: "Try a heading in motion",
+      body: "Drag the rotation handle or enter a degree value, then play the path to watch the robot turn between the waypoints. Continue when you are done exploring.",
+      target: "element-properties",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: elementExploration,
+      autoGenerate: false,
+      prepare: properties(rotation),
+      task: "Change the rotation and play",
+      check: outcome((path) => {
+        const target = path.path_elements.find(isRotationTarget);
+        const before = baselinePath?.path_elements.find(isRotationTarget);
+        return feedback(
+          !!target &&
+            !!before &&
+            Math.abs(target.rotation_radians - before.rotation_radians) >
+              0.01 &&
+            acted("play"),
+          "Change the target heading, then press Play.",
+          "Keep exploring or Continue when ready.",
+        );
+      }),
+    },
+    {
+      title: "Try Profiled Rotation",
+      body: "Profiled Rotation spreads the desired heading along the approach. Turn it off to aim for the next heading immediately, within the robot’s turn limits, then play and compare the motion on the canvas.",
+      target: "element-properties",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: elementExploration,
+      autoGenerate: false,
+      prepare: properties(rotation),
+      task: "Turn Profiled Rotation off and play",
+      check: outcome((path) =>
+        feedback(
+          path.path_elements.some(
+            (element) =>
+              isRotationTarget(element) && !element.profiled_rotation,
+          ) && acted("play"),
+          "Turn Profiled Rotation off, then press Play.",
+          "Try either mode and Continue when ready.",
+        ),
+      ),
+    },
+    {
+      title: "When translation is too fast",
+      body: "This straight path asks for 0°, then 180°, then 0° at a high manual speed. Play it: the robot may pass the middle target before it can turn far enough.",
+      target: "transport-play",
+      visible: ["path-canvas", "path-health"],
+      interact: [...playback, "path-health", "lesson-health-dialog"],
+      autoGenerate: false,
+      prepare: {
+        practicePath: createFastRotationPath,
+        inspector: "open",
+        inspectorTab: "elements",
+        selectElement: rotation,
+        simulation: "start",
       },
-      {
-        title: "Waiting for an action",
-        body: "Path following continues after an event triggers. To wait for a mechanism, split the routine into separate paths and handle the wait in robot code.",
-        phase: "Review",
-      },
-    ],
-    { waypoint: 1, translation: 1, rotation: 1 },
-  ),
+      task: "Play the fast rotation example",
+      check: action(
+        "play",
+        "Press Play and watch the heading at the middle target.",
+        "The turn needs more time than this approach allows.",
+      ),
+    },
+    {
+      title: "Give the turn enough time",
+      body: "The rotation feasibility feedback checks whether the angular limits allow the requested turn in time. Try a lower manual velocity and play again to see the robot get more time to turn.",
+      target: "max-velocity-card",
+      visible: ["path-canvas", "simulation-transport", "path-health"],
+      interact: [
+        ...constraintExploration,
+        "path-health",
+        "lesson-health-dialog",
+      ],
+      autoGenerate: false,
+      prepare: { ...constraints(2), pathHealth: "closed" },
+      phase: "Experiment",
+    },
+  ],
 };
 
-export const verifyExportTour: TourDefinition = {
-  id: "verify-export",
-  title: "Check and Export",
-  summary: "Check a complete routine and export its files",
-  durationMinutes: 5,
-  completionMessage: "Lesson complete.",
-  markers: missionMarkers,
-  practicePath: () => createMissionPath(true),
+export const eventTriggersTour: TourDefinition = {
+  id: "event-triggers",
+  title: "Event triggers",
+  summary: "Move an event and add another on a different segment",
+  durationMinutes: 3,
+  completionMessage: "You positioned event keys on two path segments.",
+  practicePath: createEventLessonPath,
   practiceConfig,
-  steps: (
-    [
-      {
-        title: "Complete the routine",
-        prepare: { simulation: "start", tool: "select" },
-        body: "Reach Pickup facing 90°, trigger startIntake on the approach, clear the structure, and finish in Delivery facing −90°. Trigger prepareDelivery before End.",
-        phase: "Challenge",
-      },
-      {
-        title: "Check Path Health",
-        body: "Open Path Health and read the issues. These checks identify path errors; use the preview to check motion and clearance.",
-        task: "Read Path Health",
-        target: "path-health",
-        visible: ["lesson-health-dialog"],
-        interact: ["path-health", "lesson-health-dialog"],
-        check: () =>
-          feedback(
-            !!document.querySelector(
-              '[role="dialog"][aria-label="Path health"]',
-            ),
-            "Open Path Health at the bottom of the inspector.",
-            "Read the issue list before continuing.",
-          ),
-      },
-      {
-        title: "Fix the path",
-        body: "Move End into Delivery and fill in the missing startIntake key. Keep the required headings and events. Add or move bends as needed for clearance.",
-        task: "Fix End and the intake event",
-        phase: "Challenge",
-        target: "path-canvas",
-        interact: [
-          "path-canvas",
-          "inspector-panel",
-          "element-properties",
-          "max-velocity-card",
-          "tool-waypoint",
-          "tool-translation",
-          "tool-rotation",
-          "tool-event",
-        ],
-        prepare: { ...properties(endpoint), pathHealth: "closed" },
-        check: outcome((path) => checkMission(path, currentConfig())),
-        hints: [
-          "Delivery is centered at X 15, Y 2.5. The unnamed event belongs on the Pickup approach.",
-          "Set that event key to startIntake. Keep prepareDelivery on the final approach and leave room for the bumper.",
-        ],
-      },
-      plan(),
-      observe(
-        "Preview the routine",
-        "Check the heading at Pickup, both event flashes, bumper clearance, and the final position in Delivery.",
+  steps: [
+    {
+      title: "Slide an event trigger",
+      body: "Event triggers sit on a segment like rotation targets. Drag startIntake or edit Event Pos; its t-ratio measures progress from 0 to 1 along that segment.",
+      target: "element-properties",
+      visible: ["path-canvas", "simulation-transport"],
+      interact: elementExploration,
+      prepare: properties(event),
+      task: "Move the existing event",
+      check: outcome((path) => {
+        const target = path.path_elements.find(isEventTrigger);
+        const before = baselinePath?.path_elements.find(isEventTrigger);
+        return feedback(
+          !!target &&
+            !!before &&
+            Math.abs(target.t_ratio - before.t_ratio) > 0.01,
+          "Drag startIntake or change Event Pos.",
+          "The event now fires at its new position.",
+        );
+      }),
+    },
+    {
+      title: "Watch the event fire",
+      body: "When the robot crosses the trigger, BLine fires its event key; your robot code connects that key to an action. Play the path and watch the purple startIntake pulse.",
+      target: "transport-play",
+      visible: ["path-canvas"],
+      interact: playback,
+      prepare: { simulation: "start", inspector: "closed" },
+      task: "Play through the event",
+      check: action(
+        "finishRun",
+        "Play the path through to End to see the event fire.",
+        "The event key fired as the robot crossed its position.",
       ),
-      {
-        title: "Inspect the export",
-        body: "Open each file below. config.json contains runtime motion defaults. project.json contains editor settings and bumper dimensions. The path file contains targets, constraints, and event keys.",
-        task: "Inspect config.json, project.json, and the path file",
-        phase: "Review",
-        handoff: true,
-        check: () =>
-          feedback(
-            ["inspectConfig", "inspectProject", "inspectPath"].every(
-              (name) =>
-                (tourStore.getState().actions[name as TourAction] ?? 0) >
-                (baselineActions[name as TourAction] ?? 0),
+    },
+    {
+      title: "Add an event on the next segment",
+      body: "Choose Event and add another trigger between the translation target and End. Set Event Pos to 0.6 and Lib Key to stopIntake.",
+      target: "tool-event",
+      visible: ["path-canvas", "element-properties"],
+      interact: [...elementExploration, "tool-event"],
+      prepare: { ...properties(bend), simulation: "start" },
+      task: "Add stopIntake at 0.6 on the second segment",
+      check: outcome((path) => {
+        const bendIndex = bend(path);
+        const endIndex = path.path_elements.reduce(
+          (last, element, index) => (isWaypoint(element) ? index : last),
+          -1,
+        );
+        return feedback(
+          bendIndex >= 0 &&
+            path.path_elements.some(
+              (element, index) =>
+                isEventTrigger(element) &&
+                index > bendIndex &&
+                index < endIndex &&
+                element.lib_key.trim() === "stopIntake" &&
+                Math.abs(element.t_ratio - 0.6) < 0.015,
             ),
-            "Select all three files below. Downloading is optional.",
-            "All three files inspected.",
-          ),
-      },
-      {
-        title: "Test on the robot",
-        body: "Extract the autos folder into src/main/deploy. Register both event keys and check the robot’s motion limits, tolerances, and handoff settings. Run WPILib simulation, then test at low speed.",
-        phase: "Review",
-      },
-    ] satisfies TourStep[]
-  ).map((step, index) =>
-    index > 2
-      ? {
-          ...step,
-          validate: outcome((path) => checkMission(path, currentConfig())),
-        }
-      : step,
-  ),
+          "Place the new event after the translation target, then set Event Pos 0.6 and Lib Key stopIntake.",
+          "stopIntake is on the second segment at 0.6.",
+        );
+      }),
+    },
+    {
+      title: "Try both events",
+      body: "Play or scrub the path to see both event positions. Keep exploring their timing and Continue when you are done.",
+      target: "simulation-transport",
+      visible: ["path-canvas", "element-properties"],
+      interact: [...elementExploration, "tool-event"],
+      prepare: { simulation: "start", tool: "select" },
+      phase: "Experiment",
+    },
+  ],
 };
-export const tours: readonly TourDefinition[] = [
-  buildFirstPathTour,
-  shapeRouteTour,
-  planSpeedTour,
-  handoffsTour,
-  controlHeadingTour,
-  triggerActionsTour,
-  pathGroupsTour,
-  verifyExportTour,
+
+export const foundationalTours: readonly TourDefinition[] = [
+  gettingStartedTour,
+  fundamentalsTour,
+  pathTuningTour,
+  rotationTargetsTour,
+  eventTriggersTour,
 ];
+export const tours: readonly TourDefinition[] = foundationalTours;
 export function findTour(tourId: string | null) {
   return tours.find((tour) => tour.id === tourId) ?? null;
 }
