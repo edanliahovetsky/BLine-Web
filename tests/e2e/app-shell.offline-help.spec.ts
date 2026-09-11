@@ -58,3 +58,34 @@ test("opens offline help from the editor without changing the project @webkit-ca
   await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue(x);
   await expect(page.getByTestId("tour-card")).toHaveCount(0);
 });
+
+test("keeps the Learn actions and offline dialog within narrow windows @webkit-canvas", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    sessionStorage.setItem(
+      "bline-web:mobile-support-warning-dismissed",
+      "true",
+    ),
+  );
+  await page.goto("/");
+  const entry = page.getByRole("button", { name: "Using BLine offline" });
+  await expect(entry).toBeVisible();
+  for (const width of [600, 480, 390, 360]) {
+    await page.setViewportSize({ width, height: 760 });
+    const layout = await page
+      .locator(".start-center__learning")
+      .evaluate((element) => ({
+        width: element.clientWidth,
+        content: element.scrollWidth,
+      }));
+    expect(layout.content).toBeLessThanOrEqual(layout.width);
+    await entry.click();
+    const dialog = page.getByRole("dialog", { name: "Using BLine offline" });
+    const bounds = await dialog.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    await dialog.getByRole("button", { name: "Got it" }).click();
+  }
+});

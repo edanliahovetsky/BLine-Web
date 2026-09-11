@@ -5515,6 +5515,8 @@ body.is-resizing-inspector * {
 
 .start-center__learning-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 9px;
 }
 
@@ -5629,6 +5631,10 @@ body.is-resizing-inspector * {
     justify-content: center;
     gap: 7px;
     padding-inline: 10px;
+  }
+
+  .start-center__learning-actions button:nth-child(3) {
+    grid-column: 1 / -1;
   }
 
   .start-center__learning-actions svg {
