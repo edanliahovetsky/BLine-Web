@@ -294,7 +294,6 @@ export function AppShell() {
   const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false);
   const canvasInteractionActiveRef = useRef(false);
   const nextCurveToolSessionIdRef = useRef(1);
-  const importHandlingRef = useRef(false);
   const pendingToolbarActionRef = useRef<PendingToolbarAction>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -1037,6 +1036,19 @@ export function AppShell() {
     setOpenTopMenu(null);
   }, [refreshWorkspaceSummaries]);
 
+  useEffect(() => {
+    const inputs = [fileInputRef.current, folderInputRef.current];
+    const cancelImport = () => endToolbarAction("import");
+    for (const input of inputs) {
+      input?.addEventListener("cancel", cancelImport);
+    }
+    return () => {
+      for (const input of inputs) {
+        input?.removeEventListener("cancel", cancelImport);
+      }
+    };
+  }, [endToolbarAction]);
+
   const handleOpenWorkspaceById = useCallback(
     async (id: string) => {
       if (resumeCurrentWorkspace(id)) {
@@ -1258,15 +1270,6 @@ export function AppShell() {
         return;
       }
 
-      const clearPendingOnCancel = () => {
-        window.setTimeout(() => {
-          if (!input.files?.length && !importHandlingRef.current) {
-            endToolbarAction("import");
-          }
-        }, 400);
-      };
-
-      window.addEventListener("focus", clearPendingOnCancel, { once: true });
       input.click();
     },
     [beginToolbarAction, endToolbarAction],
@@ -1283,15 +1286,6 @@ export function AppShell() {
       return;
     }
 
-    const clearPendingOnCancel = () => {
-      window.setTimeout(() => {
-        if (!input.files?.length && !importHandlingRef.current) {
-          endToolbarAction("import");
-        }
-      }, 400);
-    };
-
-    window.addEventListener("focus", clearPendingOnCancel, { once: true });
     input.click();
   }, [beginToolbarAction, endToolbarAction]);
 
@@ -1400,7 +1394,6 @@ export function AppShell() {
   const handleImportProject = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.currentTarget.files?.[0];
-      importHandlingRef.current = Boolean(file);
       event.currentTarget.value = "";
 
       if (!file) {
@@ -1409,7 +1402,6 @@ export function AppShell() {
       }
 
       if (!projectStore.getState().io) {
-        importHandlingRef.current = false;
         endToolbarAction("import");
         return;
       }
@@ -1435,7 +1427,6 @@ export function AppShell() {
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
       } finally {
-        importHandlingRef.current = false;
         endToolbarAction("import");
       }
     },
@@ -1450,11 +1441,9 @@ export function AppShell() {
   const handleImportProjectFolder = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.currentTarget.files ?? []);
-      importHandlingRef.current = files.length > 0;
       event.currentTarget.value = "";
 
       if (files.length === 0 || !projectStore.getState().io) {
-        importHandlingRef.current = false;
         endToolbarAction("import");
         return;
       }
@@ -1469,7 +1458,6 @@ export function AppShell() {
       } catch (caughtError) {
         projectStore.getState().markSaveError(caughtError);
       } finally {
-        importHandlingRef.current = false;
         endToolbarAction("import");
       }
     },
@@ -2187,6 +2175,7 @@ export function AppShell() {
           <StartCenter
             initializing={initializing}
             initializationError={initializationError}
+            actionError={status === "error" ? error : null}
             recentWorkspaces={projectSummaries}
             supportsProjectFolders={supportsProjectFolders}
             onCreateProject={handleNewProject}

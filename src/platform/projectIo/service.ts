@@ -428,7 +428,7 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async importProjectFolder(
-    workspace: ProjectIoWorkspace,
+    workspace: ProjectIoWorkspace | null,
     files: readonly File[],
     options: ProjectImportOptions = {},
   ): Promise<CommittedProjectImportResult> {
@@ -459,7 +459,7 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   async importProjectArchive(
-    workspace: ProjectIoWorkspace,
+    workspace: ProjectIoWorkspace | null,
     file: File,
     options: ProjectImportOptions = {},
   ): Promise<CommittedProjectImportResult> {
@@ -573,13 +573,16 @@ export class StorageProjectIoService implements ProjectIoService {
   }
 
   private async commitImportedProject(
-    workspace: ProjectIoWorkspace,
+    workspace: ProjectIoWorkspace | null,
     portableProject: Project,
     legacySelectedFieldId: string | null,
     legacyFieldBackgrounds: ImportedLegacyFieldBackground[],
     options: ProjectImportOptions,
   ): Promise<CommittedProjectImportResult> {
     if (this.capabilities.supportsProjectFolders) {
+      if (!workspace) {
+        throw new Error("Open or create a project folder before importing.");
+      }
       const current = workspace.project;
       const nextProject = {
         ...portableProject,

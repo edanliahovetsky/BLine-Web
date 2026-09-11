@@ -13,6 +13,7 @@ import { parseProjectTimestamp } from "./projectTimestamp";
 export function StartCenter({
   initializing,
   initializationError,
+  actionError,
   recentWorkspaces,
   supportsProjectFolders,
   onCreateProject,
@@ -27,6 +28,7 @@ export function StartCenter({
 }: {
   initializing: boolean;
   initializationError: Error | null;
+  actionError: string | null;
   recentWorkspaces: readonly ProjectWorkspaceSummary[];
   supportsProjectFolders: boolean;
   onCreateProject(): void;
@@ -62,6 +64,12 @@ export function StartCenter({
             <button type="button" onClick={onRetryInitialization}>
               Retry
             </button>
+          </div>
+        ) : null}
+
+        {!initializationError && actionError ? (
+          <div className="start-center__initialization-error" role="alert">
+            <div>{actionError}</div>
           </div>
         ) : null}
 
@@ -223,7 +231,12 @@ function StartCenterImports({
       className="start-center__imports"
       ref={disclosureRef}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
+        // WebKit may blur to the body before a menu button receives its click.
+        // Pointer dismissal is handled separately; only follow a known focus target.
+        if (
+          event.relatedTarget &&
+          !event.currentTarget.contains(event.relatedTarget)
+        ) {
           event.currentTarget.open = false;
         }
       }}

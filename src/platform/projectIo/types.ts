@@ -172,13 +172,13 @@ export interface ProjectIoService {
   importConfig(project: Project, file: File): Promise<Project>;
   exportConfig(project: Project): Promise<Blob>;
   importProjectFolder(
-    workspace: ProjectIoWorkspace,
+    workspace: ProjectIoWorkspace | null,
     files: readonly File[],
     options?: ProjectImportOptions,
   ): Promise<CommittedProjectImportResult>;
   exportProjectFolder(project: Project): Promise<ProjectFolderExport>;
   importProjectArchive(
-    workspace: ProjectIoWorkspace,
+    workspace: ProjectIoWorkspace | null,
     file: File,
     options?: ProjectImportOptions,
   ): Promise<CommittedProjectImportResult>;

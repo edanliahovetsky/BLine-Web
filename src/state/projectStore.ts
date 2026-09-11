@@ -1271,7 +1271,7 @@ export function createProjectStore(
       return performProjectTransition(set, get, async (ownership) => {
         const io = requireProjectIo(ownership.io);
         const imported = await io.importProjectFolder(
-          requireIoWorkspace(get()),
+          currentIoWorkspace(get()),
           files,
           options,
         );
@@ -1299,7 +1299,7 @@ export function createProjectStore(
       return performProjectTransition(set, get, async (ownership) => {
         const io = requireProjectIo(ownership.io);
         const imported = await io.importProjectArchive(
-          requireIoWorkspace(get()),
+          currentIoWorkspace(get()),
           file,
           options,
         );
