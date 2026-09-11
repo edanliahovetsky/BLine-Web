@@ -377,9 +377,11 @@ test("switches and reorders path elements with keyboard shortcuts", async ({
   );
 
   // Arrow keys inside a number field still adjust the field, not the path.
-  await page.getByLabel("Rotation (deg)").focus();
+  const rotation = page.getByLabel("Rotation (deg)");
+  const initialRotation = Number(await rotation.inputValue());
+  await rotation.focus();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("44");
+  await expect(rotation).toHaveValue(String(initialRotation - 1));
 });
 
 test("nudges the selected element on the field with arrow keys", async ({
