@@ -10,7 +10,6 @@ import {
 import { flushSync } from "react-dom";
 import {
   Check,
-  CircleHelp,
   Network,
   ListFilter,
   Unlink,
@@ -31,7 +30,7 @@ import type { Project, ProjectPath } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { selectionStore } from "../../state/selectionStore";
 import { isEditableShortcutTarget } from "../keyboardShortcuts";
-import { CloseButton, TooltipIconButton, useControlTooltip } from "../controls";
+import { CloseButton, TooltipIconButton } from "../controls";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import {
   usePathGroupLinkDrag,
@@ -628,9 +627,6 @@ export function PathLibraryDialog({
       )
     ) {
       return;
-    } else if (event.key === "F2" && focus) {
-      event.preventDefault();
-      startRename(focus);
     } else if (
       (event.metaKey || event.ctrlKey) &&
       !event.altKey &&
@@ -745,7 +741,7 @@ export function PathLibraryDialog({
               aria-description={`${node.count} ${node.kind === "group" ? "Paths" : "Path Groups"}`}
               aria-pressed={isFocused}
               onClick={() => select(node)}
-              onDoubleClick={() => startRename(node)}
+              onDoubleClick={() => openOnCanvas(node)}
             >
               {node.kind === "group" && (
                 <Folder className="fc-folder" size={17} />
@@ -896,7 +892,7 @@ export function PathLibraryDialog({
         onPointerDown={(event) => {
           if (
             event.target instanceof Element &&
-            !event.target.closest("button, input, label, summary, .fc-help")
+            !event.target.closest("button, input, label")
           ) {
             event.currentTarget.focus({ preventScroll: true });
           }
@@ -907,10 +903,7 @@ export function PathLibraryDialog({
             <strong>Project Navigator</strong>
             <span>{project.display_name}</span>
           </div>
-          <div className="fc-header-actions">
-            <ConnectionHelp />
-            <CloseButton ariaLabel="Close" onClick={onCancel} />
-          </div>
+          <CloseButton ariaLabel="Close" onClick={onCancel} />
         </header>
         <div className="fc-focusbar">
           <div className="fc-focus-meta">
@@ -1108,38 +1101,40 @@ export function PathLibraryDialog({
         <span className="sr-only" role="status">
           {message}
         </span>
-        {/* Keep the list edges fixed when connection guidance appears during a drag. */}
-        <footer className={`fc-status${origin ? " is-linking" : ""}`}>
-          <span role={error ? "alert" : "status"}>
-            {error || status ? <Link2 aria-hidden="true" size={14} /> : null}
-            {error || status}
-          </span>
-          {sortDirty && !origin && !selectedEdge && (
-            <TooltipIconButton
-              className="fc-resort fc-icon-action"
-              aria-label="Re-sort connected first"
-              title="Sort connected first"
-              onClick={refreshOrder}
-            >
-              <ListFilter aria-hidden="true" size={16} />
-            </TooltipIconButton>
-          )}
-          {selectedEdge && (
-            <TooltipIconButton
-              className="fc-icon-action"
-              aria-label="Remove connection"
-              title={`Disconnect ${paths.find((path) => path.id === selectedEdge.pathId)?.name} from ${groups.find((group) => group.id === selectedEdge.groupId)?.name}`}
-              onClick={() => disconnect(selectedEdge)}
-            >
-              <Unlink aria-hidden="true" size={16} />
-            </TooltipIconButton>
-          )}
-          {pending && !drag.view && (
-            <button type="button" onClick={() => setPending(null)}>
-              Cancel
-            </button>
-          )}
-        </footer>
+        {/* Transient feedback floats above the lists so dragging never moves their edges. */}
+        {error || status || sortDirty ? (
+          <div className={`fc-status${origin ? " is-linking" : ""}`}>
+            <span role={error ? "alert" : "status"}>
+              {error || status ? <Link2 aria-hidden="true" size={14} /> : null}
+              {error || status}
+            </span>
+            {sortDirty && !origin && !selectedEdge && (
+              <TooltipIconButton
+                className="fc-resort fc-icon-action"
+                aria-label="Re-sort connected first"
+                title="Sort connected first"
+                onClick={refreshOrder}
+              >
+                <ListFilter aria-hidden="true" size={16} />
+              </TooltipIconButton>
+            )}
+            {selectedEdge && (
+              <TooltipIconButton
+                className="fc-icon-action"
+                aria-label="Remove connection"
+                title={`Disconnect ${paths.find((path) => path.id === selectedEdge.pathId)?.name} from ${groups.find((group) => group.id === selectedEdge.groupId)?.name}`}
+                onClick={() => disconnect(selectedEdge)}
+              >
+                <Unlink aria-hidden="true" size={16} />
+              </TooltipIconButton>
+            )}
+            {pending && !drag.view && (
+              <button type="button" onClick={() => setPending(null)}>
+                Cancel
+              </button>
+            )}
+          </div>
+        ) : null}
         {menu && (
           <NodeMenu
             menu={menu}
@@ -1151,45 +1146,6 @@ export function PathLibraryDialog({
         )}
       </section>
     </div>
-  );
-}
-
-function ConnectionHelp() {
-  const { triggerProps, tooltip } = useControlTooltip("Connection help");
-  return (
-    <details
-      className="fc-help"
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget))
-          event.currentTarget.open = false;
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && event.currentTarget.open) {
-          event.preventDefault();
-          event.stopPropagation();
-          event.currentTarget.open = false;
-          event.currentTarget.querySelector("summary")?.focus();
-        }
-      }}
-    >
-      <summary
-        {...triggerProps}
-        aria-label="Connection help"
-        role="button"
-        className="fc-icon-action"
-      >
-        <CircleHelp aria-hidden="true" size={17} />
-      </summary>
-      {tooltip}
-      <div className="fc-help__content">
-        <p>
-          Click a connection point to link or unlink. Drag a point onto a row to
-          connect.
-        </p>
-        <p>Pause near an edge to scroll. Unlinking keeps the path.</p>
-        <p>Use Tab and Enter to choose connection points. Esc cancels.</p>
-      </div>
-    </details>
   );
 }
 
