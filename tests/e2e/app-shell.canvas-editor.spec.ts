@@ -1238,7 +1238,8 @@ test("keeps the element properties card tight to its content", async ({
     // Translation and Event Trigger have fewer rows than Rotation and
     // Waypoint. Only the card padding and border should follow the last row.
     expect(
-      sectionBox.y + sectionBox.height -
+      sectionBox.y +
+        sectionBox.height -
         (lastPropertyBox.y + lastPropertyBox.height),
     ).toBeLessThanOrEqual(10);
   }

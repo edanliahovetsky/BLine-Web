@@ -627,7 +627,12 @@ export class PixiPathRenderer {
 
     const element = elements[firstDomainIndex];
     const point = modelToStagePoint(firstPosition, input.viewport);
-    const headingRadians = getElementHeadingRadians(elements, firstDomainIndex);
+    const headingRadians = getElementHeadingRadians(
+      elements,
+      firstDomainIndex,
+      input.rotationPreview,
+      input.positionPreview,
+    );
     const robotSize = robotSizeFromConfig(config);
     drawConstraintStartHighlight(
       graphics,
@@ -698,6 +703,7 @@ export class PixiPathRenderer {
           elements,
           index,
           input.rotationPreview,
+          input.positionPreview,
         ),
         handoffRadiusMeters:
           handoffRadius && !handoffRadius.inert

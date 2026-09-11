@@ -305,6 +305,7 @@ export function getElementHeadingRadians(
   elements: readonly PathElement[],
   index: number,
   overrides: RotationOverrides = emptyRotationOverrides,
+  positionOverrides: PositionOverrides = emptyOverrides,
 ): number | null {
   const override = overrides.get(index);
   if (override !== undefined) {
@@ -321,7 +322,12 @@ export function getElementHeadingRadians(
   }
 
   if (isEventTrigger(element)) {
-    return getSegmentHeadingRadians(elements, index, Math.PI / 2);
+    return getSegmentHeadingRadians(
+      elements,
+      index,
+      Math.PI / 2,
+      positionOverrides,
+    );
   }
 
   if (isTranslationTarget(element)) {
@@ -407,14 +413,10 @@ function getSegmentHeadingRadians(
   elements: readonly PathElement[],
   index: number,
   offsetRadians = 0,
+  overrides: PositionOverrides = emptyOverrides,
 ): number | null {
-  const previous = findNeighborAnchorPosition(
-    elements,
-    index,
-    -1,
-    emptyOverrides,
-  );
-  const next = findNeighborAnchorPosition(elements, index, 1, emptyOverrides);
+  const previous = findNeighborAnchorPosition(elements, index, -1, overrides);
+  const next = findNeighborAnchorPosition(elements, index, 1, overrides);
 
   if (!previous || !next) {
     return null;

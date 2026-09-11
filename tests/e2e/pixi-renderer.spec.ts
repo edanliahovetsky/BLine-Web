@@ -1,6 +1,96 @@
 import { expect, test } from "@playwright/test";
 import type { PixiRenderInput } from "../../src/canvas/pixi/PixiPathRenderer";
 
+test("event trigger preview matches its committed angle while either neighbor moves @webkit-canvas", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const results = await page.evaluate(async () => {
+    const rendererModulePath = "/src/canvas/pixi/PixiPathRenderer.ts";
+    const fieldModulePath = "/src/core/field/fieldConfig.ts";
+    const geometryModulePath = "/src/canvas/geometry.ts";
+    const sampleModulePath = "/src/ui/app/initialProject.ts";
+    const { PixiPathRenderer } = (await import(
+      /* @vite-ignore */ rendererModulePath
+    )) as typeof import("../../src/canvas/pixi/PixiPathRenderer");
+    const { resolveUserFieldDefinition } = (await import(
+      /* @vite-ignore */ fieldModulePath
+    )) as typeof import("../../src/core/field/fieldConfig");
+    const { createFieldViewport } = (await import(
+      /* @vite-ignore */ geometryModulePath
+    )) as typeof import("../../src/canvas/geometry");
+    const { createSampleProject } = (await import(
+      /* @vite-ignore */ sampleModulePath
+    )) as typeof import("../../src/ui/app/initialProject");
+    const project = createSampleProject();
+    const path = project.paths[0].path;
+    const field = resolveUserFieldDefinition("blank-grid", []);
+    const stageSize = { width: 960, height: 540 };
+    const input: PixiRenderInput = {
+      stageSize,
+      viewport: createFieldViewport(stageSize, 24, field.geometry),
+      field,
+      path,
+      overlayPaths: [],
+      hoveredOverlayPathId: null,
+      selectedElementIndex: null,
+      selectedRangedConstraint: null,
+      positionPreview: new Map(),
+      rotationPreview: new Map(),
+      selectedPulse: 0.72,
+      simulationResult: null,
+      simulationTrace: null,
+      trajectoryMaxSpeedMps: 1,
+      simulationTimeS: 0,
+      simulationPlaying: false,
+      simulationEventPulse: 0,
+      config: project.config,
+      curvePreview: null,
+    };
+    const renderer = await PixiPathRenderer.create(stageSize, field);
+    try {
+      return [
+        { index: 3, position: { x_meters: 8, y_meters: 2 } },
+        { index: 5, position: { x_meters: 12.5, y_meters: 3 } },
+      ].map(({ index, position }) => {
+        const selected = { ...input, selectedElementIndex: index };
+        renderer.update(selected);
+        const before = renderer.canvas.toDataURL();
+        renderer.update({
+          ...selected,
+          positionPreview: new Map([[index, position]]),
+        });
+        const preview = renderer.canvas.toDataURL();
+
+        const committedPath = structuredClone(path);
+        const anchor = committedPath.path_elements[index];
+        if (anchor.type === "waypoint") {
+          Object.assign(anchor.translation_target, position);
+        } else if (anchor.type === "translation") {
+          Object.assign(anchor, position);
+        } else {
+          throw new Error("Expected an anchor beside the sample event trigger");
+        }
+        renderer.update({ ...selected, path: committedPath });
+        return {
+          index,
+          changed: preview !== before,
+          matchesCommitted: preview === renderer.canvas.toDataURL(),
+        };
+      });
+    } finally {
+      renderer.destroy();
+    }
+  });
+  for (const result of results) {
+    expect(result.changed, `anchor ${result.index} moves`).toBe(true);
+    expect(
+      result.matchesCommitted,
+      `event orientation before releasing anchor ${result.index}`,
+    ).toBe(true);
+  }
+});
+
 test("cached layers match a full redraw through canvas edits @webkit-canvas", async ({
   page,
 }) => {
