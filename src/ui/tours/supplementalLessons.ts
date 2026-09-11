@@ -1,12 +1,9 @@
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
-import { projectConfigDefaultLookup } from "../../core/config/projectConfig";
-import { stringifyBLineJson } from "../../core/io/blineJson";
-import { deserializePath, serializePath } from "../../core/io/projectSerde";
 import { isWaypoint, type PathModel } from "../../core/model/path";
 import type { LinkedTarget, ProjectPathGroup } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { feedback } from "./tourChecks";
-import { observedTourCondition } from "./tourInteraction";
+import { createImportExportTour } from "./importExportLesson";
 import { practiceConfig } from "./tourScenario";
 import {
   createLinkedElementGroups,
@@ -17,7 +14,6 @@ import {
   createPathLinkingGroups,
   createPathLinkingPaths,
   createPathLinkingTargets,
-  createTransferPaths,
   linkingMarkers,
   managementPathIds as managementIds,
   organizationMarkers,
@@ -33,11 +29,6 @@ interface SupplementalTour extends TourDefinition {
 
 const navigation = ["navigator-button", "project-navigator"];
 const transport = ["simulation-transport", "transport-timeline"];
-const pathMenus = [
-  "path-menu-entry",
-  "path-menu-panel",
-  "top-menu-path-transfer",
-];
 const linkedEditing = [
   "path-canvas",
   "path-breadcrumb",
@@ -60,9 +51,6 @@ const activePathIs = (id: string) =>
 const present = (selector: string) =>
   typeof document !== "undefined" && !!document.querySelector(selector);
 const navigatorOpen = () => present('[data-tour="project-navigator"]');
-const archiveMenuOpened = observedTourCondition(() =>
-  present('[data-testid="top-menu-project-transfer"]'),
-);
 const groupNamed = (name: string) =>
   project()?.path_groups.find(
     (group) => group.display_name.trim().toLowerCase() === name.toLowerCase(),
@@ -130,30 +118,6 @@ function changedSharedScorePose() {
   );
 }
 
-function importedMatchingPath() {
-  const currentProject = project();
-  const original = pathById(ids.stagingScore);
-  if (!currentProject || !original || !hasAction("import")) return false;
-  const defaultLookup = projectConfigDefaultLookup(currentProject.config);
-  // Runtime files round numbers and resolve omitted radii through the current
-  // project defaults on import. Compare both paths after that same round trip.
-  const runtimeSignature = (path: PathModel) =>
-    stringifyBLineJson(
-      serializePath(
-        deserializePath(
-          JSON.parse(stringifyBLineJson(serializePath(path))),
-          defaultLookup,
-        ),
-      ),
-    );
-  const expected = runtimeSignature(original.path);
-  return currentProject.paths.some(
-    (path) =>
-      path.path_id !== original.path_id &&
-      runtimeSignature(path.path) === expected,
-  );
-}
-
 function gentleFinalMinimum(path: PathModel | undefined) {
   if (!path) return false;
   const lastOrdinal = path.path_elements.filter(
@@ -183,76 +147,6 @@ function gentleFinalMinimum(path: PathModel | undefined) {
     )
   );
 }
-
-const transferSteps: TourStep[] = [
-  {
-    title: "Export one path",
-    body: "Open Path, then Import / Export, and choose Export Path. This saves Start to Score as a JSON file with its elements, event keys, and constraints.",
-    target: "path-menu-entry",
-    visible: ["path-canvas"],
-    interact: pathMenus,
-    task: "Export Start to Score",
-    prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
-    check: () =>
-      feedback(
-        hasAction("export"),
-        "Choose Export Path in the Path menu.",
-        "Practice path exported.",
-      ),
-  },
-  {
-    title: "Import the saved path",
-    body: "Choose Path, Import / Export, then Import Path. Select the JSON file you just saved to add a copy to this project.",
-    target: "path-menu-entry",
-    interact: [...pathMenus, "lesson-import-file"],
-    task: "Import the exported path JSON",
-    check: () =>
-      feedback(
-        !!importedMatchingPath(),
-        "Import the same path file you exported in the previous step.",
-        "The imported route, event, and constraints match.",
-      ),
-  },
-  {
-    title: "Inspect the imported copy",
-    body: "Select the imported copy in the path dropdown and press Play. The path keeps its elements and constraints and uses this project’s defaults.",
-    target: "path-breadcrumb",
-    visible: ["path-canvas", "simulation-transport"],
-    interact: [
-      "path-breadcrumb",
-      ...transport,
-      "path-canvas",
-      "inspector-panel",
-    ],
-    task: "Select the imported copy and play it",
-    prepare: { navigator: "closed", simulation: "start" },
-    check: () =>
-      feedback(
-        !!importedMatchingPath() &&
-          !activePathIs(ids.stagingScore) &&
-          hasAction("play"),
-        "Select the imported copy and press Play.",
-        "Imported path inspected.",
-      ),
-  },
-  {
-    title: "Back up the whole project",
-    body: "Open File, then Import / Export, to find Project Archive. Use an archive to save the whole project, including defaults, Path Groups, and linked elements.",
-    target: "export-menu-entry",
-    interact: [
-      "export-menu-entry",
-      "export-menu-panel",
-      "top-menu-project-transfer",
-    ],
-    task: "Expand Import / Export in File",
-    check: () =>
-      feedback(
-        archiveMenuOpened(),
-        "Open File, then expand Import / Export.",
-        "Use a project archive when you need the complete editable project.",
-      ),
-  },
-];
 
 const managementSteps: TourStep[] = [
   {
@@ -553,19 +447,7 @@ const pathLinkingSteps: TourStep[] = [
 ];
 
 const definitions: SupplementalTour[] = [
-  {
-    id: "import-export",
-    title: "Importing and Exporting",
-    summary:
-      "Export a path, import its copy, and choose the right backup format",
-    durationMinutes: 3,
-    completionMessage: "Lesson complete.",
-    markers: organizationMarkers.filter((marker) => marker.label !== "Pickup"),
-    practicePath: () => createTransferPaths()[0].path,
-    practicePaths: createTransferPaths,
-    practiceConfig,
-    steps: transferSteps,
-  },
+  createImportExportTour(),
   {
     id: "path-management",
     title: "Path Management",

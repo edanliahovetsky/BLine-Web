@@ -91,7 +91,13 @@ import {
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore } from "../tours/tourStore";
-import { exportPracticePath, parsePracticePath } from "../tours/tourTransfer";
+import {
+  capturePracticeTransfer,
+  importPracticeFolder,
+  isCurrentPracticeTransfer,
+} from "../tours/tourTransfer";
+import { serializeBLineProjectFolder } from "../../core/io/projectFolder";
+import { detectEnvironmentCapabilities } from "../../env/capabilities";
 import {
   createTourSessionController,
   type TourSessionController,
@@ -1187,13 +1193,24 @@ export function AppShell() {
       return;
     }
 
+    const practice = capturePracticeTransfer();
     try {
-      const projectFolder = await projectStore.getState().exportProjectFolder();
+      const state = projectStore.getState();
+      const projectFolder =
+        practice && state.project
+          ? serializeBLineProjectFolder(state.project)
+          : await state.exportProjectFolder();
       if (projectFolder) {
         await writeProjectFolder(projectFolder);
+        if (practice && isCurrentPracticeTransfer(practice)) {
+          tourStore.getState().recordAction("exportFolder");
+        }
       }
     } catch (caughtError) {
-      if (!isAbortError(caughtError)) {
+      if (
+        !isAbortError(caughtError) &&
+        (!practice || isCurrentPracticeTransfer(practice))
+      ) {
         projectStore.getState().markSaveError(caughtError);
       }
     } finally {
@@ -1214,10 +1231,9 @@ export function AppShell() {
     }
 
     try {
-      const practice = tourStore.getState().activeTourId === "import-export";
-      const blob = practice
-        ? exportPracticePath(currentPath.path)
-        : await projectStore.getState().exportPath(currentPath.path_id);
+      const blob = await projectStore
+        .getState()
+        .exportPath(currentPath.path_id);
       if (blob) {
         await saveBlobAs(blob, currentPath.file_name, {
           title: "Export BLine Path",
@@ -1225,7 +1241,6 @@ export function AppShell() {
             projectStore.getState().io?.capabilities.directFileAutosave,
           ),
         });
-        if (practice) tourStore.getState().recordAction("export");
       }
     } catch (caughtError) {
       if (!isAbortError(caughtError)) {
@@ -1412,38 +1427,13 @@ export function AppShell() {
         return;
       }
 
-      const practiceImport =
-        tourStore.getState().activeTourId === "import-export" &&
-        pendingImportMode === "path";
-      if (!projectStore.getState().io && !practiceImport) {
+      if (!projectStore.getState().io) {
         importHandlingRef.current = false;
         endToolbarAction("import");
         return;
       }
 
       try {
-        if (practiceImport) {
-          const state = projectStore.getState();
-          const session = state.projectSessionId;
-          const text = await file.text();
-          if (
-            !state.project ||
-            projectStore.getState().projectSessionId !== session ||
-            tourStore.getState().activeTourId !== "import-export"
-          )
-            return;
-          const path = parsePracticePath(text, state.project.config);
-          projectStore.getState().createPath({
-            displayName: file.name
-              .replace(/\.json$/i, "")
-              .replace(/[-_]+/g, " "),
-            path,
-            makeActive: true,
-          });
-          selectionStore.getState().clearSelection();
-          tourStore.getState().recordAction("import");
-          return;
-        }
         if (pendingImportMode === "path") {
           await projectStore.getState().importPath(file);
           selectionStore.getState().clearSelection();
@@ -1482,13 +1472,18 @@ export function AppShell() {
       importHandlingRef.current = files.length > 0;
       event.currentTarget.value = "";
 
-      if (files.length === 0 || !projectStore.getState().io) {
+      const practice = capturePracticeTransfer();
+      if (files.length === 0 || (!projectStore.getState().io && !practice)) {
         importHandlingRef.current = false;
         endToolbarAction("import");
         return;
       }
 
       try {
+        if (practice) {
+          await importPracticeFolder(files, practice);
+          return;
+        }
         await projectStore.getState().importProjectFolder(files, {
           migrateLegacyFieldBackgrounds: migrateImportedFieldsForProject,
         });
@@ -1496,7 +1491,9 @@ export function AppShell() {
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
-        projectStore.getState().markSaveError(caughtError);
+        if (!practice || isCurrentPracticeTransfer(practice)) {
+          projectStore.getState().markSaveError(caughtError);
+        }
       } finally {
         importHandlingRef.current = false;
         endToolbarAction("import");
@@ -1598,9 +1595,10 @@ export function AppShell() {
       ? getElementPosition(activePath.path.path_elements, selectedElementIndex)
       : null;
   const ioCapabilities = projectIo?.capabilities;
-  const supportsProjectFolders = Boolean(
-    ioCapabilities?.supportsProjectFolders,
-  );
+  const supportsProjectFolders =
+    ioCapabilities?.supportsProjectFolders ??
+    (Boolean(activeTourId) &&
+      detectEnvironmentCapabilities().shell === "tauri");
   const pathDocuments = durableProject?.paths ?? [];
   const currentWorkspaceSummary = useStoreSelector(
     projectStore,
@@ -1778,7 +1776,8 @@ export function AppShell() {
   const projectAvailable = Boolean(durableProject);
   const pathAvailable = Boolean(activePath);
   const projectIoAvailable =
-    Boolean(projectIo) || activeTourId === "import-export";
+    Boolean(projectIo) ||
+    (activeTourId === "import-export" && !supportsProjectFolders);
   const navigatorCommand: EditorCommand = {
     id: "project.navigator",
     label: "Open project navigator",

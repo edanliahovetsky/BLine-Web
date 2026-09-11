@@ -518,6 +518,7 @@ export function AppToolbar({
           ref={setFolderInput}
           className="file-import-input"
           aria-label="Import autos folder"
+          data-tour="lesson-import-folder"
           type="file"
           accept="application/json,.json"
           multiple

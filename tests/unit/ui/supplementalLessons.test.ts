@@ -1,10 +1,5 @@
+import { serializePath } from "../../../src/core/io/projectSerde";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { projectConfigDefaultLookup } from "../../../src/core/config/projectConfig";
-import { stringifyBLineJson } from "../../../src/core/io/blineJson";
-import {
-  deserializePath,
-  serializePath,
-} from "../../../src/core/io/projectSerde";
 import { getPathElementLinkedTargetId } from "../../../src/core/linkedTargets";
 import { createProject, type Project } from "../../../src/core/model/project";
 import { isWaypoint } from "../../../src/core/model/path";
@@ -20,7 +15,6 @@ import {
   createPathLinkingGroups,
   createPathLinkingPaths,
   createPathLinkingTargets,
-  createTransferPaths,
   pickupHandoffId,
   scorePose,
   supplementalPathIds as ids,
@@ -46,12 +40,6 @@ function check(lesson: string, step: string) {
   return supplementalTours
     .find((tour) => tour.id === lesson)!
     .steps.find((candidate) => candidate.title === step)!.check!().complete;
-}
-
-function recordAction(action: string) {
-  tourStore.setState({
-    actions: { ...tourStore.getState().actions, [action]: 1 },
-  });
 }
 
 beforeEach(() => {
@@ -102,33 +90,6 @@ describe("supplemental lessons", () => {
     }
   });
 
-  it("waits for an actual export and a separate imported path with matching runtime data", () => {
-    seed(practice(createTransferPaths()), "import-export");
-    expect(check("import-export", "Export one path")).toBe(false);
-    recordAction("export");
-    expect(check("import-export", "Export one path")).toBe(true);
-    const original = projectStore.getState().project!.paths[0];
-    const imported = deserializePath(serializePath(original.path));
-    projectStore
-      .getState()
-      .createPath({ displayName: "Imported score", path: imported });
-    expect(check("import-export", "Import the saved path")).toBe(false);
-    recordAction("import");
-    expect(check("import-export", "Import the saved path")).toBe(true);
-    const state = projectStore.getState();
-    const copy = state.project!.paths[1];
-    const changedProject = structuredClone(state.project!);
-    changedProject.paths[1].path.ranged_constraints[0].value = 1;
-    projectStore.setState({ project: changedProject });
-    expect(check("import-export", "Import the saved path")).toBe(false);
-    projectStore.setState({
-      project: state.project,
-      activePathId: copy.path_id,
-    });
-    recordAction("play");
-    expect(check("import-export", "Inspect the imported copy")).toBe(true);
-  });
-
   it("keeps each auto connected when a linked End moves without changing other groups", () => {
     const initial = practice();
     initial.path_groups = createManagementGroups();
@@ -169,50 +130,6 @@ describe("supplemental lessons", () => {
     expect(updated.paths[1].path.path_elements[0]).toEqual(firstEnd);
     expect(updated.paths[2].path.path_elements.at(-1)).toEqual(firstEnd);
     expect(updated.paths.slice(3)).toEqual(initial.paths.slice(3));
-  });
-
-  it("accepts a real runtime-file round trip with default radii and rounded headings", async () => {
-    const initial = practice(createTransferPaths());
-    initial.config.kinematic_constraints.default_intermediate_handoff_radius_meters = 0.4534567;
-    const original = initial.paths[0];
-    const end = original.path.path_elements.at(-1)!;
-    if (!isWaypoint(end)) throw new Error("Expected an End waypoint");
-    end.rotation_target.rotation_radians = Math.PI / 7;
-    expect(
-      end.translation_target.intermediate_handoff_radius_meters,
-    ).toBeNull();
-    const exportedFile = new File(
-      [stringifyBLineJson(serializePath(original.path))],
-      original.file_name,
-      { type: "application/json" },
-    );
-    const imported = deserializePath(
-      JSON.parse(await exportedFile.text()),
-      projectConfigDefaultLookup(initial.config),
-    );
-    const importedEnd = imported.path_elements.at(-1)!;
-    if (!isWaypoint(importedEnd))
-      throw new Error("Expected an imported End waypoint");
-    expect(
-      importedEnd.translation_target.intermediate_handoff_radius_meters,
-    ).toBe(0.4534567);
-    expect(importedEnd.rotation_target.rotation_radians).not.toBe(Math.PI / 7);
-    expect(serializePath(imported)).not.toEqual(serializePath(original.path));
-
-    seed(initial, "import-export");
-    projectStore
-      .getState()
-      .createPath({ displayName: "Imported score", path: imported });
-    recordAction("import");
-    expect(check("import-export", "Import the saved path")).toBe(true);
-
-    const changedProject = structuredClone(projectStore.getState().project!);
-    const changedEnd = changedProject.paths[1].path.path_elements.at(-1)!;
-    if (!isWaypoint(changedEnd))
-      throw new Error("Expected an imported End waypoint");
-    changedEnd.translation_target.intermediate_handoff_radius_meters = 0.7;
-    projectStore.setState({ project: changedProject });
-    expect(check("import-export", "Import the saved path")).toBe(false);
   });
 
   it("requires a meaningful three-route combination and previews that group", () => {

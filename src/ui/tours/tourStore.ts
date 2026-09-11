@@ -37,6 +37,8 @@ export type TourAction =
   | "inspectPath"
   | "export"
   | "import"
+  | "exportFolder"
+  | "importFolder"
   | "keepCopy";
 export interface TourReference {
   path: PathModel;

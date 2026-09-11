@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import type { PathModel } from "../../src/core/model/path";
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import { activeFieldLabel } from "./support/app-shell-fields";
@@ -7,9 +10,9 @@ import {
   selectToolbarOption,
 } from "./support/app-shell-project-library";
 import {
-  installSaveFilePickerSpy,
-  savedFile,
-  savedFileCount,
+  disableDirectoryPicker,
+  parseStoredZip,
+  requiredZipText,
 } from "./support/app-shell-persistence";
 import {
   dismissMobileSupportWarning,
@@ -611,52 +614,120 @@ test("restores the user's path, field, tab, and clean practice on reopening", as
   );
 });
 
-test("exports a runtime path and imports its matching practice copy", async ({
+test("exports and imports an autos folder inside the web lesson", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await installSaveFilePickerSpy(page);
+  await disableDirectoryPicker(page);
   await gotoSampleEditor(page);
-  await openLesson(page, "Importing and Exporting");
-  await heading(page, "Export one path");
-  await page.getByRole("button", { name: "Path", exact: true }).click();
-  await page
-    .getByRole("menuitem", { name: "Import / Export", exact: true })
-    .click();
-  await page
-    .getByRole("menuitem", { name: "Export Path...", exact: true })
-    .click();
-  await expect.poll(() => savedFileCount(page)).toBe(1);
-  const saved = await savedFile(page, 0);
-  expect(JSON.parse(saved.text).path_elements).toHaveLength(4);
-  expect(saved.text).toContain("prepareScore");
-  await advance(page);
-  await heading(page, "Import the saved path");
-  const choosing = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Path", exact: true }).click();
-  await page
-    .getByRole("menuitem", { name: "Import / Export", exact: true })
-    .click();
-  await page
-    .getByRole("menuitem", { name: "Import Path...", exact: true })
-    .click();
-  const chooser = await choosing;
-  await chooser.setFiles({
-    buffer: Buffer.from(saved.text),
-    mimeType: "application/json",
-    name: "roundtrip-lesson.json",
+  const before = await practice(page);
+  const tempRoot = await mkdtemp(join(tmpdir(), "bline-lesson-autos-"));
+  try {
+    await openLesson(page, "Importing and Exporting");
+    await heading(page, "Export an autos folder");
+    await page.getByRole("button", { name: "File", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Import / Export", exact: true })
+      .click();
+    const downloading = page.waitForEvent("download");
+    await page
+      .getByRole("menuitem", { name: "Export Autos Folder...", exact: true })
+      .click();
+    const download = await downloading;
+    expect(download.suggestedFilename()).toBe("autos.zip");
+    const downloadPath = await download.path();
+    if (!downloadPath) throw new Error("Expected the exported autos ZIP");
+    const entries = parseStoredZip(await readFile(downloadPath));
+    expect([...entries.keys()].sort()).toEqual([
+      "autos/config.json",
+      "autos/paths/score-to-pickup.json",
+      "autos/paths/start-to-score.json",
+      "autos/project.json",
+    ]);
+    expect(
+      requiredZipText(entries, "autos/paths/start-to-score.json"),
+    ).toContain("prepareScore");
+    expect(
+      JSON.parse(requiredZipText(entries, "autos/project.json")).path_groups,
+    ).toHaveLength(1);
+    for (const [relativePath, text] of entries) {
+      const destination = join(tempRoot, relativePath);
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, text);
+    }
+    await advance(page);
+    await heading(page, "Import the autos folder");
+    await page.getByRole("button", { name: "File", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Import / Export", exact: true })
+      .click();
+    const choosing = page.waitForEvent("filechooser");
+    await page
+      .getByRole("menuitem", { name: "Import Autos Folder...", exact: true })
+      .click();
+    await (await choosing).setFiles(join(tempRoot, "autos"));
+    await advance(page);
+    await heading(page, "Check the imported paths");
+    await selectToolbarOption(page, "Toolbar path", "Score to Pickup");
+    await playAndInspect(page);
+    await advance(page);
+    await heading(page, "Save changes for your robot");
+    await expect(page.getByTestId("tour-card")).toContainText(
+      "export the autos folder again",
+    );
+    await finish(page);
+    expect((await practice(page)).path).toEqual(before.path);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("uses desktop folder menus and direct-saving guidance in the desktop lesson", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoSampleEditor(page);
+  // Model the shell after browser storage starts. This exercises the desktop
+  // lesson UI without pretending to test the native filesystem bridge.
+  await page.evaluate(async () => {
+    const { tours }: typeof import("../../src/ui/tours/tours") = await import(
+      /* @vite-ignore */ "/src/ui/tours/tours.ts" as string
+    );
+    const {
+      createImportExportTour,
+    }: typeof import("../../src/ui/tours/importExportLesson") = await import(
+      /* @vite-ignore */ "/src/ui/tours/importExportLesson.ts" as string
+    );
+    Object.assign(
+      tours.find((tour) => tour.id === "import-export")!,
+      createImportExportTour("tauri"),
+    );
+    (window as Window & { isTauri?: boolean }).isTauri = true;
   });
+  await openLesson(page, "Importing and Exporting");
+  await heading(page, "Open an autos folder on desktop");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Folder", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "Open Project Folder...", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", {
+      name: "Create Project Folder...",
+      exact: true,
+    }),
+  ).toBeVisible();
   await advance(page);
-  await heading(page, "Inspect the imported copy");
-  await selectToolbarOption(page, "Toolbar path", "roundtrip lesson");
+  await heading(page, "Edit a path in the folder");
+  await setNumber(page, "X (m)", "11.2");
+  await advance(page);
+  await heading(page, "Preview before deploying");
+  await expect(page.getByTestId("tour-card")).toContainText(
+    "edits save directly to the open folder",
+  );
   await playAndInspect(page);
   await advance(page);
-  await heading(page, "Back up the whole project");
-  await page.getByRole("button", { name: "File", exact: true }).click();
-  await page
-    .getByRole("menuitem", { name: "Import / Export", exact: true })
-    .click();
-  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
+  await heading(page, "Use the folder in your robot project");
   await finish(page);
 });
 

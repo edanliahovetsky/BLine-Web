@@ -253,7 +253,7 @@ export function createTransferPaths(): ProjectPath[] {
     0,
     createEventTrigger({ t_ratio: 0.7, lib_key: "prepareScore" }),
   );
-  return [path];
+  return [path, createScoringPaths()[1]];
 }
 
 /** Coincident endpoints begin unlinked so the learner creates the relationship. */
