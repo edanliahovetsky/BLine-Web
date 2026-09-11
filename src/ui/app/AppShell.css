@@ -5077,8 +5077,8 @@ body.is-resizing-inspector * {
 }
 
 .inspector-sidebar__panel--elements > .property-editor-section {
-  flex: 0 1 auto;
-  min-height: min(180px, 52%);
+  flex: 0 0 auto;
+  max-height: 52%;
 }
 
 /* Drop the standalone row cap and let the list itself fill the card, so it
