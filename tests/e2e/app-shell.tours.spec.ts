@@ -159,26 +159,37 @@ test("restores editor navigation, history, selection, inspector, and tool after 
   );
 });
 
-test("opens lessons and starts a guided tour from the start center", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await dismissMobileSupportWarning(page);
-  await expect(page.getByRole("heading", { name: "BLine Web" })).toBeVisible();
+for (const entryPoint of ["Learn panel", "help menu"]) {
+  test(`starts a guided lesson from the home-page ${entryPoint} without a project @webkit-canvas`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await dismissMobileSupportWarning(page);
+    const home = page.getByTestId("start-center");
+    await expect(home).toBeVisible();
 
-  await page.getByTestId("start-center-guided-tour").click();
-  await expect(page.getByTestId("tour-picker")).toBeVisible();
-  await page.getByTestId("tour-picker-editor-basics").click();
+    if (entryPoint === "help menu") {
+      await page.getByRole("button", { name: "Help and tutorials" }).click();
+      const lessons = page.getByTestId("start-guided-tour");
+      await expect(lessons).toBeEnabled();
+      await lessons.click();
+      await expect(page.getByTestId("help-hub")).toHaveCount(0);
+    } else {
+      await home.getByTestId("start-center-guided-tour").click();
+    }
+    await expect(page.getByTestId("tour-picker")).toBeVisible();
+    await page.getByTestId("tour-picker-editor-basics").click();
 
-  await expect(page.getByTestId("tour-card")).toBeVisible();
-  await expect(page.getByTestId("tour-step-count")).toHaveText("1 / 7");
+    await expect(page.getByTestId("tour-card")).toBeVisible();
+    await expect(page.getByTestId("tour-step-count")).toHaveText("1 / 7");
 
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("heading", { name: "BLine Web" })).toBeVisible();
-  await expect(page.getByTestId("current-path-status")).toContainText(
-    "No path",
-  );
-});
+    await page.keyboard.press("Escape");
+    await expect(home).toBeVisible();
+    await expect(page.getByTestId("current-path-status")).toContainText(
+      "No path",
+    );
+  });
+}
 
 test("teaches concepts across multiple lessons", async ({ page }) => {
   await gotoSampleEditor(page);
