@@ -800,12 +800,18 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
   await previewGroup(page, "Pickup and Score");
   await advance(page);
   await heading(page, "Inspect the next Start");
-  await selectToolbarOption(page, "Toolbar path", "Pickup to Score");
+  await clickField(page, 14, 4.9);
+  await expect(
+    page.getByRole("button", { name: "Toolbar path", exact: true }),
+  ).toHaveText("Pickup to Score");
   await page.getByTestId("path-element-row-0").click();
   await expect(page.getByRole("button", { name: /Pickup/ })).toBeVisible();
   await advance(page);
   await heading(page, "Set the speed near End");
-  await selectToolbarOption(page, "Toolbar path", "Start to Pickup");
+  await clickField(page, 6.25, 4.4);
+  await expect(
+    page.getByRole("button", { name: "Toolbar path", exact: true }),
+  ).toHaveText("Start to Pickup");
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();
   await advance(page);
   await heading(page, "Try a small minimum velocity");

@@ -474,8 +474,8 @@ const pathLinkingSteps: TourStep[] = [
   },
   {
     title: "Inspect the next Start",
-    body: "Choose Pickup to Score and select Start. Its Link menu shows Pickup, the same linked waypoint used by the first path’s End.",
-    target: "path-breadcrumb",
+    body: "Click the grey Pickup to Score path on the canvas to switch to it, then select Start. Its Link menu shows Pickup, the same linked waypoint used by the first path’s End.",
+    target: "path-canvas",
     visible: ["path-canvas", "element-properties"],
     interact: linkedEditing,
     prepare: {
@@ -483,27 +483,33 @@ const pathLinkingSteps: TourStep[] = [
       inspector: "open",
       inspectorTab: "elements",
       showGhostPaths: true,
+      tool: "select",
     },
-    task: "Select Pickup to Score",
+    task: "Click the grey Pickup to Score path",
     check: () =>
       feedback(
         activePathIs(ids.pickupExit),
-        "Choose Pickup to Score in the path dropdown.",
+        "Click the grey path on the right to switch to Pickup to Score.",
         "Start is linked to Pickup.",
       ),
   },
   {
     title: "Set the speed near End",
-    body: "Return to Start to Pickup and open Constraints. A minimum velocity keeps the robot moving as it nears End, until it is close enough to finish the path.",
-    target: "path-breadcrumb",
+    body: "Click the grey Start to Pickup path on the canvas to switch back, then open Constraints. A minimum velocity keeps the robot moving near End until it is close enough to finish the path.",
+    target: "path-canvas",
     interact: ["path-breadcrumb", ...constraints],
-    prepare: { inspector: "open", inspectorTab: "elements" },
+    prepare: {
+      inspector: "open",
+      inspectorTab: "elements",
+      showGhostPaths: true,
+      tool: "select",
+    },
     task: "Open Constraints on Start to Pickup",
     check: () =>
       feedback(
         activePathIs(ids.stagingPickup) &&
           present('[data-tour="inspector-constraints"][aria-selected="true"]'),
-        "Select Start to Pickup, then click Constraints.",
+        "Click the grey path on the left to switch to Start to Pickup, then open Constraints.",
         "The first path’s constraints are open.",
       ),
   },
