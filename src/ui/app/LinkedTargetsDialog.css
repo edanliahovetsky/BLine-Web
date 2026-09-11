@@ -162,3 +162,13 @@
     overflow-y: auto;
   }
 }
+
+.linked-targets-dialog .library-dialog__utility-bar {
+  justify-content: flex-end;
+}
+
+.linked-targets-dialog__target-row small .linked-targets-dialog__locked {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 6px;
+}

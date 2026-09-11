@@ -88,6 +88,7 @@ export function useControlTooltip(text: string) {
       },
       onMouseLeave: hideSoon,
       onPointerDown: hide,
+      onClick: hide,
     },
     tooltip: position
       ? createPortal(

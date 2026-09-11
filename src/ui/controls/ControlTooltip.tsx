@@ -10,6 +10,10 @@ export function TooltipIconButton({ title, ...props }: IconButtonProps) {
       <IconButton
         {...props}
         {...triggerProps}
+        onClick={(event) => {
+          triggerProps.onClick();
+          props.onClick?.(event);
+        }}
         onFocus={(event) => {
           props.onFocus?.(event);
           triggerProps.onFocus(event);
