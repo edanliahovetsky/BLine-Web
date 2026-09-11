@@ -14,6 +14,7 @@ import {
   isElementCompatibleWithLinkedTarget,
   nextLinkedTargetName,
 } from "../../../core/linkedTargets";
+import { Check } from "lucide-react";
 import { LinkIcon } from "../../icons";
 import {
   isEventTrigger,
@@ -26,6 +27,7 @@ import {
   NumberStepperControl,
   SidebarSelectControl,
   SwitchInput,
+  useControlTooltip,
 } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
 import {
@@ -100,7 +102,7 @@ export function PropertyEditor({
       }
       open={open}
       sectionId="element-properties"
-      title="Element Properties"
+      title="Properties"
       onToggle={onToggleSection}
     >
       <div
@@ -530,8 +532,8 @@ function TypeField({
     : [currentType, ...options];
 
   return (
-    <label className="property-row">
-      <span>Type</span>
+    <label className="property-row property-row--type">
+      <span className="sr-only">Type</span>
       <SidebarSelectControl
         ariaLabel="Type"
         value={currentType}
@@ -569,6 +571,10 @@ function LinkedTargetMenu({
         (target) => target.target_id === currentTargetId,
       ) ?? null)
     : null;
+  const linkLabel = currentTarget
+    ? `Linked to ${currentTarget.display_name}`
+    : "Link element";
+  const { triggerProps, tooltip } = useControlTooltip(linkLabel);
   const compatibleTargets = project
     ? project.linked_targets.filter((target) =>
         isElementCompatibleWithLinkedTarget(element, target),
@@ -616,28 +622,23 @@ function LinkedTargetMenu({
     closeContainingDetails(event.currentTarget);
   };
 
-  const currentTargetName =
-    project.linked_targets.find(
-      (target) => target.target_id === currentTargetId,
-    )?.display_name ?? null;
-
   return (
     <details
       className={["linked-element-menu", currentTarget ? "is-linked" : ""]
         .filter(Boolean)
         .join(" ")}
     >
-      <summary
-        aria-label={
-          currentTarget
-            ? `Linked to ${currentTarget.display_name}`
-            : "Link element"
-        }
-        role="button"
-      >
+      <summary {...triggerProps} aria-label={linkLabel} role="button">
         <LinkIcon size={15} />
-        <span>Link</span>
+        {currentTarget ? (
+          <Check
+            aria-hidden="true"
+            className="linked-element-menu__check"
+            size={9}
+          />
+        ) : null}
       </summary>
+      {tooltip}
       <div
         className="linked-element-menu__panel"
         role="group"
@@ -685,13 +686,7 @@ function LinkedTargetMenu({
               <small>Name required.</small>
             ) : draftNameExists ? (
               <small>Name already exists.</small>
-            ) : (
-              <small>
-                {currentTargetName
-                  ? `Currently linked to ${currentTargetName}.`
-                  : "Creates and links this element."}
-              </small>
-            )}
+            ) : null}
             <div className="linked-element-menu__create-actions">
               <button type="button" onClick={cancelCreate}>
                 Cancel

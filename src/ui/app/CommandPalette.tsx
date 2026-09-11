@@ -235,6 +235,25 @@ export function ShortcutHelpDialog({
             </dl>
           </section>
           <section>
+            <h3>Selection</h3>
+            <dl>
+              <div>
+                <dt>Select a range of elements or constraint values</dt>
+                <dd>
+                  <kbd>Shift + click</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Toggle individual elements or constraint values</dt>
+                <dd>
+                  <kbd>
+                    {formatShortcut({ key: "click", metaOrCtrl: true })}
+                  </kbd>
+                </dd>
+              </div>
+            </dl>
+          </section>
+          <section>
             <h3>Playback</h3>
             <dl>
               <div>

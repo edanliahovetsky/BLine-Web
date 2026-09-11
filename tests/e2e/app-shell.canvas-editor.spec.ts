@@ -610,7 +610,7 @@ test("persists the inspector tab while keeping header actions available", async 
   await expect(
     page.locator(".add-constraint-menu [role='menuitem']"),
   ).toHaveText([
-    "Max Velocity (+)",
+    "Max Velocity",
     "Max Acceleration",
     "Min Velocity",
     "Max Rot Velocity",

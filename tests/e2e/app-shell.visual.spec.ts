@@ -31,7 +31,9 @@ test.describe("app shell visual baselines", () => {
     await expect(
       page.getByRole("complementary", { name: "Path inspector" }),
     ).toBeVisible();
-    await expect(page.getByText("Path Elements")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Path Elements", exact: true }),
+    ).toBeVisible();
 
     await expectVisualSnapshot(page, "editor-elements.png");
   });
