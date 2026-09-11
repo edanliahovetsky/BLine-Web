@@ -15,7 +15,7 @@ export async function gotoSampleEditor(page: Page): Promise<void> {
     name: "Mobile support warning",
   });
   const startHeading = page.getByRole("heading", {
-    name: "BLine Web",
+    name: "BLine",
   });
   const initializationError = page.getByRole("alert");
   await expect(

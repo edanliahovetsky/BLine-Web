@@ -42,7 +42,7 @@ test("returns Home through File and resumes edits, selection, and undo history",
   await page.getByRole("button", { name: "File", exact: true }).click();
   await expect(home).toBeDisabled();
   await page.keyboard.press("Escape");
-  await start.getByRole("heading", { name: "BLine Web" }).click();
+  await start.getByRole("heading", { name: "BLine" }).click();
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   for (const key of [
     "Delete",
@@ -149,7 +149,7 @@ test("groups imports in a keyboard-accessible start-center disclosure", async ({
   await expect(trigger).toBeFocused();
 
   await trigger.click();
-  await start.getByRole("heading", { name: "BLine Web" }).click();
+  await start.getByRole("heading", { name: "BLine" }).click();
   await expect(options).toBeHidden();
 
   await trigger.click();

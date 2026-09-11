@@ -5189,7 +5189,7 @@ body.is-resizing-inspector * {
 .start-center__title {
   margin: 0 0 30px;
   color: #e9eff5;
-  font-size: 2.125rem;
+  font-size: 3.25rem;
   line-height: 1.2;
   font-weight: 620;
   letter-spacing: -0.03em;
@@ -5555,7 +5555,7 @@ body.is-resizing-inspector * {
   }
 
   .start-center__title {
-    font-size: 1.875rem;
+    font-size: 2.75rem;
   }
 
   .start-center__actions {
