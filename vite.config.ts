@@ -1,10 +1,49 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { VitePWA } from "vite-plugin-pwa";
 
 const tauriDevHost = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      // Registration is owned by the browser shell; Tauri and development
+      // builds must never install a service worker.
+      injectRegister: false,
+      includeManifestIcons: false,
+      manifest: {
+        name: "BLine Web",
+        short_name: "BLine",
+        description: "Create, tune, and simulate autonomous robot paths.",
+        id: "/",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        theme_color: "#1f2a35",
+        background_color: "#1f2a35",
+        icons: [
+          { src: "icons/bline-192.png", sizes: "192x192", type: "image/png" },
+          { src: "icons/bline-512.png", sizes: "512x512", type: "image/png" },
+        ],
+      },
+      workbox: {
+        cacheId: "bline-web",
+        // Include unused field images and lazy chunks (including the solver
+        // worker), so the first offline visit can use every editor feature.
+        globPatterns: ["**/*.{html,js,css,png,svg,ico,woff,woff2}"],
+        // Only Vite's hashed JS/CSS names are immutable. Public field PNGs
+        // keep their names across releases and need content revisions.
+        dontCacheBustURLsMatching: /-[\w-]{8}\.(?:js|css)$/,
+        navigateFallback: "index.html",
+        cleanupOutdatedCaches: true,
+        // A failed install leaves the active version and its assets intact.
+        // A complete update waits for all old app tabs/windows to close.
+        skipWaiting: false,
+        clientsClaim: false,
+      },
+    }),
+  ],
   clearScreen: false,
   server: {
     host: tauriDevHost ?? "127.0.0.1",

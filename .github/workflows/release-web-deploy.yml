@@ -108,6 +108,9 @@ jobs:
       - name: Browser smoke
         run: npm run test:e2e
 
+      - name: Offline browser and update recovery
+        run: npm run test:offline
+
       - name: Tauri build
         run: npm run tauri:build
 

@@ -10,6 +10,7 @@
     "vite.config.ts",
     "vitest.parity.config.ts",
     "playwright.config.ts",
+    "playwright.offline.config.ts",
     "eslint.config.js"
   ]
 }

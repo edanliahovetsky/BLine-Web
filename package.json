@@ -14,6 +14,7 @@
     "parity": "vitest run --config vitest.parity.config.ts parity-harness/parity.test.ts",
     "validate:bline-lib-io": "vitest run --config vitest.parity.config.ts parity-harness/bline-lib-io.test.ts --testTimeout 360000",
     "test:e2e": "playwright test",
+    "test:offline": "npm run build && playwright test --config playwright.offline.config.ts",
     "build": "tsc -b && vite build",
     "release:check": "node scripts/release-check.mjs",
     "release:notes": "node scripts/write-release-notes.mjs",
@@ -45,6 +46,7 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.59.0",
     "vite": "8.0.10",
+    "vite-plugin-pwa": "1.3.0",
     "vitest": "4.1.5"
   }
 }

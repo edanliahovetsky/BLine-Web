@@ -78,6 +78,9 @@ jobs:
       - name: Browser smoke
         run: npm run test:e2e
 
+      - name: Offline browser and update recovery
+        run: npm run test:offline
+
       - name: Rust format check
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
