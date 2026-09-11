@@ -17,6 +17,7 @@ import {
 import { getElementPosition } from "../../canvas/geometry";
 import { refreshAutoVelocityConstraints } from "../../core/constraints/autoVelocityApply";
 import type { TourMarker, TourExperiment } from "./tourStore";
+import { traceClearsObstacle, type BumperObstacle } from "./bumperClearance";
 
 export const practiceField = { width: 18, height: 9 };
 export const mission = {
@@ -287,23 +288,16 @@ export function practiceSimulation(path: PathModel, config: ProjectConfig) {
 export function clearance(
   path: PathModel,
   config: ProjectConfig,
-  usePreview = false,
+  obstacleOrLegacyPreview: BumperObstacle | boolean = mission.structure,
 ): boolean {
-  const margin =
-    Math.hypot(config.gui.robot.length_meters, config.gui.robot.width_meters) /
-      2 +
-    0.05;
-  const points = usePreview
-    ? practiceSimulation(path, config).trace.map((sample) => ({
-        x_meters: sample.x_m,
-        y_meters: sample.y_m,
-      }))
-    : anchorPositions(path);
-  return (
-    points.length > 1 &&
-    points
-      .slice(1)
-      .every((end, i) => segmentClearsStructure(points[i], end, margin))
+  const obstacle =
+    typeof obstacleOrLegacyPreview === "boolean"
+      ? mission.structure
+      : obstacleOrLegacyPreview;
+  return traceClearsObstacle(
+    practiceSimulation(path, config).trace,
+    config.gui.robot,
+    obstacle,
   );
 }
 export function withinField(
