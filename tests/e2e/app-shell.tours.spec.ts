@@ -443,6 +443,37 @@ for (const [width, height] of [
   );
 }
 
+test("keeps the element type dropdown usable during lessons @webkit-canvas", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await gotoSampleEditor(page);
+  await openLesson(page, "Rotation targets");
+  await heading(page, "Add a rotation target");
+
+  const type = page.getByRole("combobox", { name: "Type", exact: true });
+  const options = page.getByRole("listbox", { name: "Type options" });
+  await type.click();
+  await type.press("Home");
+  await type.press("Escape");
+  await expect(options).toHaveCount(0);
+  await heading(page, "Add a rotation target");
+  await expect(type).toHaveText("Waypoint");
+
+  await type.click();
+  await options
+    .getByRole("option", { name: "Translation", exact: true })
+    .click();
+  await expect(type).toHaveText("Translation");
+  await type.press("ArrowDown");
+  await type.press("End");
+  await type.press("Enter");
+  await expect(type).toHaveText("Waypoint");
+  await heading(page, "Add a rotation target");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+});
+
 test("moves rotation targets, tests both heading modes, and shows the fast-turn limit", async ({
   page,
 }) => {

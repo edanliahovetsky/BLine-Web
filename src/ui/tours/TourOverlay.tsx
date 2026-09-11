@@ -445,7 +445,7 @@ export function TourOverlay({
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
-            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
+            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
           )
         )
           return;
@@ -457,7 +457,7 @@ export function TourOverlay({
       const target = event.target instanceof Element ? event.target : null;
       const inCoach = !!target?.closest(".tour-layer");
       const editable = !!target?.closest(
-        'input, textarea, select, [contenteditable="true"]',
+        'input, textarea, select, [role="combobox"], [contenteditable="true"]',
       );
       const editorCommandInField =
         event.key === "F1" ||

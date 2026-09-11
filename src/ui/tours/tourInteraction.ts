@@ -66,6 +66,11 @@ export function tourInteractionTargets(step: TourStep): readonly string[] {
     if (targets.includes("inspector-panel")) targets.push("element-add-menu");
     if (
       targets.includes("inspector-panel") ||
+      targets.includes("element-properties")
+    )
+      targets.push("element-type-menu");
+    if (
+      targets.includes("inspector-panel") ||
       targets.includes("element-properties") ||
       targets.includes("element-link")
     )
