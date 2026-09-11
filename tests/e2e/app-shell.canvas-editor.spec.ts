@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  canvasMetrics,
   canvasNodePosition,
   canvasSceneMetrics,
   expectPathElementTypes,
@@ -9,6 +10,11 @@ import {
 } from "./support/app-shell-canvas";
 import { runEditMenuAction } from "./support/app-shell-commands";
 import { openConstraintsTab } from "./support/app-shell-constraints";
+import {
+  activeFieldImageLoaded,
+  activeFieldLabel,
+  tinyPngBuffer,
+} from "./support/app-shell-fields";
 import {
   createNewProject,
   installWorkspaceWriteSpy,
@@ -77,49 +83,85 @@ test.describe("Pixi canvas rendering", () => {
   });
 });
 
-test("selects and drags a canvas anchor without replacing the renderer @webkit-canvas", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
+for (const background of ["built-in", "grid", "custom"] as const) {
+  test(`selects and drags a canvas anchor on ${background} without rebuilding static layers @webkit-canvas`, async ({
+    page,
+  }) => {
+    await gotoSampleEditor(page);
+    await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
+    if (background !== "built-in") {
+      await page.getByRole("button", { name: "Settings" }).click();
+      const dialog = page.getByRole("dialog", { name: "Edit Config" });
+      await dialog.getByRole("button", { name: "Field", exact: true }).click();
+      if (background === "grid") {
+        await dialog
+          .getByLabel("Field Image", { exact: true })
+          .selectOption("blank-grid");
+      } else {
+        await dialog.getByLabel("Upload field image").setInputFiles({
+          name: "practice-field.png",
+          mimeType: "image/png",
+          buffer: tinyPngBuffer(),
+        });
+      }
+      await dialog.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(dialog).toBeHidden();
+      if (background === "grid") {
+        await expect
+          .poll(() => activeFieldLabel(page))
+          .toBe("Blank Meter Grid");
+      } else {
+        await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+      }
+    }
 
-  const stage = page.getByTestId("path-stage");
-  await expect(stage).toBeVisible();
+    const stage = page.getByTestId("path-stage");
+    await expect(stage).toBeVisible();
 
-  const canvas = page.getByTestId("path-stage-canvas");
-  const firstAnchor = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 5.7,
-    y_meters: 2.5,
+    const selectedRow = page.getByTestId("path-element-row-0");
+    await selectedRow.click();
+    const canvas = page.getByTestId("path-stage-canvas");
+    const box = await requiredBox(canvas);
+    const node = await canvasNodePosition(page, "path-element-node-0");
+    const firstAnchor = { x: box.x + node.x, y: box.y + node.y };
+
+    await page.mouse.click(firstAnchor.x, firstAnchor.y);
+    await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
+    await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
+    const pixiCanvas = page.getByTestId("path-stage-pixi-canvas");
+    const rendererInstanceId = await pixiCanvas.getAttribute(
+      "data-renderer-instance-id",
+    );
+    if (!rendererInstanceId) {
+      throw new Error("Expected a mounted Pixi renderer");
+    }
+    const beforeDrag = await canvasMetrics(page);
+
+    await page.mouse.move(firstAnchor.x, firstAnchor.y);
+    await page.mouse.down();
+    await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, { steps: 8 });
+    await expect(pixiCanvas).toHaveAttribute(
+      "data-renderer-instance-id",
+      rendererInstanceId,
+    );
+    const duringDrag = await canvasMetrics(page);
+    expect(duringDrag.renderCount).toBeGreaterThan(beforeDrag.renderCount);
+    expect(duringDrag.fieldDrawCount).toBe(beforeDrag.fieldDrawCount);
+    expect(duringDrag.overlayDrawCount).toBe(beforeDrag.overlayDrawCount);
+    await page.mouse.up();
+
+    await expect(page.getByLabel("X (m)")).not.toHaveValue("5.7");
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
+    await expect(pixiCanvas).toHaveAttribute(
+      "data-renderer-instance-id",
+      rendererInstanceId,
+    );
+    expect((await canvasMetrics(page)).fieldDrawCount).toBe(
+      beforeDrag.fieldDrawCount,
+    );
   });
-
-  await page.mouse.click(firstAnchor.x, firstAnchor.y);
-  const selectedRow = page.getByTestId("path-element-row-0");
-  await expect(selectedRow).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByLabel("X (m)")).toHaveValue("5.7");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("2.5");
-  const pixiCanvas = page.getByTestId("path-stage-pixi-canvas");
-  const rendererInstanceId = await pixiCanvas.getAttribute(
-    "data-renderer-instance-id",
-  );
-  if (!rendererInstanceId) {
-    throw new Error("Expected a mounted Pixi renderer");
-  }
-
-  await page.mouse.move(firstAnchor.x, firstAnchor.y);
-  await page.mouse.down();
-  await page.mouse.move(firstAnchor.x + 80, firstAnchor.y - 48, { steps: 8 });
-  await expect(pixiCanvas).toHaveAttribute(
-    "data-renderer-instance-id",
-    rendererInstanceId,
-  );
-  await page.mouse.up();
-
-  await expect(selectedRow).not.toContainText("5.70, 2.50 m");
-  await expect(page.getByTestId("save-status")).toContainText("Saved");
-  await expect(pixiCanvas).toHaveAttribute(
-    "data-renderer-instance-id",
-    rendererInstanceId,
-  );
-});
+}
 
 test("keeps handoff radius tuning in the Constraints tab", async ({ page }) => {
   await gotoSampleEditor(page);

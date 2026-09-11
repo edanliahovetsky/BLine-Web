@@ -124,6 +124,8 @@ export interface PixiCanvasMetrics {
   ratio: number;
   renderer: string;
   renderCount: number;
+  fieldDrawCount: number;
+  overlayDrawCount: number;
 }
 
 export interface PixiDebugApi {
@@ -157,11 +159,15 @@ export class PixiPathRenderer {
   private readonly rotationGraphics = new Graphics();
   private readonly simulationGraphics = new Graphics();
   private readonly debugNodes = new Map<string, StagePoint>();
+  // Viewports and overlay path arrays are immutable render inputs.
   private drawnFieldViewport: FieldViewport | null = null;
   private drawnOverlayViewport: FieldViewport | null = null;
+  private drawnOverlayStageSize: CanvasSize | null = null;
   private drawnOverlayPaths: readonly PixiPathOverlay[] | null = null;
   private drawnHoveredOverlayPathId: string | null = null;
   private renderCount = 0;
+  private fieldDrawCount = 0;
+  private overlayDrawCount = 0;
 
   private constructor(
     app: Application<Renderer<HTMLCanvasElement>>,
@@ -231,11 +237,15 @@ export class PixiPathRenderer {
     }
     if (
       this.drawnOverlayViewport !== input.viewport ||
+      this.drawnOverlayStageSize?.width !== input.stageSize.width ||
+      this.drawnOverlayStageSize?.height !== input.stageSize.height ||
       this.drawnOverlayPaths !== input.overlayPaths ||
       this.drawnHoveredOverlayPathId !== input.hoveredOverlayPathId
     ) {
       this.drawOverlayPaths(input);
       this.drawnOverlayViewport = input.viewport;
+      // Ghost paths clip to canvas bounds even when the viewport is unchanged.
+      this.drawnOverlayStageSize = { ...input.stageSize };
       this.drawnOverlayPaths = input.overlayPaths;
       this.drawnHoveredOverlayPathId = input.hoveredOverlayPathId;
     }
@@ -300,10 +310,13 @@ export class PixiPathRenderer {
           : 0,
       renderer: this.app.renderer.name,
       renderCount: this.renderCount,
+      fieldDrawCount: this.fieldDrawCount,
+      overlayDrawCount: this.overlayDrawCount,
     };
   }
 
   private drawField(viewport: FieldViewport): void {
+    this.fieldDrawCount += 1;
     this.fieldGraphics
       .clear()
       .rect(viewport.x, viewport.y, viewport.width, viewport.height)
@@ -410,6 +423,7 @@ export class PixiPathRenderer {
   }
 
   private drawOverlayPaths(input: PixiRenderInput): void {
+    this.overlayDrawCount += 1;
     const graphics = this.overlayGraphics.clear();
     for (const overlay of input.overlayPaths) {
       const points = getRenderableElementPositions(
