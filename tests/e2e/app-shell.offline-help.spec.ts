@@ -6,7 +6,7 @@ test("explains offline use from Learn without starting a lesson @webkit-canvas",
 }) => {
   await page.goto("/");
   const home = page.getByTestId("start-center");
-  const entry = home.getByRole("button", { name: "Using BLine offline" });
+  const entry = home.getByRole("button", { name: "Offline use" });
   const dialog = page.getByRole("dialog", { name: "Using BLine offline" });
   await expect(entry).toBeVisible();
   await expect(dialog).toHaveCount(0);
@@ -45,7 +45,7 @@ test("opens offline help from the editor without changing the project @webkit-ca
   const x = await page.getByLabel("X (m)", { exact: true }).inputValue();
   const help = page.getByRole("button", { name: "Help and tutorials" });
   await help.click();
-  await page.getByRole("button", { name: "Using BLine offline" }).click();
+  await page.getByRole("button", { name: "Offline use" }).click();
   const dialog = page.getByRole("dialog", { name: "Using BLine offline" });
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Delete");
@@ -69,7 +69,7 @@ test("keeps the Learn actions and offline dialog within narrow windows @webkit-c
     ),
   );
   await page.goto("/");
-  const entry = page.getByRole("button", { name: "Using BLine offline" });
+  const entry = page.getByRole("button", { name: "Offline use" });
   await expect(entry).toBeVisible();
   for (const width of [600, 480, 390, 360]) {
     await page.setViewportSize({ width, height: 760 });

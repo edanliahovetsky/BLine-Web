@@ -139,7 +139,6 @@ export function OpenProjectDialog({
           {workspaces.length > 0 ? (
             <>
               <div className="open-project-dialog__labels" aria-hidden="true">
-                <span>Saved projects</span>
                 <span>Last saved</span>
               </div>
               <ul
@@ -177,7 +176,7 @@ export function OpenProjectDialog({
             <div className="open-project-dialog__empty">
               <FolderOpen size={28} aria-hidden="true" />
               <p>No saved projects yet.</p>
-              <span>Create a project or import one from Home.</span>
+              <span>Create or import from Home.</span>
             </div>
           )}
         </div>
@@ -200,7 +199,7 @@ export function NameEntryDialog({
   title,
 }: {
   ariaLabel: string;
-  description: string;
+  description?: string;
   fieldLabel: string;
   initialValue: string;
   onCancel(): void;
@@ -242,7 +241,7 @@ export function NameEntryDialog({
         <header className="config-dialog__header">
           <div>
             <strong>{title}</strong>
-            <span>{description}</span>
+            {description ? <span>{description}</span> : null}
           </div>
           <CloseButton
             ariaLabel={`Close ${ariaLabel.toLocaleLowerCase()}`}

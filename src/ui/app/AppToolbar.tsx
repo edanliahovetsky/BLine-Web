@@ -23,7 +23,6 @@ import {
   optimizerBeamLabel,
   optimizerBeamTitle,
 } from "../optimizerBeam";
-import { tours } from "../tours/tours";
 import {
   executeCommand,
   formatShortcut,
@@ -142,7 +141,6 @@ export function AppToolbar({
     redoLabel,
     toursSupported,
   } = model;
-  const pathLabel = activePath?.display_name ?? "No path";
   const helpHubRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -284,11 +282,12 @@ export function AppToolbar({
           openTopMenu={menu.open}
           setOpenTopMenu={menu.setOpen}
         >
-          <MenuLabel>Current: {pathLabel}</MenuLabel>
-          <MenuLabel>
-            Path Group: {activeGroup?.display_name ?? "None"}
-          </MenuLabel>
-          <div className="top-menu__separator" role="separator" />
+          {activeGroup ? (
+            <>
+              <MenuLabel>Path Group: {activeGroup.display_name}</MenuLabel>
+              <div className="top-menu__separator" role="separator" />
+            </>
+          ) : null}
           <MenuAction
             label="Linked Elements..."
             disabled={!project || toolbarBusy}
@@ -296,7 +295,7 @@ export function AppToolbar({
           />
           <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
             <MenuAction
-              label="Create New Path"
+              label="New Path"
               disabled={commands.newPath.disabled}
               onAction={() => executeCommand(commands.newPath)}
             />
@@ -532,7 +531,6 @@ function HelpHubPopover({
       data-testid="help-hub"
     >
       <div className="help-hub-popover__group">
-        <span className="help-hub-popover__label">Learn</span>
         <button
           type="button"
           data-testid="start-guided-tour"
@@ -547,15 +545,14 @@ function HelpHubPopover({
           <span className="help-hub-popover__glyph" aria-hidden="true">
             🧭
           </span>
-          <span>Guided tours</span>
-          <small>{tours.length} lessons</small>
+          <span>Guided lessons</span>
         </button>
         {onOpenOfflineHelp ? (
           <button type="button" onClick={onOpenOfflineHelp}>
             <span className="help-hub-popover__glyph" aria-hidden="true">
               <WifiOff size={16} />
             </span>
-            <span>Using BLine offline</span>
+            <span>Offline use</span>
           </button>
         ) : null}
         <button type="button" onClick={onShortcuts}>
@@ -575,7 +572,6 @@ function HelpHubPopover({
       </div>
       <div className="help-hub-popover__separator" role="separator" />
       <div className="help-hub-popover__group">
-        <span className="help-hub-popover__label">Reference</span>
         <a
           href="https://bline-docs.pages.dev/"
           target="_blank"
@@ -592,7 +588,7 @@ function HelpHubPopover({
           <span className="help-hub-popover__glyph" aria-hidden="true">
             🧪
           </span>
-          <span>Open sample path</span>
+          <span>Sample path</span>
         </button>
         <a
           href="https://www.chiefdelphi.com/t/introducing-bline-a-new-rapid-polyline-autonomous-path-planning-suite/509778"
@@ -664,21 +660,15 @@ export function PathHealthPopover({
           >
             <span>{diagnostic.summary}</span>
             {diagnostic.fix ? (
-              <small>
-                {diagnostic.fix.kind === "focus-event-key" ? "Edit" : "Fix"}
-                {" · "}
-                {diagnostic.fix.label}
-              </small>
+              <small>{diagnostic.fix.label}</small>
             ) : diagnostic.elementIndex !== undefined ? (
               <small>Show element {diagnostic.elementIndex + 1}</small>
-            ) : (
-              <small>Path guidance</small>
-            )}
+            ) : null}
           </button>
         ))}
         {diagnostics.length === 0 && !saveError ? (
           <div className="path-health-popover__clear">
-            BLine’s editor-level checks are clear.
+            No editor issues found.
           </div>
         ) : null}
       </div>

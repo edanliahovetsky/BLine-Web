@@ -111,7 +111,7 @@
 }
 .open-project-dialog__labels {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding-right: 32px;
   color: #8197a9;
   font-size: 0.69rem;

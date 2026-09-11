@@ -89,6 +89,18 @@ test.describe("app shell visual baselines", () => {
 
     await expectVisualSnapshot(page, "compact-inspector.png");
   });
+
+  test("empty linked elements library", async ({ page }) => {
+    await gotoSampleEditor(page);
+    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Linked Elements..." }).click();
+
+    await expect(
+      page.getByRole("dialog", { name: "Linked Elements", exact: true }),
+    ).toBeVisible();
+
+    await expectVisualSnapshot(page, "linked-elements-empty.png");
+  });
 });
 
 async function gotoSampleEditor(page: Page): Promise<void> {

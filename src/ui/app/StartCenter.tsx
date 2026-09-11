@@ -195,7 +195,7 @@ export function StartCenter({
                 }}
               >
                 <WifiOff aria-hidden="true" size={16} />
-                <span>Using BLine offline</span>
+                <span>Offline use</span>
                 <ArrowRight aria-hidden="true" size={13} />
               </button>
             ) : null}

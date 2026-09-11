@@ -4392,15 +4392,6 @@ select {
   gap: 1px;
 }
 
-.help-hub-popover__label {
-  padding: 7px 9px 4px;
-  color: var(--bline-text-muted);
-  font-size: 0.62rem;
-  font-weight: 760;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
 .help-hub-popover__separator {
   height: 1px;
   margin: 5px 4px;
