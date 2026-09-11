@@ -4,10 +4,7 @@ import {
   defaultAutoVelocityVelocitySafetyFactor,
   getDefaultOptionalConfigValue,
 } from "../config/projectConfig";
-import {
-  autoCorridorDeviationBudgetMeters,
-  minimumAutomaticHandoffStraightLegMeters,
-} from "../bend/cornerBend";
+import { autoCorridorDeviationBudgetMeters } from "../bend/cornerBend";
 import { seedHandoffRadii } from "../bend/autoSeedHandoffRadii";
 import {
   getHandoffRadiusSource,
@@ -343,7 +340,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 14;
+const autoConstraintSolverVersion = 15;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -513,8 +510,6 @@ function jointRadiusCoordinates(
       !anchor ||
       !incoming ||
       !outgoing ||
-      incoming.lengthMeters < minimumAutomaticHandoffStraightLegMeters ||
-      outgoing.lengthMeters < minimumAutomaticHandoffStraightLegMeters ||
       incoming.lengthMeters <= minPositive ||
       getHandoffRadiusSource(path.path_elements[anchor.pathIndex]) !== "auto"
     ) {
@@ -623,12 +618,6 @@ function hasImpossibleJointRadius(
     const element = anchor ? path.path_elements[anchor.pathIndex] : undefined;
     if (!anchor || !incoming || !outgoing || !element) {
       return true;
-    }
-    if (
-      incoming.lengthMeters < minimumAutomaticHandoffStraightLegMeters ||
-      outgoing.lengthMeters < minimumAutomaticHandoffStraightLegMeters
-    ) {
-      return false;
     }
     const generatorOwnsRadius = getHandoffRadiusSource(element) === "auto";
     return (

@@ -88,16 +88,37 @@ describe("feasible radius range", () => {
     expect(feasibleRadiusRange(null)).toBeNull();
   });
 
-  it("requires both adjacent straight legs to be at least 0.3 meters", () => {
-    expect(feasibleRadiusRange(cornerGeometry(corner(0.299, 1, 90), 1))).toBe(
-      null,
+  it.each([0.299, 0.3, 0.301])(
+    "allows %s meter legs when the incoming leg fits the minimum radius",
+    (length) => {
+      const range = feasibleRadiusRange(
+        cornerGeometry(corner(length, length, 90), 1),
+      );
+
+      expect(range?.minMeters).toBe(0.05);
+      expect(range?.maxMeters).toBeCloseTo(0.9 * length, 12);
+    },
+  );
+
+  it("does not restrict a radius to the outgoing leg length", () => {
+    expect(feasibleRadiusRange(cornerGeometry(corner(1, 0.01, 90), 1))).toEqual(
+      {
+        minMeters: 0.05,
+        maxMeters: 0.9,
+      },
     );
-    expect(feasibleRadiusRange(cornerGeometry(corner(1, 0.299, 90), 1))).toBe(
-      null,
-    );
+  });
+
+  it("keeps the minimum when the incoming leg can only just fit it", () => {
     expect(
-      feasibleRadiusRange(cornerGeometry(corner(0.3, 0.3, 90), 1)),
-    ).toEqual({ minMeters: 0.05, maxMeters: 0.27 });
+      feasibleRadiusRange(cornerGeometry(corner(0.0555, 1, 90), 1)),
+    ).toBeNull();
+    expect(
+      feasibleRadiusRange(cornerGeometry(corner(0.0556, 1, 90), 1)),
+    ).toEqual({
+      minMeters: 0.05,
+      maxMeters: 0.05004,
+    });
   });
 });
 
@@ -120,7 +141,7 @@ describe("seed radius", () => {
   });
 
   it("does not let a short outgoing leg cap the trigger radius", () => {
-    expect(seedRadius(cornerGeometry(corner(2, 0.3, 90), 1))).toBeCloseTo(
+    expect(seedRadius(cornerGeometry(corner(2, 0.01, 90), 1))).toBeCloseTo(
       0.98,
       12,
     );
@@ -137,6 +158,13 @@ describe("seed radius", () => {
     expect(seedRadius(cornerGeometry(corner(0.05, 1, 90), 1))).toBeNull();
     expect(seedRadius(null)).toBeNull();
   });
+
+  it.each([0.0556, 0.06, 0.1])(
+    "clamps the seed to the 0.05 meter floor on a %s meter incoming leg",
+    (length) => {
+      expect(seedRadius(cornerGeometry(corner(length, 1, 90), 1))).toBe(0.05);
+    },
+  );
 });
 
 function corner(

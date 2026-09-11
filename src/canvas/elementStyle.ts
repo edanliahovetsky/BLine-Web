@@ -17,14 +17,14 @@ export const elementColors = {
 
 /**
  * Handoff radii keep BLine's original purple identity. Ownership is conveyed
- * by line treatment instead: generated rings are dashed and manual pins are
- * solid, so changing ownership does not make the underlying geometry look like
- * a different kind of path object.
+ * by line treatment instead: generated and project-default rings are dashed
+ * and manual pins are solid, so changing ownership does not make the underlying
+ * geometry look like a different kind of path object.
  */
 export const handoffRingColors = {
   auto: "#ff5cf4",
   manual: "#ff5cf4",
-  unset: "#8296a6",
+  unset: "#ff5cf4",
 };
 
 export function rotatableElementAccent(element: PathElement): string {

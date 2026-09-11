@@ -83,7 +83,7 @@
       }
     },
     {
-      "name": "minimum-eligible-legs",
+      "name": "alternating-short-corners",
       "points": [
         [0, 0],
         [0.3, 0],
@@ -102,7 +102,7 @@
       }
     },
     {
-      "name": "ineligible-short-leg",
+      "name": "short-leg-corners",
       "points": [
         [0, 0],
         [0.299, 0],
@@ -111,13 +111,14 @@
       ],
       "legacy_completion_time_s": 0.68,
       "expected": {
-        "status": "best-effort",
-        "completion_time_s": 0.68,
-        "evaluations": 2,
+        "status": "valid",
+        "completion_time_s": 0.74,
+        "evaluations": 5803,
         "budget": 8000,
-        "radii": [0.45],
-        "caps": [2, 3.2, 3.2, 3.2]
-      }
+        "radii": [0.45, 0.209, 0.189],
+        "caps": [2, 4, 2.02, 4]
+      },
+      "legacy_status": "best-effort"
     }
   ]
 }
