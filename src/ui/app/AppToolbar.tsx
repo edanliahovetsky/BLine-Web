@@ -71,7 +71,6 @@ interface ToolbarMenuState {
 }
 
 interface ToolbarPanelState {
-  showOpenPanel: boolean;
   showHelpHub: boolean;
   inspectorOpen: boolean;
   openCommandPalette(): void;
@@ -109,7 +108,6 @@ interface ToolbarActions {
   showDeletePaths(): void;
   showDeletePathGroups(): void;
   selectPath(pathId: string): void;
-  openWorkspaceById(id: string): void | Promise<void>;
   openSample(): void | Promise<void>;
 }
 
@@ -524,23 +522,6 @@ export function AppToolbar({
           multiple
           onChange={onImportFolder}
         />
-        {panels.showOpenPanel ? (
-          <div className="project-open-panel" data-testid="open-project-panel">
-            <strong>Saved Workspaces</strong>
-            <div className="project-open-panel__list">
-              {projectSummaries.map((summary) => (
-                <button
-                  key={summary.id}
-                  type="button"
-                  onClick={() => void actions.openWorkspaceById(summary.id)}
-                >
-                  <span>{summary.displayName}</span>
-                  <small>{formatTimestamp(summary.updatedAt)}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </nav>
     </header>
   );

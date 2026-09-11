@@ -653,65 +653,6 @@ select {
   display: none;
 }
 
-.project-open-panel {
-  position: absolute;
-  z-index: 45;
-  top: calc(100% + 8px);
-  right: 0;
-  display: grid;
-  gap: 8px;
-  width: min(360px, calc(100vw - 28px));
-  box-sizing: border-box;
-  padding: 10px;
-  border: 1px solid #37424c;
-  border-radius: 8px;
-  background: #12171b;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.46);
-}
-
-.project-open-panel strong {
-  color: #f5f8fb;
-  font-size: 0.86rem;
-}
-
-.project-open-panel__list {
-  display: grid;
-  gap: 5px;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.project-open-panel__list button {
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  min-height: 58px;
-  padding: 9px 10px;
-  text-align: left;
-  touch-action: manipulation;
-}
-
-.project-open-panel__list button span,
-.project-open-panel__list button small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-open-panel__list button span {
-  color: #eef3f7;
-  font-size: 0.86rem;
-  font-weight: 690;
-  line-height: 1.28;
-}
-
-.project-open-panel__list button small {
-  color: #9eabb6;
-  font-size: 0.74rem;
-  line-height: 1.22;
-}
-
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
@@ -3983,25 +3924,6 @@ select {
     left: auto;
   }
 
-  .project-open-panel {
-    position: fixed;
-    top: 50px;
-    right: 8px;
-    left: 8px;
-    width: auto;
-    max-height: calc(100vh - 64px);
-    max-height: calc(100dvh - 64px);
-  }
-
-  .project-open-panel__list {
-    max-height: min(48vh, 360px);
-    max-height: min(48dvh, 360px);
-  }
-
-  .project-open-panel__list button {
-    min-height: 52px;
-  }
-
   .config-dialog-backdrop {
     padding: 10px;
   }
@@ -5772,26 +5694,6 @@ body.is-resizing-inspector * {
     display: block;
     margin-left: auto;
   }
-}
-
-.create-project-dialog {
-  width: min(480px, calc(100vw - 32px));
-  overflow: hidden;
-  border: 1px solid #3b4650;
-  border-radius: 10px;
-  background: #181e23;
-  box-shadow: 0 24px 68px rgba(0, 0, 0, 0.58);
-}
-
-.create-project-dialog__body {
-  display: grid;
-  gap: 16px;
-  padding: 18px;
-}
-
-.create-project-dialog .dialog-field small {
-  color: #7f8c97;
-  font-size: 0.7rem;
 }
 
 .command-palette-backdrop {

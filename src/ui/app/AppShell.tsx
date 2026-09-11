@@ -109,6 +109,7 @@ import { useProjectLifecycle } from "./useProjectLifecycle";
 import { useLegacyFieldMigration } from "./useLegacyFieldMigration";
 import {
   CreateProjectDialog,
+  OpenProjectDialog,
   DeletePathsDialog,
   DeletePathGroupsDialog,
   DeleteProjectsDialog,
@@ -639,33 +640,6 @@ export function AppShell() {
       window.removeEventListener("keydown", handleEscape);
     };
   }, [openTopMenu]);
-
-  useEffect(() => {
-    if (!showOpenPanel) {
-      return undefined;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!toolbarRef.current?.contains(target)) {
-        setShowOpenPanel(false);
-      }
-    };
-
-    const handleEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setShowOpenPanel(false);
-      }
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleEscape);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, [showOpenPanel]);
 
   const handleNewProject = useCallback(() => {
     setShowOpenPanel(false);
@@ -2113,7 +2087,6 @@ export function AppShell() {
           refreshWorkspaces: refreshWorkspaceSummaries,
         }}
         panels={{
-          showOpenPanel,
           showHelpHub,
           inspectorOpen,
           openCommandPalette: () => setShowCommandPalette(true),
@@ -2152,7 +2125,6 @@ export function AppShell() {
           showDeletePaths: handleShowDeletePaths,
           showDeletePathGroups: handleShowDeletePathGroups,
           selectPath: handleSelectPathFromToolbar,
-          openWorkspaceById: handleOpenWorkspaceById,
           openSample: handleOpenSample,
         }}
       />
@@ -2303,6 +2275,14 @@ export function AppShell() {
         <CreateProjectDialog
           onCancel={() => setShowNewProjectDialog(false)}
           onCreate={(input) => void handleConfirmCreateProject(input)}
+        />
+      ) : null}
+      {showOpenPanel ? (
+        <OpenProjectDialog
+          workspaces={projectSummaries}
+          busy={toolbarBusy}
+          onCancel={() => setShowOpenPanel(false)}
+          onOpen={(id) => void handleOpenWorkspaceById(id)}
         />
       ) : null}
       {showDeleteProjectDialog ? (

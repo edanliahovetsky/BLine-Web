@@ -247,7 +247,9 @@ test("opens a saved project from the project list", async ({ page }) => {
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
   await openProjectPanelFromTopMenu(page);
-  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Open project", exact: true }),
+  ).toBeVisible();
   await page.getByText(firstProject.projectName, { exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
@@ -282,13 +284,17 @@ test("opens a saved project from the mobile project list", async ({ page }) => {
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Workspace" }).click();
   await page.getByRole("menuitem", { name: "Open Project..." }).click();
-  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Open project", exact: true }),
+  ).toBeVisible();
   await page.getByText(firstProject.projectName, { exact: true }).click();
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
     `Current Path: ${firstPath}`,
   );
-  await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Open project", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("supports undo and redo for structural sidebar edits", async ({

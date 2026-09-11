@@ -90,9 +90,7 @@ export async function createNewProject(
   const dialog = page.getByRole("dialog", { name: "Create project" });
   await dialog.getByRole("textbox", { name: "Project name" }).fill(projectName);
   await dialog.getByRole("textbox", { name: "First path name" }).fill(pathName);
-  await dialog
-    .getByRole("button", { name: "Create project", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   return { pathName, projectName };
 }
 

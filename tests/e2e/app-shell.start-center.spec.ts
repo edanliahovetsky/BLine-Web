@@ -87,9 +87,7 @@ test("stays Home when creation is canceled and opens new or recent projects", as
   await dialog
     .getByRole("textbox", { name: "Project name" })
     .fill("Home navigation project");
-  await dialog
-    .getByRole("button", { name: "Create project", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await expect(start).toHaveCount(0);
   await expect(page.getByTestId("current-project-status")).toHaveText(
     "Project: Home navigation project",

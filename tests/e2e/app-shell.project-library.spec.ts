@@ -502,14 +502,21 @@ test("keeps actions flyouts stable and closes them after leaving", async ({
   await expect(importMenu).toHaveCount(0);
 });
 
-test("closes the open-project panel when using top menus", async ({ page }) => {
+test("dismisses the open-project dialog before using top menus", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
 
   await openProjectPanelFromTopMenu(page);
-  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Open project", exact: true }),
+  ).toBeVisible();
 
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("dialog", { name: "Open project", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Path", exact: true }).click();
-  await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
 
   await page.getByRole("button", { name: "File", exact: true }).click();
@@ -523,10 +530,15 @@ test("project and path menus expose import modes without toolbar clutter", async
   await gotoSampleEditor(page);
 
   await openProjectPanelFromTopMenu(page);
-  await expect(page.getByTestId("open-project-panel")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Open project", exact: true }),
+  ).toBeVisible();
 
+  await page.keyboard.press("Escape");
   await openProjectMenu(page);
-  await expect(page.getByTestId("open-project-panel")).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Open project", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
   await expect(

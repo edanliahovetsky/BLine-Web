@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { ArrowRight, FolderOpen, Trash2 } from "lucide-react";
 import type { ProjectPath, ProjectPathGroup } from "../../core/model/project";
 import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
-import { CloseButton } from "../controls";
+import { ActionButton, CloseButton } from "../controls";
+import { parseProjectTimestamp } from "./projectTimestamp";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import "./ProjectDialogs.css";
 
@@ -27,7 +28,7 @@ export function CreateProjectDialog({
     <div className="config-dialog-backdrop" role="presentation">
       <form
         ref={dialogRef}
-        className="create-project-dialog"
+        className="project-dialog create-project-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-project-title"
@@ -45,15 +46,12 @@ export function CreateProjectDialog({
           });
         }}
       >
-        <header className="config-dialog__header">
-          <div>
-            <strong id="create-project-title">Create project</strong>
-            <span>Give your team a clear starting point.</span>
-          </div>
+        <header className="project-dialog__header">
+          <h2 id="create-project-title">Create project</h2>
           <CloseButton ariaLabel="Close create project" onClick={onCancel} />
         </header>
-        <section className="create-project-dialog__body">
-          <label className="dialog-field">
+        <section className="project-dialog__body">
+          <label className="project-dialog__field">
             <span>Project name</span>
             <input
               ref={projectInputRef}
@@ -62,9 +60,8 @@ export function CreateProjectDialog({
               value={projectName}
               onChange={(event) => setProjectName(event.currentTarget.value)}
             />
-            <small>Use your robot, event, or season name.</small>
           </label>
-          <label className="dialog-field">
+          <label className="project-dialog__field">
             <span>First path</span>
             <input
               aria-label="First path name"
@@ -73,18 +70,121 @@ export function CreateProjectDialog({
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => setPathName(event.currentTarget.value)}
             />
-            <small>You can add Path Groups and more Paths later.</small>
           </label>
         </section>
-        <footer className="config-dialog__footer">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="primary-dialog-action">
-            Create project
-          </button>
+        <footer className="project-dialog__footer">
+          <ActionButton onClick={onCancel}>Cancel</ActionButton>
+          <ActionButton type="submit" tone="primary">
+            Done
+          </ActionButton>
         </footer>
       </form>
+    </div>
+  );
+}
+
+export function OpenProjectDialog({
+  workspaces,
+  busy,
+  onCancel,
+  onOpen,
+}: {
+  workspaces: readonly ProjectWorkspaceSummary[];
+  busy: boolean;
+  onCancel(): void;
+  onOpen(id: string): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLElement>();
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const firstProject =
+      dialog?.querySelector<HTMLButtonElement>("[data-project-id]");
+    (
+      firstProject ?? dialog?.querySelector<HTMLButtonElement>("button")
+    )?.focus();
+  }, [dialogRef]);
+
+  return (
+    <div
+      className="config-dialog-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="project-dialog open-project-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="open-project-title"
+        aria-busy={busy}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          }
+        }}
+      >
+        <header className="project-dialog__header">
+          <span className="project-dialog__icon">
+            <FolderOpen size={18} aria-hidden="true" />
+          </span>
+          <h2 id="open-project-title">Open project</h2>
+          <CloseButton ariaLabel="Close open project" onClick={onCancel} />
+        </header>
+        <div className="project-dialog__body">
+          {workspaces.length > 0 ? (
+            <>
+              <div className="open-project-dialog__labels" aria-hidden="true">
+                <span>Saved projects</span>
+                <span>Last saved</span>
+              </div>
+              <ul
+                className="open-project-dialog__list"
+                aria-label="Saved projects"
+              >
+                {workspaces.map((workspace) => {
+                  const savedAt = parseProjectTimestamp(workspace.updatedAt);
+                  return (
+                    <li key={workspace.id}>
+                      <button
+                        type="button"
+                        data-project-id={workspace.id}
+                        disabled={busy}
+                        onClick={() => onOpen(workspace.id)}
+                      >
+                        <FolderOpen size={17} aria-hidden="true" />
+                        <span className="open-project-dialog__name">
+                          {workspace.displayName}
+                        </span>
+                        <time dateTime={savedAt?.toISOString()}>
+                          {savedAt?.toLocaleString([], {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          }) ?? "Saved project"}
+                        </time>
+                        <ArrowRight size={14} aria-hidden="true" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          ) : (
+            <div className="open-project-dialog__empty">
+              <FolderOpen size={28} aria-hidden="true" />
+              <p>No saved projects yet.</p>
+              <span>Create a project or import one from Home.</span>
+            </div>
+          )}
+        </div>
+        <footer className="project-dialog__footer">
+          <ActionButton onClick={onCancel}>Cancel</ActionButton>
+        </footer>
+      </section>
     </div>
   );
 }
