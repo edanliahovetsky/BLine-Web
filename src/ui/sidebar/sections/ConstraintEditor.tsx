@@ -2725,7 +2725,7 @@ function AutoVelocityStatusIndicator({
     ? "Generating…"
     : isCurrent
       ? "Up to date"
-      : status.hasAutoConstraints
+      : status.hasGeneratedValues
         ? "Path changed"
         : "Not generated";
   return (
@@ -3368,7 +3368,7 @@ function autoVelocityStatusTooltip(
   if (autoVelocityStatusIsCurrent(status)) {
     return "Generated constraints match the current path and generator settings.";
   }
-  if (status.hasAutoConstraints) {
+  if (status.hasGeneratedValues) {
     return "The path or generator settings changed after these constraints were generated.";
   }
   return "No generated velocity constraints are currently applied.";
