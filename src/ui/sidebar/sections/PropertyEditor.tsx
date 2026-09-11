@@ -643,6 +643,7 @@ function LinkedTargetMenu({
         .join(" ")}
     >
       <summary
+        data-tour="element-link"
         aria-label={
           currentTarget
             ? `Linked to ${currentTarget.display_name}`
