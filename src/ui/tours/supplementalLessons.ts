@@ -13,11 +13,13 @@ import {
   createLinkedElementPaths,
   createManagementGroups,
   createManagementPaths,
+  createManagementTargets,
   createPathLinkingGroups,
   createPathLinkingPaths,
   createPathLinkingTargets,
   createTransferPaths,
   linkingMarkers,
+  managementPathIds as managementIds,
   organizationMarkers,
   scorePose,
   supplementalPathIds as ids,
@@ -80,7 +82,7 @@ function scoreTarget() {
   return project()?.linked_targets.find(
     (target) =>
       target.kind === "waypoint" &&
-      target.display_name.trim().toLowerCase() === "score pose",
+      target.display_name.trim().toLowerCase() === "score",
   );
 }
 
@@ -185,11 +187,11 @@ function gentleFinalMinimum(path: PathModel | undefined) {
 const transferSteps: TourStep[] = [
   {
     title: "Export one path",
-    body: "Staging to Score includes its route, event key, and constraints. Open Path, then Import / Export, and choose Export Path to save its runtime JSON.",
+    body: "Open Path, then Import / Export, and choose Export Path. This saves Start to Score as a JSON file with its elements, event keys, and constraints.",
     target: "path-menu-entry",
     visible: ["path-canvas"],
     interact: pathMenus,
-    task: "Export Staging to Score",
+    task: "Export Start to Score",
     prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
     check: () =>
       feedback(
@@ -200,7 +202,7 @@ const transferSteps: TourStep[] = [
   },
   {
     title: "Import the saved path",
-    body: "Choose Path, Import / Export, then Import Path and select the JSON you just saved. Import adds a separate path to this practice project.",
+    body: "Choose Path, Import / Export, then Import Path. Select the JSON file you just saved to add a copy to this project.",
     target: "path-menu-entry",
     interact: [...pathMenus, "lesson-import-file"],
     task: "Import the exported path JSON",
@@ -213,7 +215,7 @@ const transferSteps: TourStep[] = [
   },
   {
     title: "Inspect the imported copy",
-    body: "Use the path dropdown to select the imported copy, then play or scrub it. A path JSON carries this path's elements and constraints; it uses the current project's defaults.",
+    body: "Select the imported copy in the path dropdown and press Play. The path keeps its elements and constraints and uses this project’s defaults.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "simulation-transport"],
     interact: [
@@ -235,7 +237,7 @@ const transferSteps: TourStep[] = [
   },
   {
     title: "Back up the whole project",
-    body: "Open File and Import / Export to find Project Archive. An archive also keeps project defaults, Path Groups, and linked elements for editing; individual path JSON does not.",
+    body: "Open File, then Import / Export, to find Project Archive. Use an archive to save the whole project, including defaults, Path Groups, and linked elements.",
     target: "export-menu-entry",
     interact: [
       "export-menu-entry",
@@ -254,23 +256,23 @@ const transferSteps: TourStep[] = [
 
 const managementSteps: TourStep[] = [
   {
-    title: "Choose a route",
-    body: "This project has an opening score and two legs of a pickup cycle. Use the path dropdown to select Score to Pickup.",
+    title: "Choose a path",
+    body: "This project has two autos and a few test paths. Use the path dropdown to select Top - Score to Pickup.",
     target: "path-breadcrumb",
     visible: ["path-canvas"],
     interact: ["path-breadcrumb"],
-    task: "Select Score to Pickup",
+    task: "Select Top - Score to Pickup",
     prepare: { navigator: "closed", inspector: "closed", simulation: "start" },
     check: () =>
       feedback(
-        activePathIs(ids.scorePickup),
-        "Select Score to Pickup in the path dropdown.",
-        "Score to Pickup is active.",
+        activePathIs(managementIds.topScorePickup),
+        "Select Top - Score to Pickup in the path dropdown.",
+        "Top - Score to Pickup is selected.",
       ),
   },
   {
-    title: "See the existing combinations",
-    body: "Open the Project Navigator to see Opening score and Pickup cycle. Path Groups collect reusable paths you want to view together.",
+    title: "Open the Project Navigator",
+    body: "Open the Project Navigator. Testing, Top Side Auto, and Bottom Side Auto each have three paths. Path Groups are flexible: organize by auto, testing, or whatever works for your team.",
     target: "navigator-button",
     interact: navigation,
     task: "Open the Project Navigator",
@@ -278,73 +280,74 @@ const managementSteps: TourStep[] = [
       feedback(
         navigatorOpen(),
         "Click the navigator button.",
-        "The connections show each group's paths.",
+        "The lines show which paths belong to each group.",
       ),
   },
   {
-    title: "Make a complete cycle",
-    body: "Click + beside Path Groups and name the new group Two-piece cycle. It will combine the opening score with the pickup and return.",
+    title: "Create a Path Group",
+    body: "Click + beside Path Groups and name your group My Auto. We'll add the three top-side paths to it.",
     target: "navigator-groups",
     interact: navigation,
     prepare: { navigator: "open" },
-    task: "Create Two-piece cycle",
+    task: "Create My Auto",
     check: () =>
       feedback(
-        !!groupNamed("Two-piece cycle"),
+        !!groupNamed("My Auto"),
         "Create the group and save its name.",
-        "Two-piece cycle created.",
+        "My Auto created.",
       ),
   },
   {
     title: "Connect its three paths",
-    body: "Select Two-piece cycle, then click the connection point beside each of the three paths. The same path can belong to several groups.",
+    body: "Select My Auto, then click the connection point beside each path whose name starts with Top. A path can belong to more than one group, so these stay in Top Side Auto too.",
     target: "navigator-paths",
     interact: navigation,
     prepare: { navigator: "open" },
-    task: "Connect all three routes to Two-piece cycle",
+    task: "Add the three top-side paths to My Auto",
     check: () =>
       feedback(
-        [ids.stagingScore, ids.scorePickup, ids.pickupScore].every((id) =>
-          groupNamed("Two-piece cycle")?.path_ids.includes(id),
-        ),
-        "Connect Staging to Score, Score to Pickup, and Pickup to Score.",
-        "The complete cycle is connected.",
+        [
+          managementIds.topStartScore,
+          managementIds.topScorePickup,
+          managementIds.topPickupScore,
+        ].every((id) => groupNamed("My Auto")?.path_ids.includes(id)),
+        "Connect all three paths whose names start with Top.",
+        "All three paths are in My Auto.",
       ),
   },
   {
-    title: "Preview the combination",
-    body: "Select Two-piece cycle and click Preview Path Group. The active path stays bright and the other routes appear as faint overlays.",
+    title: "Preview the group",
+    body: "Select My Auto and click Preview Path Group. The selected path stays bright and the other paths are faint. Each path's End is linked to the next Start, so they stay together when you edit them.",
     target: "navigator-preview",
     visible: ["path-canvas"],
     interact: navigation,
     prepare: { navigator: "open", showGhostPaths: true },
-    task: "Preview Two-piece cycle",
+    task: "Preview My Auto",
     check: () =>
       feedback(
-        !!groupNamed("Two-piece cycle") &&
-          previewing(groupNamed("Two-piece cycle")!.group_id),
-        "Select Two-piece cycle and click Preview Path Group.",
-        "The three routes are visible together.",
+        !!groupNamed("My Auto") && previewing(groupNamed("My Auto")!.group_id),
+        "Select My Auto and click Preview Path Group.",
+        "The three paths are visible together.",
       ),
   },
   {
-    title: "Work on one leg",
-    body: "Select Pickup to Score in the path dropdown. You can edit or play one leg while keeping the rest of its group visible for context.",
+    title: "Work on one path",
+    body: "Select Top - Pickup to Score in the path dropdown. You can edit or play this path while the other paths in the group stay visible.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...transport],
     prepare: { navigator: "closed", showGhostPaths: true },
-    task: "Select Pickup to Score",
+    task: "Select Top - Pickup to Score",
     check: () =>
       feedback(
-        activePathIs(ids.pickupScore),
-        "Choose Pickup to Score in the path dropdown.",
-        "Pickup to Score is active.",
+        activePathIs(managementIds.topPickupScore),
+        "Choose Top - Pickup to Score in the path dropdown.",
+        "Top - Pickup to Score is selected.",
       ),
   },
   {
     title: "Explore your groups",
-    body: "Try the groups and playback, then continue when done. Groups organize the editor view; your robot code decides which paths run and in what order.",
+    body: "Try previewing Top Side Auto, Bottom Side Auto, and Testing. Use groups however you like. They help organize your project; your robot code decides which paths run and in what order.",
     visible: ["path-canvas", "simulation-transport"],
     interact: [...navigation, "path-breadcrumb", "path-canvas", ...transport],
   },
@@ -352,23 +355,23 @@ const managementSteps: TourStep[] = [
 
 const linkedElementSteps: TourStep[] = [
   {
-    title: "View the shared scoring area",
-    body: "In the Project Navigator, select Score and collect and click Preview Path Group. Staging to Score ends where Score to Pickup starts.",
+    title: "See where the paths meet",
+    body: "Select Score and Pickup in the Project Navigator and click Preview Path Group. Start to Score ends where Score to Pickup starts.",
     target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
     prepare: { navigator: "open", inspector: "closed", showGhostPaths: true },
-    task: "Preview Score and collect",
+    task: "Preview Score and Pickup",
     check: () =>
       feedback(
         previewing("lesson-score-cycle"),
-        "Select Score and collect, then click Preview Path Group.",
-        "Both routes meet at the score pose.",
+        "Select Score and Pickup, then click Preview Path Group.",
+        "The first path ends where the next starts.",
       ),
   },
   {
-    title: "Create the shared score pose",
-    body: "Select End on Staging to Score. In Element Properties, open Link, choose New Linked Waypoint, name it Score pose, and click Create & Link.",
+    title: "Create a linked waypoint",
+    body: "Select End on Start to Score. Open Link in Element Properties, choose New Linked Waypoint, and name it Score. Click Create & Link.",
     target: "element-properties",
     visible: ["path-canvas"],
     interact: linkedEditing,
@@ -379,19 +382,19 @@ const linkedElementSteps: TourStep[] = [
       selectElement: (path) => path.path_elements.length - 1,
       tool: "select",
     },
-    task: "Create a linked waypoint named Score pose",
+    task: "Create a linked waypoint named Score",
     check: () =>
       feedback(
         !!scoreTarget() &&
           getPathElementLinkedTargetId(scoringElements()[0]) ===
             scoreTarget()?.target_id,
-        "Create Score pose from Staging to Score's End waypoint.",
-        "End now uses the shared Score pose.",
+        "Create Score from Start to Score's End waypoint.",
+        "End now uses the shared Score.",
       ),
   },
   {
     title: "Link the next path's Start",
-    body: "Choose Score to Pickup and select Start. Open Link, choose Choose Existing, select Score pose, and click Link Selected.",
+    body: "Choose Score to Pickup and select Start. Open Link, choose Choose Existing, select Score, and click Link Selected.",
     target: "path-breadcrumb",
     visible: ["element-properties", "path-canvas"],
     interact: linkedEditing,
@@ -400,17 +403,17 @@ const linkedElementSteps: TourStep[] = [
       inspector: "open",
       inspectorTab: "elements",
     },
-    task: "Link Score to Pickup's Start to Score pose",
+    task: "Link Score to Pickup's Start to Score",
     check: () =>
       feedback(
         linkedScoreUses(),
-        "Link both routes' shared scoring waypoints to Score pose.",
-        "Both waypoints use the same shared pose.",
+        "Link the first path’s End and the next path’s Start to Score.",
+        "Both waypoints are linked to Score.",
       ),
   },
   {
     title: "Edit once, update both paths",
-    body: "Move the linked scoring waypoint a little and change its heading with the handle or degree field. A linked waypoint shares position and heading; a linked translation shares position only.",
+    body: "Move the linked waypoint and change its heading. Both paths update together. Linked waypoints share position and heading. Linked translations share only position.",
     target: "element-properties",
     visible: ["path-canvas"],
     interact: linkedEditing,
@@ -420,34 +423,34 @@ const linkedElementSteps: TourStep[] = [
       tool: "select",
       showGhostPaths: true,
     },
-    task: "Move and turn Score pose",
+    task: "Move and turn Score",
     check: () =>
       feedback(
         changedSharedScorePose(),
-        "Change both Score pose's position and heading while its two uses stay linked.",
-        "The shared position and heading updated in both paths.",
+        "Move Score and change its heading. Keep both waypoints linked.",
+        "Both paths have the new position and heading.",
       ),
   },
   {
-    title: "Inspect the other use",
-    body: "Switch back to Staging to Score and select End to inspect its updated position and heading. Play or scrub the route to see how that shared edit changes the approach.",
+    title: "Check the other path",
+    body: "Switch to Start to Score and select End. Its position and heading changed too. Press Play to see the updated path.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "simulation-transport"],
     interact: [...linkedEditing, ...transport],
-    task: "Select Staging to Score and play it",
+    task: "Select Start to Score and play it",
     prepare: { simulation: "start" },
     check: () =>
       feedback(
         activePathIs(ids.stagingScore) &&
           changedSharedScorePose() &&
           hasAction("play"),
-        "Select Staging to Score and press Play.",
-        "The other path has the updated score pose.",
+        "Select Start to Score and press Play.",
+        "The other path updated too.",
       ),
   },
   {
-    title: "Keep each route's tuning local",
-    body: "Handoff radii, constraints, and profiled rotation remain local to each path. Link points that should always share a pose; export writes their current coordinates into each runtime path.",
+    title: "Each path keeps its own settings",
+    body: "Link waypoints that should stay together. Each path still has its own handoff radii, constraints, and Profiled Rotation settings. Exported paths use the linked points’ current positions and headings.",
     visible: ["path-canvas"],
     interact: [...linkedEditing, ...transport],
   },
@@ -455,23 +458,23 @@ const linkedElementSteps: TourStep[] = [
 
 const pathLinkingSteps: TourStep[] = [
   {
-    title: "View the two-path plan",
-    body: "Select Pickup chain in the Project Navigator and click Preview Path Group. These paths share a linked Pickup handoff waypoint so End and the next Start stay aligned.",
+    title: "Preview both paths",
+    body: "Select Pickup and Score in the Project Navigator and click Preview Path Group. The first path’s End and the second path’s Start share a linked waypoint named Pickup.",
     target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
     prepare: { navigator: "open", inspector: "closed", showGhostPaths: true },
-    task: "Preview Pickup chain",
+    task: "Preview Pickup and Score",
     check: () =>
       feedback(
         previewing("lesson-pickup-chain"),
-        "Select Pickup chain and click Preview Path Group.",
-        "Both paths meet at Pickup handoff.",
+        "Select Pickup and Score and click Preview Path Group.",
+        "Both paths meet at Pickup.",
       ),
   },
   {
     title: "Inspect the next Start",
-    body: "Choose Pickup to Score and select Start. Its Link menu names the same Pickup handoff used by the previous path's End.",
+    body: "Choose Pickup to Score and select Start. Its Link menu shows Pickup, the same linked waypoint used by the first path’s End.",
     target: "path-breadcrumb",
     visible: ["path-canvas", "element-properties"],
     interact: linkedEditing,
@@ -486,57 +489,57 @@ const pathLinkingSteps: TourStep[] = [
       feedback(
         activePathIs(ids.pickupExit),
         "Choose Pickup to Score in the path dropdown.",
-        "Its Start shares the pickup pose.",
+        "Start is linked to Pickup.",
       ),
   },
   {
-    title: "Tune the incoming approach",
-    body: "Return to Staging to Pickup and open Constraints. A minimum velocity can keep a nonzero translation command near End until the robot enters its tolerance.",
+    title: "Set the speed near End",
+    body: "Return to Start to Pickup and open Constraints. A minimum velocity keeps the robot moving as it nears End, until it is close enough to finish the path.",
     target: "path-breadcrumb",
     interact: ["path-breadcrumb", ...constraints],
     prepare: { inspector: "open", inspectorTab: "elements" },
-    task: "Open Constraints on Staging to Pickup",
+    task: "Open Constraints on Start to Pickup",
     check: () =>
       feedback(
         activePathIs(ids.stagingPickup) &&
           present('[data-tour="inspector-constraints"][aria-selected="true"]'),
-        "Select Staging to Pickup, then click Constraints.",
-        "The incoming path's constraints are open.",
+        "Select Start to Pickup, then click Constraints.",
+        "The first path’s constraints are open.",
       ),
   },
   {
-    title: "Try a small final-approach minimum",
-    body: "Use Add constraint to add Min Velocity, then drag its cell to End (W2). Try 0.1 to 0.5 m/s, below the 2 m/s maximum; too much minimum can cause overshoot or chatter.",
+    title: "Try a small minimum velocity",
+    body: "Click Add constraint and choose Min Velocity. Drag its cell to End (W2) and set it between 0.1 and 0.5 m/s. A value that is too high can make the robot overshoot or shake near End.",
     target: "inspector-panel",
     visible: ["path-canvas"],
     interact: constraints,
     prepare: { inspector: "open", inspectorTab: "constraints" },
-    task: "Set a small Min Velocity on End's approach only",
+    task: "Set Min Velocity between 0.1 and 0.5 m/s on End",
     check: () =>
       feedback(
         gentleFinalMinimum(pathById(ids.stagingPickup)?.path),
-        "Keep Min Velocity between 0.1 and 0.5 m/s on End only, below its maximum.",
-        "The small minimum applies only to the final approach.",
+        "Set Min Velocity between 0.1 and 0.5 m/s on End only.",
+        "Min Velocity now applies only near End.",
       ),
   },
   {
-    title: "Inspect the arrival",
-    body: "Play and scrub the incoming path to inspect its final approach. Start with controller tuning and maximum-velocity constraints before using a minimum for a tested special case.",
+    title: "Play the first path",
+    body: "Play the path and watch the robot near End. Tune the controller and maximum velocity first. Use a minimum velocity only when testing shows that it helps.",
     target: "transport-play",
     visible: ["path-canvas"],
     interact: [...transport, ...constraints],
     prepare: { simulation: "start" },
-    task: "Play Staging to Pickup",
+    task: "Play Start to Pickup",
     check: () =>
       feedback(
         activePathIs(ids.stagingPickup) && hasAction("play"),
-        "Press Play to inspect the incoming approach.",
-        "Incoming approach inspected.",
+        "Press Play and watch the robot near End.",
+        "Continue when you are ready.",
       ),
   },
   {
-    title: "Your robot code connects the commands",
-    body: "A Path Group does not run paths in sequence. Chain the commands in robot code and test the whole transition: FollowPath sends zero speeds when it ends, so a minimum alone does not guarantee continuous motion.",
+    title: "Run both paths in robot code",
+    body: "A Path Group does not run paths in sequence. Run them in order in your robot code. FollowPath commands the robot to stop when it ends, so minimum velocity alone will not keep it moving between paths.",
     visible: ["path-canvas", "simulation-transport"],
     interact: ["path-breadcrumb", "path-canvas", ...transport],
     prepare: { inspector: "closed", showGhostPaths: true },
@@ -560,22 +563,20 @@ const definitions: SupplementalTour[] = [
   {
     id: "path-management",
     title: "Path Management",
-    summary:
-      "Combine reusable routes with Path Groups and choose an active path",
+    summary: "Organize autos and test paths with Path Groups",
     durationMinutes: 4,
     completionMessage: "Lesson complete.",
-    markers: organizationMarkers,
     practicePath: () => createManagementPaths()[0].path,
     practicePaths: createManagementPaths,
     practiceGroups: createManagementGroups,
+    practiceLinkedTargets: createManagementTargets,
     practiceConfig,
     steps: managementSteps,
   },
   {
     id: "linked-elements",
     title: "Advanced — Linked Elements",
-    summary:
-      "Share a scoring pose and update its position and heading across paths",
+    summary: "Link waypoints so both paths update when you edit them",
     durationMinutes: 4,
     completionMessage: "Lesson complete.",
     markers: organizationMarkers,
@@ -588,8 +589,7 @@ const definitions: SupplementalTour[] = [
   {
     id: "path-linking",
     title: "Advanced — Path Linking",
-    summary:
-      "Align linked endpoints and explore a cautious nonzero arrival command",
+    summary: "Connect one path’s End to the next path’s Start",
     durationMinutes: 4,
     completionMessage: "Lesson complete.",
     markers: linkingMarkers,

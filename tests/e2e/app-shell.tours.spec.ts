@@ -145,7 +145,7 @@ for (const [width, height] of [
       const navigator = page.locator('[data-tour="project-navigator"]');
       await expect(navigator).toBeVisible();
       await expect(
-        navigator.getByText("Example routine", { exact: true }),
+        navigator.getByText("Top Side Auto", { exact: true }),
       ).toBeVisible();
       expect((await practice(page)).path).toEqual(original.path);
       await finish(page);
@@ -660,25 +660,39 @@ test("exports a runtime path and imports its matching practice copy", async ({
   await finish(page);
 });
 
-test("organizes three routes into a new Path Group and previews each leg", async ({
+test("organizes an auto and test project into a new Path Group", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.setViewportSize({ width: 1280, height: 800 });
   await gotoSampleEditor(page);
   await openLesson(page, "Path Management");
-  await heading(page, "Choose a route");
-  await selectToolbarOption(page, "Toolbar path", "Score to Pickup");
+  await heading(page, "Choose a path");
+  await selectToolbarOption(page, "Toolbar path", "Top - Score to Pickup");
   await advance(page);
-  await heading(page, "See the existing combinations");
+  await heading(page, "Open the Project Navigator");
   const navigator = await openPathLibraryDialog(page);
   await expect(
-    navigator.getByText("Opening score", { exact: true }),
+    navigator.getByText("Top Side Auto", { exact: true }),
   ).toBeVisible();
   await expect(
-    navigator.getByText("Pickup cycle", { exact: true }),
+    navigator.getByText("Bottom Side Auto", { exact: true }),
   ).toBeVisible();
+  await expect(navigator.getByText("Testing", { exact: true })).toBeVisible();
+  for (const path of [
+    "Straight Line Test",
+    "Turn Test",
+    "Curve Test",
+    "Bottom - Start to Score",
+    "Bottom - Score to Pickup",
+    "Bottom - Pickup to Score",
+  ]) {
+    await expect(
+      navigator.getByRole("button", { name: "Focus " + path, exact: true }),
+    ).toBeVisible();
+  }
+  await auditLayout(page);
   await advance(page);
-  await heading(page, "Make a complete cycle");
+  await heading(page, "Create a Path Group");
   await navigator
     .getByRole("button", { name: "Create Path Group", exact: true })
     .click();
@@ -686,24 +700,24 @@ test("organizes three routes into a new Path Group and previews each leg", async
     name: "Path Group name",
     exact: true,
   });
-  await name.fill("Two-piece cycle");
+  await name.fill("My Auto");
   await name.press("Enter");
   await advance(page);
   await heading(page, "Connect its three paths");
   await navigator
-    .getByRole("button", { name: "Focus Two-piece cycle", exact: true })
+    .getByRole("button", { name: "Focus My Auto", exact: true })
     .click();
   for (const route of [
-    "Staging to Score",
-    "Score to Pickup",
-    "Pickup to Score",
+    "Top - Start to Score",
+    "Top - Score to Pickup",
+    "Top - Pickup to Score",
   ]) {
     await navigator
       .getByRole("button", { name: "Connect to " + route, exact: true })
       .click();
   }
   await advance(page);
-  await heading(page, "Preview the combination");
+  await heading(page, "Preview the group");
   await navigator
     .getByRole("button", { name: "Preview Path Group", exact: true })
     .click();
@@ -712,8 +726,8 @@ test("organizes three routes into a new Path Group and previews each leg", async
     page.getByRole("button", { name: "Hide Path Group overlays", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await advance(page);
-  await heading(page, "Work on one leg");
-  await selectToolbarOption(page, "Toolbar path", "Pickup to Score");
+  await heading(page, "Work on one path");
+  await selectToolbarOption(page, "Toolbar path", "Top - Pickup to Score");
   await advance(page);
   await heading(page, "Explore your groups");
   await playAndInspect(page);
@@ -727,10 +741,10 @@ test("links one shared waypoint and propagates position and heading to both path
   await page.setViewportSize({ width: 1280, height: 800 });
   await gotoSampleEditor(page);
   await openLesson(page, "Advanced — Linked Elements");
-  await heading(page, "View the shared scoring area");
-  await previewGroup(page, "Score and collect");
+  await heading(page, "See where the paths meet");
+  await previewGroup(page, "Score and Pickup");
   await advance(page);
-  await heading(page, "Create the shared score pose");
+  await heading(page, "Create a linked waypoint");
   await page.getByRole("button", { name: "Link element", exact: true }).click();
   const actions = page.getByRole("group", {
     name: "Linked element actions",
@@ -739,7 +753,7 @@ test("links one shared waypoint and propagates position and heading to both path
   await actions.getByRole("button", { name: /New Linked Waypoint/ }).click();
   await actions
     .getByLabel("Linked element name", { exact: true })
-    .fill("Score pose");
+    .fill("Score");
   await actions
     .getByRole("button", { name: "Create & Link", exact: true })
     .click();
@@ -753,7 +767,7 @@ test("links one shared waypoint and propagates position and heading to both path
     name: "Choose Linked Element",
     exact: true,
   });
-  await picker.getByRole("listitem").filter({ hasText: "Score pose" }).click();
+  await picker.getByRole("listitem").filter({ hasText: "Score" }).click();
   await picker
     .getByRole("button", { name: "Link Selected", exact: true })
     .click();
@@ -762,8 +776,8 @@ test("links one shared waypoint and propagates position and heading to both path
   await setNumber(page, "X (m)", "11.2");
   await setNumber(page, "Rotation (deg)", "35");
   await advance(page);
-  await heading(page, "Inspect the other use");
-  await selectToolbarOption(page, "Toolbar path", "Staging to Score");
+  await heading(page, "Check the other path");
+  await selectToolbarOption(page, "Toolbar path", "Start to Score");
   await page.getByTestId("path-element-row-2").click();
   await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("11.2");
   await expect(page.getByLabel("Rotation (deg)", { exact: true })).toHaveValue(
@@ -771,7 +785,7 @@ test("links one shared waypoint and propagates position and heading to both path
   );
   await playAndInspect(page);
   await advance(page);
-  await heading(page, "Keep each route's tuning local");
+  await heading(page, "Each path keeps its own settings");
   await finish(page);
 });
 
@@ -782,21 +796,19 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
   await openLesson(page, "Advanced — Path Linking");
-  await heading(page, "View the two-path plan");
-  await previewGroup(page, "Pickup chain");
+  await heading(page, "Preview both paths");
+  await previewGroup(page, "Pickup and Score");
   await advance(page);
   await heading(page, "Inspect the next Start");
   await selectToolbarOption(page, "Toolbar path", "Pickup to Score");
   await page.getByTestId("path-element-row-0").click();
-  await expect(
-    page.getByRole("button", { name: /Pickup handoff/ }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: /Pickup/ })).toBeVisible();
   await advance(page);
-  await heading(page, "Tune the incoming approach");
-  await selectToolbarOption(page, "Toolbar path", "Staging to Pickup");
+  await heading(page, "Set the speed near End");
+  await selectToolbarOption(page, "Toolbar path", "Start to Pickup");
   await page.getByRole("tab", { name: "Constraints", exact: true }).click();
   await advance(page);
-  await heading(page, "Try a small final-approach minimum");
+  await heading(page, "Try a small minimum velocity");
   await page
     .getByRole("button", { name: "Add constraint", exact: true })
     .click();
@@ -831,10 +843,10 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
     expect.objectContaining({ value: 0.3, start_ordinal: 3, end_ordinal: 3 }),
   ]);
   await advance(page);
-  await heading(page, "Inspect the arrival");
+  await heading(page, "Play the first path");
   await playAndInspect(page);
   await advance(page);
-  await heading(page, "Your robot code connects the commands");
+  await heading(page, "Run both paths in robot code");
   await expect(page.getByTestId("tour-card")).toContainText(
     "does not run paths in sequence",
   );

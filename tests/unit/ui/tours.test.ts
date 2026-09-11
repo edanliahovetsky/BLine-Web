@@ -81,8 +81,11 @@ describe("foundational lesson content", () => {
 
   it("briefly opens the overview panels and menus without editing their contents", () => {
     const overview = foundationalTours[0];
-    expect(overview.practicePaths?.()).toHaveLength(2);
-    expect(overview.practiceGroups?.()[0].path_ids).toHaveLength(2);
+    expect(overview.practicePaths?.()).toHaveLength(9);
+    expect(
+      overview.practiceGroups?.().map((group) => group.display_name),
+    ).toEqual(["Testing", "Top Side Auto", "Bottom Side Auto"]);
+    expect(overview.practiceLinkedTargets?.()).toHaveLength(7);
     expect(overview.steps.map((step) => step.title)).toEqual([
       "Canvas",
       "Toolbar",
@@ -263,7 +266,7 @@ describe("foundational lesson content", () => {
     const profile = foundationalTours[3].steps.find(
       (step) => step.title === "Try Profiled Rotation",
     )!;
-    expect(profile.body).toContain("spreads the desired heading");
+    expect(profile.body).toContain("target heading changes gradually");
     expect(profile.body).toContain("Turn it off");
   });
 

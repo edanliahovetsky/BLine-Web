@@ -15,6 +15,8 @@ import {
   createLinkedElementPaths,
   createManagementGroups,
   createManagementPaths,
+  createManagementTargets,
+  managementPathIds as managementIds,
   createPathLinkingGroups,
   createPathLinkingPaths,
   createPathLinkingTargets,
@@ -72,9 +74,15 @@ describe("supplemental lessons", () => {
     ]);
     const paths = createManagementPaths();
     expect(paths.map((path) => path.display_name)).toEqual([
-      "Staging to Score",
-      "Score to Pickup",
-      "Pickup to Score",
+      "Top - Start to Score",
+      "Top - Score to Pickup",
+      "Top - Pickup to Score",
+      "Bottom - Start to Score",
+      "Bottom - Score to Pickup",
+      "Bottom - Pickup to Score",
+      "Straight Line Test",
+      "Turn Test",
+      "Curve Test",
     ]);
     for (const group of createManagementGroups()) {
       expect(
@@ -119,6 +127,50 @@ describe("supplemental lessons", () => {
     });
     recordAction("play");
     expect(check("import-export", "Inspect the imported copy")).toBe(true);
+  });
+
+  it("keeps each auto connected when a linked End moves without changing other groups", () => {
+    const initial = practice();
+    initial.path_groups = createManagementGroups();
+    initial.linked_targets = createManagementTargets();
+    seed(initial, "path-management");
+    for (const path of initial.paths) {
+      expect(path.path.path_elements).toHaveLength(3);
+      const link = getPathElementLinkedTargetId(path.path.path_elements.at(-1));
+      expect(
+        initial.linked_targets.some((target) => target.target_id === link),
+      ).toBe(true);
+    }
+    for (const group of initial.path_groups.filter((group) =>
+      group.display_name.endsWith("Auto"),
+    )) {
+      const paths = group.path_ids.map(
+        (id) => initial.paths.find((path) => path.path_id === id)!,
+      );
+      expect(paths[0].path.path_elements.at(-1)).toEqual(
+        paths[1].path.path_elements[0],
+      );
+      expect(paths[1].path.path_elements.at(-1)).toEqual(
+        paths[2].path.path_elements[0],
+      );
+    }
+
+    projectStore
+      .getState()
+      .applyPathElementEdit(
+        {
+          kind: "position",
+          index: 2,
+          position: { x_meters: 6.8, y_meters: 6.5 },
+        },
+        { pathId: managementIds.topStartScore },
+      );
+    const updated = projectStore.getState().project!;
+    const firstEnd = updated.paths[0].path.path_elements.at(-1);
+    expect(firstEnd).not.toEqual(initial.paths[0].path.path_elements.at(-1));
+    expect(updated.paths[1].path.path_elements[0]).toEqual(firstEnd);
+    expect(updated.paths[2].path.path_elements.at(-1)).toEqual(firstEnd);
+    expect(updated.paths.slice(3)).toEqual(initial.paths.slice(3));
   });
 
   it("accepts a real runtime-file round trip with default radii and rounded headings", async () => {
@@ -168,48 +220,54 @@ describe("supplemental lessons", () => {
   it("requires a meaningful three-route combination and previews that group", () => {
     const initial = practice();
     initial.path_groups = createManagementGroups();
+    initial.linked_targets = createManagementTargets();
     seed(initial, "path-management");
-    expect(check("path-management", "Make a complete cycle")).toBe(false);
-    projectStore.getState().createPathGroup({ displayName: "Two-piece cycle" });
+    expect(check("path-management", "Create a Path Group")).toBe(false);
+    projectStore.getState().createPathGroup({ displayName: "My Auto" });
     const group = projectStore
       .getState()
-      .project!.path_groups.find(
-        (group) => group.display_name === "Two-piece cycle",
-      )!;
-    expect(check("path-management", "Make a complete cycle")).toBe(true);
+      .project!.path_groups.find((group) => group.display_name === "My Auto")!;
+    expect(check("path-management", "Create a Path Group")).toBe(true);
     projectStore
       .getState()
-      .addPathsToGroup(group.group_id, [ids.stagingScore, ids.scorePickup]);
+      .addPathsToGroup(group.group_id, [
+        managementIds.topStartScore,
+        managementIds.topScorePickup,
+      ]);
     expect(check("path-management", "Connect its three paths")).toBe(false);
-    projectStore.getState().addPathsToGroup(group.group_id, [ids.pickupScore]);
+    projectStore
+      .getState()
+      .addPathsToGroup(group.group_id, [managementIds.topPickupScore]);
     expect(check("path-management", "Connect its three paths")).toBe(true);
     projectStore.getState().setActivePathGroup(group.group_id);
-    expect(check("path-management", "Preview the combination")).toBe(true);
+    expect(check("path-management", "Preview the group")).toBe(true);
     expect(
       projectStore
         .getState()
         .project!.path_groups.find(
-          (group) => group.display_name === "Pickup cycle",
+          (group) => group.display_name === "Top Side Auto",
         )!.path_ids,
-    ).toEqual([ids.scorePickup, ids.pickupScore]);
+    ).toEqual([
+      managementIds.topStartScore,
+      managementIds.topScorePickup,
+      managementIds.topPickupScore,
+    ]);
   });
 
   it("requires linked waypoint identity and propagates edits made through real editor commands", () => {
     const initial = practice(createLinkedElementPaths());
     initial.path_groups = createLinkedElementGroups();
     seed(initial, "linked-elements");
-    expect(check("linked-elements", "Create the shared score pose")).toBe(
-      false,
-    );
+    expect(check("linked-elements", "Create a linked waypoint")).toBe(false);
     const targetId = projectStore.getState().createLinkedTarget({
-      display_name: "Score pose",
+      display_name: "Score",
       kind: "waypoint",
       x_meters: scorePose.x_meters,
       y_meters: scorePose.y_meters,
       rotation_radians: 0,
       link: { pathId: ids.stagingScore, elementIndex: 2 },
     });
-    expect(check("linked-elements", "Create the shared score pose")).toBe(true);
+    expect(check("linked-elements", "Create a linked waypoint")).toBe(true);
     expect(check("linked-elements", "Link the next path's Start")).toBe(false);
     projectStore
       .getState()
@@ -290,7 +348,7 @@ describe("supplemental lessons", () => {
 
   it("only accepts a small final-approach minimum below its actual maximum", () => {
     seed(practice(createPathLinkingPaths()), "path-linking");
-    const title = "Try a small final-approach minimum";
+    const title = "Try a small minimum velocity";
     expect(check("path-linking", title)).toBe(false);
     const updateMinimum = (value: number, start = 3) => {
       const updated = structuredClone(projectStore.getState().project!);
@@ -320,8 +378,10 @@ describe("supplemental lessons", () => {
       .find((tour) => tour.id === "path-linking")!
       .steps.map((step) => step.body)
       .join(" ");
-    expect(lessonCopy).toContain("Chain the commands in robot code");
-    expect(lessonCopy).toContain("FollowPath sends zero speeds when it ends");
-    expect(lessonCopy).toContain("does not guarantee continuous motion");
+    expect(lessonCopy).toContain("Run them in order in your robot code");
+    expect(lessonCopy).toContain(
+      "FollowPath commands the robot to stop when it ends",
+    );
+    expect(lessonCopy).toContain("will not keep it moving between paths");
   });
 });

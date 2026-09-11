@@ -28,6 +28,11 @@ import {
 } from "./tourScenario";
 import { checkPlan, feedback } from "./tourChecks";
 import { supplementalTours } from "./supplementalLessons";
+import {
+  createManagementPaths,
+  createManagementGroups,
+  createManagementTargets,
+} from "./supplementalScenarios";
 import { observedTourCondition } from "./tourInteraction";
 import {
   createEventLessonPath,
@@ -35,8 +40,6 @@ import {
   createFundamentalsDemoPath,
   createHandoffLessonPath,
   createLowAccelerationPath,
-  createOverviewGroups,
-  createOverviewPaths,
   createRotationLessonPath,
   createTuningRectanglePath,
   fundamentalsMarkers,
@@ -175,14 +178,15 @@ export const gettingStartedTour: TourDefinition = {
   summary: "Find the canvas, panels, menus, and Path Groups",
   durationMinutes: 3,
   completionMessage: "You know where to find the editor controls.",
-  practicePath: createFundamentalsDemoPath,
-  practicePaths: createOverviewPaths,
-  practiceGroups: createOverviewGroups,
+  practicePath: () => createManagementPaths()[0].path,
+  practicePaths: createManagementPaths,
+  practiceGroups: createManagementGroups,
+  practiceLinkedTargets: createManagementTargets,
   practiceConfig,
   steps: [
     {
       title: "Canvas",
-      body: "The canvas shows your path, targets, and the robot’s preview motion.",
+      body: "The canvas shows your path and lets you preview the robot’s movement.",
       target: "path-canvas",
       prepare: {
         inspector: "closed",
@@ -194,7 +198,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Toolbar",
-      body: "The canvas toolbar contains the tools for selecting and adding path elements.",
+      body: "Use these tools to select, move, and add path elements.",
       target: "tool-rail",
     },
     {
@@ -212,7 +216,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Elements",
-      body: "Switch to Elements to see the path’s drive order and selected element properties.",
+      body: "Open Elements to see the order of the path and edit the selected element.",
       target: "inspector-elements",
       interact: ["inspector-elements"],
       task: "Open Elements",
@@ -254,7 +258,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Edit actions",
-      body: "Undo and Redo reverse or restore edits; the Actions menu holds these commands on compact screens.",
+      body: "Undo reverses your last edit. Redo brings it back. On smaller screens, find both in the Actions menu.",
       target: "edit-controls",
       prepare: { closeMenus: true },
     },
@@ -284,7 +288,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Path Groups",
-      body: "Open the Project Navigator to see how Path Groups collect related paths for viewing together.",
+      body: "Open the Project Navigator to see Testing, Top Side Auto, and Bottom Side Auto. Groups are flexible: use them to organize paths however your team likes.",
       target: "navigator-button",
       visible: ["project-navigator", "navigator-groups"],
       interact: ["navigator-button"],
@@ -301,7 +305,7 @@ export const gettingStartedTour: TourDefinition = {
 export const fundamentalsTour: TourDefinition = {
   id: "bline-fundamentals",
   title: "BLine Fundamentals",
-  summary: "Build a route with waypoints and translation targets",
+  summary: "Build a path with waypoints and translation targets",
   durationMinutes: 5,
   completionMessage:
     "You built a route and checked the robot’s bumper clearance.",
@@ -311,7 +315,7 @@ export const fundamentalsTour: TourDefinition = {
   steps: [
     {
       title: "See a complete path",
-      body: "This example has two waypoints, two translation targets, one rotation target, and one event trigger. Press Play, then pause or scrub as you like; Continue when you are done.",
+      body: "This path has waypoints, translation targets, a rotation target, and an event trigger. Press Play to see how they work together. Pause or drag the play bar to take a closer look.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,
@@ -350,7 +354,7 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Change a waypoint heading",
-      body: "Drag a waypoint’s heading handle or enter a degree value, then play the path to see the robot turn. Keep exploring and Continue when ready.",
+      body: "Drag a waypoint’s heading handle or type an angle in degrees. Then press Play to see the robot turn.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -377,7 +381,7 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Route around the obstacle",
-      body: "A translation target changes the route without setting the robot’s heading. Add one between Start and End, then move it until the simulated bumpers clear the obstacle.",
+      body: "A translation target tells the robot where to go without setting its heading. Add one between Start and End. Move it until the robot’s bumpers clear the obstacle in the preview.",
       target: "tool-translation",
       visible: ["path-canvas", "simulation-transport"],
       interact: [...elementExploration, "tool-translation"],
@@ -396,7 +400,7 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Try more route points",
-      body: "Try two or three points around the obstacle and watch the motion; waypoints also set headings. Use as few path elements as the route needs, then Continue when you are done.",
+      body: "Try adding two or three points around the obstacle. Use waypoints where you also want to set a heading. Press Play to see the result, and keep the path as simple as you can.",
       target: "path-canvas",
       visible: ["tool-rail", "simulation-transport"],
       interact: routeExploration,
@@ -406,7 +410,7 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Read the drive order",
-      body: "The Elements list is the drive order. Drag its rows to reorder targets, then play to see the result; Continue when you are done exploring.",
+      body: "The robot follows the order shown in Elements. Drag the rows to change that order, then press Play to see what happens.",
       target: "inspector-panel",
       visible: ["path-canvas", "simulation-transport"],
       interact: routeExploration,
@@ -435,7 +439,7 @@ export const pathTuningTour: TourDefinition = {
   steps: [
     {
       title: "Approach the translation",
-      body: "The robot steers from its current position toward the translation target. Watch the active target as the preview slows down.",
+      body: "The robot drives toward the translation target. Watch what happens as it gets closer.",
       target: "path-canvas",
       canvasLesson: "handoff-approach",
       autoGenerate: false,
@@ -451,7 +455,7 @@ export const pathTuningTour: TourDefinition = {
     },
     {
       title: "Target the next element",
-      body: "The robot now steers toward End and keeps moving through the turn. The radius chooses where that target change can happen.",
+      body: "The robot now heads toward End. The handoff radius controls when it switches targets and starts the turn.",
       target: "path-canvas",
       canvasLesson: "handoff-departure",
       autoGenerate: false,
@@ -459,7 +463,7 @@ export const pathTuningTour: TourDefinition = {
     },
     {
       title: "Lower acceleration makes a wider turn",
-      body: "Acceleration is temporarily reduced from 3 to 0.6 m/s². The robot has less ability to change direction quickly, so its turn is wider at the same speed; higher acceleration allows a tighter turn.",
+      body: "Here, acceleration drops from 3 to 0.6 m/s². The robot cannot change direction as quickly, so it makes a wider turn. Higher acceleration lets it turn more tightly at the same speed.",
       target: "path-canvas",
       canvasLesson: "low-acceleration",
       autoGenerate: false,
@@ -472,7 +476,7 @@ export const pathTuningTour: TourDefinition = {
     },
     tuningStep({
       title: "A new route to tune",
-      body: "This route goes around a tall obstacle through the Intermediate zone. Its positions and headings stay fixed while you tune radii and velocities; the generator has not run yet.",
+      body: "This path goes around the obstacle. The points and headings are fixed for this exercise, so you can focus on handoff radii and speed limits. Generate has not run yet.",
       target: "path-canvas",
       prepare: {
         practicePath: createTuningRectanglePath,
@@ -499,7 +503,7 @@ export const pathTuningTour: TourDefinition = {
     }),
     tuningStep({
       title: "Select a constraint range",
-      body: "Each velocity constraint applies to a range of approaches. Select a cell near the middle to see its range highlighted green on the canvas.",
+      body: "A velocity limit can cover one or more parts of the path. Click a cell near the middle to see that part highlighted in green.",
       target: "max-velocity-card",
       visible: ["path-canvas"],
       interact: ["max-velocity-card"],
@@ -519,14 +523,14 @@ export const pathTuningTour: TourDefinition = {
     }),
     tuningStep({
       title: "The first slot",
-      body: "The first velocity and radius slots govern the approach to Start when the robot begins away from it. This preview begins at Start, so that approach has no distance.",
+      body: "The first velocity and radius cells apply as the robot moves toward Start. This preview begins at Start, so it skips that part.",
       target: "max-velocity-card",
       visible: ["path-canvas"],
       prepare: constraints(1),
     }),
     tuningStep({
       title: "Generate starting values",
-      body: "Generate suggests handoff radii and maximum velocities for this route. Use these values to build intuition, then preview and test your tuning on the robot.",
+      body: "Generate suggests handoff radii and maximum velocities. Try them in the preview, adjust as needed, and test on your robot.",
       target: "max-velocity-card",
       interact: ["max-velocity-card"],
       prepare: constraints(),
@@ -577,7 +581,7 @@ export const pathTuningTour: TourDefinition = {
     }),
     tuningStep({
       title: "Make a velocity Manual",
-      body: "Select a velocity cell and choose Manual, then change its speed limit. This can be on any segment; manual values remain yours when you generate again.",
+      body: "Select a velocity cell, choose Manual, and change its speed limit. Generate will keep your manual settings.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport"],
       interact: constraintExploration,
@@ -598,7 +602,7 @@ export const pathTuningTour: TourDefinition = {
     }),
     tuningStep({
       title: "Explore radii and velocities",
-      body: "Try combinations of radii and velocity limits, then play or scrub to see how they change the motion. Generate again if useful; Continue when you are done.",
+      body: "Try different radii and speed limits. Play the path to see what changes. You can use Generate again, then continue when you are done.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport"],
       interact: constraintExploration,
@@ -611,8 +615,7 @@ export const pathTuningTour: TourDefinition = {
 export const rotationTargetsTour: TourDefinition = {
   id: "rotation-targets",
   title: "Rotation targets",
-  summary:
-    "Set headings along a segment and see the limits of turning at speed",
+  summary: "Set headings and see how speed affects turning",
   durationMinutes: 4,
   completionMessage: "You placed rotation targets and explored their timing.",
   practicePath: createRotationLessonPath,
@@ -620,7 +623,7 @@ export const rotationTargetsTour: TourDefinition = {
   steps: [
     {
       title: "Add a rotation target",
-      body: "Rotation targets set a heading along a path segment. Choose Rotation and place one between Start and End; this path has a manual speed limit of 2 m/s.",
+      body: "A rotation target sets a heading partway along the path. Choose Rotation and place one between Start and End. This path has a speed limit of 2 m/s.",
       target: "tool-rotation",
       visible: ["path-canvas"],
       interact: [...elementExploration, "tool-rotation"],
@@ -637,7 +640,7 @@ export const rotationTargetsTour: TourDefinition = {
     },
     {
       title: "Move the rotation target",
-      body: "Drag the target along its segment or change Rotation Pos. This t-ratio is how far along the segment it sits: 0 is the start and 1 is the end.",
+      body: "Drag the target along the path or change Rotation Pos. The value runs from 0 at the start of the segment to 1 at the end.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -658,7 +661,7 @@ export const rotationTargetsTour: TourDefinition = {
     },
     {
       title: "Try a heading in motion",
-      body: "Drag the rotation handle or enter a degree value, then play the path to watch the robot turn between the waypoints. Continue when you are done exploring.",
+      body: "Drag the rotation handle or type an angle in degrees. Press Play to watch the robot turn.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -681,7 +684,7 @@ export const rotationTargetsTour: TourDefinition = {
     },
     {
       title: "Try Profiled Rotation",
-      body: "Profiled Rotation spreads the desired heading along the approach. Turn it off to aim for the next heading immediately, within the robot’s turn limits, then play and compare the motion on the canvas.",
+      body: "With Profiled Rotation on, the target heading changes gradually along the path. Turn it off and the robot tries to reach the next heading right away, within its turn limits. Press Play to compare.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -701,7 +704,7 @@ export const rotationTargetsTour: TourDefinition = {
     },
     {
       title: "When translation is too fast",
-      body: "This straight path asks for 0°, then 180°, then 0° at a high manual speed. Play it: the robot may pass the middle target before it can turn far enough.",
+      body: "This path asks the robot to face 0°, then 180°, then 0° while driving quickly. Press Play. It may pass the middle target before it has time to turn.",
       target: "transport-play",
       visible: ["path-canvas", "path-health"],
       interact: [...playback, "path-health", "lesson-health-dialog"],
@@ -722,7 +725,7 @@ export const rotationTargetsTour: TourDefinition = {
     },
     {
       title: "Give the turn enough time",
-      body: "The rotation feasibility feedback checks whether the angular limits allow the requested turn in time. Try a lower manual velocity and play again to see the robot get more time to turn.",
+      body: "The rotation warning tells you when a turn needs more time than the path allows. Lower the manual speed limit and play again. A slower drive gives the robot more time to turn.",
       target: "max-velocity-card",
       visible: ["path-canvas", "simulation-transport", "path-health"],
       interact: [
@@ -742,13 +745,13 @@ export const eventTriggersTour: TourDefinition = {
   title: "Event triggers",
   summary: "Move an event and add another on a different segment",
   durationMinutes: 3,
-  completionMessage: "You positioned event keys on two path segments.",
+  completionMessage: "You added and moved events on two parts of a path.",
   practicePath: createEventLessonPath,
   practiceConfig,
   steps: [
     {
       title: "Slide an event trigger",
-      body: "Event triggers sit on a segment like rotation targets. Drag startIntake or edit Event Pos; its t-ratio measures progress from 0 to 1 along that segment.",
+      body: "Events have positions along a segment, just like rotation targets. Drag startIntake or change Event Pos. A value of 0 is the segment’s start; 1 is its end.",
       target: "element-properties",
       visible: ["path-canvas", "simulation-transport"],
       interact: elementExploration,
@@ -768,7 +771,7 @@ export const eventTriggersTour: TourDefinition = {
     },
     {
       title: "Watch the event fire",
-      body: "When the robot crosses the trigger, BLine fires its event key; your robot code connects that key to an action. Play the path and watch the purple startIntake pulse.",
+      body: "When the robot reaches an event trigger, BLine sends its event key to your robot code. Your code decides what to do. Press Play and watch for the purple startIntake flash.",
       target: "transport-play",
       visible: ["path-canvas"],
       interact: playback,
@@ -818,7 +821,7 @@ export const eventTriggersTour: TourDefinition = {
     },
     {
       title: "Try both events",
-      body: "Play or scrub the path to see both event positions. Keep exploring their timing and Continue when you are done.",
+      body: "Play the path to see both events fire. Try moving them to change when they happen, then continue when you are done.",
       target: "simulation-transport",
       visible: ["path-canvas", "element-properties"],
       interact: [...elementExploration, "tool-event"],

@@ -6,7 +6,6 @@ import {
   createTranslationTarget,
   type PathModel,
 } from "../../core/model/path";
-import type { ProjectPath, ProjectPathGroup } from "../../core/model/project";
 import { refreshAutoVelocityConstraints } from "../../core/constraints/autoVelocityApply";
 import {
   buildMarkers,
@@ -52,35 +51,6 @@ export function createFundamentalsDemoPath(): PathModel {
     practiceConfig(),
     { whenPresentOnly: false },
   );
-}
-
-export function createOverviewPaths(): ProjectPath[] {
-  return [
-    {
-      path_id: "lesson-example",
-      display_name: "Example path",
-      file_name: "example.json",
-      path: createFundamentalsDemoPath(),
-    },
-    {
-      path_id: "lesson-return",
-      display_name: "Return path",
-      file_name: "return.json",
-      path: createPathModel({
-        path_elements: [waypoint(15, 2.5, -90), waypoint(5, 2)],
-      }),
-    },
-  ];
-}
-
-export function createOverviewGroups(): ProjectPathGroup[] {
-  return [
-    {
-      group_id: "lesson-example-group",
-      display_name: "Example routine",
-      path_ids: ["lesson-example", "lesson-return"],
-    },
-  ];
 }
 
 export function createHandoffLessonPath(): PathModel {
