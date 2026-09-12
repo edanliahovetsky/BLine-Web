@@ -75,6 +75,8 @@ test.describe("shared theme across dialogs and nested controls", () => {
   });
 
   test("Linked Elements selection and locked fields", async ({ page }) => {
+    // Keep the canvas selection pulse at its steady reduced-motion opacity.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("menuitem", { name: "Linked Elements..." }).click();
     const dialog = page.getByRole("dialog", {
