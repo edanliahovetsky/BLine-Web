@@ -1,5 +1,9 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
+import {
+  dismissMobileSupportWarning,
+  gotoSampleEditor,
+  requiredBox,
+} from "./support/app-shell-shared";
 import { openPathLibraryDialog } from "./support/app-shell-project-library";
 
 const sample = "Phase 1 Canvas Draft";
@@ -199,6 +203,20 @@ test("resizes the navigator with pointer and keyboard while retaining canvas spa
   await nav.getByRole("button", { name: "Close", exact: true }).click();
   await openPathLibraryDialog(page);
   await expect(divider).toHaveAttribute("aria-valuenow", "400");
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(
+    page.getByRole("dialog", { name: "Mobile support warning" }),
+  ).toBeVisible();
+  await dismissMobileSupportWarning(page);
+  await expect(nav).toBeVisible();
+  await expect(divider).toHaveAttribute("aria-valuenow", "273");
+  const portraitNavigator = await requiredBox(nav);
+  const portraitCanvas = await requiredBox(canvas);
+  expect(portraitNavigator.height).toBeGreaterThan(700);
+  expect(portraitCanvas.height).toBeCloseTo(portraitNavigator.height, 1);
+  expect(portraitCanvas.x).toBeCloseTo(portraitNavigator.width, 1);
+  await nav.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(nav).toHaveCount(0);
 });
 
 test("creates Paths inline with unique defaults, name validation, and undo @webkit-canvas", async ({
