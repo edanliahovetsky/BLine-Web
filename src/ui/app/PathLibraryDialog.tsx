@@ -139,7 +139,8 @@ export function PathLibraryDialog({
   const [groupQuery, setGroupQuery] = useState("");
   const [pathQuery, setPathQuery] = useState("");
   const [showConnections, setShowConnections] = useState(
-    () => readEditorLayoutPreferences().navigator_show_connections,
+    () =>
+      lessonMode || readEditorLayoutPreferences().navigator_show_connections,
   );
   const [pending, setPending] = useState<LibraryNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
@@ -1020,10 +1021,12 @@ export function PathLibraryDialog({
             aria-pressed={showConnections}
             onClick={() => {
               const next = !showConnections;
-              rememberEditorLayoutPreferences({
-                ...readEditorLayoutPreferences(),
-                navigator_show_connections: next,
-              });
+              if (!lessonMode) {
+                rememberEditorLayoutPreferences({
+                  ...readEditorLayoutPreferences(),
+                  navigator_show_connections: next,
+                });
+              }
               setShowConnections(next);
               setSelectedEdge(null);
             }}

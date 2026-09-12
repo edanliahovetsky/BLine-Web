@@ -164,7 +164,7 @@ const managementSteps: TourStep[] = [
   },
   {
     title: "Open the Project Navigator",
-    body: "Open the Project Navigator. Testing, Top Side Auto, and Bottom Side Auto each have three paths. Path Groups are flexible: organize by auto, testing, or whatever works for your team.",
+    body: "Open the Project Navigator beside the canvas. Drag its right edge to resize it. Testing, Top Side Auto, and Bottom Side Auto each have three paths; the lines show their group memberships.",
     target: "navigator-button",
     interact: navigation,
     task: "Open the Project Navigator",
@@ -239,7 +239,7 @@ const managementSteps: TourStep[] = [
   },
   {
     title: "Explore your groups",
-    body: "Try previewing Top Side Auto, Bottom Side Auto, and Testing. Use groups however you like. They help organize your project; your robot code decides which paths run and in what order.",
+    body: "Single-click a path or group to preview it; double-click its name to rename it. Use the connection button to show or hide membership lines. Groups organize paths; your robot code decides their running order.",
     visible: ["path-canvas", "simulation-transport"],
     interact: [...navigation, "path-breadcrumb", "path-canvas", ...transport],
   },

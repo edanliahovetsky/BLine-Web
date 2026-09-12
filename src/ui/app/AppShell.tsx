@@ -151,6 +151,8 @@ interface TourEditorViewSnapshot {
   } | null;
   inspectorOpen: boolean;
   inspectorWidth: number;
+  navigatorOpen: boolean;
+  navigatorWidth: number;
   optimizerError: string | null;
   showGhostPaths: boolean;
   showHome: boolean;
@@ -303,7 +305,12 @@ export function AppShell() {
   const navigatorOpen = Boolean(editorProject && showPathGroupsDialog);
   // Preserve the user's inspector state while the navigator borrows its space.
   const inspectorVisible = inspectorOpen && !navigatorOpen;
-  const navigatorWidthMax = Math.min(840, Math.floor(workspaceWidth * 0.7));
+  const navigatorWidthMax = Math.min(
+    840,
+    Math.floor(workspaceWidth * 0.7),
+    // Leave room for the 304px lesson card, its gap, and the viewport margin.
+    activeTourId ? Math.max(0, workspaceWidth - 330) : Infinity,
+  );
   const navigatorWidthMin = Math.min(400, navigatorWidthMax);
   const visibleNavigatorWidth = Math.max(
     navigatorWidthMin,
@@ -432,7 +439,6 @@ export function AppShell() {
         pathNameAction !== null ||
         showNewProjectDialog ||
         showOpenPanel ||
-        showPathGroupsDialog ||
         showShortcutHelp,
       snapshot: {
         autoSyncEnabled: autoVelocityStore.getState().autoSyncEnabled,
@@ -442,6 +448,8 @@ export function AppShell() {
         fieldSelectionOverride,
         inspectorOpen,
         inspectorWidth,
+        navigatorOpen,
+        navigatorWidth,
         optimizerError,
         showGhostPaths,
         showHome,
@@ -456,6 +464,8 @@ export function AppShell() {
     inspectorOpen,
     inspectorDialogOpen,
     inspectorWidth,
+    navigatorOpen,
+    navigatorWidth,
     initializing,
     openTopMenu,
     optimizerError,
@@ -472,7 +482,6 @@ export function AppShell() {
     showMobileSupportWarning,
     showNewProjectDialog,
     showOpenPanel,
-    showPathGroupsDialog,
     showShortcutHelp,
     showGhostPaths,
     showHome,
@@ -495,6 +504,8 @@ export function AppShell() {
       showPracticeView: (projectId) => {
         autoVelocityStore.setState({ autoSyncEnabled: true });
         setFieldSelectionOverride({ projectId, fieldId: "blank-grid" });
+        setShowPathGroupsDialog(false);
+        setInitiallyEditingPathId(null);
         setInspectorOpen(true);
         setInspectorTab("elements");
         setActiveTool("select");
@@ -504,13 +515,14 @@ export function AppShell() {
         setShowLinkedTargetsDialog(false);
         setLinkedTargetPickerRequest(null);
         setOpenTopMenu(null);
-        setShowPathGroupsDialog(false);
+        setShowPathGroupsDialog(view.navigatorOpen);
         setShowPathHealth(false);
         writeEditorUiPreferences(view.editorPreferences);
         setFieldSelectionOverride(view.fieldSelectionOverride);
         setInspectorOpen(view.inspectorOpen);
         setInspectorTab(view.editorPreferences.inspectorTab);
         setInspectorWidth(view.inspectorWidth);
+        setNavigatorWidth(view.navigatorWidth);
         setActiveTool(view.activeTool);
         setAutosaveStatus(view.autosaveStatus);
         autoVelocityStore.getState().setLastError(view.optimizerError);

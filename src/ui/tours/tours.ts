@@ -216,7 +216,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Elements",
-      body: "Open Elements to see the order of the path and edit the selected element.",
+      body: "Open Elements to see the path order. Select a row to edit its position, heading, or event key in the properties below the list.",
       target: "inspector-elements",
       interact: ["inspector-elements"],
       task: "Open Elements",
@@ -246,7 +246,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "File menu",
-      body: "Open File to find project, import, and export commands.",
+      body: "Open File to create a New Path or manage projects. Import / Export contains both project and path transfers. Settings is the last item, below the divider.",
       target: "export-menu-entry",
       interact: ["export-menu-entry"],
       task: "Open File",
@@ -264,7 +264,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Edit menu",
-      body: "Open Edit to find commands for the current path and Linked Elements.",
+      body: "Open Edit for Save Path As, Rename Path, and deletion commands. Linked Elements is below the divider.",
       target: "path-menu-entry",
       interact: ["path-menu-entry"],
       task: "Open Edit",
@@ -288,7 +288,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Path Groups",
-      body: "Open the Project Navigator to see Testing, Top Side Auto, and Bottom Side Auto. Groups are flexible: use them to organize paths however your team likes.",
+      body: "Open the Project Navigator to see Testing, Top Side Auto, and Bottom Side Auto beside the canvas. It temporarily hides the sidebar; closing Navigator restores it. Groups organize related paths.",
       target: "navigator-button",
       visible: ["project-navigator", "navigator-groups"],
       interact: ["navigator-button"],
