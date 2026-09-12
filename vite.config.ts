@@ -4,7 +4,6 @@ import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 import {
   offlineDevelopmentRecovery,
-  offlineAssetRetention,
   prepareOfflineRelease,
   verifyManifest,
 } from "./scripts/offline-build";
@@ -16,7 +15,6 @@ export default defineConfig({
   plugins: [
     react(),
     offlineDevelopmentRecovery(),
-    offlineAssetRetention(),
     VitePWA({
       strategies: "injectManifest",
       srcDir: "worker",

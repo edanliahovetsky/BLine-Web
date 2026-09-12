@@ -1,11 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  readdir,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Plugin } from "vite";
 
@@ -101,57 +95,6 @@ export function offlineDevelopmentRecovery(): Plugin {
         response.setHeader("Cache-Control", "no-store");
         response.end(developmentRecoveryWorker);
       });
-    },
-  };
-}
-
-/** Carry forward immutable files without adding old releases to the new precache. */
-export async function retainOfflineAssets(
-  previous: string,
-  destination: string,
-): Promise<void> {
-  for (const nativeFile of await readdir(previous, { recursive: true })) {
-    const file = nativeFile.split(path.sep).join("/");
-    if (
-      !/^assets\/.+-[\w-]{8}\.(js|css|png|svg|ico|woff2?|json|wasm)$/.test(
-        file,
-      ) &&
-      !/^offline\/[a-f0-9]{64}\.html$/.test(file)
-    )
-      continue;
-    const source = await readFile(path.join(previous, file));
-    const target = path.join(destination, file);
-    const existing = await readFile(target).catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-        return undefined;
-      },
-    );
-    if (existing) {
-      if (!existing.equals(source))
-        throw new Error(`Immutable asset collision: ${file}`);
-      continue;
-    }
-    await mkdir(path.dirname(target), { recursive: true });
-    await copyFile(path.join(previous, file), target);
-  }
-}
-
-export function offlineAssetRetention(): Plugin {
-  let destination = "";
-  return {
-    name: "bline-offline-asset-retention",
-    apply: "build",
-    configResolved(config) {
-      destination = path.resolve(config.root, config.build.outDir);
-    },
-    closeBundle: {
-      order: "post",
-      sequential: true,
-      async handler() {
-        const previous = process.env.BLINE_PREVIOUS_WEB_DIST;
-        if (previous) await retainOfflineAssets(previous, destination);
-      },
     },
   };
 }

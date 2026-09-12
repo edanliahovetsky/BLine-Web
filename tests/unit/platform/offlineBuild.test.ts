@@ -12,7 +12,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   prepareOfflineRelease,
-  retainOfflineAssets,
   verifyManifest,
 } from "../../../scripts/offline-build";
 
@@ -77,44 +76,5 @@ describe("complete offline release generation", () => {
         first,
       ),
     ).rejects.toThrow("Incomplete offline manifest");
-  });
-
-  it("retains old immutable assets without overwriting the new entry page or worker", async () => {
-    const previous = await fixture();
-    const next = await fixture();
-    await prepareOfflineRelease(previous);
-    await writeFile(
-      path.join(previous, "assets/lazy-old12345.js"),
-      "old lazy chunk",
-    );
-    await writeFile(path.join(previous, "sw.js"), "old worker");
-    await writeFile(path.join(next, "index.html"), "new entry");
-    await writeFile(path.join(next, "sw.js"), "new worker");
-    await retainOfflineAssets(previous, next);
-    expect(
-      await readFile(path.join(next, "assets/lazy-old12345.js"), "utf8"),
-    ).toBe("old lazy chunk");
-    expect(await readFile(path.join(next, "index.html"), "utf8")).toBe(
-      "new entry",
-    );
-    expect(await readFile(path.join(next, "sw.js"), "utf8")).toBe("new worker");
-    expect(await readdir(path.join(next, "offline"))).toEqual(
-      await readdir(path.join(previous, "offline")),
-    );
-  });
-
-  it("refuses different bytes at the same immutable URL", async () => {
-    const previous = await fixture();
-    const next = await fixture();
-    await writeFile(
-      path.join(next, "assets/editor-12345678.js"),
-      "unexpected bytes",
-    );
-    await expect(retainOfflineAssets(previous, next)).rejects.toThrow(
-      "Immutable asset collision",
-    );
-    expect(
-      await readFile(path.join(next, "assets/editor-12345678.js"), "utf8"),
-    ).toBe("unexpected bytes");
   });
 });

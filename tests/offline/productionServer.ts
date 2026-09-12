@@ -114,17 +114,17 @@ export const test = base.extend<{ production: ProductionServer }>({
         nextRelease: next,
         thirdRelease: third,
         publishThird: () => {
-          release = new Map([...original, ...next, ...third]);
+          release = third;
         },
         publishUpdate: () => {
-          // Retain immutable assets, as production deployment must do too.
-          release = new Map([...original, ...next]);
+          // Deployments replace the previous bundle; old URLs really disappear.
+          release = next;
         },
         publishLegacy: () => {
           release = legacy;
         },
         publishCurrent: () => {
-          release = new Map([...legacy, ...original]);
+          release = original;
         },
         fail: (path) => {
           failure = path;
