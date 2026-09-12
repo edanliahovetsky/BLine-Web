@@ -31,6 +31,7 @@ import {
 import type { SelectedRangedConstraint } from "../../state/selectionStore";
 import {
   elementCircleRadiusMeters,
+  elementOutlineMeters,
   eventMarkerHalfHeightPx,
   eventTriggerLengthMeters,
 } from "../constants";
@@ -746,6 +747,7 @@ export class PixiPathRenderer {
               robotSize,
               input.viewport.scale,
               input.hoveredRotationIndex === index,
+              isWaypoint(element),
             ),
           ),
         );
@@ -797,6 +799,7 @@ export class PixiPathRenderer {
               robotSize,
               input.viewport.scale,
               input.hoveredLinkedTargetRotationId === target.target_id,
+              true,
             ),
           ),
         );
@@ -1007,7 +1010,8 @@ function nodeVisibilityMargin(input: DrawNodeInput): number {
         padding,
     );
   } else if (isTranslationTarget(input.element)) {
-    radius = Math.max(5, elementCircleRadiusMeters * scale) + 8;
+    const bodyRadius = Math.max(5, elementCircleRadiusMeters * scale);
+    radius = bodyRadius + translationOutlineWidth(bodyRadius) + 8;
   } else {
     radius = Math.hypot(Math.abs(eventTriggerPoints(scale, 0)[0]) + 5, 7) + 2;
   }
@@ -1055,14 +1059,16 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
       5,
       elementCircleRadiusMeters * input.metersToPixels,
     );
+    const borderWidth = translationOutlineWidth(radius);
+    const outerRadius = radius + borderWidth;
     if (input.selected) {
       // Translation targets alone use a circular selection outline.
-      graphics.circle(point.x, point.y, radius + 6).stroke({
+      graphics.circle(point.x, point.y, outerRadius + 6).stroke({
         color: selectionBackingColor,
         width: selectionStrokeWidthPx + 2,
         alpha: 0.9,
       });
-      graphics.circle(point.x, point.y, radius + 6).stroke({
+      graphics.circle(point.x, point.y, outerRadius + 6).stroke({
         color: elementColors.selected,
         width: selectionStrokeWidthPx,
         alpha: selectionOpacity,
@@ -1071,9 +1077,10 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
     drawOutlinedDot(
       graphics,
       point,
-      radius,
+      outerRadius,
       elementColors.translation,
       opacity,
+      borderWidth,
     );
     graphics
       .circle(point.x, point.y, radius * 0.32)
@@ -1103,6 +1110,9 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
       isWaypoint(input.element)
         ? elementColors.waypoint
         : elementColors.rotation,
+      isWaypoint(input.element)
+        ? waypointOutlineWidth(input.metersToPixels)
+        : metrics.strokeWidth,
       isWaypoint(input.element) ? "waypoint" : "rotation",
       showProtrusion,
       protrusionDistancePx,
@@ -1143,18 +1153,28 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
 const elementOutlineColor = 0x000000;
 const elementOutlineWidthPx = 0.8;
 
+// Restore the original elements' visual weight as the canvas zooms.
+function waypointOutlineWidth(metersToPixels: number): number {
+  return Math.max(1.65, elementOutlineMeters * metersToPixels);
+}
+
+function translationOutlineWidth(radius: number): number {
+  return Math.max(2.25, Math.min(4, radius * 0.35));
+}
+
 function drawOutlinedDot(
   graphics: Graphics,
   point: StagePoint,
   radius: number,
   accent: string | number,
   opacity: number,
+  borderWidth = elementOutlineWidthPx,
 ): void {
   graphics
     .circle(point.x, point.y, radius)
     .fill({ color: elementOutlineColor, alpha: 0.95 * opacity });
   graphics
-    .circle(point.x, point.y, Math.max(0, radius - elementOutlineWidthPx))
+    .circle(point.x, point.y, Math.max(0, radius - borderWidth))
     .fill({ color: accent, alpha: opacity });
 }
 
@@ -1164,6 +1184,7 @@ function drawRobotFootprint(
   width: number,
   height: number,
   accent: string | number,
+  bodyStrokeWidth: number,
   mode: "waypoint" | "rotation" | "simulation",
   protrusionVisible: boolean,
   protrusionDistancePx: number,
@@ -1173,7 +1194,7 @@ function drawRobotFootprint(
   eventPulse = 0,
 ): void {
   const metrics = elementFootprintMetrics(width, height);
-  const outlineWidth = metrics.strokeWidth + (rotationHovered ? 0.6 : 0);
+  const outlineWidth = bodyStrokeWidth + (rotationHovered ? 0.6 : 0);
   const bounds = centeredRobotBounds(width, height);
   const backing = strokedRectInsideBounds(
     bounds,
@@ -1206,15 +1227,15 @@ function drawRobotFootprint(
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
-      strokeWidth: metrics.strokeWidth + 2 * elementOutlineWidthPx,
+      strokeWidth: bodyStrokeWidth + 2 * elementOutlineWidthPx,
       color: elementOutlineColor,
       alpha: 0.95 * opacity,
     });
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
-      strokeWidth: metrics.strokeWidth,
-      backingWidth: metrics.strokeWidth + 2 * elementOutlineWidthPx,
+      strokeWidth: bodyStrokeWidth,
+      backingWidth: bodyStrokeWidth + 2 * elementOutlineWidthPx,
       color: accent,
       alpha: (mode === "simulation" ? 1 : 0.7) * opacity,
     });
@@ -1414,11 +1435,14 @@ function frontOutlineInset(
   size: RobotSizeMeters,
   scale: number,
   hovered: boolean,
+  waypoint: boolean,
 ): number {
   const width = size.lengthMeters * scale,
     height = size.widthMeters * scale;
   const stroke =
-    elementFootprintMetrics(width, height).strokeWidth +
+    (waypoint
+      ? waypointOutlineWidth(scale)
+      : elementFootprintMetrics(width, height).strokeWidth) +
     (hovered ? 0.6 : 0) +
     2 * elementOutlineWidthPx;
   return (
@@ -1470,6 +1494,7 @@ function drawSimulationRobot(
     width,
     height,
     accent,
+    elementFootprintMetrics(width, height).strokeWidth,
     "simulation",
     protrusionVisible,
     protrusionDistancePx,
