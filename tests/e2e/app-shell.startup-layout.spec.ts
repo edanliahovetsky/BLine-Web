@@ -206,12 +206,44 @@ test("starts new users in a focused start center", async ({ page }) => {
   const addSurfaceBox = await requiredBox(addConstraintSurface);
   expect(addSurfaceBox.y).toBeGreaterThan(optimizerBox.y + optimizerBox.height);
   expect(Math.abs(addSurfaceBox.width - optimizerBox.width)).toBeLessThan(2);
-  await expect(
-    page.getByTestId("constraint-range-max_velocity_meters_per_sec-0"),
-  ).toHaveText("3 m/s");
+  const velocityRanges = page.locator(
+    '[data-testid^="constraint-range-max_velocity_meters_per_sec-"]',
+  );
+  expect(await velocityRanges.count()).toBeGreaterThan(0);
+  for (const range of await velocityRanges.all()) {
+    await expect(range).toHaveClass(/ranged-segment-range--auto/);
+  }
+  for (const index of [0, 1, 3]) {
+    await expect(page.getByTestId(`handoff-radius-chip-${index}`)).toHaveClass(
+      /handoff-radius-chip--auto/,
+    );
+  }
+  await expect(pathConstraintsCard.getByRole("status")).toHaveText(
+    "Up to date",
+  );
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
   await expect(page.getByText("Element Properties")).toHaveCount(0);
   await expect(page.getByText("Generated constraints ready")).toHaveCount(0);
+  const generatedSpeeds = await velocityRanges.allTextContents();
+  const radiusChips = page.locator('[data-testid^="handoff-radius-chip-"]');
+  const generatedRadii = await radiusChips.allTextContents();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  const sampleState = () =>
+    page.evaluate(async () => {
+      const storePath = "/src/state/projectStore.ts";
+      const { projectStore } = await import(/* @vite-ignore */ storePath);
+      const project = projectStore.getState().project;
+      return { config: project.config, path: project.paths[0].path };
+    });
+  const beforeReload = await sampleState();
+  await page.reload();
+  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+  expect(await sampleState()).toEqual(beforeReload);
+  await expect(velocityRanges).toHaveText(generatedSpeeds);
+  await expect(radiusChips).toHaveText(generatedRadii);
+  await expect(pathConstraintsCard.getByRole("status")).toHaveText(
+    "Up to date",
+  );
 });
 
 test("collapses and restores the inspector from the top toolbar", async ({

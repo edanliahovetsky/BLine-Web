@@ -179,6 +179,7 @@ test("keeps handoff radius editing in Constraints", async ({ page }) => {
   const radiusInput = page.getByLabel("Handoff radius 2 value");
   const mode = page.getByRole("group", { name: "Handoff radius mode" });
 
+  await mode.getByRole("button", { name: "Manual" }).click();
   await radiusInput.fill("0.5");
   await radiusInput.press("Enter");
   await expect(chip).toHaveClass(/handoff-radius-chip--manual/);
@@ -1269,7 +1270,7 @@ test("shows persistent save feedback in the sidebar and collapsed canvas", async
   const floatingStatus = page.locator(".workspace-status--floating");
   await expect(floatingStatus).toBeVisible();
   await expect(saveStatus).toBeVisible();
-  await expect(saveStatus).toContainText("Saving");
+  await expect(saveStatus).toContainText(/Generating|Saving/);
   await expect(saveStatus.locator(".workspace-status__save-glyph")).toHaveText(
     "🚀",
   );

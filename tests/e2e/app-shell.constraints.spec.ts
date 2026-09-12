@@ -4,7 +4,10 @@ import {
   modelToCanvasPoint,
   pointDistance,
 } from "./support/app-shell-canvas";
-import { openConstraintsTab } from "./support/app-shell-constraints";
+import {
+  gotoManualConstraintEditor,
+  openConstraintsTab,
+} from "./support/app-shell-constraints";
 import {
   installWorkspaceWriteSpy,
   openProjectMenu,
@@ -12,16 +15,12 @@ import {
   workspaceWriteCount,
 } from "./support/app-shell-persistence";
 import { createNewPathFromTopMenu } from "./support/app-shell-project-library";
-import {
-  gotoSampleEditor,
-  requiredBox,
-  openProjectSettings,
-} from "./support/app-shell-shared";
+import { requiredBox, openProjectSettings } from "./support/app-shell-shared";
 
 test("keeps the expanded constraint editor out of the current UI", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   await page
@@ -39,7 +38,7 @@ test("keeps the expanded constraint editor out of the current UI", async ({
 test("explains the split icon on keyboard focus and keeps its action available", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
   await page
     .getByTestId("constraint-range-max_velocity_meters_per_sec-0")
@@ -68,7 +67,7 @@ test("explains the split icon on keyboard focus and keeps its action available",
 });
 
 test("adds edits and deletes ranged constraints", async ({ page }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -281,7 +280,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
 test("generates velocity constraints directly and reports their lifecycle", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
@@ -299,7 +298,7 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
   await expect(status).toHaveText("Up to date");
   const firstRadius = page.getByTestId("handoff-radius-chip-0");
   await expect(firstRadius).toBeEnabled();
-  // The sample pins its first radius, so initial generation preserves it.
+  // The manual fixture pins its first radius, so initial generation preserves it.
   await expect(firstRadius).toHaveClass(/handoff-radius-chip--manual/);
   await expect(firstRadius.locator(".handoff-radius-chip__value")).toHaveText(
     "0.4 m",
@@ -335,7 +334,7 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
 test("resizes vertical ranges both ways and prevents whole-range overlap", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const upperRange = page.getByTestId(
@@ -427,7 +426,7 @@ test("resizes vertical ranges both ways and prevents whole-range overlap", async
 test("uses range and toggle selection for velocity segments", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
   const shortcut = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -491,7 +490,7 @@ test("refreshes the generated policy in the background after a path edit", async
   page,
 }) => {
   await installWorkspaceWriteSpy(page);
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
@@ -537,7 +536,7 @@ test("refreshes the generated policy in the background after a path edit", async
 test("automatically syncs added, edited, and removed acceleration ranges", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
   const velocity = page.getByTestId(
     "constraint-card-max_velocity_meters_per_sec",
@@ -589,7 +588,7 @@ test("automatically syncs added, edited, and removed acceleration ranges", async
 test("uses edited local acceleration to regenerate radii and speeds", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   const choosing = page.waitForEvent("filechooser");
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
@@ -664,7 +663,7 @@ test("uses edited local acceleration to regenerate radii and speeds", async ({
 test("starts automatic generation after an opened project creates a Path with the Curve tool", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await createNewPathFromTopMenu(page, "Curve Generated");
 
   const canvas = page.getByTestId("path-stage-canvas");
@@ -700,7 +699,7 @@ test("starts automatic generation after an opened project creates a Path with th
 test("keeps optimizer controls in Settings instead of Constraints", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   await expect(page.getByTestId("auto-velocity-controls")).toHaveCount(0);
@@ -729,7 +728,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
 test("warns that a large path may take longer without exposing its evaluation budget", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   const chooserPromise = page.waitForEvent("filechooser");
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
@@ -772,7 +771,7 @@ test("warns that a large path may take longer without exposing its evaluation bu
 test("turns dragged auto velocity ranges into manual ranges", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openProjectSettings(page);
   const settingsDialog = page.getByRole("dialog", { name: "Edit Config" });
   await settingsDialog.getByRole("button", { name: "Generator" }).click();
@@ -842,7 +841,7 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
 test("warns when ranged constraints exceed the global value", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const range = page.getByTestId(
@@ -863,7 +862,7 @@ test("warns when ranged constraints exceed the global value", async ({
 test("warns when minimum constraints exceed their paired maximum", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   await page.getByRole("button", { name: "Add constraint" }).click();
@@ -908,7 +907,7 @@ test("warns when minimum constraints exceed their paired maximum", async ({
 });
 
 test("keeps constraint editing beside the live canvas", async ({ page }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
   const constraintCard = page.getByTestId(
@@ -930,7 +929,7 @@ test("keeps constraint editing beside the live canvas", async ({ page }) => {
 test("guides the user when every velocity segment is manual", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
@@ -944,7 +943,7 @@ test("guides the user when every velocity segment is manual", async ({
 });
 
 test("keeps inert handoff radii in the Constraints card", async ({ page }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
 
   const rows = page.locator('[data-testid^="path-element-row-"]');
   const lastIndex = (await rows.count()) - 1;
@@ -971,7 +970,7 @@ test("keeps inert handoff radii in the Constraints card", async ({ page }) => {
 test("presents every anchor radius as a chip in the Constraints tab", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");
@@ -1052,7 +1051,7 @@ test("presents every anchor radius as a chip in the Constraints tab", async ({
 test("pins and releases handoff radii around the optimizer", async ({
   page,
 }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const pinnedChip = page.getByTestId("handoff-radius-chip-1");
@@ -1096,7 +1095,7 @@ test("pins and releases handoff radii around the optimizer", async ({
 });
 
 test("uses range and toggle selection for handoff radii", async ({ page }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   // Keep deleted radii unset while testing bulk edits. Background regeneration
   // is covered separately and can otherwise replace them before the assertion.
   await openProjectSettings(page);
@@ -1155,7 +1154,7 @@ test("uses range and toggle selection for handoff radii", async ({ page }) => {
 });
 
 test("keeps canvas handoff radii visual-only", async ({ page }) => {
-  await gotoSampleEditor(page);
+  await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
   const chip = page.getByTestId("handoff-radius-chip-1");

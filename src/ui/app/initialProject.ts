@@ -1,4 +1,12 @@
-import { createProject } from "../../core/model/project";
+import { autoRadiiCapSolveInput } from "../../core/constraints/autoConstraintGeneration";
+import { projectConfigDefaultLookup } from "../../core/config/projectConfig";
+import {
+  autoVelocitySettingsForPath,
+  refreshAutoVelocityConstraints,
+} from "../../core/constraints/autoVelocityApply";
+import { stringifyBLineJson } from "../../core/io/blineJson";
+import { deserializePath, serializePath } from "../../core/io/projectSerde";
+import { createProject, type ProjectConfig } from "../../core/model/project";
 import {
   createEventTrigger,
   createPathModel,
@@ -8,14 +16,13 @@ import {
 } from "../../core/model/path";
 import { pathFileNameFromDisplayName } from "../../core/model/projectIdentity";
 
-function createExampleCanvasPath() {
-  return createPathModel({
+function createExampleCanvasPath(config: ProjectConfig) {
+  const path = createPathModel({
     path_elements: [
       createWaypoint({
         translation_target: createTranslationTarget({
           x_meters: 5.7,
           y_meters: 2.5,
-          intermediate_handoff_radius_meters: 0.4,
         }),
         rotation_target: createRotationTarget({
           rotation_radians: Math.PI / 4,
@@ -24,7 +31,6 @@ function createExampleCanvasPath() {
       createTranslationTarget({
         x_meters: 7.0,
         y_meters: 4.0,
-        intermediate_handoff_radius_meters: 0.4,
       }),
       createRotationTarget({
         t_ratio: 0.5,
@@ -33,7 +39,6 @@ function createExampleCanvasPath() {
       createTranslationTarget({
         x_meters: 9.6,
         y_meters: 4.0,
-        intermediate_handoff_radius_meters: 0.4,
       }),
       createEventTrigger({
         t_ratio: 0.5,
@@ -49,14 +54,17 @@ function createExampleCanvasPath() {
         }),
       }),
     ],
-    ranged_constraints: [
-      {
-        key: "max_velocity_meters_per_sec",
-        value: 3,
-        start_ordinal: 1,
-        end_ordinal: 4,
-      },
-    ],
+  });
+  const settings = autoVelocitySettingsForPath(path, config);
+  const generated = autoRadiiCapSolveInput(path, config, settings);
+  // Sign the same precision and inherited defaults that reopening will use.
+  const savedPath = deserializePath(
+    JSON.parse(stringifyBLineJson(serializePath(generated.path))),
+    projectConfigDefaultLookup(config),
+  );
+  return refreshAutoVelocityConstraints(savedPath, config, {
+    whenPresentOnly: false,
+    settings,
   });
 }
 
@@ -103,7 +111,7 @@ export function createSampleProject(now = new Date()) {
     ...project,
     paths: project.paths.map((path) => ({
       ...path,
-      path: createExampleCanvasPath(),
+      path: createExampleCanvasPath(project.config),
     })),
   };
 }
