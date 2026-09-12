@@ -1208,22 +1208,13 @@ function drawRobotFootprint(
     alpha: (rotationHovered || mode === "simulation" ? 1 : 0.7) * opacity,
   });
   const center = transformLocalPoint(transform, 0, 0);
-  const centerRadius =
-    mode === "simulation" ? metrics.centerRadius / 2 : metrics.centerRadius;
+  const centerRadius = metrics.centerRadius / 2;
+  drawOutlinedDot(graphics, center, centerRadius, accent, opacity);
   if (mode === "rotation") {
+    const innerRadius = Math.max(0, centerRadius - elementOutlineWidthPx);
     graphics
-      .circle(center.x, center.y, centerRadius)
-      .stroke({
-        color: elementOutlineColor,
-        width: 1.8 + 2 * elementOutlineWidthPx,
-        alpha: 0.95 * opacity,
-      });
-    graphics
-      .circle(center.x, center.y, centerRadius)
-      .fill({ color: 0x15181e, alpha: 0.85 * opacity })
-      .stroke({ color: accent, width: 1.8, alpha: opacity });
-  } else {
-    drawOutlinedDot(graphics, center, centerRadius, accent, opacity);
+      .circle(center.x, center.y, innerRadius - Math.min(1.2, innerRadius / 2))
+      .fill({ color: 0x15181e, alpha: 0.95 * opacity });
   }
   const front = transformLocalPoint(
     transform,
