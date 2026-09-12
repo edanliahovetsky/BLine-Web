@@ -120,8 +120,17 @@ self.addEventListener("activate", (event) =>
       if (previous && previous.id !== release)
         await meta.put(previousKey, Response.json(previous));
       await meta.put(latestKey, Response.json(current));
-      // No page reload: all resource requests retain their immutable identities.
+      // Editors choose when to reload after their own saves and interactions finish.
       await self.clients.claim();
+      for (const client of await self.clients.matchAll({ type: "window" })) {
+        const pin = await meta.match(pinKey(client.id));
+        if (pin)
+          client.postMessage({
+            type: "BLINE_UPDATE_READY",
+            release,
+            pageRelease: await pin.text(),
+          });
+      }
     })(),
   ),
 );
@@ -285,6 +294,22 @@ self.addEventListener("message", (event) => {
       await (
         await caches.open(metaName)
       ).put(pinKey(client.id), new Response(event.data.release));
+      // A newer online page may be ahead of this worker while its download is
+      // pending or failed. Only offer updates to a known, complete older copy.
+      if (
+        event.data.release === release ||
+        (!self.registration.installing &&
+          !self.registration.waiting &&
+          (await completed()).some(
+            (record) => record.id === event.data.release,
+          ))
+      ) {
+        client.postMessage({
+          type: "BLINE_UPDATE_READY",
+          release,
+          pageRelease: event.data.release,
+        });
+      }
       await collectUnusedReleases();
     })(),
   );

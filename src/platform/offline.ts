@@ -1,7 +1,13 @@
 import { detectEnvironmentCapabilities } from "../env/capabilities";
+import {
+  startOfflineUpdateReloads,
+  type OfflineUpdateOptions,
+} from "./offlineUpdates";
 
-/** Keep the browser app available offline without interrupting an editor session. */
-export function registerOfflineApp(): void {
+/** Keep the offline copy current, reloading only when the editor says it is safe. */
+export function registerOfflineApp(
+  options: OfflineUpdateOptions,
+): (() => void) | undefined {
   if (
     detectEnvironmentCapabilities().shell !== "browser-web" ||
     !window.isSecureContext ||
@@ -31,10 +37,13 @@ export function registerOfflineApp(): void {
     return;
   }
 
+  const release = document.querySelector<HTMLMetaElement>(
+    'meta[name="bline-release"]',
+  )?.content;
+  const updates = release
+    ? startOfflineUpdateReloads(release, options)
+    : undefined;
   const reportRelease = () => {
-    const release = document.querySelector<HTMLMetaElement>(
-      'meta[name="bline-release"]',
-    )?.content;
     if (release)
       navigator.serviceWorker.controller?.postMessage({
         type: "BLINE_PAGE_RELEASE",
@@ -42,15 +51,42 @@ export function registerOfflineApp(): void {
       });
   };
   navigator.serviceWorker.addEventListener("controllerchange", reportRelease);
+  const receiveUpdate = (event: MessageEvent) => {
+    if (
+      event.source === navigator.serviceWorker.controller &&
+      event.data?.type === "BLINE_UPDATE_READY" &&
+      event.data.pageRelease === release &&
+      /^[a-f0-9]{64}$/.test(event.data.release)
+    ) {
+      updates?.offer(event.data.release);
+    }
+  };
+  navigator.serviceWorker.addEventListener("message", receiveUpdate);
   reportRelease();
 
+  let disposed = false;
+  let registration: ServiceWorkerRegistration | undefined;
   const register = () => {
     // Registering again also checks for updates, including retrying an
     // interrupted first download when the connection comes back.
+    if (disposed) return;
+    reportRelease();
+    if (
+      registration?.active ||
+      registration?.installing ||
+      registration?.waiting
+    ) {
+      void registration.update().catch(() => undefined);
+      return;
+    }
     void navigator.serviceWorker
       .register(`${import.meta.env.BASE_URL}sw.js`, {
         scope: import.meta.env.BASE_URL,
         updateViaCache: "none",
+      })
+      .then((installed) => {
+        registration = installed;
+        if (!disposed) reportRelease();
       })
       .catch(() => {
         // An offline visit or unavailable storage must not prevent editing.
@@ -64,4 +100,24 @@ export function registerOfflineApp(): void {
     window.addEventListener("load", register, { once: true });
   }
   window.addEventListener("online", register);
+  window.addEventListener("focus", register);
+  const onVisible = () => {
+    if (document.visibilityState === "visible") register();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  const timer = window.setInterval(onVisible, 5 * 60_000);
+  return () => {
+    disposed = true;
+    window.clearInterval(timer);
+    window.removeEventListener("load", register);
+    window.removeEventListener("online", register);
+    window.removeEventListener("focus", register);
+    document.removeEventListener("visibilitychange", onVisible);
+    navigator.serviceWorker.removeEventListener(
+      "controllerchange",
+      reportRelease,
+    );
+    navigator.serviceWorker.removeEventListener("message", receiveUpdate);
+    updates?.dispose();
+  };
 }

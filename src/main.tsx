@@ -1,7 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell } from "./ui/app/AppShell";
-import { registerOfflineApp } from "./platform/offline";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
@@ -15,5 +14,3 @@ createRoot(rootElement).render(
     <AppShell />
   </StrictMode>,
 );
-
-registerOfflineApp();

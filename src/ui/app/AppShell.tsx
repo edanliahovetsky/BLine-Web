@@ -79,6 +79,7 @@ import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
 import { OfflineIndicator } from "./OfflineIndicator";
+import { registerOfflineApp } from "../../platform/offline";
 import {
   clampInspectorWidth,
   commandForShortcut,
@@ -394,6 +395,38 @@ export function AppShell() {
       setShowGhostPaths(showGhostPaths);
     },
   });
+
+  const canReloadForOfflineUpdate = useEffectEvent(() => {
+    const state = projectStore.getState();
+    return (
+      !initializing &&
+      !initializationError &&
+      autosaveStatus === "idle" &&
+      state.status === "idle" &&
+      !state.dirty &&
+      !state.activeSave &&
+      !state.saveQueued &&
+      !state.projectTransitionInProgress &&
+      !state.legacyMigrationPhase &&
+      !state.legacyMigrationError &&
+      !canvasInteractionActiveRef.current &&
+      !curveToolSession &&
+      !inspectorDialogOpen &&
+      !configSaveInProgressRef.current &&
+      !pendingToolbarActionRef.current &&
+      !openTopMenu &&
+      !tourStore.getState().activeTourId &&
+      autoVelocityStore.getState().phase === "idle"
+    );
+  });
+  useEffect(
+    () =>
+      registerOfflineApp({
+        canReload: canReloadForOfflineUpdate,
+        prepareReload: flushUserData,
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!showPathHealth) {

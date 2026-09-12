@@ -5,6 +5,18 @@ import { generateSW } from "workbox-build";
 
 export const fixtureRoot = path.resolve("node_modules/.tmp/offline-fixtures");
 
+// Only production test fixtures expose the store, so tests can hold/fail a real
+// storage write without adding a test API to the shipped application.
+function editorTestControls(): Plugin {
+  return {
+    name: "offline-editor-test-controls",
+    transform(code, id) {
+      if (id.endsWith("/src/state/projectStore.ts"))
+        return `${code}\nglobalThis.__offlineTest = { store: projectStore };`;
+    },
+  };
+}
+
 function nextReleasePlugin(marker = "next"): Plugin {
   return {
     name: "offline-update-test-fixture",
@@ -35,17 +47,18 @@ function nextReleasePlugin(marker = "next"): Plugin {
 
 export default async function buildFixtures(): Promise<void> {
   await build({
+    plugins: [editorTestControls()],
     build: { outDir: path.join(fixtureRoot, "current"), emptyOutDir: true },
     logLevel: "warn",
   });
   await build({
-    plugins: [nextReleasePlugin()],
+    plugins: [editorTestControls(), nextReleasePlugin()],
     worker: { plugins: () => [nextReleasePlugin()] },
     build: { outDir: path.join(fixtureRoot, "next"), emptyOutDir: true },
     logLevel: "warn",
   });
   await build({
-    plugins: [nextReleasePlugin("third")],
+    plugins: [editorTestControls(), nextReleasePlugin("third")],
     worker: { plugins: () => [nextReleasePlugin("third")] },
     build: { outDir: path.join(fixtureRoot, "third"), emptyOutDir: true },
     logLevel: "warn",

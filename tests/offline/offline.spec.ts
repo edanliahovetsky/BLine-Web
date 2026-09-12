@@ -8,7 +8,9 @@ import {
 import {
   gotoSampleEditor,
   openProjectSettings,
+  requiredBox,
 } from "../e2e/support/app-shell-shared";
+import { modelToCanvasPoint } from "../e2e/support/app-shell-canvas";
 import {
   installSaveFilePickerSpy,
   openProjectMenu,
@@ -16,12 +18,22 @@ import {
   savedFileCount,
 } from "../e2e/support/app-shell-persistence";
 import { test } from "./productionServer";
+import type { ProjectStore } from "../../src/state/projectStore";
+
+declare global {
+  interface Window {
+    __offlineTest: {
+      store: ProjectStore;
+      releaseSave?: () => void;
+      saveStarted?: boolean;
+    };
+  }
+}
 
 async function prepareOffline(page: Page): Promise<void> {
   await gotoSampleEditor(page);
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
-  // The first page is not claimed mid-session. Its next navigation is served
-  // by the fully installed worker, just like a return visit by a user.
+  // Exercise a return visit through the completely installed worker.
   await page.reload();
   await expect(page.getByTestId("path-stage")).toBeVisible();
   expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(
@@ -183,27 +195,44 @@ async function pageRelease(page: Page): Promise<string | null> {
 async function awaitOfflineRelease(page: Page, id: string): Promise<void> {
   await expect
     .poll(() =>
-      page.evaluate(async () => {
-        const name = (await caches.keys()).find((name) =>
-          name.endsWith(":metadata"),
-        );
-        if (!name) return null;
-        const latest = await (
-          await caches.open(name)
-        ).match(new URL(".bline-latest", location.origin).href);
-        return latest ? (await latest.json()).id : null;
-      }),
+      page
+        .evaluate(async () => {
+          const name = (await caches.keys()).find((name) =>
+            name.endsWith(":metadata"),
+          );
+          if (!name) return null;
+          const latest = await (
+            await caches.open(name)
+          ).match(new URL(".bline-latest", location.origin).href);
+          return latest ? (await latest.json()).id : null;
+        })
+        .catch((error: unknown) => {
+          if (
+            error instanceof Error &&
+            error.message.includes("Execution context was destroyed")
+          )
+            return null;
+          throw error;
+        }),
     )
     .toBe(id);
 }
 
 async function updateWorker(page: Page): Promise<void> {
-  await page.evaluate(async () =>
-    (await navigator.serviceWorker.ready).update(),
-  );
+  await page
+    .evaluate(async () => (await navigator.serviceWorker.ready).update())
+    .catch((error: unknown) => {
+      if (
+        !(
+          error instanceof Error &&
+          error.message.includes("Execution context was destroyed")
+        )
+      )
+        throw error;
+    });
 }
 
-test("online refresh opens the new release while another editor stays open", async ({
+test("online refresh opens the new release while an editing tab waits, then updates offline", async ({
   page,
   context,
   production,
@@ -214,6 +243,8 @@ test("online refresh opens the new release while another editor stays open", asy
   const next = releaseId(production.nextRelease);
   const oldTab = await context.newPage();
   await oldTab.goto(production.url);
+  await oldTab.getByTestId("path-element-row-0").click();
+  await oldTab.getByLabel("X (m)", { exact: true }).focus();
   production.publishUpdate();
   await page.reload();
   await expect.poll(() => pageRelease(page)).toBe(next);
@@ -223,6 +254,7 @@ test("online refresh opens the new release while another editor stays open", asy
     "next",
   );
   await awaitOfflineRelease(page, next);
+  await oldTab.waitForTimeout(1500);
   expect(await pageRelease(oldTab)).toBe(original);
   await context.setOffline(true);
   // Old pages still get their exact unexecuted worker and lazy chunks.
@@ -240,6 +272,10 @@ test("online refresh opens the new release while another editor stays open", asy
   expect(await pageRelease(page)).toBe(next);
   await page.getByTestId("path-element-row-0").click();
   await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
+  production.fail("/index.html");
+  await oldTab.getByRole("tab", { name: "Elements", exact: true }).click();
+  await expect.poll(() => pageRelease(oldTab)).toBe(next);
+  await expect(oldTab.getByTestId("offline-indicator")).toBeVisible();
 });
 
 test("failed updates preserve the complete fallback while the new online page can open", async ({
@@ -261,16 +297,18 @@ test("failed updates preserve the complete fallback while the new online page ca
   await expect
     .poll(() => production.failedRequests.includes(worker))
     .toBe(true);
+  await page.waitForTimeout(1500);
+  expect(await pageRelease(page)).toBe(next);
   await context.setOffline(true);
   await page.reload();
   expect(await pageRelease(page)).toBe(original);
   await editAndSave(page);
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
   production.fail(null);
   await context.setOffline(false);
   await updateWorker(page);
   await awaitOfflineRelease(page, next);
-  // Reconnection/install did not navigate this editor.
-  expect(await pageRelease(page)).toBe(original);
+  await expect.poll(() => pageRelease(page)).toBe(next);
   await context.setOffline(true);
   await page.reload();
   expect(await pageRelease(page)).toBe(next);
@@ -310,6 +348,31 @@ test("rejects incorrect resource bytes and reuses unchanged assets", async ({
     path.startsWith("/assets/field23-"),
   )!;
   expect(production.requests.slice(start)).not.toContain(unchangedImage);
+});
+
+test("updates an online editor even when its own offline download never completed", async ({
+  page,
+  production,
+}) => {
+  await prepareOffline(page);
+  const worker = [...production.nextRelease.keys()].find((path) =>
+    path.includes("autoVelocity.worker-"),
+  )!;
+  production.publishUpdate();
+  production.fail(worker);
+  await page.reload();
+  await expect
+    .poll(() => production.failedRequests.includes(worker))
+    .toBe(true);
+  await page.waitForTimeout(1500);
+  expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
+  production.fail(null);
+  production.publishThird();
+  await updateWorker(page);
+  await expect
+    .poll(() => pageRelease(page))
+    .toBe(releaseId(production.thirdRelease));
+  await editAndSave(page);
 });
 
 test("waits for slow HTML but falls back after 25 seconds even when Wi-Fi reports online", async ({
@@ -527,6 +590,159 @@ test("keeps online navigation available if cache access is revoked after install
   await editAndSave(page);
 });
 
+test("each tab reloads after its own save finishes, including edits queued during a save", async ({
+  page,
+  context,
+  production,
+}) => {
+  await prepareOffline(page);
+  const other = await context.newPage();
+  await other.goto(production.url);
+  await expect(other.getByTestId("path-stage")).toBeVisible();
+  await page.evaluate(() => {
+    const controls = window.__offlineTest;
+    const io = controls.store.getState().io!;
+    const save = io.saveWorkspace.bind(io);
+    const gate = new Promise<void>((resolve) => {
+      controls.releaseSave = resolve;
+    });
+    io.saveWorkspace = async (...args) => {
+      controls.saveStarted = true;
+      await gate;
+      return save(...args);
+    };
+  });
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByLabel("X (m)", { exact: true }).fill("7.25");
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.__offlineTest.saveStarted))
+    .toBe(true);
+  production.publishUpdate();
+  await updateWorker(other);
+  await expect
+    .poll(() => pageRelease(other))
+    .toBe(releaseId(production.nextRelease));
+  expect(await pageRelease(page)).toBe(releaseId(production.release));
+  await expect(page.getByTestId("save-status")).toContainText("Saving");
+  await page.getByLabel("X (m)", { exact: true }).fill("7.75");
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await page.evaluate(() => window.__offlineTest.releaseSave!());
+  await expect
+    .poll(() => pageRelease(page))
+    .toBe(releaseId(production.nextRelease));
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("7.75");
+});
+
+test("a failed save holds the old editor until a successful retry", async ({
+  page,
+  production,
+}) => {
+  await prepareOffline(page);
+  await page.evaluate(() => {
+    const controls = window.__offlineTest;
+    const io = controls.store.getState().io!;
+    const save = io.saveWorkspace.bind(io);
+    io.saveWorkspace = () =>
+      Promise.reject(new Error("Offline update test save failed"));
+    controls.releaseSave = () => {
+      io.saveWorkspace = save;
+    };
+  });
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByLabel("X (m)", { exact: true }).fill("7.25");
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Save failed");
+  production.publishUpdate();
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  await page.waitForTimeout(1600);
+  expect(await pageRelease(page)).toBe(releaseId(production.release));
+  await page.evaluate(() => window.__offlineTest.releaseSave!());
+  await page.getByTestId("save-status").click();
+  await expect
+    .poll(() => pageRelease(page))
+    .toBe(releaseId(production.nextRelease));
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("7.25");
+});
+
+test("an open settings draft postpones an update until the dialog closes", async ({
+  page,
+  production,
+}) => {
+  await prepareOffline(page);
+  await openProjectSettings(page);
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByLabel("Robot Length (m)").fill("0.95");
+  await dialog.getByRole("heading", { name: "Robot", exact: true }).click();
+  production.publishUpdate();
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  await page.waitForTimeout(1600);
+  expect(await pageRelease(page)).toBe(releaseId(production.release));
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Robot Length (m)")).toHaveValue("0.95");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect
+    .poll(() => pageRelease(page))
+    .toBe(releaseId(production.nextRelease));
+});
+
+test("does not repeatedly reload if the server returns an older page", async ({
+  page,
+  production,
+}) => {
+  await prepareOffline(page);
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByLabel("X (m)", { exact: true }).focus();
+  production.publishUpdate();
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  production.publishCurrent();
+  production.fail("/sw.js");
+  let reloads = 0;
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) reloads += 1;
+  });
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await expect.poll(() => reloads).toBe(1);
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+  await page.waitForTimeout(2500);
+  expect(reloads).toBe(1);
+  expect(await pageRelease(page)).toBe(releaseId(production.release));
+  await editAndSave(page);
+});
+
+test("an active canvas drag finishes and saves before the tab updates", async ({
+  page,
+  production,
+}) => {
+  await prepareOffline(page);
+  const canvas = page.getByTestId("path-stage-canvas");
+  const anchor = modelToCanvasPoint(await requiredBox(canvas), {
+    x_meters: 5.7,
+    y_meters: 2.5,
+  });
+  await page.mouse.move(anchor.x, anchor.y);
+  await page.mouse.down();
+  await page.mouse.move(anchor.x + 60, anchor.y - 24, { steps: 4 });
+  production.publishUpdate();
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  await page.waitForTimeout(1600);
+  expect(await pageRelease(page)).toBe(releaseId(production.release));
+  await page.mouse.up();
+  const x = await page.getByLabel("X (m)", { exact: true }).inputValue();
+  expect(Number(x)).not.toBeCloseTo(5.7, 2);
+  await expect
+    .poll(() => pageRelease(page))
+    .toBe(releaseId(production.nextRelease));
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue(x);
+});
+
 test("shows the offline indicator beside Save until an online refresh, with an accessible tooltip", async ({
   page,
   production,
@@ -570,6 +786,8 @@ test("keeps a live editor's assets through more than one subsequent release", as
   production,
 }) => {
   await prepareOffline(page);
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByLabel("X (m)", { exact: true }).focus();
   const old = releaseId(production.release);
   production.publishUpdate();
   await updateWorker(page);
@@ -579,8 +797,9 @@ test("keeps a live editor's assets through more than one subsequent release", as
   production.publishThird();
   await updateWorker(newer);
   await awaitOfflineRelease(newer, releaseId(production.thirdRelease));
-  await newer.reload();
-  expect(await pageRelease(newer)).toBe(releaseId(production.thirdRelease));
+  await expect
+    .poll(() => pageRelease(newer))
+    .toBe(releaseId(production.thirdRelease));
   expect(await pageRelease(page)).toBe(old);
   await context.setOffline(true);
   const oldWorker = [...production.release.keys()].find((path) =>
