@@ -1004,7 +1004,7 @@ test("marks the start and end of the path in the element list", async ({
   await expect(page.locator(".path-element-row__role")).toHaveCount(2);
 });
 
-test("shows element-specific row details and sheds them at minimum width", async ({
+test("shows event keys without position or rotation details in the element list", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -1012,13 +1012,19 @@ test("shows element-specific row details and sheds them at minimum width", async
   await expect(page.getByTestId("path-element-row-0")).toContainText(
     "Waypoint",
   );
-  await expect(page.getByTestId("path-element-row-0")).toContainText(
-    "5.70, 2.50 m",
-  );
+  for (const index of [0, 1, 2, 3, 5]) {
+    await expect(
+      page
+        .getByTestId(`path-element-row-${index}`)
+        .locator(".path-element-row__detail"),
+    ).toHaveCount(0);
+  }
   await expect(page.getByTestId("path-element-row-2")).toContainText(
     "Rotation",
   );
-  await expect(page.getByTestId("path-element-row-2")).toContainText("135°");
+  await expect(
+    page.getByTestId("path-element-row-4").locator(".path-element-row__detail"),
+  ).toHaveText("intake");
 
   await page.getByRole("button", { name: "Add element" }).click();
   await page.getByRole("menuitem", { name: "Event Trigger" }).click();
