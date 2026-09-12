@@ -94,6 +94,8 @@ test.describe("shared theme across dialogs and nested controls", () => {
   test("Navigator connections and row actions in a compact window", async ({
     page,
   }) => {
+    // Opening animation can shift the scroll origin while naming a new group.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 820, height: 700 });
     await page
       .getByRole("button", { name: "Open project navigator", exact: true })

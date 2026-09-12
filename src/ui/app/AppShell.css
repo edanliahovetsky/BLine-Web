@@ -1413,8 +1413,15 @@ select {
     opacity 120ms ease;
 }
 
+/* Match the list's inner curve so selected end rows keep a continuous outline. */
 .path-element-list li:last-child {
   border-bottom: 0;
+  border-radius: 0 0 6px 6px;
+}
+
+.path-element-list li:first-child {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
 }
 
 .path-element-list li.is-selected {
@@ -1442,6 +1449,8 @@ select {
   min-height: 34px;
   padding: 0 8px;
   border: 0;
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
   color: var(--bline-text-primary);
   text-align: left;
   background: transparent;
