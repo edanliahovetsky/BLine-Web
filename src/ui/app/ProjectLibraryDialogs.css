@@ -293,13 +293,20 @@
   clip-path: inset(
     var(--overflow-clip-top, 0px) 0 var(--overflow-clip-bottom, 0px) 0
   );
+  mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--overflow-clip-bottom, 0px) - 18px),
+    transparent calc(100% - var(--overflow-clip-bottom, 0px))
+  );
   height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--bline-border-control) transparent;
   margin: 0 -18px;
-  padding: 2px 18px 10px;
+  /* Let the final row clear both the edge fade and transient drag feedback. */
+  padding: 2px 18px 48px;
+  scroll-padding-bottom: 48px;
   pointer-events: auto;
 }
 .fc-list-scroll:focus-visible {
@@ -499,8 +506,8 @@
 }
 .fc-port.is-origin {
   background: var(--bline-accent);
-  border-color: var(--bline-accent-hover);
-  box-shadow: 0 0 0 5px var(--bline-surface-selected);
+  border-color: var(--bline-surface-base);
+  box-shadow: 0 0 0 5px var(--bline-surface-base);
 }
 .fc-port.is-origin::before {
   background: var(--bline-surface-selected) !important;
@@ -518,7 +525,7 @@
 .fc-row.is-drop-target .fc-port {
   background: var(--bline-accent-hover);
   transform: scale(1.2);
-  border-color: var(--bline-text-primary);
+  border-color: var(--bline-surface-base);
 }
 .fc-row.is-drop-target .fc-port::before {
   background: var(--bline-surface-selected);
@@ -589,8 +596,8 @@
 }
 .fc-preview-tip {
   fill: var(--bline-accent-hover);
-  stroke: var(--bline-surface-selected);
-  stroke-width: 4;
+  stroke: var(--bline-surface-base);
+  stroke-width: 2;
 }
 .fc-empty {
   padding: 25px 14px;
