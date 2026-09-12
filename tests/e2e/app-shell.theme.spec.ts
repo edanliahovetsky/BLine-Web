@@ -100,7 +100,7 @@ test.describe("shared theme across dialogs and nested controls", () => {
     await page
       .getByRole("button", { name: "Open project navigator", exact: true })
       .click();
-    const nav = page.getByRole("dialog", { name: "Project Navigator" });
+    const nav = page.getByRole("complementary", { name: "Project Navigator" });
     await nav
       .getByRole("button", { name: "Create Path Group", exact: true })
       .click();

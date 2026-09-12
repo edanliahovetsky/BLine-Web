@@ -32,11 +32,14 @@ import {
 
 test("creates a Path inline from the File menu", async ({ page }) => {
   await gotoSampleEditor(page);
+  await openPathLibraryDialog(page);
 
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "New Path", exact: true }).click();
 
-  const navigator = page.getByRole("dialog", { name: "Project Navigator" });
+  const navigator = page.getByRole("complementary", {
+    name: "Project Navigator",
+  });
   await expect(navigator).toBeVisible();
   await expect(
     page.getByRole("dialog", { name: "Create New Path", exact: true }),
@@ -55,7 +58,7 @@ test("creates a Path inline from the File menu", async ({ page }) => {
     "Phase 1 Canvas Draft",
   );
   await navigator
-    .getByRole("button", { name: "Open Path", exact: true })
+    .getByRole("button", { name: "Focus File Menu Path", exact: true })
     .click();
   await expect(page.getByTestId("current-path-status")).toHaveText(
     "Current Path: File Menu Path",
@@ -106,7 +109,7 @@ test("creates Path Groups and new Paths from the Project Navigator", async ({
     navigator.locator(".all-paths__row").filter({ hasText: "Group Blank" }),
   ).toBeVisible();
   await navigator
-    .getByRole("button", { name: "Open Path", exact: true })
+    .getByRole("button", { name: "Focus Group Blank", exact: true })
     .click();
 
   await expect(page.getByTestId("current-path-status")).toContainText(
@@ -135,9 +138,6 @@ test("switches collected Paths and toggles Path Group canvas overlays", async ({
   const navigator = await openPathLibraryDialog(page);
   await navigator
     .getByRole("button", { name: "Focus Score Autos", exact: true })
-    .click();
-  await navigator
-    .getByRole("button", { name: "Preview Path Group", exact: true })
     .click();
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Score Autos / Phase 1 Canvas Draft",

@@ -90,6 +90,7 @@ export function writeEditorUiPreferences(
   preferences: EditorUiPreferencesV1,
 ): void {
   rememberEditorLayoutPreferences({
+    ...readEditorLayoutPreferences(),
     inspector_tab: preferences.inspectorTab,
     inspector_width: clampInspectorWidth(preferences.inspectorWidth),
     show_ghost_paths: preferences.showGhostPaths,

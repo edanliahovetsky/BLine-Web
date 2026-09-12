@@ -6334,31 +6334,28 @@ body.is-resizing-inspector * {
   background: color-mix(in srgb, var(--bline-backdrop) 68%, transparent);
 }
 
-.app-shell--navigator-lesson .project-navigator-backdrop {
-  background: transparent;
-  backdrop-filter: none;
+.workspace.is-navigator-open {
+  grid-template-columns: var(--navigator-width, 560px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
-.app-shell--navigator-lesson .project-navigator.fc-navigator {
-  width: min(1060px, calc(100vw - 344px));
+
+.workspace.is-navigator-open .canvas-region {
+  container: navigator-canvas / inline-size;
 }
-.app-shell--navigator-lesson .fc-board {
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr);
-  padding-inline: 16px;
+.workspace.is-navigator-open .simulation-transport {
+  bottom: 48px;
+  left: max(12px, calc(50% - 330px));
 }
-.app-shell--navigator-lesson .fc-focusbar,
-.app-shell--navigator-lesson .fc-focus-actions {
-  flex-wrap: wrap;
-}
-@media (max-width: 1050px) {
-  .app-shell--navigator-lesson .fc-board {
-    grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
-    padding-inline: 10px;
+@container navigator-canvas (max-width: 480px) {
+  .simulation-transport {
+    grid-template-columns: auto 4rem;
+    right: 12px;
   }
-  .app-shell--navigator-lesson .fc-row .fc-more {
-    width: 24px;
+  .transport-timeline {
+    grid-column: 1 / -1;
   }
 }
+
 .tour-card__progress button {
   padding: 0;
   border: 0;

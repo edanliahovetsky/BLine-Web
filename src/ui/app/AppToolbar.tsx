@@ -64,6 +64,7 @@ interface ToolbarMenuState {
 
 interface ToolbarPanelState {
   showHelpHub: boolean;
+  navigatorOpen: boolean;
   inspectorOpen: boolean;
   openCommandPalette(): void;
   closeOpenPanel(): void;
@@ -142,6 +143,7 @@ export function AppToolbar({
           className="app-toolbar__navigator-button"
           data-tour="navigator-button"
           aria-label={commands.navigator.label}
+          aria-expanded={panels.navigatorOpen}
           title={commands.navigator.label}
           disabled={commands.navigator.disabled}
           onClick={() => executeCommand(commands.navigator)}

@@ -88,7 +88,7 @@ test.describe("app shell visual baselines", () => {
       .click();
 
     await expect(
-      page.getByRole("dialog", { name: "Project Navigator" }),
+      page.getByRole("complementary", { name: "Project Navigator" }),
     ).toBeVisible();
 
     await expectVisualSnapshot(page, "project-navigator.png");

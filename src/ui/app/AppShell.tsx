@@ -296,6 +296,19 @@ export function AppShell() {
   const [inspectorWidth, setInspectorWidth] = useState(
     () => readEditorUiPreferences().inspectorWidth,
   );
+  const [navigatorWidth, setNavigatorWidth] = useState(560);
+  const [workspaceWidth, setWorkspaceWidth] = useState(() =>
+    typeof window === "undefined" ? 1440 : window.innerWidth,
+  );
+  const navigatorOpen = Boolean(editorProject && showPathGroupsDialog);
+  // Preserve the user's inspector state while the navigator borrows its space.
+  const inspectorVisible = inspectorOpen && !navigatorOpen;
+  const navigatorWidthMax = Math.min(840, Math.floor(workspaceWidth * 0.7));
+  const navigatorWidthMin = Math.min(400, navigatorWidthMax);
+  const visibleNavigatorWidth = Math.max(
+    navigatorWidthMin,
+    Math.min(navigatorWidthMax, navigatorWidth),
+  );
   const [inspectorTab, setInspectorTab] = useState<
     EditorUiPreferencesV1["inspectorTab"]
   >(() => readEditorUiPreferences().inspectorTab);
@@ -324,6 +337,7 @@ export function AppShell() {
   const practiceFolderImportRef =
     useRef<ReturnType<typeof capturePracticeTransfer>>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const pathMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const tourViewRef = useRef<{
     blocked: boolean;
@@ -331,6 +345,15 @@ export function AppShell() {
   } | null>(null);
   const tourSessionRef = useRef<TourSessionController | null>(null);
   const configSaveInProgressRef = useRef(false);
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setWorkspaceWidth(entry.contentRect.width);
+    });
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, []);
   const {
     autosaveStatus,
     cancelAutosave,
@@ -697,6 +720,8 @@ export function AppShell() {
     setShowOpenPanel(false);
     setShowHelpHub(false);
     setShowPathHealth(false);
+    setShowPathGroupsDialog(false);
+    setInitiallyEditingPathId(null);
     setCurveToolSession(null);
     setActiveTool("select");
     void refreshWorkspaceSummaries();
@@ -978,6 +1003,11 @@ export function AppShell() {
     setOpenTopMenu(null);
     setInitiallyEditingPathId(null);
     setShowPathGroupsDialog(true);
+  }, []);
+
+  const handleClosePathLibrary = useCallback(() => {
+    setShowPathGroupsDialog(false);
+    setInitiallyEditingPathId(null);
   }, []);
 
   const handleShowLinkedTargets = useCallback(() => {
@@ -1803,11 +1833,11 @@ export function AppShell() {
     (activeTourId === "import-export" && !supportsProjectFolders);
   const navigatorCommand: EditorCommand = {
     id: "project.navigator",
-    label: "Open project navigator",
+    label: navigatorOpen ? "Close project navigator" : "Open project navigator",
     category: "Project",
     keywords: ["paths", "path groups", "groups", "library"],
     disabled: !projectAvailable || toolbarBusy,
-    run: handleShowPathLibrary,
+    run: navigatorOpen ? handleClosePathLibrary : handleShowPathLibrary,
   };
   const newPathCommand: EditorCommand = {
     id: "project.new-path",
@@ -1894,7 +1924,14 @@ export function AppShell() {
     shortcut: { key: "b", metaOrCtrl: true },
     scope: "global",
     disabled: !pathAvailable,
-    run: () => setInspectorOpen((current) => !current),
+    run: () => {
+      if (navigatorOpen) {
+        handleClosePathLibrary();
+        setInspectorOpen(true);
+      } else {
+        setInspectorOpen((current) => !current);
+      }
+    },
   };
   const shortcutHelpCommand: EditorCommand = {
     id: "help.shortcuts",
@@ -2008,7 +2045,6 @@ export function AppShell() {
         showNameEntryDialog: pathNameAction !== null,
         showNewProjectDialog,
         showOpenPanel,
-        showPathGroupsDialog,
         showSaveConflict: status === "conflict" || status === "damaged",
         showShortcutHelp,
         showTourPicker,
@@ -2127,7 +2163,7 @@ export function AppShell() {
   const workspaceStatusVisible = Boolean(editorProject);
   const workspaceStatus = workspaceStatusVisible ? (
     <WorkspaceStatus
-      compact={!inspectorOpen}
+      compact={!inspectorVisible}
       diagnostics={pathDiagnostics}
       saveCommand={saveCommand}
       saveStatus={saveStatus}
@@ -2142,7 +2178,7 @@ export function AppShell() {
 
   return (
     <main
-      className={`app-shell${activeTourId && showPathGroupsDialog ? " app-shell--navigator-lesson" : ""}`}
+      className="app-shell"
       data-testid="app-shell"
       aria-busy={projectTransitionInProgress}
     >
@@ -2178,7 +2214,8 @@ export function AppShell() {
         }}
         panels={{
           showHelpHub,
-          inspectorOpen,
+          navigatorOpen,
+          inspectorOpen: inspectorVisible,
           openCommandPalette: () => setShowCommandPalette(true),
           closeOpenPanel: () => setShowOpenPanel(false),
           toggleHelpHub: () => {
@@ -2220,15 +2257,18 @@ export function AppShell() {
       />
 
       <div
+        ref={workspaceRef}
         className={[
           "workspace",
-          editorProject && !inspectorOpen ? "is-inspector-collapsed" : "",
+          editorProject && !inspectorVisible ? "is-inspector-collapsed" : "",
+          navigatorOpen ? "is-navigator-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
         style={
           {
             "--inspector-width": `${inspectorWidth}px`,
+            "--navigator-width": `${visibleNavigatorWidth}px`,
           } as CSSProperties
         }
         inert={projectTransitionInProgress ? true : undefined}
@@ -2264,6 +2304,25 @@ export function AppShell() {
           />
         ) : (
           <>
+            {editorProject && navigatorOpen ? (
+              <PathLibraryDialog
+                key={`${projectSessionId}:${initiallyEditingPathId ?? ""}`}
+                project={editorProject}
+                activePathId={activePathId}
+                activePathGroupId={activePathGroupId}
+                initiallyEditingPathId={initiallyEditingPathId}
+                lessonMode={Boolean(activeTourId)}
+                width={visibleNavigatorWidth}
+                minWidth={navigatorWidthMin}
+                maxWidth={navigatorWidthMax}
+                onResize={setNavigatorWidth}
+                onCancel={handleClosePathLibrary}
+                onCreatePath={handleCreateLibraryPath}
+                onDeletePaths={handleShowDeletePaths}
+                onDeletePathGroups={handleShowDeletePathGroups}
+                onPreviewPathGroup={() => handleShowGhostPathsChange(true)}
+              />
+            ) : null}
             <section className="canvas-region" aria-label="Editor canvas">
               <PathStage
                 field={activeField}
@@ -2297,7 +2356,7 @@ export function AppShell() {
               ) : null}
             </section>
 
-            {inspectorOpen ? (
+            {inspectorVisible ? (
               <button
                 type="button"
                 className="inspector-backdrop is-open"
@@ -2311,10 +2370,10 @@ export function AppShell() {
               activePath={activePath}
               selectedElementIndex={selectedElementIndex}
               fieldGeometry={activeField.geometry}
-              open={inspectorOpen}
+              open={inspectorVisible}
               activeTab={inspectorTab}
               inspectorWidth={inspectorWidth}
-              footer={inspectorOpen ? workspaceStatus : null}
+              footer={inspectorVisible ? workspaceStatus : null}
               curveToolActive={curveToolSession !== null}
               onClose={() => setInspectorOpen(false)}
               onActiveTabChange={setInspectorTab}
@@ -2324,7 +2383,7 @@ export function AppShell() {
               onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
               onDialogOpenChange={setInspectorDialogOpen}
             />
-            {!inspectorOpen ? workspaceStatus : null}
+            {!inspectorVisible ? workspaceStatus : null}
           </>
         )}
       </div>
@@ -2388,23 +2447,6 @@ export function AppShell() {
           workspaces={projectSummaries}
           onCancel={() => setShowDeleteProjectDialog(false)}
           onDelete={(projects) => void handleDeleteProjects(projects)}
-        />
-      ) : null}
-      {durableProject && showPathGroupsDialog ? (
-        <PathLibraryDialog
-          project={durableProject}
-          activePathId={activePathId}
-          activePathGroupId={activePathGroupId}
-          initiallyEditingPathId={initiallyEditingPathId}
-          lessonMode={Boolean(activeTourId)}
-          onCancel={() => {
-            setShowPathGroupsDialog(false);
-            setInitiallyEditingPathId(null);
-          }}
-          onCreatePath={handleCreateLibraryPath}
-          onDeletePaths={handleShowDeletePaths}
-          onDeletePathGroups={handleShowDeletePathGroups}
-          onPreviewPathGroup={() => handleShowGhostPathsChange(true)}
         />
       ) : null}
       {pathNameAction ? (
@@ -3094,7 +3136,6 @@ function hasActiveBlockingSurface({
   showNameEntryDialog,
   showNewProjectDialog,
   showOpenPanel,
-  showPathGroupsDialog,
   showSaveConflict,
   showShortcutHelp,
   showTourPicker,
@@ -3110,7 +3151,6 @@ function hasActiveBlockingSurface({
   showNameEntryDialog: boolean;
   showNewProjectDialog: boolean;
   showOpenPanel: boolean;
-  showPathGroupsDialog: boolean;
   showSaveConflict: boolean;
   showShortcutHelp: boolean;
   showTourPicker: boolean;
@@ -3127,7 +3167,6 @@ function hasActiveBlockingSurface({
     showNameEntryDialog ||
     showNewProjectDialog ||
     showOpenPanel ||
-    showPathGroupsDialog ||
     showSaveConflict ||
     showShortcutHelp ||
     showTourPicker,

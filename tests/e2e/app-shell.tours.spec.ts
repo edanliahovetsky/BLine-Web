@@ -892,9 +892,9 @@ test("organizes an auto and test project into a new Path Group", async ({
   await advance(page);
   await heading(page, "Preview the group");
   await navigator
-    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .getByRole("button", { name: "Focus My Auto", exact: true })
     .click();
-  await expect(navigator).toHaveCount(0);
+  await expect(navigator).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Hide Path Group overlays", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -1091,17 +1091,14 @@ async function openLesson(page: Page, title: string) {
 }
 
 async function previewGroup(page: Page, name: string) {
-  const navigator = page.getByRole("dialog", {
+  const navigator = page.getByRole("complementary", {
     name: "Project Navigator",
     exact: true,
   });
   await navigator
     .getByRole("button", { name: "Focus " + name, exact: true })
     .click();
-  await navigator
-    .getByRole("button", { name: "Preview Path Group", exact: true })
-    .click();
-  await expect(navigator).toHaveCount(0);
+  await expect(navigator).toBeVisible();
 }
 
 async function exitLesson(page: Page) {

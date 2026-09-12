@@ -1,24 +1,17 @@
-.project-navigator-backdrop {
-  position: fixed;
-  z-index: 145;
-  inset: 0;
-  display: flex;
-  justify-content: flex-start;
-  background: var(--bline-backdrop);
-  backdrop-filter: blur(2px);
-}
 .project-navigator.fc-navigator {
   position: relative;
+  z-index: 30;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  width: min(1060px, calc(100vw - 20px));
-  height: 100dvh;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   min-height: 0;
-  overflow: hidden;
   border-right: 1px solid var(--bline-border-control);
   color: var(--bline-text-primary);
   background: var(--bline-surface-base);
-  box-shadow: var(--bline-shadow-dialog);
+  box-shadow: 6px 0 18px rgb(0 0 0 / 12%);
   animation: fc-enter 150ms ease-out;
   outline: none;
   border-color: var(--bline-border-strong);
@@ -77,9 +70,9 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   flex: none;
   align-items: center;
-  gap: 15px;
-  padding: 17px 20px;
-  min-height: 79px;
+  gap: 8px;
+  padding: 12px;
+  min-height: 72px;
   border-bottom: 1px solid var(--bline-border-strong);
   background: var(--bline-surface-raised);
   border-color: var(--bline-border-subtle);
@@ -87,7 +80,7 @@
 .fc-focus-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 .fc-focus-meta > div {
@@ -119,23 +112,9 @@
 }
 .fc-focus-actions {
   display: flex;
-  gap: 14px;
+  gap: 8px;
   flex: none;
   align-items: center;
-}
-.fc-open {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--bline-border-control);
-  border-radius: 6px;
-  background: var(--bline-surface-raised);
-  color: var(--bline-text-primary);
-  padding: 7px 9px;
-  font-size: 0.69rem !important;
-}
-.fc-open:hover:not(:disabled) {
-  background: var(--bline-surface-hover);
 }
 .fc-icon-action {
   display: inline-flex;
@@ -173,12 +152,9 @@
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(230px, 1fr) minmax(110px, 0.6fr) minmax(
-      290px,
-      1.25fr
-    );
-  padding: 25px 24px 30px;
-  min-width: 680px;
+  grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1.15fr);
+  padding: 18px 16px;
+  min-width: 380px;
   height: 100%;
   min-height: 0;
   background: var(--bline-surface-base);
@@ -295,9 +271,9 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--bline-border-control) transparent;
-  margin: 0 -18px;
+  margin: 0 -16px;
   /* Let the final row clear both the edge fade and transient drag feedback. */
-  padding: 2px 18px 48px;
+  padding: 2px 16px 48px;
   scroll-padding-bottom: 48px;
   pointer-events: auto;
 }
@@ -687,7 +663,7 @@
   background: var(--bline-surface-raised);
 }
 .fc-menu {
-  position: fixed;
+  position: absolute;
   z-index: 155;
   width: 182px;
   padding: 5px;
@@ -732,33 +708,62 @@
 .fc-menu .fc-delete:focus-visible {
   background: var(--bline-danger-hover);
 }
-@media (max-width: 850px) {
-  .project-navigator.fc-navigator {
-    width: calc(100vw - 8px);
-  }
-  .fc-board {
-    min-width: 520px;
-    grid-template-columns: minmax(170px, 1fr) 72px minmax(210px, 1.25fr);
-    padding: 22px 16px;
-  }
-  .fc-focusbar {
-    padding: 12px 16px;
-    gap: 12px;
-  }
-  .fc-focus-actions {
-    gap: 8px;
-  }
+@container (max-width: 600px) {
   .fc-name {
     font-size: 0.7rem;
   }
   .fc-select {
     gap: 7px;
-    padding: 0 10px;
+    padding-inline: 10px;
+  }
+  .fc-paths .fc-select {
+    padding-left: 20px;
   }
   .fc-more {
     margin-right: 5px;
     width: 24px;
   }
+  .fc-focus-icon {
+    width: 28px;
+    height: 28px;
+  }
+}
+@container (max-width: 460px) {
+  .fc-project-meta strong {
+    font-size: 0.78rem;
+  }
+  .fc-focus-icon {
+    display: none;
+  }
+}
+.navigator-resize-handle {
+  position: absolute;
+  z-index: 6;
+  inset-block: 0;
+  right: -6px;
+  width: 12px;
+  outline: 0;
+  cursor: col-resize;
+  touch-action: none;
+}
+.navigator-resize-handle::after {
+  position: absolute;
+  inset-block: 0;
+  left: 5px;
+  width: 2px;
+  content: "";
+  background: transparent;
+  transition: background var(--bline-motion-fast);
+}
+.navigator-resize-handle:hover::after,
+.navigator-resize-handle:focus-visible::after,
+body.is-resizing-navigator .navigator-resize-handle::after {
+  background: var(--bline-accent);
+}
+body.is-resizing-navigator,
+body.is-resizing-navigator * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .fc-navigator,

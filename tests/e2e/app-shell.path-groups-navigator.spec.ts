@@ -11,6 +11,30 @@ const row = (nav: Locator, name: string) =>
     has: nav.page().getByRole("button", { name: `Focus ${name}`, exact: true }),
   });
 const port = (nav: Locator, name: string) => row(nav, name).locator(".fc-port");
+async function savedConnectionVisibility(page: Page) {
+  return page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("bline-web-user-field-assets");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<boolean | undefined>((resolve, reject) => {
+        const request = database
+          .transaction("user-data", "readonly")
+          .objectStore("user-data")
+          .get("global");
+        request.onsuccess = () =>
+          resolve(
+            request.result?.data?.editor_layout?.navigator_show_connections,
+          );
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      database.close();
+    }
+  });
+}
 async function nameInline(
   nav: Locator,
   kind: "Path Group" | "Path",
@@ -57,6 +81,125 @@ async function startDrag(page: Page, source: Locator, destination: Locator) {
   await page.mouse.down();
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
 }
+
+test("docks the navigator beside the live canvas and restores the inspector @webkit-canvas", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoSampleEditor(page);
+  const inspector = page.getByRole("complementary", { name: "Path inspector" });
+  await page.getByTestId("path-element-row-0").click();
+  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+  const inspectorWidth = (await requiredBox(inspector)).width;
+  const nav = await openPathLibraryDialog(page);
+  const canvas = page.getByRole("region", { name: "Editor canvas" });
+  const toolbar = page.locator(".app-toolbar");
+  await expect(inspector).toBeHidden();
+  await expect(nav).toHaveAttribute("aria-label", "Project Navigator");
+  await expect(page.locator(".project-navigator-backdrop")).toHaveCount(0);
+  await expect(canvas).toHaveCSS("filter", "none");
+  const navBox = await requiredBox(nav);
+  const canvasBox = await requiredBox(canvas);
+  const toolbarBox = await requiredBox(toolbar);
+  await expect
+    .poll(() =>
+      nav
+        .locator(".fc-scroll")
+        .evaluate((el) => el.scrollWidth - el.clientWidth),
+    )
+    .toBe(0);
+  expect(navBox.width).toBeCloseTo(560, 1);
+  expect(navBox.y).toBeCloseTo(toolbarBox.y + toolbarBox.height, 1);
+  expect(canvasBox.x).toBeCloseTo(navBox.x + navBox.width, 1);
+  expect(canvasBox.width).toBeGreaterThan(800);
+  await expect(toolbar).toBeInViewport({ ratio: 1 });
+  await expect(canvas).toBeInViewport({ ratio: 1 });
+
+  // Library focus must not leak Delete or playback shortcuts to the canvas.
+  await nav.focus();
+  await nav.press("Delete");
+  await nav.press("Space");
+  await expect(
+    page.getByRole("button", { name: "Play simulation", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Play simulation", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Pause simulation", exact: true })
+    .click();
+  await expect(nav).toBeVisible();
+
+  await nav.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(inspector).toBeVisible();
+  await expect(
+    page.getByRole("tab", { name: "Constraints", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  expect((await requiredBox(inspector)).width).toBe(inspectorWidth);
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: /^Element 1: Waypoint/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await page
+    .getByRole("button", { name: "Toggle inspector", exact: true })
+    .click();
+  await openPathLibraryDialog(page);
+  await page
+    .getByRole("button", { name: "Close project navigator", exact: true })
+    .click();
+  await expect(nav).toHaveCount(0);
+  await expect(inspector).toBeHidden();
+});
+
+test("resizes the navigator with pointer and keyboard while retaining canvas space @webkit-canvas", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoSampleEditor(page);
+  const nav = await openPathLibraryDialog(page);
+  const divider = nav.getByRole("separator", {
+    name: "Resize Project Navigator",
+  });
+  const canvas = page.getByRole("region", { name: "Editor canvas" });
+  const initialCanvas = await requiredBox(canvas);
+  const start = await requiredBox(divider);
+  await page.mouse.move(start.x + start.width / 2, start.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(start.x + start.width / 2 + 120, start.y + 200, {
+    steps: 6,
+  });
+  await page.mouse.up();
+  await expect(divider).toHaveAttribute("aria-valuenow", "680");
+  expect((await requiredBox(canvas)).width).toBe(initialCanvas.width - 120);
+  await divider.press("Home");
+  await expect(divider).toHaveAttribute("aria-valuenow", "400");
+  await divider.press("ArrowRight");
+  await expect(divider).toHaveAttribute("aria-valuenow", "416");
+  await divider.press("End");
+  await expect(divider).toHaveAttribute("aria-valuenow", "840");
+  await page.setViewportSize({ width: 820, height: 700 });
+  await expect(divider).toHaveAttribute("aria-valuenow", "574");
+  expect((await requiredBox(canvas)).width).toBeGreaterThanOrEqual(246);
+  await expect(
+    nav.getByRole("button", { name: "Close", exact: true }),
+  ).toBeInViewport({ ratio: 1 });
+  await expect(
+    page.getByRole("button", { name: "Play simulation", exact: true }),
+  ).toBeInViewport({ ratio: 1 });
+  await expect(
+    page.getByRole("slider", { name: "Simulation time", exact: true }),
+  ).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    820,
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await divider.press("Home");
+  await nav.getByRole("button", { name: "Close", exact: true }).click();
+  await openPathLibraryDialog(page);
+  await expect(divider).toHaveAttribute("aria-valuenow", "400");
+});
 
 test("creates Paths inline with unique defaults, name validation, and undo @webkit-canvas", async ({
   page,
@@ -110,12 +253,17 @@ test("keeps navigator icon actions usable with the keyboard", async ({
 }) => {
   await gotoSampleEditor(page);
   const nav = await openPathLibraryDialog(page);
-  const all = nav.getByRole("button", { name: "Show all connections" });
+  const all = nav.getByRole("button", {
+    name: /^(Show|Hide) all connections$/,
+  });
   await all.focus();
-  await all.press("Space");
   await expect(all).toHaveAttribute("aria-pressed", "true");
   await all.press("Space");
   await expect(all).toHaveAttribute("aria-pressed", "false");
+  await expect(all).toHaveAccessibleName("Show all connections");
+  await all.press("Space");
+  await expect(all).toHaveAttribute("aria-pressed", "true");
+  await expect(all).toHaveAccessibleName("Hide all connections");
   await all.press("Tab");
   await expect(
     nav.getByRole("button", { name: "Close", exact: true }),
@@ -125,50 +273,97 @@ test("keeps navigator icon actions usable with the keyboard", async ({
   await expect(page.getByTestId("path-stage")).toBeVisible();
 });
 
-test("opens paths and previews groups on double-click, with rename in the row menu @webkit-canvas", async ({
+test("persists connection visibility across Navigator reopen, layout changes, and reload @webkit-canvas", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
   let nav = await openPathLibraryDialog(page);
+  await createGroup(nav, "Competition");
+  await link(nav, "Competition", sample);
+  await expect(nav.locator(".fc-wire")).toHaveCount(1);
+  await nav
+    .getByRole("button", { name: "Hide all connections", exact: true })
+    .click();
+  await expect(nav.locator(".fc-wire")).toHaveCount(0);
+  await nav.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+  nav = await openPathLibraryDialog(page);
   await expect(
-    nav.getByRole("button", { name: "Connection help" }),
+    nav.getByRole("button", { name: "Show all connections", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await expect(nav.locator(".fc-wire")).toHaveCount(0);
+  await expect.poll(() => savedConnectionVisibility(page)).toBe(false);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Save", exact: true }),
+  ).toHaveAttribute("title", /Saved/);
+  await page.reload();
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+  nav = await openPathLibraryDialog(page);
+  await expect(
+    nav.getByRole("button", { name: "Show all connections", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await nav
+    .getByRole("button", { name: "Show all connections", exact: true })
+    .click();
+  await expect.poll(() => savedConnectionVisibility(page)).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+  nav = await openPathLibraryDialog(page);
+  await expect(
+    nav.getByRole("button", { name: "Hide all connections", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("previews paths and groups on single-click and renames them on double-click @webkit-canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const nav = await openPathLibraryDialog(page);
+  await expect(
+    nav.getByRole("button", { name: /^(Open Path|Preview Path Group)$/ }),
   ).toHaveCount(0);
-  await expect(nav.locator(".fc-status")).toHaveCount(0);
   await action(nav, "Path", sample, "Duplicate");
   await nameInline(nav, "Path", "Backup");
-  await nav
-    .getByRole("button", { name: `Focus ${sample}`, exact: true })
-    .click();
-  await nav
-    .getByRole("button", { name: "Focus Backup", exact: true })
-    .dblclick();
-  await expect(nav).toHaveCount(0);
+  await nav.getByRole("button", { name: "Focus Backup", exact: true }).click();
+  await expect(nav).toBeVisible();
   await expect(page.getByTestId("current-path-status")).toHaveText(
     "Current Path: Backup",
   );
-
-  nav = await openPathLibraryDialog(page);
-  await action(nav, "Path", "Backup", "Rename");
+  await nav
+    .getByRole("button", { name: "Focus Backup", exact: true })
+    .dblclick();
   await nameInline(nav, "Path", "Alternate");
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    "Current Path: Alternate",
+  );
   await createGroup(nav, "Competition");
-  const group = nav.getByRole("button", {
-    name: "Focus Competition",
-    exact: true,
-  });
-  await group.dblclick();
-  await expect(nav).toBeVisible();
-  await expect(
-    nav.getByRole("textbox", { name: "Path Group name", exact: true }),
-  ).toHaveCount(0);
+  await nav
+    .getByRole("button", { name: "Focus Competition", exact: true })
+    .click();
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    "Current Path: Alternate",
+  );
   await link(nav, "Competition", sample);
-  await group.dblclick();
-  await expect(nav).toHaveCount(0);
+  await nav
+    .getByRole("button", { name: "Focus Competition", exact: true })
+    .click();
   await expect(page.getByTestId("current-path-status")).toHaveText(
     `Current Path: Competition / ${sample}`,
   );
   await expect(
     page.getByRole("button", { name: "Hide Path Group overlays" }),
   ).toHaveAttribute("aria-pressed", "true");
+  await nav
+    .getByRole("button", { name: "Focus Competition", exact: true })
+    .dblclick();
+  await nameInline(nav, "Path Group", "Matches");
+  await expect(page.getByTestId("current-path-status")).toHaveText(
+    `Current Path: Matches / ${sample}`,
+  );
+  await action(nav, "Path Group", "Matches", "Rename");
+  await nameInline(nav, "Path Group", "Finals");
+  await expect(nav).toBeVisible();
 });
 
 test("shows the selected connection point and opposite points, and toggles links in one click", async ({
@@ -191,7 +386,6 @@ test("shows the selected connection point and opposite points, and toggles links
   await expect(focusName(nav)).toHaveText("Testing");
   await expect(focusCount(nav)).toHaveText("1 Path connected");
   await expect(nav.locator(".fc-wire")).toHaveCount(1);
-  await nav.getByRole("button", { name: "Show all connections" }).click();
   await expect(port(nav, "Competition")).toBeHidden();
   await expect(port(nav, "Testing")).toBeVisible();
   await nav
@@ -209,7 +403,7 @@ test("shows the selected connection point and opposite points, and toggles links
   await expect(focusCount(nav)).toHaveText("1 Path Group connected");
 });
 
-test("inspects connections without switching the canvas and disconnects endpoints in either direction", async ({
+test("disconnects endpoints in either direction and previews the selected path", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -240,8 +434,8 @@ test("inspects connections without switching the canvas and disconnects endpoint
   await expect(page.getByTestId("current-path-status")).toHaveText(
     `Current Path: ${sample}`,
   );
-  await nav.getByRole("button", { name: "Open Path", exact: true }).click();
-  await expect(nav).toHaveCount(0);
+  await nav.getByRole("button", { name: "Focus Backup", exact: true }).click();
+  await expect(nav).toBeVisible();
   await expect(page.getByTestId("current-path-status")).toHaveText(
     "Current Path: Backup",
   );
@@ -331,7 +525,6 @@ test("undo and redo work immediately after renaming, dragging, toggling, and del
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect(focusCount(nav)).toHaveText("1 Path connected");
 
-  await nav.getByRole("button", { name: "Show all connections" }).click();
   await page.keyboard.press("ControlOrMeta+z");
   await expect(focusCount(nav)).toHaveText("0 Paths connected");
   await page.keyboard.press("ControlOrMeta+y");
@@ -605,9 +798,8 @@ test("filters connections, keeps row order stable, and aligns links after resizi
     .getByRole("searchbox", { name: "Find a Path Group" })
     .fill("Competition");
   await expect(focusCount(nav)).toContainText("1 hidden by search");
-  await expect(nav.locator(".fc-wire")).toHaveCount(1);
+  await expect(nav.locator(".fc-wire")).toHaveCount(2);
   await nav.getByRole("searchbox", { name: "Find a Path Group" }).fill("");
-  await nav.getByRole("button", { name: "Show all connections" }).click();
   await expect(nav.locator(".fc-wire")).toHaveCount(4);
   await port(nav, "Testing").click();
   await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
@@ -834,22 +1026,28 @@ for (const longSide of ["path", "group"] as const) {
       .click();
     const names = await list.locator(".fc-name").allTextContents();
     const connectionCount = longSide === "path" ? 2 : 1;
-    await expect(nav.locator(".fc-wire")).toHaveCount(connectionCount);
+    await expect(nav.locator(".fc-wire:not(.is-dim)")).toHaveCount(
+      connectionCount,
+    );
     await list.hover();
     await page.mouse.wheel(0, 60);
     const bar = nav.getByRole("button", {
-      name: longSide === "path" ? "1 Path above" : "1 Path Group above",
+      name: longSide === "path" ? "2 Paths above" : "2 Path Groups above",
       exact: true,
     });
     await expect(bar).toBeVisible();
-    await expect(nav.locator(".fc-wire")).toHaveCount(0);
-    await expect(nav.locator(".fc-overflow-wire")).toHaveCount(connectionCount);
+    await expect(nav.locator(".fc-wire:not(.is-dim)")).toHaveCount(0);
+    await expect(nav.locator(".fc-overflow-wire:not(.is-dim)")).toHaveCount(
+      connectionCount,
+    );
     await expect(list.locator(".fc-name")).toHaveText(names);
     await expect(focusName(nav)).toHaveText(`${label} 00`);
     await bar.click();
     await expect(bar).toHaveCount(0);
-    await expect(nav.locator(".fc-wire")).toHaveCount(connectionCount);
-    await expect(nav.locator(".fc-overflow-wire")).toHaveCount(0);
+    await expect(nav.locator(".fc-wire:not(.is-dim)")).toHaveCount(
+      connectionCount,
+    );
+    await expect(nav.locator(".fc-overflow-wire:not(.is-dim)")).toHaveCount(0);
     await expect(list.locator(".fc-name")).toHaveText(names);
   });
 
@@ -970,9 +1168,11 @@ for (const longSide of ["path", "group"] as const) {
     );
     await expect(names).toHaveText(order);
 
-    await nav
-      .getByRole("button", { name: "Re-sort connected first", exact: true })
-      .click();
+    await expect(
+      nav.getByRole("button", { name: "Re-sort connected first", exact: true }),
+    ).toHaveCount(0);
+    // Reselecting captures the updated connected-first order.
+    await selection.click();
     await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0);
     expect((await names.allTextContents()).slice(0, 6)).toEqual(
       [0, 12, 14, 18, 22, 23].map(
@@ -1000,7 +1200,7 @@ for (const longSide of ["path", "group"] as const) {
   });
 }
 
-test("includes every displayed connection in overflow bars when showing all connections", async ({
+test("shows all connections by default and hides every wire and overflow bar", async ({
   page,
 }) => {
   const nav = await seedLongLibrary(page, "path");
@@ -1010,11 +1210,6 @@ test("includes every displayed connection in overflow bars when showing all conn
   const list = nav.locator('.fc-list-scroll[data-kind="path"]');
   await list.hover();
   await page.mouse.wheel(0, 2200);
-  await expect(
-    nav.getByRole("button", { name: "1 Path above", exact: true }),
-  ).toBeVisible();
-  await expect(nav.locator(".fc-overflow-wire")).toHaveCount(1);
-  await nav.getByRole("button", { name: "Show all connections" }).click();
   // Path 00 counts once across both groups; Path 22 remains visible below.
   await expect(
     nav.getByRole("button", { name: "4 Paths above", exact: true }),
@@ -1022,11 +1217,19 @@ test("includes every displayed connection in overflow bars when showing all conn
   await expect(nav.locator(".fc-wire")).toHaveCount(1);
   await expect(nav.locator(".fc-overflow-wire")).toHaveCount(2);
   await expect(nav.locator(".fc-overflow-wire.is-dim")).toHaveCount(1);
-  await nav.getByRole("button", { name: "Show all connections" }).click();
+  await nav
+    .getByRole("button", { name: "Hide all connections", exact: true })
+    .click();
   await expect(
-    nav.getByRole("button", { name: "1 Path above", exact: true }),
+    nav.locator(".fc-wire, .fc-overflow-wire, .fc-edge-cap"),
+  ).toHaveCount(0);
+  await nav
+    .getByRole("button", { name: "Show all connections", exact: true })
+    .click();
+  await expect(
+    nav.getByRole("button", { name: "4 Paths above", exact: true }),
   ).toBeVisible();
-  await expect(nav.locator(".fc-overflow-wire")).toHaveCount(1);
+  await expect(nav.locator(".fc-overflow-wire")).toHaveCount(2);
 });
 
 test("scrolls the destination list during a drag without reordering or moving the source", async ({
