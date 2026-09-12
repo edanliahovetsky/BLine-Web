@@ -389,7 +389,9 @@ function FieldSettingsSection({
           ) : selectedField.image_src || fieldPreviewUrl ? (
             <img
               alt={`${selectedField.label} preview`}
-              src={selectedField.image_src ?? fieldPreviewUrl ?? ""}
+              src={fieldImageUrl(
+                selectedField.image_src ?? fieldPreviewUrl ?? "",
+              )}
             />
           ) : (
             <div className="field-preview__empty" aria-hidden="true" />
@@ -1209,3 +1211,4 @@ function configsEqual(left: ProjectConfig, right: ProjectConfig): boolean {
 function fieldDraftsEqual(left: FieldDraft, right: FieldDraft): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
+import { fieldImageUrl } from "../../platform/fieldImageUrl";

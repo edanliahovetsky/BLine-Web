@@ -13,7 +13,7 @@ function nextReleasePlugin(): Plugin {
       if (id.endsWith("/src/main.tsx")) {
         return `document.documentElement.dataset.offlineTestBuild = "next";\n${code}`;
       }
-      if (id.endsWith("/src/core/field/fieldConfig.ts")) {
+      if (id.endsWith("/src/platform/fieldImageUrl.ts")) {
         return code.replace(
           "field26.png?url&no-inline",
           "field22.png?url&no-inline",

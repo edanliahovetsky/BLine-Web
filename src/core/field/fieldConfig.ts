@@ -1,10 +1,3 @@
-import field22Image from "../../assets/fields/field22.png?url&no-inline";
-import field23Image from "../../assets/fields/field23.png?url&no-inline";
-import field24Image from "../../assets/fields/field24.png?url&no-inline";
-import field25_annotatedImage from "../../assets/fields/field25-annotated.png?url&no-inline";
-import field25Image from "../../assets/fields/field25.png?url&no-inline";
-import field26Image from "../../assets/fields/field26.png?url&no-inline";
-
 export type BuiltInFieldId =
   | "frc2022-rapid-react"
   | "frc2023-charged-up"
@@ -146,7 +139,7 @@ export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
     label: "Rapid React 2022",
     kind: "image",
     geometry: pathPlannerGeometry(rapidReactCalibration),
-    image_src: field22Image,
+    image_src: "/assets/fields/field22.png",
     attribution: "PathPlanner field22.png",
   },
   {
@@ -154,7 +147,7 @@ export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
     label: "Charged Up 2023",
     kind: "image",
     geometry: pathPlannerGeometry(chargedUpCalibration),
-    image_src: field23Image,
+    image_src: "/assets/fields/field23.png",
     attribution: "PathPlanner field23.png",
   },
   {
@@ -162,7 +155,7 @@ export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
     label: "Crescendo 2024",
     kind: "image",
     geometry: pathPlannerGeometry(crescendoCalibration),
-    image_src: field24Image,
+    image_src: "/assets/fields/field24.png",
     attribution: "PathPlanner field24.png",
   },
   {
@@ -170,7 +163,7 @@ export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
     label: "Reefscape 2025",
     kind: "image",
     geometry: pathPlannerGeometry(reefscapeCalibration),
-    image_src: field25Image,
+    image_src: "/assets/fields/field25.png",
     attribution: "PathPlanner field25.png",
   },
   {
@@ -178,7 +171,7 @@ export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
     label: "Reefscape 2025 (Annotated)",
     kind: "image",
     geometry: pathPlannerGeometry(reefscapeCalibration),
-    image_src: field25_annotatedImage,
+    image_src: "/assets/fields/field25-annotated.png",
     attribution: "PathPlanner field25-annotated.png",
   },
   {
@@ -186,7 +179,7 @@ export const builtInFieldDefinitions: readonly BuiltInFieldDefinition[] = [
     label: "REBUILT 2026",
     kind: "image",
     geometry: pathPlannerGeometry(rebuiltCalibration),
-    image_src: field26Image,
+    image_src: "/assets/fields/field26.png",
     attribution: "PathPlanner field26.png",
   },
   {

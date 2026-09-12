@@ -15,6 +15,7 @@ import type {
   ResolvedFieldDefinition,
 } from "../../core/field/fieldConfig";
 import type { CurveAuthoringPreview } from "../curveAuthoring";
+import { fieldImageUrl } from "../../platform/fieldImageUrl";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -224,7 +225,7 @@ export class PixiPathRenderer {
     app.ticker.stop();
     const texture =
       field.kind === "image" && field.image_src
-        ? await loadFieldTexture(field.image_src)
+        ? await loadFieldTexture(fieldImageUrl(field.image_src))
         : null;
     return new PixiPathRenderer(app, field, texture);
   }

@@ -107,7 +107,7 @@ describe("project config", () => {
         width_meters: 1620 / 196.85,
         offset_x: 0,
         offset_y: 0,
-        image_src: expect.stringContaining("field22.png"),
+        image_src: "/assets/fields/field22.png",
       },
       {
         id: "frc2023-charged-up",
@@ -115,7 +115,7 @@ describe("project config", () => {
         width_meters: 1578 / 196.85,
         offset_x: 0,
         offset_y: 0,
-        image_src: expect.stringContaining("field23.png"),
+        image_src: "/assets/fields/field23.png",
       },
       {
         id: "frc2024-crescendo",
@@ -123,7 +123,7 @@ describe("project config", () => {
         width_meters: 1616 / 196.85,
         offset_x: 0,
         offset_y: 0,
-        image_src: expect.stringContaining("field24.png"),
+        image_src: "/assets/fields/field24.png",
       },
       {
         id: "frc2025-reefscape",
@@ -131,7 +131,7 @@ describe("project config", () => {
         width_meters: 1610 / 200,
         offset_x: 0,
         offset_y: 0,
-        image_src: expect.stringContaining("field25.png"),
+        image_src: "/assets/fields/field25.png",
       },
       {
         id: "frc2025-reefscape-annotated",
@@ -139,7 +139,7 @@ describe("project config", () => {
         width_meters: 1610 / 200,
         offset_x: 0,
         offset_y: 0,
-        image_src: expect.stringContaining("field25-annotated.png"),
+        image_src: "/assets/fields/field25-annotated.png",
       },
       {
         id: "frc2026-rebuilt",
@@ -147,7 +147,7 @@ describe("project config", () => {
         width_meters: 1814 / 200,
         offset_x: 0.5,
         offset_y: 0.5,
-        image_src: expect.stringContaining("field26.png"),
+        image_src: "/assets/fields/field26.png",
       },
     ]);
   });
