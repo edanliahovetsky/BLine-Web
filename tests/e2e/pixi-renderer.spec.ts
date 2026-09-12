@@ -409,6 +409,67 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       );
     };
     try {
+      const colorSamples = [
+        { ...cases[0], rgb: [255, 159, 67], point: [0, -18], ring: [0, -26] },
+        { ...cases[1], rgb: [107, 220, 139], point: [0, -18], ring: [0, -26] },
+        {
+          name: "translation",
+          index: 0,
+          path: createPathModel({ path_elements: [translation()] }),
+          rgb: [88, 166, 255],
+          point: [3, 0],
+          ring: [0, -13],
+        },
+        {
+          name: "event",
+          index: 1,
+          path: createPathModel({
+            path_elements: [
+              anchors[0],
+              createEventTrigger({ t_ratio: 0.5 }),
+              anchors[1],
+            ],
+          }),
+          rgb: [167, 139, 250],
+          point: [0, -8],
+          ring: [-7, 0],
+        },
+      ].map(({ name, index, path, rgb, point, ring }) => {
+        const normal = pixels({ ...input, path });
+        const selected = pixels({
+          ...input,
+          path,
+          selectedElementIndex: index,
+        });
+        const hidden = pixels({
+          ...input,
+          path,
+          selectedElementIndex: index,
+          hideSelectionOutline: true,
+        });
+        const at = ([x, y]: number[]) =>
+          ((180 + y) * capture.width + 300 + x) * 4;
+        return {
+          name,
+          colorError: Math.max(
+            ...rgb.map((value, channel) =>
+              Math.abs(normal[at(point) + channel] - value),
+            ),
+          ),
+          visibleDifference: Math.max(
+            ...[0, 1, 2].map((channel) =>
+              Math.abs(
+                selected[at(ring) + channel] - normal[at(ring) + channel],
+              ),
+            ),
+          ),
+          hiddenDifference: Math.max(
+            ...[0, 1, 2].map((channel) =>
+              Math.abs(hidden[at(ring) + channel] - normal[at(ring) + channel]),
+            ),
+          ),
+        };
+      });
       const bodies = cases.map(({ name, index, path, baselinePath }) => {
         const scene = { ...input, path };
         if (name === "simulation") {
@@ -665,6 +726,7 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
                         translation_target: translation(),
                         rotation_target: rotation,
                       }),
+                      anchors[1],
                     ]
                   : [anchors[0], rotation, anchors[1]],
             });
@@ -673,6 +735,8 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
               viewport: cornerViewport,
               config: cornerConfig,
               path: cornerPath,
+              // Dim the footprint so overlapping strokes still reveal a bright wedge.
+              selectedElementIndex: kind === "waypoint" ? 1 : 0,
             });
             let brightest = 0,
               inkPixels = 0;
@@ -705,11 +769,14 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
             cornerSamples.push({
               name: `${kind} corner at scale ${scale}, heading ${heading}`,
               brightest,
-              limit: kind === "waypoint" ? 198 : 174,
+              // Upper bound over a white background after the black backing and
+              // one 58%-opacity accent stroke, allowing two levels for rounding.
+              limit: kind === "waypoint" ? 198 : 178,
               inkPixels,
             });
           }
       return {
+        colorSamples,
         bodies,
         cornerSamples,
         edgeSamples,
@@ -723,6 +790,17 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       renderer.destroy();
     }
   });
+  for (const sample of results.colorSamples) {
+    expect(sample.colorError, `${sample.name} original color`).toBeLessThan(3);
+    expect(
+      sample.visibleDifference,
+      `${sample.name} selected outline`,
+    ).toBeGreaterThan(8);
+    expect(
+      sample.hiddenDifference,
+      `${sample.name} hidden outline`,
+    ).toBeLessThan(3);
+  }
   for (const sample of results.cornerSamples) {
     expect.soft(sample.inkPixels, sample.name).toBeGreaterThan(0);
     expect

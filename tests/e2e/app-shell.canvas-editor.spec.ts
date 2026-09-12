@@ -977,6 +977,75 @@ test("rotates selected elements from the front dot @webkit-canvas", async ({
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("135");
 });
 
+test("hides selection ink during hover and dragging without deselecting elements @webkit-canvas", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await gotoSampleEditor(page);
+  const canvas = page.getByTestId("path-stage-canvas");
+  const box = await requiredBox(canvas);
+  const whitePixels = async (center: { x: number; y: number }) => {
+    // The WebGL drawing buffer is discarded after presentation; inspect a screenshot.
+    const screenshot = await page
+      .getByTestId("path-stage-pixi-canvas")
+      .screenshot({ scale: "css" });
+    return page.evaluate(
+      async ({ data, point }) => {
+        const source = new Image();
+        source.src = `data:image/png;base64,${data}`;
+        await source.decode();
+        const capture = document.createElement("canvas");
+        capture.width = source.width;
+        capture.height = source.height;
+        const ctx = capture.getContext("2d")!;
+        ctx.drawImage(source, 0, 0, capture.width, capture.height);
+        const pixels = ctx.getImageData(
+          Math.round(point.x) - 50,
+          Math.round(point.y) - 50,
+          100,
+          100,
+        ).data;
+        let count = 0;
+        for (let i = 0; i < pixels.length; i += 4) {
+          const [r, g, b] = pixels.slice(i, i + 3);
+          if (
+            Math.min(r, g, b) > 80 &&
+            Math.max(r, g, b) - Math.min(r, g, b) < 22
+          )
+            count++;
+        }
+        return count;
+      },
+      { data: screenshot.toString("base64"), point: center },
+    );
+  };
+  for (const index of [0, 1, 2, 4]) {
+    const row = page.getByTestId(`path-element-row-${index}`);
+    await row.click();
+    const center = await canvasNodePosition(page, `path-element-node-${index}`);
+    const before = await whitePixels(center);
+    await page.mouse.move(box.x + center.x, box.y + center.y);
+    await expect.poll(() => whitePixels(center)).toBeLessThan(before - 20);
+    await expect(row).toHaveAttribute("aria-pressed", "true");
+    await page.mouse.move(0, 0);
+    await expect.poll(() => whitePixels(center)).toBe(before);
+  }
+  // A rotation target stays projected onto the path while the pointer moves off it.
+  // Its selection must remain hidden until the drag finishes, even without hover.
+  const row = page.getByTestId("path-element-row-2");
+  await row.click();
+  const center = await canvasNodePosition(page, "path-element-node-2");
+  const before = await whitePixels(center);
+  await page.mouse.move(box.x + center.x, box.y + center.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + center.x, box.y + center.y - 100, { steps: 8 });
+  await expect.poll(() => whitePixels(center)).toBeLessThan(before - 20);
+  const duringDrag = await whitePixels(center);
+  await page.mouse.up();
+  await expect.poll(() => whitePixels(center)).toBeGreaterThan(duringDrag + 20);
+  await expect(row).toHaveAttribute("aria-pressed", "true");
+});
+
 test("rotates an unselected waypoint from anywhere on its front face without jumping @webkit-canvas", async ({
   page,
 }) => {

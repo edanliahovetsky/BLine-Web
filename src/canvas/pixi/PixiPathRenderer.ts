@@ -87,6 +87,7 @@ export interface PixiRenderInput {
   positionPreview: PositionOverrides;
   rotationPreview: RotationOverrides;
   selectedPulse: number;
+  hideSelectionOutline?: boolean;
   simulationResult: SimResult | null;
   simulationTrace: readonly SimulationTraceSample[] | null;
   trajectoryMaxSpeedMps: number;
@@ -696,6 +697,7 @@ export class PixiPathRenderer {
         index,
         point,
         selected: input.selectedElementIndex === index,
+        hideSelectionOutline: input.hideSelectionOutline ?? false,
         dimmed: hasSelection && input.selectedElementIndex !== index,
         selectedPulse: input.selectedPulse,
         rotationHovered: input.hoveredRotationIndex === index,
@@ -809,6 +811,7 @@ export class PixiPathRenderer {
         index,
         point,
         selected,
+        hideSelectionOutline: input.hideSelectionOutline ?? false,
         dimmed: target.compatible === false || (hasSelection && !selected),
         selectedPulse: input.selectedPulse,
         rotationHovered:
@@ -934,6 +937,7 @@ interface DrawNodeInput {
   index: number;
   point: StagePoint;
   selected: boolean;
+  hideSelectionOutline: boolean;
   dimmed: boolean;
   selectedPulse: number;
   rotationHovered: boolean;
@@ -1025,6 +1029,7 @@ function nodeVisibilityMargin(input: DrawNodeInput): number {
 
 function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
   const opacity = input.dimmed ? 0.58 : 1;
+  const showSelectionOutline = input.selected && !input.hideSelectionOutline;
   const selectionOpacity = (0.46 + input.selectedPulse * 0.34) * opacity;
   const point = input.point;
   const width = input.robotSizeMeters.lengthMeters * input.metersToPixels;
@@ -1061,7 +1066,7 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
     );
     const borderWidth = translationOutlineWidth(radius);
     const outerRadius = radius + borderWidth;
-    if (input.selected) {
+    if (showSelectionOutline) {
       // Translation targets alone use a circular selection outline.
       graphics.circle(point.x, point.y, outerRadius + 6).stroke({
         color: selectionBackingColor,
@@ -1089,7 +1094,7 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
   }
 
   if (isWaypoint(input.element) || isRotationTarget(input.element)) {
-    if (input.selected) {
+    if (showSelectionOutline) {
       drawSelectionFootprint(
         graphics,
         transform,
@@ -1126,7 +1131,7 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
   if (isEventTrigger(input.element)) {
     const points = eventTriggerPoints(input.metersToPixels, 0);
     const halfLength = Math.abs(points[0]);
-    if (input.selected) {
+    if (showSelectionOutline) {
       drawSelectionOutline(
         graphics,
         { x: -halfLength - 5, y: -7, width: halfLength * 2 + 10, height: 14 },
@@ -1143,7 +1148,7 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
     drawLocalPolyline(
       graphics,
       points,
-      { color: elementColors.event, width: 2.8, alpha: 0.8 * opacity },
+      { color: elementColors.event, width: 2.8, alpha: opacity },
       transform,
     );
     drawOutlinedDot(graphics, point, 3.3, elementColors.event, opacity);
@@ -1281,7 +1286,7 @@ function drawRobotFootprint(
       strokeWidth: bodyStrokeWidth,
       backingWidth: bodyStrokeWidth + 2 * elementOutlineWidthPx,
       color: outlineAccent,
-      alpha: (mode === "simulation" ? 1 : 0.7) * outlineOpacity,
+      alpha: outlineOpacity,
     });
   }
   const commands = footprintOutlineCommands(
@@ -1309,8 +1314,7 @@ function drawRobotFootprint(
   drawLocalPathCommands(graphics, commands, transform, {
     color: outlineAccent,
     width: outline.strokeWidth,
-    alpha:
-      (rotationHovered || mode === "simulation" ? 1 : 0.7) * outlineOpacity,
+    alpha: outlineOpacity,
   });
   const center = transformLocalPoint(transform, 0, 0);
   const centerRadius = metrics.centerRadius / 2;

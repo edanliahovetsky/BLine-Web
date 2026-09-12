@@ -115,6 +115,9 @@ export function LinkedTargetsCanvas({
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [rotationHoverId, setRotationHoverId] = useState<string | null>(null);
+  const [pointerPosition, setPointerPosition] = useState<StagePoint | null>(
+    null,
+  );
   const [dragPreview, setDragPreviewState] = useState<TargetDragPreview | null>(
     null,
   );
@@ -429,9 +432,27 @@ export function LinkedTargetsCanvas({
       })),
     [compatibleTargetIds, displayedTargets],
   );
+  const hoveredTargetId = useMemo(
+    () =>
+      pointerPosition
+        ? (hitTestLinkedTarget(
+            displayedTargets,
+            selectedTargetId,
+            viewport,
+            pointerPosition,
+            config,
+          )?.target_id ?? null)
+        : null,
+    [pointerPosition, displayedTargets, selectedTargetId, viewport, config],
+  );
+  const hideSelectionOutline =
+    selectedTargetId !== null &&
+    (hoveredTargetId === selectedTargetId ||
+      dragPreview?.targetId === selectedTargetId ||
+      rotationPreview?.targetId === selectedTargetId);
   const selectedPulse = useSelectionPulse(
     selectedTargetId !== null,
-    isPanning || dragPreview !== null || rotationPreview !== null,
+    isPanning || hideSelectionOutline,
   );
   const hoveredRotationId = rotationPreview?.targetId ?? rotationHoverId;
   const renderInput = useMemo<PixiRenderInput>(
@@ -449,6 +470,7 @@ export function LinkedTargetsCanvas({
       positionPreview: emptyPreview,
       rotationPreview: emptyRotationPreview,
       selectedPulse,
+      hideSelectionOutline,
       hoveredLinkedTargetRotationId: hoveredRotationId,
       simulationResult: null,
       simulationTimeS: 0,
@@ -467,6 +489,7 @@ export function LinkedTargetsCanvas({
       stageSize,
       viewport,
       selectedPulse,
+      hideSelectionOutline,
       hoveredRotationId,
     ],
   );
@@ -574,6 +597,7 @@ export function LinkedTargetsCanvas({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const pointer = stagePointFromEvent(event);
+    setPointerPosition(pointer);
     setRotationHoverId(null);
     const rotationHandleHit = hitTestLinkedTargetRotationHandle(
       displayedTargets,
@@ -649,6 +673,7 @@ export function LinkedTargetsCanvas({
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const pointer = stagePointFromEvent(event);
+    setPointerPosition(pointer);
     const rotationDrag = activeRotationDragRef.current;
     if (rotationDrag && rotationDrag.pointerId === event.pointerId) {
       event.preventDefault();
@@ -724,12 +749,14 @@ export function LinkedTargetsCanvas({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     const pointer = stagePointFromEvent(event);
+    setPointerPosition(pointer);
     finishRotationDrag(true);
     finishTargetDrag(pointer, event.pointerId);
     finishPanDrag(true, pointer);
   };
 
   const handlePointerCancel = (event: PointerEvent<HTMLDivElement>) => {
+    setPointerPosition(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -757,7 +784,10 @@ export function LinkedTargetsCanvas({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      onPointerLeave={() => setRotationHoverId(null)}
+      onPointerLeave={() => {
+        setRotationHoverId(null);
+        setPointerPosition(null);
+      }}
       onWheel={handleWheel}
     >
       {rendererError ? (

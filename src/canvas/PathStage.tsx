@@ -265,6 +265,9 @@ export function PathStage({
     pathId: string;
     index: number;
   } | null>(null);
+  const [pointerPosition, setPointerPosition] = useState<StagePoint | null>(
+    null,
+  );
   const durableProject = useStoreSelector(
     projectStore,
     (state) => state.project,
@@ -693,9 +696,35 @@ export function PathStage({
         : emptyRotationPreview,
     [activeRotationDrag],
   );
+  const hoveredElementIndex = useMemo(
+    () =>
+      pointerPosition && activePath && durableProject
+        ? hitTestPathElement(
+            activePath.path,
+            durableProject.config,
+            viewport,
+            positionPreview,
+            pointerPosition,
+            selectedElementIndex,
+          )
+        : null,
+    [
+      pointerPosition,
+      activePath,
+      durableProject,
+      viewport,
+      positionPreview,
+      selectedElementIndex,
+    ],
+  );
+  const hideSelectionOutline =
+    selectedElementIndex !== null &&
+    (hoveredElementIndex === selectedElementIndex ||
+      activeDrag?.index === selectedElementIndex ||
+      activeRotationDrag?.index === selectedElementIndex);
   const selectedPulseValue = useSelectionPulse(
     selectedElementIndex !== null,
-    canvasInteractionActive,
+    canvasInteractionActive || hideSelectionOutline,
   );
   const hoveredRotationIndex =
     activeRotationDrag?.index ??
@@ -898,6 +927,7 @@ export function PathStage({
       positionPreview,
       rotationPreview,
       selectedPulse: selectedPulseValue,
+      hideSelectionOutline,
       hoveredRotationIndex,
       simulationResult,
       simulationTrace: simulationResult?.trace ?? null,
@@ -919,6 +949,7 @@ export function PathStage({
     rotationPreview,
     selectedElementIndex,
     selectedPulseValue,
+    hideSelectionOutline,
     hoveredRotationIndex,
     selectedRangedConstraint,
     simulationPlaying,
@@ -1077,6 +1108,7 @@ export function PathStage({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const pointer = stagePointFromEvent(event);
+    setPointerPosition(pointer);
     if (lockedGeometry) {
       const hit = hitTestPathElement(
         activePath.path,
@@ -1224,10 +1256,12 @@ export function PathStage({
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (isCanvasChromeEventTarget(event.target)) {
       setRotationHover(null);
+      setPointerPosition(null);
       return;
     }
 
     const pointer = stagePointFromEvent(event);
+    setPointerPosition(pointer);
     if (
       activePath &&
       isPlacementTool(activeTool) &&
@@ -1395,6 +1429,7 @@ export function PathStage({
     }
 
     const pointer = stagePointFromEvent(event);
+    setPointerPosition(pointer);
     if (activeCurveDraftRef.current) {
       finishActiveCurve();
       return;
@@ -1406,6 +1441,7 @@ export function PathStage({
   };
 
   const handlePointerCancel = (event: PointerEvent<HTMLDivElement>) => {
+    setPointerPosition(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -1754,6 +1790,7 @@ export function PathStage({
         onPointerCancel={handlePointerCancel}
         onPointerLeave={() => {
           setRotationHover(null);
+          setPointerPosition(null);
           if (!activeDragRef.current && !activeCurveDraftRef.current) {
             setPlacementPreview(null);
           }
