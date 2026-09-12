@@ -150,7 +150,19 @@ test.describe("shared theme across dialogs and nested controls", () => {
       .press("Home");
     await page.getByTestId("path-element-row-0").click();
     await expect(page.getByLabel("Profiled Rotation")).toBeInViewport();
+    const rotation = page.getByLabel("Rotation (deg)", { exact: true });
+    await rotation.focus();
     await snapshot(page, "waypoint-properties-minimum-width.png");
+
+    await rotation.press("Tab");
+    const row = page.locator(".property-row").filter({ has: rotation });
+    await expect(
+      row.getByRole("button", { name: "Increase value" }),
+    ).toBeFocused();
+    await expect(row).toHaveScreenshot("waypoint-spinbox-keyboard-focus.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
   });
 
   test("Inspector nested link menu", async ({ page }) => {

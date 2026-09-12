@@ -1815,6 +1815,17 @@ select {
   width: 100%;
   height: 29px;
   min-width: 0;
+  border-radius: var(--bline-radius-control);
+}
+
+/* A spinbox is one control: keep its focus ring around the input and arrows. */
+.sidebar-number-control:has(:focus-visible) {
+  outline: 2px solid var(--bline-focus-ring);
+  outline-offset: 2px;
+}
+
+.sidebar-number-control:focus-within :focus-visible {
+  outline: none;
 }
 
 .sidebar-number-control input {
@@ -1838,6 +1849,7 @@ select {
   grid-template-rows: repeat(2, minmax(0, 1fr));
   height: 100%;
   min-width: 0;
+  overflow: hidden;
   overflow-wrap: normal;
   border: 1px solid var(--bline-border-strong);
   border-radius: 0 6px 6px 0;
@@ -3651,6 +3663,7 @@ select {
 
 .config-row .sidebar-number-control {
   min-width: 0;
+  height: 30px;
 }
 
 .config-row .bline-select-control {
@@ -3663,7 +3676,7 @@ select {
   border-radius: 6px 0 0 6px;
 }
 
-.config-row input:not([type="checkbox"]):focus-visible,
+.config-row input:not([type="checkbox"], [role="spinbutton"]):focus-visible,
 .config-row select:focus-visible {
   border-color: var(--bline-border-accent);
   outline: 1px solid var(--bline-focus-ring);
