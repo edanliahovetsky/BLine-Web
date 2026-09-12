@@ -4934,6 +4934,13 @@ button.path-health-popover__issue:focus-visible {
   box-shadow: none;
 }
 
+.workspace-status--sidebar .workspace-status__save--saved {
+  width: 27px;
+  min-width: 27px;
+  height: 27px;
+  padding: 0;
+}
+
 .workspace-status--floating .workspace-status__diagnostics,
 .workspace-status--floating .workspace-status__save {
   width: 30px;
