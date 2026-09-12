@@ -1350,6 +1350,7 @@ test("chooses element types from a styled dropdown with pointer and keyboard @we
   const menuBox = await requiredBox(options);
   const typeBox = await requiredBox(type);
   expect(menuBox.width).toBeCloseTo(typeBox.width, 0);
+  expect(menuBox.x).toBeCloseTo(typeBox.x, 0);
   expect(menuBox.x).toBeGreaterThanOrEqual(0);
   expect(menuBox.y).toBeGreaterThanOrEqual(0);
   expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(1200);
