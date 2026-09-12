@@ -1,32 +1,34 @@
-import { cp, readFile, writeFile } from "node:fs/promises";
+import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build, type Plugin } from "vite";
 import { generateSW } from "workbox-build";
 
 export const fixtureRoot = path.resolve("node_modules/.tmp/offline-fixtures");
 
-function nextReleasePlugin(): Plugin {
+function nextReleasePlugin(marker = "next"): Plugin {
   return {
     name: "offline-update-test-fixture",
     enforce: "pre",
     transform(code, id) {
       if (id.endsWith("/src/main.tsx")) {
-        return `document.documentElement.dataset.offlineTestBuild = "next";\n${code}`;
+        return `document.documentElement.dataset.offlineTestBuild = "${marker}";\n${code}`;
       }
       if (id.endsWith("/src/platform/fieldImageUrl.ts")) {
         return code.replace(
           "field26.png?url&no-inline",
-          "field22.png?url&no-inline",
+          marker === "next"
+            ? "field22.png?url&no-inline"
+            : "field23.png?url&no-inline",
         );
       }
       if (id.endsWith("/src/platform/autoVelocity.worker.ts")) {
-        return `globalThis.name = "offline-test-next-worker";\n${code}`;
+        return `globalThis.name = "offline-test-${marker}-worker";\n${code}`;
       }
       if (id.endsWith("/src/platform/fileExport.ts")) {
-        return `${code}\nexport const offlineTestExportVersion = "next";`;
+        return `${code}\nexport const offlineTestExportVersion = "${marker}";`;
       }
       if (id.endsWith("/src/styles.css"))
-        return `${code}\n:root { --offline-test-build: next; }`;
+        return `${code}\n:root { --offline-test-build: ${marker}; }`;
     },
   };
 }
@@ -42,7 +44,14 @@ export default async function buildFixtures(): Promise<void> {
     build: { outDir: path.join(fixtureRoot, "next"), emptyOutDir: true },
     logLevel: "warn",
   });
+  await build({
+    plugins: [nextReleasePlugin("third")],
+    worker: { plugins: () => [nextReleasePlugin("third")] },
+    build: { outDir: path.join(fixtureRoot, "third"), emptyOutDir: true },
+    logLevel: "warn",
+  });
   const legacy = path.join(fixtureRoot, "legacy");
+  await rm(legacy, { recursive: true, force: true });
   await cp(path.join(fixtureRoot, "current"), legacy, { recursive: true });
   const index = path.join(legacy, "index.html");
   await writeFile(

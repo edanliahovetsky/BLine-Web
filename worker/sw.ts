@@ -18,6 +18,7 @@ const readyKey = absolute(".bline-ready");
 const latestKey = absolute(".bline-latest");
 const previousKey = absolute(".bline-previous");
 const pinKey = (id: string) => absolute(`.bline-client/${id}`);
+const leasePrefix = absolute(".bline-navigation/");
 const NAVIGATION_TIMEOUT_MS = 25_000;
 interface Release {
   cache: string;
@@ -145,6 +146,7 @@ async function fallback(): Promise<Response | undefined> {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-store",
+          "X-BLine-Offline-Release": record.id,
         },
       });
     }
@@ -153,6 +155,20 @@ async function fallback(): Promise<Response | undefined> {
 
 async function navigate(event: FetchEvent): Promise<Response> {
   const saved = await fallback().catch(() => undefined);
+  if (saved) {
+    // A navigation's reserved client may not appear in clients.matchAll yet.
+    // Protect its fallback while the network deadline is running and it boots.
+    await (async () => {
+      const meta = await caches.open(metaName);
+      await meta.put(
+        `${leasePrefix}${crypto.randomUUID()}`,
+        Response.json({
+          id: saved.headers.get("X-BLine-Offline-Release"),
+          expires: Date.now() + 60_000,
+        }),
+      );
+    })().catch(() => undefined);
+  }
   const abort = new AbortController();
   // A deadline selects an existing working copy; it does not cut off a first visit.
   const timeout = saved
@@ -221,6 +237,8 @@ self.addEventListener("fetch", (event) => {
 });
 
 async function collectUnusedReleases(): Promise<void> {
+  // Snapshot before checking for updates, so a new download cannot be collected.
+  const candidates = await completed();
   if (
     self.registration.installing ||
     self.registration.waiting ||
@@ -229,14 +247,11 @@ async function collectUnusedReleases(): Promise<void> {
     return;
   const meta = await caches.open(metaName);
   const keep = new Set([release]);
-  for (const name of await caches.keys()) {
-    if (
-      name.startsWith(prefix) &&
-      name !== metaName &&
-      name !== cacheName &&
-      !(await (await caches.open(name)).match(readyKey))
-    )
-      await caches.delete(name);
+  for (const key of await meta.keys()) {
+    if (!key.url.startsWith(leasePrefix)) continue;
+    const lease = await (await meta.match(key))!.json();
+    if (lease.expires > Date.now()) keep.add(lease.id);
+    else await meta.delete(key);
   }
   for (const key of [latestKey, previousKey]) {
     const record = await readRecord(meta, key);
@@ -252,7 +267,7 @@ async function collectUnusedReleases(): Promise<void> {
     if (!pin) return;
     keep.add(await pin.text());
   }
-  for (const record of await completed()) {
+  for (const record of candidates) {
     if (!keep.has(record.id)) await caches.delete(record.cache);
   }
 }

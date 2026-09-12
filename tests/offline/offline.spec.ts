@@ -124,6 +124,7 @@ test("reopens, edits, simulates, and starts the optimizer offline", async ({
 test("preserves custom field images and User Data across offline reloads", async ({
   page,
   context,
+  production,
 }) => {
   await prepareOffline(page);
   await context.setOffline(true);
@@ -151,6 +152,17 @@ test("preserves custom field images and User Data across offline reloads", async
     .toBe("Offline practice field");
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
   await page.reload();
+  await expect
+    .poll(() => activeFieldLabel(page))
+    .toBe("Offline practice field");
+  await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
+  await context.setOffline(false);
+  production.publishUpdate();
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  await context.setOffline(true);
+  await page.reload();
+  expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
   await expect
     .poll(() => activeFieldLabel(page))
     .toBe("Offline practice field");
@@ -526,11 +538,17 @@ test("shows the offline indicator beside Save until an online refresh, with an a
   await page.reload();
   await expect(indicator).toBeVisible();
   expect(await page.evaluate(() => navigator.onLine)).toBe(true);
+  await expect
+    .poll(async () => {
+      const save = await page.getByTestId("save-status").boundingBox();
+      const badge = await indicator.boundingBox();
+      return Math.abs(
+        save!.y + save!.height / 2 - (badge!.y + badge!.height / 2),
+      );
+    })
+    .toBeLessThan(3);
   const save = await page.getByTestId("save-status").boundingBox();
   const badge = await indicator.boundingBox();
-  expect(
-    Math.abs(save!.y + save!.height / 2 - (badge!.y + badge!.height / 2)),
-  ).toBeLessThan(3);
   expect(badge!.x).toBeGreaterThanOrEqual(save!.x + save!.width);
   await indicator.hover();
   await expect(page.getByRole("tooltip")).toHaveText(
@@ -544,4 +562,35 @@ test("shows the offline indicator beside Save until an online refresh, with an a
   await expect(indicator).toBeVisible();
   await page.reload();
   await expect(indicator).toHaveCount(0);
+});
+
+test("keeps a live editor's assets through more than one subsequent release", async ({
+  page,
+  context,
+  production,
+}) => {
+  await prepareOffline(page);
+  const old = releaseId(production.release);
+  production.publishUpdate();
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  const newer = await context.newPage();
+  await newer.goto(production.url);
+  production.publishThird();
+  await updateWorker(newer);
+  await awaitOfflineRelease(newer, releaseId(production.thirdRelease));
+  await newer.reload();
+  expect(await pageRelease(newer)).toBe(releaseId(production.thirdRelease));
+  expect(await pageRelease(page)).toBe(old);
+  await context.setOffline(true);
+  const oldWorker = [...production.release.keys()].find((path) =>
+    path.includes("autoVelocity.worker-"),
+  )!;
+  const bytes = await page.evaluate(
+    async (url) =>
+      Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())),
+    oldWorker,
+  );
+  expect(bytes).toEqual(Array.from(production.release.get(oldWorker)!));
+  await editAndSave(page);
 });

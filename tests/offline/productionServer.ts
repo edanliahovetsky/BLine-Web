@@ -30,7 +30,9 @@ interface ProductionServer {
   failedRequests: string[];
   release: Map<string, Buffer>;
   nextRelease: Map<string, Buffer>;
+  thirdRelease: Map<string, Buffer>;
   publishUpdate(): void;
+  publishThird(): void;
   publishLegacy(): void;
   publishCurrent(): void;
   fail(path: string | null): void;
@@ -49,6 +51,7 @@ export const test = base.extend<{ production: ProductionServer }>({
     let release = await readRelease("current");
     const original = release;
     const next = await readRelease("next");
+    const third = await readRelease("third");
     const legacy = await readRelease("legacy");
     let development: ViteDevServer | undefined;
     let failure: string | null = null;
@@ -109,6 +112,10 @@ export const test = base.extend<{ production: ProductionServer }>({
         failedRequests,
         release: original,
         nextRelease: next,
+        thirdRelease: third,
+        publishThird: () => {
+          release = new Map([...original, ...next, ...third]);
+        },
         publishUpdate: () => {
           // Retain immutable assets, as production deployment must do too.
           release = new Map([...original, ...next]);
@@ -130,7 +137,12 @@ export const test = base.extend<{ production: ProductionServer }>({
         },
         serveDevelopment: async () => {
           development = await createViteServer({
-            server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+            server: {
+              middlewareMode: true,
+              hmr: false,
+              ws: false,
+              watch: null,
+            },
             logLevel: "error",
           });
         },
