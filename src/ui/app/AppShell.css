@@ -4924,6 +4924,24 @@ button.path-health-popover__issue:focus-visible {
   line-height: 1;
 }
 
+.workspace-status__offline {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 28px;
+  color: var(--bline-text-muted);
+  border-radius: 4px;
+  cursor: help;
+}
+
+.workspace-status__offline:focus-visible {
+  outline: 2px solid var(--bline-accent);
+  outline-offset: 1px;
+}
+
 .workspace-status__save--loading .workspace-status__save-glyph,
 .workspace-status__save--generating .workspace-status__save-glyph,
 .workspace-status__save--saving .workspace-status__save-glyph,

@@ -514,3 +514,34 @@ test("keeps online navigation available if cache access is revoked after install
   expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
   await editAndSave(page);
 });
+
+test("shows the offline indicator beside Save until an online refresh, with an accessible tooltip", async ({
+  page,
+  production,
+}, testInfo) => {
+  await prepareOffline(page);
+  const indicator = page.getByTestId("offline-indicator");
+  await expect(indicator).toHaveCount(0);
+  production.fail("/index.html");
+  await page.reload();
+  await expect(indicator).toBeVisible();
+  expect(await page.evaluate(() => navigator.onLine)).toBe(true);
+  const save = await page.getByTestId("save-status").boundingBox();
+  const badge = await indicator.boundingBox();
+  expect(
+    Math.abs(save!.y + save!.height / 2 - (badge!.y + badge!.height / 2)),
+  ).toBeLessThan(3);
+  expect(badge!.x).toBeGreaterThanOrEqual(save!.x + save!.width);
+  await indicator.hover();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "BLine is running from this browser’s offline copy.",
+  );
+  await page.screenshot({ path: testInfo.outputPath("offline-indicator.png") });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  production.fail(null);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(indicator).toBeVisible();
+  await page.reload();
+  await expect(indicator).toHaveCount(0);
+});

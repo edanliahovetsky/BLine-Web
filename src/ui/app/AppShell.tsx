@@ -78,6 +78,7 @@ import { writeProjectFolder } from "./projectFolderExport";
 import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import { StartCenter } from "./StartCenter";
+import { OfflineIndicator } from "./OfflineIndicator";
 import {
   clampInspectorWidth,
   commandForShortcut,
@@ -2755,6 +2756,7 @@ function WorkspaceStatus({
         ) : null}
       </button>
       {saveTooltip.tooltip}
+      <OfflineIndicator />
       <span className="sr-only" role="status">
         {saveLabel}
       </span>

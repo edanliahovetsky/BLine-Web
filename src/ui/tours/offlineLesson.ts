@@ -11,7 +11,7 @@ export const offlineTour: TourDefinition = {
   steps: [
     {
       title: "Same address, same browser",
-      body: "BLine automatically prepares for offline use while you’re online. Once ready, open this same address in the same browser on this device—even without internet. You can edit paths, run simulations, and save your work locally. Updates download automatically when you’re connected. Bookmark BLine so it’s easy to find. No installation needed.",
+      body: "BLine automatically prepares a complete offline copy while you’re online. Open or refresh this same address in the same browser on this device to try the latest version. If the website is unavailable or too slow, BLine opens your last complete offline copy. The Wi-Fi-off icon beside Save tells you when you’re using it. You can edit, simulate, and save locally. Updates download quietly without restarting your editor. Bookmark BLine so it’s easy to find. No installation needed.",
     },
   ],
 };
