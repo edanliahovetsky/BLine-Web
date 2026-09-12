@@ -17,6 +17,11 @@
     var(--bline-surface-base) 94%,
     transparent
   );
+  --bline-surface-canvas-overlay: color-mix(
+    in srgb,
+    var(--bline-surface-base) 84%,
+    transparent
+  );
 
   --bline-border-subtle: #2d3740;
   --bline-border-strong: #3a4855;
