@@ -316,6 +316,7 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       createWaypoint,
       createTranslationTarget,
       createRotationTarget,
+      createEventTrigger,
     } = (await import(
       /* @vite-ignore */ modelPath
     )) as typeof import("../../src/core/model/path");
@@ -493,8 +494,133 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
           if (changed(low, high, x, y))
             radii.push(Math.hypot(x + 0.5, y + 0.5));
         }
+      // Compare a small canvas with a crop of the full rendered scene. The
+      // reference keeps each element's center onscreen; the crop crosses it.
+      const clippedSize = { width: 100, height: 100 };
+      const clipped = await PixiPathRenderer.create(clippedSize, field);
+      const crop = document.createElement("canvas");
+      crop.width = crop.height = 100;
+      const cropContext = crop.getContext("2d", { willReadFrequently: true })!;
+      const edgeSamples: Array<{ name: string; differences: number }> = [];
+      const clippingCases = [
+        ...cases.filter((candidate) => candidate.name !== "simulation"),
+        { name: "protrusion", path: cases[0].path, index: 0 },
+        {
+          name: "rotated waypoint",
+          path: createPathModel({
+            path_elements: [
+              createWaypoint({
+                translation_target: translation(),
+                rotation_target: createRotationTarget({
+                  rotation_radians: Math.PI / 6,
+                }),
+              }),
+            ],
+          }),
+          index: 0,
+        },
+        { name: "translation", path: scene.path, index: 0 },
+        {
+          name: "event",
+          path: createPathModel({
+            path_elements: [
+              anchors[0],
+              createEventTrigger({ t_ratio: 0.5 }),
+              anchors[1],
+            ],
+          }),
+          index: 1,
+        },
+        {
+          name: "handoff ring",
+          path: createPathModel({
+            path_elements: [
+              anchors[0],
+              createWaypoint({
+                translation_target: createTranslationTarget({
+                  ...position,
+                  intermediate_handoff_radius_meters: 1.5,
+                }),
+              }),
+              anchors[1],
+            ],
+          }),
+          index: 1,
+        },
+      ];
+      try {
+        for (const candidate of clippingCases) {
+          const fullScene: PixiRenderInput = {
+            ...input,
+            path: candidate.path,
+            selectedElementIndex: candidate.index,
+            config:
+              candidate.name === "protrusion"
+                ? {
+                    ...config,
+                    gui: {
+                      ...config.gui,
+                      protrusions: {
+                        ...config.gui.protrusions,
+                        enabled: true,
+                        default_state: "shown",
+                        side: "front",
+                        distance_meters: 1,
+                      },
+                    },
+                  }
+                : config,
+          };
+          const reference = pixels(fullScene);
+          for (const [edge, x, y] of [
+            ["left", -2, 50],
+            ["right", 102, 50],
+            ["top", 50, -2],
+            ["bottom", 50, 102],
+            ["far left", -60, 50],
+            ["selection corner", -54, 50],
+          ] as const) {
+            clipped.update({
+              ...fullScene,
+              stageSize: clippedSize,
+              viewport: {
+                ...viewport,
+                x: viewport.x - 300 + x,
+                y: viewport.y - 180 + y,
+              },
+            });
+            cropContext.clearRect(0, 0, 100, 100);
+            cropContext.drawImage(clipped.canvas, 0, 0, 100, 100);
+            const actual = cropContext.getImageData(0, 0, 100, 100).data;
+            let differences = 0;
+            for (let cy = 0; cy < 100; cy++)
+              for (let cx = 0; cx < 100; cx++) {
+                const actualOffset = (cy * 100 + cx) * 4;
+                const referenceOffset =
+                  ((cy + 180 - y) * 600 + cx + 300 - x) * 4;
+                if (
+                  [0, 1, 2].some(
+                    (channel) =>
+                      Math.abs(
+                        actual[actualOffset + channel] -
+                          reference[referenceOffset + channel],
+                      ) > 3,
+                  )
+                )
+                  differences++;
+              }
+            edgeSamples.push({
+              name: `${candidate.name} at ${edge}`,
+              differences,
+            });
+          }
+        }
+      } finally {
+        clipped.destroy();
+      }
       return {
         bodies,
+        edgeSamples,
         translation: {
           count: radii.length,
           inner: Math.min(...radii),
@@ -505,6 +631,12 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       renderer.destroy();
     }
   });
+  for (const sample of results.edgeSamples) {
+    // Translating rotated strokes can change a few MSAA edge samples on
+    // Chromium. Allow 0.32% of this 100×100 crop, not a missing footprint.
+    const tolerance = sample.name.startsWith("rotated waypoint") ? 32 : 8;
+    expect(sample.differences, sample.name).toBeLessThanOrEqual(tolerance);
+  }
   for (const body of results.bodies) {
     expect(body.minX, body.name).toBe(-40);
     expect(body.maxX, body.name).toBe(39);

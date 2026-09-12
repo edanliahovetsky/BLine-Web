@@ -689,32 +689,8 @@ export class PixiPathRenderer {
 
     for (const { element, index, position } of orderedNodes) {
       const point = modelToStagePoint(position, input.viewport);
-      if (!isStagePointWithinCanvas(point, input.stageSize)) {
-        continue;
-      }
       const handoffRadius = handoffRadiusByElementIndex.get(index);
-      this.debugNodes.set(`path-element-node-${index}`, point);
-      if (isWaypoint(element) || isRotationTarget(element)) {
-        this.debugNodes.set(
-          `path-element-front-${index}`,
-          robotFrontPoint(
-            point,
-            robotSize.lengthMeters * input.viewport.scale,
-            getElementHeadingRadians(
-              elements,
-              index,
-              input.rotationPreview,
-              input.positionPreview,
-            ) ?? 0,
-            frontOutlineInset(
-              robotSize,
-              input.viewport.scale,
-              input.hoveredRotationIndex === index,
-            ),
-          ),
-        );
-      }
-      drawPathElementNode(graphics, {
+      const node: DrawNodeInput = {
         element,
         index,
         point,
@@ -743,7 +719,38 @@ export class PixiPathRenderer {
           protrusions.side !== "none",
         protrusionDistanceMeters: protrusions.distance_meters,
         protrusionSide: protrusions.side,
-      });
+      };
+      if (
+        !isStagePointWithinCanvas(
+          point,
+          input.stageSize,
+          nodeVisibilityMargin(node),
+        )
+      ) {
+        continue;
+      }
+      this.debugNodes.set(`path-element-node-${index}`, point);
+      if (isWaypoint(element) || isRotationTarget(element)) {
+        this.debugNodes.set(
+          `path-element-front-${index}`,
+          robotFrontPoint(
+            point,
+            robotSize.lengthMeters * input.viewport.scale,
+            getElementHeadingRadians(
+              elements,
+              index,
+              input.rotationPreview,
+              input.positionPreview,
+            ) ?? 0,
+            frontOutlineInset(
+              robotSize,
+              input.viewport.scale,
+              input.hoveredRotationIndex === index,
+            ),
+          ),
+        );
+      }
+      drawPathElementNode(graphics, node);
     }
   }
 
@@ -975,6 +982,41 @@ function drawHandoffRadiusRing(
 
   drawDashedCircle(graphics, point.x, point.y, input.radiusPx, shadowStyle);
   drawDashedCircle(graphics, point.x, point.y, input.radiusPx, ringStyle);
+}
+
+/** Conservative bounds include all visible marks, even when the center is offscreen. */
+function nodeVisibilityMargin(input: DrawNodeInput): number {
+  const scale = input.metersToPixels;
+  let radius: number;
+  if (isWaypoint(input.element) || isRotationTarget(input.element)) {
+    const width = input.robotSizeMeters.lengthMeters * scale;
+    const height = input.robotSizeMeters.widthMeters * scale;
+    const bounds = robotVisualBounds(
+      width,
+      height,
+      input.protrusionVisible,
+      Math.max(0, input.protrusionDistanceMeters) * scale,
+      input.protrusionSide,
+    );
+    const padding =
+      Math.max(6, elementFootprintMetrics(width, height).frontRadius + 2) + 2;
+    // A circle around the farthest local corner covers every heading.
+    radius = Math.hypot(
+      Math.max(Math.abs(bounds.x), Math.abs(bounds.x + bounds.width)) + padding,
+      Math.max(Math.abs(bounds.y), Math.abs(bounds.y + bounds.height)) +
+        padding,
+    );
+  } else if (isTranslationTarget(input.element)) {
+    radius = Math.max(5, elementCircleRadiusMeters * scale) + 8;
+  } else {
+    radius = Math.hypot(Math.abs(eventTriggerPoints(scale, 0)[0]) + 5, 7) + 2;
+  }
+  return Math.max(
+    radius,
+    input.handoffRadiusMeters && input.handoffRadiusState
+      ? handoffRingRadiusPx(input.handoffRadiusMeters, scale) + 3
+      : 0,
+  );
 }
 
 function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
