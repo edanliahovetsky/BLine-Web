@@ -22,6 +22,79 @@ import {
   gotoSampleEditor,
 } from "./support/app-shell-shared";
 
+test("dismisses toolbar popovers on outside clicks without swallowing the click @webkit-canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const cases = [
+    { label: "Help and tutorials", panel: page.getByTestId("help-hub") },
+    { label: "File", panel: page.getByTestId("top-menu-project") },
+    { label: "Edit", panel: page.getByTestId("top-menu-path") },
+    {
+      label: "Toolbar path",
+      panel: page.getByRole("listbox", { name: "Toolbar path options" }),
+    },
+  ];
+  for (const { label, panel } of cases) {
+    await test.step(label, async () => {
+      const trigger = page.getByRole("button", { name: label, exact: true });
+      await trigger.click();
+      await expect(panel).toBeVisible();
+      // Canvas tools stop bubbling pointer events; outside dismissal must still run.
+      const tool = page.getByRole("button", {
+        name: "Waypoint tool",
+        exact: true,
+      });
+      await tool.click();
+      await expect(panel).toHaveCount(0);
+      await expect(tool).toHaveAttribute("aria-pressed", "true");
+      await page
+        .getByRole("button", { name: "Select tool", exact: true })
+        .click();
+      await trigger.click();
+      await page
+        .getByRole("button", { name: "Open project navigator", exact: true })
+        .click();
+      await expect(panel).toHaveCount(0);
+      const navigator = page.getByRole("complementary", {
+        name: "Project Navigator",
+      });
+      await expect(navigator).toBeVisible();
+      await navigator
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+    });
+  }
+  const help = page.getByRole("button", {
+    name: "Help and tutorials",
+    exact: true,
+  });
+  await help.click();
+  const hub = page.getByTestId("help-hub");
+  await hub.getByRole("separator").click();
+  await expect(hub).toBeVisible();
+  await help.click();
+  await expect(hub).toHaveCount(0);
+  await help.click();
+  await hub.getByRole("button", { name: /Keyboard shortcuts/ }).click();
+  await expect(hub).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
+});
+
+test("dismisses Help when clicking elsewhere on Home @webkit-canvas", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Help and tutorials", exact: true })
+    .click();
+  await expect(page.getByTestId("help-hub")).toBeVisible();
+  await page.getByRole("heading", { name: "BLine", exact: true }).click();
+  await expect(page.getByTestId("help-hub")).toHaveCount(0);
+});
+
 test("selects and deletes a saved path without crashing", async ({ page }) => {
   await gotoSampleEditor(page);
 

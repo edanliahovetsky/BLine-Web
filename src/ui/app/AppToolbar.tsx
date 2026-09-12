@@ -135,6 +135,22 @@ export function AppToolbar({
   } = model;
   const helpHubRef = useRef<HTMLDivElement>(null);
   const fileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const { showHelpHub, closeHelpHub } = panels;
+
+  useEffect(() => {
+    if (!showHelpHub) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !helpHubRef.current?.contains(event.target)
+      ) {
+        closeHelpHub();
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside, true);
+    return () =>
+      document.removeEventListener("pointerdown", closeOutside, true);
+  }, [showHelpHub, closeHelpHub]);
 
   return (
     <header className="app-toolbar" ref={toolbarRef} data-tour="editor-toolbar">

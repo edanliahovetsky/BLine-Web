@@ -683,9 +683,12 @@ export function AppShell() {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       const targetElement = target instanceof Element ? target : null;
+      const currentMenu = toolbarRef.current?.querySelector(
+        `.top-menu--${openTopMenu}`,
+      );
 
       if (
-        !toolbarRef.current?.contains(target) &&
+        !currentMenu?.contains(target) &&
         !targetElement?.closest(".tour-layer") &&
         !targetElement?.closest(".top-menu__submenu-panel")
       ) {
@@ -699,11 +702,11 @@ export function AppShell() {
       }
     };
 
-    window.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown, true);
     window.addEventListener("keydown", handleEscape);
 
     return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
       window.removeEventListener("keydown", handleEscape);
     };
   }, [openTopMenu]);
