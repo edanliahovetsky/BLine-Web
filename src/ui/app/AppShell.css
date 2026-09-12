@@ -798,6 +798,15 @@ select {
   cursor: pointer;
 }
 
+.path-stage__canvas.is-rotation-target canvas,
+.path-stage__canvas.is-rotation-dragging canvas,
+.linked-targets-dialog__preview.is-rotation-target canvas,
+.linked-targets-dialog__preview.is-rotation-dragging canvas {
+  cursor:
+    url("../../canvas/rotate-cursor.svg") 14 14,
+    crosshair;
+}
+
 .path-stage__ghost-label {
   position: absolute;
   z-index: 7;

@@ -942,7 +942,9 @@ test("drags path elements in the inspector while preserving selection", async ({
   );
 });
 
-test("rotates selected elements with the canvas handle", async ({ page }) => {
+test("rotates selected elements from the front dot @webkit-canvas", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
 
   await page.getByTestId("path-element-row-2").click();
@@ -954,7 +956,9 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
     y_meters: 4.0,
   });
 
-  await page.mouse.move(center.x - 30, center.y - 30);
+  const front = await canvasNodePosition(page, "rotation-handle");
+  const box = await requiredBox(canvas);
+  await page.mouse.move(box.x + front.x, box.y + front.y);
   await page.mouse.down();
   await page.mouse.move(center.x + 42, center.y, { steps: 8 });
   await page.mouse.up();
@@ -973,7 +977,7 @@ test("rotates selected elements with the canvas handle", async ({ page }) => {
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("135");
 });
 
-test("keeps rotation handles hidden until an element is selected", async ({
+test("rotates an unselected waypoint from anywhere on its front face without jumping @webkit-canvas", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -981,17 +985,38 @@ test("keeps rotation handles hidden until an element is selected", async ({
   await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
 
   const canvas = page.getByTestId("path-stage-canvas");
-  const center = modelToCanvasPoint(await requiredBox(canvas), {
-    x_meters: 8.3,
-    y_meters: 4.0,
-  });
-
-  await page.mouse.move(center.x, center.y - 42);
+  const box = await requiredBox(canvas);
+  const center = await canvasNodePosition(page, "path-element-node-0");
+  const front = await canvasNodePosition(page, "path-element-front-0");
+  const dx = front.x - center.x,
+    dy = front.y - center.y;
+  // Near the end of the front face, well away from the heading dot.
+  const grab = { x: dx - dy * 0.8, y: dy + dx * 0.8 };
+  await page.mouse.move(box.x + center.x + grab.x, box.y + center.y + grab.y);
+  await expect(canvas).toHaveClass(/is-rotation-target/);
+  await expect(page.getByTestId("path-stage-pixi-canvas")).toHaveCSS(
+    "cursor",
+    /url\(.+\).*crosshair/,
+  );
   await page.mouse.down();
-  await page.mouse.move(center.x + 42, center.y, { steps: 8 });
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
+  await page.mouse.move(box.x + center.x + grab.y, box.y + center.y - grab.x, {
+    steps: 8,
+  });
   await page.mouse.up();
-
-  await expect(page.getByTestId("sidebar-selection-context")).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      Number(await page.getByLabel("Rotation (deg)").inputValue()),
+    )
+    .toBeCloseTo(135, 0);
+  expect(
+    pointDistance(
+      center,
+      await canvasNodePosition(page, "path-element-node-0"),
+    ),
+  ).toBeLessThan(1);
+  await runEditMenuAction(page, "Undo");
+  await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
 });
 
 test("marks the start and end of the path in the element list", async ({

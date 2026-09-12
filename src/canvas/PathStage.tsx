@@ -88,6 +88,8 @@ import {
   type PixiRenderInput,
 } from "./pixi/PixiPathRenderer";
 import { simulationEventPulseAtTime } from "./simulationEventPulse";
+import { hitTestRobotFrontFace } from "./elementGeometry";
+import { useSelectionPulse } from "./hooks/useSelectionPulse";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
 import type { CurveAuthoringPreview, CurveToolSession } from "./curveAuthoring";
@@ -154,6 +156,7 @@ interface ActiveRotationDrag {
   startPointer: StagePoint;
   moved: boolean;
   startRadians: number;
+  startPointerRadians: number;
   currentRadians: number;
 }
 
@@ -258,7 +261,10 @@ export function PathStage({
     useState<ActiveCurveDraft | null>(null);
   const [dragPreview, setDragPreview] =
     useState<PositionOverrides>(emptyPreview);
-  const [selectedPulse, setSelectedPulse] = useState(0);
+  const [rotationHover, setRotationHover] = useState<{
+    pathId: string;
+    index: number;
+  } | null>(null);
   const durableProject = useStoreSelector(
     projectStore,
     (state) => state.project,
@@ -687,12 +693,13 @@ export function PathStage({
         : emptyRotationPreview,
     [activeRotationDrag],
   );
-  const selectedPulseValue =
-    selectedElementIndex === null
-      ? 0
-      : canvasInteractionActive
-        ? 0.72
-        : selectedPulse;
+  const selectedPulseValue = useSelectionPulse(
+    selectedElementIndex !== null,
+    canvasInteractionActive,
+  );
+  const hoveredRotationIndex =
+    activeRotationDrag?.index ??
+    (rotationHover?.pathId === activePathId ? rotationHover.index : null);
   const curvePreview: CurveAuthoringPreview | null = useMemo(
     () =>
       activeCurveDraft
@@ -743,22 +750,6 @@ export function PathStage({
     semanticActive: canvasInteractionActive,
     onChange: onInteractionStateChange,
   });
-
-  useEffect(() => {
-    if (selectedElementIndex === null || canvasInteractionActive) {
-      return;
-    }
-
-    const startedAt = window.performance.now();
-    const timer = window.setInterval(() => {
-      const elapsed = window.performance.now() - startedAt;
-      setSelectedPulse(
-        (Math.sin((elapsed / selectionPulsePeriodMs) * Math.PI * 2) + 1) / 2,
-      );
-    }, selectionPulseIntervalMs);
-
-    return () => window.clearInterval(timer);
-  }, [canvasInteractionActive, selectedElementIndex]);
 
   useEffect(() => {
     if (!simulationPlaying || !simulationResult || canvasLesson) {
@@ -907,6 +898,7 @@ export function PathStage({
       positionPreview,
       rotationPreview,
       selectedPulse: selectedPulseValue,
+      hoveredRotationIndex,
       simulationResult,
       simulationTrace: simulationResult?.trace ?? null,
       trajectoryMaxSpeedMps,
@@ -927,6 +919,7 @@ export function PathStage({
     rotationPreview,
     selectedElementIndex,
     selectedPulseValue,
+    hoveredRotationIndex,
     selectedRangedConstraint,
     simulationPlaying,
     simulationResult,
@@ -1079,6 +1072,7 @@ export function PathStage({
     }
 
     setContextMenu(null);
+    setRotationHover(null);
     containerRef.current?.focus();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1129,6 +1123,7 @@ export function PathStage({
 
     const rotationHit = hitTestRotationHandle(
       activePath.path,
+      durableProject.config,
       selectedElementIndex,
       viewport,
       positionPreview,
@@ -1136,6 +1131,7 @@ export function PathStage({
       pointer,
     );
     if (rotationHit !== null) {
+      selectionStore.getState().selectElement(rotationHit, activePath.path);
       const element = activePath.path.path_elements[rotationHit];
       const linkedTarget = linkedTargetForElement(durableProject, element);
       const linkedTargetId =
@@ -1156,6 +1152,13 @@ export function PathStage({
         startPointer: pointer,
         moved: false,
         startRadians,
+        startPointerRadians:
+          rotationFromStagePoint(
+            activePath.path,
+            rotationHit,
+            viewport,
+            pointer,
+          ) ?? startRadians,
         currentRadians: startRadians,
       });
       return;
@@ -1220,6 +1223,7 @@ export function PathStage({
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (isCanvasChromeEventTarget(event.target)) {
+      setRotationHover(null);
       return;
     }
 
@@ -1310,6 +1314,7 @@ export function PathStage({
         rotationDrag.index,
         viewport,
         pointer,
+        rotationDrag,
       );
       if (nextRadians === null) {
         return;
@@ -1327,8 +1332,41 @@ export function PathStage({
 
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
+      const hit =
+        activePath &&
+        durableProject &&
+        !lockedGeometry &&
+        !canvasInteractionActive
+          ? hitTestRotationHandle(
+              activePath.path,
+              durableProject.config,
+              selectedElementIndex,
+              viewport,
+              positionPreview,
+              rotationPreview,
+              pointer,
+            )
+          : null;
+      const element =
+        hit !== null ? activePath?.path.path_elements[hit] : undefined;
+      const linked =
+        element && durableProject
+          ? linkedTargetForElement(durableProject, element)
+          : null;
+      const canRotate =
+        hit !== null &&
+        !(
+          element &&
+          linked?.locked &&
+          linkedTargetControlsElementRotation(element, linked)
+        );
+      setRotationHover(
+        canRotate && activePath
+          ? { pathId: activePath.path_id, index: hit }
+          : null,
+      );
       const overlayHit =
-        activePath && !canvasInteractionActive
+        activePath && !canvasInteractionActive && !canRotate
           ? hitTestOverlayPath(overlayPaths, viewport, pointer)
           : null;
       setHoveredOverlayPathId(overlayHit?.pathId ?? null);
@@ -1486,6 +1524,7 @@ export function PathStage({
         rotationDrag.index,
         viewport,
         pointer,
+        rotationDrag,
       ) ?? rotationDrag.currentRadians;
     setActiveRotationDrag(null);
 
@@ -1700,6 +1739,8 @@ export function PathStage({
           curveTool ? "is-curve-tool" : "",
           isPlacementTool(activeTool) ? "is-placement-tool" : "",
           hoveredOverlayPath ? "has-ghost-hover" : "",
+          hoveredRotationIndex !== null ? "is-rotation-target" : "",
+          activeRotationDrag ? "is-rotation-dragging" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -1712,6 +1753,7 @@ export function PathStage({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onPointerLeave={() => {
+          setRotationHover(null);
           if (!activeDragRef.current && !activeCurveDraftRef.current) {
             setPlacementPreview(null);
           }
@@ -2397,40 +2439,46 @@ function modelPointDistance(first: PointMeters, second: PointMeters): number {
 
 function hitTestRotationHandle(
   path: PathModel,
+  config: ProjectConfig,
   selectedElementIndex: number | null,
   viewport: FieldViewport,
   positionPreview: PositionOverrides,
   rotationPreview: RotationOverrides,
   pointer: StagePoint,
 ): number | null {
-  if (selectedElementIndex === null) {
-    return null;
-  }
-
-  const elements = path.path_elements;
-  const element = elements[selectedElementIndex];
-  if (!element || (!isRotationTarget(element) && !isWaypoint(element))) {
-    return null;
-  }
-
-  const position = getElementPosition(
-    elements,
+  // Respect the same visual stacking as normal selection, including overlapping nodes.
+  const index = hitTestPathElement(
+    path,
+    config,
+    viewport,
+    positionPreview,
+    pointer,
     selectedElementIndex,
+  );
+  if (index === null) return null;
+  const element = path.path_elements[index];
+  if (!isWaypoint(element) && !isRotationTarget(element)) return null;
+  const position = getElementPosition(
+    path.path_elements,
+    index,
     positionPreview,
   );
-  const rotationRadians = getElementHeadingRadians(
-    elements,
-    selectedElementIndex,
+  const heading = getElementHeadingRadians(
+    path.path_elements,
+    index,
     rotationPreview,
+    positionPreview,
   );
-  if (!position || rotationRadians === null) {
-    return null;
-  }
-
-  const center = modelToStagePoint(position, viewport);
-  const handle = rotationHandlePoint(center, viewport, rotationRadians);
-  return pointDistance(pointer, handle) <= rotationHandleHitRadiusPx
-    ? selectedElementIndex
+  if (!position || heading === null) return null;
+  const size = robotSizeFromConfig(config);
+  return hitTestRobotFrontFace(
+    modelToStagePoint(position, viewport),
+    pointer,
+    size.lengthMeters * viewport.scale,
+    size.widthMeters * viewport.scale,
+    heading,
+  )
+    ? index
     : null;
 }
 
@@ -2675,26 +2723,18 @@ function rotationFromStagePoint(
   index: number,
   viewport: FieldViewport,
   point: StagePoint,
+  drag?: ActiveRotationDrag,
 ): number | null {
   const position = getElementPosition(path.path_elements, index);
-  if (!position) {
-    return null;
-  }
-
+  if (!position) return null;
   const center = modelToStagePoint(position, viewport);
-  return normalizeRadians(Math.atan2(center.y - point.y, point.x - center.x));
-}
-
-function rotationHandlePoint(
-  center: StagePoint,
-  viewport: FieldViewport,
-  rotationRadians: number,
-): StagePoint {
-  const radius = Math.max(42, Math.min(64, viewport.scale * 0.36));
-  return {
-    x: center.x + Math.cos(rotationRadians) * radius,
-    y: center.y - Math.sin(rotationRadians) * radius,
-  };
+  const pointerRadians = Math.atan2(center.y - point.y, point.x - center.x);
+  return normalizeRadians(
+    drag
+      ? drag.startRadians +
+          angularDelta(drag.startPointerRadians, pointerRadians)
+      : pointerRadians,
+  );
 }
 
 function toLocalRobotPoint(
@@ -2807,9 +2847,6 @@ const eventTriggerLengthMetersFallback = 0.36;
 const minViewScale = 1;
 const maxViewScale = 8;
 const zoomStepFactor = 1.03;
-const selectionPulseIntervalMs = 40;
-const selectionPulsePeriodMs = 1800;
-const rotationHandleHitRadiusPx = 18;
 const curveFitToleranceMeters = 0.18;
 const curveMinTargetSpacingMeters = 0.35;
 const curveEndpointSnapToleranceMeters = 0.22;

@@ -291,3 +291,212 @@ test("cached layers match a full redraw through canvas edits @webkit-canvas", as
   expect(linkedAfter.overlayDrawCount).toBe(linkedBefore.overlayDrawCount);
   expect(linkedAfter.renderCount).toBe(samples.length);
 });
+
+test("Open Edge body pixels fit bumper dimensions and only selection ink pulses @webkit-canvas", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const results = await page.evaluate(async () => {
+    const rendererPath = "/src/canvas/pixi/PixiPathRenderer.ts";
+    const fieldPath = "/src/core/field/fieldConfig.ts";
+    const geometryPath = "/src/canvas/geometry.ts";
+    const modelPath = "/src/core/model/path.ts";
+    const samplePath = "/src/ui/app/initialProject.ts";
+    const { PixiPathRenderer } = (await import(
+      /* @vite-ignore */ rendererPath
+    )) as typeof import("../../src/canvas/pixi/PixiPathRenderer");
+    const { resolveUserFieldDefinition } = (await import(
+      /* @vite-ignore */ fieldPath
+    )) as typeof import("../../src/core/field/fieldConfig");
+    const { createFieldViewport, modelToStagePoint } = (await import(
+      /* @vite-ignore */ geometryPath
+    )) as typeof import("../../src/canvas/geometry");
+    const {
+      createPathModel,
+      createWaypoint,
+      createTranslationTarget,
+      createRotationTarget,
+    } = (await import(
+      /* @vite-ignore */ modelPath
+    )) as typeof import("../../src/core/model/path");
+    const { createSampleProject } = (await import(
+      /* @vite-ignore */ samplePath
+    )) as typeof import("../../src/ui/app/initialProject");
+    const config = createSampleProject().config;
+    config.gui.robot.length_meters = 1.6;
+    config.gui.robot.width_meters = 0.8;
+    config.gui.protrusions.enabled = false;
+    const field = resolveUserFieldDefinition("blank-grid", []);
+    const stageSize = { width: 600, height: 360 };
+    const viewport = {
+      ...createFieldViewport(stageSize, 24, field.geometry),
+      scale: 50,
+    };
+    const position = { x_meters: 6, y_meters: 4 };
+    const originalCenter = modelToStagePoint(position, viewport);
+    viewport.x += 300 - originalCenter.x;
+    viewport.y += 180 - originalCenter.y;
+    const input: PixiRenderInput = {
+      stageSize,
+      viewport,
+      field,
+      config,
+      path: null,
+      overlayPaths: [],
+      hoveredOverlayPathId: null,
+      selectedElementIndex: null,
+      selectedRangedConstraint: null,
+      positionPreview: new Map(),
+      rotationPreview: new Map(),
+      selectedPulse: 0,
+      simulationResult: null,
+      simulationTrace: null,
+      trajectoryMaxSpeedMps: 1,
+      simulationTimeS: 0,
+      simulationPlaying: false,
+      simulationEventPulse: 0,
+      curvePreview: null,
+    };
+    const translation = (x = 6) =>
+      createTranslationTarget({ ...position, x_meters: x });
+    const anchors = [translation(3), translation(9)];
+    const cases = [
+      {
+        name: "waypoint",
+        index: 0,
+        path: createPathModel({
+          path_elements: [
+            createWaypoint({ translation_target: translation() }),
+          ],
+        }),
+        baselinePath: null,
+      },
+      {
+        name: "rotation",
+        index: 1,
+        path: createPathModel({
+          path_elements: [
+            anchors[0],
+            createRotationTarget({ t_ratio: 0.5 }),
+            anchors[1],
+          ],
+        }),
+        baselinePath: createPathModel({ path_elements: anchors }),
+      },
+      { name: "simulation", index: null, path: null, baselinePath: null },
+    ];
+    const renderer = await PixiPathRenderer.create(stageSize, field);
+    const capture = document.createElement("canvas");
+    capture.width = stageSize.width;
+    capture.height = stageSize.height;
+    const context = capture.getContext("2d", { willReadFrequently: true })!;
+    const pixels = (scene: PixiRenderInput) => {
+      renderer.update(scene);
+      context.clearRect(0, 0, capture.width, capture.height);
+      context.drawImage(renderer.canvas, 0, 0, capture.width, capture.height);
+      return context.getImageData(0, 0, capture.width, capture.height).data;
+    };
+    const changed = (
+      a: Uint8ClampedArray,
+      b: Uint8ClampedArray,
+      x: number,
+      y: number,
+    ) => {
+      const offset = ((180 + y) * capture.width + 300 + x) * 4;
+      return [0, 1, 2].some(
+        (channel) => Math.abs(a[offset + channel] - b[offset + channel]) > 4,
+      );
+    };
+    try {
+      const bodies = cases.map(({ name, index, path, baselinePath }) => {
+        const scene = { ...input, path };
+        if (name === "simulation") {
+          scene.simulationPlaying = true;
+          scene.simulationResult = {
+            poses_by_time: new Map([[0, [6, 4, 0] as const]]),
+            times_sorted: [0],
+            total_time_s: 1,
+            global_s_by_time: new Map(),
+            protrusion_visible_by_time: new Map(),
+            trail_points: [],
+          };
+        }
+        const baseline = pixels({ ...input, path: baselinePath });
+        const normal = pixels(scene);
+        const points: Array<{ x: number; y: number }> = [];
+        for (let y = -30; y < 30; y++)
+          for (let x = -50; x < 55; x++) {
+            // The heading dot is deliberately outside the physical body bounds.
+            if (x > 30 && Math.abs(y + 0.5) < 12) continue;
+            if (changed(baseline, normal, x, y)) points.push({ x, y });
+          }
+        const low = pixels({
+          ...scene,
+          selectedElementIndex: index,
+          selectedPulse: 0,
+        });
+        const high = pixels({
+          ...scene,
+          selectedElementIndex: index,
+          selectedPulse: 1,
+        });
+        let bodyChanges = 0,
+          outlineChanges = 0;
+        for (let y = -35; y < 35; y++)
+          for (let x = -55; x < 55; x++) {
+            if (!changed(low, high, x, y)) continue;
+            if (x >= -40 && x < 40 && y >= -20 && y < 20) bodyChanges++;
+            else outlineChanges++;
+          }
+        return {
+          name,
+          minX: Math.min(...points.map((p) => p.x)),
+          maxX: Math.max(...points.map((p) => p.x)),
+          minY: Math.min(...points.map((p) => p.y)),
+          maxY: Math.max(...points.map((p) => p.y)),
+          bodyChanges,
+          outlineChanges,
+        };
+      });
+      const scene = {
+        ...input,
+        path: createPathModel({ path_elements: [translation()] }),
+        selectedElementIndex: 0,
+      };
+      const low = pixels(scene),
+        high = pixels({ ...scene, selectedPulse: 1 });
+      const radii: number[] = [];
+      for (let y = -30; y < 30; y++)
+        for (let x = -30; x < 30; x++) {
+          if (changed(low, high, x, y))
+            radii.push(Math.hypot(x + 0.5, y + 0.5));
+        }
+      return {
+        bodies,
+        translation: {
+          count: radii.length,
+          inner: Math.min(...radii),
+          outer: Math.max(...radii),
+        },
+      };
+    } finally {
+      renderer.destroy();
+    }
+  });
+  for (const body of results.bodies) {
+    expect(body.minX, body.name).toBe(-40);
+    expect(body.maxX, body.name).toBe(39);
+    expect(body.minY, body.name).toBe(-20);
+    expect(body.maxY, body.name).toBe(19);
+    expect(body.bodyChanges, `${body.name} remains steady`).toBe(0);
+    if (body.name === "simulation") expect(body.outlineChanges).toBe(0);
+    else
+      expect(
+        body.outlineChanges,
+        `${body.name} selection pulses`,
+      ).toBeGreaterThan(40);
+  }
+  expect(results.translation.count).toBeGreaterThan(30);
+  // A thin circular ring stays at one radius; a rectangle varies by sqrt(2).
+  expect(results.translation.outer - results.translation.inner).toBeLessThan(3);
+});

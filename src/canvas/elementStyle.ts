@@ -5,7 +5,7 @@ import {
 } from "../core/model/path";
 
 export const elementColors = {
-  selected: "#ff8a3d",
+  selected: "#f2f5fa",
   translation: "#58a6ff",
   waypoint: "#ff9f43",
   rotation: "#6bdc8b",

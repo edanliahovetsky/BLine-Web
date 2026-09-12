@@ -29,6 +29,8 @@ import {
   type PixiLinkedTargetOverlay,
   type PixiRenderInput,
 } from "./pixi/PixiPathRenderer";
+import { hitTestRobotFrontFace } from "./elementGeometry";
+import { useSelectionPulse } from "./hooks/useSelectionPulse";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { readFieldBackgroundImage } from "../userData";
 
@@ -62,6 +64,7 @@ interface ActiveRotationDrag {
   pointerId: number;
   targetId: string;
   startRadians: number;
+  startPointerRadians: number;
   currentRadians: number;
 }
 
@@ -111,6 +114,7 @@ export function LinkedTargetsCanvas({
   });
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [rotationHoverId, setRotationHoverId] = useState<string | null>(null);
   const [dragPreview, setDragPreviewState] = useState<TargetDragPreview | null>(
     null,
   );
@@ -425,6 +429,11 @@ export function LinkedTargetsCanvas({
       })),
     [compatibleTargetIds, displayedTargets],
   );
+  const selectedPulse = useSelectionPulse(
+    selectedTargetId !== null,
+    isPanning || dragPreview !== null || rotationPreview !== null,
+  );
+  const hoveredRotationId = rotationPreview?.targetId ?? rotationHoverId;
   const renderInput = useMemo<PixiRenderInput>(
     () => ({
       stageSize,
@@ -439,7 +448,8 @@ export function LinkedTargetsCanvas({
       selectedRangedConstraint: null,
       positionPreview: emptyPreview,
       rotationPreview: emptyRotationPreview,
-      selectedPulse: 0.72,
+      selectedPulse,
+      hoveredLinkedTargetRotationId: hoveredRotationId,
       simulationResult: null,
       simulationTimeS: 0,
       simulationPlaying: false,
@@ -449,7 +459,16 @@ export function LinkedTargetsCanvas({
       linkedTargets: pixiTargets,
       selectedLinkedTargetId: selectedTargetId,
     }),
-    [config, pixiTargets, renderField, selectedTargetId, stageSize, viewport],
+    [
+      config,
+      pixiTargets,
+      renderField,
+      selectedTargetId,
+      stageSize,
+      viewport,
+      selectedPulse,
+      hoveredRotationId,
+    ],
   );
 
   useEffect(() => {
@@ -555,11 +574,13 @@ export function LinkedTargetsCanvas({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const pointer = stagePointFromEvent(event);
+    setRotationHoverId(null);
     const rotationHandleHit = hitTestLinkedTargetRotationHandle(
       displayedTargets,
       selectedTargetId,
       viewport,
       pointer,
+      config,
     );
     if (rotationHandleHit) {
       onSelectTarget(rotationHandleHit.target_id);
@@ -572,6 +593,13 @@ export function LinkedTargetsCanvas({
         pointerId: event.pointerId,
         targetId: rotationHandleHit.target_id,
         startRadians,
+        startPointerRadians:
+          rotationFromStagePoint(
+            displayedTargets,
+            rotationHandleHit.target_id,
+            viewport,
+            pointer,
+          ) ?? startRadians,
         currentRadians: startRadians,
       });
       return;
@@ -629,6 +657,7 @@ export function LinkedTargetsCanvas({
         rotationDrag.targetId,
         viewport,
         pointer,
+        rotationDrag,
       );
       if (nextRadians === null) {
         return;
@@ -664,6 +693,14 @@ export function LinkedTargetsCanvas({
 
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
+      const hit = hitTestLinkedTargetRotationHandle(
+        displayedTargets,
+        selectedTargetId,
+        viewport,
+        pointer,
+        config,
+      );
+      setRotationHoverId(hit && !hit.locked ? hit.target_id : null);
       return;
     }
 
@@ -709,6 +746,7 @@ export function LinkedTargetsCanvas({
         isPanning ? "is-panning" : "",
         dragPreview ? "is-target-dragging" : "",
         rotationPreview ? "is-rotation-dragging" : "",
+        hoveredRotationId ? "is-rotation-target" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -719,6 +757,7 @@ export function LinkedTargetsCanvas({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onPointerLeave={() => setRotationHoverId(null)}
       onWheel={handleWheel}
     >
       {rendererError ? (
@@ -784,28 +823,25 @@ function hitTestLinkedTargetRotationHandle(
   selectedTargetId: string | null,
   viewport: FieldViewport,
   pointer: StagePoint,
+  config: ProjectConfig,
 ): LinkedTarget | null {
-  if (!selectedTargetId) {
-    return null;
-  }
-
-  const target = targets.find(
-    (candidate) => candidate.target_id === selectedTargetId,
-  );
-  if (!target || target.kind !== "waypoint") {
-    return null;
-  }
-
-  const center = modelToStagePoint(
-    { x_meters: target.x_meters, y_meters: target.y_meters },
+  const target = hitTestLinkedTarget(
+    targets,
+    selectedTargetId,
     viewport,
+    pointer,
+    config,
   );
-  const handle = rotationHandlePoint(
+  if (!target || target.kind !== "waypoint") return null;
+  const center = modelToStagePoint(target, viewport);
+  const size = robotSizeFromConfig(config);
+  return hitTestRobotFrontFace(
     center,
-    viewport,
+    pointer,
+    size.lengthMeters * viewport.scale,
+    size.widthMeters * viewport.scale,
     target.rotation_radians ?? 0,
-  );
-  return pointDistance(pointer, handle) <= rotationHandleHitRadiusPx
+  )
     ? target
     : null;
 }
@@ -839,29 +875,18 @@ function rotationFromStagePoint(
   targetId: string,
   viewport: FieldViewport,
   point: StagePoint,
+  drag?: ActiveRotationDrag,
 ): number | null {
   const target = targets.find((candidate) => candidate.target_id === targetId);
-  if (!target || target.kind !== "waypoint") {
-    return null;
-  }
-
-  const center = modelToStagePoint(
-    { x_meters: target.x_meters, y_meters: target.y_meters },
-    viewport,
+  if (!target || target.kind !== "waypoint") return null;
+  const center = modelToStagePoint(target, viewport);
+  const pointerRadians = Math.atan2(center.y - point.y, point.x - center.x);
+  return normalizeRadians(
+    drag
+      ? drag.startRadians +
+          angularDelta(drag.startPointerRadians, pointerRadians)
+      : pointerRadians,
   );
-  return normalizeRadians(Math.atan2(center.y - point.y, point.x - center.x));
-}
-
-function rotationHandlePoint(
-  center: StagePoint,
-  viewport: FieldViewport,
-  rotationRadians: number,
-): StagePoint {
-  const radius = Math.max(42, Math.min(64, viewport.scale * 0.36));
-  return {
-    x: center.x + Math.cos(rotationRadians) * radius,
-    y: center.y - Math.sin(rotationRadians) * radius,
-  };
 }
 
 function stagePointFromEvent(
@@ -961,5 +986,4 @@ const minViewScale = 1;
 const maxViewScale = 8;
 const zoomStepFactor = 1.03;
 const linkedElementsPreviewFieldPaddingPx = 6;
-const rotationHandleHitRadiusPx = 18;
 const blankClickMaxDistancePx = 4;

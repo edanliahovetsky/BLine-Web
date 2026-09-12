@@ -31,20 +31,14 @@ import {
 import type { SelectedRangedConstraint } from "../../state/selectionStore";
 import {
   elementCircleRadiusMeters,
-  elementOutlineMeters,
   eventMarkerHalfHeightPx,
   eventTriggerLengthMeters,
-  triangleSizeRatio,
 } from "../constants";
 import {
   firstDomainIndexForConstraintRange,
   pathIndexesForConstraintRange,
 } from "../constraintRange";
-import {
-  elementColors,
-  handoffRingColors,
-  rotatableElementAccent,
-} from "../elementStyle";
+import { elementColors, handoffRingColors } from "../elementStyle";
 import {
   clipStagePolyline,
   getElementHeadingRadians,
@@ -62,7 +56,6 @@ import {
 import { handoffRingRadiusPx } from "../handoffRadiusInteraction";
 import {
   centeredRobotBounds,
-  robotBoundsWithProtrusion,
   robotProtrusionBounds,
   robotProtrusionOutlineGeometry,
   robotSizeFromConfig,
@@ -72,6 +65,11 @@ import {
   type RobotProtrusionPathCommand,
   type RobotSizeMeters,
 } from "../robotFootprint";
+import {
+  elementFootprintMetrics,
+  footprintOutlineCommands,
+  robotFrontPoint,
+} from "../elementGeometry";
 import { buildElementProtrusionVisibilityByIndex } from "../protrusionVisibility";
 import type { SimResult } from "../../core/sim";
 import type { SimulationTraceSample } from "../../core/sim/types";
@@ -98,6 +96,8 @@ export interface PixiRenderInput {
   curvePreview: CurveAuthoringPreview | null;
   linkedTargets?: readonly PixiLinkedTargetOverlay[];
   selectedLinkedTargetId?: string | null;
+  hoveredRotationIndex?: number | null;
+  hoveredLinkedTargetRotationId?: string | null;
 }
 
 export interface PixiPathOverlay {
@@ -157,7 +157,6 @@ export class PixiPathRenderer {
   private readonly constraintGraphics = new Graphics();
   private readonly nodeGraphics = new Graphics();
   private readonly linkedTargetGraphics = new Graphics();
-  private readonly rotationGraphics = new Graphics();
   private readonly simulationGraphics = new Graphics();
   private readonly debugNodes = new Map<string, StagePoint>();
   // Viewports and overlay path arrays are immutable render inputs.
@@ -176,6 +175,9 @@ export class PixiPathRenderer {
     fieldTexture: Texture | null,
   ) {
     this.app = app;
+    // React handles canvas interaction; keep Pixi's default cursor from
+    // overwriting the CSS rotation, placement, and pan cursors.
+    this.app.renderer.events.cursorStyles.default = () => {};
     this.field = field;
     this.fieldSprite = new Sprite(fieldTexture ?? Texture.EMPTY);
     this.app.canvas.dataset.testid = "path-stage-pixi-canvas";
@@ -196,7 +198,6 @@ export class PixiPathRenderer {
       // Keep the selected range highlight above the first path element.
       this.constraintGraphics,
       this.linkedTargetGraphics,
-      this.rotationGraphics,
     );
   }
 
@@ -257,7 +258,7 @@ export class PixiPathRenderer {
     this.drawConstraintHighlights(input);
     this.drawNodes(input);
     this.drawLinkedTargets(input);
-    this.drawRotationHandle(input);
+    this.recordRotationHandles(input);
     this.drawSimulation(input);
     this.render();
   }
@@ -693,6 +694,21 @@ export class PixiPathRenderer {
       }
       const handoffRadius = handoffRadiusByElementIndex.get(index);
       this.debugNodes.set(`path-element-node-${index}`, point);
+      if (isWaypoint(element) || isRotationTarget(element)) {
+        this.debugNodes.set(
+          `path-element-front-${index}`,
+          robotFrontPoint(
+            point,
+            robotSize.lengthMeters * input.viewport.scale,
+            getElementHeadingRadians(
+              elements,
+              index,
+              input.rotationPreview,
+              input.positionPreview,
+            ) ?? 0,
+          ),
+        );
+      }
       drawPathElementNode(graphics, {
         element,
         index,
@@ -700,6 +716,7 @@ export class PixiPathRenderer {
         selected: input.selectedElementIndex === index,
         dimmed: hasSelection && input.selectedElementIndex !== index,
         selectedPulse: input.selectedPulse,
+        rotationHovered: input.hoveredRotationIndex === index,
         headingRadians: getElementHeadingRadians(
           elements,
           index,
@@ -757,6 +774,16 @@ export class PixiPathRenderer {
       );
       const selected = target.target_id === selectedTargetId;
       this.debugNodes.set(`linked-target-${target.target_id}`, point);
+      if (target.kind === "waypoint") {
+        this.debugNodes.set(
+          `linked-target-front-${target.target_id}`,
+          robotFrontPoint(
+            point,
+            robotSize.lengthMeters * input.viewport.scale,
+            target.rotation_radians ?? 0,
+          ),
+        );
+      }
       drawPathElementNode(graphics, {
         element: linkedTargetToPathElement(target),
         index,
@@ -764,6 +791,8 @@ export class PixiPathRenderer {
         selected,
         dimmed: target.compatible === false || (hasSelection && !selected),
         selectedPulse: input.selectedPulse,
+        rotationHovered:
+          input.hoveredLinkedTargetRotationId === target.target_id,
         headingRadians:
           target.kind === "waypoint" ? (target.rotation_radians ?? 0) : 0,
         handoffRadiusMeters: null,
@@ -777,92 +806,43 @@ export class PixiPathRenderer {
     }
   }
 
-  private drawRotationHandle(input: PixiRenderInput): void {
-    const graphics = this.rotationGraphics.clear();
-    if (this.drawProjectRotationHandle(graphics, input)) {
-      return;
-    }
-
-    this.drawLinkedTargetRotationHandle(graphics, input);
-  }
-
-  private drawProjectRotationHandle(
-    graphics: Graphics,
-    input: PixiRenderInput,
-  ): boolean {
+  private recordRotationHandles(input: PixiRenderInput): void {
     const { path, selectedElementIndex } = input;
-    if (!path || selectedElementIndex === null) {
-      return false;
+    const lengthPx =
+      robotSizeFromConfig(input.config).lengthMeters * input.viewport.scale;
+    if (path && selectedElementIndex !== null) {
+      const element = path.path_elements[selectedElementIndex];
+      const position = getElementPosition(
+        path.path_elements,
+        selectedElementIndex,
+        input.positionPreview,
+      );
+      if (position && (isWaypoint(element) || isRotationTarget(element))) {
+        const center = modelToStagePoint(position, input.viewport);
+        const heading =
+          getElementHeadingRadians(
+            path.path_elements,
+            selectedElementIndex,
+            input.rotationPreview,
+          ) ?? 0;
+        this.debugNodes.set("rotation-handle-root", center);
+        this.debugNodes.set(
+          "rotation-handle",
+          robotFrontPoint(center, lengthPx, heading),
+        );
+      }
     }
-
-    const elements = path.path_elements;
-    const element = elements[selectedElementIndex];
-    if (!element || (!isWaypoint(element) && !isRotationTarget(element))) {
-      return false;
+    const target = input.linkedTargets?.find(
+      (target) => target.target_id === input.selectedLinkedTargetId,
+    );
+    if (target?.kind === "waypoint") {
+      const center = modelToStagePoint(target, input.viewport);
+      this.debugNodes.set("linked-target-rotation-handle-root", center);
+      this.debugNodes.set(
+        "linked-target-rotation-handle",
+        robotFrontPoint(center, lengthPx, target.rotation_radians ?? 0),
+      );
     }
-
-    const position = getElementPosition(
-      elements,
-      selectedElementIndex,
-      input.positionPreview,
-    );
-    const rotationRadians = getElementHeadingRadians(
-      elements,
-      selectedElementIndex,
-      input.rotationPreview,
-    );
-    if (!position || rotationRadians === null) {
-      return false;
-    }
-
-    const center = modelToStagePoint(position, input.viewport);
-    if (!isStagePointWithinCanvas(center, input.stageSize)) {
-      return false;
-    }
-    const handlePoint = rotationHandlePoint(
-      center,
-      input.viewport,
-      rotationRadians,
-    );
-    const accent = rotatableElementAccent(element);
-    this.debugNodes.set("rotation-handle-root", center);
-    this.debugNodes.set("rotation-handle", handlePoint);
-    drawRotationHandleGlyph(graphics, center, handlePoint, accent);
-    return true;
-  }
-
-  private drawLinkedTargetRotationHandle(
-    graphics: Graphics,
-    input: PixiRenderInput,
-  ): void {
-    const selectedTargetId = input.selectedLinkedTargetId ?? null;
-    if (!selectedTargetId) {
-      return;
-    }
-
-    const target = (input.linkedTargets ?? []).find(
-      (candidate) => candidate.target_id === selectedTargetId,
-    );
-    if (!target || target.kind !== "waypoint") {
-      return;
-    }
-
-    const center = modelToStagePoint(
-      {
-        x_meters: target.x_meters,
-        y_meters: target.y_meters,
-      },
-      input.viewport,
-    );
-    const handlePoint = rotationHandlePoint(
-      center,
-      input.viewport,
-      target.rotation_radians ?? 0,
-    );
-    const accent = rotatableElementAccent(linkedTargetToPathElement(target));
-    this.debugNodes.set("linked-target-rotation-handle-root", center);
-    this.debugNodes.set("linked-target-rotation-handle", handlePoint);
-    drawRotationHandleGlyph(graphics, center, handlePoint, accent);
   }
 
   private drawSimulation(input: PixiRenderInput): void {
@@ -898,48 +878,18 @@ export class PixiPathRenderer {
       (timelineProtrusionVisible ?? protrusions?.default_state === "shown") &&
       (protrusions?.distance_meters ?? 0) > 0 &&
       protrusions?.side !== "none";
-    const robotBounds = robotBoundsWithProtrusion({
-      lengthPx,
-      widthPx,
-      protrusionVisible,
-      protrusionDistancePx:
-        (protrusions?.distance_meters ?? 0) * input.viewport.scale,
-      protrusionSide: protrusions?.side ?? "none",
-    });
-
+    this.debugNodes.set("simulation-robot", robotPoint);
     drawSimulationRobot(
       graphics,
-      robotBounds,
-      {
-        x: robotPoint.x,
-        y: robotPoint.y,
-        rotation: -pose[2],
-      },
+      lengthPx,
+      widthPx,
+      { x: robotPoint.x, y: robotPoint.y, rotation: -pose[2] },
       input.simulationEventPulse,
+      protrusionVisible,
+      (protrusions?.distance_meters ?? 0) * input.viewport.scale,
+      protrusions?.side ?? "none",
     );
   }
-}
-
-function drawRotationHandleGlyph(
-  graphics: Graphics,
-  center: StagePoint,
-  handlePoint: StagePoint,
-  accent: string | number,
-): void {
-  drawLine(graphics, center.x, center.y, handlePoint.x, handlePoint.y, {
-    color: 0x05080b,
-    width: 6,
-    alpha: 0.78,
-  });
-  drawLine(graphics, center.x, center.y, handlePoint.x, handlePoint.y, {
-    color: accent,
-    width: 2.2,
-    alpha: 0.86,
-  });
-  graphics
-    .circle(handlePoint.x, handlePoint.y, 10)
-    .fill({ color: 0x0f1215, alpha: 0.94 })
-    .stroke({ color: accent, width: 2 });
 }
 
 function linkedTargetToPathElement(
@@ -980,6 +930,7 @@ interface DrawNodeInput {
   selected: boolean;
   dimmed: boolean;
   selectedPulse: number;
+  rotationHovered: boolean;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
   handoffRadiusState: AnchorRadiusState | null;
@@ -1031,28 +982,23 @@ function drawHandoffRadiusRing(
 }
 
 function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
-  const elementOpacity = input.dimmed ? 0.58 : 1;
-  const selectionOpacity = (0.46 + input.selectedPulse * 0.34) * elementOpacity;
-  const circleRadius = metersToVisiblePixels(
-    elementCircleRadiusMeters,
-    input.metersToPixels,
-    7,
-  );
-  const rectWidth = input.robotSizeMeters.lengthMeters * input.metersToPixels;
-  const rectHeight = input.robotSizeMeters.widthMeters * input.metersToPixels;
+  const opacity = input.dimmed ? 0.58 : 1;
+  const selectionOpacity = (0.46 + input.selectedPulse * 0.34) * opacity;
+  const point = input.point;
+  const width = input.robotSizeMeters.lengthMeters * input.metersToPixels;
+  const height = input.robotSizeMeters.widthMeters * input.metersToPixels;
+  const metrics = elementFootprintMetrics(width, height);
   const protrusionDistancePx =
     Math.max(0, input.protrusionDistanceMeters) * input.metersToPixels;
   const showProtrusion =
     input.protrusionVisible &&
     protrusionDistancePx > 0 &&
     input.protrusionSide !== "none";
-  const outlineWidth = metersToVisiblePixels(
-    elementOutlineMeters,
-    input.metersToPixels,
-    1.65,
-  );
-  const selected = input.selected;
-  const point = input.point;
+  const transform = {
+    x: point.x,
+    y: point.y,
+    rotation: toStageRadians(input.headingRadians),
+  };
 
   if (input.handoffRadiusMeters && input.handoffRadiusState) {
     drawHandoffRadiusRing(graphics, point, {
@@ -1061,55 +1007,46 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
         input.metersToPixels,
       ),
       state: input.handoffRadiusState,
-      selected,
-      opacity: elementOpacity,
+      selected: input.selected,
+      opacity,
     });
   }
 
   if (isTranslationTarget(input.element)) {
-    if (selected) {
-      graphics.circle(point.x, point.y, circleRadius + 8).stroke({
+    const radius = Math.max(
+      5,
+      elementCircleRadiusMeters * input.metersToPixels,
+    );
+    if (input.selected) {
+      // Translation targets alone use a circular selection outline.
+      graphics.circle(point.x, point.y, radius + 6).stroke({
+        color: selectionBackingColor,
+        width: selectionStrokeWidthPx + 2,
+        alpha: 0.9,
+      });
+      graphics.circle(point.x, point.y, radius + 6).stroke({
         color: elementColors.selected,
         width: selectionStrokeWidthPx,
         alpha: selectionOpacity,
       });
     }
     graphics
-      .circle(
-        point.x,
-        point.y,
-        circleRadius + clampedElementHaloThickness(circleRadius),
-      )
-      .fill({ color: 0x05080b, alpha: 0.72 * elementOpacity });
+      .circle(point.x, point.y, radius)
+      .fill({ color: elementColors.translation, alpha: opacity });
     graphics
-      .circle(point.x, point.y, circleRadius)
-      .fill({ color: elementColors.translation, alpha: elementOpacity })
-      .stroke({ color: 0xeff8ff, width: 1.35, alpha: 0.9 * elementOpacity });
-    graphics
-      .circle(point.x, point.y, Math.max(2, circleRadius * 0.24))
-      .fill({ color: 0xf7fbff, alpha: elementOpacity });
+      .circle(point.x, point.y, radius * 0.32)
+      .fill({ color: 0x11151a, alpha: 0.35 * opacity });
     return;
   }
 
   if (isWaypoint(input.element) || isRotationTarget(input.element)) {
-    const accent = isWaypoint(input.element)
-      ? elementColors.waypoint
-      : elementColors.rotation;
-    const mode = isWaypoint(input.element) ? "waypoint" : "rotation";
-    const selectionPadding = Math.max(6, outlineWidth / 2 + 5);
-
-    const transform = {
-      x: point.x,
-      y: point.y,
-      rotation: toStageRadians(input.headingRadians),
-    };
-    if (selected) {
+    if (input.selected) {
       drawSelectionFootprint(
         graphics,
         transform,
-        rectWidth,
-        rectHeight,
-        selectionPadding,
+        width,
+        height,
+        Math.max(6, metrics.frontRadius + 2),
         showProtrusion,
         protrusionDistancePx,
         input.protrusionSide,
@@ -1119,62 +1056,47 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
     drawRobotFootprint(
       graphics,
       transform,
-      rectWidth,
-      rectHeight,
-      accent,
-      outlineWidth,
-      mode,
+      width,
+      height,
+      isWaypoint(input.element)
+        ? elementColors.waypoint
+        : elementColors.rotation,
+      isWaypoint(input.element) ? "waypoint" : "rotation",
       showProtrusion,
       protrusionDistancePx,
       input.protrusionSide,
-      elementOpacity,
+      opacity,
+      input.rotationHovered,
     );
     return;
   }
 
   if (isEventTrigger(input.element)) {
     const points = eventTriggerPoints(input.metersToPixels, 0);
-    const transform = {
-      x: point.x,
-      y: point.y,
-      rotation: toStageRadians(input.headingRadians),
-    };
-    if (selected) {
-      drawLocalPolyline(
+    const halfLength = Math.abs(points[0]);
+    if (input.selected) {
+      drawSelectionOutline(
         graphics,
-        eventTriggerPoints(input.metersToPixels, 8),
-        {
-          color: elementColors.selected,
-          width: selectionStrokeWidthPx + 4,
-          alpha: selectionOpacity,
-        },
+        { x: -halfLength - 5, y: -7, width: halfLength * 2 + 10, height: 14 },
         transform,
+        selectionOpacity,
       );
     }
     drawLocalPolyline(
       graphics,
-      eventTriggerPoints(input.metersToPixels, 2),
-      {
-        color: 0x05080b,
-        width: 8,
-        alpha: 0.82 * elementOpacity,
-      },
+      points,
+      { color: 0x05080b, width: 4.4, alpha: 0.65 * opacity },
       transform,
     );
     drawLocalPolyline(
       graphics,
       points,
-      {
-        color: elementColors.event,
-        width: 4,
-        alpha: elementOpacity,
-      },
+      { color: elementColors.event, width: 2.8, alpha: 0.8 * opacity },
       transform,
     );
     graphics
-      .circle(point.x, point.y, 3.75)
-      .fill({ color: 0xf8f4ff, alpha: elementOpacity })
-      .stroke({ color: 0x05080b, width: 1, alpha: 0.58 * elementOpacity });
+      .circle(point.x, point.y, 3.3)
+      .fill({ color: elementColors.event, alpha: opacity });
   }
 }
 
@@ -1183,24 +1105,20 @@ function drawRobotFootprint(
   transform: LocalTransform,
   width: number,
   height: number,
-  accent: string,
-  outlineWidth: number,
-  mode: "waypoint" | "rotation",
+  accent: string | number,
+  mode: "waypoint" | "rotation" | "simulation",
   protrusionVisible: boolean,
   protrusionDistancePx: number,
   protrusionSide: DrawNodeInput["protrusionSide"],
   opacity: number,
+  rotationHovered = false,
+  eventPulse = 0,
 ): void {
-  const triangleLength = Math.min(width, height) * triangleSizeRatio;
-  const halfTriangleHeight = triangleLength / 2;
-  const footprintBounds = centeredRobotBounds(width, height);
-  const halo = robotHaloMetrics(width, height);
-  const haloOutline = strokedRectInsideBounds(
-    footprintBounds,
-    halo.strokeWidth,
-  );
-  const robotOutline = strokedRectInsideBounds(footprintBounds, outlineWidth);
-  const protrusionStrokeWidth = Math.max(1.2, outlineWidth * 0.6);
+  const metrics = elementFootprintMetrics(width, height);
+  const outlineWidth = metrics.strokeWidth + (rotationHovered ? 0.6 : 0);
+  const bounds = centeredRobotBounds(width, height);
+  const outline = strokedRectInsideBounds(bounds, outlineWidth);
+  const backing = strokedRectInsideBounds(bounds, outlineWidth + 1.6);
   const extension = robotProtrusionBounds({
     lengthPx: width,
     widthPx: height,
@@ -1208,113 +1126,82 @@ function drawRobotFootprint(
     protrusionDistancePx,
     protrusionSide,
   });
-  const fillColor = mode === "waypoint" ? 0xff9f43 : 0x6bdc8b;
-
   if (extension) {
     drawRect(
       graphics,
       extension,
-      {
-        fill: fillColor,
-        fillAlpha: 0.08 * opacity,
-      },
+      { fill: accent, fillAlpha: 0.06 * opacity },
       transform,
     );
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
-      strokeWidth: Math.max(
-        protrusionStrokeWidth + 1.4,
-        protrusionStrokeWidth + halo.strokeWidth * 0.55,
-      ),
+      strokeWidth: metrics.strokeWidth + 1.6,
       color: 0x05080b,
       alpha: 0.76 * opacity,
     });
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
-      strokeWidth: protrusionStrokeWidth,
+      strokeWidth: metrics.strokeWidth,
       color: accent,
-      alpha: opacity,
+      alpha: 0.7 * opacity,
     });
   }
-  drawRobotBodyRect(
-    graphics,
-    haloOutline.rect,
-    {
-      fill: 0x05080b,
-      fillAlpha: 0.28 * opacity,
-      stroke: 0x05080b,
-      strokeAlpha: 0.82 * opacity,
-      strokeWidth: haloOutline.strokeWidth,
-    },
-    transform,
-    extension ? protrusionSide : null,
-  );
-  drawRobotBodyRect(
-    graphics,
-    robotOutline.rect,
-    {
-      fill: fillColor,
-      fillAlpha: 0.1 * opacity,
-      stroke: accent,
-      strokeAlpha: opacity,
-      strokeWidth: robotOutline.strokeWidth,
-    },
-    transform,
-    extension ? protrusionSide : null,
-  );
-
-  if (mode === "rotation") {
-    const center = transformLocalPoint(transform, 0, 0);
-    graphics
-      .circle(center.x, center.y, Math.max(4, Math.min(width, height) * 0.13))
-      .fill({ color: 0x05080b, alpha: 0.26 * opacity })
-      .stroke({
-        color: accent,
-        width: Math.max(1.4, outlineWidth * 0.72),
-        alpha: opacity,
-      });
-    drawTransformedLine(graphics, 0, 0, width * 0.28, 0, transform, {
-      color: accent,
-      width: Math.max(1.25, outlineWidth * 0.55),
-      alpha: opacity,
-    });
-    drawPolygon(
+  if (mode === "simulation") {
+    drawRect(
       graphics,
-      [
-        triangleLength / 2,
-        0,
-        -triangleLength / 2,
-        halfTriangleHeight,
-        -triangleLength / 2,
-        -halfTriangleHeight,
-      ],
-      { fill: accent, fillAlpha: 0.52 * opacity },
+      bounds,
+      { fill: accent, fillAlpha: (0.06 + 0.16 * eventPulse) * opacity },
       transform,
     );
-    return;
   }
-
-  drawPolygon(
-    graphics,
-    [
-      triangleLength / 2,
-      0,
-      -triangleLength / 2,
-      halfTriangleHeight,
-      -triangleLength / 2,
-      -halfTriangleHeight,
-    ],
-    {
-      fill: 0x05080b,
-      fillAlpha: 0.25 * opacity,
-      stroke: accent,
-      strokeAlpha: opacity,
-      strokeWidth: Math.max(1.4, outlineWidth * 0.72),
-    },
-    transform,
+  const commands = footprintOutlineCommands(
+    outline.rect,
+    metrics.cornerRadius,
+    metrics.frontRadius + 2,
+    extension ? protrusionSide : "none",
   );
+  // Both strokes are inset by their own half-width: the bumper dimensions
+  // describe the outer body pixels, including the dark backing.
+  drawLocalPathCommands(
+    graphics,
+    footprintOutlineCommands(
+      backing.rect,
+      metrics.cornerRadius,
+      metrics.frontRadius + 2,
+      extension ? protrusionSide : "none",
+    ),
+    transform,
+    { color: 0x05080b, width: backing.strokeWidth, alpha: 0.7 * opacity },
+  );
+  drawLocalPathCommands(graphics, commands, transform, {
+    color: accent,
+    width: outline.strokeWidth,
+    alpha: (rotationHovered ? 1 : 0.7) * opacity,
+  });
+  const center = transformLocalPoint(transform, 0, 0);
+  const centerRadius =
+    mode === "simulation" ? metrics.centerRadius / 2 : metrics.centerRadius;
+  if (mode === "rotation") {
+    graphics
+      .circle(center.x, center.y, centerRadius)
+      .fill({ color: 0x15181e, alpha: 0.85 * opacity })
+      .stroke({ color: accent, width: 1.8, alpha: opacity });
+  } else {
+    graphics
+      .circle(center.x, center.y, centerRadius)
+      .fill({ color: accent, alpha: opacity });
+  }
+  const front = transformLocalPoint(transform, width / 2, 0);
+  graphics
+    .circle(front.x, front.y, metrics.frontRadius)
+    .fill({ color: accent, alpha: opacity });
+  if (rotationHovered) {
+    graphics
+      .circle(front.x, front.y, metrics.frontRadius)
+      .stroke({ color: accent, width: 1.2, alpha: opacity });
+  }
 }
 
 function drawRobotProtrusionOutline(
@@ -1353,158 +1240,24 @@ function drawRobotProtrusionOutline(
   });
 }
 
-function drawRobotBodyRect(
+function drawSelectionOutline(
   graphics: Graphics,
-  rect: RobotLocalBounds,
-  options: {
-    fill?: string | number;
-    fillAlpha?: number;
-    stroke?: string | number;
-    strokeAlpha?: number;
-    strokeWidth?: number;
-  },
+  bounds: RobotLocalBounds,
   transform: LocalTransform,
-  protrusionSide: DrawNodeInput["protrusionSide"] | null,
+  opacity: number,
 ): void {
-  if (!protrusionSide || protrusionSide === "none") {
-    drawRect(graphics, rect, options, transform);
-    return;
-  }
-
-  drawPolygon(
-    graphics,
-    rectPoints(rect),
-    {
-      fill: options.fill,
-      fillAlpha: options.fillAlpha,
-    },
-    transform,
-  );
-
-  if (options.stroke === undefined || options.strokeWidth === undefined) {
-    return;
-  }
-
-  drawRectStrokeWithSharpAttachmentCorners(
-    graphics,
-    rect,
-    protrusionSide,
-    transform,
-    {
-      color: options.stroke,
-      width: options.strokeWidth,
-      alpha: options.strokeAlpha ?? 1,
-    },
-  );
-}
-
-function drawRectStrokeWithSharpAttachmentCorners(
-  graphics: Graphics,
-  rect: RobotLocalBounds,
-  protrusionSide: DrawNodeInput["protrusionSide"],
-  transform: LocalTransform,
-  style: { color: string | number; width: number; alpha: number },
-): void {
-  const left = rect.x;
-  const right = rect.x + rect.width;
-  const top = rect.y;
-  const bottom = rect.y + rect.height;
-  const halfStroke = style.width / 2;
-
-  if (protrusionSide === "front") {
-    drawLocalStrokePath(
-      graphics,
-      [right, top, left, top, left, bottom, right, bottom],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "round",
-      },
-    );
-    drawLocalStrokePath(
-      graphics,
-      [right, top - halfStroke, right, bottom + halfStroke],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "miter",
-      },
-    );
-    return;
-  }
-
-  if (protrusionSide === "back") {
-    drawLocalStrokePath(
-      graphics,
-      [left, top, right, top, right, bottom, left, bottom],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "round",
-      },
-    );
-    drawLocalStrokePath(
-      graphics,
-      [left, top - halfStroke, left, bottom + halfStroke],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "miter",
-      },
-    );
-    return;
-  }
-
-  if (protrusionSide === "left") {
-    drawLocalStrokePath(
-      graphics,
-      [left, top, left, bottom, right, bottom, right, top],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "round",
-      },
-    );
-    drawLocalStrokePath(
-      graphics,
-      [left - halfStroke, top, right + halfStroke, top],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "miter",
-      },
-    );
-    return;
-  }
-
-  if (protrusionSide === "right") {
-    drawLocalStrokePath(
-      graphics,
-      [left, bottom, left, top, right, top, right, bottom],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "round",
-      },
-    );
-    drawLocalStrokePath(
-      graphics,
-      [left - halfStroke, bottom, right + halfStroke, bottom],
-      transform,
-      {
-        ...style,
-        cap: "butt",
-        join: "miter",
-      },
-    );
-  }
+  const commands = footprintOutlineCommands(bounds, 3);
+  // The black backing stays steady; only the separate white outline pulses.
+  drawLocalPathCommands(graphics, commands, transform, {
+    color: selectionBackingColor,
+    width: selectionStrokeWidthPx + 2,
+    alpha: 0.9,
+  });
+  drawLocalPathCommands(graphics, commands, transform, {
+    color: elementColors.selected,
+    width: selectionStrokeWidthPx,
+    alpha: opacity,
+  });
 }
 
 function drawSelectionFootprint(
@@ -1525,7 +1278,7 @@ function drawSelectionFootprint(
     protrusionDistancePx,
     protrusionSide,
   );
-  drawRect(
+  drawSelectionOutline(
     graphics,
     {
       x: bounds.x - padding,
@@ -1533,12 +1286,8 @@ function drawSelectionFootprint(
       width: bounds.width + padding * 2,
       height: bounds.height + padding * 2,
     },
-    {
-      stroke: elementColors.selected,
-      strokeAlpha: opacity,
-      strokeWidth: selectionStrokeWidthPx,
-    },
     transform,
+    opacity,
   );
 }
 
@@ -1600,86 +1349,30 @@ function drawConstraintStartHighlight(
 
 function drawSimulationRobot(
   graphics: Graphics,
-  bounds: RobotLocalBounds,
+  width: number,
+  height: number,
   transform: LocalTransform,
   eventPulse: number,
+  protrusionVisible: boolean,
+  protrusionDistancePx: number,
+  protrusionSide: DrawNodeInput["protrusionSide"],
 ): void {
   const pulse = Math.max(0, Math.min(1, eventPulse));
   const accent = mixRgbColor(simulationRobotColor, simulationEventColor, pulse);
-  const triangleSize = Math.min(bounds.width, bounds.height) * 0.28;
-  const triangleOffset = bounds.width * 0.26;
-  const halo = robotHaloMetrics(bounds.width, bounds.height);
-  const haloOutline = strokedRectInsideBounds(bounds, halo.strokeWidth);
-  const robotOutline = strokedRectInsideBounds(
-    bounds,
-    simulationRobotStrokeWidthPx,
-  );
-
-  drawRect(
+  drawRobotFootprint(
     graphics,
-    haloOutline.rect,
-    {
-      fill: 0x05080b,
-      fillAlpha: 0.3,
-      stroke: 0x05080b,
-      strokeAlpha: 0.82,
-      strokeWidth: haloOutline.strokeWidth,
-    },
     transform,
+    width,
+    height,
+    accent,
+    "simulation",
+    protrusionVisible,
+    protrusionDistancePx,
+    protrusionSide,
+    0.75,
+    false,
+    pulse,
   );
-  if (pulse > 0) {
-    drawRect(
-      graphics,
-      haloOutline.rect,
-      {
-        fill: simulationEventColor,
-        fillAlpha: 0.08 * pulse,
-        stroke: simulationEventColor,
-        strokeAlpha: 0.72 * pulse,
-        strokeWidth: haloOutline.strokeWidth,
-      },
-      transform,
-    );
-  }
-  drawRect(
-    graphics,
-    robotOutline.rect,
-    {
-      fill: accent,
-      fillAlpha: 0.13 + 0.34 * pulse,
-      stroke: accent,
-      strokeAlpha: 1,
-      strokeWidth: robotOutline.strokeWidth,
-    },
-    transform,
-  );
-  drawPolygon(
-    graphics,
-    [
-      triangleOffset + triangleSize,
-      0,
-      triangleOffset - triangleSize / 2,
-      triangleSize / 2,
-      triangleOffset - triangleSize / 2,
-      -triangleSize / 2,
-    ],
-    {
-      fill: accent,
-      fillAlpha: 0.38 + 0.28 * pulse,
-      stroke: accent,
-      strokeWidth: 1.9,
-    },
-    transform,
-  );
-  const center = transformLocalPoint(transform, 0, 0);
-  graphics
-    .circle(
-      center.x,
-      center.y,
-      Math.max(2.5, Math.min(bounds.width, bounds.height) * 0.08),
-    )
-    .fill({ color: 0x05080b, alpha: 0.36 })
-    .stroke({ color: accent, width: 1.5, alpha: 0.94 });
 }
 
 const simulationRobotColor = 0x62c7ff;
@@ -1770,41 +1463,6 @@ function drawLocalPolyline(
   drawPolyline(graphics, transformed, style);
 }
 
-function drawLocalStrokePath(
-  graphics: Graphics,
-  points: number[],
-  transform: LocalTransform,
-  style: {
-    color: string | number;
-    width: number;
-    alpha: number;
-    cap: "butt" | "round";
-    join: "miter" | "round";
-  },
-): void {
-  if (points.length < 4) {
-    return;
-  }
-
-  const start = transformLocalPoint(transform, points[0], points[1]);
-  graphics.moveTo(start.x, start.y);
-  for (let index = 2; index < points.length; index += 2) {
-    const point = transformLocalPoint(
-      transform,
-      points[index],
-      points[index + 1],
-    );
-    graphics.lineTo(point.x, point.y);
-  }
-  graphics.stroke({
-    color: style.color,
-    width: style.width,
-    alpha: style.alpha,
-    cap: style.cap,
-    join: style.join,
-  });
-}
-
 function drawLocalPathCommands(
   graphics: Graphics,
   commands: RobotProtrusionPathCommand[],
@@ -1838,23 +1496,6 @@ function drawLocalPathCommands(
     width: style.width,
     alpha: style.alpha,
     cap: "butt",
-    join: "round",
-  });
-}
-
-function drawLine(
-  graphics: Graphics,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  style: { color: string | number; width: number; alpha: number },
-): void {
-  graphics.moveTo(x0, y0).lineTo(x1, y1).stroke({
-    color: style.color,
-    width: style.width,
-    alpha: style.alpha,
-    cap: "round",
     join: "round",
   });
 }
@@ -1954,20 +1595,6 @@ function drawPolygon(
   }
 }
 
-function drawTransformedLine(
-  graphics: Graphics,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  transform: LocalTransform,
-  style: { color: string | number; width: number; alpha: number },
-): void {
-  const start = transformLocalPoint(transform, x0, y0);
-  const end = transformLocalPoint(transform, x1, y1);
-  drawLine(graphics, start.x, start.y, end.x, end.y, style);
-}
-
 function transformPoints(
   points: number[],
   transform: LocalTransform,
@@ -2049,22 +1676,6 @@ function eventTriggerPoints(
   return [-halfLength, 0, halfLength, 0];
 }
 
-function rotationHandlePoint(
-  center: StagePoint,
-  viewport: FieldViewport,
-  rotationRadians: number,
-): StagePoint {
-  const radius = rotationHandleRadius(viewport);
-  return {
-    x: center.x + Math.cos(rotationRadians) * radius,
-    y: center.y - Math.sin(rotationRadians) * radius,
-  };
-}
-
-function rotationHandleRadius(viewport: FieldViewport): number {
-  return Math.max(42, Math.min(64, viewport.scale * 0.36));
-}
-
 function poseAtOrBefore(result: SimResult, timeS: number) {
   let selectedTime = result.times_sorted[0];
   for (const time of result.times_sorted) {
@@ -2109,24 +1720,8 @@ function toStageRadians(radians: number | null): number {
   return radians === null ? 0 : -radians;
 }
 
-function robotHaloMetrics(width: number, height: number) {
-  const footprintSize = Math.min(width, height);
-
-  return {
-    strokeWidth: clamp(footprintSize * 0.12, 2.2, 5),
-  };
-}
-
 function robotCornerRadius(width: number, height: number): number {
   return Math.max(3, Math.min(width, height) * 0.08);
-}
-
-function clampedElementHaloThickness(radius: number): number {
-  return clamp(radius * 0.35, 2.25, 4);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function isWholeMultiple(value: number, divisor: number, epsilon: number) {
@@ -2172,5 +1767,5 @@ async function loadFieldTexture(src: string): Promise<Texture> {
 const constraintHighlightColor = "#15c915";
 let nextRendererInstanceId = 1;
 const maxPixiResolution = 3;
-const selectionStrokeWidthPx = 2.6;
-const simulationRobotStrokeWidthPx = 2.4;
+const selectionStrokeWidthPx = 1.5;
+const selectionBackingColor = 0x070b10;
