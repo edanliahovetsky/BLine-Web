@@ -192,8 +192,9 @@ export class PixiPathRenderer {
       this.trajectoryGraphics,
       this.curvePreviewGraphics,
       this.simulationGraphics,
-      this.constraintGraphics,
       this.nodeGraphics,
+      // Keep the selected range highlight above the first path element.
+      this.constraintGraphics,
       this.linkedTargetGraphics,
       this.rotationGraphics,
     );
