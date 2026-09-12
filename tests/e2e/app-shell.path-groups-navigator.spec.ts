@@ -116,9 +116,11 @@ test("keeps navigator icon actions usable with the keyboard", async ({
   await expect(all).toHaveAttribute("aria-pressed", "true");
   await all.press("Space");
   await expect(all).toHaveAttribute("aria-pressed", "false");
-  await nav
-    .getByRole("button", { name: "Open Path", exact: true })
-    .press("Enter");
+  await all.press("Tab");
+  await expect(
+    nav.getByRole("button", { name: "Close", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(nav).toHaveCount(0);
   await expect(page.getByTestId("path-stage")).toBeVisible();
 });
@@ -638,7 +640,7 @@ test("filters connections, keeps row order stable, and aligns links after resizi
 });
 
 async function seedLongLibrary(page: Page, longSide: "path" | "group") {
-  await page.setViewportSize({ width: 1200, height: 650 });
+  await page.setViewportSize({ width: 1200, height: 580 });
   await gotoSampleEditor(page);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(
@@ -915,8 +917,8 @@ for (const longSide of ["path", "group"] as const) {
     page,
   }, testInfo) => {
     const nav = await seedLongLibrary(page, longSide);
-    // Keep a connected row offscreen even with the extra room from removing the footer.
-    await page.setViewportSize({ width: 1200, height: 600 });
+    // Keep a connected row offscreen with the compact single-row header.
+    await page.setViewportSize({ width: 1200, height: 530 });
     const oppositeName = longSide === "path" ? "Path" : "Group";
     const sourceName = longSide === "path" ? "Group 00" : "Path 00";
     const selection = row(nav, sourceName);

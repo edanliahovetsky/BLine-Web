@@ -903,14 +903,11 @@ export function PathLibraryDialog({
           }
         }}
       >
-        <header className="project-navigator__header">
-          <div>
+        <header className="fc-focusbar" data-tour="navigator-focus">
+          <div className="fc-project-meta">
             <strong>Project Navigator</strong>
-            <span>{project.display_name}</span>
+            <span title={project.display_name}>{project.display_name}</span>
           </div>
-          <CloseButton ariaLabel="Close" onClick={onCancel} />
-        </header>
-        <div className="fc-focusbar" data-tour="navigator-focus">
           <div className="fc-focus-meta">
             <span className="fc-focus-icon">
               {focus?.kind === "group" ? (
@@ -965,8 +962,13 @@ export function PathLibraryDialog({
             >
               <Network aria-hidden="true" size={17} />
             </TooltipIconButton>
+            <CloseButton
+              ariaLabel="Close"
+              className="fc-icon-action"
+              onClick={onCancel}
+            />
           </div>
-        </div>
+        </header>
         <div
           className="fc-scroll"
           onScrollCapture={() => {
