@@ -89,6 +89,28 @@ test.describe("shared theme across dialogs and nested controls", () => {
     await expect(dialog.getByLabel("X (m)")).toBeDisabled();
     await dialog.getByRole("listitem").filter({ hasText: "Pickup" }).hover();
     await snapshot(page, "linked-elements-locked.png");
+    await dialog
+      .getByRole("button", { name: "Close linked elements", exact: true })
+      .click();
+    await page.getByTestId("path-element-row-1").click();
+    await page
+      .getByRole("button", { name: "Link element", exact: true })
+      .click();
+    await page
+      .getByRole("group", { name: "Linked element actions" })
+      .getByRole("button", { name: /Choose Existing/ })
+      .click();
+    const picker = page.getByRole("dialog", {
+      name: "Choose Linked Element",
+      exact: true,
+    });
+    await expect(picker.locator("footer button")).toHaveText([
+      "Cancel",
+      "Link Selected",
+    ]);
+    await snapshot(page, "linked-element-picker.png");
+    await picker.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(picker).toHaveCount(0);
   });
 
   test("Navigator connections and row actions in a compact window", async ({
