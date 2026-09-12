@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname } from "node:path";
+import { extname, join } from "node:path";
 import { test as base } from "@playwright/test";
+import { fixtureRoot } from "./buildFixtures";
+import { createServer as createViteServer, type ViteDevServer } from "vite";
 
 const contentTypes: Record<string, string> = {
   ".html": "text/html",
@@ -12,48 +13,15 @@ const contentTypes: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
 };
 
-async function readRelease(): Promise<Map<string, Buffer>> {
-  const root = new URL("../../dist/", import.meta.url);
+async function readRelease(name: string): Promise<Map<string, Buffer>> {
+  const root = join(fixtureRoot, name);
   const release = new Map<string, Buffer>();
   for (const path of await readdir(root, { recursive: true })) {
     if (extname(path)) {
-      release.set(`/${path}`, await readFile(new URL(path, root)));
+      release.set(`/${path}`, await readFile(join(root, path)));
     }
   }
   return release;
-}
-
-function nextRelease(current: Map<string, Buffer>): Map<string, Buffer> {
-  const next = new Map(current);
-  next.set(
-    "/index.html",
-    Buffer.from(
-      current
-        .get("/index.html")!
-        .toString()
-        .replace(
-          "<head>",
-          '<head><meta name="offline-test-release" content="next">',
-        ),
-    ),
-  );
-  // A stable public asset name changes between releases too. Replacing its
-  // contents must not damage the still-active version during installation.
-  next.set(
-    "/assets/fields/field26.png",
-    current.get("/assets/fields/field22.png")!,
-  );
-  let worker = current.get("/sw.js")!.toString();
-  for (const path of ["/index.html", "/assets/fields/field26.png"]) {
-    const revision = createHash("md5").update(current.get(path)!).digest("hex");
-    const updated = createHash("md5").update(next.get(path)!).digest("hex");
-    if (!worker.includes(revision)) {
-      throw new Error(`${path} is missing a content revision in the precache`);
-    }
-    worker = worker.replaceAll(revision, updated);
-  }
-  next.set("/sw.js", Buffer.from(worker));
-  return next;
 }
 
 interface ProductionServer {
@@ -61,19 +29,44 @@ interface ProductionServer {
   requests: string[];
   failedRequests: string[];
   release: Map<string, Buffer>;
+  nextRelease: Map<string, Buffer>;
   publishUpdate(): void;
+  publishLegacy(): void;
+  publishCurrent(): void;
   fail(path: string | null): void;
+  delay(
+    path: string | null,
+    milliseconds?: number,
+    afterHeaders?: boolean,
+  ): void;
+  corrupt(path: string | null): void;
+  serveDevelopment(): Promise<void>;
 }
 
 export const test = base.extend<{ production: ProductionServer }>({
   baseURL: async ({ production }, provide) => provide(production.url),
   production: async ({}, provide) => {
-    let release = await readRelease();
+    let release = await readRelease("current");
     const original = release;
+    const next = await readRelease("next");
+    const legacy = await readRelease("legacy");
+    let development: ViteDevServer | undefined;
     let failure: string | null = null;
+    let corrupted: string | null = null;
+    let delayed: {
+      path: string | null;
+      milliseconds: number;
+      afterHeaders: boolean;
+    } = { path: null, milliseconds: 0, afterHeaders: false };
     const requests: string[] = [];
     const failedRequests: string[] = [];
     const server = createServer((request, response) => {
+      if (development) {
+        development.middlewares(request, response, () =>
+          response.writeHead(404).end(),
+        );
+        return;
+      }
       const pathname = new URL(request.url!, "http://localhost").pathname;
       const path = pathname === "/" ? "/index.html" : pathname;
       requests.push(path);
@@ -92,7 +85,15 @@ export const test = base.extend<{ production: ProductionServer }>({
         "Content-Type",
         contentTypes[extname(path)] ?? "application/octet-stream",
       );
-      response.end(body);
+      const send = () =>
+        response.end(
+          corrupted === path ? Buffer.from("incorrect release bytes") : body,
+        );
+      if (delayed.path === path) {
+        if (delayed.afterHeaders) response.flushHeaders();
+        const timer = setTimeout(send, delayed.milliseconds);
+        response.on("close", () => clearTimeout(timer));
+      } else send();
     });
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
@@ -107,14 +108,35 @@ export const test = base.extend<{ production: ProductionServer }>({
         requests,
         failedRequests,
         release: original,
+        nextRelease: next,
         publishUpdate: () => {
-          release = nextRelease(original);
+          // Retain immutable assets, as production deployment must do too.
+          release = new Map([...original, ...next]);
+        },
+        publishLegacy: () => {
+          release = legacy;
+        },
+        publishCurrent: () => {
+          release = new Map([...legacy, ...original]);
         },
         fail: (path) => {
           failure = path;
         },
+        delay: (path, milliseconds = 0, afterHeaders = false) => {
+          delayed = { path, milliseconds, afterHeaders };
+        },
+        corrupt: (path) => {
+          corrupted = path;
+        },
+        serveDevelopment: async () => {
+          development = await createViteServer({
+            server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+            logLevel: "error",
+          });
+        },
       });
     } finally {
+      await development?.close();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),

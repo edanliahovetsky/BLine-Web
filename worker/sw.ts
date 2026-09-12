@@ -1,0 +1,278 @@
+/// <reference lib="webworker" />
+
+declare const self: ServiceWorkerGlobalScope & {
+  __WB_MANIFEST: { url: string; revision?: string | null; integrity: string }[];
+};
+
+const entries = self.__WB_MANIFEST;
+const scope = self.registration.scope;
+const absolute = (url: string) => new URL(url, scope).href;
+const snapshot = entries.find((entry) =>
+  /^offline\/[a-f0-9]+\.html$/.test(entry.url),
+)!;
+const release = snapshot.url.split("/").at(-1)!.replace(".html", "");
+const prefix = `bline-offline-v2:${new URL(scope).pathname}:`;
+const cacheName = `${prefix}${release}`;
+const metaName = `${prefix}metadata`;
+const readyKey = absolute(".bline-ready");
+const latestKey = absolute(".bline-latest");
+const previousKey = absolute(".bline-previous");
+const pinKey = (id: string) => absolute(`.bline-client/${id}`);
+const NAVIGATION_TIMEOUT_MS = 25_000;
+interface Release {
+  cache: string;
+  id: string;
+  html: string;
+}
+const current: Release = {
+  cache: cacheName,
+  id: release,
+  html: absolute(snapshot.url),
+};
+
+async function readRecord(
+  cache: Cache,
+  key: string,
+): Promise<Release | undefined> {
+  return (await cache.match(key))?.json();
+}
+
+async function completed(): Promise<Release[]> {
+  const result: Release[] = [];
+  for (const name of await caches.keys()) {
+    if (!name.startsWith(prefix) || name === metaName) continue;
+    const record = await readRecord(await caches.open(name), readyKey);
+    if (record) result.push(record);
+  }
+  return result;
+}
+
+async function verified(
+  response: Response,
+  integrity: string,
+): Promise<Response> {
+  if (response.status !== 200 || response.type === "opaque")
+    throw new Error("Resource download failed");
+  const bytes = await response.clone().arrayBuffer();
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const actual = `sha256-${btoa(String.fromCharCode(...hash))}`;
+  if (actual !== integrity)
+    throw new Error("Resource content does not match release");
+  return response;
+}
+
+async function installRelease(): Promise<void> {
+  const destination = await caches.open(cacheName);
+  const sources = await completed();
+  for (const entry of entries) {
+    const url = absolute(entry.url);
+    let response = await destination.match(url);
+    for (const source of sources) {
+      if (response) break;
+      response = await (await caches.open(source.cache)).match(url);
+    }
+    if (response) {
+      try {
+        await verified(response, entry.integrity);
+      } catch {
+        response = undefined;
+      }
+    }
+    if (!response) {
+      const abort = new AbortController();
+      const timeout = setTimeout(() => abort.abort(), 60_000);
+      try {
+        response = await verified(
+          await fetch(url, {
+            cache: "no-store",
+            credentials: "same-origin",
+            signal: abort.signal,
+          }),
+          entry.integrity,
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    await destination.put(url, response);
+  }
+  // Publishing this marker is the final write. Partial releases are never fallbacks.
+  await destination.put(readyKey, Response.json(current));
+  await self.skipWaiting();
+}
+
+self.addEventListener("install", (event) =>
+  event.waitUntil(
+    installRelease().catch(async (error: unknown) => {
+      // A candidate owns a separate cache; preserve any already-complete copy.
+      if (!(await (await caches.open(cacheName)).match(readyKey)))
+        await caches.delete(cacheName);
+      throw error;
+    }),
+  ),
+);
+self.addEventListener("activate", (event) =>
+  event.waitUntil(
+    (async () => {
+      const meta = await caches.open(metaName);
+      const previous = await readRecord(meta, latestKey);
+      if (previous && previous.id !== release)
+        await meta.put(previousKey, Response.json(previous));
+      await meta.put(latestKey, Response.json(current));
+      // No page reload: all resource requests retain their immutable identities.
+      await self.clients.claim();
+    })(),
+  ),
+);
+
+async function fallback(): Promise<Response | undefined> {
+  const meta = await caches.open(metaName);
+  for (const record of [
+    await readRecord(meta, latestKey),
+    await readRecord(meta, previousKey),
+    current,
+  ]) {
+    if (!record) continue;
+    const cache = await caches.open(record.cache);
+    if (!(await cache.match(readyKey))) continue;
+    const response = await cache.match(record.html);
+    if (response) {
+      const html = (await response.text()).replace(
+        'name="bline-offline" content="false"',
+        'name="bline-offline" content="true"',
+      );
+      return new Response(html, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+  }
+}
+
+async function navigate(event: FetchEvent): Promise<Response> {
+  const saved = await fallback().catch(() => undefined);
+  const abort = new AbortController();
+  // A deadline selects an existing working copy; it does not cut off a first visit.
+  const timeout = saved
+    ? setTimeout(() => abort.abort(), NAVIGATION_TIMEOUT_MS)
+    : undefined;
+  try {
+    const response = await fetch(
+      new Request(event.request, { cache: "no-store", signal: abort.signal }),
+    );
+    const html = await response.clone().text();
+    const isDevelopment =
+      ["localhost", "127.0.0.1", "[::1]"].includes(new URL(scope).hostname) &&
+      response.headers.get("X-BLine-Development") === "true";
+    if (
+      response.status !== 200 ||
+      (!isDevelopment &&
+        !/<meta name="bline-release" content="[a-f0-9]+">/.test(html))
+    ) {
+      throw new Error("The server did not return a BLine release");
+    }
+    return response;
+  } catch {
+    if (saved) return saved;
+    return new Response(
+      "BLine is not available offline yet. Reconnect and refresh to try again.",
+      {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      },
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resource(request: Request): Promise<Response> {
+  try {
+    // Exact URL matching preserves old/new chunks, workers, and fields across tabs.
+    for (const record of await completed()) {
+      const response = await (await caches.open(record.cache)).match(request);
+      if (response) return response;
+    }
+    // Legacy Workbox caches contain immutable JS/CSS under their original URLs.
+    for (const name of await caches.keys()) {
+      if (!name.startsWith("bline-web-precache-")) continue;
+      const response = await (await caches.open(name)).match(request);
+      if (response) return response;
+    }
+  } catch {
+    // Cache access can be revoked after installation; online editing still works.
+  }
+  return fetch(request);
+}
+
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  if (
+    event.request.method !== "GET" ||
+    url.origin !== new URL(scope).origin ||
+    !url.href.startsWith(scope)
+  )
+    return;
+  if (event.request.mode === "navigate") event.respondWith(navigate(event));
+  else if (url.pathname !== new URL("sw.js", scope).pathname)
+    event.respondWith(resource(event.request));
+});
+
+async function collectUnusedReleases(): Promise<void> {
+  if (
+    self.registration.installing ||
+    self.registration.waiting ||
+    self.registration.active?.state !== "activated"
+  )
+    return;
+  const meta = await caches.open(metaName);
+  const keep = new Set([release]);
+  for (const name of await caches.keys()) {
+    if (
+      name.startsWith(prefix) &&
+      name !== metaName &&
+      name !== cacheName &&
+      !(await (await caches.open(name)).match(readyKey))
+    )
+      await caches.delete(name);
+  }
+  for (const key of [latestKey, previousKey]) {
+    const record = await readRecord(meta, key);
+    if (record) keep.add(record.id);
+  }
+  for (const client of await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  })) {
+    if (!client.url.startsWith(scope)) continue;
+    const pin = await meta.match(pinKey(client.id));
+    // Suspended and pre-migration pages must never lose their files.
+    if (!pin) return;
+    keep.add(await pin.text());
+  }
+  for (const record of await completed()) {
+    if (!keep.has(record.id)) await caches.delete(record.cache);
+  }
+}
+
+self.addEventListener("message", (event) => {
+  if (
+    event.data?.type !== "BLINE_PAGE_RELEASE" ||
+    !/^[a-f0-9]{64}$/.test(event.data.release)
+  )
+    return;
+  const client = event.source as Client | null;
+  if (!client?.id || !client.url.startsWith(scope)) return;
+  event.waitUntil(
+    (async () => {
+      await (
+        await caches.open(metaName)
+      ).put(pinKey(client.id), new Response(event.data.release));
+      await collectUnusedReleases();
+    })(),
+  );
+});
+
+export {};

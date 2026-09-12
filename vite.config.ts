@@ -1,13 +1,24 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { VitePWA } from "vite-plugin-pwa";
+import path from "node:path";
+import {
+  offlineDevelopmentRecovery,
+  prepareOfflineRelease,
+  verifyManifest,
+} from "./scripts/offline-build";
 
 const tauriDevHost = process.env.TAURI_DEV_HOST;
+let offlineDirectory = path.resolve("dist");
 
 export default defineConfig({
   plugins: [
     react(),
+    offlineDevelopmentRecovery(),
     VitePWA({
+      strategies: "injectManifest",
+      srcDir: "worker",
+      filename: "sw.ts",
       // Registration is owned by the browser shell; Tauri and development
       // builds must never install a service worker.
       injectRegister: false,
@@ -27,20 +38,24 @@ export default defineConfig({
           { src: "icons/bline-512.png", sizes: "512x512", type: "image/png" },
         ],
       },
-      workbox: {
-        cacheId: "bline-web",
-        // Include unused field images and lazy chunks (including the solver
-        // worker), so the first offline visit can use every editor feature.
-        globPatterns: ["**/*.{html,js,css,png,svg,ico,woff,woff2}"],
-        // Only Vite's hashed JS/CSS names are immutable. Public field PNGs
-        // keep their names across releases and need content revisions.
-        dontCacheBustURLsMatching: /-[\w-]{8}\.(?:js|css)$/,
-        navigateFallback: "index.html",
-        cleanupOutdatedCaches: true,
-        // A failed install leaves the active version and its assets intact.
-        // A complete update waits for all old app tabs/windows to close.
-        skipWaiting: false,
-        clientsClaim: false,
+      integration: {
+        async beforeBuildServiceWorker(options) {
+          offlineDirectory = path.resolve(options.outDir);
+          await prepareOfflineRelease(offlineDirectory);
+          // VitePWA adds an unverified manifest entry after Workbox transforms.
+          // Our glob already includes it, with the same integrity checks as every file.
+          options.injectManifest.additionalManifestEntries = [];
+        },
+      },
+      injectManifest: {
+        rollupFormat: "iife",
+        globPatterns: [
+          "**/*.{html,js,css,png,svg,ico,woff,woff2,json,wasm,webmanifest}",
+        ],
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        manifestTransforms: [
+          (entries) => verifyManifest(entries, offlineDirectory),
+        ],
       },
     }),
   ],

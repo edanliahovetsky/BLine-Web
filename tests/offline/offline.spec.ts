@@ -64,6 +64,7 @@ test("reopens, edits, simulates, and starts the optimizer offline", async ({
   const assets = [...production.release.keys()].filter(
     (path) =>
       path !== "/sw.js" &&
+      path !== "/index.html" &&
       !path.startsWith("/workbox-") &&
       /\.(?:html|js|css|png|webmanifest)$/.test(path),
   );
@@ -156,86 +157,212 @@ test("preserves custom field images and User Data across offline reloads", async
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
 });
 
-test("retains the working release after an interrupted update, then updates after all tabs close", async ({
+function releaseId(files: Map<string, Buffer>): string {
+  return files
+    .get("/index.html")!
+    .toString()
+    .match(/name="bline-release" content="([a-f0-9]+)"/)![1]!;
+}
+
+async function pageRelease(page: Page): Promise<string | null> {
+  return page.locator('meta[name="bline-release"]').getAttribute("content");
+}
+
+async function awaitOfflineRelease(page: Page, id: string): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const name = (await caches.keys()).find((name) =>
+          name.endsWith(":metadata"),
+        );
+        if (!name) return null;
+        const latest = await (
+          await caches.open(name)
+        ).match(new URL(".bline-latest", location.origin).href);
+        return latest ? (await latest.json()).id : null;
+      }),
+    )
+    .toBe(id);
+}
+
+async function updateWorker(page: Page): Promise<void> {
+  await page.evaluate(async () =>
+    (await navigator.serviceWorker.ready).update(),
+  );
+}
+
+test("online refresh opens the new release while another editor stays open", async ({
   page,
   context,
   production,
 }) => {
   await prepareOffline(page);
-  const oldField = await fieldBytes(page);
-  const otherTab = await context.newPage();
-  await otherTab.goto(production.url);
+  await editAndSave(page);
+  const original = releaseId(production.release);
+  const next = releaseId(production.nextRelease);
+  const oldTab = await context.newPage();
+  await oldTab.goto(production.url);
   production.publishUpdate();
-  production.fail("/assets/fields/field26.png");
-  await page.evaluate(async () =>
-    (await navigator.serviceWorker.ready).update(),
+  await page.reload();
+  await expect.poll(() => pageRelease(page)).toBe(next);
+  expect(await pageRelease(oldTab)).toBe(original);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-offline-test-build",
+    "next",
   );
-  await expect.poll(() => production.failedRequests.length).toBeGreaterThan(0);
+  await awaitOfflineRelease(page, next);
+  expect(await pageRelease(oldTab)).toBe(original);
+  await context.setOffline(true);
+  // Old pages still get their exact unexecuted worker and lazy chunks.
+  for (const path of [...production.release.keys()].filter(
+    (path) => path.startsWith("/assets/") && /\.(js|css|png)$/.test(path),
+  )) {
+    const bytes = await oldTab.evaluate(
+      async (path) =>
+        Array.from(new Uint8Array(await (await fetch(path)).arrayBuffer())),
+      path,
+    );
+    expect(bytes, path).toEqual(Array.from(production.release.get(path)!));
+  }
+  await page.reload();
+  expect(await pageRelease(page)).toBe(next);
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
+});
+
+test("failed updates preserve the complete fallback while the new online page can open", async ({
+  page,
+  context,
+  production,
+}) => {
+  await prepareOffline(page);
+  const original = releaseId(production.release);
+  const next = releaseId(production.nextRelease);
+  const worker = [...production.nextRelease.keys()].find((path) =>
+    path.includes("autoVelocity.worker-"),
+  )!;
+  expect(production.release.has(worker)).toBe(false);
+  production.publishUpdate();
+  production.fail(worker);
+  await page.reload();
+  expect(await pageRelease(page)).toBe(next);
   await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const registration = await navigator.serviceWorker.ready;
-        return !registration.installing && !registration.waiting;
-      }),
-    )
+    .poll(() => production.failedRequests.includes(worker))
     .toBe(true);
   await context.setOffline(true);
   await page.reload();
-  await expect(page.getByTestId("path-stage")).toBeVisible();
-  expect(await fieldBytes(page)).toEqual(oldField);
-  await expect(page.locator('meta[name="offline-test-release"]')).toHaveCount(
-    0,
-  );
+  expect(await pageRelease(page)).toBe(original);
   await editAndSave(page);
-
   production.fail(null);
   await context.setOffline(false);
-  await page.evaluate(async () =>
-    (await navigator.serviceWorker.ready).update(),
-  );
+  await updateWorker(page);
+  await awaitOfflineRelease(page, next);
+  // Reconnection/install did not navigate this editor.
+  expect(await pageRelease(page)).toBe(original);
+  await context.setOffline(true);
+  await page.reload();
+  expect(await pageRelease(page)).toBe(next);
+});
+
+test("rejects incorrect resource bytes and reuses unchanged assets", async ({
+  page,
+  context,
+  production,
+}) => {
+  await prepareOffline(page);
+  const worker = [...production.nextRelease.keys()].find((path) =>
+    path.includes("autoVelocity.worker-"),
+  )!;
+  const start = production.requests.length;
+  production.publishUpdate();
+  production.corrupt(worker);
+  await updateWorker(page);
+  await expect
+    .poll(() => production.requests.slice(start).includes(worker))
+    .toBe(true);
   await expect
     .poll(() =>
       page.evaluate(
-        async () => !!(await navigator.serviceWorker.ready).waiting,
+        async () => !(await navigator.serviceWorker.ready).installing,
       ),
     )
     .toBe(true);
-  // A complete update also leaves the active editor and its stable PNG alone.
-  await page.reload();
-  await expect(page.locator('meta[name="offline-test-release"]')).toHaveCount(
-    0,
-  );
-  expect(await fieldBytes(page)).toEqual(oldField);
-  await page.close();
-  expect(
-    await otherTab.evaluate(
-      async () => !!(await navigator.serviceWorker.ready).waiting,
-    ),
-  ).toBe(true);
-  await otherTab.close();
   await context.setOffline(true);
-  // Activation is asynchronous after the final client closes. A probe that
-  // catches the old version closes too, so it cannot hold that version open.
-  let reopened!: Page;
-  await expect
-    .poll(async () => {
-      const probe = await context.newPage();
-      await probe.goto(production.url);
-      if (await probe.locator('meta[name="offline-test-release"]').count()) {
-        reopened = probe;
-        return true;
-      }
-      await probe.close();
-      return false;
-    })
-    .toBe(true);
-  expect(await fieldBytes(reopened)).toEqual(
-    Array.from(production.release.get("/assets/fields/field22.png")!),
+  await page.reload();
+  expect(await pageRelease(page)).toBe(releaseId(production.release));
+  production.corrupt(null);
+  await context.setOffline(false);
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  const unchangedImage = [...production.nextRelease.keys()].find((path) =>
+    path.startsWith("/assets/field23-"),
+  )!;
+  expect(production.requests.slice(start)).not.toContain(unchangedImage);
+});
+
+test("waits for slow HTML but falls back after 25 seconds even when Wi-Fi reports online", async ({
+  page,
+  production,
+}) => {
+  await prepareOffline(page);
+  production.publishUpdate();
+  production.delay("/index.html", 3500);
+  await page.reload();
+  expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  production.delay("/index.html", 60_000, true);
+  const start = Date.now();
+  await page.reload();
+  expect(Date.now() - start).toBeGreaterThanOrEqual(24_000);
+  expect(Date.now() - start).toBeLessThan(35_000);
+  expect(await page.evaluate(() => navigator.onLine)).toBe(true);
+  await expect(page.locator('meta[name="bline-offline"]')).toHaveAttribute(
+    "content",
+    "true",
   );
-  await reopened.getByTestId("path-element-row-0").click();
-  await expect(reopened.getByLabel("X (m)", { exact: true })).toHaveValue(
-    "6.25",
+});
+
+test("HTTP failures fall back without waiting for the deadline", async ({
+  page,
+  production,
+}) => {
+  await prepareOffline(page);
+  production.fail("/index.html");
+  const start = Date.now();
+  await page.reload();
+  expect(Date.now() - start).toBeLessThan(10_000);
+  await expect(page.locator('meta[name="bline-offline"]')).toHaveAttribute(
+    "content",
+    "true",
   );
+  expect(await page.evaluate(() => navigator.onLine)).toBe(true);
+});
+
+test("migrates the legacy cache-first worker without closing other tabs or clearing saved work", async ({
+  page,
+  context,
+  production,
+}) => {
+  production.publishLegacy();
+  await prepareOffline(page);
+  await editAndSave(page);
+  const other = await context.newPage();
+  await other.goto(production.url);
+  production.publishUpdate();
+  await updateWorker(page);
+  await awaitOfflineRelease(page, releaseId(production.nextRelease));
+  // Neither legacy page was forced to reload during migration.
+  await expect(page.locator('meta[name="bline-release"]')).toHaveCount(0);
+  await expect(other.locator('meta[name="bline-release"]')).toHaveCount(0);
+  await page.reload();
+  expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
+  await context.setOffline(true);
+  expect(await fieldBytes(other)).toEqual(
+    Array.from(production.release.get("/assets/fields/field26.png")!),
+  );
+  await page.reload();
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
 });
 
 test("retries an incomplete first download when the connection returns", async ({
@@ -284,6 +411,9 @@ test("opens saved work offline after the browser restarts", async ({
     const page = first.pages()[0]!;
     await prepareOffline(page);
     await editAndSave(page);
+    production.publishUpdate();
+    await updateWorker(page);
+    await awaitOfflineRelease(page, releaseId(production.nextRelease));
   } finally {
     await first.close();
   }
@@ -295,6 +425,7 @@ test("opens saved work offline after the browser restarts", async ({
     const page = reopened.pages()[0]!;
     const response = await page.goto(production.url);
     expect(response?.fromServiceWorker()).toBe(true);
+    expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
     await page.getByTestId("path-element-row-0").click();
     await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
     await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
@@ -333,4 +464,53 @@ test("does not register a browser service worker inside Tauri", async ({
     ),
   ).toBe(0);
   expect(production.requests).not.toContain("/sw.js");
+});
+
+for (const legacy of [false, true]) {
+  test(`recovers a ${legacy ? "legacy" : "current"} production worker when the same origin starts Vite`, async ({
+    page,
+    production,
+  }) => {
+    if (legacy) production.publishLegacy();
+    await prepareOffline(page);
+    await editAndSave(page);
+    await production.serveDevelopment();
+    // The old application's registration/update path reaches the server's /sw.js
+    // even though the old worker can still intercept HTML.
+    await updateWorker(page);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () => (await navigator.serviceWorker.getRegistrations()).length,
+        ),
+      )
+      .toBe(0);
+    await page.reload();
+    await expect(page.locator('script[src="/src/main.tsx"]')).toHaveCount(1);
+    await expect(page.locator('meta[name="bline-release"]')).toHaveCount(0);
+    await page.getByTestId("path-element-row-0").click();
+    await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
+    expect(
+      await page.evaluate(
+        async () => (await navigator.serviceWorker.getRegistrations()).length,
+      ),
+    ).toBe(0);
+  });
+}
+
+test("keeps online navigation available if cache access is revoked after installation", async ({
+  page,
+  context,
+  production,
+}) => {
+  await prepareOffline(page);
+  const worker = context.serviceWorkers()[0]!;
+  await worker.evaluate(() => {
+    caches.open = () =>
+      Promise.reject(new DOMException("Storage disabled", "SecurityError"));
+  });
+  production.publishUpdate();
+  await page.reload();
+  expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
+  await editAndSave(page);
 });

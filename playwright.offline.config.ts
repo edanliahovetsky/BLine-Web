@@ -4,7 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 // These checks must exercise real service workers, not Vite's dev server.
 export default defineConfig({
   testDir: "./tests/offline",
-  timeout: 45_000,
+  globalSetup: "./tests/offline/buildFixtures.ts",
+  timeout: 90_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
   workers: 2,
