@@ -15,9 +15,7 @@ test.describe("app shell visual baselines", () => {
   test("start center", async ({ page }) => {
     await page.goto("/");
 
-    await expect(
-      page.getByRole("heading", { name: "BLine Web" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "BLine" })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Sample path" }),
     ).toBeVisible();

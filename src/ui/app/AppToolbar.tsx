@@ -380,12 +380,8 @@ export function AppToolbar({
             </IconButton>
             {panels.showHelpHub ? (
               <HelpHubPopover
-                tourAvailable={Boolean(activePath) && toursSupported}
-                tourUnavailableReason={
-                  toursSupported
-                    ? "Open a path first"
-                    : "Tours need a larger window"
-                }
+                tourAvailable={toursSupported}
+                tourUnavailableReason="Guided lessons require a wider window."
                 onClose={panels.closeHelpHub}
                 onStartTour={() => {
                   panels.closeHelpHub();

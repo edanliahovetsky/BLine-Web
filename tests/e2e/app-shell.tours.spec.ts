@@ -1037,20 +1037,38 @@ test("keeps linked endpoints aligned and tunes only the final minimum velocity",
   await finish(page);
 });
 
-test("starts at home and restores home after exiting", async ({ page }) => {
-  await page.goto("/");
-  await dismissMobileSupportWarning(page);
-  await page.getByTestId("start-center-guided-tour").click();
-  await page
-    .getByTestId("tour-picker")
-    .getByText("Getting Started", { exact: true })
-    .click();
-  await expect(page.getByTestId("tour-card")).toBeVisible();
-  await exitLesson(page);
-  await expect(
-    page.getByRole("heading", { name: "BLine Web", exact: true }),
-  ).toBeVisible();
-});
+for (const entryPoint of ["Learn panel", "help menu"]) {
+  test(`starts a lesson from the home ${entryPoint} without a project and restores home @webkit-canvas`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await dismissMobileSupportWarning(page);
+    const home = page.getByTestId("start-center");
+    await expect(home).toBeVisible();
+    if (entryPoint === "help menu") {
+      await page.getByRole("button", { name: "Help and tutorials" }).click();
+      const lessons = page.getByTestId("start-guided-tour");
+      await expect(lessons).toBeEnabled();
+      await lessons.click();
+      await expect(page.getByTestId("help-hub")).toHaveCount(0);
+    } else {
+      await home.getByTestId("start-center-guided-tour").click();
+    }
+    await page
+      .getByTestId("tour-picker")
+      .getByText("Getting Started", { exact: true })
+      .click();
+    await heading(page, "Canvas");
+    await exitLesson(page);
+    await expect(home).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "BLine", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("current-path-status")).toContainText(
+      "No path",
+    );
+  });
+}
 
 test("closes practice below the mobile support threshold", async ({ page }) => {
   await gotoSampleEditor(page);
