@@ -6339,7 +6339,12 @@ body.is-resizing-inspector * {
   grid-template-rows: minmax(0, 1fr);
 }
 
+.workspace.is-navigator-open .project-navigator {
+  grid-area: 1 / 1;
+}
+
 .workspace.is-navigator-open .canvas-region {
+  grid-area: 1 / 2;
   container: navigator-canvas / inline-size;
 }
 .workspace.is-navigator-open .simulation-transport {

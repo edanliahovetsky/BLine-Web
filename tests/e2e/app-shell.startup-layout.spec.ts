@@ -712,7 +712,7 @@ for (const viewport of [
   });
 }
 
-test("selects paths and operates the portrait toolbar with the keyboard", async ({
+test("selects paths and operates the portrait toolbar with the keyboard @webkit-canvas", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
