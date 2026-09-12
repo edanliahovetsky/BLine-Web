@@ -1,13 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ChangeEvent, RefCallback, RefObject } from "react";
-import {
-  CircleHelp,
-  FolderTree,
-  PanelRight,
-  Redo2,
-  Settings,
-  Undo2,
-} from "lucide-react";
+import { CircleHelp, FolderTree, PanelRight, Redo2, Undo2 } from "lucide-react";
 import type {
   Project,
   ProjectPath,
@@ -140,6 +133,7 @@ export function AppToolbar({
     toursSupported,
   } = model;
   const helpHubRef = useRef<HTMLDivElement>(null);
+  const fileMenuButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <header className="app-toolbar" ref={toolbarRef} data-tour="editor-toolbar">
@@ -157,6 +151,7 @@ export function AppToolbar({
         <TopMenuButton
           id="project"
           label="File"
+          triggerRef={fileMenuButtonRef}
           dataTour="export-menu-entry"
           openTopMenu={menu.open}
           setOpenTopMenu={menu.setOpen}
@@ -167,7 +162,6 @@ export function AppToolbar({
             disabled={!project || !projectIoAvailable || toolbarBusy}
             onAction={actions.home}
           />
-          <div className="top-menu__separator" role="separator" />
           <MenuAction
             label="New Path"
             disabled={commands.newPath.disabled}
@@ -238,6 +232,17 @@ export function AppToolbar({
                 void actions.exportProjectArchive();
               }}
             />
+            <div className="top-menu__separator" role="separator" />
+            <MenuAction
+              label="Import Path..."
+              disabled={!project || !projectIoAvailable || toolbarBusy}
+              onAction={() => actions.importFile("path")}
+            />
+            <MenuAction
+              label="Export Path..."
+              disabled={!activePath || !projectIoAvailable}
+              onAction={() => void actions.exportPath()}
+            />
           </MenuSubmenu>
           <MenuSubmenu label="Config" testId="top-menu-project-config">
             <MenuAction
@@ -273,11 +278,21 @@ export function AppToolbar({
               }
             />
           </MenuSubmenu>
+          <div className="top-menu__separator" role="separator" />
+          <MenuAction
+            label="Settings"
+            disabled={commands.settings.disabled}
+            onAction={() => {
+              fileMenuButtonRef.current?.focus();
+              menu.setOpen(null);
+              executeCommand(commands.settings);
+            }}
+          />
         </TopMenuButton>
         <TopMenuButton
           id="path"
           dataTour="path-menu-entry"
-          label="Path"
+          label="Edit"
           active
           triggerRef={menu.pathTriggerRef}
           openTopMenu={menu.open}
@@ -290,51 +305,33 @@ export function AppToolbar({
             </>
           ) : null}
           <MenuAction
+            label="Save Path As..."
+            disabled={!activePath || !projectIoAvailable || toolbarBusy}
+            onAction={() => void actions.savePathAs()}
+          />
+          <MenuAction
+            label="Rename Path..."
+            disabled={!activePath || toolbarBusy}
+            onAction={actions.renamePath}
+          />
+          <MenuAction
+            label="Delete Paths..."
+            disabled={!project || project.paths.length === 0 || toolbarBusy}
+            onAction={() => actions.showDeletePaths()}
+          />
+          <MenuAction
+            label="Delete Path Groups..."
+            disabled={
+              !project || project.path_groups.length === 0 || toolbarBusy
+            }
+            onAction={() => actions.showDeletePathGroups()}
+          />
+          <div className="top-menu__separator" role="separator" />
+          <MenuAction
             label="Linked Elements..."
             disabled={!project || toolbarBusy}
             onAction={actions.showLinkedTargets}
           />
-          <MenuSubmenu label="Manage Paths" testId="top-menu-path-manage">
-            <MenuAction
-              label="New Path"
-              disabled={commands.newPath.disabled}
-              onAction={() => executeCommand(commands.newPath)}
-            />
-            <MenuAction
-              label="Save Path As..."
-              disabled={!activePath || !projectIoAvailable || toolbarBusy}
-              onAction={() => void actions.savePathAs()}
-            />
-            <MenuAction
-              label="Rename Path..."
-              disabled={!activePath || toolbarBusy}
-              onAction={actions.renamePath}
-            />
-            <MenuAction
-              label="Delete Paths..."
-              disabled={!project || project.paths.length === 0 || toolbarBusy}
-              onAction={() => actions.showDeletePaths()}
-            />
-            <MenuAction
-              label="Delete Path Groups..."
-              disabled={
-                !project || project.path_groups.length === 0 || toolbarBusy
-              }
-              onAction={() => actions.showDeletePathGroups()}
-            />
-          </MenuSubmenu>
-          <MenuSubmenu label="Import / Export" testId="top-menu-path-transfer">
-            <MenuAction
-              label="Import Path..."
-              disabled={!project || !projectIoAvailable || toolbarBusy}
-              onAction={() => actions.importFile("path")}
-            />
-            <MenuAction
-              label="Export Path..."
-              disabled={!activePath || !projectIoAvailable}
-              onAction={() => void actions.exportPath()}
-            />
-          </MenuSubmenu>
         </TopMenuButton>
       </nav>
       <nav className="toolbar-actions" aria-label="Project actions">
@@ -402,15 +399,6 @@ export function AppToolbar({
               />
             ) : null}
           </div>
-          <IconButton
-            aria-label="Settings"
-            data-tour="settings-menu-entry"
-            title="Project settings"
-            disabled={commands.settings.disabled}
-            onClick={() => executeCommand(commands.settings)}
-          >
-            <Settings aria-hidden="true" size={16} />
-          </IconButton>
           <InspectorButton
             open={panels.inspectorOpen}
             command={commands.inspector}

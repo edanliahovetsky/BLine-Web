@@ -61,3 +61,12 @@ export async function dismissMobileSupportWarning(page: Page): Promise<void> {
     await expect(warning).toHaveCount(0);
   }
 }
+
+export async function openProjectSettings(page: Page): Promise<void> {
+  const file = page.getByRole("button", { name: "File", exact: true });
+  if ((await file.getAttribute("aria-expanded")) !== "true") {
+    await file.click();
+  }
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+}

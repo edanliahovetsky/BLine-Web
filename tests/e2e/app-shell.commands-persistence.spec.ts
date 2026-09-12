@@ -15,8 +15,7 @@ import {
 } from "./support/app-shell-persistence";
 import {
   createNewPathFromTopMenu,
-  openPathManageMenu,
-  openPathMenu,
+  openEditMenu,
 } from "./support/app-shell-project-library";
 import {
   dismissMobileSupportWarning,
@@ -33,7 +32,7 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await openPathManageMenu(page);
+  await openEditMenu(page);
   await page.getByRole("menuitem", { name: "Delete Paths..." }).click();
   await expect(
     page.getByRole("dialog", { name: "Delete Paths" }),
@@ -108,7 +107,7 @@ test("recovers autosaved edits after reload", async ({ page }) => {
 test("keeps linked elements after reload", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  const pathMenu = await openPathMenu(page);
+  const pathMenu = await openEditMenu(page);
   await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
 
   let dialog = page.getByRole("dialog", { name: "Linked Elements" });
@@ -125,7 +124,7 @@ test("keeps linked elements after reload", async ({ page }) => {
   });
   await page.reload();
 
-  const reopenedPathMenu = await openPathMenu(page);
+  const reopenedPathMenu = await openEditMenu(page);
   await reopenedPathMenu
     .getByRole("menuitem", { name: "Linked Elements..." })
     .click();
@@ -210,7 +209,7 @@ test("synchronizes linked inspector and keyboard edits while respecting locks", 
   });
 
   await test.step("prevent keyboard nudges while the shared point is locked", async () => {
-    const pathMenu = await openPathMenu(page);
+    const pathMenu = await openEditMenu(page);
     await pathMenu
       .getByRole("menuitem", { name: "Linked Elements..." })
       .click();
@@ -596,7 +595,7 @@ test("supports common keyboard shortcuts", async ({ page }) => {
 test("keeps global shortcuts behind the path name dialog", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  await openPathManageMenu(page);
+  await openEditMenu(page);
   await page.getByRole("menuitem", { name: "Save Path As..." }).click();
 
   const dialog = page.getByRole("dialog", { name: "Save Path As" });
@@ -614,7 +613,7 @@ test("keeps global shortcuts behind the linked element picker", async ({
 }) => {
   await gotoSampleEditor(page);
 
-  const pathMenu = await openPathMenu(page);
+  const pathMenu = await openEditMenu(page);
   await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
   const linkedElementsDialog = page.getByRole("dialog", {
     name: "Linked Elements",

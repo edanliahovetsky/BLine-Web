@@ -128,7 +128,7 @@ for (const [width, height] of [
       await heading(page, "Edit actions");
       await expect(page.locator('[data-tour="edit-controls"]')).toBeVisible();
       await advance(page);
-      await heading(page, "Path menu");
+      await heading(page, "Edit menu");
       await page.locator('[data-tour="path-menu-entry"]').click();
       await expect(
         page.locator('[data-tour="path-menu-entry"]'),

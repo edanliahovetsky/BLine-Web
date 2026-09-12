@@ -25,17 +25,9 @@ export function pointBetweenFlyoutAndTrigger(
   };
 }
 
-export async function openPathMenu(page: Page): Promise<Locator> {
-  await page.getByRole("button", { name: "Path", exact: true }).click();
+export async function openEditMenu(page: Page): Promise<Locator> {
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
   const menu = page.getByTestId("top-menu-path");
-  await expect(menu).toBeVisible();
-  return menu;
-}
-
-export async function openPathManageMenu(page: Page): Promise<Locator> {
-  await openPathMenu(page);
-  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
-  const menu = page.getByTestId("top-menu-path-manage");
   await expect(menu).toBeVisible();
   return menu;
 }
@@ -120,7 +112,7 @@ export async function createNewPathFromTopMenu(
   page: Page,
   pathName: string,
 ): Promise<void> {
-  await openPathManageMenu(page);
+  await page.getByRole("button", { name: "File", exact: true }).click();
   await page.getByRole("menuitem", { name: "New Path" }).click();
   const dialog = page.getByRole("dialog", { name: "Project Navigator" });
   await expect(dialog).toBeVisible();

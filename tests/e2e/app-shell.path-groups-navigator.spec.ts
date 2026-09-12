@@ -465,10 +465,7 @@ test("selects Path Groups for bulk deletion from row and top menus, with cancel 
   await nav.getByRole("button", { name: "Close", exact: true }).click();
 
   const openFromTopMenu = async () => {
-    await page.getByRole("button", { name: "Path", exact: true }).click();
-    await page
-      .getByRole("menuitem", { name: "Manage Paths", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await page
       .getByRole("menuitem", { name: "Delete Path Groups...", exact: true })
       .click();

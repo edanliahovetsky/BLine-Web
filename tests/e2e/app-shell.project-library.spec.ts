@@ -19,12 +19,16 @@ import {
   createNewPathFromTopMenu,
   createPathGroupFromTopMenu,
   openPathLibraryDialog,
-  openPathMenu,
+  openEditMenu,
   pointBetweenFlyoutAndTrigger,
   selectToolbarOption,
   submitNameDialog,
 } from "./support/app-shell-project-library";
-import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
+import {
+  gotoSampleEditor,
+  requiredBox,
+  openProjectSettings,
+} from "./support/app-shell-shared";
 
 test("creates a Path inline from the File menu", async ({ page }) => {
   await gotoSampleEditor(page);
@@ -118,8 +122,7 @@ test("switches collected Paths and toggles Path Group canvas overlays", async ({
 
   await createPathGroupFromTopMenu(page, "Score Autos");
 
-  await page.getByRole("button", { name: "Path", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByRole("menuitem", { name: "Save Path As..." }).click();
   await submitNameDialog(page, "Save Path As", "Ghost Copy", "Save Copy");
 
@@ -172,7 +175,7 @@ test("uses the linked-elements layout across desktop and narrow viewports", asyn
   await page.setViewportSize({ width: 1440, height: 900 });
   await gotoSampleEditor(page);
 
-  const pathMenu = await openPathMenu(page);
+  const pathMenu = await openEditMenu(page);
   await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
 
   const dialog = page.getByRole("dialog", { name: "Linked Elements" });
@@ -232,11 +235,31 @@ test("uses the linked-elements layout across desktop and narrow viewports", asyn
     .toEqual({ columnCount: 1, aligned: true, stacked: true });
 });
 
-test("exposes PySide-equivalent top menu commands", async ({ page }) => {
+test("organizes File and Edit commands in their requested locations", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
 
   await openProjectMenu(page);
   await expect(page.getByTestId("top-menu-project")).toBeVisible();
+  const fileMenu = page.getByTestId("top-menu-project");
+  await expect(
+    fileMenu.getByRole("menuitem").locator(".top-menu__item-label"),
+  ).toHaveText([
+    "Home",
+    "New Path",
+    "Workspace",
+    "Import / Export",
+    "Config",
+    "Recent Projects",
+    "Settings",
+  ]);
+  await expect(
+    fileMenu.locator('[role="separator"] + [role="menuitem"]').last(),
+  ).toHaveText("Settings");
+  await expect(
+    page.getByRole("button", { name: "Settings", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("menuitem", { name: "New Path", exact: true }),
   ).toBeVisible();
@@ -314,53 +337,33 @@ test("exposes PySide-equivalent top menu commands", async ({ page }) => {
     page.getByRole("menuitem", { name: "Export Config..." }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Path", exact: true }).click();
-  await expect(page.getByTestId("top-menu-path")).toBeVisible();
-  await expect(page.getByText("Current: Phase 1 Canvas Draft")).toHaveCount(0);
-  await expect(page.getByText("Path Group: None")).toHaveCount(0);
+  const editMenu = await openEditMenu(page);
+  await expect(editMenu.getByRole("menuitem")).toHaveText([
+    "Save Path As...",
+    "Rename Path...",
+    "Delete Paths...",
+    "Delete Path Groups...",
+    "Linked Elements...",
+  ]);
   await expect(
-    page.getByRole("menuitem", { name: "Linked Elements..." }),
-  ).toBeVisible();
+    editMenu.locator('[role="separator"] + [role="menuitem"]').last(),
+  ).toHaveText("Linked Elements...");
+  for (const label of ["New Path", "Import / Export", "Manage Paths"]) {
+    await expect(
+      editMenu.getByRole("menuitem", { name: label, exact: true }),
+    ).toHaveCount(0);
+  }
   await expect(
-    page.getByRole("menuitem", { name: "Project Navigator...", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("menuitem", { name: "Manage Paths" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Import / Export" }),
-  ).toBeVisible();
-  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
-  await expect(page.getByTestId("top-menu-path-manage")).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "New Path" })).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Save Path As..." }),
-  ).toBeVisible();
-  await page.getByRole("menuitem", { name: "Import / Export" }).click();
-  await expect(page.getByTestId("top-menu-path-transfer")).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Import Path..." }),
-  ).toBeVisible();
-
-  // The menu bar is limited to File and Path; Edit/View/Help were removed
-  // and their actions moved to the toolbar, command palette, and shortcuts.
-  await expect(
-    page.getByRole("button", { name: "Edit", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "View", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Help", exact: true }),
+    page.getByRole("button", { name: "Path", exact: true }),
   ).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
   await expect(page.getByLabel("Robot Length (m)")).toBeVisible();
   await page.getByRole("button", { name: "Close config" }).click();
 });
 
-test("keeps top dropdowns streamlined with condensed path side menus", async ({
+test("keeps File flyouts compact and Edit actions in a single menu", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -382,35 +385,28 @@ test("keeps top dropdowns streamlined with condensed path side menus", async ({
 
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await expect(recentMenu).toHaveCount(0);
-  await expect(page.getByTestId("top-menu-project-transfer")).toBeVisible();
-
-  await page.getByRole("button", { name: "Path", exact: true }).click();
-  const pathMenu = page.getByTestId("top-menu-path");
-  await expect(pathMenu).toBeVisible();
-  expect((await requiredBox(pathMenu)).width).toBeLessThanOrEqual(270);
-
-  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
-  const managePathMenu = page.getByTestId("top-menu-path-manage");
-  await expect(managePathMenu).toBeVisible();
-  const pathMenuBox = await requiredBox(pathMenu);
-  const managePathMenuBox = await requiredBox(managePathMenu);
-  expect(managePathMenuBox.width).toBeLessThanOrEqual(285);
-  expect(managePathMenuBox.x).toBeGreaterThanOrEqual(
-    pathMenuBox.x + pathMenuBox.width,
-  );
-
-  await page.getByRole("menuitem", { name: "Import / Export" }).click();
-  await expect(managePathMenu).toHaveCount(0);
-  const transferMenu = page.getByTestId("top-menu-path-transfer");
+  const transferMenu = page.getByTestId("top-menu-project-transfer");
   await expect(transferMenu).toBeVisible();
   const transferMenuBox = await requiredBox(transferMenu);
   expect(transferMenuBox.width).toBeLessThanOrEqual(285);
   expect(transferMenuBox.x).toBeGreaterThanOrEqual(
-    pathMenuBox.x + pathMenuBox.width,
+    projectMenuBox.x + projectMenuBox.width,
   );
+  await expect(transferMenu.getByRole("menuitem")).toHaveText([
+    "Import Autos Folder...",
+    "Export Autos Folder...",
+    "Import Project Archive...",
+    "Export Project Archive...",
+    "Import Path...",
+    "Export Path...",
+  ]);
+
+  const editMenu = await openEditMenu(page);
+  expect((await requiredBox(editMenu)).width).toBeLessThanOrEqual(270);
   await expect(
-    transferMenu.getByRole("menuitem", { name: "Import Path..." }),
+    editMenu.getByRole("menuitem", { name: "Save Path As..." }),
   ).toBeVisible();
+  await expect(editMenu.locator('[aria-haspopup="menu"]')).toHaveCount(0);
 });
 
 test("keeps project flyouts stable while hovering between choices", async ({
@@ -514,7 +510,7 @@ test("dismisses the open-project dialog before using top menus", async ({
   await expect(
     page.getByRole("dialog", { name: "Open project", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Path", exact: true }).click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.getByTestId("top-menu-path")).toBeVisible();
 
   await page.getByRole("button", { name: "File", exact: true }).click();
@@ -522,7 +518,7 @@ test("dismisses the open-project dialog before using top menus", async ({
   await expect(page.getByTestId("top-menu-project")).toBeVisible();
 });
 
-test("project and path menus expose import modes without toolbar clutter", async ({
+test("File exposes all import modes without toolbar clutter", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -546,9 +542,6 @@ test("project and path menus expose import modes without toolbar clutter", async
     page.getByRole("menuitem", { name: "Import Project Archive..." }),
   ).toBeVisible();
 
-  await openPathMenu(page);
-  await page.getByRole("menuitem", { name: "Import / Export" }).click();
-  await expect(page.getByTestId("top-menu-path-transfer")).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Import Path..." }),
   ).toBeVisible();
@@ -770,13 +763,13 @@ test("browser legacy autos folder import re-exports the clean sidecar tree", asy
   }
 });
 
-test("path menu export saves the active path and import path round-trips it", async ({
+test("File export saves the active path and import path round-trips it", async ({
   page,
 }) => {
   await installSaveFilePickerSpy(page, { waitForRelease: true });
   await gotoSampleEditor(page);
 
-  await openPathMenu(page);
+  await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Export Path..." }).click();
 
@@ -789,7 +782,7 @@ test("path menu export saves the active path and import path round-trips it", as
   });
 
   const chooserPromise = page.waitForEvent("filechooser");
-  await openPathMenu(page);
+  await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Import Path..." }).click();
   const chooser = await chooserPromise;

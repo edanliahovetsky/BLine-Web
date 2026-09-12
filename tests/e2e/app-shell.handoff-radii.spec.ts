@@ -1,7 +1,7 @@
+import { openProjectMenu } from "./support/app-shell-persistence";
 import { expect, test, type Page } from "@playwright/test";
 import { canvasNodePosition } from "./support/app-shell-canvas";
 import { openConstraintsTab } from "./support/app-shell-constraints";
-import { openPathMenu } from "./support/app-shell-project-library";
 import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -92,7 +92,7 @@ async function importHandoffPath(
 ): Promise<void> {
   await gotoSampleEditor(page);
   const choosing = page.waitForEvent("filechooser");
-  await openPathMenu(page);
+  await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Import Path..." }).click();
   await (

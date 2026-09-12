@@ -263,15 +263,15 @@ export const gettingStartedTour: TourDefinition = {
       prepare: { closeMenus: true },
     },
     {
-      title: "Path menu",
-      body: "Open Path to find commands for the current path.",
+      title: "Edit menu",
+      body: "Open Edit to find commands for the current path and Linked Elements.",
       target: "path-menu-entry",
       interact: ["path-menu-entry"],
-      task: "Open Path",
+      task: "Open Edit",
       prepare: { closeMenus: true },
       check: openControl(
         '[data-tour="path-menu-entry"][aria-expanded="true"]',
-        "Open Path.",
+        "Open Edit.",
       ),
     },
     {

@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { gotoSampleEditor } from "./support/app-shell-shared";
+import {
+  gotoSampleEditor,
+  openProjectSettings,
+} from "./support/app-shell-shared";
 
 test.describe("shared theme across dialogs and nested controls", () => {
   test.use({
@@ -17,7 +20,7 @@ test.describe("shared theme across dialogs and nested controls", () => {
 
   for (const section of ["Robot", "Path Defaults", "Field", "Generator"]) {
     test(`Settings — ${section}`, async ({ page }) => {
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await openProjectSettings(page);
       const dialog = page.getByRole("dialog", { name: "Edit Config" });
       await dialog.getByRole("button", { name: section, exact: true }).click();
       await expect(
@@ -48,17 +51,14 @@ test.describe("shared theme across dialogs and nested controls", () => {
     await snapshot(page, "file-submenu-focus.png");
   });
 
-  test("Path submenu hover", async ({ page }) => {
-    await page.getByRole("button", { name: "Path", exact: true }).click();
-    await page
-      .getByRole("menuitem", { name: "Manage Paths", exact: true })
-      .click();
-    const submenu = page.getByTestId("top-menu-path-manage");
-    await expect(submenu).toBeVisible();
-    await submenu
-      .getByRole("menuitem", { name: "New Path", exact: true })
+  test("Edit menu hover", async ({ page }) => {
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const menu = page.getByTestId("top-menu-path");
+    await expect(menu).toBeVisible();
+    await menu
+      .getByRole("menuitem", { name: "Save Path As...", exact: true })
       .hover();
-    await snapshot(page, "path-submenu-hover.png");
+    await snapshot(page, "edit-menu-hover.png");
   });
 
   test("Help and Lessons", async ({ page }) => {
@@ -75,7 +75,7 @@ test.describe("shared theme across dialogs and nested controls", () => {
   });
 
   test("Linked Elements selection and locked fields", async ({ page }) => {
-    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("menuitem", { name: "Linked Elements..." }).click();
     const dialog = page.getByRole("dialog", {
       name: "Linked Elements",
@@ -130,7 +130,7 @@ test.describe("shared theme across dialogs and nested controls", () => {
 
   test("Compact Settings primary action and focus", async ({ page }) => {
     await page.setViewportSize({ width: 820, height: 700 });
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openProjectSettings(page);
     const dialog = page.getByRole("dialog", { name: "Edit Config" });
     await dialog
       .getByRole("button", { name: "Generator", exact: true })

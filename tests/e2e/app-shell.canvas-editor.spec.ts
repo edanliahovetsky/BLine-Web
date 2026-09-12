@@ -21,7 +21,11 @@ import {
   resetWorkspaceWriteSpy,
   workspaceWriteCount,
 } from "./support/app-shell-persistence";
-import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
+import {
+  gotoSampleEditor,
+  requiredBox,
+  openProjectSettings,
+} from "./support/app-shell-shared";
 
 test.describe("Pixi canvas rendering", () => {
   test.use({
@@ -90,7 +94,7 @@ for (const background of ["built-in", "grid", "custom"] as const) {
     await gotoSampleEditor(page);
     await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
     if (background !== "built-in") {
-      await page.getByRole("button", { name: "Settings" }).click();
+      await openProjectSettings(page);
       const dialog = page.getByRole("dialog", { name: "Edit Config" });
       await dialog.getByRole("button", { name: "Field", exact: true }).click();
       if (background === "grid") {

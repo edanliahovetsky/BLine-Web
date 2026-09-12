@@ -121,7 +121,7 @@ test.describe("app shell visual baselines", () => {
 
   test("empty linked elements library", async ({ page }) => {
     await gotoSampleEditor(page);
-    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("menuitem", { name: "Linked Elements..." }).click();
 
     await expect(
