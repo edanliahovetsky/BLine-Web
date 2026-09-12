@@ -243,6 +243,10 @@ test("creates Paths inline with unique defaults, name validation, and undo @webk
   ).toEqual([0, 8]);
   await name.press("Escape");
   await expect(focusName(nav)).toHaveText("New Path");
+  await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
+    "New Path",
+    sample,
+  ]);
   await expect(focusCount(nav)).toHaveText("0 Path Groups connected");
   await create.click();
   await expect(name).toBeFocused();
@@ -254,6 +258,11 @@ test("creates Paths inline with unique defaults, name validation, and undo @webk
   await nav.getByRole("searchbox", { name: "Search paths" }).click();
   await expect(name).toHaveCount(0);
   await expect(focusName(nav)).toHaveText("Testing");
+  await expect(nav.locator(".fc-paths .fc-name")).toHaveText([
+    "Testing",
+    "New Path",
+    sample,
+  ]);
   await nav.getByRole("button", { name: "Focus Testing", exact: true }).click();
   await page.keyboard.press("ControlOrMeta+z");
   await expect(focusName(nav)).toHaveText("New Path 2");

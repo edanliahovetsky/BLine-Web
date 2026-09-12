@@ -199,7 +199,13 @@ export function PathLibraryDialog({
     null;
   const focusKey = libraryNodeKey(focus);
   const [capturedOrder, setCapturedOrder] = useState(() =>
-    captureLibraryOrder(project, focus),
+    captureLibraryOrder(
+      project,
+      focus,
+      initiallyEditingPathId
+        ? { group: [], path: [initiallyEditingPathId] }
+        : undefined,
+    ),
   );
   let order = capturedOrder;
   // Reconcile a deleted/undone selection without changing the selected column’s order.
@@ -342,13 +348,15 @@ export function PathLibraryDialog({
       });
     measure();
   }, [focusKey, focus?.kind, scrollEpoch, measure]);
-  const inspect = (node: LibraryNode) => {
+  const inspect = (node: LibraryNode, newlyCreatedPath = false) => {
     setSelected(node);
     setCapturedOrder((previous) =>
       captureLibraryOrder(
         projectStore.getState().project ?? project,
         node,
-        previous,
+        newlyCreatedPath
+          ? { ...previous, path: [node.id, ...previous.path] }
+          : previous,
       ),
     );
     setScrollEpoch((epoch) => epoch + 1);
@@ -573,7 +581,7 @@ export function PathLibraryDialog({
             ).length ?? 0,
       };
       setPathQuery("");
-      inspect(node);
+      inspect(node, true);
       startRename(node);
     });
   };

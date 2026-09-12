@@ -32,6 +32,8 @@ import {
 
 test("creates a Path inline from the File menu", async ({ page }) => {
   await gotoSampleEditor(page);
+  // Keep a path before "New Path" alphabetically to catch creation-time sorting.
+  await createNewPathFromTopMenu(page, "Aardvark");
   await openPathLibraryDialog(page);
 
   await openProjectMenu(page);
@@ -49,19 +51,27 @@ test("creates a Path inline from the File menu", async ({ page }) => {
     exact: true,
   });
   await expect(name).toBeFocused();
-  await name.fill("File Menu Path");
+  await expect(
+    navigator.locator(".fc-paths .fc-row").first().getByRole("textbox"),
+  ).toBeFocused();
+  await name.fill("Zebra File Menu Path");
   await name.press("Enter");
   await expect(navigator.getByTestId("path-library-focus-name")).toHaveText(
-    "File Menu Path",
+    "Zebra File Menu Path",
   );
-  await expect(page.getByTestId("current-path-status")).toContainText(
+  await expect(navigator.locator(".fc-paths .fc-name")).toHaveText([
+    "Zebra File Menu Path",
+    "Aardvark",
     "Phase 1 Canvas Draft",
+  ]);
+  await expect(page.getByTestId("current-path-status")).toContainText(
+    "Aardvark",
   );
   await navigator
-    .getByRole("button", { name: "Focus File Menu Path", exact: true })
+    .getByRole("button", { name: "Focus Zebra File Menu Path", exact: true })
     .click();
   await expect(page.getByTestId("current-path-status")).toHaveText(
-    "Current Path: File Menu Path",
+    "Current Path: Zebra File Menu Path",
   );
 });
 
