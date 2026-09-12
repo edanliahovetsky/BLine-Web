@@ -423,6 +423,26 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
         }
         const baseline = pixels({ ...input, path: baselinePath });
         const normal = pixels(scene);
+        let simulationOverlaysWaypoint = true;
+        let simulationFillError = 0;
+        if (name === "simulation") {
+          const offset = ((180 - 10) * capture.width + 300 - 15) * 4;
+          const dark = [5, 8, 11],
+            accent = [98, 199, 255];
+          simulationFillError = Math.max(
+            ...accent.map((channel, i) => {
+              const expected =
+                (baseline[offset + i] * 0.7 + dark[i] * 0.3) * 0.87 +
+                channel * 0.13;
+              return Math.abs(normal[offset + i] - expected);
+            }),
+          );
+          const overWaypoint = pixels({ ...scene, path: cases[0].path });
+          const centerOffset = (180 * capture.width + 300) * 4;
+          // An opaque orange waypoint center must not hide the blue robot above it.
+          simulationOverlaysWaypoint =
+            overWaypoint[centerOffset + 2] > overWaypoint[centerOffset];
+        }
         const points: Array<{ x: number; y: number }> = [];
         for (let y = -30; y < 30; y++)
           for (let x = -50; x < 55; x++) {
@@ -456,6 +476,8 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
           maxY: Math.max(...points.map((p) => p.y)),
           bodyChanges,
           outlineChanges,
+          simulationOverlaysWaypoint,
+          simulationFillError,
         };
       });
       const scene = {
@@ -489,6 +511,8 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
     expect(body.minY, body.name).toBe(-20);
     expect(body.maxY, body.name).toBe(19);
     expect(body.bodyChanges, `${body.name} remains steady`).toBe(0);
+    expect(body.simulationOverlaysWaypoint).toBe(true);
+    expect(body.simulationFillError).toBeLessThan(3);
     if (body.name === "simulation") expect(body.outlineChanges).toBe(0);
     else
       expect(

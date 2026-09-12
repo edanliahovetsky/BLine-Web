@@ -33,6 +33,9 @@ describe("Open Edge interaction geometry", () => {
       const front = robotFrontPoint(center, 80, heading);
       expect(front.x).toBeCloseTo(pointer(40, 0).x);
       expect(front.y).toBeCloseTo(pointer(40, 0).y);
+      const insetFront = robotFrontPoint(center, 80, heading, 1.2);
+      expect(insetFront.x).toBeCloseTo(pointer(38.8, 0).x);
+      expect(insetFront.y).toBeCloseTo(pointer(38.8, 0).y);
     },
   );
 

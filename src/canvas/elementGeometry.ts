@@ -13,7 +13,7 @@ export function elementFootprintMetrics(width: number, height: number) {
     strokeWidth: Math.max(1.2, Math.min(2.4, 1.8 * scale)),
     cornerRadius: Math.min(size / 2, 6, 3 * scale),
     centerRadius: Math.max(3.5, Math.min(12, 5 * scale)),
-    frontRadius: Math.max(2.5, Math.min(9, 3.8 * scale)),
+    frontRadius: Math.max(2.5, Math.min(9, 3.8 * scale)) * 0.65,
   };
 }
 
@@ -53,10 +53,12 @@ export function robotFrontPoint(
   center: StagePoint,
   lengthPx: number,
   heading: number,
+  outlineInset = 0,
 ): StagePoint {
+  const distance = Math.max(0, lengthPx / 2 - outlineInset);
   return {
-    x: center.x + (Math.cos(heading) * lengthPx) / 2,
-    y: center.y - (Math.sin(heading) * lengthPx) / 2,
+    x: center.x + Math.cos(heading) * distance,
+    y: center.y - Math.sin(heading) * distance,
   };
 }
 

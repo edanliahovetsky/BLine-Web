@@ -193,11 +193,11 @@ export class PixiPathRenderer {
       this.pathGraphics,
       this.trajectoryGraphics,
       this.curvePreviewGraphics,
-      this.simulationGraphics,
       this.nodeGraphics,
       // Keep the selected range highlight above the first path element.
       this.constraintGraphics,
       this.linkedTargetGraphics,
+      this.simulationGraphics,
     );
   }
 
@@ -706,6 +706,11 @@ export class PixiPathRenderer {
               input.rotationPreview,
               input.positionPreview,
             ) ?? 0,
+            frontOutlineInset(
+              robotSize,
+              input.viewport.scale,
+              input.hoveredRotationIndex === index,
+            ),
           ),
         );
       }
@@ -781,6 +786,11 @@ export class PixiPathRenderer {
             point,
             robotSize.lengthMeters * input.viewport.scale,
             target.rotation_radians ?? 0,
+            frontOutlineInset(
+              robotSize,
+              input.viewport.scale,
+              input.hoveredLinkedTargetRotationId === target.target_id,
+            ),
           ),
         );
       }
@@ -807,40 +817,26 @@ export class PixiPathRenderer {
   }
 
   private recordRotationHandles(input: PixiRenderInput): void {
-    const { path, selectedElementIndex } = input;
-    const lengthPx =
-      robotSizeFromConfig(input.config).lengthMeters * input.viewport.scale;
-    if (path && selectedElementIndex !== null) {
-      const element = path.path_elements[selectedElementIndex];
-      const position = getElementPosition(
-        path.path_elements,
-        selectedElementIndex,
-        input.positionPreview,
-      );
-      if (position && (isWaypoint(element) || isRotationTarget(element))) {
-        const center = modelToStagePoint(position, input.viewport);
-        const heading =
-          getElementHeadingRadians(
-            path.path_elements,
-            selectedElementIndex,
-            input.rotationPreview,
-          ) ?? 0;
-        this.debugNodes.set("rotation-handle-root", center);
-        this.debugNodes.set(
-          "rotation-handle",
-          robotFrontPoint(center, lengthPx, heading),
-        );
+    const record = (nodeId: string, frontId: string, handleId: string) => {
+      const center = this.debugNodes.get(nodeId);
+      const front = this.debugNodes.get(frontId);
+      if (center && front) {
+        this.debugNodes.set(`${handleId}-root`, center);
+        this.debugNodes.set(handleId, front);
       }
+    };
+    if (input.selectedElementIndex !== null) {
+      record(
+        `path-element-node-${input.selectedElementIndex}`,
+        `path-element-front-${input.selectedElementIndex}`,
+        "rotation-handle",
+      );
     }
-    const target = input.linkedTargets?.find(
-      (target) => target.target_id === input.selectedLinkedTargetId,
-    );
-    if (target?.kind === "waypoint") {
-      const center = modelToStagePoint(target, input.viewport);
-      this.debugNodes.set("linked-target-rotation-handle-root", center);
-      this.debugNodes.set(
+    if (input.selectedLinkedTargetId) {
+      record(
+        `linked-target-${input.selectedLinkedTargetId}`,
+        `linked-target-front-${input.selectedLinkedTargetId}`,
         "linked-target-rotation-handle",
-        robotFrontPoint(center, lengthPx, target.rotation_radians ?? 0),
       );
     }
   }
@@ -1127,12 +1123,16 @@ function drawRobotFootprint(
     protrusionSide,
   });
   if (extension) {
-    drawRect(
-      graphics,
-      extension,
-      { fill: accent, fillAlpha: 0.06 * opacity },
-      transform,
-    );
+    if (mode === "simulation") {
+      drawSimulationFill(graphics, extension, transform, accent, eventPulse);
+    } else {
+      drawRect(
+        graphics,
+        extension,
+        { fill: accent, fillAlpha: 0.06 * opacity },
+        transform,
+      );
+    }
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
@@ -1149,12 +1149,7 @@ function drawRobotFootprint(
     });
   }
   if (mode === "simulation") {
-    drawRect(
-      graphics,
-      bounds,
-      { fill: accent, fillAlpha: (0.06 + 0.16 * eventPulse) * opacity },
-      transform,
-    );
+    drawSimulationFill(graphics, bounds, transform, accent, eventPulse);
   }
   const commands = footprintOutlineCommands(
     outline.rect,
@@ -1193,7 +1188,11 @@ function drawRobotFootprint(
       .circle(center.x, center.y, centerRadius)
       .fill({ color: accent, alpha: opacity });
   }
-  const front = transformLocalPoint(transform, width / 2, 0);
+  const front = transformLocalPoint(
+    transform,
+    outline.rect.x + outline.rect.width,
+    0,
+  );
   graphics
     .circle(front.x, front.y, metrics.frontRadius)
     .fill({ color: accent, alpha: opacity });
@@ -1345,6 +1344,46 @@ function drawConstraintStartHighlight(
       { x: point.x, y: point.y, rotation: toStageRadians(headingRadians) },
     );
   }
+}
+
+function frontOutlineInset(
+  size: RobotSizeMeters,
+  scale: number,
+  hovered: boolean,
+): number {
+  const width = size.lengthMeters * scale,
+    height = size.widthMeters * scale;
+  const stroke =
+    elementFootprintMetrics(width, height).strokeWidth + (hovered ? 0.6 : 0);
+  return (
+    strokedRectInsideBounds(centeredRobotBounds(width, height), stroke)
+      .strokeWidth / 2
+  );
+}
+
+function drawSimulationFill(
+  graphics: Graphics,
+  bounds: RobotLocalBounds,
+  transform: LocalTransform,
+  accent: number | string,
+  eventPulse: number,
+): void {
+  // Preserve the original simulation's dark shading and translucent color fill.
+  drawRect(graphics, bounds, { fill: 0x05080b, fillAlpha: 0.3 }, transform);
+  if (eventPulse > 0) {
+    drawRect(
+      graphics,
+      bounds,
+      { fill: simulationEventColor, fillAlpha: 0.08 * eventPulse },
+      transform,
+    );
+  }
+  drawRect(
+    graphics,
+    bounds,
+    { fill: accent, fillAlpha: 0.13 + 0.34 * eventPulse },
+    transform,
+  );
 }
 
 function drawSimulationRobot(
