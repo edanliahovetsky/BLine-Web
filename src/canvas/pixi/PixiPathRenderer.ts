@@ -1194,6 +1194,11 @@ function drawRobotFootprint(
   eventPulse = 0,
 ): void {
   const metrics = elementFootprintMetrics(width, height);
+  const outlineAccent =
+    mode === "simulation"
+      ? mixRgbColor(simulationOutlineColor, simulationEventColor, eventPulse)
+      : accent;
+  const outlineOpacity = mode === "simulation" ? 1 : opacity;
   const outlineWidth = bodyStrokeWidth + (rotationHovered ? 0.6 : 0);
   const bounds = centeredRobotBounds(width, height);
   const backing = strokedRectInsideBounds(
@@ -1213,35 +1218,64 @@ function drawRobotFootprint(
     protrusionDistancePx,
     protrusionSide,
   });
-  if (extension) {
-    if (mode === "simulation") {
-      drawSimulationFill(graphics, extension, transform, accent, eventPulse);
-    } else {
-      drawRect(
-        graphics,
-        extension,
-        { fill: accent, fillAlpha: 0.06 * opacity },
-        transform,
-      );
+  // Finish every fill before drawing the body and protrusion outlines.
+  if (mode === "simulation") {
+    drawSimulationFill(
+      graphics,
+      footprintOutlineCommands(
+        backing.rect,
+        metrics.cornerRadius,
+        0,
+        extension ? protrusionSide : "none",
+      ),
+      transform,
+      accent,
+      eventPulse,
+    );
+    if (extension) {
+      const extensionFill = robotProtrusionOutlineGeometry({
+        lengthPx: width,
+        widthPx: height,
+        protrusionVisible: true,
+        protrusionDistancePx,
+        protrusionSide,
+        strokeWidth: backing.strokeWidth,
+        cornerRadiusPx: robotCornerRadius(width, height),
+        rootInsetPx: backing.strokeWidth / 2,
+      });
+      if (extensionFill)
+        drawSimulationFill(
+          graphics,
+          extensionFill.pathCommands,
+          transform,
+          accent,
+          eventPulse,
+        );
     }
+  } else if (extension) {
+    drawRect(
+      graphics,
+      extension,
+      { fill: accent, fillAlpha: 0.06 * opacity },
+      transform,
+    );
+  }
+  if (extension) {
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
       strokeWidth: bodyStrokeWidth + 2 * elementOutlineWidthPx,
       color: elementOutlineColor,
-      alpha: 0.95 * opacity,
+      alpha: 0.95 * outlineOpacity,
     });
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
       strokeWidth: bodyStrokeWidth,
       backingWidth: bodyStrokeWidth + 2 * elementOutlineWidthPx,
-      color: accent,
-      alpha: (mode === "simulation" ? 1 : 0.7) * opacity,
+      color: outlineAccent,
+      alpha: (mode === "simulation" ? 1 : 0.7) * outlineOpacity,
     });
-  }
-  if (mode === "simulation") {
-    drawSimulationFill(graphics, bounds, transform, accent, eventPulse);
   }
   const commands = footprintOutlineCommands(
     outline.rect,
@@ -1262,13 +1296,14 @@ function drawRobotFootprint(
     {
       color: elementOutlineColor,
       width: backing.strokeWidth,
-      alpha: 0.95 * opacity,
+      alpha: 0.95 * outlineOpacity,
     },
   );
   drawLocalPathCommands(graphics, commands, transform, {
-    color: accent,
+    color: outlineAccent,
     width: outline.strokeWidth,
-    alpha: (rotationHovered || mode === "simulation" ? 1 : 0.7) * opacity,
+    alpha:
+      (rotationHovered || mode === "simulation" ? 1 : 0.7) * outlineOpacity,
   });
   const center = transformLocalPoint(transform, 0, 0);
   const centerRadius = metrics.centerRadius / 2;
@@ -1453,27 +1488,20 @@ function frontOutlineInset(
 
 function drawSimulationFill(
   graphics: Graphics,
-  bounds: RobotLocalBounds,
+  commands: RobotProtrusionPathCommand[],
   transform: LocalTransform,
   accent: number | string,
   eventPulse: number,
 ): void {
-  // Preserve the original simulation's dark shading and translucent color fill.
-  drawRect(graphics, bounds, { fill: 0x05080b, fillAlpha: 0.3 }, transform);
-  if (eventPulse > 0) {
-    drawRect(
-      graphics,
-      bounds,
-      { fill: simulationEventColor, fillAlpha: 0.08 * eventPulse },
-      transform,
-    );
-  }
-  drawRect(
-    graphics,
-    bounds,
-    { fill: accent, fillAlpha: 0.13 + 0.34 * eventPulse },
-    transform,
-  );
+  if (!commands.length) return;
+  const fill = (color: number | string, alpha: number) => {
+    traceLocalPathCommands(graphics, commands, transform);
+    graphics.closePath().fill({ color, alpha });
+  };
+  // Preserve the original shading within the rounded footprint's perimeter.
+  fill(0x05080b, 0.3);
+  if (eventPulse > 0) fill(simulationEventColor, 0.08 * eventPulse);
+  fill(accent, 0.13 + 0.34 * eventPulse);
 }
 
 function drawSimulationRobot(
@@ -1506,6 +1534,7 @@ function drawSimulationRobot(
 }
 
 const simulationRobotColor = 0x62c7ff;
+const simulationOutlineColor = 0x62d7ff;
 const simulationEventColor = 0xa78bfa;
 const trajectorySpeedBuckets = 20;
 const trajectoryMinSegmentPx = 1.5;
@@ -1603,6 +1632,22 @@ function drawLocalPathCommands(
     return;
   }
 
+  traceLocalPathCommands(graphics, commands, transform);
+
+  graphics.stroke({
+    color: style.color,
+    width: style.width,
+    alpha: style.alpha,
+    cap: "butt",
+    join: "round",
+  });
+}
+
+function traceLocalPathCommands(
+  graphics: Graphics,
+  commands: RobotProtrusionPathCommand[],
+  transform: LocalTransform,
+): void {
   for (const command of commands) {
     if (command[0] === "M") {
       const point = transformLocalPoint(transform, command[1], command[2]);
@@ -1620,14 +1665,6 @@ function drawLocalPathCommands(
     const end = transformLocalPoint(transform, command[3], command[4]);
     graphics.quadraticCurveTo(control.x, control.y, end.x, end.y);
   }
-
-  graphics.stroke({
-    color: style.color,
-    width: style.width,
-    alpha: style.alpha,
-    cap: "butt",
-    join: "round",
-  });
 }
 
 function drawDashedCircle(

@@ -426,7 +426,16 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
         const normal = pixels(scene);
         let simulationOverlaysWaypoint = true;
         let simulationFillError = 0;
+        let simulationCornerClear = true;
+        let simulationOutlineError = 0;
         if (name === "simulation") {
+          simulationCornerClear = !changed(baseline, normal, 39, 19);
+          const outlineOffset = ((180 - 18) * capture.width + 300) * 4;
+          simulationOutlineError = Math.max(
+            ...[98, 215, 255].map((channel, i) =>
+              Math.abs(normal[outlineOffset + i] - channel),
+            ),
+          );
           const offset = ((180 - 10) * capture.width + 300 - 15) * 4;
           const dark = [5, 8, 11],
             accent = [98, 199, 255];
@@ -479,6 +488,8 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
           outlineChanges,
           simulationOverlaysWaypoint,
           simulationFillError,
+          simulationCornerClear,
+          simulationOutlineError,
         };
       });
       const scene = {
@@ -645,6 +656,8 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
     expect(body.bodyChanges, `${body.name} remains steady`).toBe(0);
     expect(body.simulationOverlaysWaypoint).toBe(true);
     expect(body.simulationFillError).toBeLessThan(3);
+    expect(body.simulationCornerClear).toBe(true);
+    expect(body.simulationOutlineError).toBeLessThan(3);
     if (body.name === "simulation") expect(body.outlineChanges).toBe(0);
     else
       expect(
