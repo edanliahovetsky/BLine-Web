@@ -1026,9 +1026,13 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
         alpha: selectionOpacity,
       });
     }
-    graphics
-      .circle(point.x, point.y, radius)
-      .fill({ color: elementColors.translation, alpha: opacity });
+    drawOutlinedDot(
+      graphics,
+      point,
+      radius,
+      elementColors.translation,
+      opacity,
+    );
     graphics
       .circle(point.x, point.y, radius * 0.32)
       .fill({ color: 0x11151a, alpha: 0.35 * opacity });
@@ -1081,7 +1085,7 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
     drawLocalPolyline(
       graphics,
       points,
-      { color: 0x05080b, width: 4.4, alpha: 0.65 * opacity },
+      { color: elementOutlineColor, width: 4.4, alpha: 0.95 * opacity },
       transform,
     );
     drawLocalPolyline(
@@ -1090,10 +1094,26 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
       { color: elementColors.event, width: 2.8, alpha: 0.8 * opacity },
       transform,
     );
-    graphics
-      .circle(point.x, point.y, 3.3)
-      .fill({ color: elementColors.event, alpha: opacity });
+    drawOutlinedDot(graphics, point, 3.3, elementColors.event, opacity);
   }
+}
+
+const elementOutlineColor = 0x000000;
+const elementOutlineWidthPx = 0.8;
+
+function drawOutlinedDot(
+  graphics: Graphics,
+  point: StagePoint,
+  radius: number,
+  accent: string | number,
+  opacity: number,
+): void {
+  graphics
+    .circle(point.x, point.y, radius)
+    .fill({ color: elementOutlineColor, alpha: 0.95 * opacity });
+  graphics
+    .circle(point.x, point.y, Math.max(0, radius - elementOutlineWidthPx))
+    .fill({ color: accent, alpha: opacity });
 }
 
 function drawRobotFootprint(
@@ -1113,8 +1133,16 @@ function drawRobotFootprint(
   const metrics = elementFootprintMetrics(width, height);
   const outlineWidth = metrics.strokeWidth + (rotationHovered ? 0.6 : 0);
   const bounds = centeredRobotBounds(width, height);
-  const outline = strokedRectInsideBounds(bounds, outlineWidth);
-  const backing = strokedRectInsideBounds(bounds, outlineWidth + 1.6);
+  const backing = strokedRectInsideBounds(
+    bounds,
+    outlineWidth + 2 * elementOutlineWidthPx,
+  );
+  // One shared centerline leaves black visible on both sides of the color,
+  // with the outer black edge still exactly on the bumper bounds.
+  const outline = {
+    rect: backing.rect,
+    strokeWidth: Math.min(outlineWidth, backing.strokeWidth),
+  };
   const extension = robotProtrusionBounds({
     lengthPx: width,
     widthPx: height,
@@ -1136,16 +1164,17 @@ function drawRobotFootprint(
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
-      strokeWidth: metrics.strokeWidth + 1.6,
-      color: 0x05080b,
-      alpha: 0.76 * opacity,
+      strokeWidth: metrics.strokeWidth + 2 * elementOutlineWidthPx,
+      color: elementOutlineColor,
+      alpha: 0.95 * opacity,
     });
     drawRobotProtrusionOutline(graphics, transform, width, height, {
       protrusionDistancePx,
       protrusionSide,
       strokeWidth: metrics.strokeWidth,
+      backingWidth: metrics.strokeWidth + 2 * elementOutlineWidthPx,
       color: accent,
-      alpha: 0.7 * opacity,
+      alpha: (mode === "simulation" ? 1 : 0.7) * opacity,
     });
   }
   if (mode === "simulation") {
@@ -1157,8 +1186,7 @@ function drawRobotFootprint(
     metrics.frontRadius + 2,
     extension ? protrusionSide : "none",
   );
-  // Both strokes are inset by their own half-width: the bumper dimensions
-  // describe the outer body pixels, including the dark backing.
+  // The bumper dimensions include the thin black outer outline.
   drawLocalPathCommands(
     graphics,
     footprintOutlineCommands(
@@ -1168,12 +1196,16 @@ function drawRobotFootprint(
       extension ? protrusionSide : "none",
     ),
     transform,
-    { color: 0x05080b, width: backing.strokeWidth, alpha: 0.7 * opacity },
+    {
+      color: elementOutlineColor,
+      width: backing.strokeWidth,
+      alpha: 0.95 * opacity,
+    },
   );
   drawLocalPathCommands(graphics, commands, transform, {
     color: accent,
     width: outline.strokeWidth,
-    alpha: (rotationHovered ? 1 : 0.7) * opacity,
+    alpha: (rotationHovered || mode === "simulation" ? 1 : 0.7) * opacity,
   });
   const center = transformLocalPoint(transform, 0, 0);
   const centerRadius =
@@ -1181,26 +1213,24 @@ function drawRobotFootprint(
   if (mode === "rotation") {
     graphics
       .circle(center.x, center.y, centerRadius)
+      .stroke({
+        color: elementOutlineColor,
+        width: 1.8 + 2 * elementOutlineWidthPx,
+        alpha: 0.95 * opacity,
+      });
+    graphics
+      .circle(center.x, center.y, centerRadius)
       .fill({ color: 0x15181e, alpha: 0.85 * opacity })
       .stroke({ color: accent, width: 1.8, alpha: opacity });
   } else {
-    graphics
-      .circle(center.x, center.y, centerRadius)
-      .fill({ color: accent, alpha: opacity });
+    drawOutlinedDot(graphics, center, centerRadius, accent, opacity);
   }
   const front = transformLocalPoint(
     transform,
     outline.rect.x + outline.rect.width,
     0,
   );
-  graphics
-    .circle(front.x, front.y, metrics.frontRadius)
-    .fill({ color: accent, alpha: opacity });
-  if (rotationHovered) {
-    graphics
-      .circle(front.x, front.y, metrics.frontRadius)
-      .stroke({ color: accent, width: 1.2, alpha: opacity });
-  }
+  drawOutlinedDot(graphics, front, metrics.frontRadius, accent, opacity);
 }
 
 function drawRobotProtrusionOutline(
@@ -1212,6 +1242,7 @@ function drawRobotProtrusionOutline(
     protrusionDistancePx: number;
     protrusionSide: DrawNodeInput["protrusionSide"];
     strokeWidth: number;
+    backingWidth?: number;
     color: string | number;
     alpha: number;
   },
@@ -1223,7 +1254,7 @@ function drawRobotProtrusionOutline(
     protrusionVisible: true,
     protrusionDistancePx: options.protrusionDistancePx,
     protrusionSide: options.protrusionSide,
-    strokeWidth: options.strokeWidth,
+    strokeWidth: options.backingWidth ?? options.strokeWidth,
     cornerRadiusPx: cornerRadius,
     rootInsetPx: 0,
   });
@@ -1234,7 +1265,7 @@ function drawRobotProtrusionOutline(
 
   drawLocalPathCommands(graphics, outline.pathCommands, transform, {
     color: options.color,
-    width: outline.strokeWidth,
+    width: Math.min(options.strokeWidth, outline.strokeWidth),
     alpha: options.alpha,
   });
 }
@@ -1354,7 +1385,9 @@ function frontOutlineInset(
   const width = size.lengthMeters * scale,
     height = size.widthMeters * scale;
   const stroke =
-    elementFootprintMetrics(width, height).strokeWidth + (hovered ? 0.6 : 0);
+    elementFootprintMetrics(width, height).strokeWidth +
+    (hovered ? 0.6 : 0) +
+    2 * elementOutlineWidthPx;
   return (
     strokedRectInsideBounds(centeredRobotBounds(width, height), stroke)
       .strokeWidth / 2
