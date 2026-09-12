@@ -124,15 +124,32 @@ for (const [width, height] of [
       await expect(
         page.locator('[data-tour="export-menu-entry"]'),
       ).toHaveAttribute("aria-expanded", "true");
+      const fileMenu = page.getByTestId("top-menu-project");
+      await expect(fileMenu.getByRole("menuitem").first()).toHaveText("Home");
+      await expect(fileMenu.getByRole("menuitem").nth(1)).toHaveText(
+        "New Path",
+      );
+      await expect(fileMenu.getByRole("menuitem").last()).toHaveText(
+        "Settings",
+      );
       await advance(page);
       await heading(page, "Edit actions");
       await expect(page.locator('[data-tour="edit-controls"]')).toBeVisible();
       await advance(page);
-      await heading(page, "Path menu");
+      await heading(page, "Edit menu");
       await page.locator('[data-tour="path-menu-entry"]').click();
       await expect(
         page.locator('[data-tour="path-menu-entry"]'),
       ).toHaveAttribute("aria-expanded", "true");
+      await expect(
+        page.getByTestId("top-menu-path").getByRole("menuitem"),
+      ).toHaveText([
+        "Save Path As...",
+        "Rename Path...",
+        "Delete Paths...",
+        "Delete Path Groups...",
+        "Linked Elements...",
+      ]);
       await advance(page);
       await heading(page, "Path dropdown");
       await page
@@ -154,6 +171,11 @@ for (const [width, height] of [
       await expect(
         navigator.getByText("Top Side Auto", { exact: true }),
       ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Close project navigator", exact: true })
+        .click();
+      await expect(navigator).toBeHidden();
+      await expect(page.getByTestId("tour-card")).toBeVisible();
       expect((await practice(page)).path).toEqual(original.path);
       await finish(page);
     },
@@ -833,7 +855,130 @@ test("uses desktop folder menus and direct-saving guidance in the desktop lesson
   await finish(page);
 });
 
-test("organizes an auto and test project into a new Path Group", async ({
+test("keeps the docked Navigator usable in lessons without changing saved preferences @webkit-canvas", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoSampleEditor(page);
+  const original = await practice(page);
+  const navigator = await openPathLibraryDialog(page);
+  const divider = navigator.getByRole("separator", {
+    name: "Resize Project Navigator",
+  });
+  await divider.focus();
+  await divider.press("ArrowRight");
+  await expect(divider).toHaveAttribute("aria-valuenow", "576");
+  await navigator.getByRole("button", { name: "Hide all connections" }).click();
+
+  await page.setViewportSize({ width: 820, height: 800 });
+  await openLesson(page, "Path Management");
+  await expect(navigator).toBeHidden();
+  await selectToolbarOption(page, "Toolbar path", "Top - Score to Pickup");
+  await advance(page);
+  await openPathLibraryDialog(page);
+  await expect(
+    navigator.getByRole("button", { name: "Hide all connections" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(navigator.locator(".fc-wire")).toHaveCount(9);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const canvas = document
+          .querySelector('[data-tour="path-canvas"]')!
+          .getBoundingClientRect();
+        return [...document.querySelectorAll(".tour-scrim-region")].some(
+          (el) => {
+            const box = el.getBoundingClientRect();
+            return (
+              box.left < canvas.right &&
+              box.right > canvas.left &&
+              box.top < canvas.bottom &&
+              box.bottom > canvas.top
+            );
+          },
+        );
+      }),
+    )
+    .toBe(false);
+  await page.getByRole("button", { name: "Close project navigator" }).click();
+  await expect(navigator).toBeHidden();
+  await openPathLibraryDialog(page);
+
+  await divider.focus();
+  await divider.press("Home");
+  await expect(divider).toHaveAttribute("aria-valuenow", "400");
+  await divider.press("ArrowRight");
+  await expect(divider).toHaveAttribute("aria-valuenow", "416");
+  await divider.press("End");
+  await expect(divider).toHaveAttribute("aria-valuenow", "490");
+  await expect
+    .poll(async () => {
+      const pane = await requiredBox(navigator);
+      const card = await requiredBox(page.getByTestId("tour-card"));
+      return card.x >= pane.x + pane.width + 12;
+    })
+    .toBe(true);
+  const handle = await requiredBox(divider);
+  await page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    handle.x + handle.width / 2 - 40,
+    handle.y + handle.height / 2,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  await expect(divider).toHaveAttribute("aria-valuenow", "450");
+
+  const group = navigator.getByRole("button", {
+    name: "Focus Top Side Auto",
+    exact: true,
+  });
+  await group.click();
+  await expect(page.getByRole("button", { name: "Toolbar path" })).toHaveText(
+    "Top - Score to Pickup",
+  );
+  await group.dblclick();
+  const name = navigator.getByRole("textbox", {
+    name: "Path Group name",
+    exact: true,
+  });
+  await name.fill("Practice rename");
+  await name.press("Enter");
+  await expect(
+    navigator.getByRole("button", {
+      name: "Focus Practice rename",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await navigator.getByRole("button", { name: "Hide all connections" }).click();
+  await expect(navigator.locator(".fc-wire")).toHaveCount(0);
+  await navigator.getByRole("button", { name: "Show all connections" }).click();
+  await expect(navigator.locator(".fc-wire")).toHaveCount(9);
+  await page.setViewportSize({ width: 768, height: 800 });
+  await divider.focus();
+  await divider.press("End");
+  await expect(divider).toHaveAttribute("aria-valuenow", "438");
+  await auditLayout(page);
+  await exitLesson(page);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect((await practice(page)).path).toEqual(original.path);
+  await expect(navigator).toBeVisible();
+  await expect(divider).toHaveAttribute("aria-valuenow", "576");
+  await expect(
+    navigator.getByRole("button", { name: "Show all connections" }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await navigator.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(
+    page.getByRole("complementary", { name: "Path inspector" }),
+  ).toBeVisible();
+});
+
+test("organizes an auto and test project into a new Path Group @webkit-canvas", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -892,9 +1037,9 @@ test("organizes an auto and test project into a new Path Group", async ({
   await advance(page);
   await heading(page, "Preview the group");
   await navigator
-    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .getByRole("button", { name: "Focus My Auto", exact: true })
     .click();
-  await expect(navigator).toHaveCount(0);
+  await expect(navigator).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Hide Path Group overlays", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -907,7 +1052,7 @@ test("organizes an auto and test project into a new Path Group", async ({
   await finish(page);
 });
 
-test("links one shared waypoint and propagates position and heading to both paths", async ({
+test("links one shared waypoint and propagates position and heading to both paths @webkit-canvas", async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -945,6 +1090,15 @@ test("links one shared waypoint and propagates position and heading to both path
     name: "Choose Linked Element",
     exact: true,
   });
+  await auditLayout(page);
+  await expect(
+    picker.getByText("Choose Linked Element", { exact: true }),
+  ).toBeVisible();
+  if (process.env.BLINE_TOUR_SCREENSHOTS) {
+    await page.screenshot({
+      path: test.info().outputPath("Linked-element-picker.png"),
+    });
+  }
   await picker.getByRole("listitem").filter({ hasText: "Score" }).click();
   await picker
     .getByRole("button", { name: "Link Selected", exact: true })
@@ -1091,17 +1245,14 @@ async function openLesson(page: Page, title: string) {
 }
 
 async function previewGroup(page: Page, name: string) {
-  const navigator = page.getByRole("dialog", {
+  const navigator = page.getByRole("complementary", {
     name: "Project Navigator",
     exact: true,
   });
   await navigator
     .getByRole("button", { name: "Focus " + name, exact: true })
     .click();
-  await navigator
-    .getByRole("button", { name: "Preview Path Group", exact: true })
-    .click();
-  await expect(navigator).toHaveCount(0);
+  await expect(navigator).toBeVisible();
 }
 
 async function exitLesson(page: Page) {
@@ -1315,6 +1466,9 @@ async function auditLayout(page: Page) {
       /[^a-z0-9]+/gi,
       "-",
     );
-    await page.screenshot({ path: test.info().outputPath(title + ".png") });
+    await page.screenshot({
+      path: test.info().outputPath(title + ".png"),
+      animations: "disabled",
+    });
   }
 }

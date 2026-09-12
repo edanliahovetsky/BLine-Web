@@ -73,7 +73,7 @@ export const defaultEditorUiPreferences: EditorUiPreferencesV1 = {
   showGhostPaths: true,
 };
 
-export const inspectorWidthMin = 280;
+export const inspectorWidthMin = 320;
 export const inspectorWidthMax = 560;
 
 export function readEditorUiPreferences(): EditorUiPreferencesV1 {
@@ -90,6 +90,7 @@ export function writeEditorUiPreferences(
   preferences: EditorUiPreferencesV1,
 ): void {
   rememberEditorLayoutPreferences({
+    ...readEditorLayoutPreferences(),
     inspector_tab: preferences.inspectorTab,
     inspector_width: clampInspectorWidth(preferences.inspectorWidth),
     show_ghost_paths: preferences.showGhostPaths,

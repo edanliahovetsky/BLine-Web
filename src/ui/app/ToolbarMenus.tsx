@@ -121,10 +121,10 @@ function ToolbarSelectControl<T extends string>({
       }
     };
 
-    window.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown, true);
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);

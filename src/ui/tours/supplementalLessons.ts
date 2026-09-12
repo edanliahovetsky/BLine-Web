@@ -62,9 +62,7 @@ const hasAction = (action: string) =>
   ) > 0;
 
 function previewing(groupId: string) {
-  return (
-    projectStore.getState().activePathGroupId === groupId && !navigatorOpen()
-  );
+  return projectStore.getState().activePathGroupId === groupId;
 }
 
 function scoreTarget() {
@@ -166,7 +164,7 @@ const managementSteps: TourStep[] = [
   },
   {
     title: "Open the Project Navigator",
-    body: "Open the Project Navigator. Testing, Top Side Auto, and Bottom Side Auto each have three paths. Path Groups are flexible: organize by auto, testing, or whatever works for your team.",
+    body: "Open the Project Navigator beside the canvas. Drag its right edge to resize it. Testing, Top Side Auto, and Bottom Side Auto each have three paths; the lines show their group memberships.",
     target: "navigator-button",
     interact: navigation,
     task: "Open the Project Navigator",
@@ -211,8 +209,8 @@ const managementSteps: TourStep[] = [
   },
   {
     title: "Preview the group",
-    body: "Select My Auto and click Preview Path Group. The selected path stays bright and the other paths are faint. Each path's End is linked to the next Start, so they stay together when you edit them.",
-    target: "navigator-preview",
+    body: "Click My Auto to preview it on the canvas. The selected path stays bright and the other paths are faint. Each path's End is linked to the next Start, so they stay together when you edit them.",
+    target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
     prepare: { navigator: "open", showGhostPaths: true },
@@ -220,7 +218,7 @@ const managementSteps: TourStep[] = [
     check: () =>
       feedback(
         !!groupNamed("My Auto") && previewing(groupNamed("My Auto")!.group_id),
-        "Select My Auto and click Preview Path Group.",
+        "Click My Auto to preview it on the canvas.",
         "The three paths are visible together.",
       ),
   },
@@ -241,7 +239,7 @@ const managementSteps: TourStep[] = [
   },
   {
     title: "Explore your groups",
-    body: "Try previewing Top Side Auto, Bottom Side Auto, and Testing. Use groups however you like. They help organize your project; your robot code decides which paths run and in what order.",
+    body: "Single-click a path or group to preview it; double-click its name to rename it. Use the connection button to show or hide membership lines. Groups organize paths; your robot code decides their running order.",
     visible: ["path-canvas", "simulation-transport"],
     interact: [...navigation, "path-breadcrumb", "path-canvas", ...transport],
   },
@@ -250,7 +248,7 @@ const managementSteps: TourStep[] = [
 const linkedElementSteps: TourStep[] = [
   {
     title: "See where the paths meet",
-    body: "Select Score and Pickup in the Project Navigator and click Preview Path Group. Start to Score ends where Score to Pickup starts.",
+    body: "Click Score and Pickup in the Project Navigator to preview the group. Start to Score ends where Score to Pickup starts.",
     target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
@@ -259,7 +257,7 @@ const linkedElementSteps: TourStep[] = [
     check: () =>
       feedback(
         previewing("lesson-score-cycle"),
-        "Select Score and Pickup, then click Preview Path Group.",
+        "Click Score and Pickup to preview the group.",
         "The first path ends where the next starts.",
       ),
   },
@@ -353,7 +351,7 @@ const linkedElementSteps: TourStep[] = [
 const pathLinkingSteps: TourStep[] = [
   {
     title: "Preview both paths",
-    body: "Select Pickup and Score in the Project Navigator and click Preview Path Group. The first path’s End and the second path’s Start share a linked waypoint named Pickup.",
+    body: "Click Pickup and Score in the Project Navigator to preview the group. The first path’s End and the second path’s Start share a linked waypoint named Pickup.",
     target: "navigator-groups",
     visible: ["path-canvas"],
     interact: navigation,
@@ -362,7 +360,7 @@ const pathLinkingSteps: TourStep[] = [
     check: () =>
       feedback(
         previewing("lesson-pickup-chain"),
-        "Select Pickup and Score and click Preview Path Group.",
+        "Click Pickup and Score to preview the group.",
         "Both paths meet at Pickup.",
       ),
   },

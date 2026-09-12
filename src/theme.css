@@ -1,0 +1,97 @@
+/* Shared by the editor and overlays portaled to document.body.
+   Surfaces follow Lessons: charcoal foundations, quiet borders, blue actions.
+   Path/element/constraint visualization colors keep their own semantic scale. */
+:root {
+  color-scheme: dark;
+
+  --bline-surface-app: #0f1316;
+  --bline-surface-canvas: #101416;
+  --bline-surface-inset: #10161b;
+  --bline-surface-base: #151a1f;
+  --bline-surface-raised: #1b2228;
+  --bline-surface-hover: #222d39;
+  --bline-surface-selected: #1d3550;
+  --bline-surface-active: #194f8d;
+  --bline-surface-floating: color-mix(
+    in srgb,
+    var(--bline-surface-base) 94%,
+    transparent
+  );
+  --bline-surface-canvas-overlay: color-mix(
+    in srgb,
+    var(--bline-surface-base) 84%,
+    transparent
+  );
+
+  --bline-border-subtle: #2d3740;
+  --bline-border-strong: #3a4855;
+  --bline-border-control: #465563;
+  --bline-border-hover: #62788b;
+  --bline-border-accent: #538dcc;
+
+  --bline-text-primary: #eef3f7;
+  --bline-text-secondary: #b4c0ca;
+  --bline-text-muted: #8e9eab;
+  --bline-text-disabled: #687985;
+  --bline-text-on-primary: #ffffff;
+  --bline-text-on-accent: #08121e;
+
+  --bline-accent: #58a6ff;
+  --bline-accent-hover: #85beff;
+  --bline-accent-soft: color-mix(in srgb, var(--bline-accent) 14%, transparent);
+  --bline-accent-border-soft: color-mix(
+    in srgb,
+    var(--bline-accent) 40%,
+    transparent
+  );
+  --bline-primary: #225ed0;
+  --bline-primary-hover: #2d6dde;
+  --bline-primary-active: #194fae;
+  --bline-primary-border: #497de0;
+  --bline-focus-ring: #85beff;
+
+  --bline-success: #70d486;
+  --bline-success-text: #a9eab6;
+  --bline-success-surface: #1d3526;
+  --bline-success-border: #477e55;
+  --bline-warning: #f1c15d;
+  --bline-warning-text: #f5d985;
+  --bline-warning-surface: #352c1b;
+  --bline-warning-border: #8b713b;
+  --bline-danger: #ff6b6b;
+  --bline-danger-text: #ffb3b3;
+  --bline-danger-surface: #302128;
+  --bline-danger-hover: #482a32;
+  --bline-danger-border: #8f5159;
+  --bline-danger-solid: #b43242;
+
+  --bline-backdrop: rgba(4, 8, 11, 0.56);
+  --bline-backdrop-light: rgba(4, 8, 11, 0.16);
+  --bline-shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --bline-shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.5);
+  --bline-shadow-floating: 0 10px 26px rgba(0, 0, 0, 0.28);
+  --bline-shadow-pressed: inset 0 2px 5px rgba(0, 0, 0, 0.4);
+  --bline-radius-control: 6px;
+  --bline-radius-card: 8px;
+  --bline-radius-popover: 9px;
+  --bline-radius-dialog: 12px;
+  --bline-disabled-opacity: 0.45;
+  --bline-motion-fast: 140ms ease-out;
+
+  /* Public control aliases also resolve in menus outside the app shell. */
+  --bline-canvas-background: var(--bline-surface-canvas);
+  --bline-control-accent: var(--bline-accent);
+  --bline-control-background: var(--bline-surface-raised);
+  --bline-control-background-hover: var(--bline-surface-hover);
+  --bline-control-border: var(--bline-border-control);
+  --bline-control-border-hover: var(--bline-border-hover);
+  --bline-control-danger: var(--bline-danger-solid);
+  --bline-control-danger-border: var(--bline-danger);
+  --bline-control-disabled-opacity: var(--bline-disabled-opacity);
+  --bline-control-field-background: var(--bline-surface-inset);
+  --bline-control-field-border: var(--bline-border-control);
+  --bline-control-focus-ring: var(--bline-focus-ring);
+  --bline-control-height: 30px;
+  --bline-control-radius: var(--bline-radius-control);
+  --bline-control-text: var(--bline-text-primary);
+}

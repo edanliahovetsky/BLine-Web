@@ -95,7 +95,7 @@ describe("foundational lesson content", () => {
       "Play bar",
       "File menu",
       "Edit actions",
-      "Path menu",
+      "Edit menu",
       "Path dropdown",
       "Path Groups",
     ]);

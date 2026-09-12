@@ -217,13 +217,6 @@ export function TourOverlay({
   // Track where the spotlight and interaction holes sit, following layout.
   useEffect(() => {
     const measureTour = (id: string): TourRect | null => {
-      // The open drawer covers its toolbar button. Do not leave a spotlight
-      // floating over the drawer header where that button used to be.
-      if (
-        id === "navigator-button" &&
-        document.querySelector('[data-tour="project-navigator"]')
-      )
-        return null;
       const speedOrdinal =
         id === "lesson-corner-speed"
           ? 3
@@ -275,18 +268,7 @@ export function TourOverlay({
             ? measureTour(stepTarget)
             : null,
       );
-      setVisibleHoles(
-        measureTargets(
-          visibleToken
-            .split("|")
-            .filter(
-              (id) =>
-                id !== "path-canvas" ||
-                !document.querySelector('[data-tour="project-navigator"]'),
-            )
-            .join("|"),
-        ),
-      );
+      setVisibleHoles(measureTargets(visibleToken));
       setHoles(
         interactToken && !(lockInteractionOnComplete && actionComplete)
           ? measureTargets(interactToken)
@@ -502,6 +484,16 @@ export function TourOverlay({
         return;
       // Tab navigation is safe; a focused shielded button still cannot be activated.
       if (event.key === "Tab") return;
+      if (
+        !isReviewing &&
+        target?.closest(".navigator-resize-handle") &&
+        tourAllowsTarget(step, target) &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+      )
+        return;
       if (
         inCoach &&
         [

@@ -5,11 +5,11 @@
   height: min(700px, calc(100vh - 48px));
   min-height: 0;
   overflow: hidden;
-  border: 1px solid #3f4a55;
-  border-radius: 8px;
-  color: #eef3f7;
-  background: rgba(24, 30, 35, 0.98);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.58);
+  border: 1px solid var(--bline-border-strong);
+  border-radius: var(--bline-radius-dialog);
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-base);
+  box-shadow: var(--bline-shadow-dialog);
 }
 
 .library-dialog__utility-bar {
@@ -19,8 +19,9 @@
   gap: 10px;
   min-width: 0;
   padding: 8px 12px;
-  border-bottom: 1px solid #333d47;
-  background: #151b20;
+  border-bottom: 1px solid var(--bline-border-strong);
+  background: var(--bline-surface-raised);
+  border-color: var(--bline-border-subtle);
 }
 
 .library-dialog__selection-summary {
@@ -39,13 +40,13 @@
 }
 
 .library-dialog__selection-summary strong {
-  color: #f4f8fc;
+  color: var(--bline-text-primary);
   font-size: 0.88rem;
   font-weight: 780;
 }
 
 .library-dialog__selection-summary span {
-  color: #9eadb9;
+  color: var(--bline-text-secondary);
   font-size: 0.74rem;
   font-weight: 720;
 }
@@ -53,10 +54,10 @@
 .library-dialog__utility-bar button,
 .library-dialog .config-dialog__footer button {
   min-height: 34px;
-  border: 1px solid #3b4854;
-  border-radius: 7px;
-  color: #e2edf7;
-  background: #202830;
+  border: 1px solid var(--bline-border-control);
+  border-radius: var(--bline-radius-control);
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-raised);
   font-size: 0.84rem;
   font-weight: 720;
 }
@@ -70,15 +71,15 @@
 .library-dialog__utility-bar button:focus-visible:not(:disabled),
 .library-dialog .config-dialog__footer button:hover:not(:disabled),
 .library-dialog .config-dialog__footer button:focus-visible:not(:disabled) {
-  border-color: #4d8fe8;
-  color: #f6fbff;
-  background: #213149;
+  border-color: var(--bline-border-hover);
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-hover);
 }
 
 .library-dialog__utility-bar button:disabled,
 .library-dialog .config-dialog__footer button:disabled {
   cursor: not-allowed;
-  opacity: 0.52;
+  opacity: var(--bline-disabled-opacity);
 }
 
 .library-dialog__utility-button {
@@ -97,7 +98,8 @@
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid #333d47;
+  border-right: 1px solid var(--bline-border-strong);
+  border-color: var(--bline-border-subtle);
 }
 
 .library-dialog__column-header {
@@ -108,13 +110,15 @@
   min-width: 0;
   min-height: 48px;
   padding: 11px 14px 10px;
-  border-bottom: 1px solid #333d47;
+  border-bottom: 1px solid var(--bline-border-strong);
+  background: var(--bline-surface-raised);
+  border-color: var(--bline-border-subtle);
 }
 
 .library-dialog__column-header strong {
   min-width: 0;
   overflow: hidden;
-  color: #f4f8fc;
+  color: var(--bline-text-primary);
   font-size: 0.95rem;
   font-weight: 780;
   text-overflow: ellipsis;
@@ -122,7 +126,7 @@
 }
 
 .library-dialog__column-header span {
-  color: #9eadb9;
+  color: var(--bline-text-secondary);
   font-size: 0.76rem;
   font-weight: 720;
   white-space: nowrap;
@@ -143,18 +147,24 @@
   min-width: 0;
   min-height: 58px;
   padding: 10px 12px;
-  border: 1px solid #2c363f;
+  border: 1px solid var(--bline-border-subtle);
   border-radius: 7px;
-  color: #eef3f7;
-  background: #1b2025;
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-raised);
   line-height: 1.22;
   text-align: left;
 }
 
 .library-dialog__item.is-selected {
-  border-color: #2f81f7;
-  box-shadow: inset 3px 0 0 #58a6ff;
-  background: #1b2f49;
+  border-color: var(--bline-border-accent);
+  box-shadow: inset 3px 0 0 var(--bline-accent);
+  background: var(--bline-surface-selected);
+}
+
+.library-dialog__item:hover:not(.is-selected),
+.library-dialog__item:focus-visible:not(.is-selected) {
+  border-color: var(--bline-border-hover);
+  background: var(--bline-surface-hover);
 }
 
 .library-dialog__item span,
@@ -166,13 +176,13 @@
 }
 
 .library-dialog__item span {
-  color: #eef3f7;
+  color: var(--bline-text-primary);
   font-size: 0.88rem;
   font-weight: 740;
 }
 
 .library-dialog__item small {
-  color: #9eadb9;
+  color: var(--bline-text-secondary);
   font-size: 0.72rem;
 }
 
@@ -193,10 +203,10 @@
   display: grid;
   min-height: 86px;
   place-items: center;
-  border: 1px dashed #38434e;
+  border: 1px dashed var(--bline-border-strong);
   border-radius: 8px;
-  color: #9eadb9;
-  background: #1b2025;
+  color: var(--bline-text-secondary);
+  background: var(--bline-surface-raised);
   font-size: 0.84rem;
   line-height: 1.35;
   text-align: center;
@@ -215,6 +225,6 @@
   .library-dialog__column {
     min-height: 260px;
     border-right: 0;
-    border-bottom: 1px solid #333d47;
+    border-bottom: 1px solid var(--bline-border-strong);
   }
 }

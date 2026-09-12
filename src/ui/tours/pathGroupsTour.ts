@@ -122,9 +122,9 @@ const steps: TourStep[] = [
   },
   {
     title: "Preview the group",
-    body: "Select Practice and click Preview Path Group. One path stays active while the other appears as a faint overlay on the field.",
+    body: "Click Practice to preview it on the canvas. One path stays active while the other appears as a faint overlay on the field.",
     phase: "Observe",
-    target: "navigator-preview",
+    target: "navigator-groups",
     interact: navigatorControls,
     prepare: { navigator: "open", showGhostPaths: true },
     task: "Preview Practice on the field",
@@ -132,15 +132,14 @@ const steps: TourStep[] = [
       feedback(
         hasPaths(["lesson-approach", "lesson-return"]) &&
           projectStore.getState().activePathGroupId ===
-            practiceGroup()?.group_id &&
-          !navigatorOpen(),
-        "Select Practice, then click Preview Path Group.",
+            practiceGroup()?.group_id,
+        "Click Practice to preview it on the canvas.",
         "Both paths are visible on the field.",
       ),
   },
   {
     title: "Remove a connection",
-    body: "Open the navigator again and select Practice. Click Return’s connected point to remove it from the group. Return stays in All Paths.",
+    body: "Keep the navigator open and select Practice. Click Return’s connected point to remove it from the group. Return stays in All Paths.",
     phase: "Challenge",
     target: "navigator-button",
     visible: ["project-navigator"],

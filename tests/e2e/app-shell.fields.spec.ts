@@ -10,16 +10,19 @@ import {
 } from "./support/app-shell-fields";
 import {
   installSaveFilePickerSpy,
+  openProjectMenu,
   savedFile,
   savedFileCount,
 } from "./support/app-shell-persistence";
-import { openPathMenu } from "./support/app-shell-project-library";
-import { gotoSampleEditor } from "./support/app-shell-shared";
+import {
+  gotoSampleEditor,
+  openProjectSettings,
+} from "./support/app-shell-shared";
 
 test("edits project config with undo support", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   const saveButton = dialog.getByRole("button", { name: "Save" });
   await expect(dialog).toBeVisible();
@@ -70,7 +73,7 @@ test("edits project config with undo support", async ({ page }) => {
   );
 
   await runEditMenuAction(page, "Undo");
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Length (m)")).toHaveValue("0.8");
   await page.getByRole("button", { name: "Path Defaults" }).click();
@@ -87,7 +90,7 @@ test("uploads and restores a custom field image from Settings", async ({
   await gotoSampleEditor(page);
   await expect(page.getByTestId("path-stage-pixi-canvas")).toBeVisible();
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
   const fieldSelect = dialog.getByLabel("Field Image", { exact: true });
@@ -168,7 +171,7 @@ test("uploads and restores a custom field image from Settings", async ({
   // coordinates instead of serializing the bounded canvas preview.
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
-  await openPathMenu(page);
+  await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Export Path..." }).click();
   await expect.poll(() => savedFileCount(page)).toBe(1);
@@ -195,7 +198,7 @@ test("uploads and restores a custom field image from Settings", async ({
   await expect.poll(() => activeFieldLabel(page)).toBe("Practice Field");
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   await page.getByRole("button", { name: "Field" }).click();
   await expect(page.getByLabel("Field Name")).toHaveValue("Practice Field");
   await expect(page.getByLabel("Field Length (m)")).toHaveValue("4");
@@ -209,7 +212,7 @@ test("keeps uploaded and replacement Field images as drafts until Settings is sa
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   expect(await userFieldStorageCounts(page)).toEqual({ entries: 0, assets: 0 });
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   let dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
   await dialog.getByLabel("Upload field image").setInputFiles({
@@ -223,7 +226,7 @@ test("keeps uploaded and replacement Field images as drafts until Settings is sa
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
   expect(await userFieldStorageCounts(page)).toEqual({ entries: 0, assets: 0 });
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
   await expect(
@@ -246,7 +249,7 @@ test("keeps uploaded and replacement Field images as drafts until Settings is sa
   const [savedFieldId] = await userFieldStorageIds(page);
   expect(savedFieldId).toBeTruthy();
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
   await dialog.getByLabel("Upload field image").setInputFiles({
@@ -260,7 +263,7 @@ test("keeps uploaded and replacement Field images as drafts until Settings is sa
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
   expect(await userFieldStorageCounts(page)).toEqual({ entries: 1, assets: 1 });
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
   await expect(dialog.getByLabel("Field Name")).toHaveValue("saved field.png");
@@ -283,7 +286,7 @@ test("does not save an earlier Settings snapshot while a Field upload is decodin
   page,
 }) => {
   await gotoSampleEditor(page);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await page.getByLabel("Robot Length (m)").fill("0.825");
   await dialog.getByRole("button", { name: "Field" }).click();
@@ -319,7 +322,7 @@ test("keeps Settings modal and immutable until its Field save finishes", async (
   page,
 }) => {
   await gotoSampleEditor(page);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
   await dialog.getByLabel("Upload field image").setInputFiles({
@@ -526,7 +529,7 @@ test("surfaces and retries a failed legacy Project field migration", async ({
 test("cancels project config edits with Escape", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Robot" }).click();
@@ -536,7 +539,7 @@ test("cancels project config edits with Escape", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   await page.getByRole("button", { name: "Robot" }).click();
   await expect(page.getByLabel("Robot Width (m)")).toHaveValue("0.8");
   await page.getByRole("button", { name: "Close config" }).click();

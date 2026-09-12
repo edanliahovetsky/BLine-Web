@@ -5,13 +5,16 @@ import {
   activeFieldLabel,
   tinyPngBuffer,
 } from "../e2e/support/app-shell-fields";
-import { gotoSampleEditor } from "../e2e/support/app-shell-shared";
+import {
+  gotoSampleEditor,
+  openProjectSettings,
+} from "../e2e/support/app-shell-shared";
 import {
   installSaveFilePickerSpy,
+  openProjectMenu,
   savedFile,
   savedFileCount,
 } from "../e2e/support/app-shell-persistence";
-import { openPathMenu } from "../e2e/support/app-shell-project-library";
 import { test } from "./productionServer";
 
 async function prepareOffline(page: Page): Promise<void> {
@@ -89,7 +92,7 @@ test("reopens, edits, simulates, and starts the optimizer offline", async ({
   await page.reload();
   await page.getByTestId("path-element-row-0").click();
   await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
-  await openPathMenu(page);
+  await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Export Path..." }).click();
   await expect.poll(() => savedFileCount(page)).toBe(1);
@@ -123,7 +126,7 @@ test("preserves custom field images and User Data across offline reloads", async
 }) => {
   await prepareOffline(page);
   await context.setOffline(true);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field", exact: true }).click();
   await dialog
@@ -133,7 +136,7 @@ test("preserves custom field images and User Data across offline reloads", async
   await expect.poll(() => activeFieldLabel(page)).toBe("Rapid React 2022");
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openProjectSettings(page);
   await dialog.getByRole("button", { name: "Field", exact: true }).click();
   await dialog.getByLabel("Upload field image").setInputFiles({
     name: "practice.png",

@@ -15,13 +15,85 @@ import {
 } from "./support/app-shell-persistence";
 import {
   createNewPathFromTopMenu,
-  openPathManageMenu,
-  openPathMenu,
+  openEditMenu,
 } from "./support/app-shell-project-library";
 import {
   dismissMobileSupportWarning,
   gotoSampleEditor,
 } from "./support/app-shell-shared";
+
+test("dismisses toolbar popovers on outside clicks without swallowing the click @webkit-canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const cases = [
+    { label: "Help and tutorials", panel: page.getByTestId("help-hub") },
+    { label: "File", panel: page.getByTestId("top-menu-project") },
+    { label: "Edit", panel: page.getByTestId("top-menu-path") },
+    {
+      label: "Toolbar path",
+      panel: page.getByRole("listbox", { name: "Toolbar path options" }),
+    },
+  ];
+  for (const { label, panel } of cases) {
+    await test.step(label, async () => {
+      const trigger = page.getByRole("button", { name: label, exact: true });
+      await trigger.click();
+      await expect(panel).toBeVisible();
+      // Canvas tools stop bubbling pointer events; outside dismissal must still run.
+      const tool = page.getByRole("button", {
+        name: "Waypoint tool",
+        exact: true,
+      });
+      await tool.click();
+      await expect(panel).toHaveCount(0);
+      await expect(tool).toHaveAttribute("aria-pressed", "true");
+      await page
+        .getByRole("button", { name: "Select tool", exact: true })
+        .click();
+      await trigger.click();
+      await page
+        .getByRole("button", { name: "Open project navigator", exact: true })
+        .click();
+      await expect(panel).toHaveCount(0);
+      const navigator = page.getByRole("complementary", {
+        name: "Project Navigator",
+      });
+      await expect(navigator).toBeVisible();
+      await navigator
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+    });
+  }
+  const help = page.getByRole("button", {
+    name: "Help and tutorials",
+    exact: true,
+  });
+  await help.click();
+  const hub = page.getByTestId("help-hub");
+  await hub.getByRole("separator").click();
+  await expect(hub).toBeVisible();
+  await help.click();
+  await expect(hub).toHaveCount(0);
+  await help.click();
+  await hub.getByRole("button", { name: /Keyboard shortcuts/ }).click();
+  await expect(hub).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
+});
+
+test("dismisses Help when clicking elsewhere on Home @webkit-canvas", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Help and tutorials", exact: true })
+    .click();
+  await expect(page.getByTestId("help-hub")).toBeVisible();
+  await page.getByRole("heading", { name: "BLine", exact: true }).click();
+  await expect(page.getByTestId("help-hub")).toHaveCount(0);
+});
 
 test("selects and deletes a saved path without crashing", async ({ page }) => {
   await gotoSampleEditor(page);
@@ -33,7 +105,7 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await openPathManageMenu(page);
+  await openEditMenu(page);
   await page.getByRole("menuitem", { name: "Delete Paths..." }).click();
   await expect(
     page.getByRole("dialog", { name: "Delete Paths" }),
@@ -108,7 +180,7 @@ test("recovers autosaved edits after reload", async ({ page }) => {
 test("keeps linked elements after reload", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  const pathMenu = await openPathMenu(page);
+  const pathMenu = await openEditMenu(page);
   await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
 
   let dialog = page.getByRole("dialog", { name: "Linked Elements" });
@@ -125,7 +197,7 @@ test("keeps linked elements after reload", async ({ page }) => {
   });
   await page.reload();
 
-  const reopenedPathMenu = await openPathMenu(page);
+  const reopenedPathMenu = await openEditMenu(page);
   await reopenedPathMenu
     .getByRole("menuitem", { name: "Linked Elements..." })
     .click();
@@ -210,7 +282,7 @@ test("synchronizes linked inspector and keyboard edits while respecting locks", 
   });
 
   await test.step("prevent keyboard nudges while the shared point is locked", async () => {
-    const pathMenu = await openPathMenu(page);
+    const pathMenu = await openEditMenu(page);
     await pathMenu
       .getByRole("menuitem", { name: "Linked Elements..." })
       .click();
@@ -596,7 +668,7 @@ test("supports common keyboard shortcuts", async ({ page }) => {
 test("keeps global shortcuts behind the path name dialog", async ({ page }) => {
   await gotoSampleEditor(page);
 
-  await openPathManageMenu(page);
+  await openEditMenu(page);
   await page.getByRole("menuitem", { name: "Save Path As..." }).click();
 
   const dialog = page.getByRole("dialog", { name: "Save Path As" });
@@ -614,7 +686,7 @@ test("keeps global shortcuts behind the linked element picker", async ({
 }) => {
   await gotoSampleEditor(page);
 
-  const pathMenu = await openPathMenu(page);
+  const pathMenu = await openEditMenu(page);
   await pathMenu.getByRole("menuitem", { name: "Linked Elements..." }).click();
   const linkedElementsDialog = page.getByRole("dialog", {
     name: "Linked Elements",

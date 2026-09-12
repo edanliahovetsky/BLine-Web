@@ -228,17 +228,21 @@ export function ElementList({
                           </span>
                         ) : null}
                       </span>
-                      <span
-                        className={[
-                          "path-element-row__detail",
-                          detail.empty ? "path-element-row__detail--empty" : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                        title={detail.title}
-                      >
-                        {detail.visibleText}
-                      </span>
+                      {isEventTrigger(element) ? (
+                        <span
+                          className={[
+                            "path-element-row__detail",
+                            detail.empty
+                              ? "path-element-row__detail--empty"
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          title={detail.title}
+                        >
+                          {detail.visibleText}
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                   <button

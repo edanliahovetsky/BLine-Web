@@ -71,6 +71,14 @@ test.describe("app shell visual baselines", () => {
     await expect(page.getByLabel("Profiled Rotation")).toBeVisible();
 
     await expectVisualSnapshot(page, "element-properties.png");
+
+    await page.getByTestId("path-element-row-5").click();
+    await expect(
+      page.getByRole("list", { name: "Path elements", exact: true }),
+    ).toHaveScreenshot("selected-final-element.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
   });
 
   test("project navigator", async ({ page }) => {
@@ -80,7 +88,7 @@ test.describe("app shell visual baselines", () => {
       .click();
 
     await expect(
-      page.getByRole("dialog", { name: "Project Navigator" }),
+      page.getByRole("complementary", { name: "Project Navigator" }),
     ).toBeVisible();
 
     await expectVisualSnapshot(page, "project-navigator.png");
@@ -113,7 +121,7 @@ test.describe("app shell visual baselines", () => {
 
   test("empty linked elements library", async ({ page }) => {
     await gotoSampleEditor(page);
-    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("menuitem", { name: "Linked Elements..." }).click();
 
     await expect(

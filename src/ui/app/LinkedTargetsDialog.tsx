@@ -96,9 +96,6 @@ export function LinkedTargetsDialog({
         : null,
     [pickerElement, pickerCompatibleTargets],
   );
-  const activeUseCount = selectedTarget
-    ? linkedTargetUseCount(project, selectedTarget.target_id)
-    : 0;
   const coordinateLength = fieldCoordinateLengthMeters(field.geometry);
   const coordinateWidth = fieldCoordinateWidthMeters(field.geometry);
 
@@ -168,49 +165,32 @@ export function LinkedTargetsDialog({
         data-testid="linked-targets-dialog"
         data-tour="linked-elements-dialog"
       >
-        <header className="config-dialog__header">
-          <strong>
+        <header className="library-dialog__utility-bar">
+          <strong className="linked-targets-dialog__title">
             {linkRequest ? "Choose Linked Element" : "Linked Elements"}
           </strong>
+          <div className="linked-targets-dialog__create-actions">
+            <button
+              type="button"
+              className="library-dialog__utility-button"
+              aria-label="New Translation"
+              onClick={() => createTarget("translation")}
+            >
+              <PlusIcon size={17} />
+              <span>Translation</span>
+            </button>
+            <button
+              type="button"
+              className="library-dialog__utility-button"
+              aria-label="New Waypoint"
+              onClick={() => createTarget("waypoint")}
+            >
+              <PlusIcon size={17} />
+              <span>Waypoint</span>
+            </button>
+          </div>
           <CloseButton ariaLabel="Close linked elements" onClick={onCancel} />
         </header>
-
-        <div className="library-dialog__utility-bar">
-          {linkRequest || selectedTarget ? (
-            <div className="library-dialog__selection-summary">
-              <strong>
-                {linkRequest
-                  ? `Element ${linkRequest.elementIndex + 1}`
-                  : selectedTarget?.display_name}
-              </strong>
-              <span>
-                {linkRequest
-                  ? `${pickerCompatibleTargets.length} compatible / ${project.linked_targets.length} total`
-                  : `${activeUseCount} ${
-                      activeUseCount === 1 ? "use" : "uses"
-                    }`}
-              </span>
-            </div>
-          ) : null}
-          <button
-            type="button"
-            className="library-dialog__utility-button"
-            aria-label="New Translation"
-            onClick={() => createTarget("translation")}
-          >
-            <PlusIcon size={17} />
-            <span>Translation</span>
-          </button>
-          <button
-            type="button"
-            className="library-dialog__utility-button"
-            aria-label="New Waypoint"
-            onClick={() => createTarget("waypoint")}
-          >
-            <PlusIcon size={17} />
-            <span>Waypoint</span>
-          </button>
-        </div>
 
         <div
           className="linked-targets-dialog__body"
@@ -224,10 +204,6 @@ export function LinkedTargetsDialog({
             className="library-dialog__column linked-targets-dialog__list"
             aria-label="Elements"
           >
-            <div className="library-dialog__column-header">
-              <strong>Elements</strong>
-              <span>{project.linked_targets.length}</span>
-            </div>
             <div
               className="library-dialog__item-list"
               role="list"
@@ -294,9 +270,6 @@ export function LinkedTargetsDialog({
             className="library-dialog__column linked-targets-dialog__preview-column"
             aria-label="Linked element preview"
           >
-            <div className="library-dialog__column-header">
-              <span>{field.label}</span>
-            </div>
             <div
               className="linked-targets-dialog__preview-shell"
               onClick={(event) => {
@@ -331,9 +304,6 @@ export function LinkedTargetsDialog({
             className="library-dialog__column linked-targets-dialog__details"
             aria-label="Linked element details"
           >
-            <div className="library-dialog__column-header">
-              <strong>Details</strong>
-            </div>
             <div className="library-dialog__details-scroll">
               {selectedTarget ? (
                 <div className="linked-targets-dialog__editor">
@@ -451,6 +421,9 @@ export function LinkedTargetsDialog({
 
         {linkRequest ? (
           <footer className="config-dialog__footer library-dialog__footer">
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
             <button
               type="button"
               className="primary-dialog-action linked-targets-dialog__link-selected"
@@ -458,9 +431,6 @@ export function LinkedTargetsDialog({
               onClick={linkSelectedTarget}
             >
               Link Selected
-            </button>
-            <button type="button" onClick={onCancel}>
-              Cancel
             </button>
           </footer>
         ) : null}

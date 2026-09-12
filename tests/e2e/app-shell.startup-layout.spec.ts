@@ -5,6 +5,7 @@ import {
   dismissMobileSupportWarning,
   gotoSampleEditor,
   requiredBox,
+  openProjectSettings,
 } from "./support/app-shell-shared";
 
 test("surfaces a blocked User Data v1 to v2 upgrade instead of loading forever", async ({
@@ -501,7 +502,7 @@ test("opens settings from a narrow portrait top bar", async ({ page }) => {
   await gotoSampleEditor(page);
   await dismissMobileSupportWarning(page);
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
 
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
   await page.getByRole("button", { name: "Robot" }).click();
@@ -549,7 +550,7 @@ test("reflows the same toolbar controls without page overflow", async ({
     ).toBeInViewport();
   }
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
 });
 
@@ -617,12 +618,11 @@ test("preserves toolbar ordering and access across responsive breakpoints", asyn
   const expectedLabels = [
     "Open project navigator",
     "File",
-    "Path",
+    "Edit",
     "Toolbar path",
     "Undo",
     "Redo",
     "Help and tutorials",
-    "Settings",
     "Toggle inspector",
   ];
   for (const width of [
@@ -662,7 +662,7 @@ test("preserves toolbar ordering and access across responsive breakpoints", asyn
       page.getByRole("listbox", { name: "Toolbar path options" }),
     );
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Path", exact: true }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expectUsablePanel(page.getByTestId("top-menu-path"));
     await page.keyboard.press("Escape");
   }
@@ -721,7 +721,7 @@ test("selects paths and operates the portrait toolbar with the keyboard", async 
     page,
     "Second path with a long name for the compact selector",
   );
-  const pathMenu = page.getByRole("button", { name: "Path", exact: true });
+  const pathMenu = page.getByRole("button", { name: "Edit", exact: true });
   await pathMenu.focus();
   await page.keyboard.press("Enter");
   await expectUsablePanel(page.getByTestId("top-menu-path"));
@@ -755,8 +755,21 @@ test("selects paths and operates the portrait toolbar with the keyboard", async 
   ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(
-    page.getByRole("button", { name: "Settings", exact: true }),
+    page.getByRole("button", { name: "Toggle inspector", exact: true }),
   ).toBeFocused();
+  const fileMenu = page.getByRole("button", { name: "File", exact: true });
+  await fileMenu.focus();
+  await page.keyboard.press("Enter");
+  const settings = page.getByRole("menuitem", {
+    name: "Settings",
+    exact: true,
+  });
+  await settings.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Edit Config" })).toHaveCount(
+    0,
+  );
+  await expect(fileMenu).toBeFocused();
 });

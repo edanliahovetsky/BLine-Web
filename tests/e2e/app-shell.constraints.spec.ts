@@ -7,14 +7,16 @@ import {
 import { openConstraintsTab } from "./support/app-shell-constraints";
 import {
   installWorkspaceWriteSpy,
+  openProjectMenu,
   resetWorkspaceWriteSpy,
   workspaceWriteCount,
 } from "./support/app-shell-persistence";
+import { createNewPathFromTopMenu } from "./support/app-shell-project-library";
 import {
-  createNewPathFromTopMenu,
-  openPathMenu,
-} from "./support/app-shell-project-library";
-import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
+  gotoSampleEditor,
+  requiredBox,
+  openProjectSettings,
+} from "./support/app-shell-shared";
 
 test("keeps the expanded constraint editor out of the current UI", async ({
   page,
@@ -136,7 +138,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   );
   await expect(page.getByLabel("Delete constraint 1")).toHaveCSS(
     "color",
-    "rgb(255, 77, 77)",
+    "rgb(255, 107, 107)",
   );
   expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
   expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
@@ -589,7 +591,7 @@ test("uses edited local acceleration to regenerate radii and speeds", async ({
 }) => {
   await gotoSampleEditor(page);
   const choosing = page.waitForEvent("filechooser");
-  await openPathMenu(page);
+  await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Import Path..." }).click();
   await (
@@ -706,7 +708,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
     page.getByText("Generator settings", { exact: true }),
   ).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Generator" }).click();
 
@@ -719,7 +721,7 @@ test("keeps optimizer controls in Settings instead of Constraints", async ({
 
   await dialog.getByLabel("Keep in sync").uncheck();
   await dialog.getByRole("button", { name: "Save" }).click();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   await page.getByRole("button", { name: "Generator" }).click();
   await expect(page.getByLabel("Keep in sync")).not.toBeChecked();
 });
@@ -729,7 +731,7 @@ test("warns that a large path may take longer without exposing its evaluation bu
 }) => {
   await gotoSampleEditor(page);
   const chooserPromise = page.waitForEvent("filechooser");
-  await openPathMenu(page);
+  await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Import / Export" }).click();
   await page.getByRole("menuitem", { name: "Import Path..." }).click();
   const chooser = await chooserPromise;
@@ -771,7 +773,7 @@ test("turns dragged auto velocity ranges into manual ranges", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openProjectSettings(page);
   const settingsDialog = page.getByRole("dialog", { name: "Edit Config" });
   await settingsDialog.getByRole("button", { name: "Generator" }).click();
   await settingsDialog.getByLabel("Merge difference (m/s)").fill("20");
@@ -1097,7 +1099,7 @@ test("uses range and toggle selection for handoff radii", async ({ page }) => {
   await gotoSampleEditor(page);
   // Keep deleted radii unset while testing bulk edits. Background regeneration
   // is covered separately and can otherwise replace them before the assertion.
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openProjectSettings(page);
   const settings = page.getByRole("dialog", { name: "Edit Config" });
   await settings
     .getByRole("button", { name: "Generator", exact: true })

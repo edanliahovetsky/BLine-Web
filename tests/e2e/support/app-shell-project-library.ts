@@ -25,26 +25,20 @@ export function pointBetweenFlyoutAndTrigger(
   };
 }
 
-export async function openPathMenu(page: Page): Promise<Locator> {
-  await page.getByRole("button", { name: "Path", exact: true }).click();
+export async function openEditMenu(page: Page): Promise<Locator> {
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
   const menu = page.getByTestId("top-menu-path");
   await expect(menu).toBeVisible();
   return menu;
 }
 
-export async function openPathManageMenu(page: Page): Promise<Locator> {
-  await openPathMenu(page);
-  await page.getByRole("menuitem", { name: "Manage Paths" }).click();
-  const menu = page.getByTestId("top-menu-path-manage");
-  await expect(menu).toBeVisible();
-  return menu;
-}
-
 export async function openPathLibraryDialog(page: Page): Promise<Locator> {
-  await page
-    .getByRole("button", { name: "Open project navigator", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog", { name: "Project Navigator" });
+  const dialog = page.getByRole("complementary", { name: "Project Navigator" });
+  if (!(await dialog.isVisible())) {
+    await page
+      .getByRole("button", { name: "Open project navigator", exact: true })
+      .click();
+  }
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -78,8 +72,9 @@ export async function createPathGroupFromTopMenu(
     .getByRole("button", { name: `Connect to ${pathName}`, exact: true })
     .click();
   await dialog
-    .getByRole("button", { name: "Preview Path Group", exact: true })
+    .getByRole("button", { name: `Focus ${groupName}`, exact: true })
     .click();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
 }
 
 export async function addPathToGroupFromLibrary(
@@ -87,6 +82,7 @@ export async function addPathToGroupFromLibrary(
   groupName: string,
   pathName: string,
 ): Promise<void> {
+  const activePathName = await page.getByLabel("Toolbar path").innerText();
   const dialog = await openPathLibraryDialog(page);
   await dialog
     .getByRole("button", { name: `Focus ${groupName}`, exact: true })
@@ -100,6 +96,9 @@ export async function addPathToGroupFromLibrary(
   if (!(await pathPort.getAttribute("aria-label"))?.startsWith("Disconnect")) {
     await pathPort.click();
   }
+  await dialog
+    .getByRole("button", { name: `Focus ${activePathName}`, exact: true })
+    .click();
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
 }
 
@@ -120,13 +119,16 @@ export async function createNewPathFromTopMenu(
   page: Page,
   pathName: string,
 ): Promise<void> {
-  await openPathManageMenu(page);
+  await page.getByRole("button", { name: "File", exact: true }).click();
   await page.getByRole("menuitem", { name: "New Path" }).click();
-  const dialog = page.getByRole("dialog", { name: "Project Navigator" });
+  const dialog = page.getByRole("complementary", { name: "Project Navigator" });
   await expect(dialog).toBeVisible();
   const name = dialog.getByRole("textbox", { name: "Path name", exact: true });
   await expect(name).toBeFocused();
   await name.fill(pathName);
   await name.press("Enter");
-  await dialog.getByRole("button", { name: "Open Path", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: `Focus ${pathName}`, exact: true })
+    .click();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
 }

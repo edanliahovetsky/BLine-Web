@@ -30,6 +30,7 @@ import {
 import {
   USER_DATA_SCHEMA_VERSION,
   defaultUserData,
+  migrateUserData,
   type UserData,
 } from "../../../src/userData/model";
 import {
@@ -46,6 +47,27 @@ import {
 import type { ProjectIoService } from "../../../src/platform/projectIo";
 
 describe("UserData", () => {
+  it("defaults existing records to visible Navigator connections and retains an explicit choice", () => {
+    const previousLayout = {
+      inspector_tab: "elements",
+      inspector_width: 340,
+      show_ghost_paths: true,
+    };
+    const previousRecord = {
+      ...defaultUserData,
+      editor_layout: previousLayout,
+    };
+    expect(
+      migrateUserData(previousRecord).editor_layout.navigator_show_connections,
+    ).toBe(true);
+    expect(
+      migrateUserData({
+        ...previousRecord,
+        editor_layout: { ...previousLayout, navigator_show_connections: false },
+      }).editor_layout.navigator_show_connections,
+    ).toBe(false);
+  });
+
   it("migrates all legacy preferences into one record without deleting sources", async () => {
     const storage = new MemoryStorage({
       "bline-web:editor-user-data:v1": JSON.stringify({
@@ -78,6 +100,7 @@ describe("UserData", () => {
         inspector_tab: "constraints",
         inspector_width: 418,
         show_ghost_paths: false,
+        navigator_show_connections: true,
       },
       completed_tour_ids: ["editor-basics"],
       automatic_generation: { keep_in_sync: false },
@@ -100,6 +123,7 @@ describe("UserData", () => {
           inspector_tab: "constraints",
           inspector_width: "wide",
           show_ghost_paths: false,
+          navigator_show_connections: true,
         },
         completed_tour_ids: ["simulate-verify", null, "simulate-verify"],
         automatic_generation: { keep_in_sync: false },
@@ -126,6 +150,7 @@ describe("UserData", () => {
         inspector_tab: "constraints",
         inspector_width: 340,
         show_ghost_paths: false,
+        navigator_show_connections: true,
       },
       completed_tour_ids: ["simulate-verify"],
       automatic_generation: { keep_in_sync: false },
@@ -511,6 +536,7 @@ describe("UserData", () => {
       editor_layout: {
         ...current.editor_layout,
         inspector_width: 456,
+        navigator_show_connections: false,
       },
     }));
     await preferences.flush();
@@ -519,10 +545,16 @@ describe("UserData", () => {
     });
 
     expect(adapter.persisted).toMatchObject({
-      editor_layout: { inspector_width: 456 },
+      editor_layout: {
+        inspector_width: 456,
+        navigator_show_connections: false,
+      },
       field_backgrounds: [{ id: entry.id, name: "Shared Practice Field" }],
     });
     expect(fields.getSnapshot().editor_layout.inspector_width).toBe(456);
+    expect(fields.getSnapshot().editor_layout.navigator_show_connections).toBe(
+      false,
+    );
   });
 
   it("merges concurrent Field metadata and geometry edits property-by-property", async () => {
@@ -695,6 +727,7 @@ describe("UserData", () => {
       inspector_tab: "constraints",
       inspector_width: 401,
       show_ghost_paths: false,
+      navigator_show_connections: false,
     });
     rememberCompletedTourIds(["editor-basics"]);
     rememberAutomaticGenerationKeepInSync(false);
@@ -705,6 +738,7 @@ describe("UserData", () => {
       inspector_tab: "constraints",
       inspector_width: 401,
       show_ghost_paths: false,
+      navigator_show_connections: false,
     });
     expect(readUserData().completed_tour_ids).toEqual(["editor-basics"]);
     expect(readUserData().automatic_generation.keep_in_sync).toBe(false);
