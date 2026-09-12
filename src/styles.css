@@ -1,6 +1,8 @@
+@import "./theme.css";
+
 :root {
-  color: #18202a;
-  background: #eef1f4;
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-app);
   font-family:
     Inter,
     ui-sans-serif,
@@ -55,4 +57,21 @@ textarea,
   min-height: 0;
   height: 100%;
   overflow: hidden;
+}
+
+/* A consistent keyboard cue for controls, including body-portaled menus.
+   Component-specific outlines may use an inset offset to avoid scroll clipping. */
+:where(button, a, summary, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--bline-focus-ring);
+  outline-offset: 2px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--bline-text-muted);
+  opacity: 1;
+}
+
+* {
+  scrollbar-color: var(--bline-border-control) transparent;
 }

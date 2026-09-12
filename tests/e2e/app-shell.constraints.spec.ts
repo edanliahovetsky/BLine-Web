@@ -136,7 +136,7 @@ test("adds edits and deletes ranged constraints", async ({ page }) => {
   );
   await expect(page.getByLabel("Delete constraint 1")).toHaveCSS(
     "color",
-    "rgb(255, 77, 77)",
+    "rgb(255, 107, 107)",
   );
   expect((await requiredBox(addSegmentIcon)).width).toBeGreaterThan(8);
   expect((await requiredBox(deleteSegmentIcon)).width).toBeGreaterThan(8);
