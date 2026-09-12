@@ -1641,6 +1641,8 @@ select {
 
 .property-editor {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 7px;
   padding: 8px;
 }
@@ -1711,9 +1713,10 @@ select {
 
 .property-row {
   display: grid;
-  grid-template-columns: minmax(118px, 1fr) minmax(116px, 168px);
+  grid-template-columns: minmax(min(118px, 50%), 1fr) minmax(0, 168px);
   align-items: center;
   gap: 10px;
+  min-width: 0;
   min-height: 36px;
   padding: 5px 8px;
   border: 1px solid var(--bline-border-subtle);
@@ -5266,6 +5269,7 @@ body.is-resizing-inspector * {
 }
 
 .inspector-sidebar__panel--elements {
+  --inspector-list-min-height: min(140px, 34%);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -5290,7 +5294,7 @@ body.is-resizing-inspector * {
   flex: 0 1 auto;
   /* The percentage keeps the floor and the properties cap below from adding
      up to more than the panel on very short windows. */
-  min-height: min(140px, 34%);
+  min-height: var(--inspector-list-min-height);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -5298,7 +5302,9 @@ body.is-resizing-inspector * {
 
 .inspector-sidebar__panel--elements > .property-editor-section {
   flex: 0 0 auto;
-  max-height: 52%;
+  /* Reserve the list's minimum space, then let the properties keep their
+     full content height before resorting to scrolling in very short windows. */
+  max-height: calc(100% - var(--inspector-list-min-height) - 8px);
 }
 
 /* Drop the standalone row cap and let the list itself fill the card, so it
@@ -5325,6 +5331,11 @@ body.is-resizing-inspector * {
 .inspector-sidebar__panel--elements .sidebar-section__body {
   min-height: 0;
   overflow-y: auto;
+}
+
+.property-editor-section > .sidebar-section__body {
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .inspector-sidebar__panel > .constraints-section {

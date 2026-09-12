@@ -141,6 +141,16 @@ test.describe("shared theme across dialogs and nested controls", () => {
     await snapshot(page, "settings-compact-primary.png");
   });
 
+  test("Waypoint properties at minimum inspector width", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 550 });
+    await page
+      .getByRole("separator", { name: "Resize inspector" })
+      .press("Home");
+    await page.getByTestId("path-element-row-0").click();
+    await expect(page.getByLabel("Profiled Rotation")).toBeInViewport();
+    await snapshot(page, "waypoint-properties-minimum-width.png");
+  });
+
   test("Inspector nested link menu", async ({ page }) => {
     await page.getByTestId("path-element-row-1").click();
     await page

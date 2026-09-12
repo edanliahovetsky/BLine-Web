@@ -1038,7 +1038,7 @@ test("shows element-specific row details and sheds them at minimum width", async
   await page.getByRole("separator", { name: "Resize inspector" }).press("Home");
   await expect(
     page.getByRole("separator", { name: "Resize inspector" }),
-  ).toHaveAttribute("aria-valuenow", "280");
+  ).toHaveAttribute("aria-valuenow", "320");
   await expect(eventRow.locator(".path-element-row__detail")).toBeHidden();
   await expect(eventRow.locator(".path-element-row__type")).toBeVisible();
 });
@@ -1248,13 +1248,14 @@ test("keeps the element properties card tight to its content", async ({
   }
 });
 
-test("scrolls element properties only on genuinely short viewports", async ({
+test("scrolls element properties only on genuinely short viewports @webkit-canvas", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1200, height: 900 });
   await gotoSampleEditor(page);
   await page.getByTestId("path-element-row-0").click();
   await expect(page.getByLabel("Profiled Rotation")).toBeVisible();
+  await page.getByRole("separator", { name: "Resize inspector" }).press("Home");
 
   const propertyBody = page.locator(
     ".property-editor-section > .sidebar-section__body",
@@ -1263,10 +1264,57 @@ test("scrolls element properties only on genuinely short viewports", async ({
     propertyBody.evaluate((element) => ({
       clientHeight: element.clientHeight,
       scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
     }));
 
-  const normal = await scrollMetrics();
-  expect(normal.scrollHeight).toBeLessThanOrEqual(normal.clientHeight + 1);
+  const propertyCard = page.locator(".property-editor-section");
+  for (const viewport of [
+    { width: 1200, height: 900 },
+    { width: 1200, height: 550 },
+    { width: 820, height: 550 },
+    { width: 360, height: 650 },
+  ]) {
+    await page.setViewportSize(viewport);
+    if (viewport.width === 360) {
+      await page
+        .getByRole("dialog", { name: "Mobile support warning" })
+        .getByRole("button", { name: "Continue" })
+        .click();
+    }
+    await expect
+      .poll(async () => {
+        const metrics = await scrollMetrics();
+        return metrics.scrollHeight - metrics.clientHeight;
+      })
+      .toBeLessThanOrEqual(1);
+
+    const before = await requiredBox(propertyCard);
+    const metrics = await scrollMetrics();
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+    for (const control of await propertyCard
+      .locator(
+        ".property-row, .property-editor__type-controls, input, [role=combobox], .sidebar-stepper, .bline-switch",
+      )
+      .all()) {
+      const box = await requiredBox(control);
+      expect(box.x).toBeGreaterThanOrEqual(before.x + 8);
+      expect(box.x + box.width).toBeLessThanOrEqual(
+        before.x + before.width - 8,
+      );
+    }
+    await propertyCard.getByText("Rotation (deg)", { exact: true }).hover();
+    await page.mouse.wheel(0, 500);
+    await page.mouse.wheel(500, 0);
+    await expect
+      .poll(() =>
+        propertyBody.evaluate((node) => node.scrollTop + node.scrollLeft),
+      )
+      .toBe(0);
+    const after = await requiredBox(propertyCard);
+    expect(after).toEqual(before);
+    await expect(page.getByLabel("Profiled Rotation")).toBeInViewport();
+  }
 
   await page.setViewportSize({ width: 1200, height: 430 });
   await expect
