@@ -1205,6 +1205,13 @@ function drawRobotFootprint(
     bounds,
     outlineWidth + 2 * elementOutlineWidthPx,
   );
+  // A quadratic corner's tightest radius is cornerRadius / sqrt(2).
+  // Keep it wider than half the stroke so Pixi's inner edge cannot fold
+  // over itself and blend a bright wedge at high zoom.
+  const cornerRadius = Math.max(
+    metrics.cornerRadius,
+    backing.strokeWidth / Math.SQRT2 + 0.5,
+  );
   // One shared centerline leaves black visible on both sides of the color,
   // with the outer black edge still exactly on the bumper bounds.
   const outline = {
@@ -1224,7 +1231,7 @@ function drawRobotFootprint(
       graphics,
       footprintOutlineCommands(
         backing.rect,
-        metrics.cornerRadius,
+        cornerRadius,
         0,
         extension ? protrusionSide : "none",
       ),
@@ -1279,7 +1286,7 @@ function drawRobotFootprint(
   }
   const commands = footprintOutlineCommands(
     outline.rect,
-    metrics.cornerRadius,
+    cornerRadius,
     metrics.frontRadius + 2,
     extension ? protrusionSide : "none",
   );
@@ -1288,7 +1295,7 @@ function drawRobotFootprint(
     graphics,
     footprintOutlineCommands(
       backing.rect,
-      metrics.cornerRadius,
+      cornerRadius,
       metrics.frontRadius + 2,
       extension ? protrusionSide : "none",
     ),

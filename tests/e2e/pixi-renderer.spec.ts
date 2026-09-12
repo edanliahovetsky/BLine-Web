@@ -629,8 +629,89 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       } finally {
         clipped.destroy();
       }
+      const cornerSamples: Array<{
+        name: string;
+        brightest: number;
+        limit: number;
+        inkPixels: number;
+      }> = [];
+      for (const scale of [50, 150, 300])
+        for (const heading of [0, Math.PI / 12, Math.PI / 4])
+          for (const kind of ["waypoint", "rotation"] as const) {
+            const cornerConfig = {
+              ...config,
+              gui: {
+                ...config.gui,
+                robot: {
+                  ...config.gui.robot,
+                  length_meters: 0.8,
+                  width_meters: 0.8,
+                },
+              },
+            };
+            const cornerViewport = { ...viewport, scale };
+            const center = modelToStagePoint(position, cornerViewport);
+            cornerViewport.x += 300 - center.x;
+            cornerViewport.y += 180 - center.y;
+            const rotation = createRotationTarget({
+              t_ratio: 0.5,
+              rotation_radians: heading,
+            });
+            const cornerPath = createPathModel({
+              path_elements:
+                kind === "waypoint"
+                  ? [
+                      createWaypoint({
+                        translation_target: translation(),
+                        rotation_target: rotation,
+                      }),
+                    ]
+                  : [anchors[0], rotation, anchors[1]],
+            });
+            const rendered = pixels({
+              ...input,
+              viewport: cornerViewport,
+              config: cornerConfig,
+              path: cornerPath,
+            });
+            let brightest = 0,
+              inkPixels = 0;
+            const half = 0.4 * scale;
+            for (let py = 0; py < capture.height; py++)
+              for (let px = 0; px < capture.width; px++) {
+                const dx = px + 0.5 - 300,
+                  dy = py + 0.5 - 180;
+                const lx = dx * Math.cos(heading) - dy * Math.sin(heading);
+                const ly = dx * Math.sin(heading) + dy * Math.cos(heading);
+                if (
+                  Math.abs(lx) < half * 0.65 ||
+                  Math.abs(ly) < half * 0.65 ||
+                  Math.abs(lx) > half ||
+                  Math.abs(ly) > half
+                )
+                  continue;
+                const offset = (py * capture.width + px) * 4;
+                const [r, g, b] = rendered.slice(offset, offset + 3);
+                if (
+                  !(kind === "waypoint"
+                    ? r > g * 1.2 && g > b * 1.2
+                    : g > r * 1.2 && g > b * 1.2)
+                )
+                  continue;
+                inkPixels++;
+                brightest = Math.max(brightest, kind === "waypoint" ? r : g);
+              }
+            // Repeated blending at a self-intersection produces a brighter wedge.
+            cornerSamples.push({
+              name: `${kind} corner at scale ${scale}, heading ${heading}`,
+              brightest,
+              limit: kind === "waypoint" ? 198 : 174,
+              inkPixels,
+            });
+          }
       return {
         bodies,
+        cornerSamples,
         edgeSamples,
         translation: {
           count: radii.length,
@@ -642,6 +723,12 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       renderer.destroy();
     }
   });
+  for (const sample of results.cornerSamples) {
+    expect.soft(sample.inkPixels, sample.name).toBeGreaterThan(0);
+    expect
+      .soft(sample.brightest, sample.name)
+      .toBeLessThanOrEqual(sample.limit);
+  }
   for (const sample of results.edgeSamples) {
     // Translating rotated strokes can change a few MSAA edge samples on
     // Chromium. Allow 0.32% of this 100×100 crop, not a missing footprint.
