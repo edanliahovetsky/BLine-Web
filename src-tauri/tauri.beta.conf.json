@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BLine Web Beta",
+  "identifier": "org.bline.web.beta",
+  "mainBinaryName": "bline-web-beta",
+  "bundle": {
+    "windows": {
+      "wix": {
+        "upgradeCode": "c881f66d-5bce-491f-a363-ecb63911cb43"
+      }
+    }
+  }
+}

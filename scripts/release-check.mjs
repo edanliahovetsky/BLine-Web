@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
+import { releaseMetadata } from "./release-config.ts";
 import {
   deriveWindowsMsiVersion,
   isReleaseVersion,
 } from "./release-version.mjs";
 
 const packageJson = readJson("package.json");
+const packageLock = readJson("package-lock.json");
 const tauriConfig = readJson("src-tauri/tauri.conf.json");
 const cargoToml = readText("src-tauri/Cargo.toml");
+const cargoLock = readText("src-tauri/Cargo.lock");
 
 const packageVersion = assertString(
   packageJson.version,
@@ -23,11 +26,31 @@ const suppliedTag = process.argv[2];
 const failures = [];
 let windowsMsiVersion;
 
+for (const [label, version] of [
+  ["package-lock.json", packageLock.version],
+  ["package-lock.json root package", packageLock.packages?.[""]?.version],
+  [
+    "Cargo.lock bline-web package",
+    cargoLock.match(
+      /\[\[package\]\]\s+name = "bline-web"\s+version = "([^"]+)"/,
+    )?.[1],
+  ],
+]) {
+  if (version !== packageVersion)
+    failures.push(
+      `${label} version ${version} does not match package.json ${packageVersion}`,
+    );
+}
+
 if (!isReleaseVersion(packageVersion)) {
   failures.push(`package.json version is not valid semver: ${packageVersion}`);
 } else {
   try {
     windowsMsiVersion = deriveWindowsMsiVersion(packageVersion);
+    releaseMetadata(
+      packageVersion,
+      process.env.BLINE_RELEASE_CHANNEL ?? "stable",
+    );
   } catch (error) {
     failures.push(error.message);
   }

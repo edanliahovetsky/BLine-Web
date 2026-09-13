@@ -1,7 +1,7 @@
 {
   "name": "bline-web",
   "private": true,
-  "version": "0.1.0-alpha.12",
+  "version": "1.0.0-beta.1",
   "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {
@@ -20,7 +20,11 @@
     "release:notes": "node scripts/write-release-notes.mjs",
     "release:windows-msi-config": "node scripts/write-windows-msi-config.mjs",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "build:beta": "node scripts/build-beta.mjs web",
+    "tauri:build:beta": "node scripts/build-beta.mjs desktop",
+    "test:release": "node --test tests/release/*.test.mjs",
+    "release:metadata": "node scripts/release-metadata.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",

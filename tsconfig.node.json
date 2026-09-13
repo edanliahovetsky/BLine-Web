@@ -12,6 +12,7 @@
     "playwright.config.ts",
     "playwright.offline.config.ts",
     "eslint.config.js",
-    "scripts/offline-build.ts"
+    "scripts/offline-build.ts",
+    "scripts/release-config.ts"
   ]
 }
