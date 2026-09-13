@@ -6,7 +6,10 @@ import type {
   SerializedPathDocument,
 } from "./projectSchema";
 import type { Project } from "../model/project";
-import { normalizePathFileName } from "../model/projectIdentity";
+import {
+  createWorkspaceId,
+  normalizePathFileName,
+} from "../model/projectIdentity";
 import { openProjectFromLegacyWorkspace } from "./legacyWorkspace";
 import { serializePathEditorMetadata } from "./pathEditorMetadata";
 import { serializePath } from "./projectSerde";
@@ -29,6 +32,9 @@ export interface SerializedProjectArchivePathGroup {
 
 export interface SerializedProjectArchive {
   bline_project_schema_version: typeof blineProjectArchiveSchemaVersion;
+  /** Older portable archives omitted identity; importing those creates a new Project. */
+  project_id?: string;
+  display_name?: string;
   exported_at: string;
   config: ProjectConfigWithoutField;
   paths: SerializedProjectArchivePath[];
@@ -103,6 +109,8 @@ export function createBLineProjectArchive(
 ): SerializedProjectArchive {
   const archive: SerializedProjectArchive = {
     bline_project_schema_version: blineProjectArchiveSchemaVersion,
+    project_id: project.project_id,
+    display_name: project.display_name,
     exported_at: exportedAt,
     config: projectConfigWithoutField(project.config),
     paths: project.paths.map((path, index) => ({
@@ -185,8 +193,14 @@ export function deserializeBLineProjectArchive(
     deserializeProjectWorkspaceDocument(
       {
         schema_version: 1,
-        project_id: options.fallbackProjectId ?? "imported-project",
-        display_name: options.fallbackDisplayName ?? "Imported Project",
+        project_id:
+          typeof input.project_id === "string" && input.project_id.trim()
+            ? input.project_id
+            : (options.fallbackProjectId ?? createWorkspaceId()),
+        display_name:
+          typeof input.display_name === "string" && input.display_name.trim()
+            ? input.display_name
+            : (options.fallbackDisplayName ?? "Imported Project"),
         config: input.config,
         paths: input.paths.map((entry, index) => ({
           path_id: entry.file_name || `path-${index + 1}`,

@@ -7,6 +7,52 @@ import { parseProjectTimestamp } from "./projectTimestamp";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import "./ProjectDialogs.css";
 
+export function ImportErrorDialog({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose(): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLElement>();
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [dialogRef]);
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <section
+        ref={dialogRef}
+        className="project-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-error-title"
+        aria-describedby="import-error-message"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+      >
+        <header className="project-dialog__header">
+          <h2 id="import-error-title">Could not import</h2>
+          <CloseButton ariaLabel="Close import message" onClick={onClose} />
+        </header>
+        <div className="project-dialog__body">
+          <p id="import-error-message">{message}</p>
+        </div>
+        <footer className="project-dialog__footer">
+          <ActionButton tone="primary" onClick={onClose}>
+            OK
+          </ActionButton>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export function CreateProjectDialog({
   onCancel,
   onCreate,

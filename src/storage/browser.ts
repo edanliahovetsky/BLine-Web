@@ -19,6 +19,7 @@ import {
   ProjectPersistenceDamageError,
   ProjectNotFoundError,
   StorageConflictError,
+  ProjectAlreadyExistsError,
   rollbackReversiblePreparation,
   compareWorkspaceSummaries,
   type FieldAssetPayload,
@@ -273,11 +274,7 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
       this.storage.getItem(targetKey) !== null ||
       this.storage.getItem(legacyTargetKey) !== null
     ) {
-      throw new StorageConflictError(
-        `A saved Project already uses ID ${projectId}`,
-        undefined,
-        existing?.version,
-      );
+      throw new ProjectAlreadyExistsError(projectId, existing?.version);
     }
   }
 

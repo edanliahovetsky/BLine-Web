@@ -3,6 +3,7 @@ import type {
   SerializedProjectWorkspaceDocument,
 } from "../core/io/projectSchema";
 import type { Project } from "../core/model/project";
+import { createWorkspaceId } from "../core/model/projectIdentity";
 import { openProjectFromLegacyWorkspace } from "../core/io/legacyWorkspace";
 import {
   deserializeBLineProjectArchive,
@@ -188,6 +189,21 @@ export class ProjectNotFoundError extends Error {
   }
 }
 
+/** A create/import collision is not a stale save and must not offer overwrite recovery. */
+export class ProjectAlreadyExistsError extends StorageConflictError {
+  constructor(
+    readonly projectId: string,
+    actualVersion?: string,
+  ) {
+    super(
+      "This project is already saved in this browser. Open it from the project list instead. Your existing project was not replaced.",
+      undefined,
+      actualVersion,
+    );
+    this.name = "ProjectAlreadyExistsError";
+  }
+}
+
 export class ProjectPersistenceDamageError extends Error {
   constructor(readonly damage: ProjectFileDamage) {
     super(
@@ -279,7 +295,9 @@ export function isLegacyProjectMetadataAdapter(
 
 function legacyProjectBundleToWorkspace(bundle: ProjectBundle): Project {
   const projects = bundle.projects.map((project) =>
-    deserializeProjectDocument(project),
+    deserializeProjectDocument(project, {
+      fallbackProjectId: createWorkspaceId(),
+    }),
   );
   const first = projects[0];
 
@@ -304,7 +322,9 @@ function legacyProjectBundleToWorkspace(bundle: ProjectBundle): Project {
 
 function projectFromLegacyWorkspace(input: unknown): Project {
   return openProjectFromLegacyWorkspace(
-    deserializeProjectWorkspaceDocument(input),
+    deserializeProjectWorkspaceDocument(input, {
+      fallbackProjectId: createWorkspaceId(),
+    }),
   ).project;
 }
 

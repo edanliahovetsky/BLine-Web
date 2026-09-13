@@ -33,12 +33,14 @@ import {
   isProjectFolderAdapter,
   rollbackReversiblePreparation,
   StorageConflictError,
+  ProjectAlreadyExistsError,
   type ProjectReadSnapshot,
   type ProjectWorkspaceSummary,
   type StorageAdapter,
   type WriteResult,
 } from "../../storage";
 import { ProjectImportOutcomeUncertainError } from "./types";
+import { ProjectImportValidationError } from "./errors";
 import type {
   CommittedProjectImportResult,
   CreateWorkspaceInput,
@@ -375,11 +377,13 @@ export class StorageProjectIoService implements ProjectIoService {
   async importPath(project: Project, file: File): Promise<Project> {
     const parsed = JSON.parse(await file.text()) as unknown;
     const parsedObject = isJsonObject(parsed) ? parsed : null;
+    const pathInput = parsedObject?.path ?? parsed;
+    assertImportedPathInput(pathInput);
     const lookupConfig = deserializeProjectConfig(
       parsedObject?.config ?? project.config,
     );
     const path = deserializePath(
-      parsedObject?.path ?? parsed,
+      pathInput,
       projectConfigDefaultLookup(lookupConfig),
     );
     const fileName = normalizePathFileName(
@@ -883,11 +887,29 @@ function projectImportCollision(
   projectId: string,
   actualVersion: string,
 ): StorageConflictError {
-  return new StorageConflictError(
-    `A saved Project already uses ID ${projectId}`,
-    undefined,
-    actualVersion,
-  );
+  return new ProjectAlreadyExistsError(projectId, actualVersion);
+}
+
+function assertImportedPathInput(input: unknown): void {
+  const elements = Array.isArray(input)
+    ? input
+    : isJsonObject(input)
+      ? input.path_elements
+      : undefined;
+  if (
+    !Array.isArray(elements) ||
+    !elements.every(
+      (element) =>
+        isJsonObject(element) &&
+        ["waypoint", "translation", "rotation", "event_trigger"].includes(
+          String(element.type),
+        ),
+    )
+  ) {
+    throw new ProjectImportValidationError(
+      "This JSON file does not contain a supported BLine path. Choose a path file with a path_elements array or a legacy element list.",
+    );
+  }
 }
 
 function projectsMatch(left: Project, right: Project): boolean {

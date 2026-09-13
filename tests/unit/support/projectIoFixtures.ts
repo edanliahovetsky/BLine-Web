@@ -64,6 +64,8 @@ export function legacyFieldArchive() {
   const field = legacyField("legacy-field", "legacy.png");
   return {
     bline_project_schema_version: 1,
+    // An explicit identity keeps the transaction fixtures exercising real collisions.
+    project_id: "imported-project",
     exported_at: "2026-08-22T13:00:00.000Z",
     config: createProjectConfig({
       gui: {

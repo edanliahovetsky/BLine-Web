@@ -30,6 +30,7 @@ import type { TranslationTarget } from "../../core/model/path";
 import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import {
+  isRejectedProjectImport,
   type ProjectImportResult,
   type ProjectImportRollback,
   type ProjectWorkspaceSummary,
@@ -127,6 +128,7 @@ import {
   DeletePathGroupsDialog,
   DeleteProjectsDialog,
   NameEntryDialog,
+  ImportErrorDialog,
 } from "./ProjectDialogs";
 import {
   LinkedTargetsDialog,
@@ -251,6 +253,7 @@ export function AppShell() {
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [fieldSelectionOverride, setFieldSelectionOverride] = useState<{
     projectId: string;
     fieldId: string;
@@ -465,6 +468,7 @@ export function AppShell() {
         openTopMenu !== null ||
         showCommandPalette ||
         showConfigDialog ||
+        importError !== null ||
         showDeletePathDialog ||
         showDeletePathGroupDialog ||
         showDeleteProjectDialog ||
@@ -509,6 +513,7 @@ export function AppShell() {
     projectTransitionInProgress,
     showCommandPalette,
     showConfigDialog,
+    importError,
     showDeletePathDialog,
     showDeletePathGroupDialog,
     showDeleteProjectDialog,
@@ -1553,7 +1558,11 @@ export function AppShell() {
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
-        projectStore.getState().markSaveError(caughtError);
+        if (isRejectedProjectImport(caughtError)) {
+          setImportError((caughtError as Error).message);
+        } else {
+          projectStore.getState().markSaveError(caughtError);
+        }
       } finally {
         endToolbarAction("import");
       }
@@ -1595,7 +1604,11 @@ export function AppShell() {
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
         if (!practice || isCurrentPracticeTransfer(practice)) {
-          projectStore.getState().markSaveError(caughtError);
+          if (isRejectedProjectImport(caughtError)) {
+            setImportError((caughtError as Error).message);
+          } else {
+            projectStore.getState().markSaveError(caughtError);
+          }
         }
       } finally {
         endToolbarAction("import");
@@ -2081,6 +2094,7 @@ export function AppShell() {
   const handleShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
     if (
       event.defaultPrevented ||
+      importError !== null ||
       projectTransitionInProgress ||
       hasActiveBlockingSurface({
         openTopMenu,
@@ -2465,6 +2479,12 @@ export function AppShell() {
         ) : null}
       </div>
 
+      {importError !== null ? (
+        <ImportErrorDialog
+          message={importError}
+          onClose={() => setImportError(null)}
+        />
+      ) : null}
       {durableProject && showConfigDialog ? (
         <ProjectConfigDialog
           autoSyncEnabled={autoSyncEnabled}

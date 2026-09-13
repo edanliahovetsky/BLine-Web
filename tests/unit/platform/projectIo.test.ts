@@ -646,7 +646,7 @@ describe("ProjectIoService", () => {
           ),
       },
       {
-        collisionId: "imported-project",
+        collisionId: "shared-id",
         importProject: (
           target: ReturnType<typeof createProjectIoService>,
           workspace: ProjectIoWorkspace,
@@ -701,24 +701,24 @@ describe("ProjectIoService", () => {
     } as File);
     targetWorkspace = imported.workspace;
 
-    expect(imported.project.project_id).toBe("imported-project");
+    expect(imported.project.project_id).toBe("imported-id");
     await expect(
       target.peekWorkspace(targetWorkspace.handle),
     ).resolves.toMatchObject({
-      project_id: "imported-project",
+      project_id: "imported-id",
       paths: [{ display_name: "Imported Path" }],
     });
     await expect(
       target.reloadWorkspace(targetWorkspace.handle),
     ).resolves.toMatchObject({
       project: {
-        project_id: "imported-project",
+        project_id: "imported-id",
         paths: [{ display_name: "Imported Path" }],
       },
     });
     expect(
       (await target.listWorkspaces()).map((summary) => summary.id).sort(),
-    ).toEqual(["imported-project", "prior-id"]);
+    ).toEqual(["imported-id", "prior-id"]);
     await expect(
       target.openWorkspace("prior-id", targetWorkspace),
     ).resolves.toMatchObject({
