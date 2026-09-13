@@ -20,8 +20,8 @@ classes and components for recurring control behavior, states, and icons.
   controls. Canvas chrome must stop pointer events before they reach field
   placement and pan handlers.
 - `sidebar/Sidebar.tsx` owns the tabbed Elements / Constraints inspector.
-- `sidebar/sections/ConstraintEditor.tsx` keeps compact constraint cards and
-  the synchronized, draggable expanded editor on the same command path.
+- `sidebar/sections/ConstraintEditor.tsx` owns the inspector's constraint
+  cards. Its expanded editor implementation is retained but disabled.
 
 The top bar is for navigation and infrequent project actions. The canvas rail
 is for path creation. The inspector is for editing the selected object or
@@ -33,9 +33,8 @@ and collapses into the canvas when closed. Its saved width is an editor-only
 preference. At compact widths it becomes an overlay drawer. Simulation
 transport uses the familiar J/K/L keys in addition to arrow/Home/End and Space
 controls.
-Each ranged constraint exposes an Expand action; the expanded editor stays
-non-modal so teams can keep the field visible, closes with Escape, and restores
-focus to the action that opened it.
+Ranged constraints are edited in the inspector. The current UI does not expose
+an Expand action or a separate constraint window.
 
 Editor-only preferences belong in local storage and must not be added to
 `config.json` or path JSON. Project actions must continue through the state and

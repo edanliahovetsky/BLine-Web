@@ -45,9 +45,8 @@ silently creating demo content. In the editor, the field stays central:
 canvas tools live on the left, view controls live on the field, element and
 constraint editing share a tabbed inspector, and save health is summarized in
 one status bar. Use the Project Navigator to search paths and Path Groups or
-press `Cmd/Ctrl+K` to find commands without leaving the keyboard. Ranged
-constraints can be opened in a larger, draggable editor when the compact
-inspector does not provide enough working room.
+press `Cmd/Ctrl+K` to find commands without leaving the keyboard. Edit ranged
+constraints in the inspector's Constraints tab.
 
 The goal is not to make autonomous path planning look more complicated than it
 has to be. BLine uses practical point-to-point paths, forgiving tuning surfaces,
