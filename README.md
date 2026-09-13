@@ -40,11 +40,11 @@ paths on the field, tune translation and rotation constraints, preview the
 idealized path simulation, and save/export the same `config.json` plus
 `paths/*.json` files used by the BLine robot library.
 
-The streamlined editor starts with an explicit project center instead of
+The upcoming 2027 beta editor starts with an explicit project center instead of
 silently creating demo content. In the editor, the field stays central:
 canvas tools live on the left, view controls live on the field, element and
 constraint editing share a tabbed inspector, and save health is summarized in
-one status bar. Use the Project Navigator to search paths and collections or
+one status bar. Use the Project Navigator to search paths and Path Groups or
 press `Cmd/Ctrl+K` to find commands without leaving the keyboard. Ranged
 constraints can be opened in a larger, draggable editor when the compact
 inspector does not provide enough working room.
@@ -56,12 +56,11 @@ observe, and improve this on the robot" faster.
 
 ## Project Status
 
-BLine Web is currently an alpha replacement for the original PySide6
-[BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). Browser and Tauri
-desktop workflows are implemented and tested against the existing GUI's core
-behavior.
-
-The current app is useful for browser and desktop editing.
+The published editor is **v0.1.0-alpha.12**, the React/Tauri successor to
+[BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). The updated UI on
+this branch is being prepared for the **2027 season as v1.0.0-beta.1**.
+The hosted app and current-editor downloads below remain on the published
+alpha while the beta is prepared and reviewed.
 
 ## Desktop Downloads
 
@@ -80,7 +79,7 @@ When published, use its version-specific downloads on
 [beta release guide](docs/beta-releases.md) for setup, storage separation, and
 bug reporting.
 
-Fallback: [GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases).
+Current-editor fallback: [v0.1.0-alpha.12 on GitHub](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v0.1.0-alpha.12).
 
 ## For Existing BLine Users
 
@@ -97,9 +96,9 @@ autos/
 In browser mode, projects are stored under the browser origin. Use import/export
 to move projects between machines or into robot project folders.
 
-Useful editor shortcuts:
+Useful shortcuts in the 2027 beta editor:
 
-- `Cmd/Ctrl+K`: command palette
+- `Cmd/Ctrl+K` or `F1`: command palette
 - `V`, `1`, `2`, `3`, `4`, `C`: select, waypoint, translation, rotation,
   event, and curve tools
 - `J` / Home, `K` / Space, `L` / End: restart, play or pause, and jump to
@@ -111,7 +110,7 @@ Useful editor shortcuts:
 - `Cmd/Ctrl+D`: duplicate the selected element
 - `Cmd/Ctrl+B`: show or hide the inspector
 - `Cmd/Ctrl+S`, `Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`: save, undo, and redo
-- `?` or `F1`: keyboard shortcut reference
+- `?`: keyboard shortcut reference
 
 In Tauri desktop mode:
 
