@@ -28,12 +28,16 @@ interface ProductionServer {
   url: string;
   requests: string[];
   failedRequests: string[];
+  requestOrigins: { path: string; origin: string | null }[];
+  varyOrigin(enabled: boolean): void;
+  stopServing(): Promise<void>;
   release: Map<string, Buffer>;
   nextRelease: Map<string, Buffer>;
   thirdRelease: Map<string, Buffer>;
   publishUpdate(): void;
   publishThird(): void;
   publishLegacy(): void;
+  publishPrevious(): void;
   publishCurrent(): void;
   fail(path: string | null): void;
   delay(
@@ -53,6 +57,7 @@ export const test = base.extend<{ production: ProductionServer }>({
     const next = await readRelease("next");
     const third = await readRelease("third");
     const legacy = await readRelease("legacy");
+    const previous = await readRelease("previous");
     let development: ViteDevServer | undefined;
     let failure: string | null = null;
     let corrupted: string | null = null;
@@ -63,6 +68,8 @@ export const test = base.extend<{ production: ProductionServer }>({
     } = { path: null, milliseconds: 0, afterHeaders: false };
     const requests: string[] = [];
     const failedRequests: string[] = [];
+    const requestOrigins: { path: string; origin: string | null }[] = [];
+    let varyOrigin = true;
     const server = createServer((request, response) => {
       if (development) {
         development.middlewares(request, response, () =>
@@ -73,7 +80,9 @@ export const test = base.extend<{ production: ProductionServer }>({
       const pathname = new URL(request.url!, "http://localhost").pathname;
       const path = pathname === "/" ? "/index.html" : pathname;
       requests.push(path);
+      requestOrigins.push({ path, origin: request.headers.origin ?? null });
       response.setHeader("Cache-Control", "no-store");
+      if (varyOrigin) response.setHeader("Vary", "Origin");
       if (failure === path) {
         failedRequests.push(path);
         response.writeHead(503).end("Download interrupted");
@@ -105,11 +114,23 @@ export const test = base.extend<{ production: ProductionServer }>({
     if (!address || typeof address === "string") {
       throw new Error("Expected a loopback server address");
     }
+    const stopServing = async () => {
+      server.closeAllConnections();
+      if (server.listening)
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+    };
     try {
       await provide({
         url: `http://127.0.0.1:${address.port}/`,
         requests,
         failedRequests,
+        requestOrigins,
+        stopServing,
+        varyOrigin: (enabled) => {
+          varyOrigin = enabled;
+        },
         release: original,
         nextRelease: next,
         thirdRelease: third,
@@ -122,6 +143,9 @@ export const test = base.extend<{ production: ProductionServer }>({
         },
         publishLegacy: () => {
           release = legacy;
+        },
+        publishPrevious: () => {
+          release = previous;
         },
         publishCurrent: () => {
           release = original;
@@ -149,10 +173,7 @@ export const test = base.extend<{ production: ProductionServer }>({
       });
     } finally {
       await development?.close();
-      server.closeAllConnections();
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
+      await stopServing();
     }
   },
 });

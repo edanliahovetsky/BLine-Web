@@ -1,4 +1,6 @@
-import { cp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import ts from "typescript";
 import path from "node:path";
 import { build, type Plugin } from "vite";
 import { generateSW } from "workbox-build";
@@ -51,6 +53,45 @@ export default async function buildFixtures(): Promise<void> {
     build: { outDir: path.join(fixtureRoot, "current"), emptyOutDir: true },
     logLevel: "warn",
   });
+  const previous = path.join(fixtureRoot, "previous");
+  await rm(previous, { recursive: true, force: true });
+  await cp(path.join(fixtureRoot, "current"), previous, { recursive: true });
+  const manifest = await Promise.all(
+    (await readdir(previous, { recursive: true }))
+      .filter(
+        (file) =>
+          /\.(html|js|css|png|svg|ico|woff2?|json|wasm|webmanifest)$/.test(
+            file,
+          ) &&
+          file !== "index.html" &&
+          file !== "sw.js",
+      )
+      .map(async (url) => ({
+        url,
+        integrity: `sha256-${createHash("sha256")
+          .update(await readFile(path.join(previous, url)))
+          .digest("base64")}`,
+      })),
+  );
+  const previousSource = await readFile(
+    "tests/offline/fixtures/worker-before-vary.ts.txt",
+    "utf8",
+  );
+  await writeFile(
+    path.join(previous, "sw.js"),
+    ts.transpileModule(
+      previousSource
+        .replace("self.__WB_MANIFEST", JSON.stringify(manifest))
+        .replace("export {};", ""),
+      {
+        compilerOptions: {
+          target: ts.ScriptTarget.ES2022,
+          module: ts.ModuleKind.ESNext,
+          moduleDetection: ts.ModuleDetectionKind.Legacy,
+        },
+      },
+    ).outputText,
+  );
   await build({
     plugins: [editorTestControls(), nextReleasePlugin()],
     worker: { plugins: () => [nextReleasePlugin()] },

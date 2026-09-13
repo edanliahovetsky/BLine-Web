@@ -41,6 +41,66 @@ async function prepareOffline(page: Page): Promise<void> {
   );
 }
 
+for (const varyOrigin of [false, true]) {
+  for (const disconnect of ["browser-offline", "server-stopped"] as const) {
+    test(`offline asset loading with Vary: Origin ${varyOrigin ? "enabled" : "disabled"}, ${disconnect}`, async ({
+      page,
+      context,
+      production,
+    }, testInfo) => {
+      production.varyOrigin(varyOrigin);
+      const firstResponse = await page.goto("/");
+      expect(firstResponse?.headers().vary ?? null).toBe(
+        varyOrigin ? "Origin" : null,
+      );
+      await prepareOffline(page);
+      const cacheComparison = await page.evaluate(async () => {
+        const mainScript = document.querySelector<HTMLScriptElement>(
+          'script[type="module"][src]',
+        )!.src;
+        const cacheName = (await caches.keys()).find(
+          (name) =>
+            name.startsWith("bline-offline-v2:") && !name.endsWith(":metadata"),
+        )!;
+        const cache = await caches.open(cacheName);
+        const keys = await cache.keys();
+        const stored = keys.find((key) => key.url === mainScript)!;
+        return {
+          mainScript,
+          cacheName,
+          storedOrigin: stored.headers.get("Origin"),
+          varyingHeader: (await cache.match(stored))?.headers.get("Vary"),
+          assetPresent: !!(await cache.match(stored)),
+        };
+      });
+      await testInfo.attach("header-comparison", {
+        body: JSON.stringify(
+          {
+            varyOrigin,
+            disconnect,
+            cacheComparison,
+            networkOrigins: production.requestOrigins,
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+      expect(cacheComparison.assetPresent).toBe(true);
+      if (disconnect === "browser-offline") await context.setOffline(true);
+      else await production.stopServing();
+      await page.reload();
+      await expect(page.getByTestId("path-stage")).toBeVisible();
+      await editAndSave(page);
+      await page.reload();
+      await page.getByTestId("path-element-row-0").click();
+      await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue(
+        "6.25",
+      );
+    });
+  }
+}
+
 async function editAndSave(page: Page): Promise<void> {
   await page.getByRole("tab", { name: "Elements", exact: true }).click();
   await page.getByTestId("path-element-row-0").click();
@@ -48,6 +108,61 @@ async function editAndSave(page: Page): Promise<void> {
   await page.getByLabel("X (m)", { exact: true }).press("Tab");
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 }
+
+test("upgrades the previous worker and preserves its Vary-bearing cached release", async ({
+  page,
+  context,
+  production,
+}) => {
+  production.publishPrevious();
+  await prepareOffline(page);
+  await editAndSave(page);
+  const before = await page.evaluate(async () => ({
+    caches: (await caches.keys()).sort(),
+    projects: Object.fromEntries(
+      Object.entries(localStorage).filter(([key]) =>
+        key.startsWith("bline-web:workspace:"),
+      ),
+    ),
+  }));
+  production.publishCurrent();
+  await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    const changed = new Promise<void>((resolve) =>
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        () => resolve(),
+        { once: true },
+      ),
+    );
+    await registration.update();
+    await changed;
+  });
+  const after = await page.evaluate(async () => ({
+    caches: (await caches.keys()).sort(),
+    projects: Object.fromEntries(
+      Object.entries(localStorage).filter(([key]) =>
+        key.startsWith("bline-web:workspace:"),
+      ),
+    ),
+  }));
+  expect(after).toEqual(before);
+  await production.stopServing();
+  await page.reload();
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
+  await editAndSave(page);
+  const reopened = await context.newPage();
+  await reopened.goto(production.url);
+  await expect(reopened.getByTestId("path-stage")).toBeVisible();
+  await reopened.getByRole("tab", { name: "Elements", exact: true }).click();
+  await reopened.getByTestId("path-element-row-0").click();
+  await expect(reopened.getByLabel("X (m)", { exact: true })).toHaveValue(
+    "6.25",
+  );
+});
 
 async function fieldBytes(page: Page): Promise<number[]> {
   return page.evaluate(async () =>

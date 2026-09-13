@@ -1,3 +1,5 @@
+// Frozen worker from BLine-Web 863a9f112ce0614d0bd558616b021e1cd94582b2.
+// Used to verify upgrades preserve caches created before Vary handling.
 /// <reference lib="webworker" />
 
 declare const self: ServiceWorkerGlobalScope & {
@@ -217,15 +219,7 @@ async function resource(request: Request): Promise<Response> {
   try {
     // Exact URL matching preserves old/new chunks, workers, and fields across tabs.
     for (const record of await completed()) {
-      // These caches contain integrity-verified release bytes. A hosting CORS
-      // header (Vary: Origin) does not select different bytes, but module requests
-      // include Origin while install fetches do not. Keep exact URLs and response
-      // headers while allowing either request to retrieve the verified asset.
-      const response = await (
-        await caches.open(record.cache)
-      ).match(request, {
-        ignoreVary: true,
-      });
+      const response = await (await caches.open(record.cache)).match(request);
       if (response) return response;
     }
     // Legacy Workbox caches contain immutable JS/CSS under their original URLs.
