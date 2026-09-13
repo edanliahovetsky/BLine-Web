@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - web-deploy
+      - web-beta
       - "codex/**"
 
 jobs:
@@ -49,6 +50,9 @@ jobs:
 
       - name: Release metadata check
         run: npm run release:check
+
+      - name: Release tooling tests
+        run: npm run test:release
 
       - name: Format check
         run: npm run format:check

@@ -33,7 +33,7 @@ if (target === "desktop") {
       title: metadata.appName,
     })),
   };
-  beta.bundle.windows.wix.version = deriveWindowsMsiVersion(version);
+  beta.bundle.windows.wix.version = deriveWindowsMsiVersion(version, "beta");
   mkdirSync(dirname(configPath), { recursive: true });
   writeFileSync(configPath, `${JSON.stringify(beta, null, 2)}\n`);
   command = [

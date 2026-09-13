@@ -65,19 +65,20 @@ The current app is useful for browser and desktop editing.
 
 ## Desktop Downloads
 
-Stable desktop builds:
+Current editor (`v0.1.0-alpha.12`):
 
-- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/windows-x64?source=readme-stable)
-- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/macos-aarch64?source=readme-stable)
-- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/macos-x64?source=readme-stable)
-- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/stable/linux-x64?source=readme-stable)
+- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/windows-x64?source=readme-current)
+- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/macos-aarch64?source=readme-current)
+- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/macos-x64?source=readme-current)
+- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/linux-x64?source=readme-current)
 
-Pre-release desktop builds:
-
-- [Windows x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/windows-x64?source=readme-prerelease)
-- [macOS Apple Silicon](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/macos-aarch64?source=readme-prerelease)
-- [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/macos-x64?source=readme-prerelease)
-- [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/prerelease/linux-x64?source=readme-prerelease)
+The 2027 beta is being prepared separately as **BLine Web 2027 Beta 1**
+(`v1.0.0-beta.1`). It installs as **BLine Web Beta** alongside the current app.
+When published, use its version-specific downloads on
+[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases) or the
+[beta website](https://web-beta.bline-web.pages.dev/). See the
+[beta release guide](docs/beta-releases.md) for setup, storage separation, and
+bug reporting.
 
 Fallback: [GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases).
 
@@ -207,8 +208,8 @@ Run `npm run tauri:build` when desktop behavior or release readiness is in
 scope.
 
 `npm run validate:bline-lib-io` requires a BLine-Lib checkout. CI checks out
-`edanliahovetsky/BLine-Lib@main` automatically. For local runs outside the
-default `/Users/edan/FRC/BLine-Lib` location, set `BLINE_LIB_DIR=/path/to/BLine-Lib`.
+`edanliahovetsky/BLine-Lib@main` automatically. For local runs, set
+`BLINE_LIB_DIR=/path/to/BLine-Lib` to select your library checkout.
 
 ## Architecture
 
@@ -278,6 +279,10 @@ Manual smoke notes live under `tests/manual/`.
 
 ## Release Model
 
+The opt-in 2027 beta uses the separate `web-beta` branch. See
+[Beta releases](docs/beta-releases.md) for its build commands and Cloudflare
+preview configuration. The production release process below remains separate.
+
 `main` is the stable working branch. It should stay green, but it does not
 deploy to Cloudflare and does not create desktop release artifacts.
 
@@ -309,8 +314,10 @@ direct fallback.
 Version metadata must stay aligned across:
 
 - `package.json`
+- `package-lock.json`
 - `src-tauri/tauri.conf.json`
 - `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
 
 Use `npm run release:check` to verify that alignment.
 

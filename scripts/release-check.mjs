@@ -46,7 +46,10 @@ if (!isReleaseVersion(packageVersion)) {
   failures.push(`package.json version is not valid semver: ${packageVersion}`);
 } else {
   try {
-    windowsMsiVersion = deriveWindowsMsiVersion(packageVersion);
+    windowsMsiVersion = deriveWindowsMsiVersion(
+      packageVersion,
+      process.env.BLINE_RELEASE_CHANNEL ?? "stable",
+    );
     releaseMetadata(
       packageVersion,
       process.env.BLINE_RELEASE_CHANNEL ?? "stable",

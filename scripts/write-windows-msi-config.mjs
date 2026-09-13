@@ -8,7 +8,10 @@ const packageVersion = assertString(
   packageJson.version,
   "package.json version",
 );
-const windowsMsiVersion = deriveWindowsMsiVersion(packageVersion);
+const windowsMsiVersion = deriveWindowsMsiVersion(
+  packageVersion,
+  process.env.BLINE_RELEASE_CHANNEL ?? "stable",
+);
 
 const config = {
   bundle: {

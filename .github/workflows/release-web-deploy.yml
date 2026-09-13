@@ -1,16 +1,22 @@
-name: Web Deploy Release
+name: Web and Beta Release
 
 on:
   push:
     branches:
       - web-deploy
+      - web-beta
 
 permissions:
   contents: write
 
 concurrency:
-  group: web-deploy-release
+  group: web-release-${{ github.ref_name }}
   cancel-in-progress: false
+
+env:
+  BLINE_RELEASE_CHANNEL: ${{ github.ref_name == 'web-beta' && 'beta' || 'stable' }}
+  VITE_RELEASE_CHANNEL: ${{ github.ref_name == 'web-beta' && 'beta' || 'stable' }}
+  VITE_ENABLE_BUG_REPORT: ${{ github.ref_name == 'web-beta' && 'true' || 'false' }}
 
 jobs:
   metadata:
@@ -20,6 +26,7 @@ jobs:
       version: ${{ steps.metadata.outputs.version }}
       tag: ${{ steps.metadata.outputs.tag }}
       prerelease: ${{ steps.metadata.outputs.prerelease }}
+      releaseName: ${{ steps.metadata.outputs.releaseName }}
 
     steps:
       - name: Checkout
@@ -34,16 +41,8 @@ jobs:
       - name: Read release metadata
         id: metadata
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          TAG="v${VERSION}"
-          npm run release:check -- "${TAG}"
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-          if [[ "${VERSION}" == *-* ]]; then
-            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
-          fi
+          npm run release:check
+          npm run release:metadata
 
   verify:
     name: Release Gate
@@ -91,6 +90,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Release tooling tests
+        run: npm run test:release
+
       - name: Unit tests
         run: npm run test
 
@@ -106,13 +108,22 @@ jobs:
         run: npm run build
 
       - name: Browser smoke
+        # Shared theme snapshots describe the default toolbar. The beta control
+        # has its own behavior, responsive layout, and keyboard checks below.
+        env:
+          VITE_RELEASE_CHANNEL: stable
+          VITE_ENABLE_BUG_REPORT: "false"
         run: npm run test:e2e
+
+      - name: Beta toolbar and startup
+        if: github.ref_name == 'web-beta'
+        run: npm run test:e2e:beta
 
       - name: Offline browser and update recovery
         run: npm run test:offline
 
       - name: Tauri build
-        run: npm run tauri:build
+        run: npm run ${{ github.ref_name == 'web-beta' && 'tauri:build:beta' || 'tauri:build' }}
 
   web-artifact:
     name: Web Artifact
@@ -211,7 +222,7 @@ jobs:
         run: npm run release:windows-msi-config
 
       - name: Build Tauri bundle
-        run: npm run tauri:build -- ${{ matrix.args }}
+        run: npm run ${{ github.ref_name == 'web-beta' && 'tauri:build:beta' || 'tauri:build' }} -- ${{ matrix.args }}
 
       - name: Verify macOS app signature
         if: startsWith(matrix.asset-prefix, 'macos-')
@@ -294,7 +305,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.metadata.outputs.tag }}
-          TITLE: BLine Web ${{ needs.metadata.outputs.tag }}
+          TITLE: ${{ needs.metadata.outputs.releaseName }}
           PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
         run: |
           if gh release view "${TAG}" --json isDraft --jq .isDraft > release-is-draft.txt 2>/dev/null; then
@@ -309,8 +320,15 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "${TAG}" "${GITHUB_SHA}"
-          git push --force origin "refs/tags/${TAG}"
+          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            if [[ "$(git rev-parse "${TAG}^{commit}")" != "${GITHUB_SHA}" ]]; then
+              echo "Tag ${TAG} points to another commit. Bump the version; release tags are immutable."
+              exit 1
+            fi
+          else
+            git tag "${TAG}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${TAG}"
+          fi
 
           if [[ "${RELEASE_EXISTS}" == "true" ]]; then
             gh release edit "${TAG}" \

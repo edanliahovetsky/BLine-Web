@@ -5,11 +5,21 @@ export function isReleaseVersion(version) {
   return releaseVersionPattern.test(version);
 }
 
-export function deriveWindowsMsiVersion(version) {
+export function deriveWindowsMsiVersion(version, channel = "stable") {
   const parsed = parseReleaseVersion(version);
   const major = readMsiField(parsed.major, "major", 255);
   const minor = readMsiField(parsed.minor, "minor", 255);
   const patch = readMsiField(parsed.patch, "patch", 65535);
+
+  if (channel === "beta") {
+    const beta = parsed.prerelease?.match(/^beta\.([1-9]\d*)$/);
+    if (!beta) throw new Error("Beta MSI versions require a beta.N prerelease");
+    const sequence = readMsiField(beta[1], "beta sequence", 999);
+    // MSI ignores a fourth version field. Pack the beta sequence into the
+    // third field so Beta 2 upgrades Beta 1 under the fixed beta UpgradeCode.
+    const build = readMsiField(patch * 1000 + sequence, "beta build", 65535);
+    return `${major}.${minor}.${build}`;
+  }
 
   if (!parsed.prerelease) {
     return `${major}.${minor}.${patch}`;

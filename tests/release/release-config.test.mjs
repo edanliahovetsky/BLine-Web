@@ -13,8 +13,18 @@ test("beta releases have season titles and monotonically increasing MSI versions
     releaseMetadata("1.0.0-beta.2", "beta").releaseName,
     "BLine Web 2027 Beta 2",
   );
-  assert.equal(deriveWindowsMsiVersion(first.version), "1.0.0.1");
-  assert.equal(deriveWindowsMsiVersion("1.0.0-beta.2"), "1.0.0.2");
+  assert.equal(deriveWindowsMsiVersion(first.version, "beta"), "1.0.1");
+  assert.equal(deriveWindowsMsiVersion("1.0.0-beta.2", "beta"), "1.0.2");
+  assert.equal(deriveWindowsMsiVersion("1.0.1-beta.1", "beta"), "1.0.1001");
+  assert.throws(
+    () => deriveWindowsMsiVersion("1.0.0-beta.1000", "beta"),
+    /beta sequence/,
+  );
+  assert.throws(
+    () => deriveWindowsMsiVersion("1.0.66-beta.1", "beta"),
+    /beta build/,
+  );
+  assert.equal(deriveWindowsMsiVersion("0.1.0-alpha.12"), "0.1.0.12");
 });
 
 test("beta builds reject stable, alpha, and malformed versions", () => {
