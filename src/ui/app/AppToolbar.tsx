@@ -21,6 +21,7 @@ import {
   type EditorCommand,
 } from "./editorCommands";
 import type { PathDiagnostic } from "./pathDiagnostics";
+import { BugReportButton } from "./BugReportButton";
 import { parseProjectTimestamp } from "./projectTimestamp";
 import {
   MenuAction,
@@ -353,12 +354,17 @@ export function AppToolbar({
         </TopMenuButton>
       </nav>
       <nav className="toolbar-actions" aria-label="Project actions">
-        <div className="toolbar-actions__quick">
+        <div
+          className={`toolbar-actions__quick${import.meta.env.VITE_ENABLE_BUG_REPORT === "true" ? " toolbar-actions__quick--bug-report" : ""}`}
+        >
           <ToolbarPathNavigator
             project={project}
             activePath={activePath}
             onSelectPath={actions.selectPath}
           />
+          {import.meta.env.VITE_ENABLE_BUG_REPORT === "true" ? (
+            <BugReportButton />
+          ) : null}
         </div>
         <div className="toolbar-actions__buttons" data-tour="edit-controls">
           <IconButton

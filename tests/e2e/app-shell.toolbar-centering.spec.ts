@@ -42,7 +42,7 @@ async function expectCenteredToolbar(page: import("@playwright/test").Page) {
   const geometry = await selector.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const buttons = Array.from(
-      document.querySelectorAll(".app-toolbar button"),
+      document.querySelectorAll(".app-toolbar button, .app-toolbar a"),
     );
     const boxes = buttons.map((button) => button.getBoundingClientRect());
     return {

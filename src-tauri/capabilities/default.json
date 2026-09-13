@@ -3,5 +3,14 @@
   "identifier": "default",
   "description": "Default desktop permissions for BLine Web.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-destroy"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-destroy",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://github.com/edanliahovetsky/BLine-Web/issues/new*" }
+      ]
+    }
+  ]
 }

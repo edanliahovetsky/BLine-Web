@@ -4093,6 +4093,49 @@ select {
   gap: 4px;
 }
 
+.toolbar-actions__quick--bug-report {
+  position: relative;
+  inset: auto;
+  justify-self: center;
+  width: max-content;
+  /* Reserve the same space on both sides so the path selector stays centered. */
+  padding-inline: 36px;
+  box-sizing: border-box;
+}
+
+.bug-report-control {
+  position: absolute;
+  right: 0;
+  display: flex;
+  align-items: center;
+}
+
+.bug-report-control > a {
+  text-decoration: none;
+  color: var(--bline-text-secondary);
+  background: var(--bline-surface-raised);
+  border-color: var(--bline-border-strong);
+}
+
+.bug-report-error {
+  position: fixed;
+  top: 56px;
+  right: 8px;
+  z-index: 100;
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 8px;
+  background: var(--bline-surface-raised);
+  color: var(--bline-text-primary);
+}
+
+.bug-report-error textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
 .toolbar-actions__buttons > .bline-icon-button {
   border-color: var(--bline-border-strong);
   color: var(--bline-text-secondary);

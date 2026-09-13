@@ -18,3 +18,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tauri = { version = "2", features = [] }
 rfd = "0.15"
+tauri-plugin-opener = "2"
