@@ -14,6 +14,7 @@
     "parity": "vitest run --config vitest.parity.config.ts parity-harness/parity.test.ts",
     "validate:bline-lib-io": "vitest run --config vitest.parity.config.ts parity-harness/bline-lib-io.test.ts --testTimeout 360000",
     "test:e2e": "playwright test",
+    "test:e2e:beta": "node scripts/test-beta.mjs",
     "test:offline": "npm run build && playwright test --config playwright.offline.config.ts",
     "build": "tsc -b && vite build",
     "release:check": "node scripts/release-check.mjs",

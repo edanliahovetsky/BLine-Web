@@ -13,7 +13,12 @@
     "tests/e2e",
     "tests/offline",
     "parity-harness",
-    "scripts/offline-build.ts"
+    "scripts/offline-build.ts",
+    "scripts/release-config.ts"
   ],
-  "references": [{ "path": "./tsconfig.app.json" }]
+  "references": [
+    {
+      "path": "./tsconfig.app.json"
+    }
+  ]
 }

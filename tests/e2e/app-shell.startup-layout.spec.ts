@@ -769,6 +769,12 @@ test("selects paths and operates the portrait toolbar with the keyboard", async 
   await expect(selector).toContainText("Phase 1 Canvas Draft");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Tab");
+  if (process.env.VITE_ENABLE_BUG_REPORT === "true") {
+    await expect(
+      page.getByRole("link", { name: "Report a bug", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+  }
   await expect(
     page.getByRole("button", { name: "Undo", exact: true }),
   ).toBeFocused();
