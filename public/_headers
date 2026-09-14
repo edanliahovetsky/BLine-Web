@@ -4,3 +4,6 @@
   Cache-Control: no-cache, max-age=0, must-revalidate
 /sw.js
   Cache-Control: no-store
+
+/offline/*
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
