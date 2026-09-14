@@ -1292,8 +1292,10 @@ fn sync_directory(path: &Path) -> Result<(), String> {
         use std::os::windows::fs::OpenOptionsExt;
 
         const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        // FlushFileBuffers requires GENERIC_WRITE, including directory handles.
         return fs::OpenOptions::new()
             .read(true)
+            .write(true)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
             .open(path)
             .and_then(|directory| directory.sync_all())
@@ -2696,6 +2698,33 @@ mod tests {
         delete_field_asset_from_project_dir(&dir, "asset.png").unwrap();
         assert!(!dir.join(".bline-web/assets/fields/asset.png").exists());
         assert!(dir.join(".bline-web/state.json").exists());
+    }
+
+    #[test]
+    fn fresh_user_data_directory_initializes_and_reopens() {
+        let root = temp_project_dir("fresh-user-data");
+        let data_path = root.join("new-profile/user-data.json");
+        assert!(!data_path.parent().unwrap().exists());
+
+        assert_eq!(
+            with_exclusive_user_data_lock(&data_path, || {
+                read_user_data_document_unlocked(&data_path, None)
+            })
+            .unwrap(),
+            None
+        );
+        let data = json!({ "theme": "light" });
+        assert_eq!(
+            compare_and_swap_user_data(&data_path, 0, data.clone(), None).unwrap(),
+            UserDataCompareAndSwapResult::Written { revision: 1 }
+        );
+        assert_eq!(
+            with_exclusive_user_data_lock(&data_path, || {
+                read_user_data_document_unlocked(&data_path, None)
+            })
+            .unwrap(),
+            Some(UserDataDocument { revision: 1, data })
+        );
     }
 
     #[test]
