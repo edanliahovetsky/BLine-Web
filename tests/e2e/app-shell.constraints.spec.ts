@@ -1162,6 +1162,19 @@ test("keeps canvas handoff radii visual-only", async ({ page }) => {
   const mode = page.getByRole("group", { name: "Handoff radius mode" });
   await mode.getByRole("button", { name: "Auto" }).click();
   await expect(chip).toHaveClass(/handoff-radius-chip--auto/);
+  // This fixture has manual velocities, so its velocity status can remain
+  // "Not generated" after the automatic radius finishes updating.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const storePath = "/src/state/autoVelocityStore.ts";
+        const { autoVelocityStore } = (await import(
+          /* @vite-ignore */ storePath
+        )) as typeof import("../../src/state/autoVelocityStore");
+        return autoVelocityStore.getState().phase;
+      }),
+    )
+    .toBe("idle");
 
   const canvas = page.getByTestId("path-stage-canvas");
   const canvasBox = await requiredBox(canvas);

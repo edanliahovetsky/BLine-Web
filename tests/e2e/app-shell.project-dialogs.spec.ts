@@ -53,6 +53,11 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
+    if (viewport.width === 390) {
+      await expect(
+        page.getByRole("dialog", { name: "Mobile support warning" }),
+      ).toBeVisible();
+    }
     await dismissMobileSupportWarning(page);
     const start = page.getByTestId("start-center");
     await start

@@ -25,6 +25,7 @@ export default defineConfig({
     timeout: 5_000,
   },
   fullyParallel: true,
+  workers: process.env.CI ? 2 : undefined,
   reporter: [["list"]],
   use: {
     baseURL,
