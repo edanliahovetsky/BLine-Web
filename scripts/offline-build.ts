@@ -18,7 +18,7 @@ export async function prepareOfflineRelease(directory: string): Promise<void> {
         `${file}:${digest(await readFile(path.join(directory, file)))}`,
     ),
   );
-  const release = digest(hashes.join("\n"));
+  const release = digest(["snapshot:bin", ...hashes].join("\n"));
   const indexPath = path.join(directory, "index.html");
   const html = (await readFile(indexPath, "utf8")).replace(
     "<head>",
@@ -26,7 +26,9 @@ export async function prepareOfflineRelease(directory: string): Promise<void> {
   );
   await mkdir(path.join(directory, "offline"), { recursive: true });
   await writeFile(indexPath, html);
-  await writeFile(path.join(directory, "offline", `${release}.html`), html);
+  // Serve snapshot bytes as data so hosts cannot inject analytics into HTML.
+  // The service worker sets text/html only when returning its verified fallback.
+  await writeFile(path.join(directory, "offline", `${release}.bin`), html);
 }
 
 export async function verifyManifest(
@@ -53,7 +55,9 @@ export async function verifyManifest(
   );
   const required = files.filter(
     (file) =>
-      /\.(html|js|css|png|svg|ico|woff2?|json|wasm|webmanifest)$/.test(file) &&
+      /\.(html|bin|js|css|png|svg|ico|woff2?|json|wasm|webmanifest)$/.test(
+        file,
+      ) &&
       file !== "index.html" &&
       file !== "sw.js",
   );
@@ -61,7 +65,7 @@ export async function verifyManifest(
   const missing = required.filter((file) => !present.has(file));
   if (missing.length)
     throw new Error(`Incomplete offline manifest: ${missing.join(", ")}`);
-  if (!manifest.some((entry) => /^offline\/[a-f0-9]+\.html$/.test(entry.url))) {
+  if (!manifest.some((entry) => /^offline\/[a-f0-9]+\.bin$/.test(entry.url))) {
     throw new Error("Missing immutable offline HTML snapshot");
   }
   return { manifest, warnings: [] };

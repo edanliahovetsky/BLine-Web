@@ -8,9 +8,12 @@ const entries = self.__WB_MANIFEST;
 const scope = self.registration.scope;
 const absolute = (url: string) => new URL(url, scope).href;
 const snapshot = entries.find((entry) =>
-  /^offline\/[a-f0-9]+\.html$/.test(entry.url),
+  /^offline\/[a-f0-9]+\.(?:bin|html)$/.test(entry.url),
 )!;
-const release = snapshot.url.split("/").at(-1)!.replace(".html", "");
+const release = snapshot.url
+  .split("/")
+  .at(-1)!
+  .replace(/\.(?:bin|html)$/, "");
 const prefix = `bline-offline-v2:${new URL(scope).pathname}:`;
 const cacheName = `${prefix}${release}`;
 const metaName = `${prefix}metadata`;

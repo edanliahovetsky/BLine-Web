@@ -30,6 +30,7 @@ interface ProductionServer {
   failedRequests: string[];
   requestOrigins: { path: string; origin: string | null }[];
   varyOrigin(enabled: boolean): void;
+  injectAnalytics(enabled: boolean): void;
   stopServing(): Promise<void>;
   release: Map<string, Buffer>;
   nextRelease: Map<string, Buffer>;
@@ -70,6 +71,7 @@ export const test = base.extend<{ production: ProductionServer }>({
     const failedRequests: string[] = [];
     const requestOrigins: { path: string; origin: string | null }[] = [];
     let varyOrigin = true;
+    let injectAnalytics = false;
     const server = createServer((request, response) => {
       if (development) {
         development.middlewares(request, response, () =>
@@ -88,10 +90,20 @@ export const test = base.extend<{ production: ProductionServer }>({
         response.writeHead(503).end("Download interrupted");
         return;
       }
-      const body = release.get(path);
+      let body = release.get(path);
       if (!body) {
         response.writeHead(404).end();
         return;
+      }
+      if (injectAnalytics && extname(path) === ".html") {
+        body = Buffer.from(
+          body
+            .toString()
+            .replace(
+              "</body>",
+              '<script>document.documentElement.dataset.hostAnalytics = "injected";</script></body>',
+            ),
+        );
       }
       response.setHeader(
         "Content-Type",
@@ -130,6 +142,9 @@ export const test = base.extend<{ production: ProductionServer }>({
         stopServing,
         varyOrigin: (enabled) => {
           varyOrigin = enabled;
+        },
+        injectAnalytics: (enabled) => {
+          injectAnalytics = enabled;
         },
         release: original,
         nextRelease: next,

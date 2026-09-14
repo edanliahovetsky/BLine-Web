@@ -41,6 +41,31 @@ async function prepareOffline(page: Page): Promise<void> {
   );
 }
 
+test("offline fallback survives hosting analytics injection into HTML", async ({
+  page,
+  production,
+}) => {
+  production.injectAnalytics(true);
+  await prepareOffline(page);
+  expect(await page.locator("html").getAttribute("data-host-analytics")).toBe(
+    "injected",
+  );
+  await production.stopServing();
+  await page.reload();
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+  await expect(page.locator('meta[name="bline-offline"]')).toHaveAttribute(
+    "content",
+    "true",
+  );
+  expect(
+    await page.locator("html").getAttribute("data-host-analytics"),
+  ).toBeNull();
+  await editAndSave(page);
+  await page.reload();
+  await page.getByTestId("path-element-row-0").click();
+  await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("6.25");
+});
+
 for (const varyOrigin of [false, true]) {
   for (const disconnect of ["browser-offline", "server-stopped"] as const) {
     test(`offline asset loading with Vary: Origin ${varyOrigin ? "enabled" : "disabled"}, ${disconnect}`, async ({

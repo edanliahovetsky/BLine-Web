@@ -1,4 +1,4 @@
-import { cp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import ts from "typescript";
 import path from "node:path";
@@ -56,6 +56,16 @@ export default async function buildFixtures(): Promise<void> {
   const previous = path.join(fixtureRoot, "previous");
   await rm(previous, { recursive: true, force: true });
   await cp(path.join(fixtureRoot, "current"), previous, { recursive: true });
+  // The frozen previous worker predates binary snapshots. Preserve its actual
+  // HTML snapshot format when checking upgrades into the current worker.
+  for (const file of await readdir(path.join(previous, "offline"))) {
+    if (file.endsWith(".bin")) {
+      await rename(
+        path.join(previous, "offline", file),
+        path.join(previous, "offline", file.replace(/\.bin$/, ".html")),
+      );
+    }
+  }
   const manifest = await Promise.all(
     (await readdir(previous, { recursive: true }))
       .filter(

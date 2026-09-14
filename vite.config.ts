@@ -68,7 +68,7 @@ export default defineConfig(({ mode }) => {
         injectManifest: {
           rollupFormat: "iife",
           globPatterns: [
-            "**/*.{html,js,css,png,svg,ico,woff,woff2,json,wasm,webmanifest}",
+            "**/*.{html,bin,js,css,png,svg,ico,woff,woff2,json,wasm,webmanifest}",
           ],
           maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           manifestTransforms: [
