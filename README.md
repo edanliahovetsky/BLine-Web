@@ -40,7 +40,7 @@ paths on the field, tune translation and rotation constraints, preview the
 idealized path simulation, and save/export the same `config.json` plus
 `paths/*.json` files used by the BLine robot library.
 
-The upcoming 2027 beta editor starts with an explicit project center instead of
+The 2027 beta editor starts with an explicit project center instead of
 silently creating demo content. In the editor, the field stays central:
 canvas tools live on the left, view controls live on the field, element and
 constraint editing share a tabbed inspector, and save health is summarized in
@@ -57,9 +57,9 @@ observe, and improve this on the robot" faster.
 
 The published editor is **v0.1.0-alpha.12**, the React/Tauri successor to
 [BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). The updated UI on
-this branch is being prepared for the **2027 season as v1.0.0-beta.1**.
-The hosted app and current-editor downloads below remain on the published
-alpha while the beta is prepared and reviewed.
+this branch is available as the **2027 season preview, v1.0.0-beta.1**.
+The current hosted app and current-editor downloads below remain on alpha.12;
+the beta has its own website and desktop downloads.
 
 ## Desktop Downloads
 
@@ -70,10 +70,10 @@ Current editor (`v0.1.0-alpha.12`):
 - [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/macos-x64?source=readme-current)
 - [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/linux-x64?source=readme-current)
 
-The 2027 beta is being prepared separately as **BLine Web 2027 Beta 1**
+The separate 2027 preview is **BLine Web 2027 Beta 1**
 (`v1.0.0-beta.1`). It installs as **BLine Web Beta** alongside the current app.
-When published, use its version-specific downloads on
-[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases) or the
+Use its version-specific downloads on
+[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v1.0.0-beta.1) or the
 [beta website](https://web-beta.bline-web.pages.dev/). See the
 [beta release guide](docs/beta-releases.md) for setup, storage separation, and
 bug reporting.
