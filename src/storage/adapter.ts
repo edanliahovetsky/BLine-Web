@@ -109,6 +109,12 @@ export interface StorageAdapter {
     project: Project,
     prepare: () => Promise<ReversiblePreparation | undefined>,
   ): Promise<WriteResult>;
+  /** Replaces the exact confirmed version under the same lock as asset preparation. */
+  replaceProjectWithPreparation?(
+    project: Project,
+    expectedVersion: string,
+    prepare: () => Promise<ReversiblePreparation | undefined>,
+  ): Promise<WriteResult>;
   /** Reads the latest backing version without changing current workspace ownership. */
   getWorkspaceVersion?(id: string): Promise<string | undefined>;
   deleteWorkspace?(id: string, expectedVersion?: string): Promise<void>;

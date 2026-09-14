@@ -23,7 +23,10 @@ import {
   type Project,
 } from "../../core/model/project";
 import { addPathToProject } from "../../core/model/projectOperations";
-import { normalizePathFileName } from "../../core/model/projectIdentity";
+import {
+  createWorkspaceId,
+  normalizePathFileName,
+} from "../../core/model/projectIdentity";
 import { deserializePath, serializePath } from "../../core/io/projectSerde";
 import {
   decodeWorkspaceArchive,
@@ -40,7 +43,10 @@ import {
   type WriteResult,
 } from "../../storage";
 import { ProjectImportOutcomeUncertainError } from "./types";
-import { ProjectImportValidationError } from "./errors";
+import {
+  ProjectImportCancelledError,
+  ProjectImportValidationError,
+} from "./errors";
 import type {
   CommittedProjectImportResult,
   CreateWorkspaceInput,
@@ -619,11 +625,61 @@ export class StorageProjectIoService implements ProjectIoService {
       return { ...result, workspace: committedWorkspace };
     }
 
+    const existing = (await this.storage.listWorkspaces()).find(
+      (summary) => summary.id === portableProject.project_id,
+    );
+    let replaceVersion: string | undefined;
+    if (existing) {
+      if (!options.resolveExistingProject) {
+        throw projectImportCollision(existing.id, existing.version);
+      }
+      const resolution = await options.resolveExistingProject(existing);
+      if (resolution === "cancel") throw new ProjectImportCancelledError();
+      if (resolution === "copy") {
+        portableProject = {
+          ...portableProject,
+          project_id: createWorkspaceId(),
+          display_name: `${portableProject.display_name} (copy)`,
+        };
+      } else {
+        replaceVersion = existing.version;
+      }
+    }
     const result = importedProjectResult(
       portableProject,
       legacySelectedFieldId,
       legacyFieldBackgrounds,
     );
+    if (replaceVersion !== undefined) {
+      if (!this.storage.replaceProjectWithPreparation) {
+        throw new ProjectImportValidationError(
+          "This browser cannot safely replace the saved project. Import it as a copy instead.",
+        );
+      }
+      let committed: WriteResult;
+      try {
+        committed = await this.storage.replaceProjectWithPreparation(
+          portableProject,
+          replaceVersion,
+          () => prepareImportedFields(result, options),
+        );
+      } catch (error) {
+        if (error instanceof StorageConflictError) {
+          throw new ProjectImportValidationError(
+            "The saved project changed in another tab while you were choosing. Import again to review the latest version; nothing was replaced.",
+          );
+        }
+        throw error;
+      }
+      return {
+        ...result,
+        workspace: this.workspaceAfterWrite(
+          portableProject,
+          portableProject.project_id,
+          committed,
+        ),
+      };
+    }
     await this.preflightBrowserImport(portableProject);
     if (this.storage.writeNewProjectWithPreparation) {
       const committed = await this.storage.writeNewProjectWithPreparation(

@@ -101,7 +101,13 @@ export class ProjectImportOutcomeUncertainError extends Error {
   }
 }
 
+export type ProjectImportResolution = "replace" | "copy" | "cancel";
+
 export interface ProjectImportOptions {
+  /** Resolve a browser identity collision before preparing assets or writing. */
+  resolveExistingProject?(
+    existing: ProjectWorkspaceSummary,
+  ): Promise<ProjectImportResolution>;
   /** Prepares decoded legacy assets before Project persistence and reports how to undo mutations. */
   migrateLegacyFieldBackgrounds?(
     imported: ProjectImportResult,

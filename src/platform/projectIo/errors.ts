@@ -3,12 +3,22 @@ export class ProjectImportValidationError extends Error {
   override name = "ProjectImportValidationError";
 }
 
+export class ProjectImportCancelledError extends Error {
+  override name = "ProjectImportCancelledError";
+
+  constructor() {
+    super("Project import cancelled.");
+  }
+}
+
 export function isRejectedProjectImport(error: unknown): boolean {
   return (
     error instanceof Error &&
-    ["ProjectImportValidationError", "ProjectAlreadyExistsError"].includes(
-      error.name,
-    )
+    [
+      "ProjectImportValidationError",
+      "ProjectAlreadyExistsError",
+      "ProjectImportCancelledError",
+    ].includes(error.name)
   );
 }
 

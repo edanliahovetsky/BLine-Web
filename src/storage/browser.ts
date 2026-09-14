@@ -241,6 +241,50 @@ export class BrowserStorage implements CurrentWorkspaceAdapter {
     });
   }
 
+  async replaceProjectWithPreparation(
+    project: Project,
+    expectedVersion: string,
+    prepare: () => Promise<ReversiblePreparation | undefined>,
+  ): Promise<WriteResult> {
+    return this.withProjectMutationLock(async () => {
+      const id = project.project_id;
+      const existing = this.readRecord(id);
+      assertExpectedVersion(existing, expectedVersion);
+      const damage = this.damageById.get(id) ?? existing?.persistenceDamage;
+      if (damage) throw new ProjectPersistenceDamageError(damage);
+      if (this.pendingLegacyProjects.has(id)) {
+        throw new Error(
+          "Open this saved project and finish its migration before replacing it.",
+        );
+      }
+      const key = this.storageKey(id);
+      const previousRecord = this.storage.getItem(key);
+      if (previousRecord === null) throw new ProjectNotFoundError(id);
+      const previousCurrentId = await this.getCurrentWorkspaceId();
+      const preparation = await prepare();
+      try {
+        return await this.writeProjectFilesRecord(project, expectedVersion, id);
+      } catch (projectError) {
+        // A pointer write can fail after the project record was written. Restore
+        // the confirmed record before rolling back its prepared field assets.
+        try {
+          if (this.storage.getItem(key) !== previousRecord) {
+            this.storage.setItem(key, previousRecord);
+          }
+          if ((await this.getCurrentWorkspaceId()) !== previousCurrentId) {
+            await this.setCurrentWorkspaceId(previousCurrentId);
+          }
+        } catch (restorationError) {
+          throw new AggregateError(
+            [projectError, restorationError],
+            "Project import failed and the previous saved project could not be restored",
+          );
+        }
+        return rollbackReversiblePreparation(projectError, preparation);
+      }
+    });
+  }
+
   private async writeNewProjectUnlocked(
     project: Project,
     targetAlreadyChecked = false,
