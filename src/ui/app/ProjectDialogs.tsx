@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, FolderOpen, Trash2 } from "lucide-react";
 import type { ProjectPath, ProjectPathGroup } from "../../core/model/project";
-import type { ProjectWorkspaceSummary } from "../../platform/projectIo";
+import type {
+  ProjectImportResolution,
+  ProjectWorkspaceSummary,
+} from "../../platform/projectIo";
 import { ActionButton, CloseButton } from "../controls";
 import { parseProjectTimestamp } from "./projectTimestamp";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
@@ -46,6 +49,63 @@ export function ImportErrorDialog({
         <footer className="project-dialog__footer">
           <ActionButton tone="primary" onClick={onClose}>
             OK
+          </ActionButton>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+export function ProjectImportDialog({
+  projectName,
+  onChoose,
+}: {
+  projectName: string;
+  onChoose(choice: ProjectImportResolution): void;
+}) {
+  const dialogRef = useDialogFocusTrap<HTMLElement>();
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [dialogRef]);
+
+  return (
+    <div className="config-dialog-backdrop" role="presentation">
+      <section
+        ref={dialogRef}
+        className="project-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-import-title"
+        aria-describedby="project-import-message"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onChoose("cancel");
+          }
+        }}
+      >
+        <header className="project-dialog__header">
+          <h2 id="project-import-title">Project already saved</h2>
+          <CloseButton
+            ariaLabel="Cancel project import"
+            onClick={() => onChoose("cancel")}
+          />
+        </header>
+        <div className="project-dialog__body">
+          <p id="project-import-message">
+            “{projectName}” is already saved in this browser. Replace its saved
+            contents with this import, or keep both as separate projects.
+          </p>
+          <p>Replacing also updates the saved version used by other tabs.</p>
+        </div>
+        <footer className="project-dialog__footer">
+          <ActionButton onClick={() => onChoose("cancel")}>Cancel</ActionButton>
+          <ActionButton onClick={() => onChoose("copy")}>
+            Import as copy
+          </ActionButton>
+          <ActionButton tone="primary" onClick={() => onChoose("replace")}>
+            Replace saved project
           </ActionButton>
         </footer>
       </section>

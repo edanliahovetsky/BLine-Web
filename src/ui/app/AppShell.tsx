@@ -31,6 +31,8 @@ import { getElementPosition } from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import {
   isRejectedProjectImport,
+  ProjectImportCancelledError,
+  type ProjectImportResolution,
   type ProjectImportResult,
   type ProjectImportRollback,
   type ProjectWorkspaceSummary,
@@ -129,6 +131,7 @@ import {
   DeleteProjectsDialog,
   NameEntryDialog,
   ImportErrorDialog,
+  ProjectImportDialog,
 } from "./ProjectDialogs";
 import {
   LinkedTargetsDialog,
@@ -254,6 +257,12 @@ export function AppShell() {
   const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importDecision, setImportDecision] = useState<{
+    existing: ProjectWorkspaceSummary;
+    resolve(choice: ProjectImportResolution): void;
+  } | null>(null);
+  const importDecisionRef = useRef<typeof importDecision>(null);
+  useEffect(() => () => importDecisionRef.current?.resolve("cancel"), []);
   const [fieldSelectionOverride, setFieldSelectionOverride] = useState<{
     projectId: string;
     fieldId: string;
@@ -1524,6 +1533,26 @@ export function AppShell() {
     }
   }, []);
 
+  const requestImportDecision = useCallback(
+    (existing: ProjectWorkspaceSummary) =>
+      new Promise<ProjectImportResolution>((resolve) => {
+        const decision = { existing, resolve };
+        importDecisionRef.current = decision;
+        setImportDecision(decision);
+      }),
+    [],
+  );
+
+  const resolveImportDecision = useCallback(
+    (choice: ProjectImportResolution) => {
+      const decision = importDecisionRef.current;
+      importDecisionRef.current = null;
+      setImportDecision(null);
+      decision?.resolve(choice);
+    },
+    [],
+  );
+
   const handleImportProject = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.currentTarget.files?.[0];
@@ -1553,11 +1582,13 @@ export function AppShell() {
 
         await projectStore.getState().importProjectArchive(file, {
           migrateLegacyFieldBackgrounds: migrateImportedFieldsForProject,
+          resolveExistingProject: requestImportDecision,
         });
         setFieldBackgrounds(listFieldBackgrounds());
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
+        if (caughtError instanceof ProjectImportCancelledError) return;
         if (isRejectedProjectImport(caughtError)) {
           setImportError((caughtError as Error).message);
         } else {
@@ -1570,6 +1601,7 @@ export function AppShell() {
     [
       endToolbarAction,
       pendingImportMode,
+      requestImportDecision,
       refreshWorkspaceSummaries,
       setFieldBackgrounds,
     ],
@@ -1598,11 +1630,13 @@ export function AppShell() {
         }
         await projectStore.getState().importProjectFolder(files, {
           migrateLegacyFieldBackgrounds: migrateImportedFieldsForProject,
+          resolveExistingProject: requestImportDecision,
         });
         setFieldBackgrounds(listFieldBackgrounds());
         await refreshWorkspaceSummaries();
         selectionStore.getState().clearSelection();
       } catch (caughtError) {
+        if (caughtError instanceof ProjectImportCancelledError) return;
         if (!practice || isCurrentPracticeTransfer(practice)) {
           if (isRejectedProjectImport(caughtError)) {
             setImportError((caughtError as Error).message);
@@ -1614,7 +1648,12 @@ export function AppShell() {
         endToolbarAction("import");
       }
     },
-    [endToolbarAction, refreshWorkspaceSummaries, setFieldBackgrounds],
+    [
+      endToolbarAction,
+      refreshWorkspaceSummaries,
+      requestImportDecision,
+      setFieldBackgrounds,
+    ],
   );
 
   const handleSaveConfig = useCallback(
@@ -2479,6 +2518,12 @@ export function AppShell() {
         ) : null}
       </div>
 
+      {importDecision !== null ? (
+        <ProjectImportDialog
+          projectName={importDecision.existing.displayName}
+          onChoose={resolveImportDecision}
+        />
+      ) : null}
       {importError !== null ? (
         <ImportErrorDialog
           message={importError}
