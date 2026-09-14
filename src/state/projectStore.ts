@@ -1647,8 +1647,12 @@ function setProject(
       ? "saving"
       : state.persistenceDamage
         ? "damaged"
-        : "idle",
-    error: null,
+        : dirty && state.status === "conflict"
+          ? "conflict"
+          : "idle",
+    // Derived edits may finish while the resolution dialog is open. Keep the
+    // conflict until a successful reload or explicit overwrite resolves it.
+    error: dirty && state.status === "conflict" ? state.error : null,
     ...metadata,
   }));
 }

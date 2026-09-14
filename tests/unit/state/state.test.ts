@@ -28,6 +28,7 @@ import {
 } from "../../../src/state/historyStore";
 import {
   activePathForProjectStore,
+  captureProjectEditOwnership,
   createProjectStore,
   isStorageConflict,
   type ProjectStore,
@@ -1841,6 +1842,58 @@ describe("save conflict recovery", () => {
     // The unsaved edits are preserved — nothing is lost, the user gets to choose.
     expect(state.dirty).toBe(true);
     expect(activePathForProjectStore(state)?.display_name).toBe("Beta");
+  });
+
+  it("keeps a save conflict visible when a pending derived edit finishes", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 2),
+    );
+    renameActivePath(store, "Beta");
+    const ownership = captureProjectEditOwnership(store.getState());
+    expect(ownership).not.toBeNull();
+    io.simulateExternalEdit();
+    await expect(store.getState().saveWorkspace()).rejects.toBeInstanceOf(
+      StorageConflictError,
+    );
+    const conflictError = store.getState().error;
+    const writesAfterConflict = io.writes.length;
+
+    const applied = store.getState().applyDerivedPathCommand(
+      {
+        description: "Finish pending constraint generation",
+        apply: (path) => ({
+          ...path,
+          ranged_constraints: [
+            {
+              key: "max_velocity_meters_per_sec",
+              value: 2,
+              start_ordinal: 1,
+              end_ordinal: 2,
+              source: "auto_velocity",
+            },
+          ],
+        }),
+        revert: (path) => path,
+      },
+      ownership!,
+    );
+    expect(applied).toBe("applied");
+    expect(store.getState()).toMatchObject({
+      status: "conflict",
+      error: conflictError,
+      dirty: true,
+    });
+    const autosave = createProjectAutosaveCoordinator(store, {
+      shouldDefer: () => store.getState().status === "conflict",
+    });
+    await autosave.flush();
+    expect(io.writes).toHaveLength(writesAfterConflict);
+    await store.getState().overwriteConflict();
+    expect(store.getState()).toMatchObject({ status: "idle", dirty: false });
+    expect(
+      activePathForProjectStore(store.getState())?.path.ranged_constraints[0]
+        ?.value,
+    ).toBe(2);
   });
 
   it("does not wedge: autosave defers instead of erroring in a loop", async () => {
