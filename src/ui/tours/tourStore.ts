@@ -66,10 +66,10 @@ export interface TourStep {
   title: string;
   body: string;
   describe?(): string;
-  /** Keep Settings open on this section for a lesson with preset values. */
+  /** Keep Settings open with edits applied to the isolated practice project. */
   settingsSection?: "robot" | "path-defaults" | "field" | "optimizer";
-  /** The one settings interaction allowed by this step. */
-  settingsInteraction?: "navigate" | "protrusions" | "field";
+  /** Start on another section when the learner must navigate to this one. */
+  settingsNavigateFrom?: TourStep["settingsSection"];
   /** Optional further reading shown inside the lesson card. */
   resource?: { label: string; href: string };
   phase?: "Build" | "Observe" | "Experiment" | "Challenge" | "Review";

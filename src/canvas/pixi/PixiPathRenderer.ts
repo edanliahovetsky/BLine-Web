@@ -129,6 +129,13 @@ export interface PixiCanvasMetrics {
   overlayDrawCount: number;
 }
 
+interface RenderedSimulationRobot {
+  lengthMeters: number;
+  widthMeters: number;
+  protrusionVisible: boolean;
+  timeSeconds: number;
+}
+
 export interface PixiDebugApi {
   canvasMetrics(): PixiCanvasMetrics;
   fieldState(): {
@@ -141,6 +148,7 @@ export interface PixiDebugApi {
   };
   nodePosition(testId: string): StagePoint | null;
   simulationTrace(): readonly SimulationTraceSample[] | null;
+  simulationRobot(): Readonly<RenderedSimulationRobot> | null;
 }
 
 export interface PixiDebugWindow extends Window {
@@ -148,6 +156,7 @@ export interface PixiDebugWindow extends Window {
 }
 
 export class PixiPathRenderer {
+  private renderedSimulationRobot: RenderedSimulationRobot | null = null;
   private readonly app: Application<Renderer<HTMLCanvasElement>>;
   private readonly root = new Container();
   private readonly fieldGraphics = new Graphics();
@@ -284,6 +293,7 @@ export class PixiPathRenderer {
       }),
       nodePosition: (testId) => this.debugNodes.get(testId) ?? null,
       simulationTrace: () => this.currentSimulationTrace,
+      simulationRobot: () => this.renderedSimulationRobot,
     };
   }
 
@@ -862,6 +872,7 @@ export class PixiPathRenderer {
   }
 
   private drawSimulation(input: PixiRenderInput): void {
+    this.renderedSimulationRobot = null;
     const graphics = this.simulationGraphics.clear();
     const result = input.simulationResult;
     if (!result || result.times_sorted.length === 0) {
@@ -894,6 +905,12 @@ export class PixiPathRenderer {
       (timelineProtrusionVisible ?? protrusions?.default_state === "shown") &&
       (protrusions?.distance_meters ?? 0) > 0 &&
       protrusions?.side !== "none";
+    this.renderedSimulationRobot = {
+      lengthMeters: input.config?.gui.robot.length_meters ?? 0.8,
+      widthMeters: input.config?.gui.robot.width_meters ?? 0.8,
+      protrusionVisible,
+      timeSeconds: input.simulationTimeS,
+    };
     this.debugNodes.set("simulation-robot", robotPoint);
     drawSimulationRobot(
       graphics,

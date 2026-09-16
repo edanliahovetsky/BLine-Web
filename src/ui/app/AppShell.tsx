@@ -697,14 +697,17 @@ export function AppShell() {
       onFieldSelectionChange: setFieldSelectionOverride,
     });
 
-  const selectedFieldId = durableProject
-    ? fieldSelectionOverride?.projectId === durableProject.project_id
-      ? fieldSelectionOverride.fieldId
-      : (selectedFieldBackgroundForProject(
-          durableProject.project_id,
-          defaultFieldId,
-        ) ?? defaultFieldId)
-    : defaultFieldId;
+  const selectedFieldId =
+    activeTourId && durableProject
+      ? durableProject.config.gui.field.selected_field_id
+      : durableProject
+        ? fieldSelectionOverride?.projectId === durableProject.project_id
+          ? fieldSelectionOverride.fieldId
+          : (selectedFieldBackgroundForProject(
+              durableProject.project_id,
+              defaultFieldId,
+            ) ?? defaultFieldId)
+        : defaultFieldId;
 
   const activeField = useMemo(
     () =>
@@ -1668,6 +1671,43 @@ export function AppShell() {
     ],
   );
 
+  const handleWalkthroughConfig = useCallback(
+    (
+      nextConfig: ProjectConfig,
+      options: {
+        autoSyncEnabled: boolean;
+        selectedFieldId: string;
+      },
+    ) => {
+      const state = projectStore.getState();
+      if (!tourStore.getState().activeTourId || !state.project) return;
+      const config = {
+        ...nextConfig,
+        gui: {
+          ...nextConfig.gui,
+          field: {
+            ...nextConfig.gui.field,
+            selected_field_id: options.selectedFieldId,
+          },
+        },
+      };
+      if (JSON.stringify(config) !== JSON.stringify(state.project.config)) {
+        state.applyConfigCommand(
+          createUpdateProjectConfigCommand(state.project.config, config),
+        );
+      }
+      if (
+        autoVelocityStore.getState().autoSyncEnabled !== options.autoSyncEnabled
+      ) {
+        // Practice preferences must never go through the persistent setter.
+        autoVelocityStore.setState({
+          autoSyncEnabled: options.autoSyncEnabled,
+        });
+      }
+    },
+    [],
+  );
+
   const handleSaveConfig = useCallback(
     async (
       nextConfig: ProjectConfig,
@@ -2561,7 +2601,7 @@ export function AppShell() {
         <ProjectConfigDialog
           key={
             settingsWalkthrough
-              ? `${activeTourId}:${tourAttemptId}`
+              ? `${activeTourId}:${tourAttemptId}:${tourStepIndex}`
               : "settings"
           }
           lessonMode={Boolean(activeTourId)}
@@ -2570,7 +2610,7 @@ export function AppShell() {
               ? {
                   section: settingsWalkthrough,
                   target: activeTourStep?.target,
-                  interaction: activeTourStep?.settingsInteraction,
+                  initialSection: activeTourStep?.settingsNavigateFrom,
                 }
               : undefined
           }
@@ -2584,6 +2624,7 @@ export function AppShell() {
           }
           onCancel={() => setShowConfigDialog(false)}
           onSave={handleSaveConfig}
+          onWalkthroughChange={handleWalkthroughConfig}
           onLoadFieldImage={handleLoadFieldImage}
         />
       ) : null}

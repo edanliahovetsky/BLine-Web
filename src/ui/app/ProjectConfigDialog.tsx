@@ -52,12 +52,19 @@ interface ProjectConfigDialogProps {
   walkthrough?: {
     section: ConfigSectionId;
     target?: string;
-    interaction?: "navigate" | "protrusions" | "field";
+    initialSection?: ConfigSectionId;
   };
   config: ProjectConfig;
   autoSyncEnabled: boolean;
   fieldBackgrounds: readonly FieldBackgroundEntry[];
   selectedFieldId: string;
+  onWalkthroughChange?(
+    config: ProjectConfig,
+    options: {
+      autoSyncEnabled: boolean;
+      selectedFieldId: string;
+    },
+  ): void;
   onCancel(): void;
   onSave(
     config: ProjectConfig,
@@ -88,6 +95,7 @@ export function ProjectConfigDialog({
   fieldBackgrounds,
   selectedFieldId,
   onCancel,
+  onWalkthroughChange,
   onSave,
   onLoadFieldImage,
 }: ProjectConfigDialogProps) {
@@ -109,12 +117,9 @@ export function ProjectConfigDialog({
     useState(autoSyncEnabled);
   const fieldInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedSection, setActiveSection] = useState<ConfigSectionId>(
-    walkthrough?.section ?? "robot",
+    walkthrough?.initialSection ?? walkthrough?.section ?? "robot",
   );
-  const activeSection =
-    walkthrough?.interaction === "navigate"
-      ? selectedSection
-      : (walkthrough?.section ?? selectedSection);
+  const activeSection = selectedSection;
   const contentRef = useRef<HTMLDivElement>(null);
   const walkthroughTarget = walkthrough?.target;
   useLayoutEffect(() => {
@@ -134,6 +139,30 @@ export function ProjectConfigDialog({
   >({});
   const [saving, setSaving] = useState(false);
   const normalizedDraft = useMemo(() => createProjectConfig(draft), [draft]);
+  const isWalkthrough = Boolean(walkthrough);
+  const [lastPracticeConfig, setLastPracticeConfig] = useState(config);
+  if (isWalkthrough && lastPracticeConfig !== config) {
+    // Reconcile undo/redo before rendering the form or applying its draft.
+    setLastPracticeConfig(config);
+    setDraft(createProjectConfig(config));
+    setFieldDraft((current) => ({
+      ...current,
+      selectedFieldId: config.gui.field.selected_field_id,
+    }));
+  }
+  useEffect(() => {
+    if (isWalkthrough)
+      onWalkthroughChange?.(normalizedDraft, {
+        autoSyncEnabled: draftAutoSyncEnabled,
+        selectedFieldId: fieldDraft.selectedFieldId,
+      });
+  }, [
+    isWalkthrough,
+    normalizedDraft,
+    draftAutoSyncEnabled,
+    fieldDraft.selectedFieldId,
+    onWalkthroughChange,
+  ]);
   const configChanged = !configsEqual(initialConfig, normalizedDraft);
   const fieldChanged = !fieldDraftsEqual(initialFieldDraft, fieldDraft);
   const isDirty =
@@ -275,9 +304,6 @@ export function ProjectConfigDialog({
                 setActiveSection(section);
                 contentRef.current?.scrollTo({ top: 0 });
               }}
-              readOnly={
-                Boolean(walkthrough) && walkthrough?.interaction !== "navigate"
-              }
             />
 
             <div ref={contentRef} className="config-dialog__content">
@@ -900,13 +926,11 @@ function FieldSelectRow({
   customFields: readonly FieldBackgroundEntry[];
   onChange(value: string): void;
 }) {
-  const walkthrough = useContext(SettingsWalkthroughContext);
   return (
     <label className="config-row" data-tour="settings-field-select">
       <span className="config-row__label">Field Image</span>
       <SelectControl
         ariaLabel="Field Image"
-        disabled={Boolean(walkthrough) && walkthrough?.interaction !== "field"}
         value={value}
         options={[
           ...builtInFieldDefinitions.map((field) => ({
@@ -978,8 +1002,6 @@ function NumberRow({
   disabled?: boolean;
   onChange(value: number): void;
 }) {
-  const walkthrough = useContext(SettingsWalkthroughContext);
-  disabled ||= Boolean(walkthrough);
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
@@ -1009,10 +1031,6 @@ function CheckboxRow({
   walkthroughControl?: "protrusions";
   onChange(checked: boolean): void;
 }) {
-  const walkthrough = useContext(SettingsWalkthroughContext);
-  const disabled =
-    Boolean(walkthrough) &&
-    (!walkthroughControl || walkthrough?.interaction !== walkthroughControl);
   return (
     <label
       className="config-row config-row--switch"
@@ -1022,12 +1040,7 @@ function CheckboxRow({
         <span className="config-row__label">{label}</span>
         {description ? <small>{description}</small> : null}
       </span>
-      <SwitchInput
-        ariaLabel={label}
-        checked={checked}
-        disabled={disabled}
-        onChange={onChange}
-      />
+      <SwitchInput ariaLabel={label} checked={checked} onChange={onChange} />
     </label>
   );
 }
@@ -1045,8 +1058,6 @@ function SelectRow({
   disabled?: boolean;
   onChange(value: string): void;
 }) {
-  const walkthrough = useContext(SettingsWalkthroughContext);
-  disabled ||= Boolean(walkthrough);
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
@@ -1077,8 +1088,6 @@ function TextRow({
   placeholder?: string;
   onChange(value: string): void;
 }) {
-  const walkthrough = useContext(SettingsWalkthroughContext);
-  disabled ||= Boolean(walkthrough);
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
