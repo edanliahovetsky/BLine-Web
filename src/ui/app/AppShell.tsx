@@ -707,8 +707,17 @@ export function AppShell() {
     : defaultFieldId;
 
   const activeField = useMemo(
-    () => resolveUserFieldDefinition(selectedFieldId, fieldBackgrounds),
-    [fieldBackgrounds, selectedFieldId],
+    () =>
+      resolveUserFieldDefinition(
+        selectedFieldId,
+        fieldBackgrounds,
+        durableProject?.config.gui.field.grid_size_meters,
+      ),
+    [
+      fieldBackgrounds,
+      selectedFieldId,
+      durableProject?.config.gui.field.grid_size_meters,
+    ],
   );
 
   useEffect(

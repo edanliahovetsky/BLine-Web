@@ -73,6 +73,8 @@ export interface FieldBackgroundEntry {
 export interface ProjectFieldConfig {
   selected_field_id: string;
   custom_fields: CustomFieldImage[];
+  /** Project-specific dimensions of the blank meter grid. */
+  grid_size_meters?: Pick<FieldGeometry, "length_meters" | "width_meters">;
 }
 
 export interface ResolvedFieldDefinition {
@@ -205,6 +207,17 @@ export function createProjectFieldConfig(input?: unknown): ProjectFieldConfig {
     return config;
   }
 
+  if (isRecord(input.grid_size_meters)) {
+    const dimension = (value: unknown, fallback: number) =>
+      typeof value === "number" && Number.isFinite(value)
+        ? clamp(value, 0.5, 30)
+        : fallback;
+    config.grid_size_meters = {
+      length_meters: dimension(input.grid_size_meters.length_meters, 18),
+      width_meters: dimension(input.grid_size_meters.width_meters, 9),
+    };
+  }
+
   const selected = stringValue(
     input.selected_field_id ?? input.selectedFieldId,
     config.selected_field_id,
@@ -232,6 +245,7 @@ export function createProjectFieldConfig(input?: unknown): ProjectFieldConfig {
 export function resolveUserFieldDefinition(
   selectedFieldId: string | null | undefined,
   fieldBackgrounds: readonly FieldBackgroundEntry[],
+  gridSize?: ProjectFieldConfig["grid_size_meters"],
 ): ResolvedFieldDefinition {
   const builtIn = builtInFieldDefinitions.find(
     (field) => field.id === selectedFieldId,
@@ -241,7 +255,10 @@ export function resolveUserFieldDefinition(
       id: builtIn.id,
       label: builtIn.label,
       kind: builtIn.kind,
-      geometry: cloneGeometry(builtIn.geometry),
+      geometry: {
+        ...cloneGeometry(builtIn.geometry),
+        ...(builtIn.kind === "grid" ? gridSize : undefined),
+      },
       image_src: builtIn.image_src,
       attribution: builtIn.attribution,
     };

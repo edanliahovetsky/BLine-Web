@@ -997,7 +997,16 @@ function withoutLegacyProjectFields(project: Project): Project {
       ...structuredClone(project.config),
       gui: {
         ...structuredClone(project.config.gui),
-        field: structuredClone(defaultProjectFieldConfig),
+        field: {
+          ...structuredClone(defaultProjectFieldConfig),
+          ...(project.config.gui.field.grid_size_meters
+            ? {
+                grid_size_meters: structuredClone(
+                  project.config.gui.field.grid_size_meters,
+                ),
+              }
+            : {}),
+        },
       },
     },
   };

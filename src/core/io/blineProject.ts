@@ -44,7 +44,9 @@ export interface SerializedProjectArchive {
 }
 
 export type ProjectConfigWithoutField = Omit<ProjectConfig, "gui"> & {
-  gui: Omit<ProjectConfig["gui"], "field">;
+  gui: Omit<ProjectConfig["gui"], "field"> & {
+    field?: Pick<ProjectConfig["gui"]["field"], "grid_size_meters">;
+  };
 };
 
 export interface SerializedProjectArchiveFieldAsset {
@@ -164,8 +166,17 @@ export function projectConfigWithoutField(
 ): ProjectConfigWithoutField {
   const canonical = serializeProjectConfig(config);
   const { field, ...gui } = canonical.gui;
-  void field;
-  return { ...canonical, gui };
+  return {
+    ...canonical,
+    gui: {
+      ...gui,
+      // Grid dimensions belong to the project; selected images and image assets
+      // remain user preferences and are deliberately excluded from exports.
+      ...(field.grid_size_meters
+        ? { field: { grid_size_meters: field.grid_size_meters } }
+        : {}),
+    },
+  };
 }
 
 export function fieldAssetsFromBLineProjectArchive(

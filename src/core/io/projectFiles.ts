@@ -61,7 +61,9 @@ type AutoGenerationDefaults = Pick<
 >;
 
 export interface SerializedProjectEditorConfig {
-  gui: Pick<ProjectConfig["gui"], "robot" | "protrusions">;
+  gui: Pick<ProjectConfig["gui"], "robot" | "protrusions"> & {
+    field?: Pick<ProjectConfig["gui"]["field"], "grid_size_meters">;
+  };
   kinematic_constraints: AutoGenerationDefaults;
 }
 
@@ -186,6 +188,15 @@ function serializeProjectFileMetadata(
     display_name: project.display_name,
     editor_config: {
       gui: {
+        ...(config.gui.field.grid_size_meters
+          ? {
+              field: {
+                grid_size_meters: structuredClone(
+                  config.gui.field.grid_size_meters,
+                ),
+              },
+            }
+          : {}),
         robot: {
           length_meters: config.gui.robot.length_meters,
           width_meters: config.gui.robot.width_meters,
@@ -417,7 +428,28 @@ function isEditorConfig(input: unknown): boolean {
     "default_auto_velocity_merge_tolerance_meters_per_sec",
   ] as const;
   return (
-    hasExactKeys(gui, ["robot", "protrusions"]) &&
+    hasExactKeys(
+      gui,
+      isObject(gui) && gui.field !== undefined
+        ? ["robot", "protrusions", "field"]
+        : ["robot", "protrusions"],
+    ) &&
+    (gui.field === undefined ||
+      (hasExactKeys(gui.field, ["grid_size_meters"]) &&
+        hasExactKeys(gui.field.grid_size_meters, [
+          "length_meters",
+          "width_meters",
+        ]) &&
+        [
+          gui.field.grid_size_meters.length_meters,
+          gui.field.grid_size_meters.width_meters,
+        ].every(
+          (value) =>
+            typeof value === "number" &&
+            Number.isFinite(value) &&
+            value >= 0.5 &&
+            value <= 30,
+        ))) &&
     hasExactKeys(gui.robot, ["length_meters", "width_meters"]) &&
     isNonNegativeNumber(gui.robot.length_meters) &&
     isNonNegativeNumber(gui.robot.width_meters) &&

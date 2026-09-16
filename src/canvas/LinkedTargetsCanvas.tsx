@@ -294,7 +294,7 @@ export function LinkedTargetsCanvas({
         : field,
     [customFieldImageUrl, field],
   );
-  const fieldRenderKey = `${renderField.id}:${renderField.image_src ?? renderField.kind}`;
+  const fieldRenderKey = `${renderField.id}:${renderField.image_src ?? renderField.kind}:${JSON.stringify(renderField.geometry)}`;
   const rendererFieldRef = useRef(renderField);
 
   useEffect(() => {

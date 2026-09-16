@@ -143,8 +143,9 @@ export function ProjectConfigDialog({
       resolveUserFieldDefinition(
         fieldDraft.selectedFieldId,
         fieldDraft.fieldBackgrounds,
+        draft.gui.field.grid_size_meters,
       ),
-    [fieldDraft],
+    [fieldDraft, draft.gui.field.grid_size_meters],
   );
   const selectedCustomField = useMemo(
     () =>
@@ -289,6 +290,21 @@ export function ProjectConfigDialog({
                   fieldUploading={fieldUploading}
                   selectedCustomField={selectedCustomField}
                   selectedField={selectedField}
+                  onGridSizeChange={(size) =>
+                    setDraft((current) => ({
+                      ...current,
+                      gui: {
+                        ...current.gui,
+                        field: {
+                          ...current.gui.field,
+                          grid_size_meters: {
+                            ...selectedField.geometry,
+                            ...size,
+                          },
+                        },
+                      },
+                    }))
+                  }
                   setFieldDraft={setFieldDraft}
                   setFieldImageDrafts={setFieldImageDrafts}
                   setFieldUploadError={setFieldUploadError}
@@ -426,6 +442,7 @@ function FieldSettingsSection({
   fieldUploading,
   selectedCustomField,
   selectedField,
+  onGridSizeChange,
   setFieldDraft,
   setFieldImageDrafts,
   setFieldUploadError,
@@ -438,6 +455,9 @@ function FieldSettingsSection({
   fieldUploading: boolean;
   selectedCustomField: FieldBackgroundEntry | null;
   selectedField: ResolvedFieldDefinition;
+  onGridSizeChange(
+    size: Partial<Pick<FieldGeometry, "length_meters" | "width_meters">>,
+  ): void;
   setFieldDraft: Dispatch<SetStateAction<FieldDraft>>;
   setFieldImageDrafts: Dispatch<SetStateAction<Record<string, File>>>;
   setFieldUploadError(value: string | null): void;
@@ -447,7 +467,13 @@ function FieldSettingsSection({
   return (
     <ConfigSection title="Field">
       <div className="config-dialog__field-layout">
-        <div className="field-preview" data-testid="field-preview">
+        <div
+          className="field-preview"
+          data-testid="field-preview"
+          style={{
+            aspectRatio: `${selectedField.geometry.length_meters} / ${selectedField.geometry.width_meters}`,
+          }}
+        >
           {selectedField.kind === "grid" ? (
             <div className="field-preview__grid" aria-hidden="true" />
           ) : selectedField.image_src || fieldPreviewUrl ? (
@@ -532,11 +558,13 @@ function FieldSettingsSection({
               min={0.5}
               max={30}
               step={0.01}
-              disabled={!selectedCustomField}
+              disabled={!selectedCustomField && selectedField.kind !== "grid"}
               onChange={(value) =>
-                updateSelectedCustomFieldDimensions(setFieldDraft, {
-                  length_meters: value,
-                })
+                selectedField.kind === "grid"
+                  ? onGridSizeChange({ length_meters: value })
+                  : updateSelectedCustomFieldDimensions(setFieldDraft, {
+                      length_meters: value,
+                    })
               }
             />
             <NumberRow
@@ -545,11 +573,13 @@ function FieldSettingsSection({
               min={0.5}
               max={30}
               step={0.01}
-              disabled={!selectedCustomField}
+              disabled={!selectedCustomField && selectedField.kind !== "grid"}
               onChange={(value) =>
-                updateSelectedCustomFieldDimensions(setFieldDraft, {
-                  width_meters: value,
-                })
+                selectedField.kind === "grid"
+                  ? onGridSizeChange({ width_meters: value })
+                  : updateSelectedCustomFieldDimensions(setFieldDraft, {
+                      width_meters: value,
+                    })
               }
             />
             <NumberRow

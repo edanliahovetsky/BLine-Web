@@ -619,3 +619,38 @@ async function userFieldStorageIds(page: Page): Promise<string[]> {
     ).flatMap((field) => (field.id ? [field.id] : []));
   });
 }
+
+test("resizes the blank grid with saved dimensions and undo @webkit-canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  const gridSize = () =>
+    page.evaluate(() => {
+      const field = (
+        window as import("../../src/canvas/pixi/PixiPathRenderer").PixiDebugWindow
+      ).__blinePixiDebug?.fieldState();
+      return [field?.lengthMeters, field?.widthMeters];
+    });
+  await openProjectSettings(page);
+  const dialog = page.getByRole("dialog", { name: "Edit Config" });
+  await dialog.getByRole("button", { name: "Field", exact: true }).click();
+  await dialog
+    .getByLabel("Field Image", { exact: true })
+    .selectOption("blank-grid");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(gridSize).toEqual([18, 9]);
+  await openProjectSettings(page);
+  await dialog.getByRole("button", { name: "Field", exact: true }).click();
+  await dialog.getByLabel("Field Length (m)", { exact: true }).fill("12");
+  await dialog.getByLabel("Field Width (m)", { exact: true }).fill("6");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(gridSize).toEqual([12, 6]);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await runEditMenuAction(page, "Undo");
+  await expect.poll(gridSize).toEqual([18, 9]);
+  await runEditMenuAction(page, "Redo");
+  await expect.poll(gridSize).toEqual([12, 6]);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await page.reload();
+  await expect.poll(gridSize).toEqual([12, 6]);
+});

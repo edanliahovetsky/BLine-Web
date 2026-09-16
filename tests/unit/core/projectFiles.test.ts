@@ -18,6 +18,30 @@ import {
 } from "../../../src/core/linkedTargets";
 
 describe("Project file-set codec", () => {
+  it("round-trips blank grid dimensions without image preferences or metadata damage", () => {
+    const project = createProject({
+      project_id: "grid-project",
+      display_name: "Grid Project",
+      paths: [],
+      config: {
+        gui: {
+          field: {
+            selected_field_id: "frc2025-reefscape",
+            grid_size_meters: { length_meters: 12, width_meters: 6 },
+          },
+        },
+      },
+    });
+    const opened = openProjectFiles(serializeProjectFiles(project));
+    expect(opened.damage).toBeNull();
+    expect(opened.project.config.gui.field.grid_size_meters).toEqual({
+      length_meters: 12,
+      width_meters: 6,
+    });
+    expect(opened.project.config.gui.field.selected_field_id).toBe(
+      "frc2026-rebuilt",
+    );
+  });
   it("round-trips durable Project data while preserving meaningful order", () => {
     const linkedElement = setPathElementLinkedTargetId(
       createTranslationTarget({

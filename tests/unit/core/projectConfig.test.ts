@@ -11,6 +11,42 @@ import {
 } from "../../../src/core/field/fieldConfig";
 
 describe("project config", () => {
+  it("preserves blank grid dimensions without changing calibrated image geometry", () => {
+    const config = createProjectConfig({
+      gui: {
+        field: {
+          grid_size_meters: { length_meters: 12, width_meters: 6 },
+        },
+      },
+    });
+    const restored = createProjectConfig(JSON.parse(JSON.stringify(config)));
+    expect(
+      resolveUserFieldDefinition(
+        "blank-grid",
+        [],
+        restored.gui.field.grid_size_meters,
+      ).geometry,
+    ).toMatchObject({ length_meters: 12, width_meters: 6 });
+    expect(
+      resolveUserFieldDefinition(
+        defaultFieldId,
+        [],
+        restored.gui.field.grid_size_meters,
+      ).geometry,
+    ).toEqual(resolveUserFieldDefinition(defaultFieldId, []).geometry);
+    expect(
+      createProjectConfig({
+        gui: {
+          field: {
+            grid_size_meters: {
+              length_meters: -2,
+              width_meters: Infinity,
+            },
+          },
+        },
+      }).gui.field.grid_size_meters,
+    ).toEqual({ length_meters: 0.5, width_meters: 9 });
+  });
   it("uses current robot and translation defaults", () => {
     const config = createProjectConfig();
 

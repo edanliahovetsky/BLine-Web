@@ -136,6 +136,8 @@ export interface PixiDebugApi {
     label: string;
     kind: FieldImageKind;
     imageLoaded: boolean;
+    lengthMeters: number;
+    widthMeters: number;
   };
   nodePosition(testId: string): StagePoint | null;
   simulationTrace(): readonly SimulationTraceSample[] | null;
@@ -274,6 +276,8 @@ export class PixiPathRenderer {
         id: this.field.id,
         label: this.field.label,
         kind: this.field.kind,
+        lengthMeters: this.field.geometry.length_meters,
+        widthMeters: this.field.geometry.width_meters,
         imageLoaded:
           this.field.kind === "image" &&
           this.fieldSprite.texture !== Texture.EMPTY,
