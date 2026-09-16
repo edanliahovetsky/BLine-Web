@@ -233,15 +233,17 @@ export function ElementIcon({
   if (type === "translation") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
-        <path d="M12 2v20M2 12h20" />
-        <path d="m5 9-3 3 3 3M19 9l3 3-3 3M9 5l3-3 3 3M9 19l3 3 3-3" />
+        <circle cx="12" cy="12" r="6" />
+        <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
       </svg>
     );
   }
 
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
-      <circle cx="12" cy="12" r="7" />
+      <rect x="5" y="4" width="14" height="16" rx="3" />
+      <path d="m9 10 3-3 3 3M12 7v7M3 8v3M21 8v3M3 15v3M21 15v3" />
     </svg>
   );
 }

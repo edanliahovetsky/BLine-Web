@@ -685,8 +685,7 @@ export function PathStage({
     isPanning ||
     activeDrag !== null ||
     activeRotationDrag !== null ||
-    activeCurveDraft !== null ||
-    curveTool !== null;
+    activeCurveDraft !== null;
   const rotationPreview: RotationOverrides = useMemo(
     () =>
       activeRotationDrag
@@ -1001,6 +1000,18 @@ export function PathStage({
     // Playback transport (Space/K, J/Home, L/End) is handled by the global
     // window listener, so it does not need to be duplicated on the canvas.
 
+    if (
+      event.key === "Escape" &&
+      (activeDragRef.current || activeRotationDragRef.current)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      setActiveDrag(null);
+      setActiveRotationDrag(null);
+      setPlacementPreview(null);
+      return;
+    }
+
     if (event.key === "Escape" && curveTool) {
       event.preventDefault();
       setActiveCurveDraft(null);
@@ -1088,6 +1099,41 @@ export function PathStage({
     zoomAtStagePoint(stagePointFromEvent(event), factor);
   };
 
+  const beginElementDrag = (
+    index: number,
+    pointer: StagePoint,
+    pointerId: number,
+  ) => {
+    if (!activePath || !durableProject) return;
+    selectionStore.getState().selectElement(index, activePath.path);
+    const element = activePath.path.path_elements[index];
+    const start = getElementPosition(activePath.path.path_elements, index);
+    if (!element || !start || !isDragEnabled(element)) {
+      return;
+    }
+    const linkedTarget = linkedTargetForElement(durableProject, element);
+    if (linkedTarget?.locked) {
+      return;
+    }
+
+    const startRatio =
+      isRotationTarget(element) || isEventTrigger(element)
+        ? element.t_ratio
+        : null;
+    setActiveDrag({
+      pointerId,
+      index,
+      startPointer: pointer,
+      moved: false,
+      start,
+      current: isTranslationBearingElement(element)
+        ? clampModelPoint(start, activeField.geometry)
+        : start,
+      startRatio,
+      currentRatio: startRatio,
+    });
+  };
+
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (
       projectStore.getState().projectTransitionInProgress ||
@@ -1121,6 +1167,45 @@ export function PathStage({
       if (hit !== null)
         selectionStore.getState().selectElement(hit, activePath.path);
       return;
+    }
+
+    // Existing anchor centers stay draggable with every authoring tool.
+    // Use the visible topmost element so overlaps retain their selection order.
+    const centerHit = hitTestPathElement(
+      activePath.path,
+      durableProject.config,
+      viewport,
+      positionPreview,
+      pointer,
+      selectedElementIndex,
+    );
+    if (centerHit !== null) {
+      const element = activePath.path.path_elements[centerHit];
+      const position = getElementPosition(
+        activePath.path.path_elements,
+        centerHit,
+        positionPreview,
+      );
+      if (isAnchorElement(element) && position) {
+        const center = modelToStagePoint(position, viewport);
+        const robot = robotSizeFromConfig(durableProject.config);
+        const radius = isWaypoint(element)
+          ? Math.min(
+              12,
+              Math.max(
+                3,
+                (Math.min(robot.lengthMeters, robot.widthMeters) *
+                  viewport.scale) /
+                  4,
+              ),
+            )
+          : 12;
+        if (Math.hypot(pointer.x - center.x, pointer.y - center.y) <= radius) {
+          setPlacementPreview(null);
+          beginElementDrag(centerHit, pointer, event.pointerId);
+          return;
+        }
+      }
     }
 
     if (curveTool) {
@@ -1205,33 +1290,7 @@ export function PathStage({
       selectedElementIndex,
     );
     if (nodeHit !== null) {
-      selectionStore.getState().selectElement(nodeHit, activePath.path);
-      const element = activePath.path.path_elements[nodeHit];
-      const start = getElementPosition(activePath.path.path_elements, nodeHit);
-      if (!element || !start || !isDragEnabled(element)) {
-        return;
-      }
-      const linkedTarget = linkedTargetForElement(durableProject, element);
-      if (linkedTarget?.locked) {
-        return;
-      }
-
-      const startRatio =
-        isRotationTarget(element) || isEventTrigger(element)
-          ? element.t_ratio
-          : null;
-      setActiveDrag({
-        pointerId: event.pointerId,
-        index: nodeHit,
-        startPointer: pointer,
-        moved: false,
-        start,
-        current: isTranslationBearingElement(element)
-          ? clampModelPoint(start, activeField.geometry)
-          : start,
-        startRatio,
-        currentRatio: startRatio,
-      });
+      beginElementDrag(nodeHit, pointer, event.pointerId);
       return;
     }
 
@@ -1966,7 +2025,7 @@ function CanvasToolRail({
           title={
             disabled
               ? `${label} needs two path elements`
-              : `${label} tool (${shortcut})`
+              : `${label} tool (${shortcut}) — ${tool === "waypoint" ? "Place a robot position and heading" : tool === "translation" ? "Place a position target without changing heading" : tool === "select" ? "Select elements or drag empty space to pan" : tool === "rotation" ? "Set a heading along the path" : tool === "event" ? "Trigger an action along the path" : "Draw a sequence of position targets"}. Drag any existing position center to move it.`
           }
           onClick={() => onToolChange(tool)}
         >
