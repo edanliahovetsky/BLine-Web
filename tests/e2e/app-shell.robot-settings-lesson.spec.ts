@@ -86,8 +86,8 @@ async function play(page: Page, observeExtension = false) {
     (window as PixiDebugWindow).__blinePixiDebug?.simulationRobot(),
   );
   expect(robot).toMatchObject({
-    lengthMeters: 1.2,
-    widthMeters: 0.8,
+    lengthMeters: 0.8,
+    widthMeters: 1.2,
     protrusionVisible: false,
   });
 }
@@ -140,7 +140,7 @@ for (const viewport of [
     await gotoSampleEditor(page);
     await openProjectSettings(page);
     const dialog = dialogFor(page);
-    await dialog.getByLabel("Robot Length (m)", { exact: true }).fill("1.7");
+    await dialog.getByLabel("Robot Width (m)", { exact: true }).fill("1.7");
     await dialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByTestId("save-status")).toContainText("Saved");
@@ -157,25 +157,25 @@ for (const viewport of [
       hide_on_event_keys: [],
     });
     await expect(
-      dialog.getByLabel("Robot Length (m)", { exact: true }),
+      dialog.getByLabel("Robot Width (m)", { exact: true }),
     ).toHaveValue("0.8");
     await expect(dialog.locator(".config-dialog__footer")).toHaveCount(0);
     await expect(dialog).not.toContainText("Lesson preview");
     await expect(dialog).not.toContainText("Use Continue");
     await layout(page);
     await expect(forward(page)).toBeHidden();
-    await number(page, "Robot Length (m)", "1.2");
-    await number(page, "Robot Width (m)", "0.8");
+    await number(page, "Robot Width (m)", "1.2");
+    await number(page, "Robot Length (m)", "0.8");
     await expect(forward(page)).toBeVisible();
     await page.getByTestId("tour-card").getByRole("heading").click();
     await page.keyboard.press("ControlOrMeta+z");
     await expect(
-      dialog.getByLabel("Robot Length (m)", { exact: true }),
+      dialog.getByLabel("Robot Width (m)", { exact: true }),
     ).toHaveValue("0.8");
     await expect(forward(page)).toBeHidden();
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect(
-      dialog.getByLabel("Robot Length (m)", { exact: true }),
+      dialog.getByLabel("Robot Width (m)", { exact: true }),
     ).toHaveValue("1.2");
     await expect(forward(page)).toBeVisible();
     await page
@@ -183,10 +183,10 @@ for (const viewport of [
       .getByRole("button", { name: "Restart step", exact: true })
       .click();
     await expect(
-      dialog.getByLabel("Robot Length (m)", { exact: true }),
+      dialog.getByLabel("Robot Width (m)", { exact: true }),
     ).toHaveValue("0.8");
     await expect(forward(page)).toBeHidden();
-    await number(page, "Robot Length (m)", "1.2");
+    await number(page, "Robot Width (m)", "1.2");
     await next(page, "See the bumper size");
     await expect(dialog).toBeHidden();
     await play(page);
@@ -292,7 +292,7 @@ for (const exit of ["skip", "escape"] as const) {
     await expect(page.getByTestId("save-status")).toContainText("Saved");
     const original = await snapshot(page);
     await openLesson(page);
-    await number(page, "Robot Length (m)", "1.2");
+    await number(page, "Robot Width (m)", "1.2");
     if (exit === "skip")
       await page
         .getByTestId("tour-card")
@@ -304,7 +304,7 @@ for (const exit of ["skip", "escape"] as const) {
     expect((await snapshot(page)).preferences).toEqual(original.preferences);
     await openLesson(page);
     await expect(
-      page.getByLabel("Robot Length (m)", { exact: true }),
+      page.getByLabel("Robot Width (m)", { exact: true }),
     ).toHaveValue("0.8");
   });
 }

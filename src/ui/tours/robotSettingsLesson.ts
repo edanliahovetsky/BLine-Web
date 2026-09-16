@@ -168,7 +168,7 @@ export const robotSettingsTour: TourDefinition = {
   steps: [
     settings({
       title: "Robot size",
-      body: "We’ll work through File → Settings in menu order, starting from the normal defaults in a practice project. Robot Length and Width are the outside bumper dimensions shown on the field. Set Length to 1.2 m and Width to 0.8 m, then look at the changed footprint.",
+      body: "We’ll work through File → Settings in menu order, starting from the normal defaults in a practice project. Robot Length and Width are the outside bumper dimensions shown on the field. Set Length to 0.8 m and Width to 1.2 m, then look at the changed footprint.",
       target: "settings-size",
       settingsSection: "robot",
       prepare: {
@@ -178,17 +178,17 @@ export const robotSettingsTour: TourDefinition = {
         simulation: "start",
         closeMenus: true,
       },
-      task: "Set the bumper size to 1.2 × 0.8 m",
+      task: "Set the bumper size to 0.8 × 1.2 m",
       check: configTask(
         (c) =>
-          closeTo(c.gui.robot.length_meters, 1.2) &&
-          closeTo(c.gui.robot.width_meters, 0.8),
-        "Set Robot Length to 1.2 and Robot Width to 0.8.",
+          closeTo(c.gui.robot.length_meters, 0.8) &&
+          closeTo(c.gui.robot.width_meters, 1.2),
+        "Set Robot Length to 0.8 and Robot Width to 1.2.",
       ),
     }),
     canvas({
       title: "See the bumper size",
-      body: "The robot is now longer than it is wide. Press Play to see that 1.2 × 0.8 m bumper footprint move along the path. These dimensions help you judge clearance; they do not change the path’s coordinates.",
+      body: "The robot is now wider than it is long. Press Play to see that 0.8 × 1.2 m bumper footprint move along the path. These dimensions help you judge clearance; they do not change the path’s coordinates.",
       target: "simulation-transport",
       task: "Play the resized robot’s path",
       check: playedThrough(),
