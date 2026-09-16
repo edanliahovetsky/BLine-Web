@@ -42,7 +42,6 @@ interface ToolbarModel {
   toolbarBusy: boolean;
   undoLabel: string;
   redoLabel: string;
-  toursSupported: boolean;
 }
 
 interface ToolbarCommands {
@@ -132,7 +131,6 @@ export function AppToolbar({
     toolbarBusy,
     undoLabel,
     redoLabel,
-    toursSupported,
   } = model;
   const helpHubRef = useRef<HTMLDivElement>(null);
   const fileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -402,8 +400,6 @@ export function AppToolbar({
             </IconButton>
             {panels.showHelpHub ? (
               <HelpHubPopover
-                tourAvailable={toursSupported}
-                tourUnavailableReason="Guided lessons require a wider window."
                 onClose={panels.closeHelpHub}
                 onStartTour={() => {
                   panels.closeHelpHub();
@@ -494,16 +490,12 @@ function InspectorButton({
 }
 
 function HelpHubPopover({
-  tourAvailable,
-  tourUnavailableReason,
   onClose,
   onStartTour,
   onShortcuts,
   onCommandPalette,
   onOpenSample,
 }: {
-  tourAvailable: boolean;
-  tourUnavailableReason: string;
   onClose(): void;
   onStartTour(): void;
   onShortcuts(): void;
@@ -533,12 +525,7 @@ function HelpHubPopover({
         <button
           type="button"
           data-testid="start-guided-tour"
-          disabled={!tourAvailable}
-          title={
-            tourAvailable
-              ? "Walk through the editor step by step"
-              : tourUnavailableReason
-          }
+          title="Walk through the editor step by step"
           onClick={onStartTour}
         >
           <span className="help-hub-popover__glyph" aria-hidden="true">

@@ -48,7 +48,9 @@ async function layout(page: Page) {
   const dialog = await requiredBox(
     page.getByRole("dialog", { name: "Edit Config" }),
   );
-  expect(card.x + card.width).toBeLessThanOrEqual(dialog.x);
+  if (page.viewportSize()!.width <= 700)
+    expect(dialog.y + dialog.height).toBeLessThanOrEqual(card.y);
+  else expect(card.x + card.width).toBeLessThanOrEqual(dialog.x);
   expect(card.y + card.height).toBeLessThanOrEqual(page.viewportSize()!.height);
   expect(dialog.y + dialog.height).toBeLessThanOrEqual(
     page.viewportSize()!.height,
@@ -131,6 +133,8 @@ async function fieldState(page: Page) {
 for (const viewport of [
   { width: 1280, height: 800 },
   { width: 1024, height: 600 },
+  { width: 700, height: 800 },
+  { width: 560, height: 720 },
 ]) {
   test(`completes the interactive settings lesson and restores the project at ${viewport.width}px @webkit-canvas`, async ({
     page,

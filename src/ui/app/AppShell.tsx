@@ -290,11 +290,6 @@ export function AppShell() {
   const [showPathHealth, setShowPathHealth] = useState(false);
   const pathHealthControlRef = useRef<HTMLDivElement | null>(null);
   const [showHelpHub, setShowHelpHub] = useState(false);
-  const [toursSupported, setToursSupported] = useState(
-    () =>
-      typeof window === "undefined" ||
-      !window.matchMedia(mobileSupportMediaQuery).matches,
-  );
   const [showTourPicker, setShowTourPicker] = useState(false);
   const activeTourId = useStoreSelector(
     tourStore,
@@ -733,13 +728,10 @@ export function AppShell() {
 
     const syncMobileWarning = () => {
       setShowMobileSupportWarning(
-        mobileQuery.matches && !hasDismissedMobileSupportWarning(),
+        mobileQuery.matches &&
+          !hasDismissedMobileSupportWarning() &&
+          !tourStore.getState().activeTourId,
       );
-      setToursSupported(!mobileQuery.matches);
-      // Coach marks cannot coexist with the mobile overlay inspector.
-      if (mobileQuery.matches) {
-        tourStore.getState().exit();
-      }
     };
 
     syncMobileWarning();
@@ -2349,6 +2341,7 @@ export function AppShell() {
     <main
       className="app-shell"
       data-testid="app-shell"
+      data-lesson-active={activeTourId ? "true" : undefined}
       aria-busy={projectTransitionInProgress}
     >
       <AppToolbar
@@ -2363,7 +2356,6 @@ export function AppShell() {
           toolbarBusy,
           undoLabel,
           redoLabel,
-          toursSupported,
         }}
         commands={{
           navigator: navigatorCommand,
@@ -2467,7 +2459,6 @@ export function AppShell() {
               }
             }}
             onOpenSample={() => void handleOpenSample()}
-            tourSupported={toursSupported}
             onOpenLessons={() => setShowTourPicker(true)}
             onRetryInitialization={retryInitialization}
           />

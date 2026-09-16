@@ -1225,14 +1225,25 @@ for (const entryPoint of ["Learn panel", "help menu"]) {
   });
 }
 
-test("closes practice below the mobile support threshold", async ({ page }) => {
+test("keeps lessons available and active in a narrow window @webkit-canvas", async ({
+  page,
+}) => {
   await gotoSampleEditor(page);
   await openLesson(page, "Rotation targets");
-  await page.setViewportSize({ width: 700, height: 800 });
-  await expect(page.getByTestId("tour-card")).toHaveCount(0);
-  await dismissMobileSupportWarning(page);
+  const title = await page
+    .getByTestId("tour-card")
+    .getByRole("heading")
+    .innerText();
+  await page.setViewportSize({ width: 560, height: 720 });
+  await expect(page.getByTestId("tour-card").getByRole("heading")).toHaveText(
+    title,
+  );
+  await exitLesson(page);
   await page.getByRole("button", { name: "Help and tutorials" }).click();
-  await expect(page.getByTestId("start-guided-tour")).toBeDisabled();
+  await expect(page.getByTestId("start-guided-tour")).toBeEnabled();
+  await page.getByTestId("start-guided-tour").click();
+  await page.getByTestId("tour-picker-robot-settings").click();
+  await expect(page.getByTestId("tour-card")).toContainText("Robot size");
 });
 
 async function openLesson(page: Page, title: string) {

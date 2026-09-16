@@ -24,7 +24,6 @@ export function StartCenter({
   onOpenProject,
   onOpenRecent,
   onOpenSample,
-  tourSupported,
   onOpenLessons,
   onRetryInitialization,
 }: {
@@ -39,7 +38,6 @@ export function StartCenter({
   onOpenProject(): void;
   onOpenRecent(id: string): void;
   onOpenSample(): void;
-  tourSupported: boolean;
   onOpenLessons(): void;
   onRetryInitialization(): void;
 }) {
@@ -174,10 +172,7 @@ export function StartCenter({
             <button
               type="button"
               data-testid="start-center-guided-tour"
-              disabled={actionsDisabled || !tourSupported}
-              title={
-                !tourSupported ? "Lessons require a wider window." : undefined
-              }
+              disabled={actionsDisabled}
               onClick={onOpenLessons}
             >
               <span className="start-center__emoji" aria-hidden="true">
