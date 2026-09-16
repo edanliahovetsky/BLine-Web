@@ -303,6 +303,7 @@ export function AppShell() {
   const tourStepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
   const activeTour = findTour(activeTourId);
   const activeTourStep = activeTour?.steps[tourStepIndex];
+  const settingsWalkthrough = activeTourStep?.settingsSection;
   const autoGenerationAllowed = activeTourStep?.autoGenerate !== false;
   const [tourSimulationSeekRequest, setTourSimulationSeekRequest] =
     useState<SimulationSeekRequest | null>(null);
@@ -2546,13 +2547,22 @@ export function AppShell() {
           onClose={() => setImportError(null)}
         />
       ) : null}
-      {durableProject && showConfigDialog ? (
+      {durableProject && (showConfigDialog || settingsWalkthrough) ? (
         <ProjectConfigDialog
           lessonMode={Boolean(activeTourId)}
+          walkthrough={
+            settingsWalkthrough
+              ? { section: settingsWalkthrough, target: activeTourStep?.target }
+              : undefined
+          }
           autoSyncEnabled={autoSyncEnabled}
           config={durableProject.config}
-          fieldBackgrounds={fieldBackgrounds}
-          selectedFieldId={selectedFieldId}
+          fieldBackgrounds={settingsWalkthrough ? [] : fieldBackgrounds}
+          selectedFieldId={
+            settingsWalkthrough
+              ? durableProject.config.gui.field.selected_field_id
+              : selectedFieldId
+          }
           onCancel={() => setShowConfigDialog(false)}
           onSave={handleSaveConfig}
           onLoadFieldImage={handleLoadFieldImage}

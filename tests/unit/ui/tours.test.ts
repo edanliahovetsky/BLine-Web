@@ -59,14 +59,14 @@ afterEach(() => {
 });
 
 describe("foundational lesson content", () => {
-  it("uses the foundational lessons with robot settings before path authoring in order", () => {
+  it("uses the foundational lessons with robot settings after event triggers in order", () => {
     expect(foundationalTours.map((tour) => tour.title)).toEqual([
       "Getting Started",
-      "Robot Settings",
       "BLine Fundamentals",
       "Path Tuning",
       "Rotation targets",
       "Event triggers",
+      "Robot Settings",
     ]);
     for (const tour of foundationalTours) {
       expect(tour.durationMinutes).toBeGreaterThan(0);
@@ -113,7 +113,9 @@ describe("foundational lesson content", () => {
     expect(
       demo.path_elements.filter((element) => element.type === "event_trigger"),
     ).toHaveLength(1);
-    const fundamentals = foundationalTours[2];
+    const fundamentals = foundationalTours.find(
+      (tour) => tour.id === "bline-fundamentals",
+    )!;
     const placement = fundamentals.steps.find(
       (step) => step.title === "Place Start and End",
     )!;
@@ -135,7 +137,9 @@ describe("foundational lesson content", () => {
   });
 
   it("keeps the handoff sequence on the existing canvas and changes only acceleration for the wider turn", () => {
-    const steps = foundationalTours[3].steps;
+    const steps = foundationalTours.find(
+      (tour) => tour.id === "path-tuning",
+    )!.steps;
     expect(steps.slice(0, 4).map((step) => step.canvasLesson)).toEqual([
       "handoff-approach",
       "handoff-crossing",
@@ -194,7 +198,9 @@ describe("foundational lesson content", () => {
         ),
     ).toBe(true);
     expect(autoVelocityStatusForPath(path, practiceConfig()).stale).toBe(true);
-    const steps = foundationalTours[3].steps;
+    const steps = foundationalTours.find(
+      (tour) => tour.id === "path-tuning",
+    )!.steps;
     const rectangleIndex = steps.findIndex(
       (step) => step.title === "A new route to tune",
     );
@@ -264,18 +270,20 @@ describe("foundational lesson content", () => {
         reason: "insufficient-time",
       }),
     );
-    const profile = foundationalTours[4].steps.find(
-      (step) => step.title === "Try Profiled Rotation",
-    )!;
+    const profile = foundationalTours
+      .find((tour) => tour.id === "rotation-targets")!
+      .steps.find((step) => step.title === "Try Profiled Rotation")!;
     expect(profile.body).toContain("target heading changes gradually");
     expect(profile.body).toContain("Turn it off");
   });
 
   it("requires the new event key and ratio on the second segment", () => {
     const path = createEventLessonPath();
-    const step = foundationalTours[5].steps.find(
-      (candidate) => candidate.title === "Add an event on the next segment",
-    )!;
+    const step = foundationalTours
+      .find((tour) => tour.id === "event-triggers")!
+      .steps.find(
+        (candidate) => candidate.title === "Add an event on the next segment",
+      )!;
     loadPractice(path);
     expect(step.check?.().complete).toBe(false);
     path.path_elements.splice(
@@ -307,7 +315,9 @@ describe("foundational lesson content", () => {
 
   it("unlocks demo Continue after Play without requiring the learner to finish the run", () => {
     vi.stubGlobal("document", { querySelector: () => null });
-    const tour = foundationalTours[2];
+    const tour = foundationalTours.find(
+      (tour) => tour.id === "bline-fundamentals",
+    )!;
     tourStore.getState().start(tour.id);
     loadPractice(tour.practicePath());
     captureTourStepState();

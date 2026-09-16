@@ -3450,6 +3450,8 @@ select {
 }
 
 .config-dialog__content {
+  margin: 0;
+  border: 0;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -4512,6 +4514,13 @@ select {
   color: var(--bline-text-secondary);
   font-size: 0.76rem;
   line-height: 1.5;
+}
+
+.tour-card__resource {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--bline-accent);
+  font-size: 0.76rem;
 }
 
 .tour-card__task {

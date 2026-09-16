@@ -66,6 +66,10 @@ export interface TourStep {
   title: string;
   body: string;
   describe?(): string;
+  /** Open this settings section as a read-only walkthrough with preset values. */
+  settingsSection?: "robot" | "path-defaults" | "field" | "optimizer";
+  /** Optional further reading shown inside the lesson card. */
+  resource?: { label: string; href: string };
   phase?: "Build" | "Observe" | "Experiment" | "Challenge" | "Review";
   /** Visible context is independent of the controls permitted for interaction. */
   visible?: readonly string[];

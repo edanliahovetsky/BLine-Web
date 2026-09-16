@@ -427,7 +427,7 @@ export function TourOverlay({
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
-            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"], .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
+            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"]:not([data-walkthrough]), .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
           )
         )
           return;
@@ -569,7 +569,10 @@ export function TourOverlay({
     cardLeft = navigator.right + cardGap;
     cardTop = 64;
   }
-  if (document.querySelector('[data-tour="settings-dialog"]')) {
+  if (
+    step.settingsSection ||
+    document.querySelector('[data-tour="settings-dialog"]')
+  ) {
     cardLeft = viewportMargin;
     cardTop = 64;
   }
@@ -705,6 +708,16 @@ export function TourOverlay({
         </div>
         <h4>{step.title}</h4>
         <p>{step.describe?.() ?? step.body}</p>
+        {step.resource ? (
+          <a
+            className="tour-card__resource"
+            href={step.resource.href}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            {step.resource.label} ↗
+          </a>
+        ) : null}
         {step.task ? (
           <div className="tour-card__task">
             <span>{step.phase ?? "Task"}</span>

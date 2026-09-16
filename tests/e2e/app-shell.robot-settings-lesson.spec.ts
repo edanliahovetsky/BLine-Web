@@ -31,9 +31,7 @@ async function openLesson(page: Page) {
   await page.getByRole("button", { name: "Help and tutorials" }).click();
   await page.getByTestId("start-guided-tour").click();
   await page.getByTestId("tour-picker-robot-settings").click();
-  await expect(page.getByTestId("tour-card")).toContainText(
-    "Open robot settings",
-  );
+  await expect(page.getByTestId("tour-card")).toContainText("Robot size");
 }
 async function next(page: Page, heading: string) {
   const card = page.getByTestId("tour-card");
@@ -54,58 +52,94 @@ async function layout(page: Page) {
   );
 }
 
+const sections = [
+  ["Robot size", "Robot", "settings-size"],
+  ["Protrusions", "Robot", "settings-protrusions"],
+  ["Translation defaults", "Path Defaults", "settings-translation"],
+  ["Rotation defaults", "Path Defaults", "settings-rotation"],
+  ["End tolerance", "Path Defaults", "settings-end-tolerance"],
+  ["Field image", "Field", "settings-field-image"],
+  ["Field dimensions and padding", "Field", "settings-field-geometry"],
+  ["Generator settings", "Generator", "settings-generator"],
+];
+
 for (const viewport of [
   { width: 1280, height: 800 },
   { width: 1024, height: 600 },
 ]) {
-  test(`completes robot settings lesson and restores original project at ${viewport.width}px @webkit-canvas`, async ({
+  test(`walks through preset settings without editing and restores the project at ${viewport.width}px @webkit-canvas`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
     await gotoSampleEditor(page);
+    // Deliberately differ from lesson presets, using the ordinary settings UI.
+    await openProjectSettings(page);
+    const dialog = page.getByRole("dialog", { name: "Edit Config" });
+    await dialog.getByLabel("Robot Length (m)", { exact: true }).fill("1.7");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).toBeHidden();
     await expect(page.getByTestId("save-status")).toContainText("Saved");
     const original = await snapshot(page);
     await openLesson(page);
-    expect((await snapshot(page)).hasPersistence).toBe(false);
-    await openProjectSettings(page);
-    await next(page, "Size and bumper clearance");
-    await layout(page);
-    const dialog = page.getByRole("dialog", { name: "Edit Config" });
-    await dialog.getByLabel("Robot Length (m)", { exact: true }).fill("1");
-    await dialog.getByLabel("Robot Width (m)", { exact: true }).fill("0.9");
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    const practice = await snapshot(page);
+    expect(practice.hasPersistence).toBe(false);
+    expect(practice.project!.config.gui.robot.length_meters).toBe(0.8);
+    await expect(
+      dialog.getByLabel("Robot Length (m)", { exact: true }),
+    ).toHaveValue("0.8");
+    for (const [index, [heading, section, target]] of sections.entries()) {
+      if (index) await next(page, heading);
+      await expect(dialog).toBeVisible();
+      await expect(
+        dialog.getByRole("button", { name: section, exact: true }),
+      ).toHaveAttribute("aria-current", "page");
+      await expect(dialog.locator(`[data-tour="${target}"]`)).toBeInViewport({
+        ratio: 1,
+      });
+      await expect(
+        dialog.locator(
+          "fieldset input:enabled, fieldset select:enabled, fieldset button:enabled",
+        ),
+      ).toHaveCount(0);
+      await expect(
+        dialog.getByRole("button", { name: "Save", exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page
+          .getByTestId("tour-card")
+          .getByRole("button", { name: "Continue", exact: true }),
+      ).toBeEnabled();
+      await layout(page);
+      expect((await snapshot(page)).project).toEqual(practice.project);
+      expect((await snapshot(page)).preferences).toEqual(original.preferences);
+      if (section === "Path Defaults" && heading === "Translation defaults") {
+        await expect(
+          dialog.getByLabel("Default Max Velocity (m/s)", { exact: true }),
+        ).toHaveValue("4.5");
+        await expect(
+          dialog.getByLabel("Default Max Accel (m/s2)", { exact: true }),
+        ).toHaveValue("12");
+      }
+    }
+    // Back navigation reopens the correct section and scroll position too.
+    await page
+      .getByTestId("tour-card")
+      .getByRole("button", { name: "Back", exact: true })
+      .click();
+    await expect(
+      dialog.locator('[data-tour="settings-field-geometry"]'),
+    ).toBeInViewport({ ratio: 1 });
+    await next(page, "Generator settings");
+    await next(page, "Tune your robot");
     await expect(dialog).toBeHidden();
-    expect((await snapshot(page)).preferences).toEqual(original.preferences);
-    await next(page, "Points and the blue trace");
-    await page
-      .getByRole("button", { name: "Play simulation", exact: true })
-      .click();
-    await next(page, "Find motion limits");
-    await openProjectSettings(page);
-    await dialog
-      .getByRole("button", { name: "Path Defaults", exact: true })
-      .click();
-    await next(page, "Speed, acceleration and turning");
-    await layout(page);
-    for (const [label, value] of [
-      ["Default Max Velocity (m/s)", "2"],
-      ["Default Max Accel (m/s2)", "2"],
-      ["Default Max Rot Vel (deg/s)", "180"],
-      ["Default Max Rot Accel (deg/s2)", "360"],
-    ])
-      await dialog.getByLabel(label, { exact: true }).fill(value);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(dialog).toBeHidden();
-    expect((await snapshot(page)).preferences).toEqual(original.preferences);
-    await next(page, "Preview the new settings");
-    await page
-      .getByRole("button", { name: "Play simulation", exact: true })
-      .click();
-    await next(page, "Generate using your robot settings");
-    await page
-      .getByRole("button", { name: "Generate constraints", exact: true })
-      .click();
-    await next(page, "Next: deeper tuning");
+    await expect(
+      page
+        .getByTestId("tour-card")
+        .getByRole("link", { name: "Read Tune Your Robot" }),
+    ).toHaveAttribute(
+      "href",
+      "https://bline-docs.pages.dev/getting-started/tuning/",
+    );
     await page
       .getByTestId("tour-card")
       .getByRole("button", { name: "Finish", exact: true })
@@ -127,22 +161,25 @@ for (const viewport of [
   });
 }
 
-test("exits settings practice with an open dialog and restores preferences", async ({
-  page,
-}) => {
-  await gotoSampleEditor(page);
-  await expect(page.getByTestId("save-status")).toContainText("Saved");
-  const original = await snapshot(page);
-  await openLesson(page);
-  await openProjectSettings(page);
-  await next(page, "Size and bumper clearance");
-  const dialog = page.getByRole("dialog", { name: "Edit Config" });
-  await dialog.getByLabel("Robot Length (m)", { exact: true }).fill("1.7");
-  await page
-    .getByTestId("tour-card")
-    .getByRole("button", { name: "Skip lesson", exact: true })
-    .click();
-  await expect(dialog).toBeHidden();
-  expect((await snapshot(page)).project).toEqual(original.project);
-  expect((await snapshot(page)).preferences).toEqual(original.preferences);
-});
+for (const exit of ["skip", "escape"] as const) {
+  test(`exits the read-only settings walkthrough with ${exit} and restores preferences @webkit-canvas`, async ({
+    page,
+  }) => {
+    await gotoSampleEditor(page);
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
+    const original = await snapshot(page);
+    await openLesson(page);
+    await next(page, "Protrusions");
+    if (exit === "skip")
+      await page
+        .getByTestId("tour-card")
+        .getByRole("button", { name: "Skip lesson", exact: true })
+        .click();
+    else await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("dialog", { name: "Edit Config" }),
+    ).toBeHidden();
+    expect((await snapshot(page)).project).toEqual(original.project);
+    expect((await snapshot(page)).preferences).toEqual(original.preferences);
+  });
+}

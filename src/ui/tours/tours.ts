@@ -834,11 +834,11 @@ export const eventTriggersTour: TourDefinition = {
 
 export const foundationalTours: readonly TourDefinition[] = [
   gettingStartedTour,
-  robotSettingsTour,
   fundamentalsTour,
   pathTuningTour,
   rotationTargetsTour,
   eventTriggersTour,
+  robotSettingsTour,
 ];
 export const tours: readonly TourDefinition[] = [
   ...foundationalTours,

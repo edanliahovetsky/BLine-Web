@@ -22,11 +22,11 @@ import {
 
 const lessonTitles = [
   "Getting Started",
-  "Robot Settings",
   "BLine Fundamentals",
   "Path Tuning",
   "Rotation targets",
   "Event triggers",
+  "Robot Settings",
   "Importing and Exporting",
   "Path Management",
   "How to use BLine offline",

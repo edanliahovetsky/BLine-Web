@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   type RefObject,
   useRef,
@@ -46,6 +47,7 @@ type ConfigSectionId = (typeof configSections)[number]["id"];
 
 interface ProjectConfigDialogProps {
   lessonMode?: boolean;
+  walkthrough?: { section: ConfigSectionId; target?: string };
   config: ProjectConfig;
   autoSyncEnabled: boolean;
   fieldBackgrounds: readonly FieldBackgroundEntry[];
@@ -71,6 +73,7 @@ interface FieldDraft {
 
 export function ProjectConfigDialog({
   lessonMode = false,
+  walkthrough,
   config,
   autoSyncEnabled,
   fieldBackgrounds,
@@ -96,7 +99,17 @@ export function ProjectConfigDialog({
   const [draftAutoSyncEnabled, setDraftAutoSyncEnabled] =
     useState(autoSyncEnabled);
   const fieldInputRef = useRef<HTMLInputElement | null>(null);
-  const [activeSection, setActiveSection] = useState<ConfigSectionId>("robot");
+  const [selectedSection, setActiveSection] =
+    useState<ConfigSectionId>("robot");
+  const activeSection = walkthrough?.section ?? selectedSection;
+  const contentRef = useRef<HTMLFieldSetElement>(null);
+  const walkthroughTarget = walkthrough?.target;
+  useLayoutEffect(() => {
+    if (!walkthroughTarget) return;
+    contentRef.current
+      ?.querySelector(`[data-tour="${walkthroughTarget}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeSection, walkthroughTarget]);
   const [fieldPreview, setFieldPreview] = useState<{
     fieldId: string;
     url: string;
@@ -133,7 +146,7 @@ export function ProjectConfigDialog({
     : [""];
 
   const saveDraft = () => {
-    if (isDirty && !saving) {
+    if (!walkthrough && isDirty && !saving) {
       setSaving(true);
       setFieldUploadError(null);
       void Promise.resolve(
@@ -200,6 +213,7 @@ export function ProjectConfigDialog({
       : null;
 
   useEffect(() => {
+    if (walkthrough) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !saving) {
         event.preventDefault();
@@ -209,7 +223,7 @@ export function ProjectConfigDialog({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel, saving]);
+  }, [onCancel, saving, walkthrough]);
 
   return (
     <div
@@ -219,8 +233,9 @@ export function ProjectConfigDialog({
       <form
         className="config-dialog"
         data-tour="settings-dialog"
+        data-walkthrough={walkthrough ? "true" : undefined}
         role="dialog"
-        aria-modal="true"
+        aria-modal={!walkthrough}
         aria-label="Edit Config"
         onSubmit={(event) => {
           event.preventDefault();
@@ -229,20 +244,29 @@ export function ProjectConfigDialog({
       >
         <header className="config-dialog__header">
           <strong>Settings</strong>
-          <CloseButton
-            ariaLabel="Close config"
-            disabled={saving}
-            onClick={onCancel}
-          />
+          {walkthrough ? (
+            <span>Lesson preview</span>
+          ) : (
+            <CloseButton
+              ariaLabel="Close config"
+              disabled={saving}
+              onClick={onCancel}
+            />
+          )}
         </header>
 
         <div className="config-dialog__body" inert={saving}>
           <SettingsNav
             activeSection={activeSection}
             onSectionChange={setActiveSection}
+            readOnly={Boolean(walkthrough)}
           />
 
-          <div className="config-dialog__content">
+          <fieldset
+            ref={contentRef}
+            className="config-dialog__content"
+            disabled={Boolean(walkthrough)}
+          >
             {activeSection === "field" ? (
               <FieldSettingsSection
                 fieldDraft={fieldDraft}
@@ -280,21 +304,27 @@ export function ProjectConfigDialog({
                 setDraft={setDraft}
               />
             ) : null}
-          </div>
+          </fieldset>
         </div>
 
         <footer className="config-dialog__footer">
-          <button type="button" disabled={saving} onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="primary-action"
-            disabled={!isDirty || fieldUploading || saving}
-            onClick={saveDraft}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
+          {walkthrough ? (
+            <span>Use Continue in the lesson to view the next settings.</span>
+          ) : (
+            <>
+              <button type="button" disabled={saving} onClick={onCancel}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-action"
+                disabled={!isDirty || fieldUploading || saving}
+                onClick={saveDraft}
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </>
+          )}
         </footer>
       </form>
     </div>
@@ -306,9 +336,11 @@ type KinematicKey = keyof ProjectConfig["kinematic_constraints"];
 function SettingsNav({
   activeSection,
   onSectionChange,
+  readOnly = false,
 }: {
   activeSection: ConfigSectionId;
   onSectionChange(section: ConfigSectionId): void;
+  readOnly?: boolean;
 }) {
   return (
     <nav className="config-dialog__nav" aria-label="Settings sections">
@@ -316,6 +348,7 @@ function SettingsNav({
         <button
           key={section.id}
           type="button"
+          disabled={readOnly}
           className={
             section.id === activeSection
               ? "config-dialog__nav-item is-active"
@@ -341,13 +374,7 @@ function ConfigSection({
   return (
     <section
       className="config-dialog__section"
-      data-tour={
-        title === "Robot"
-          ? "settings-robot"
-          : title === "Path Defaults"
-            ? "settings-path-defaults"
-            : undefined
-      }
+      data-tour={`settings-${title.toLowerCase().replaceAll(" ", "-")}`}
     >
       <h2>{title}</h2>
       <div className="config-dialog__section-body">{children}</div>
@@ -363,7 +390,10 @@ function ConfigSubsection({
   children: ReactNode;
 }) {
   return (
-    <div className="config-dialog__subsection">
+    <div
+      className="config-dialog__subsection"
+      data-tour={`settings-${title.toLowerCase().replaceAll(" ", "-")}`}
+    >
       <h3>{title}</h3>
       <div className="config-dialog__subsection-body">{children}</div>
     </div>
@@ -414,120 +444,130 @@ function FieldSettingsSection({
         </div>
 
         <div className="config-dialog__section-body">
-          <FieldSelectRow
-            value={fieldDraft.selectedFieldId}
-            customFields={fieldDraft.fieldBackgrounds}
-            onChange={(value) => updateFieldSelection(setFieldDraft, value)}
-          />
-          <div className="config-dialog__button-row">
-            <button
-              type="button"
-              onClick={() => fieldInputRef.current?.click()}
-              disabled={fieldUploading}
-            >
-              {selectedCustomField ? "Replace Image" : "Upload Image"}
-            </button>
-            {selectedCustomField ? (
+          <div
+            className="config-dialog__section-body"
+            data-tour="settings-field-image"
+          >
+            <FieldSelectRow
+              value={fieldDraft.selectedFieldId}
+              customFields={fieldDraft.fieldBackgrounds}
+              onChange={(value) => updateFieldSelection(setFieldDraft, value)}
+            />
+            <div className="config-dialog__button-row">
               <button
                 type="button"
-                onClick={() => removeSelectedCustomField(setFieldDraft)}
+                onClick={() => fieldInputRef.current?.click()}
+                disabled={fieldUploading}
               >
-                Remove Custom Field
+                {selectedCustomField ? "Replace Image" : "Upload Image"}
               </button>
-            ) : null}
-          </div>
-          <input
-            ref={fieldInputRef}
-            className="file-import-input"
-            aria-label="Upload field image"
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0] ?? null;
-              event.currentTarget.value = "";
-              if (file) {
-                void uploadCustomFieldImage({
-                  file,
-                  fieldDraft,
-                  selectedCustomField,
-                  setFieldDraft,
-                  setFieldImageDrafts,
-                  setFieldUploading,
-                  setFieldUploadError,
-                });
+              {selectedCustomField ? (
+                <button
+                  type="button"
+                  onClick={() => removeSelectedCustomField(setFieldDraft)}
+                >
+                  Remove Custom Field
+                </button>
+              ) : null}
+            </div>
+            <input
+              ref={fieldInputRef}
+              className="file-import-input"
+              aria-label="Upload field image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0] ?? null;
+                event.currentTarget.value = "";
+                if (file) {
+                  void uploadCustomFieldImage({
+                    file,
+                    fieldDraft,
+                    selectedCustomField,
+                    setFieldDraft,
+                    setFieldImageDrafts,
+                    setFieldUploading,
+                    setFieldUploadError,
+                  });
+                }
+              }}
+            />
+            <TextRow
+              label="Field Name"
+              value={selectedCustomField?.name ?? selectedField.label}
+              disabled={!selectedCustomField}
+              onChange={(value) =>
+                updateSelectedCustomField(setFieldDraft, { name: value })
               }
-            }}
-          />
-          <TextRow
-            label="Field Name"
-            value={selectedCustomField?.name ?? selectedField.label}
-            disabled={!selectedCustomField}
-            onChange={(value) =>
-              updateSelectedCustomField(setFieldDraft, { name: value })
-            }
-          />
-          <NumberRow
-            label="Field Length (m)"
-            value={selectedField.geometry.length_meters}
-            min={0.5}
-            max={30}
-            step={0.01}
-            disabled={!selectedCustomField}
-            onChange={(value) =>
-              updateSelectedCustomFieldDimensions(setFieldDraft, {
-                length_meters: value,
-              })
-            }
-          />
-          <NumberRow
-            label="Field Width (m)"
-            value={selectedField.geometry.width_meters}
-            min={0.5}
-            max={30}
-            step={0.01}
-            disabled={!selectedCustomField}
-            onChange={(value) =>
-              updateSelectedCustomFieldDimensions(setFieldDraft, {
-                width_meters: value,
-              })
-            }
-          />
-          <NumberRow
-            label="Field Padding X (m)"
-            value={fieldCoordinateOffsetXMeters(selectedField.geometry)}
-            min={0}
-            max={fieldCoordinateOffsetMaximumMeters(
-              selectedField.geometry.length_meters,
-            )}
-            step={0.01}
-            disabled={!selectedCustomField}
-            onChange={(value) =>
-              updateSelectedCustomFieldGeometry(
-                setFieldDraft,
-                selectedField.geometry,
-                "x",
-                value,
-              )
-            }
-          />
-          <NumberRow
-            label="Field Padding Y (m)"
-            value={fieldCoordinateOffsetYMeters(selectedField.geometry)}
-            min={0}
-            max={fieldCoordinateOffsetMaximumMeters(
-              selectedField.geometry.width_meters,
-            )}
-            step={0.01}
-            disabled={!selectedCustomField}
-            onChange={(value) =>
-              updateSelectedCustomFieldGeometry(
-                setFieldDraft,
-                selectedField.geometry,
-                "y",
-                value,
-              )
-            }
-          />
+            />
+          </div>
+          <div
+            className="config-dialog__section-body"
+            data-tour="settings-field-geometry"
+          >
+            <NumberRow
+              label="Field Length (m)"
+              value={selectedField.geometry.length_meters}
+              min={0.5}
+              max={30}
+              step={0.01}
+              disabled={!selectedCustomField}
+              onChange={(value) =>
+                updateSelectedCustomFieldDimensions(setFieldDraft, {
+                  length_meters: value,
+                })
+              }
+            />
+            <NumberRow
+              label="Field Width (m)"
+              value={selectedField.geometry.width_meters}
+              min={0.5}
+              max={30}
+              step={0.01}
+              disabled={!selectedCustomField}
+              onChange={(value) =>
+                updateSelectedCustomFieldDimensions(setFieldDraft, {
+                  width_meters: value,
+                })
+              }
+            />
+            <NumberRow
+              label="Field Padding X (m)"
+              value={fieldCoordinateOffsetXMeters(selectedField.geometry)}
+              min={0}
+              max={fieldCoordinateOffsetMaximumMeters(
+                selectedField.geometry.length_meters,
+              )}
+              step={0.01}
+              disabled={!selectedCustomField}
+              onChange={(value) =>
+                updateSelectedCustomFieldGeometry(
+                  setFieldDraft,
+                  selectedField.geometry,
+                  "x",
+                  value,
+                )
+              }
+            />
+            <NumberRow
+              label="Field Padding Y (m)"
+              value={fieldCoordinateOffsetYMeters(selectedField.geometry)}
+              min={0}
+              max={fieldCoordinateOffsetMaximumMeters(
+                selectedField.geometry.width_meters,
+              )}
+              step={0.01}
+              disabled={!selectedCustomField}
+              onChange={(value) =>
+                updateSelectedCustomFieldGeometry(
+                  setFieldDraft,
+                  selectedField.geometry,
+                  "y",
+                  value,
+                )
+              }
+            />
+          </div>
           {fieldUploadError ? (
             <p className="config-dialog__error">{fieldUploadError}</p>
           ) : null}
