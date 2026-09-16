@@ -1,15 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PathModel } from "../../core/model/path";
 import type { SimulationConfig, SimTraceResult } from "../../core/sim/types";
 import { SimulationPreviewRunner } from "../../platform/simulationPreviewRunner";
-import {
-  deformSimulationPreview,
-  prepareSimulationPreview,
-} from "../simulationPreviewGeometry";
+import { SimulationPreviewInterpolation } from "../simulationPreviewInterpolation";
 
-export const simulationPreviewSettleDelayMs = 100;
-
-/** Temporary results belong to a committed source and disappear on release/cancel. */
+/** Simulate off-thread at a bounded cadence; animate only between real results. */
 export function useSimulationPreview(
   source: PathModel | null,
   config: SimulationConfig | null,
@@ -18,11 +13,12 @@ export function useSimulationPreview(
   committed: SimTraceResult | null,
 ): SimTraceResult | null {
   const runner = useRef<SimulationPreviewRunner | null>(null);
-  const [completed, setCompleted] = useState<{
+  const acceptResult = useRef<((result: SimTraceResult) => void) | null>(null);
+  const [displayed, setDisplayed] = useState<{
     session: object;
     source: PathModel;
     config: SimulationConfig;
-    path: PathModel;
+    committed: SimTraceResult | null;
     result: SimTraceResult;
   } | null>(null);
 
@@ -36,47 +32,46 @@ export function useSimulationPreview(
   }, []);
 
   useEffect(() => {
-    if (!source || !config || !preview || !session) {
+    if (!source || !config || !session) return;
+    let active = true;
+    let frame: number | null = null;
+    const interpolation = new SimulationPreviewInterpolation(committed);
+    const tick = (now: number) => {
+      frame = null;
+      if (!active) return;
+      const result = interpolation.sample(now);
+      if (result) setDisplayed({ session, source, config, committed, result });
+      if (interpolation.isAnimating(now)) frame = requestAnimationFrame(tick);
+    };
+    acceptResult.current = (result) => {
+      if (!active) return;
+      interpolation.retarget(result, performance.now());
+      if (frame === null) frame = requestAnimationFrame(tick);
+    };
+    return () => {
+      active = false;
+      acceptResult.current = null;
+      if (frame !== null) cancelAnimationFrame(frame);
+      runner.current?.cancel();
+    };
+  }, [source, config, session, committed]);
+
+  useEffect(() => {
+    const accept = acceptResult.current;
+    if (!source || !config || !preview || !session || !accept) {
       runner.current?.cancel();
       return;
     }
-    let current = true;
-    let requested = false;
-    // Geometry follows the existing animation-frame drag updates immediately.
-    // Refine only after a pause, instead of solving on every few pointer moves.
-    const timer = setTimeout(() => {
-      requested = true;
-      runner.current?.request(preview, config, (result) => {
-        if (current)
-          setCompleted({ session, source, config, path: preview, result });
-      });
-    }, simulationPreviewSettleDelayMs);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-      if (requested) runner.current?.cancel();
-    };
-  }, [source, config, preview, session]);
+    // Keep completed in-flight simulations useful while coalescing newer inputs.
+    // Only a session/source change cancels their callbacks, not every pointer move.
+    runner.current?.request(preview, config, accept);
+  }, [source, config, preview, session, committed]);
 
-  const refined =
-    preview &&
-    completed?.session === session &&
-    completed?.source === source &&
-    completed.config === config
-      ? completed
-      : null;
-  const referencePath = refined?.path ?? source;
-  const referenceResult = refined?.result ?? committed;
-  const prepared = useMemo(
-    () =>
-      referencePath && referenceResult
-        ? prepareSimulationPreview(referencePath, referenceResult)
-        : null,
-    [referencePath, referenceResult],
-  );
-  return useMemo(() => {
-    if (!preview || !session || !prepared) return null;
-    if (refined?.path === preview) return refined.result;
-    return deformSimulationPreview(prepared, preview);
-  }, [preview, session, prepared, refined]);
+  return preview &&
+    displayed?.session === session &&
+    displayed?.source === source &&
+    displayed.config === config &&
+    displayed.committed === committed
+    ? displayed.result
+    : null;
 }

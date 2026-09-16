@@ -89,8 +89,10 @@ export class SimulationPreviewRunner {
           this.running = null;
           if (this.deadline !== null) clearTimeout(this.deadline);
           this.deadline = null;
-          if (run.id === this.revision && event.data.result)
-            run.accept(event.data.result);
+          // This is the newest completed solve. Deliver it even if the pointer
+          // has moved again; otherwise continuous dragging can starve the preview.
+          // Cancelled sessions and late replies are excluded by the running ID.
+          if (event.data.result) run.accept(event.data.result);
           this.schedule();
         };
         this.worker.onerror = () => {

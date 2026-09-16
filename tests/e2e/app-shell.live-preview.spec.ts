@@ -17,10 +17,95 @@ async function revision(page: Page) {
   });
 }
 
-test("follows continuous pointer movement even when the preview worker never answers @webkit-canvas", async ({
+interface PreviewObservationWindow extends PixiDebugWindow {
+  __previewObservation: {
+    results: string[];
+    frames: string[];
+    recording: boolean;
+  };
+}
+
+test("animates multiple display frames between real simulation results @webkit-canvas", async ({
   page,
 }) => {
-  // A deliberately unavailable refinement must not throttle visual drag feedback.
+  // Observe the real worker without changing its results or delivery timing.
+  await page.addInitScript(() => {
+    const observed = window as unknown as PreviewObservationWindow;
+    const observation = (observed.__previewObservation = {
+      results: [] as string[],
+      frames: [] as string[],
+      recording: false,
+    });
+    const ActualWorker = window.Worker;
+    window.Worker = class extends ActualWorker {
+      constructor(...args: ConstructorParameters<typeof Worker>) {
+        super(...args);
+        if (String(args[0]).includes("simulationPreview.worker")) {
+          this.addEventListener("message", (event) => {
+            if (event.data.result)
+              observation.results.push(JSON.stringify(event.data.result.trace));
+          });
+        }
+      }
+    };
+    const record = () => {
+      if (observation.recording)
+        observation.frames.push(
+          JSON.stringify(observed.__blinePixiDebug?.simulationTrace()),
+        );
+      requestAnimationFrame(record);
+    };
+    requestAnimationFrame(record);
+  });
+  await gotoSampleEditor(page);
+  await expect.poll(async () => (await trace(page)).length).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Fast forward simulation" }).click();
+  const before = JSON.stringify(await trace(page));
+  const box = await requiredBox(page.getByTestId("path-stage-canvas"));
+  const start = await canvasNodePosition(page, "path-element-node-1");
+  await page.evaluate(() => {
+    (
+      window as unknown as PreviewObservationWindow
+    ).__previewObservation.recording = true;
+  });
+  await page.mouse.move(box.x + start.x, box.y + start.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + start.x - 65, box.y + start.y - 40);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const observation = (window as unknown as PreviewObservationWindow)
+          .__previewObservation;
+        return (
+          observation.results.length === 1 &&
+          observation.frames.at(-1) === observation.results[0]
+        );
+      }),
+    )
+    .toBe(true);
+  const observation = await page.evaluate(() => {
+    const observation = (window as unknown as PreviewObservationWindow)
+      .__previewObservation;
+    observation.recording = false;
+    return observation;
+  });
+  const intermediateFrames = new Set(
+    observation.frames.filter(
+      (frame) => frame !== before && frame !== observation.results[0],
+    ),
+  );
+  expect(intermediateFrames.size).toBeGreaterThanOrEqual(2);
+  // A single worker result supplies several paint frames, without more solves.
+  expect(observation.results).toHaveLength(1);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect.poll(async () => JSON.stringify(await trace(page))).toBe(before);
+});
+
+test("holds the actual simulation when the preview worker is unavailable @webkit-canvas", async ({
+  page,
+}) => {
+  // Moving an element must never replace the simulation with an invented curve.
   await page.route(/simulationPreview\.worker/, (route) =>
     route.fulfill({
       contentType: "text/javascript",
@@ -28,6 +113,7 @@ test("follows continuous pointer movement even when the preview worker never ans
     }),
   );
   await gotoSampleEditor(page);
+  await expect.poll(async () => (await trace(page)).length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Fast forward simulation" }).click();
   const before = await trace(page);
   const originalRevision = await revision(page);
@@ -49,8 +135,10 @@ test("follows continuous pointer movement even when the preview worker never ans
     );
     shapes.add(JSON.stringify(await trace(page)));
   }
-  expect(shapes.size).toBeGreaterThanOrEqual(22);
-  expect(shapes.has(JSON.stringify(before))).toBe(false);
+  expect([...shapes]).toEqual([JSON.stringify(before)]);
+  expect(
+    pointDistance(start, await canvasNodePosition(page, "path-element-node-1")),
+  ).toBeGreaterThan(30);
   expect(await revision(page)).toBe(originalRevision);
   await page.keyboard.press("Escape");
   await page.mouse.up();
@@ -61,6 +149,7 @@ test("updates the blue trace during repeated drags without committing, then matc
   page,
 }) => {
   await gotoSampleEditor(page);
+  await expect.poll(async () => (await trace(page)).length).toBeGreaterThan(0);
   await page.getByTestId("path-element-row-1").click();
   await page.getByRole("button", { name: "Fast forward simulation" }).click();
   const before = await trace(page);

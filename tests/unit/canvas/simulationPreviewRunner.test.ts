@@ -41,7 +41,7 @@ function response(id: number) {
   } as MessageEvent<SimulationPreviewResponse>;
 }
 
-it("coalesces rapid inputs, throttles dispatch and ignores obsolete results", () => {
+it("coalesces rapid inputs without starving completed simulations during continuous dragging", () => {
   const { runner, workers, request, accept } = fixture();
   request();
   vi.advanceTimersByTime(0);
@@ -50,15 +50,18 @@ it("coalesces rapid inputs, throttles dispatch and ignores obsolete results", ()
   for (let i = 0; i < 30; i++) request();
   expect(worker.postMessage).toHaveBeenCalledTimes(1);
   worker.onmessage!(response(firstId));
-  expect(accept).not.toHaveBeenCalled();
+  expect(accept).toHaveBeenCalledExactlyOnceWith({ total_time_s: firstId });
   vi.advanceTimersByTime(simulationPreviewIntervalMs - 1);
   expect(worker.postMessage).toHaveBeenCalledTimes(1);
   vi.advanceTimersByTime(1);
   expect(worker.postMessage).toHaveBeenCalledTimes(2);
   const latestId = worker.postMessage.mock.calls[1][0].id;
   expect(latestId).toBe(firstId + 30);
+  worker.onmessage!(response(firstId));
+  expect(accept).toHaveBeenCalledTimes(1);
   worker.onmessage!(response(latestId));
-  expect(accept).toHaveBeenCalledExactlyOnceWith({ total_time_s: latestId });
+  expect(accept).toHaveBeenCalledTimes(2);
+  expect(accept).toHaveBeenLastCalledWith({ total_time_s: latestId });
   runner.dispose();
 });
 
