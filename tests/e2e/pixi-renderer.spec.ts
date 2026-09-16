@@ -939,99 +939,137 @@ test("protrusion attachment corners have continuous bumper ink at high zoom @web
       scale: number;
       heading: number;
       joint: number;
-      orange: boolean;
+      dragging: boolean;
+      defects: number;
     }> = [];
     let image = "";
     try {
       for (const scale of [100, 500])
-        for (const heading of [0, 0.13])
-          for (const side of ["front", "back", "left", "right"] as const) {
-            const config = createProjectConfig();
-            config.gui.robot = { length_meters: 0.8, width_meters: 1.2 };
-            config.gui.protrusions = {
-              enabled: true,
-              distance_meters: 0.3,
-              side,
-              default_state: "shown",
-              show_on_event_keys: [],
-              hide_on_event_keys: [],
-            };
-            const position = { x_meters: 6, y_meters: 4 };
-            const viewport = {
-              ...createFieldViewport(stageSize, 24, field.geometry),
-              scale,
-            };
-            const original = modelToStagePoint(position, viewport);
-            viewport.x += 500 - original.x;
-            viewport.y += 500 - original.y;
-            renderer.update({
-              stageSize,
-              viewport,
-              field,
-              config,
-              path: createPathModel({
-                path_elements: [
-                  createWaypoint({
-                    translation_target: createTranslationTarget(position),
-                    rotation_target: createRotationTarget({
-                      rotation_radians: heading,
-                    }),
-                  }),
-                ],
-              }),
-              overlayPaths: [],
-              hoveredOverlayPathId: null,
-              selectedElementIndex: null,
-              selectedRangedConstraint: null,
-              positionPreview: new Map(),
-              rotationPreview: new Map(),
-              selectedPulse: 0,
-              simulationResult: null,
-              simulationTrace: null,
-              trajectoryMaxSpeedMps: 1,
-              simulationTimeS: 0,
-              simulationPlaying: false,
-              simulationEventPulse: 0,
-              curvePreview: null,
-            });
-            context.clearRect(0, 0, 1000, 1000);
-            context.drawImage(renderer.canvas, 0, 0, 1000, 1000);
-            if (side === "front" && scale === 500 && heading === 0.13)
-              image = capture.toDataURL("image/png");
-            const pixels = context.getImageData(0, 0, 1000, 1000).data;
-            const stroke = 0.06 * scale,
-              halfLength = 0.4 * scale,
-              halfWidth = 0.6 * scale;
-            for (const joint of [-1, 1]) {
-              const x =
-                side === "front"
-                  ? halfLength - stroke * 0.1
-                  : side === "back"
-                    ? -halfLength + stroke * 0.1
-                    : joint * (halfLength - (0.8 + stroke * 0.25));
-              const y =
-                side === "left"
-                  ? -halfWidth + stroke * 0.1
-                  : side === "right"
-                    ? halfWidth - stroke * 0.1
-                    : joint * (halfWidth - (0.8 + stroke * 0.25));
-              const px = Math.floor(
-                500 + x * Math.cos(heading) + y * Math.sin(heading),
-              );
-              const py = Math.floor(
-                500 - x * Math.sin(heading) + y * Math.cos(heading),
-              );
-              const offset = (py * 1000 + px) * 4;
-              const [r, g, b] = pixels.slice(offset, offset + 3);
-              result.push({
+        for (const heading of [0, 0.13, 0.7])
+          for (const dragging of [false, true])
+            for (const side of ["front", "back", "left", "right"] as const) {
+              const config = createProjectConfig();
+              config.gui.robot = { length_meters: 0.8, width_meters: 1.2 };
+              config.gui.protrusions = {
+                enabled: true,
+                distance_meters: 0.3,
                 side,
+                default_state: "shown",
+                show_on_event_keys: [],
+                hide_on_event_keys: [],
+              };
+              const position = { x_meters: 6, y_meters: 4 };
+              const viewport = {
+                ...createFieldViewport(stageSize, 24, field.geometry),
                 scale,
-                heading,
-                joint,
-                orange: r > 200 && g > 110 && g < 195 && b < 110,
+              };
+              const original = modelToStagePoint(position, viewport);
+              viewport.x += 500 - original.x;
+              viewport.y += 500 - original.y;
+              renderer.update({
+                stageSize,
+                viewport,
+                field,
+                config,
+                path: createPathModel({
+                  path_elements: [
+                    createWaypoint({
+                      translation_target: createTranslationTarget(position),
+                      rotation_target: createRotationTarget({
+                        rotation_radians: heading,
+                      }),
+                    }),
+                  ],
+                }),
+                overlayPaths: [],
+                hoveredOverlayPathId: null,
+                selectedElementIndex: dragging ? 0 : null,
+                hideSelectionOutline: dragging,
+                selectedRangedConstraint: null,
+                positionPreview: dragging
+                  ? new Map([
+                      [
+                        0,
+                        {
+                          x_meters: position.x_meters + 0.37 / scale,
+                          y_meters: position.y_meters - 0.61 / scale,
+                        },
+                      ],
+                    ])
+                  : new Map(),
+                rotationPreview: new Map(),
+                selectedPulse: 0,
+                simulationResult: null,
+                simulationTrace: null,
+                trajectoryMaxSpeedMps: 1,
+                simulationTimeS: 0,
+                simulationPlaying: false,
+                simulationEventPulse: 0,
+                curvePreview: null,
               });
+              context.fillStyle = "#101518";
+              context.fillRect(0, 0, 1000, 1000);
+              context.drawImage(renderer.canvas, 0, 0, 1000, 1000);
+              if (
+                side === "front" &&
+                scale === 500 &&
+                heading === 0.7 &&
+                dragging
+              )
+                image = capture.toDataURL("image/png");
+              const pixels = context.getImageData(0, 0, 1000, 1000).data;
+              const stroke = 0.06 * scale,
+                halfLength = 0.4 * scale,
+                halfWidth = 0.6 * scale;
+              for (const joint of [-1, 1]) {
+                const inset = (stroke + 1.6) / 2;
+                const rootX =
+                  side === "front"
+                    ? halfLength - inset
+                    : side === "back"
+                      ? -halfLength + inset
+                      : joint * (halfLength - inset);
+                const rootY =
+                  side === "left"
+                    ? -halfWidth + inset
+                    : side === "right"
+                      ? halfWidth - inset
+                      : joint * (halfWidth - inset);
+                let defects = 0;
+                // Scan the solid interior of the full band crossing the join,
+                // leaving two pixels for the outside edge's antialiasing.
+                for (let tangent = -stroke; tangent <= stroke; tangent += 0.5)
+                  for (
+                    let normal = -stroke / 2 + 2;
+                    normal <= stroke / 2 - 2;
+                    normal += 0.5
+                  ) {
+                    const x =
+                      rootX +
+                      (side === "front" || side === "back" ? tangent : normal);
+                    const y =
+                      rootY +
+                      (side === "front" || side === "back" ? normal : tangent);
+                    const px = Math.floor(
+                      500 +
+                        (dragging ? 0.37 : 0) +
+                        x * Math.cos(heading) +
+                        y * Math.sin(heading),
+                    );
+                    const py = Math.floor(
+                      500 +
+                        (dragging ? 0.61 : 0) -
+                        x * Math.sin(heading) +
+                        y * Math.cos(heading),
+                    );
+                    const offset = (py * 1000 + px) * 4;
+                    const [r, g, blue] = pixels.slice(offset, offset + 3);
+                    if (!(r > 230 && g > 135 && g < 185 && blue < 100))
+                      defects++;
+                  }
+                result.push({ side, scale, heading, joint, dragging, defects });
+              }
             }
-          }
       return { samples: result, image };
     } finally {
       renderer.destroy();
@@ -1041,5 +1079,5 @@ test("protrusion attachment corners have continuous bumper ink at high zoom @web
     body: Buffer.from(result.image.split(",")[1], "base64"),
     contentType: "image/png",
   });
-  expect(result.samples.filter((sample) => !sample.orange)).toEqual([]);
+  expect(result.samples.filter((sample) => sample.defects > 0)).toEqual([]);
 });

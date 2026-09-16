@@ -1314,14 +1314,6 @@ function drawRobotFootprint(
       color: elementOutlineColor,
       alpha: 0.95 * outlineOpacity,
     });
-    drawRobotProtrusionOutline(graphics, transform, width, height, {
-      protrusionDistancePx,
-      protrusionSide,
-      strokeWidth: bodyStrokeWidth,
-      backingWidth: bodyStrokeWidth + 2 * elementOutlineWidthPx,
-      color: outlineAccent,
-      alpha: outlineOpacity,
-    });
   }
   const commands = footprintOutlineCommands(
     outline.rect,
@@ -1345,6 +1337,18 @@ function drawRobotFootprint(
       alpha: 0.95 * outlineOpacity,
     },
   );
+  // Paint both black backings before either colored stroke. Otherwise the
+  // bumper's backing cuts a dark seam into the extension at each T-junction.
+  if (extension) {
+    drawRobotProtrusionOutline(graphics, transform, width, height, {
+      protrusionDistancePx,
+      protrusionSide,
+      strokeWidth: bodyStrokeWidth,
+      backingWidth: bodyStrokeWidth + 2 * elementOutlineWidthPx,
+      color: outlineAccent,
+      alpha: outlineOpacity,
+    });
+  }
   drawLocalPathCommands(graphics, commands, transform, {
     color: outlineAccent,
     width: outline.strokeWidth,
