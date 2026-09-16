@@ -18,7 +18,11 @@ async function readRelease(name: string): Promise<Map<string, Buffer>> {
   const release = new Map<string, Buffer>();
   for (const path of await readdir(root, { recursive: true })) {
     if (extname(path)) {
-      release.set(`/${path}`, await readFile(join(root, path)));
+      // File-system enumeration uses backslashes on Windows; HTTP paths use slashes.
+      release.set(
+        `/${path.replaceAll("\\", "/")}`,
+        await readFile(join(root, path)),
+      );
     }
   }
   return release;

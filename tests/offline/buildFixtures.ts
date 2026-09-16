@@ -77,7 +77,7 @@ export default async function buildFixtures(): Promise<void> {
           file !== "sw.js",
       )
       .map(async (url) => ({
-        url,
+        url: url.replaceAll("\\", "/"),
         integrity: `sha256-${createHash("sha256")
           .update(await readFile(path.join(previous, url)))
           .digest("base64")}`,
