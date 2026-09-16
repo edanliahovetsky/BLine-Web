@@ -52,27 +52,75 @@ async function layout(page: Page) {
   );
 }
 
-const sections = [
-  ["Robot size", "Robot", "settings-size"],
-  ["Protrusions", "Robot", "settings-protrusions"],
-  ["Translation defaults", "Path Defaults", "settings-translation"],
-  ["Rotation defaults", "Path Defaults", "settings-rotation"],
-  ["End tolerance", "Path Defaults", "settings-end-tolerance"],
-  ["Field image", "Field", "settings-field-image"],
-  ["Field dimensions and padding", "Field", "settings-field-geometry"],
-  ["Generator settings", "Generator", "settings-generator"],
+const steps = [
+  { title: "Robot size", section: "Robot", target: "settings-size" },
+  {
+    title: "Enable protrusions",
+    section: "Robot",
+    target: "settings-protrusions",
+    action: "protrusions",
+  },
+  {
+    title: "Protrusion settings",
+    section: "Robot",
+    target: "settings-protrusions",
+  },
+  {
+    title: "Open Path Defaults",
+    section: "Path Defaults",
+    previous: "Robot",
+    action: "navigate",
+  },
+  {
+    title: "Translation defaults",
+    section: "Path Defaults",
+    target: "settings-translation",
+  },
+  {
+    title: "Rotation defaults",
+    section: "Path Defaults",
+    target: "settings-rotation",
+  },
+  {
+    title: "End tolerance",
+    section: "Path Defaults",
+    target: "settings-end-tolerance",
+  },
+  {
+    title: "Open Field",
+    section: "Field",
+    previous: "Path Defaults",
+    action: "navigate",
+  },
+  {
+    title: "Field image",
+    section: "Field",
+    target: "settings-field-image",
+    action: "field",
+  },
+  {
+    title: "Open Generator",
+    section: "Generator",
+    previous: "Field",
+    action: "navigate",
+  },
+  {
+    title: "Generator settings",
+    section: "Generator",
+    target: "settings-generator",
+  },
+  { title: "Tune your robot", section: "Generator" },
 ];
 
 for (const viewport of [
   { width: 1280, height: 800 },
   { width: 1024, height: 600 },
 ]) {
-  test(`walks through preset settings without editing and restores the project at ${viewport.width}px @webkit-canvas`, async ({
+  test(`navigates settings, enables protrusions and changes the field without saving at ${viewport.width}px @webkit-canvas`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
     await gotoSampleEditor(page);
-    // Deliberately differ from lesson presets, using the ordinary settings UI.
     await openProjectSettings(page);
     const dialog = page.getByRole("dialog", { name: "Edit Config" });
     await dialog.getByLabel("Robot Length (m)", { exact: true }).fill("1.7");
@@ -83,36 +131,87 @@ for (const viewport of [
     await openLesson(page);
     const practice = await snapshot(page);
     expect(practice.hasPersistence).toBe(false);
-    expect(practice.project!.config.gui.robot.length_meters).toBe(0.8);
     await expect(
       dialog.getByLabel("Robot Length (m)", { exact: true }),
     ).toHaveValue("0.8");
-    for (const [index, [heading, section, target]] of sections.entries()) {
-      if (index) await next(page, heading);
+    const card = page.getByTestId("tour-card");
+    const forward = card.getByRole("button", { name: "Continue", exact: true });
+    for (const [index, step] of steps.entries()) {
+      if (index) await next(page, step.title);
       await expect(dialog).toBeVisible();
       await expect(
-        dialog.getByRole("button", { name: section, exact: true }),
+        dialog.getByText("Lesson preview", { exact: true }),
+      ).toHaveCount(0);
+      await expect(dialog.locator(".config-dialog__footer")).toHaveCount(0);
+      // The content occupies the removed footer's space, with only the border below it.
+      const body = await requiredBox(dialog.locator(".config-dialog__body"));
+      const bounds = await requiredBox(dialog);
+      expect(
+        bounds.y + bounds.height - body.y - body.height,
+      ).toBeLessThanOrEqual(2);
+      if (step.action) await expect(forward).toBeHidden();
+      if (step.action === "navigate") {
+        await expect(
+          dialog.getByRole("button", { name: step.previous!, exact: true }),
+        ).toHaveAttribute("aria-current", "page");
+        await dialog
+          .getByRole("button", { name: step.section, exact: true })
+          .click();
+      } else if (step.action === "protrusions") {
+        const toggle = dialog.getByRole("switch", {
+          name: "Enable Protrusions",
+        });
+        await toggle.check();
+        await expect(toggle).toBeChecked();
+        await expect(forward).toBeVisible();
+        await card
+          .getByRole("button", { name: "Restart step", exact: true })
+          .click();
+        await expect(toggle).not.toBeChecked();
+        await expect(forward).toBeHidden();
+        await toggle.check();
+      } else if (step.action === "field") {
+        const field = dialog.getByLabel("Field Image", { exact: true });
+        await expect(dialog.locator(".field-preview")).toBeInViewport({
+          ratio: 1,
+        });
+        const originalImage = await dialog
+          .locator(".field-preview img")
+          .getAttribute("src");
+        await field.selectOption("frc2025-reefscape");
+        await expect(field).toHaveValue("frc2025-reefscape");
+        await expect(dialog.locator(".field-preview")).toBeInViewport({
+          ratio: 1,
+        });
+        await expect(dialog.locator(".field-preview img")).not.toHaveAttribute(
+          "src",
+          originalImage!,
+        );
+        await expect(
+          dialog.getByRole("button", { name: "Upload Image", exact: true }),
+        ).toBeDisabled();
+      }
+      await expect(
+        dialog.getByRole("button", { name: step.section, exact: true }),
       ).toHaveAttribute("aria-current", "page");
-      await expect(dialog.locator(`[data-tour="${target}"]`)).toBeInViewport({
-        ratio: 1,
-      });
+      if (step.target)
+        await expect(
+          dialog.locator(`[data-tour="${step.target}"]`),
+        ).toBeInViewport({ ratio: 1 });
+      // Preset numerical/text values remain locked even on the interactive steps.
       await expect(
         dialog.locator(
-          "fieldset input:enabled, fieldset select:enabled, fieldset button:enabled",
+          '.config-dialog__content input:not([type="checkbox"]):enabled',
         ),
       ).toHaveCount(0);
       await expect(
         dialog.getByRole("button", { name: "Save", exact: true }),
       ).toHaveCount(0);
-      await expect(
-        page
-          .getByTestId("tour-card")
-          .getByRole("button", { name: "Continue", exact: true }),
-      ).toBeEnabled();
+      if (step.title !== "Tune your robot") await expect(forward).toBeVisible();
       await layout(page);
       expect((await snapshot(page)).project).toEqual(practice.project);
       expect((await snapshot(page)).preferences).toEqual(original.preferences);
-      if (section === "Path Defaults" && heading === "Translation defaults") {
+      if (step.title === "Translation defaults") {
         await expect(
           dialog.getByLabel("Default Max Velocity (m/s)", { exact: true }),
         ).toHaveValue("4.5");
@@ -121,29 +220,18 @@ for (const viewport of [
         ).toHaveValue("12");
       }
     }
-    // Back navigation reopens the correct section and scroll position too.
-    await page
-      .getByTestId("tour-card")
-      .getByRole("button", { name: "Back", exact: true })
-      .click();
     await expect(
-      dialog.locator('[data-tour="settings-field-geometry"]'),
-    ).toBeInViewport({ ratio: 1 });
-    await next(page, "Generator settings");
-    await next(page, "Tune your robot");
-    await expect(dialog).toBeHidden();
-    await expect(
-      page
-        .getByTestId("tour-card")
-        .getByRole("link", { name: "Read Tune Your Robot" }),
+      card.getByRole("link", { name: "Read Tune Your Robot" }),
     ).toHaveAttribute(
       "href",
       "https://bline-docs.pages.dev/getting-started/tuning/",
     );
-    await page
-      .getByTestId("tour-card")
-      .getByRole("button", { name: "Finish", exact: true })
-      .click();
+    await card.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(card).toContainText("Generator settings");
+    await next(page, "Tune your robot");
+    await expect(dialog).toBeVisible();
+    await card.getByRole("button", { name: "Finish", exact: true }).click();
+    await expect(dialog).toBeHidden();
     await expect(page.getByTestId("tour-picker-robot-settings")).toHaveClass(
       /is-done/,
     );
@@ -162,14 +250,16 @@ for (const viewport of [
 }
 
 for (const exit of ["skip", "escape"] as const) {
-  test(`exits the read-only settings walkthrough with ${exit} and restores preferences @webkit-canvas`, async ({
+  test(`discards settings lesson changes on ${exit} @webkit-canvas`, async ({
     page,
   }) => {
     await gotoSampleEditor(page);
     await expect(page.getByTestId("save-status")).toContainText("Saved");
     const original = await snapshot(page);
     await openLesson(page);
-    await next(page, "Protrusions");
+    await next(page, "Enable protrusions");
+    await page.getByRole("switch", { name: "Enable Protrusions" }).check();
+    await next(page, "Protrusion settings");
     if (exit === "skip")
       await page
         .getByTestId("tour-card")
@@ -181,5 +271,11 @@ for (const exit of ["skip", "escape"] as const) {
     ).toBeHidden();
     expect((await snapshot(page)).project).toEqual(original.project);
     expect((await snapshot(page)).preferences).toEqual(original.preferences);
+    // Reopening the lesson always starts from its preset values.
+    await openLesson(page);
+    await next(page, "Enable protrusions");
+    await expect(
+      page.getByRole("switch", { name: "Enable Protrusions" }),
+    ).not.toBeChecked();
   });
 }

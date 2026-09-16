@@ -301,6 +301,7 @@ export function AppShell() {
     (state) => state.activeTourId,
   );
   const tourStepIndex = useStoreSelector(tourStore, (state) => state.stepIndex);
+  const tourAttemptId = useStoreSelector(tourStore, (state) => state.attemptId);
   const activeTour = findTour(activeTourId);
   const activeTourStep = activeTour?.steps[tourStepIndex];
   const settingsWalkthrough = activeTourStep?.settingsSection;
@@ -2549,10 +2550,19 @@ export function AppShell() {
       ) : null}
       {durableProject && (showConfigDialog || settingsWalkthrough) ? (
         <ProjectConfigDialog
+          key={
+            settingsWalkthrough
+              ? `${activeTourId}:${tourAttemptId}`
+              : "settings"
+          }
           lessonMode={Boolean(activeTourId)}
           walkthrough={
             settingsWalkthrough
-              ? { section: settingsWalkthrough, target: activeTourStep?.target }
+              ? {
+                  section: settingsWalkthrough,
+                  target: activeTourStep?.target,
+                  interaction: activeTourStep?.settingsInteraction,
+                }
               : undefined
           }
           autoSyncEnabled={autoSyncEnabled}

@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -47,7 +49,11 @@ type ConfigSectionId = (typeof configSections)[number]["id"];
 
 interface ProjectConfigDialogProps {
   lessonMode?: boolean;
-  walkthrough?: { section: ConfigSectionId; target?: string };
+  walkthrough?: {
+    section: ConfigSectionId;
+    target?: string;
+    interaction?: "navigate" | "protrusions" | "field";
+  };
   config: ProjectConfig;
   autoSyncEnabled: boolean;
   fieldBackgrounds: readonly FieldBackgroundEntry[];
@@ -70,6 +76,9 @@ interface FieldDraft {
   selectedFieldId: string;
   fieldBackgrounds: FieldBackgroundEntry[];
 }
+
+const SettingsWalkthroughContext =
+  createContext<ProjectConfigDialogProps["walkthrough"]>(undefined);
 
 export function ProjectConfigDialog({
   lessonMode = false,
@@ -99,10 +108,14 @@ export function ProjectConfigDialog({
   const [draftAutoSyncEnabled, setDraftAutoSyncEnabled] =
     useState(autoSyncEnabled);
   const fieldInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedSection, setActiveSection] =
-    useState<ConfigSectionId>("robot");
-  const activeSection = walkthrough?.section ?? selectedSection;
-  const contentRef = useRef<HTMLFieldSetElement>(null);
+  const [selectedSection, setActiveSection] = useState<ConfigSectionId>(
+    walkthrough?.section ?? "robot",
+  );
+  const activeSection =
+    walkthrough?.interaction === "navigate"
+      ? selectedSection
+      : (walkthrough?.section ?? selectedSection);
+  const contentRef = useRef<HTMLDivElement>(null);
   const walkthroughTarget = walkthrough?.target;
   useLayoutEffect(() => {
     if (!walkthroughTarget) return;
@@ -226,92 +239,92 @@ export function ProjectConfigDialog({
   }, [onCancel, saving, walkthrough]);
 
   return (
-    <div
-      className={`config-dialog-backdrop${lessonMode ? " config-dialog-backdrop--lesson" : ""}`}
-      role="presentation"
-    >
-      <form
-        className="config-dialog"
-        data-tour="settings-dialog"
-        data-walkthrough={walkthrough ? "true" : undefined}
-        role="dialog"
-        aria-modal={!walkthrough}
-        aria-label="Edit Config"
-        onSubmit={(event) => {
-          event.preventDefault();
-          saveDraft();
-        }}
+    <SettingsWalkthroughContext.Provider value={walkthrough}>
+      <div
+        className={`config-dialog-backdrop${lessonMode ? " config-dialog-backdrop--lesson" : ""}`}
+        role="presentation"
       >
-        <header className="config-dialog__header">
-          <strong>Settings</strong>
-          {walkthrough ? (
-            <span>Lesson preview</span>
-          ) : (
-            <CloseButton
-              ariaLabel="Close config"
-              disabled={saving}
-              onClick={onCancel}
+        <form
+          className="config-dialog"
+          data-tour="settings-dialog"
+          data-walkthrough={walkthrough ? "true" : undefined}
+          role="dialog"
+          aria-modal={!walkthrough}
+          aria-label="Edit Config"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveDraft();
+          }}
+        >
+          <header className="config-dialog__header">
+            <strong>Settings</strong>
+            {!walkthrough && (
+              <CloseButton
+                ariaLabel="Close config"
+                disabled={saving}
+                onClick={onCancel}
+              />
+            )}
+          </header>
+
+          <div className="config-dialog__body" inert={saving}>
+            <SettingsNav
+              activeSection={activeSection}
+              onSectionChange={(section) => {
+                setActiveSection(section);
+                contentRef.current?.scrollTo({ top: 0 });
+              }}
+              readOnly={
+                Boolean(walkthrough) && walkthrough?.interaction !== "navigate"
+              }
             />
-          )}
-        </header>
 
-        <div className="config-dialog__body" inert={saving}>
-          <SettingsNav
-            activeSection={activeSection}
-            onSectionChange={setActiveSection}
-            readOnly={Boolean(walkthrough)}
-          />
+            <div ref={contentRef} className="config-dialog__content">
+              {activeSection === "field" ? (
+                <FieldSettingsSection
+                  fieldDraft={fieldDraft}
+                  fieldInputRef={fieldInputRef}
+                  fieldPreviewUrl={fieldPreviewUrl}
+                  fieldUploadError={fieldUploadError}
+                  fieldUploading={fieldUploading}
+                  selectedCustomField={selectedCustomField}
+                  selectedField={selectedField}
+                  setFieldDraft={setFieldDraft}
+                  setFieldImageDrafts={setFieldImageDrafts}
+                  setFieldUploadError={setFieldUploadError}
+                  setFieldUploading={setFieldUploading}
+                />
+              ) : null}
 
-          <fieldset
-            ref={contentRef}
-            className="config-dialog__content"
-            disabled={Boolean(walkthrough)}
-          >
-            {activeSection === "field" ? (
-              <FieldSettingsSection
-                fieldDraft={fieldDraft}
-                fieldInputRef={fieldInputRef}
-                fieldPreviewUrl={fieldPreviewUrl}
-                fieldUploadError={fieldUploadError}
-                fieldUploading={fieldUploading}
-                selectedCustomField={selectedCustomField}
-                selectedField={selectedField}
-                setFieldDraft={setFieldDraft}
-                setFieldImageDrafts={setFieldImageDrafts}
-                setFieldUploadError={setFieldUploadError}
-                setFieldUploading={setFieldUploading}
-              />
-            ) : null}
+              {activeSection === "robot" ? (
+                <RobotSettingsSection
+                  draft={draft}
+                  protrusionDefaultStateOptions={protrusionDefaultStateOptions}
+                  protrusionsEnabled={protrusionsEnabled}
+                  setDraft={setDraft}
+                />
+              ) : null}
 
-            {activeSection === "robot" ? (
-              <RobotSettingsSection
-                draft={draft}
-                protrusionDefaultStateOptions={protrusionDefaultStateOptions}
-                protrusionsEnabled={protrusionsEnabled}
-                setDraft={setDraft}
-              />
-            ) : null}
+              {activeSection === "path-defaults" ? (
+                <PathDefaultsSettingsSection
+                  draft={draft}
+                  setDraft={setDraft}
+                />
+              ) : null}
 
-            {activeSection === "path-defaults" ? (
-              <PathDefaultsSettingsSection draft={draft} setDraft={setDraft} />
-            ) : null}
+              {activeSection === "optimizer" ? (
+                <OptimizerSettingsSection
+                  autoSyncEnabled={draftAutoSyncEnabled}
+                  draft={draft}
+                  setAutoSyncEnabled={setDraftAutoSyncEnabled}
+                  setDraft={setDraft}
+                />
+              ) : null}
+            </div>
+          </div>
 
-            {activeSection === "optimizer" ? (
-              <OptimizerSettingsSection
-                autoSyncEnabled={draftAutoSyncEnabled}
-                draft={draft}
-                setAutoSyncEnabled={setDraftAutoSyncEnabled}
-                setDraft={setDraft}
-              />
-            ) : null}
-          </fieldset>
-        </div>
-
-        <footer className="config-dialog__footer">
-          {walkthrough ? (
-            <span>Use Continue in the lesson to view the next settings.</span>
-          ) : (
-            <>
+          {!walkthrough && (
+            <footer className="config-dialog__footer">
               <button type="button" disabled={saving} onClick={onCancel}>
                 Cancel
               </button>
@@ -323,11 +336,11 @@ export function ProjectConfigDialog({
               >
                 {saving ? "Saving…" : "Save"}
               </button>
-            </>
+            </footer>
           )}
-        </footer>
-      </form>
-    </div>
+        </form>
+      </div>
+    </SettingsWalkthroughContext.Provider>
   );
 }
 
@@ -343,12 +356,17 @@ function SettingsNav({
   readOnly?: boolean;
 }) {
   return (
-    <nav className="config-dialog__nav" aria-label="Settings sections">
+    <nav
+      className="config-dialog__nav"
+      aria-label="Settings sections"
+      data-tour="settings-nav"
+    >
       {configSections.map((section) => (
         <button
           key={section.id}
           type="button"
           disabled={readOnly}
+          data-tour={`settings-nav-${section.id}`}
           className={
             section.id === activeSection
               ? "config-dialog__nav-item is-active"
@@ -425,6 +443,7 @@ function FieldSettingsSection({
   setFieldUploadError(value: string | null): void;
   setFieldUploading(value: boolean): void;
 }) {
+  const walkthrough = useContext(SettingsWalkthroughContext);
   return (
     <ConfigSection title="Field">
       <div className="config-dialog__field-layout">
@@ -457,13 +476,14 @@ function FieldSettingsSection({
               <button
                 type="button"
                 onClick={() => fieldInputRef.current?.click()}
-                disabled={fieldUploading}
+                disabled={fieldUploading || Boolean(walkthrough)}
               >
                 {selectedCustomField ? "Replace Image" : "Upload Image"}
               </button>
               {selectedCustomField ? (
                 <button
                   type="button"
+                  disabled={Boolean(walkthrough)}
                   onClick={() => removeSelectedCustomField(setFieldDraft)}
                 >
                   Remove Custom Field
@@ -475,6 +495,7 @@ function FieldSettingsSection({
               className="file-import-input"
               aria-label="Upload field image"
               type="file"
+              disabled={Boolean(walkthrough)}
               accept="image/png,image/jpeg,image/webp"
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0] ?? null;
@@ -628,6 +649,7 @@ function RobotSettingsSection({
       <ConfigSubsection title="Protrusions">
         <CheckboxRow
           label="Enable Protrusions"
+          walkthroughControl="protrusions"
           checked={protrusionsEnabled}
           onChange={(checked) =>
             setDraft((current) => ({
@@ -848,11 +870,13 @@ function FieldSelectRow({
   customFields: readonly FieldBackgroundEntry[];
   onChange(value: string): void;
 }) {
+  const walkthrough = useContext(SettingsWalkthroughContext);
   return (
-    <label className="config-row">
+    <label className="config-row" data-tour="settings-field-select">
       <span className="config-row__label">Field Image</span>
       <SelectControl
         ariaLabel="Field Image"
+        disabled={Boolean(walkthrough) && walkthrough?.interaction !== "field"}
         value={value}
         options={[
           ...builtInFieldDefinitions.map((field) => ({
@@ -924,6 +948,8 @@ function NumberRow({
   disabled?: boolean;
   onChange(value: number): void;
 }) {
+  const walkthrough = useContext(SettingsWalkthroughContext);
+  disabled ||= Boolean(walkthrough);
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
@@ -944,20 +970,34 @@ function CheckboxRow({
   label,
   description,
   checked,
+  walkthroughControl,
   onChange,
 }: {
   label: string;
   description?: string;
   checked: boolean;
+  walkthroughControl?: "protrusions";
   onChange(checked: boolean): void;
 }) {
+  const walkthrough = useContext(SettingsWalkthroughContext);
+  const disabled =
+    Boolean(walkthrough) &&
+    (!walkthroughControl || walkthrough?.interaction !== walkthroughControl);
   return (
-    <label className="config-row config-row--switch">
+    <label
+      className="config-row config-row--switch"
+      data-tour={walkthroughControl ? "settings-enable-protrusions" : undefined}
+    >
       <span className="config-row__copy">
         <span className="config-row__label">{label}</span>
         {description ? <small>{description}</small> : null}
       </span>
-      <SwitchInput ariaLabel={label} checked={checked} onChange={onChange} />
+      <SwitchInput
+        ariaLabel={label}
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </label>
   );
 }
@@ -975,6 +1015,8 @@ function SelectRow({
   disabled?: boolean;
   onChange(value: string): void;
 }) {
+  const walkthrough = useContext(SettingsWalkthroughContext);
+  disabled ||= Boolean(walkthrough);
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
@@ -1005,6 +1047,8 @@ function TextRow({
   placeholder?: string;
   onChange(value: string): void;
 }) {
+  const walkthrough = useContext(SettingsWalkthroughContext);
+  disabled ||= Boolean(walkthrough);
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>

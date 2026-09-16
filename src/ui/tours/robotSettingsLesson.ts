@@ -1,5 +1,7 @@
 import { createProjectConfig } from "../../core/config/projectConfig";
+import { defaultFieldId } from "../../core/field/fieldConfig";
 import { createPathModel } from "../../core/model/path";
+import { feedback } from "./tourChecks";
 import { waypoint, translation } from "./tourScenario";
 import type { TourDefinition, TourStep } from "./tourStore";
 
@@ -8,6 +10,28 @@ const overview = (step: TourStep): TourStep => ({
   autoGenerate: false,
   visible: ["settings-dialog"],
 });
+const navigation = (
+  section: NonNullable<TourStep["settingsSection"]>,
+  label: string,
+): TourStep =>
+  overview({
+    title: `Open ${label}`,
+    body: `Choose ${label} in the settings menu to see the next group of settings.`,
+    target: `settings-nav-${section}`,
+    settingsSection: section,
+    settingsInteraction: "navigate",
+    interact: ["settings-nav"],
+    task: `Open ${label}`,
+    check: () =>
+      feedback(
+        typeof document !== "undefined" &&
+          !!document.querySelector(
+            `[data-tour="settings-nav-${section}"][aria-current="page"]`,
+          ),
+        `Choose ${label} in the settings menu.`,
+        `${label} is open.`,
+      ),
+  });
 
 export const robotSettingsTour: TourDefinition = {
   id: "robot-settings",
@@ -16,7 +40,15 @@ export const robotSettingsTour: TourDefinition = {
   durationMinutes: 3,
   completionMessage:
     "You know where each setting belongs. Use Tune Your Robot for the next steps on your real robot.",
-  practiceConfig: createProjectConfig,
+  practiceConfig: () => {
+    const config = createProjectConfig();
+    // Populate the extension example before the learner enables it.
+    config.gui.protrusions.distance_meters = 0.25;
+    config.gui.protrusions.side = "front";
+    config.gui.protrusions.show_on_event_keys = ["intake_out"];
+    config.gui.protrusions.hide_on_event_keys = ["intake_in"];
+    return config;
+  },
   practicePath: () =>
     createPathModel({
       path_elements: [waypoint(3, 2), translation(7, 4), waypoint(11, 4, 90)],
@@ -24,7 +56,7 @@ export const robotSettingsTour: TourDefinition = {
   steps: [
     overview({
       title: "Robot size",
-      body: "File → Settings holds the project settings. Robot Length and Width are the outside bumper dimensions of the robot shown on the field. They set the footprint you used to judge clearance in earlier lessons. This walkthrough shows preset values; use Continue to look through the settings without changing your project.",
+      body: "File → Settings holds the project settings. Robot Length and Width are the outside bumper dimensions of the robot shown on the field. They set the footprint you used to judge clearance in earlier lessons. The values here are preset for this practice project.",
       target: "settings-size",
       settingsSection: "robot",
       prepare: {
@@ -36,14 +68,33 @@ export const robotSettingsTour: TourDefinition = {
       },
     }),
     overview({
-      title: "Protrusions",
-      body: "Enable Protrusions adds a visual extension beyond the bumpers. Distance sets its reach, Side chooses the robot edge, and Default Protrusion State controls whether it starts shown or hidden. Show On Event Keys and Hide On Event Keys use the event keys from the previous lesson to change that display during a path.",
+      title: "Enable protrusions",
+      body: "Protrusions represent parts that extend beyond the bumpers, such as an intake. Turn on Enable Protrusions to reveal its settings.",
+      target: "settings-protrusions",
+      settingsSection: "robot",
+      settingsInteraction: "protrusions",
+      interact: ["settings-enable-protrusions"],
+      task: "Turn on Enable Protrusions",
+      check: () =>
+        feedback(
+          typeof document !== "undefined" &&
+            !!document.querySelector<HTMLInputElement>(
+              '[data-tour="settings-enable-protrusions"] input',
+            )?.checked,
+          "Turn on Enable Protrusions.",
+          "The protrusion settings are enabled.",
+        ),
+    }),
+    overview({
+      title: "Protrusion settings",
+      body: "Distance sets how far the extension reaches beyond the bumpers, and Side chooses the robot edge. Default Protrusion State controls whether it starts shown or hidden. Show On Event Keys and Hide On Event Keys use the event keys from the previous lesson to change that display during a path. Here, intake_out shows it and intake_in hides it.",
       target: "settings-protrusions",
       settingsSection: "robot",
     }),
+    navigation("path-defaults", "Path Defaults"),
     overview({
       title: "Translation defaults",
-      body: "Path Defaults supplies values where a path has no override. Max Velocity and Max Accel set the translation limits; Handoff Radius supplies the default radius for intermediate position targets. These are the same limits and handoffs covered in Path Tuning. The preset numbers are starting points; your own settings should reflect your robot's measured capability.",
+      body: "Path Defaults supplies values where a path has no override. Max Velocity and Max Accel set the translation limits; Handoff Radius supplies the default radius for intermediate position targets. These are the same limits and handoffs covered in Path Tuning. Your own settings should reflect your robot's measured capability.",
       target: "settings-translation",
       settingsSection: "path-defaults",
     }),
@@ -59,32 +110,43 @@ export const robotSettingsTour: TourDefinition = {
       target: "settings-end-tolerance",
       settingsSection: "path-defaults",
     }),
+    navigation("field", "Field"),
     overview({
       title: "Field image",
-      body: "Field Image chooses the background behind your path. Upload Image adds a custom practice field, and Field Name labels it. Built-in fields already include their dimensions; custom images let you describe your own space.",
+      body: "Choose a different built-in Field Image to change the background shown in Settings. Built-in fields are already scaled. For a custom practice space, Upload Image adds your own background; its dimensions and padding align the picture with field coordinates.",
       target: "settings-field-image",
       settingsSection: "field",
+      settingsInteraction: "field",
+      interact: ["settings-field-select"],
+      task: "Choose a different Field Image",
+      check: () => {
+        const field =
+          typeof document !== "undefined" &&
+          document.querySelector<HTMLSelectElement>(
+            '[data-tour="settings-field-select"] select',
+          );
+        return feedback(
+          !!field && field.value !== defaultFieldId,
+          "Choose a different built-in field from Field Image.",
+          "The field background has changed.",
+        );
+      },
     }),
-    overview({
-      title: "Field dimensions and padding",
-      body: "For a custom field, Length and Width set its size in meters. Padding X and Y account for image margins outside the playable field, so the picture lines up with path coordinates. Built-in field geometry is preset. These settings align the canvas with the space your robot drives in.",
-      target: "settings-field-geometry",
-      settingsSection: "field",
-    }),
+    navigation("optimizer", "Generator"),
     overview({
       title: "Generator settings",
       body: "Keep in sync regenerates automatic radii and velocity caps when the path or generator settings change. Velocity and Acceleration safety factors reserve margin below the configured limits; 1 uses the full limit. Merge difference combines nearby generated speed caps when their difference is small enough. Manual constraints stay under your control, as in Path Tuning.",
       target: "settings-generator",
       settingsSection: "optimizer",
     }),
-    {
+    overview({
       title: "Tune your robot",
       body: "You have now seen the settings in menu order. When setting up your robot, match its bumper size and motion limits, then tune and validate its controllers at those limits. The Tune Your Robot guide explains that process in detail. Finish returns to your original project.",
-      autoGenerate: false,
+      settingsSection: "optimizer",
       resource: {
         label: "Read Tune Your Robot",
         href: "https://bline-docs.pages.dev/getting-started/tuning/",
       },
-    },
+    }),
   ],
 };

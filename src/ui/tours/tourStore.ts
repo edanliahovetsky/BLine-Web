@@ -66,8 +66,10 @@ export interface TourStep {
   title: string;
   body: string;
   describe?(): string;
-  /** Open this settings section as a read-only walkthrough with preset values. */
+  /** Keep Settings open on this section for a lesson with preset values. */
   settingsSection?: "robot" | "path-defaults" | "field" | "optimizer";
+  /** The one settings interaction allowed by this step. */
+  settingsInteraction?: "navigate" | "protrusions" | "field";
   /** Optional further reading shown inside the lesson card. */
   resource?: { label: string; href: string };
   phase?: "Build" | "Observe" | "Experiment" | "Challenge" | "Review";
