@@ -42,6 +42,9 @@ async function next(page: Page, heading: string) {
   await expect(
     card.getByRole("heading", { name: heading, exact: true }),
   ).toBeVisible();
+  await expect(
+    card.getByRole("heading", { name: heading, exact: true }),
+  ).toBeInViewport();
 }
 async function layout(page: Page) {
   const card = await requiredBox(page.getByTestId("tour-card"));

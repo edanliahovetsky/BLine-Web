@@ -533,6 +533,9 @@ export function TourOverlay({
   }, [activeTourId, confirmingRestart, cancelRestart, lab, isReviewing, step]);
 
   useEffect(() => {
+    // A short lesson card may have been scrolled down to Continue. Start each
+    // new step at its instructions rather than retaining the previous scroll.
+    if (cardRef.current) cardRef.current.scrollTop = 0;
     cardRef.current?.focus();
     if (stepTarget && stepTarget !== "path-canvas") {
       document
