@@ -93,7 +93,7 @@ import {
   type PixiRenderInput,
 } from "./pixi/PixiPathRenderer";
 import { simulationEventPulseAtTime } from "./simulationEventPulse";
-import { hitTestRobotFrontFace } from "./elementGeometry";
+import { eventMarkerMetrics, hitTestRobotFrontFace } from "./elementGeometry";
 import { useSelectionPulse } from "./hooks/useSelectionPulse";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { useCanvasInteractionActivity } from "./hooks/useCanvasInteractionActivity";
@@ -2748,8 +2748,7 @@ function hitTestElementShape(
 
   if (isEventTrigger(element)) {
     const local = toLocalRobotPoint(point, pointer, headingRadians);
-    const halfLength =
-      Math.max(32, eventTriggerLengthMetersFallback * viewport.scale) / 2;
+    const { halfLength } = eventMarkerMetrics(viewport.scale);
     return Math.abs(local.y) <= 18 && Math.abs(local.x) <= halfLength + 12;
   }
 
@@ -2987,7 +2986,6 @@ function clamp(value: number, min: number, max: number): number {
 
 const emptyPreview = new Map<number, PointMeters>();
 const emptyRotationPreview = new Map<number, number>();
-const eventTriggerLengthMetersFallback = 0.36;
 const minViewScale = 1;
 const maxViewScale = 8;
 const zoomStepFactor = 1.03;

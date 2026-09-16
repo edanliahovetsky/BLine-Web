@@ -1,9 +1,41 @@
 import type { ProtrusionSide } from "../core/config/projectConfig";
 import type { StagePoint } from "./geometry";
+import {
+  elementCircleRadiusMeters,
+  eventTriggerLengthMeters,
+} from "./constants";
 import type {
   RobotLocalBounds,
   RobotProtrusionPathCommand,
 } from "./robotFootprint";
+
+/** Keep painted markers in field units; pointer hit targets can stay generous. */
+export function translationMarkerMetrics(metersToPixels: number) {
+  const radius = Math.max(1, elementCircleRadiusMeters * metersToPixels);
+  const borderWidth = Math.max(0.6, Math.min(4, radius * 0.35));
+  return {
+    radius,
+    borderWidth,
+    outerRadius: radius + borderWidth,
+    selectionPadding: Math.max(2, Math.min(6, radius * 1.2)),
+  };
+}
+
+export function eventMarkerMetrics(metersToPixels: number) {
+  const halfLength = Math.max(
+    1,
+    (eventTriggerLengthMeters * metersToPixels) / 2,
+  );
+  const detailScale = Math.min(1, halfLength / 16);
+  return {
+    halfLength,
+    outlineWidth: Math.max(0.8, 4.4 * detailScale),
+    strokeWidth: Math.max(0.45, 2.8 * detailScale),
+    centerRadius: Math.max(0.55, 3.3 * detailScale),
+    centerBorderWidth: Math.max(0.2, 0.8 * detailScale),
+    selectionPadding: Math.max(2, 5 * detailScale),
+  };
+}
 
 /** Screen-space details for the Open Edge footprint; its bounds stay in robot units. */
 export function elementFootprintMetrics(width: number, height: number) {

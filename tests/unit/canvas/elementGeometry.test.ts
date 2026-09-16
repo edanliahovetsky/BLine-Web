@@ -3,9 +3,26 @@ import {
   footprintOutlineCommands,
   hitTestRobotFrontFace,
   robotFrontPoint,
+  eventMarkerMetrics,
+  translationMarkerMetrics,
 } from "../../../src/canvas/elementGeometry";
 
 describe("Open Edge interaction geometry", () => {
+  it("keeps event and translation paint proportional to robot footprints when zooming out", () => {
+    const scales = [20, 30, 40];
+    for (const scale of scales) {
+      const robotSide = 0.6 * scale;
+      const event = eventMarkerMetrics(scale);
+      const translation = translationMarkerMetrics(scale);
+      expect((2 * event.halfLength) / robotSide).toBeCloseTo(0.6);
+      expect((2 * translation.outerRadius) / robotSide).toBeCloseTo(0.45);
+      expect(event.strokeWidth / event.halfLength).toBeCloseTo(2.8 / 16);
+      expect(event.centerRadius).toBeLessThan(translation.radius);
+    }
+    // Even at extreme zoom the legibility floor is a small mark, not a 32px bar.
+    expect(eventMarkerMetrics(1).halfLength).toBeLessThanOrEqual(1);
+    expect(translationMarkerMetrics(1).outerRadius).toBeLessThan(2);
+  });
   it.each([0, Math.PI / 4, Math.PI / 2, -Math.PI * 0.8])(
     "covers the full front face at heading %s without stealing the center or back",
     (heading) => {

@@ -431,8 +431,8 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
             ],
           }),
           rgb: [167, 139, 250],
-          point: [0, -8],
-          ring: [-7, 0],
+          point: [0, 0],
+          ring: [-5, 0],
         },
       ].map(({ name, index, path, rgb, point, ring }) => {
         const normal = pixels({ ...input, path });
@@ -469,6 +469,63 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
             ),
           ),
         };
+      });
+      const smallMarkers = [20, 40].flatMap((scale) => {
+        const smallViewport = { ...viewport, scale };
+        const center = modelToStagePoint(position, smallViewport);
+        smallViewport.x += 300 - center.x;
+        smallViewport.y += 180 - center.y;
+        const background = pixels({
+          ...input,
+          path: null,
+          viewport: smallViewport,
+        });
+        return ["translation", "event"].map((name) => {
+          const path = createPathModel({
+            path_elements:
+              name === "translation"
+                ? [translation()]
+                : [
+                    anchors[0],
+                    createEventTrigger({ t_ratio: 0.5 }),
+                    anchors[1],
+                  ],
+          });
+          const image = pixels({ ...input, path, viewport: smallViewport });
+          const xs: number[] = [],
+            ys: number[] = [];
+          for (let y = -24; y <= 24; y++)
+            for (let x = -24; x <= 24; x++) {
+              const offset = ((180 + y) * capture.width + 300 + x) * 4;
+              const [r, g, b] = image.slice(offset, offset + 3);
+              if (
+                ![0, 1, 2].some(
+                  (channel) =>
+                    Math.abs(
+                      image[offset + channel] - background[offset + channel],
+                    ) > 4,
+                )
+              )
+                continue;
+              if (
+                name === "translation"
+                  ? b > r * 1.4 && b > g * 1.1
+                  : b > r * 1.2 && r > g * 1.1
+              ) {
+                xs.push(x);
+                ys.push(y);
+              }
+            }
+          return {
+            name,
+            scale,
+            pixels: xs.length,
+            extent: Math.max(
+              Math.max(...xs) - Math.min(...xs) + 1,
+              Math.max(...ys) - Math.min(...ys) + 1,
+            ),
+          };
+        });
       });
       const bodies = cases.map(({ name, index, path, baselinePath }) => {
         const scene = { ...input, path };
@@ -777,6 +834,7 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
           }
       return {
         colorSamples,
+        smallMarkers,
         bodies,
         cornerSamples,
         edgeSamples,
@@ -800,6 +858,16 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       sample.hiddenDifference,
       `${sample.name} hidden outline`,
     ).toBeLessThan(3);
+  }
+  for (const marker of results.smallMarkers) {
+    expect(
+      marker.pixels,
+      `${marker.name} remains visible at scale ${marker.scale}`,
+    ).toBeGreaterThan(0);
+    expect(
+      marker.extent,
+      `${marker.name} stays smaller than the robot at scale ${marker.scale}`,
+    ).toBeLessThan(0.6 * marker.scale * 0.85);
   }
   for (const sample of results.cornerSamples) {
     expect.soft(sample.inkPixels, sample.name).toBeGreaterThan(0);

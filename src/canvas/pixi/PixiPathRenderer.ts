@@ -30,12 +30,7 @@ import {
   type AnchorRadiusState,
 } from "../../core/model/handoffRadii";
 import type { SelectedRangedConstraint } from "../../state/selectionStore";
-import {
-  elementCircleRadiusMeters,
-  elementOutlineMeters,
-  eventMarkerHalfHeightPx,
-  eventTriggerLengthMeters,
-} from "../constants";
+import { elementCircleRadiusMeters, elementOutlineMeters } from "../constants";
 import {
   firstDomainIndexForConstraintRange,
   pathIndexesForConstraintRange,
@@ -69,8 +64,10 @@ import {
 } from "../robotFootprint";
 import {
   elementFootprintMetrics,
+  eventMarkerMetrics,
   footprintOutlineCommands,
   robotFrontPoint,
+  translationMarkerMetrics,
 } from "../elementGeometry";
 import { buildElementProtrusionVisibilityByIndex } from "../protrusionVisibility";
 import type { SimResult } from "../../core/sim";
@@ -1020,8 +1017,8 @@ function nodeVisibilityMargin(input: DrawNodeInput): number {
         padding,
     );
   } else if (isTranslationTarget(input.element)) {
-    const bodyRadius = Math.max(5, elementCircleRadiusMeters * scale);
-    radius = bodyRadius + translationOutlineWidth(bodyRadius) + 8;
+    const marker = translationMarkerMetrics(scale);
+    radius = marker.outerRadius + marker.selectionPadding + 3;
   } else {
     radius = Math.hypot(Math.abs(eventTriggerPoints(scale, 0)[0]) + 5, 7) + 2;
   }
@@ -1066,20 +1063,16 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
   }
 
   if (isTranslationTarget(input.element)) {
-    const radius = Math.max(
-      5,
-      elementCircleRadiusMeters * input.metersToPixels,
-    );
-    const borderWidth = translationOutlineWidth(radius);
-    const outerRadius = radius + borderWidth;
+    const { radius, borderWidth, outerRadius, selectionPadding } =
+      translationMarkerMetrics(input.metersToPixels);
     if (showSelectionOutline) {
       // Translation targets alone use a circular selection outline.
-      graphics.circle(point.x, point.y, outerRadius + 6).stroke({
+      graphics.circle(point.x, point.y, outerRadius + selectionPadding).stroke({
         color: selectionBackingColor,
         width: selectionStrokeWidthPx + 2,
         alpha: 0.9,
       });
-      graphics.circle(point.x, point.y, outerRadius + 6).stroke({
+      graphics.circle(point.x, point.y, outerRadius + selectionPadding).stroke({
         color: elementColors.selected,
         width: selectionStrokeWidthPx,
         alpha: selectionOpacity,
@@ -1135,12 +1128,18 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
   }
 
   if (isEventTrigger(input.element)) {
+    const marker = eventMarkerMetrics(input.metersToPixels);
     const points = eventTriggerPoints(input.metersToPixels, 0);
-    const halfLength = Math.abs(points[0]);
+    const { halfLength, selectionPadding } = marker;
     if (showSelectionOutline) {
       drawSelectionOutline(
         graphics,
-        { x: -halfLength - 5, y: -7, width: halfLength * 2 + 10, height: 14 },
+        {
+          x: -halfLength - selectionPadding,
+          y: -marker.centerRadius - selectionPadding,
+          width: 2 * (halfLength + selectionPadding),
+          height: 2 * (marker.centerRadius + selectionPadding),
+        },
         transform,
         selectionOpacity,
       );
@@ -1148,16 +1147,27 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
     drawLocalPolyline(
       graphics,
       points,
-      { color: elementOutlineColor, width: 4.4, alpha: 0.95 * opacity },
+      {
+        color: elementOutlineColor,
+        width: marker.outlineWidth,
+        alpha: 0.95 * opacity,
+      },
       transform,
     );
     drawLocalPolyline(
       graphics,
       points,
-      { color: elementColors.event, width: 2.8, alpha: opacity },
+      { color: elementColors.event, width: marker.strokeWidth, alpha: opacity },
       transform,
     );
-    drawOutlinedDot(graphics, point, 3.3, elementColors.event, opacity);
+    drawOutlinedDot(
+      graphics,
+      point,
+      marker.centerRadius,
+      elementColors.event,
+      opacity,
+      marker.centerBorderWidth,
+    );
   }
 }
 
@@ -1167,10 +1177,6 @@ const elementOutlineWidthPx = 0.8;
 // Restore the original elements' visual weight as the canvas zooms.
 function waypointOutlineWidth(metersToPixels: number): number {
   return Math.max(1.65, elementOutlineMeters * metersToPixels);
-}
-
-function translationOutlineWidth(radius: number): number {
-  return Math.max(2.25, Math.min(4, radius * 0.35));
 }
 
 function drawOutlinedDot(
@@ -1849,14 +1855,7 @@ function eventTriggerPoints(
   metersToPixels: number,
   paddingPx: number,
 ): number[] {
-  const halfLength =
-    metersToVisiblePixels(
-      eventTriggerLengthMeters,
-      metersToPixels,
-      eventMarkerHalfHeightPx * 2,
-    ) /
-      2 +
-    paddingPx;
+  const halfLength = eventMarkerMetrics(metersToPixels).halfLength + paddingPx;
   return [-halfLength, 0, halfLength, 0];
 }
 
@@ -1890,14 +1889,6 @@ function protrusionVisibleAtOrBefore(
   return selectedTime === null
     ? null
     : (result.protrusion_visible_by_time.get(selectedTime) ?? null);
-}
-
-function metersToVisiblePixels(
-  meters: number,
-  metersToPixels: number,
-  minimumPixels: number,
-): number {
-  return Math.max(minimumPixels, meters * metersToPixels);
 }
 
 function toStageRadians(radians: number | null): number {

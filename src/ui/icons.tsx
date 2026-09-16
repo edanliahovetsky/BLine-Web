@@ -242,8 +242,9 @@ export function ElementIcon({
 
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
-      <rect x="5" y="4" width="14" height="16" rx="3" />
-      <path d="m9 10 3-3 3 3M12 7v7M3 8v3M21 8v3M3 15v3M21 15v3" />
+      <path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="4" r="1.8" fill="currentColor" stroke="none" />
     </svg>
   );
 }
