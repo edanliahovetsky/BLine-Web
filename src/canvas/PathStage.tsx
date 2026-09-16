@@ -636,6 +636,7 @@ export function PathStage({
     durableProject?.config ?? null,
     previewPath,
     activeDrag?.startPointer ?? activeRotationDrag?.startPointer ?? null,
+    committedSimulationResult,
   );
   const simulationResult = previewSimulationResult ?? committedSimulationResult;
 

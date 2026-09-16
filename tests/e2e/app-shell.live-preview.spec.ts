@@ -17,6 +17,46 @@ async function revision(page: Page) {
   });
 }
 
+test("follows continuous pointer movement even when the preview worker never answers @webkit-canvas", async ({
+  page,
+}) => {
+  // A deliberately unavailable refinement must not throttle visual drag feedback.
+  await page.route(/simulationPreview\.worker/, (route) =>
+    route.fulfill({
+      contentType: "text/javascript",
+      body: "self.onmessage = () => {};",
+    }),
+  );
+  await gotoSampleEditor(page);
+  await page.getByRole("button", { name: "Fast forward simulation" }).click();
+  const before = await trace(page);
+  const originalRevision = await revision(page);
+  const box = await requiredBox(page.getByTestId("path-stage-canvas"));
+  const start = await canvasNodePosition(page, "path-element-node-1");
+  await page.mouse.move(box.x + start.x, box.y + start.y);
+  await page.mouse.down();
+  const shapes = new Set<string>();
+  for (let step = 1; step <= 24; step++) {
+    await page.mouse.move(
+      box.x + start.x + step * 2,
+      box.y + start.y - step * 2,
+    );
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    shapes.add(JSON.stringify(await trace(page)));
+  }
+  expect(shapes.size).toBeGreaterThanOrEqual(22);
+  expect(shapes.has(JSON.stringify(before))).toBe(false);
+  expect(await revision(page)).toBe(originalRevision);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect.poll(() => trace(page)).toEqual(before);
+});
+
 test("updates the blue trace during repeated drags without committing, then matches the final path @webkit-canvas", async ({
   page,
 }) => {
