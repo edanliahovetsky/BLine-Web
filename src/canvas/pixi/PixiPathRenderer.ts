@@ -141,6 +141,7 @@ export interface PixiDebugApi {
     imageLoaded: boolean;
   };
   nodePosition(testId: string): StagePoint | null;
+  simulationTrace(): readonly SimulationTraceSample[] | null;
 }
 
 export interface PixiDebugWindow extends Window {
@@ -168,6 +169,8 @@ export class PixiPathRenderer {
   private drawnOverlayStageSize: CanvasSize | null = null;
   private drawnOverlayPaths: readonly PixiPathOverlay[] | null = null;
   private drawnHoveredOverlayPathId: string | null = null;
+  private currentSimulationTrace: readonly SimulationTraceSample[] | null =
+    null;
   private renderCount = 0;
   private fieldDrawCount = 0;
   private overlayDrawCount = 0;
@@ -235,6 +238,7 @@ export class PixiPathRenderer {
   }
 
   update(input: PixiRenderInput): void {
+    this.currentSimulationTrace = input.simulationTrace;
     this.resize(input.stageSize);
     this.debugNodes.clear();
     if (this.drawnFieldViewport !== input.viewport) {
@@ -278,6 +282,7 @@ export class PixiPathRenderer {
           this.fieldSprite.texture !== Texture.EMPTY,
       }),
       nodePosition: (testId) => this.debugNodes.get(testId) ?? null,
+      simulationTrace: () => this.currentSimulationTrace,
     };
   }
 

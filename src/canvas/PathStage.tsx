@@ -82,6 +82,11 @@ import {
 } from "./geometry";
 import { isTranslationBearingElement } from "./modelSync";
 import {
+  applyPathElementEdit,
+  type PathElementEdit,
+} from "../core/model/projectPathEdits";
+import { useSimulationPreview } from "./hooks/useSimulationPreview";
+import {
   PixiPathRenderer,
   type PixiDebugWindow,
   type PixiPathOverlay,
@@ -577,7 +582,7 @@ export function PathStage({
   );
   const positionPreview = dragPreview;
 
-  const simulationResult: SimTraceResult | null = useMemo(() => {
+  const committedSimulationResult: SimTraceResult | null = useMemo(() => {
     if (!activePath || !durableProject) {
       return null;
     }
@@ -590,6 +595,49 @@ export function PathStage({
       return null;
     }
   }, [activePath, durableProject]);
+
+  const previewPath = useMemo(() => {
+    if (!activePath || !durableProject) return null;
+    const edit: PathElementEdit | null = activeDrag?.moved
+      ? activeDrag.currentRatio !== null
+        ? {
+            kind: "ratio",
+            index: activeDrag.index,
+            ratio: activeDrag.currentRatio,
+          }
+        : {
+            kind: "position",
+            index: activeDrag.index,
+            position: activeDrag.current,
+          }
+      : activeRotationDrag?.moved
+        ? {
+            kind: "rotation",
+            index: activeRotationDrag.index,
+            rotationRadians: activeRotationDrag.currentRadians,
+          }
+        : null;
+    if (!edit) return null;
+    // Use the same immutable edit as release, including other uses of a linked target.
+    // This temporary Project never enters history, persistence or constraint generation.
+    const edited = applyPathElementEdit(
+      durableProject,
+      activePath.path_id,
+      edit,
+    );
+    return edited.status === "applied"
+      ? (edited.project.paths.find(
+          (path) => path.path_id === activePath.path_id,
+        )?.path ?? null)
+      : null;
+  }, [activePath, durableProject, activeDrag, activeRotationDrag]);
+  const previewSimulationResult = useSimulationPreview(
+    activePath?.path ?? null,
+    durableProject?.config ?? null,
+    previewPath,
+    activeDrag?.startPointer ?? activeRotationDrag?.startPointer ?? null,
+  );
+  const simulationResult = previewSimulationResult ?? committedSimulationResult;
 
   // A lesson owns camera/playback temporarily; exiting restores the user's view.
   useEffect(() => {
