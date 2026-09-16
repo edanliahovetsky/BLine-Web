@@ -15,6 +15,17 @@ import {
   supersededAutoVelocityProfile,
 } from "../../../src/platform/autoVelocityRunner";
 
+// Known issue captured in reported_large_radius.json (full project export,
+// including its own config and generator input signatures, solver version 15).
+// The penultimate waypoint, element index 9 at (2.10078, 5.37509), carries an
+// auto-generated 8.661 m handoff radius; the project default is 0.45 m.
+// Preserve this evidence for a solver investigation. The cause and appropriate
+// replacement radius have not been established, so do not bless 8.661 as the
+// desired output or invent a radius cap just to make a regression pass.
+it.todo(
+  "investigate the oversized generated radius in reported_large_radius.json",
+);
+
 // Chief Delphi topic 509778, post 213. The attachment omits robot settings.
 // Use published Beta 1 project defaults, not the solver's legacy flat defaults.
 it("preserves manual launch-feedback constraints and reports the 0.05 m/s result as best-effort", async () => {
