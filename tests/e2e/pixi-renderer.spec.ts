@@ -941,6 +941,7 @@ test("protrusion attachment corners have continuous bumper ink at high zoom @web
       joint: number;
       dragging: boolean;
       defects: number;
+      outsideFill: number | null;
     }> = [];
     let image = "";
     try {
@@ -1067,7 +1068,51 @@ test("protrusion attachment corners have continuous bumper ink at high zoom @web
                     if (!(r > 230 && g > 135 && g < 185 && blue < 100))
                       defects++;
                   }
-                result.push({ side, scale, heading, joint, dragging, defects });
+                // These points are inside the old rectangular tint, but
+                // outside the rounded far corners of the protrusion. Check
+                // at high zoom to keep these pixels clear of edge antialiasing.
+                const farX =
+                  side === "front"
+                    ? halfLength + 0.3 * scale - 1
+                    : side === "back"
+                      ? -halfLength - 0.3 * scale + 1
+                      : joint * (halfLength - 1);
+                const farY =
+                  side === "left"
+                    ? -halfWidth - 0.3 * scale + 1
+                    : side === "right"
+                      ? halfWidth + 0.3 * scale - 1
+                      : joint * (halfWidth - 1);
+                const farPx = Math.floor(
+                  500 +
+                    (dragging ? 0.37 : 0) +
+                    farX * Math.cos(heading) +
+                    farY * Math.sin(heading),
+                );
+                const farPy = Math.floor(
+                  500 +
+                    (dragging ? 0.61 : 0) -
+                    farX * Math.sin(heading) +
+                    farY * Math.cos(heading),
+                );
+                const farOffset = (farPy * 1000 + farPx) * 4;
+                const outsideFill =
+                  scale < 500
+                    ? null
+                    : Math.max(
+                        ...[16, 21, 24].map((background, channel) =>
+                          Math.abs(pixels[farOffset + channel] - background),
+                        ),
+                      );
+                result.push({
+                  side,
+                  scale,
+                  heading,
+                  joint,
+                  dragging,
+                  defects,
+                  outsideFill,
+                });
               }
             }
       return { samples: result, image };
@@ -1079,5 +1124,11 @@ test("protrusion attachment corners have continuous bumper ink at high zoom @web
     body: Buffer.from(result.image.split(",")[1], "base64"),
     contentType: "image/png",
   });
-  expect(result.samples.filter((sample) => sample.defects > 0)).toEqual([]);
+  expect(
+    result.samples.filter(
+      (sample) =>
+        sample.defects > 0 ||
+        (sample.outsideFill !== null && sample.outsideFill > 2),
+    ),
+  ).toEqual([]);
 });

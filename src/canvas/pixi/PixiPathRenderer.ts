@@ -1277,19 +1277,21 @@ function drawRobotFootprint(
       accent,
       eventPulse,
     );
-    if (extension) {
-      const extensionFill = robotProtrusionOutlineGeometry({
-        lengthPx: width,
-        widthPx: height,
-        protrusionVisible: true,
-        protrusionDistancePx,
-        protrusionSide,
-        strokeWidth: backing.strokeWidth,
-        cornerRadiusPx: robotCornerRadius(width, height),
-        rootInsetPx: backing.strokeWidth / 2,
-        rootCornerRadiusPx: 0,
-      });
-      if (extensionFill)
+  }
+  if (extension) {
+    const extensionFill = robotProtrusionOutlineGeometry({
+      lengthPx: width,
+      widthPx: height,
+      protrusionVisible: true,
+      protrusionDistancePx,
+      protrusionSide,
+      strokeWidth: backing.strokeWidth,
+      cornerRadiusPx: robotCornerRadius(width, height),
+      rootInsetPx: backing.strokeWidth / 2,
+      rootCornerRadiusPx: 0,
+    });
+    if (extensionFill) {
+      if (mode === "simulation") {
         drawSimulationFill(
           graphics,
           extensionFill.pathCommands,
@@ -1297,14 +1299,11 @@ function drawRobotFootprint(
           accent,
           eventPulse,
         );
+      } else {
+        traceLocalPathCommands(graphics, extensionFill.pathCommands, transform);
+        graphics.closePath().fill({ color: accent, alpha: 0.06 * opacity });
+      }
     }
-  } else if (extension) {
-    drawRect(
-      graphics,
-      extension,
-      { fill: accent, fillAlpha: 0.06 * opacity },
-      transform,
-    );
   }
   if (extension) {
     drawRobotProtrusionOutline(graphics, transform, width, height, {
