@@ -902,3 +902,144 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
   // A thin circular ring stays at one radius; a rectangle varies by sqrt(2).
   expect(results.translation.outer - results.translation.inner).toBeLessThan(3);
 });
+
+test("protrusion attachment corners have continuous bumper ink at high zoom @webkit-canvas", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const { PixiPathRenderer } = (await import(
+      /* @vite-ignore */ "/src/canvas/pixi/PixiPathRenderer.ts" as string
+    )) as typeof import("../../src/canvas/pixi/PixiPathRenderer");
+    const { resolveUserFieldDefinition } = (await import(
+      /* @vite-ignore */ "/src/core/field/fieldConfig.ts" as string
+    )) as typeof import("../../src/core/field/fieldConfig");
+    const { createFieldViewport, modelToStagePoint } = (await import(
+      /* @vite-ignore */ "/src/canvas/geometry.ts" as string
+    )) as typeof import("../../src/canvas/geometry");
+    const { createProjectConfig } = (await import(
+      /* @vite-ignore */ "/src/core/config/projectConfig.ts" as string
+    )) as typeof import("../../src/core/config/projectConfig");
+    const {
+      createPathModel,
+      createWaypoint,
+      createTranslationTarget,
+      createRotationTarget,
+    } = (await import(
+      /* @vite-ignore */ "/src/core/model/path.ts" as string
+    )) as typeof import("../../src/core/model/path");
+    const field = resolveUserFieldDefinition("blank-grid", []);
+    const stageSize = { width: 1000, height: 1000 };
+    const renderer = await PixiPathRenderer.create(stageSize, field);
+    const capture = document.createElement("canvas");
+    capture.width = capture.height = 1000;
+    const context = capture.getContext("2d", { willReadFrequently: true })!;
+    const result: Array<{
+      side: string;
+      scale: number;
+      heading: number;
+      joint: number;
+      orange: boolean;
+    }> = [];
+    let image = "";
+    try {
+      for (const scale of [100, 500])
+        for (const heading of [0, 0.13])
+          for (const side of ["front", "back", "left", "right"] as const) {
+            const config = createProjectConfig();
+            config.gui.robot = { length_meters: 0.8, width_meters: 1.2 };
+            config.gui.protrusions = {
+              enabled: true,
+              distance_meters: 0.3,
+              side,
+              default_state: "shown",
+              show_on_event_keys: [],
+              hide_on_event_keys: [],
+            };
+            const position = { x_meters: 6, y_meters: 4 };
+            const viewport = {
+              ...createFieldViewport(stageSize, 24, field.geometry),
+              scale,
+            };
+            const original = modelToStagePoint(position, viewport);
+            viewport.x += 500 - original.x;
+            viewport.y += 500 - original.y;
+            renderer.update({
+              stageSize,
+              viewport,
+              field,
+              config,
+              path: createPathModel({
+                path_elements: [
+                  createWaypoint({
+                    translation_target: createTranslationTarget(position),
+                    rotation_target: createRotationTarget({
+                      rotation_radians: heading,
+                    }),
+                  }),
+                ],
+              }),
+              overlayPaths: [],
+              hoveredOverlayPathId: null,
+              selectedElementIndex: null,
+              selectedRangedConstraint: null,
+              positionPreview: new Map(),
+              rotationPreview: new Map(),
+              selectedPulse: 0,
+              simulationResult: null,
+              simulationTrace: null,
+              trajectoryMaxSpeedMps: 1,
+              simulationTimeS: 0,
+              simulationPlaying: false,
+              simulationEventPulse: 0,
+              curvePreview: null,
+            });
+            context.clearRect(0, 0, 1000, 1000);
+            context.drawImage(renderer.canvas, 0, 0, 1000, 1000);
+            if (side === "front" && scale === 500 && heading === 0.13)
+              image = capture.toDataURL("image/png");
+            const pixels = context.getImageData(0, 0, 1000, 1000).data;
+            const stroke = 0.06 * scale,
+              halfLength = 0.4 * scale,
+              halfWidth = 0.6 * scale;
+            for (const joint of [-1, 1]) {
+              const x =
+                side === "front"
+                  ? halfLength - stroke * 0.1
+                  : side === "back"
+                    ? -halfLength + stroke * 0.1
+                    : joint * (halfLength - (0.8 + stroke * 0.25));
+              const y =
+                side === "left"
+                  ? -halfWidth + stroke * 0.1
+                  : side === "right"
+                    ? halfWidth - stroke * 0.1
+                    : joint * (halfWidth - (0.8 + stroke * 0.25));
+              const px = Math.floor(
+                500 + x * Math.cos(heading) + y * Math.sin(heading),
+              );
+              const py = Math.floor(
+                500 - x * Math.sin(heading) + y * Math.cos(heading),
+              );
+              const offset = (py * 1000 + px) * 4;
+              const [r, g, b] = pixels.slice(offset, offset + 3);
+              result.push({
+                side,
+                scale,
+                heading,
+                joint,
+                orange: r > 200 && g > 110 && g < 195 && b < 110,
+              });
+            }
+          }
+      return { samples: result, image };
+    } finally {
+      renderer.destroy();
+    }
+  });
+  await testInfo.attach("protrusion-attachment", {
+    body: Buffer.from(result.image.split(",")[1], "base64"),
+    contentType: "image/png",
+  });
+  expect(result.samples.filter((sample) => !sample.orange)).toEqual([]);
+});

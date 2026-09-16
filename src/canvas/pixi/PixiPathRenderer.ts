@@ -1287,6 +1287,7 @@ function drawRobotFootprint(
         strokeWidth: backing.strokeWidth,
         cornerRadiusPx: robotCornerRadius(width, height),
         rootInsetPx: backing.strokeWidth / 2,
+        rootCornerRadiusPx: 0,
       });
       if (extensionFill)
         drawSimulationFill(
@@ -1389,7 +1390,10 @@ function drawRobotProtrusionOutline(
     protrusionSide: options.protrusionSide,
     strokeWidth: options.backingWidth ?? options.strokeWidth,
     cornerRadiusPx: cornerRadius,
-    rootInsetPx: 0,
+    // Join the bumper's inset centerline, rather than stopping at its outer
+    // edge and leaving a notch beside the attachment-face stroke.
+    rootInsetPx: (options.backingWidth ?? options.strokeWidth) / 2,
+    rootCornerRadiusPx: 0,
   });
 
   if (!outline) {

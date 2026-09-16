@@ -180,6 +180,7 @@ export function robotProtrusionOutlineGeometry({
   strokeWidth,
   cornerRadiusPx,
   rootInsetPx,
+  rootCornerRadiusPx,
 }: {
   lengthPx: number;
   widthPx: number;
@@ -189,6 +190,7 @@ export function robotProtrusionOutlineGeometry({
   strokeWidth: number;
   cornerRadiusPx?: number;
   rootInsetPx?: number;
+  rootCornerRadiusPx?: number;
 }): RobotProtrusionOutlineGeometry | null {
   const bounds = robotProtrusionBounds({
     lengthPx,
@@ -232,6 +234,7 @@ export function robotProtrusionOutlineGeometry({
     bounds.height / 2,
   );
   const rootFilletRadius = Math.min(
+    Math.max(0, rootCornerRadiusPx ?? filletRadius),
     filletRadius,
     rootInset,
     bounds.width,
