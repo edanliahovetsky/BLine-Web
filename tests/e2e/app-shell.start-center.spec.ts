@@ -120,7 +120,7 @@ test("returns to Home after a guided lesson with an existing project", async ({
   await expect(start).toBeVisible();
   await start.getByRole("button").filter({ hasText: projectName }).click();
   await expect(page.getByTestId("current-path-status")).toContainText(
-    "Phase 1 Canvas Draft",
+    "Sample Path",
   );
   await expect(page.getByTestId("path-stage")).toBeVisible();
 });

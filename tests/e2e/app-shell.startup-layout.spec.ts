@@ -114,9 +114,10 @@ test("starts new users in a focused start center", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByLabel("Editor canvas")).toBeVisible();
   await expect(page.getByTestId("path-stage")).toBeVisible();
-  await expect(
-    page.getByText("Current Path: Phase 1 Canvas Draft"),
-  ).toBeVisible();
+  await expect(page.getByText("Current Path: Sample Path")).toBeVisible();
+  await expect(page.getByTestId("current-project-status")).toHaveText(
+    "Project: Sample Project",
+  );
   await expect(
     page.getByRole("region", { name: "Path Elements", exact: true }),
   ).toBeVisible();
@@ -728,7 +729,7 @@ for (const viewport of [
       page.getByRole("listbox", { name: "Toolbar path options" }),
     );
     await page
-      .getByRole("option", { name: "Phase 1 Canvas Draft", exact: true })
+      .getByRole("option", { name: "Sample Path", exact: true })
       .click();
     await expect(
       page.getByRole("listbox", { name: "Toolbar path options" }),
@@ -766,7 +767,7 @@ test("selects paths and operates the portrait toolbar with the keyboard", async 
     page.getByRole("listbox", { name: "Toolbar path options" }),
   );
   await page.keyboard.press("ArrowUp");
-  await expect(selector).toContainText("Phase 1 Canvas Draft");
+  await expect(selector).toContainText("Sample Path");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Tab");
   if (process.env.VITE_ENABLE_BUG_REPORT === "true") {

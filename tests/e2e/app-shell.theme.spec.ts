@@ -136,7 +136,7 @@ test.describe("shared theme across dialogs and nested controls", () => {
     await name.press("Enter");
     await nav
       .getByRole("button", {
-        name: "Connect to Phase 1 Canvas Draft",
+        name: "Connect to Sample Path",
         exact: true,
       })
       .click();

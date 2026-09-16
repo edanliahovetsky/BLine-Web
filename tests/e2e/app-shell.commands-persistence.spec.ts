@@ -111,7 +111,7 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
     page.getByRole("dialog", { name: "Delete Paths" }),
   ).toBeVisible();
 
-  await page.getByRole("checkbox", { name: "Phase 1 Canvas Draft" }).check();
+  await page.getByRole("checkbox", { name: "Sample Path" }).check();
   await expect(
     page.getByRole("button", { name: "Delete Selected", exact: true }),
   ).toBeEnabled();
@@ -124,9 +124,9 @@ test("selects and deletes a saved path without crashing", async ({ page }) => {
   );
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await page.getByLabel("Toolbar path").click();
-  await expect(
-    page.getByRole("option", { name: "Phase 1 Canvas Draft" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "Sample Path" })).toHaveCount(
+    0,
+  );
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Second Path",
   );

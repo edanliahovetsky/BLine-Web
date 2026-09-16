@@ -62,7 +62,7 @@ test("creates a Path inline from the File menu", async ({ page }) => {
   await expect(navigator.locator(".fc-paths .fc-name")).toHaveText([
     "Zebra File Menu Path",
     "Aardvark",
-    "Phase 1 Canvas Draft",
+    "Sample Path",
   ]);
   await expect(page.getByTestId("current-path-status")).toContainText(
     "Aardvark",
@@ -82,7 +82,7 @@ test("creates Path Groups and new Paths from the Project Navigator", async ({
 
   await createPathGroupFromTopMenu(page, "Score Autos");
   await expect(page.getByTestId("current-path-status")).toContainText(
-    "Score Autos / Phase 1 Canvas Draft",
+    "Score Autos / Sample Path",
   );
 
   const navigator = await openPathLibraryDialog(page);
@@ -104,7 +104,7 @@ test("creates Path Groups and new Paths from the Project Navigator", async ({
   );
 
   await expect(page.getByTestId("current-path-status")).toContainText(
-    "Score Autos / Phase 1 Canvas Draft",
+    "Score Autos / Sample Path",
   );
 
   await navigator
@@ -144,13 +144,13 @@ test("switches collected Paths and toggles Path Group canvas overlays", async ({
   await page.getByTestId("path-element-row-0").click();
   await page.getByLabel("X (m)").fill("6.8");
   await page.getByLabel("Y (m)").fill("2.8");
-  await selectToolbarOption(page, "Toolbar path", "Phase 1 Canvas Draft");
+  await selectToolbarOption(page, "Toolbar path", "Sample Path");
   const navigator = await openPathLibraryDialog(page);
   await navigator
     .getByRole("button", { name: "Focus Score Autos", exact: true })
     .click();
   await expect(page.getByTestId("current-path-status")).toContainText(
-    "Score Autos / Phase 1 Canvas Draft",
+    "Score Autos / Sample Path",
   );
 
   const compareToggle = page.getByRole("button", {
@@ -457,9 +457,9 @@ test("switches paths from the toolbar path selector", async ({ page }) => {
 
   await createNewPathFromTopMenu(page, "Second Path");
 
-  await selectToolbarOption(page, "Toolbar path", "Phase 1 Canvas Draft");
+  await selectToolbarOption(page, "Toolbar path", "Sample Path");
   await expect(page.getByTestId("current-path-status")).toContainText(
-    "Phase 1 Canvas Draft",
+    "Sample Path",
   );
   await selectToolbarOption(page, "Toolbar path", "Second Path");
   await expect(page.getByTestId("current-path-status")).toContainText(
@@ -589,7 +589,7 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
   const entries = parseStoredZip(await readFile(downloadPath));
   expect([...entries.keys()].sort()).toEqual([
     "autos/config.json",
-    "autos/paths/phase-1-canvas-draft.json",
+    "autos/paths/sample-path.json",
     "autos/project.json",
   ]);
   expect(JSON.parse(requiredZipText(entries, "autos/config.json"))).toEqual({
@@ -603,7 +603,7 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
     path_groups: [],
   });
   const exportedPath = JSON.parse(
-    requiredZipText(entries, "autos/paths/phase-1-canvas-draft.json"),
+    requiredZipText(entries, "autos/paths/sample-path.json"),
   ) as { path_elements?: unknown[] };
   expect(exportedPath).toMatchObject({
     path_elements: expect.any(Array),
@@ -786,7 +786,7 @@ test("File export saves the active path and import path round-trips it", async (
   await releaseSaveFilePicker(page);
   await expect.poll(() => savedFileCount(page)).toBe(1);
   const saved = await savedFile(page, 0);
-  expect(saved.suggestedName).toBe("phase-1-canvas-draft.json");
+  expect(saved.suggestedName).toBe("sample-path.json");
   expect(JSON.parse(saved.text)).toMatchObject({
     path_elements: expect.any(Array),
   });

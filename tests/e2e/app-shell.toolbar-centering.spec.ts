@@ -29,7 +29,7 @@ for (const zoom of [0.75, 0.9, 1, 1.1, 1.25, 1.5, 2]) {
         });
         await expect(menu).toBeInViewport({ ratio: 1 });
         await page
-          .getByRole("option", { name: "Phase 1 Canvas Draft", exact: true })
+          .getByRole("option", { name: "Sample Path", exact: true })
           .click();
         await expect(menu).toHaveCount(0);
       }

@@ -102,11 +102,7 @@ export function createNamedProject(
 }
 
 export function createSampleProject(now = new Date()) {
-  const project = createNamedProject(
-    "Phase 1 Canvas Draft",
-    "Phase 1 Canvas Draft",
-    now,
-  );
+  const project = createNamedProject("Sample Project", "Sample Path", now);
   return {
     ...project,
     paths: project.paths.map((path) => ({

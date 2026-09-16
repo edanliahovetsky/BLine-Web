@@ -6,7 +6,7 @@ import {
 } from "./support/app-shell-shared";
 import { openPathLibraryDialog } from "./support/app-shell-project-library";
 
-const sample = "Phase 1 Canvas Draft";
+const sample = "Sample Path";
 const focusName = (nav: Locator) => nav.getByTestId("path-library-focus-name");
 const focusCount = (nav: Locator) =>
   nav.getByTestId("path-library-focus-count");
