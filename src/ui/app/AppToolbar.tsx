@@ -300,6 +300,7 @@ export function AppToolbar({
           <div className="top-menu__separator" role="separator" />
           <MenuAction
             label="Settings"
+            dataTour="settings-menu-item"
             disabled={commands.settings.disabled}
             onAction={() => {
               fileMenuButtonRef.current?.focus();

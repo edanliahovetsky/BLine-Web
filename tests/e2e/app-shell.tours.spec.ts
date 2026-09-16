@@ -22,6 +22,7 @@ import {
 
 const lessonTitles = [
   "Getting Started",
+  "Robot Settings",
   "BLine Fundamentals",
   "Path Tuning",
   "Rotation targets",

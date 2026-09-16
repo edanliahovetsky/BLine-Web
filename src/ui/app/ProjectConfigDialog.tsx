@@ -45,6 +45,7 @@ const configSections = [
 type ConfigSectionId = (typeof configSections)[number]["id"];
 
 interface ProjectConfigDialogProps {
+  lessonMode?: boolean;
   config: ProjectConfig;
   autoSyncEnabled: boolean;
   fieldBackgrounds: readonly FieldBackgroundEntry[];
@@ -69,6 +70,7 @@ interface FieldDraft {
 }
 
 export function ProjectConfigDialog({
+  lessonMode = false,
   config,
   autoSyncEnabled,
   fieldBackgrounds,
@@ -210,9 +212,13 @@ export function ProjectConfigDialog({
   }, [onCancel, saving]);
 
   return (
-    <div className="config-dialog-backdrop" role="presentation">
+    <div
+      className={`config-dialog-backdrop${lessonMode ? " config-dialog-backdrop--lesson" : ""}`}
+      role="presentation"
+    >
       <form
         className="config-dialog"
+        data-tour="settings-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Edit Config"
@@ -333,7 +339,16 @@ function ConfigSection({
   children: ReactNode;
 }) {
   return (
-    <section className="config-dialog__section">
+    <section
+      className="config-dialog__section"
+      data-tour={
+        title === "Robot"
+          ? "settings-robot"
+          : title === "Path Defaults"
+            ? "settings-path-defaults"
+            : undefined
+      }
+    >
       <h2>{title}</h2>
       <div className="config-dialog__section-body">{children}</div>
     </section>

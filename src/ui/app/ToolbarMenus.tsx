@@ -601,6 +601,7 @@ export function MenuSubmenu({
 }
 
 export function MenuAction({
+  dataTour,
   label,
   shortcut,
   disabled = false,
@@ -610,6 +611,7 @@ export function MenuAction({
   shortcut?: ShortcutBinding;
   disabled?: boolean;
   onAction(): void;
+  dataTour?: string;
 }) {
   const shortcutLabel = shortcut ? formatShortcut(shortcut) : "";
   return (
@@ -617,6 +619,7 @@ export function MenuAction({
       type="button"
       role="menuitem"
       className="top-menu__item"
+      data-tour={dataTour}
       disabled={disabled}
       onClick={onAction}
     >

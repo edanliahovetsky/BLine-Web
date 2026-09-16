@@ -561,6 +561,7 @@ export function AppShell() {
       restoreView: (view) => {
         autoVelocityStore.setState({ autoSyncEnabled: view.autoSyncEnabled });
         setShowLinkedTargetsDialog(false);
+        setShowConfigDialog(false);
         setLinkedTargetPickerRequest(null);
         setOpenTopMenu(null);
         setShowPathGroupsDialog(view.navigatorOpen);
@@ -1673,6 +1674,21 @@ export function AppShell() {
       if (!currentProject || !ownedProjectSessionId) {
         return;
       }
+
+      if (tourStore.getState().activeTourId) {
+        // Practice settings must not persist field selections, uploaded images,
+        // or generator preferences under the captured real Project's id.
+        if (options.configChanged) {
+          state.applyConfigCommand(
+            createUpdateProjectConfigCommand(currentProject.config, nextConfig),
+          );
+        }
+        autoVelocityStore.setState({
+          autoSyncEnabled: options.autoSyncEnabled,
+        });
+        setShowConfigDialog(false);
+        return;
+      }
       if (configSaveInProgressRef.current) {
         throw new Error("Settings are already being saved");
       }
@@ -2532,6 +2548,7 @@ export function AppShell() {
       ) : null}
       {durableProject && showConfigDialog ? (
         <ProjectConfigDialog
+          lessonMode={Boolean(activeTourId)}
           autoSyncEnabled={autoSyncEnabled}
           config={durableProject.config}
           fieldBackgrounds={fieldBackgrounds}

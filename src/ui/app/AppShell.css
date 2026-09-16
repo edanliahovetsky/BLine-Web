@@ -6628,3 +6628,13 @@ body.is-resizing-inspector * {
 .tour-handoff pre {
   color: var(--bline-text-primary);
 }
+
+/* Keep settings practice and its lesson card visible together. */
+.config-dialog-backdrop--lesson {
+  justify-content: flex-end;
+  padding: 12px;
+}
+.config-dialog-backdrop--lesson .config-dialog {
+  width: calc(100vw - 340px);
+  max-width: 920px;
+}

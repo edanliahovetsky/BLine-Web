@@ -27,6 +27,7 @@ import {
   practiceConfig,
 } from "./tourScenario";
 import { checkPlan, feedback } from "./tourChecks";
+import { robotSettingsTour } from "./robotSettingsLesson";
 import { supplementalTours } from "./supplementalLessons";
 import {
   createManagementPaths,
@@ -833,6 +834,7 @@ export const eventTriggersTour: TourDefinition = {
 
 export const foundationalTours: readonly TourDefinition[] = [
   gettingStartedTour,
+  robotSettingsTour,
   fundamentalsTour,
   pathTuningTour,
   rotationTargetsTour,
