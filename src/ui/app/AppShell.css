@@ -278,6 +278,7 @@ select {
 
 .toolbar-actions .toolbar-select-control__option,
 .dropdown-select-control__option {
+  appearance: none;
   width: 100%;
   min-height: 30px;
   padding: 0 8px;
@@ -303,8 +304,12 @@ select {
 .dropdown-select-control__option.is-selected {
   border-color: var(--bline-border-accent);
   color: var(--bline-text-primary);
-  background: var(--bline-surface-selected);
-  box-shadow: inset 3px 0 0 var(--bline-accent);
+  background: linear-gradient(
+    to right,
+    var(--bline-accent) 3px,
+    var(--bline-surface-selected) 3px
+  );
+  box-shadow: none;
 }
 
 .dropdown-select-control__button .dropdown-select-control__value {
