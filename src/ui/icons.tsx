@@ -211,8 +211,12 @@ export function CurveIcon(props: IconProps) {
 
 export function ElementIcon({
   type,
+  legacyAppearance = false,
   ...props
-}: IconProps & { type: AddableElementType }) {
+}: IconProps & {
+  type: AddableElementType;
+  legacyAppearance?: boolean;
+}) {
   if (type === "event_trigger") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
@@ -236,6 +240,15 @@ export function ElementIcon({
         <circle cx="12" cy="12" r="6" />
         <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
         <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+
+  if (legacyAppearance) {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+        <path d="m12 8.5 3.5 7h-7z" strokeWidth={1.5} />
       </svg>
     );
   }

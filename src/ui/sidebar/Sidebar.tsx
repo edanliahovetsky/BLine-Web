@@ -501,6 +501,7 @@ export function Sidebar({
         >
           <ElementList
             path={activePath?.path ?? null}
+            legacyAppearance={project?.config.gui.robot.legacy_heading_marker}
             selectedElementIndex={selectedElementIndex}
             selectedElementIndexes={selectedElementIndexes}
             curveToolActive={curveToolActive}

@@ -645,6 +645,9 @@ export function ConstraintEditor({
                           >
                             <ElementIcon
                               type={constraintIconType(item.key)}
+                              legacyAppearance={
+                                config?.gui.robot.legacy_heading_marker
+                              }
                               size={22}
                             />
                             <span>{item.label}</span>

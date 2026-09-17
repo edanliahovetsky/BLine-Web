@@ -5,6 +5,7 @@ import { useFloatingMenu } from "./useFloatingMenu";
 
 interface AddElementMenuProps {
   disabled?: boolean;
+  legacyAppearance?: boolean;
   options: readonly AddableElementType[];
   onAdd(type: AddableElementType): void;
 }
@@ -18,6 +19,7 @@ const addOptions: Array<{ type: AddableElementType; label: string }> = [
 
 export function AddElementMenu({
   disabled = false,
+  legacyAppearance,
   options,
   onAdd,
 }: AddElementMenuProps) {
@@ -84,7 +86,10 @@ export function AddElementMenu({
                     aria-hidden="true"
                     className={`element-type-mark type-${option.type}`}
                   >
-                    <ElementIcon type={option.type} />
+                    <ElementIcon
+                      type={option.type}
+                      legacyAppearance={legacyAppearance}
+                    />
                   </span>
                   <span>{option.label}</span>
                 </button>

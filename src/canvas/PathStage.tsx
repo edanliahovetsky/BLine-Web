@@ -1883,6 +1883,9 @@ export function PathStage({
         <CanvasToolRail
           activeTool={activeTool}
           path={activePath?.path ?? null}
+          legacyAppearance={
+            durableProject?.config.gui.robot.legacy_heading_marker
+          }
           onToolChange={(tool) => {
             setPlacementPreview(null);
             onToolChange?.(tool);
@@ -1918,6 +1921,9 @@ export function PathStage({
           >
             <ElementIcon
               type={placementToolElementType(activeTool)}
+              legacyAppearance={
+                durableProject?.config.gui.robot.legacy_heading_marker
+              }
               size={18}
             />
           </div>
@@ -1985,10 +1991,12 @@ export function PathStage({
 function CanvasToolRail({
   activeTool,
   path,
+  legacyAppearance,
   onToolChange,
 }: {
   activeTool: EditorTool;
   path: PathModel | null;
+  legacyAppearance?: boolean;
   onToolChange(tool: EditorTool): void;
 }) {
   const anchorCount = path?.path_elements.filter(isAnchorElement).length ?? 0;
@@ -2057,7 +2065,11 @@ function CanvasToolRail({
           ) : tool === "curve" ? (
             <CurveIcon size={18} />
           ) : (
-            <ElementIcon type={placementToolElementType(tool)} size={18} />
+            <ElementIcon
+              type={placementToolElementType(tool)}
+              legacyAppearance={legacyAppearance}
+              size={18}
+            />
           )}
           <kbd>{shortcut}</kbd>
         </button>

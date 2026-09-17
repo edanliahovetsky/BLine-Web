@@ -26,6 +26,7 @@ import {
 
 interface ElementListProps {
   path: PathModel | null;
+  legacyAppearance?: boolean;
   selectedElementIndex: number | null;
   selectedElementIndexes: readonly number[];
   curveToolActive?: boolean;
@@ -39,6 +40,7 @@ interface ElementListProps {
 
 export function ElementList({
   path,
+  legacyAppearance,
   selectedElementIndex,
   selectedElementIndexes,
   curveToolActive = false,
@@ -201,7 +203,10 @@ export function ElementList({
                       aria-hidden="true"
                       className={`element-type-mark type-${type}`}
                     >
-                      <ElementIcon type={type} />
+                      <ElementIcon
+                        type={type}
+                        legacyAppearance={legacyAppearance}
+                      />
                     </span>
                     <span className="visually-hidden">
                       {index + 1}. {elementTypeLabel(element)}{" "}
@@ -273,6 +278,7 @@ export function ElementList({
       <div className="element-add-surface">
         <AddElementMenu
           disabled={!path || curveToolActive}
+          legacyAppearance={legacyAppearance}
           options={addableTypes}
           onAdd={onAddElement}
         />
