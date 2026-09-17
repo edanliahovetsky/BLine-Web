@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Plus, Zap } from "lucide-react";
+import { Plus } from "lucide-react";
 import { EventKeyInput } from "../controls/EventKeyInput";
 import { EventKeyMenu } from "../controls/EventKeyMenu";
 import "./EventTriggerSettings.css";
@@ -58,9 +58,14 @@ export function ProtrusionEventKeys({
     input?.select();
   };
   return (
-    <section className="protrusion-event-keys" aria-labelledby={headingId}>
+    <section
+      className={`config-row protrusion-event-keys${disabled ? " is-disabled" : ""}`}
+      aria-labelledby={headingId}
+    >
       <div className="event-keys-toolbar">
-        <h4 id={headingId}>{label}</h4>
+        <h4 id={headingId} className="config-row__label">
+          {label}
+        </h4>
         <button
           type="button"
           className="event-keys-add"
@@ -77,11 +82,15 @@ export function ProtrusionEventKeys({
           <Plus size={14} aria-hidden="true" />
         </button>
       </div>
-      <ul ref={listRef} className="event-keys-list" aria-label={label}>
+      <ul
+        ref={listRef}
+        className="event-keys-list"
+        aria-label={label}
+        hidden={draft.rows.length === 0}
+      >
         {draft.rows.map((row, index) => (
           <li key={row.id} data-key-row={row.id} className="event-key-row">
             <div className="event-key-row__main">
-              <Zap size={15} aria-hidden="true" />
               <EventKeyInput
                 ariaLabel={`${action} event key ${index + 1}`}
                 value={row.value}
@@ -128,9 +137,6 @@ export function ProtrusionEventKeys({
             </div>
           </li>
         ))}
-        {draft.rows.length === 0 && (
-          <li className="event-keys-empty">No event keys</li>
-        )}
       </ul>
     </section>
   );

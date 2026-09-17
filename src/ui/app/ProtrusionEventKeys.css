@@ -1,26 +1,51 @@
-.protrusion-event-keys {
+.config-row.protrusion-event-keys {
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
-  margin-top: 14px;
+}
+.protrusion-event-keys .event-keys-toolbar {
+  min-height: 26px;
+  margin: 0;
 }
 .protrusion-event-keys h4 {
   flex: 1;
   margin: 0;
-  font-size: 12px;
-  font-weight: 540;
+}
+.protrusion-event-keys .event-keys-add {
+  flex-basis: 28px;
+  height: 26px;
+  min-height: 26px;
+  background: var(--bline-surface-inset);
+}
+.protrusion-event-keys .event-keys-add:hover:not(:disabled) {
+  background: var(--bline-surface-hover);
+}
+.protrusion-event-keys .event-keys-list {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+.protrusion-event-keys .event-key-row + .event-key-row {
+  margin-top: 6px;
+  border: 0;
+}
+.protrusion-event-keys .event-key-row__main {
+  padding: 0;
 }
 .protrusion-event-keys .event-key-input {
   flex: 1;
-  font-size: 12px;
 }
 .protrusion-event-keys .event-key-input input {
-  height: 32px;
+  height: 30px;
   padding: 0 8px;
   border: 1px solid var(--bline-border-control);
   border-radius: var(--bline-radius-control);
   color: var(--bline-text-primary);
+  background: var(--bline-surface-inset);
   font: inherit;
 }
 .protrusion-event-keys .event-key-input__completion {
+  z-index: 1;
   padding: 0 9px;
 }
 .protrusion-event-keys .fc-more {
