@@ -117,7 +117,7 @@ test("fits the event key manager and persists the optional legacy marker at narr
   await gotoSampleEditor(page);
   await openProjectSettings(page);
   let dialog = page.getByRole("dialog", { name: "Edit Config" });
-  const toggle = page.getByLabel("Legacy heading triangle", { exact: true });
+  const toggle = page.getByLabel("Legacy appearance", { exact: true });
   await expect(toggle).not.toBeChecked();
   await toggle.check();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();

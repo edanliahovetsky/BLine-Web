@@ -846,6 +846,7 @@ export class PixiPathRenderer {
         protrusionVisible: false,
         protrusionDistanceMeters: 0,
         protrusionSide: "none",
+        legacyHeadingMarker: input.config?.gui.robot.legacy_heading_marker,
       });
     }
   }
@@ -925,6 +926,7 @@ export class PixiPathRenderer {
       protrusionVisible,
       (protrusions?.distance_meters ?? 0) * input.viewport.scale,
       protrusions?.side ?? "none",
+      input.config?.gui.robot.legacy_heading_marker ?? false,
     );
   }
 }
@@ -1380,17 +1382,22 @@ function drawRobotFootprint(
       },
       transform,
     );
-    if (!showHeadingHandle) return;
+  } else {
+    const center = transformLocalPoint(transform, 0, 0);
+    const centerRadius = metrics.centerRadius / 2;
+    drawOutlinedDot(graphics, center, centerRadius, accent, opacity);
+    if (mode === "rotation") {
+      const innerRadius = Math.max(0, centerRadius - elementOutlineWidthPx);
+      graphics
+        .circle(
+          center.x,
+          center.y,
+          innerRadius - Math.min(1.2, innerRadius / 2),
+        )
+        .fill({ color: 0x15181e, alpha: 0.95 * opacity });
+    }
   }
-  const center = transformLocalPoint(transform, 0, 0);
-  const centerRadius = metrics.centerRadius / 2;
-  drawOutlinedDot(graphics, center, centerRadius, accent, opacity);
-  if (mode === "rotation") {
-    const innerRadius = Math.max(0, centerRadius - elementOutlineWidthPx);
-    graphics
-      .circle(center.x, center.y, innerRadius - Math.min(1.2, innerRadius / 2))
-      .fill({ color: 0x15181e, alpha: 0.95 * opacity });
-  }
+  if (!showHeadingHandle) return;
   const front = transformLocalPoint(
     transform,
     outline.rect.x + outline.rect.width,
@@ -1593,6 +1600,7 @@ function drawSimulationRobot(
   protrusionVisible: boolean,
   protrusionDistancePx: number,
   protrusionSide: DrawNodeInput["protrusionSide"],
+  legacyHeadingMarker: boolean,
 ): void {
   const pulse = Math.max(0, Math.min(1, eventPulse));
   const accent = mixRgbColor(simulationRobotColor, simulationEventColor, pulse);
@@ -1610,6 +1618,7 @@ function drawSimulationRobot(
     0.75,
     false,
     pulse,
+    legacyHeadingMarker,
   );
 }
 

@@ -727,7 +727,7 @@ function RobotSettingsSection({
 
       <ConfigSubsection title="Appearance">
         <CheckboxRow
-          label="Legacy heading triangle"
+          label="Legacy appearance"
           checked={draft.gui.robot.legacy_heading_marker ?? false}
           onChange={(checked) =>
             setDraft((current) => ({
@@ -739,10 +739,6 @@ function RobotSettingsSection({
             }))
           }
         />
-        <p className="config-section-help">
-          Use the earlier forward-pointing triangle on the canvas. The heading
-          handle appears when you hover over the front edge.
-        </p>
       </ConfigSubsection>
       <ConfigSubsection title="Protrusions">
         <CheckboxRow
