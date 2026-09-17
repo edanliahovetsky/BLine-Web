@@ -4,6 +4,45 @@ import { gotoSampleEditor, requiredBox } from "./support/app-shell-shared";
 import { openEditMenu } from "./support/app-shell-project-library";
 import { runEditMenuAction } from "./support/app-shell-commands";
 
+test("keeps hand and rotation cursors when the pointer moves during field loading @webkit-canvas", async ({
+  page,
+}) => {
+  let releaseField!: () => void;
+  let fieldRequested!: () => void;
+  const fieldGate = new Promise<void>((resolve) => {
+    releaseField = resolve;
+  });
+  const requested = new Promise<void>((resolve) => {
+    fieldRequested = resolve;
+  });
+  await page.route(/\/field26\.png(?:\?.*)?$/, async (route) => {
+    if (route.request().resourceType() !== "image") {
+      await route.continue();
+      return;
+    }
+    fieldRequested();
+    await fieldGate;
+    await route.continue();
+  });
+  try {
+    await gotoSampleEditor(page);
+    await requested;
+    // Pixi listens to document pointer events while the texture is pending.
+    await page.mouse.move(10, 10);
+  } finally {
+    releaseField();
+  }
+  const canvas = page.getByTestId("path-stage-pixi-canvas");
+  await expect(canvas).toBeVisible();
+  const box = await requiredBox(page.getByTestId("path-stage-canvas"));
+  const center = await canvasNodePosition(page, "path-element-node-0");
+  const front = await canvasNodePosition(page, "path-element-front-0");
+  await page.mouse.move(box.x + center.x, box.y + center.y);
+  await expect(canvas).toHaveCSS("cursor", "grab");
+  await page.mouse.move(box.x + front.x, box.y + front.y);
+  await expect(canvas).toHaveCSS("cursor", /url\(.+\) 14 14, crosshair/);
+});
+
 for (const tool of [
   "Select",
   "Waypoint",
@@ -34,8 +73,11 @@ for (const tool of [
         page,
         `path-element-node-${index}`,
       );
+      const paintedCanvas = page.getByTestId("path-stage-pixi-canvas");
       await page.mouse.move(box.x + start.x, box.y + start.y);
+      await expect(paintedCanvas).toHaveCSS("cursor", "grab");
       await page.mouse.down();
+      await expect(paintedCanvas).toHaveCSS("cursor", "grabbing");
       await page.mouse.move(box.x + start.x + 46, box.y + start.y - 28, {
         steps: 8,
       });
@@ -50,6 +92,12 @@ for (const tool of [
       await expect(x).toHaveValue(beforeX);
       await expect(rows).toHaveCount(count);
       await page.mouse.up();
+      await expect(paintedCanvas).toHaveCSS("cursor", "grab");
+      await page.mouse.move(box.x + box.width - 40, box.y + box.height / 2);
+      await expect(paintedCanvas).toHaveCSS(
+        "cursor",
+        tool === "Select" ? "grab" : "crosshair",
+      );
       await expect(x).not.toHaveValue(beforeX);
       const afterX = await x.inputValue();
       await expect(button).toHaveAttribute("aria-pressed", "true");
@@ -67,6 +115,57 @@ for (const tool of [
       await expect(rows).toHaveCount(count);
     });
   }
+
+  test(`shows the rotate cursor and turns a waypoint with ${tool} tool @webkit-canvas`, async ({
+    page,
+  }) => {
+    await gotoSampleEditor(page);
+    const toolButton = page.getByRole("button", {
+      name: `${tool} tool`,
+      exact: true,
+    });
+    await toolButton.click();
+    const host = page.getByTestId("path-stage-canvas");
+    const paintedCanvas = page.getByTestId("path-stage-pixi-canvas");
+    const box = await requiredBox(host);
+    const center = await canvasNodePosition(page, "path-element-node-0");
+    const front = await canvasNodePosition(page, "path-element-front-0");
+    const rotationCursor = /url\(.+\) 14 14, crosshair/;
+    await page.mouse.move(box.x + front.x, box.y + front.y);
+    await expect(paintedCanvas).toHaveCSS("cursor", rotationCursor);
+    await page.mouse.down();
+    await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
+    // Leave the footprint while rotating; pointer capture must keep its cursor.
+    await page.mouse.move(box.x + center.x, box.y + center.y - 65, {
+      steps: 8,
+    });
+    await expect(paintedCanvas).toHaveCSS("cursor", rotationCursor);
+    await page.mouse.up();
+    // WebKit rounds mouse coordinates to CSS pixels at this zoom.
+    await expect
+      .poll(async () =>
+        Math.abs(
+          Number(await page.getByLabel("Rotation (deg)").inputValue()) - 90,
+        ),
+      )
+      .toBeLessThan(1);
+    await expect(toolButton).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.locator('[data-testid^="path-element-row-"]'),
+    ).toHaveCount(6);
+    expect(
+      pointDistance(
+        center,
+        await canvasNodePosition(page, "path-element-node-0"),
+      ),
+    ).toBeLessThan(0.5);
+    await expect(paintedCanvas).toHaveCSS(
+      "cursor",
+      tool === "Select" ? "grab" : "crosshair",
+    );
+    await runEditMenuAction(page, "Undo");
+    await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
+  });
 
   test(`Escape cancels a center drag with ${tool} tool`, async ({ page }) => {
     await gotoSampleEditor(page);
@@ -164,6 +263,23 @@ for (const index of [0, 1]) {
       await expect(
         page.locator('[data-testid^="path-element-row-"]'),
       ).toHaveCount(6);
+      if (index === 0) {
+        const front = await canvasNodePosition(page, "path-element-front-0");
+        await page.mouse.move(box.x + front.x, box.y + front.y);
+        await expect(page.getByTestId("path-stage-pixi-canvas")).not.toHaveCSS(
+          "cursor",
+          /url\(/,
+        );
+        await page.mouse.down();
+        await page.mouse.move(box.x + start.x, box.y + start.y - 65, {
+          steps: 6,
+        });
+        await page.mouse.up();
+        await expect(page.getByLabel("Rotation (deg)")).toHaveValue("45");
+        await expect(
+          page.locator('[data-testid^="path-element-row-"]'),
+        ).toHaveCount(6);
+      }
     }
   });
 }

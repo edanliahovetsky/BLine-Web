@@ -266,10 +266,6 @@ export function PathStage({
     useState<ActiveCurveDraft | null>(null);
   const [dragPreview, setDragPreview] =
     useState<PositionOverrides>(emptyPreview);
-  const [rotationHover, setRotationHover] = useState<{
-    pathId: string;
-    index: number;
-  } | null>(null);
   const [pointerPosition, setPointerPosition] = useState<StagePoint | null>(
     null,
   );
@@ -774,9 +770,60 @@ export function PathStage({
     selectedElementIndex !== null,
     canvasInteractionActive || hideSelectionOutline,
   );
+  // Resolve hover and pointer-down through the same handle hit test so a
+  // placement crosshair never masks an existing move/rotate interaction.
+  const hoveredHandle = useMemo(
+    () =>
+      pointerPosition &&
+      activePath &&
+      durableProject &&
+      !lockedGeometry &&
+      !canvasInteractionActive
+        ? hitTestPathHandle(
+            activePath.path,
+            durableProject.config,
+            selectedElementIndex,
+            viewport,
+            positionPreview,
+            rotationPreview,
+            pointerPosition,
+            activeTool,
+          )
+        : null,
+    [
+      pointerPosition,
+      activePath,
+      durableProject,
+      lockedGeometry,
+      canvasInteractionActive,
+      selectedElementIndex,
+      viewport,
+      positionPreview,
+      rotationPreview,
+      activeTool,
+    ],
+  );
+  const hoveredHandleElement = hoveredHandle
+    ? activePath?.path.path_elements[hoveredHandle.index]
+    : undefined;
+  const hoveredHandleLink =
+    hoveredHandleElement && durableProject
+      ? linkedTargetForElement(durableProject, hoveredHandleElement)
+      : null;
+  const hoveredHandleLocked = Boolean(
+    hoveredHandleLink?.locked &&
+    hoveredHandleElement &&
+    (hoveredHandle?.kind === "position" ||
+      linkedTargetControlsElementRotation(
+        hoveredHandleElement,
+        hoveredHandleLink,
+      )),
+  );
   const hoveredRotationIndex =
     activeRotationDrag?.index ??
-    (rotationHover?.pathId === activePathId ? rotationHover.index : null);
+    (hoveredHandle?.kind === "rotation" && !hoveredHandleLocked
+      ? hoveredHandle.index
+      : null);
   const curvePreview: CurveAuthoringPreview | null = useMemo(
     () =>
       activeCurveDraft
@@ -1198,7 +1245,6 @@ export function PathStage({
     }
 
     setContextMenu(null);
-    setRotationHover(null);
     containerRef.current?.focus();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1218,76 +1264,7 @@ export function PathStage({
       return;
     }
 
-    // Existing anchor centers stay draggable with every authoring tool.
-    // Use the visible topmost element so overlaps retain their selection order.
-    const centerHit = hitTestPathElement(
-      activePath.path,
-      durableProject.config,
-      viewport,
-      positionPreview,
-      pointer,
-      selectedElementIndex,
-    );
-    if (centerHit !== null) {
-      const element = activePath.path.path_elements[centerHit];
-      const position = getElementPosition(
-        activePath.path.path_elements,
-        centerHit,
-        positionPreview,
-      );
-      if (isAnchorElement(element) && position) {
-        const center = modelToStagePoint(position, viewport);
-        const robot = robotSizeFromConfig(durableProject.config);
-        const radius = isWaypoint(element)
-          ? Math.min(
-              12,
-              Math.max(
-                3,
-                (Math.min(robot.lengthMeters, robot.widthMeters) *
-                  viewport.scale) /
-                  4,
-              ),
-            )
-          : 12;
-        if (Math.hypot(pointer.x - center.x, pointer.y - center.y) <= radius) {
-          setPlacementPreview(null);
-          beginElementDrag(centerHit, pointer, event.pointerId);
-          return;
-        }
-      }
-    }
-
-    if (curveTool) {
-      const sample = stageToModelPoint(pointer, viewport);
-      setActiveCurveDraft({
-        pointerId: event.pointerId,
-        insertionIndex: curveTool.insertionIndex,
-        samples: [sample],
-        targetPoints: curveTargetPointsForSamples(
-          activePath.path,
-          durableProject.config,
-          curveTool.insertionIndex,
-          [sample],
-        ),
-      });
-      return;
-    }
-
-    if (isPlacementTool(activeTool)) {
-      const placement = placementForPointer(
-        activePath.path,
-        activeTool,
-        pointer,
-        viewport,
-      );
-      setPlacementPreview({ point: pointer, placement });
-      if (placement) {
-        onPlaceElement?.(placement);
-      }
-      return;
-    }
-
-    const rotationHit = hitTestRotationHandle(
+    const handle = hitTestPathHandle(
       activePath.path,
       durableProject.config,
       selectedElementIndex,
@@ -1295,8 +1272,16 @@ export function PathStage({
       positionPreview,
       rotationPreview,
       pointer,
+      activeTool,
     );
+    if (handle?.kind === "position") {
+      setPlacementPreview(null);
+      beginElementDrag(handle.index, pointer, event.pointerId);
+      return;
+    }
+    const rotationHit = handle?.kind === "rotation" ? handle.index : null;
     if (rotationHit !== null) {
+      setPlacementPreview(null);
       selectionStore.getState().selectElement(rotationHit, activePath.path);
       const element = activePath.path.path_elements[rotationHit];
       const linkedTarget = linkedTargetForElement(durableProject, element);
@@ -1330,16 +1315,30 @@ export function PathStage({
       return;
     }
 
-    const nodeHit = hitTestPathElement(
-      activePath.path,
-      durableProject.config,
-      viewport,
-      positionPreview,
-      pointer,
-      selectedElementIndex,
-    );
-    if (nodeHit !== null) {
-      beginElementDrag(nodeHit, pointer, event.pointerId);
+    if (curveTool) {
+      const sample = stageToModelPoint(pointer, viewport);
+      setActiveCurveDraft({
+        pointerId: event.pointerId,
+        insertionIndex: curveTool.insertionIndex,
+        samples: [sample],
+        targetPoints: curveTargetPointsForSamples(
+          activePath.path,
+          durableProject.config,
+          curveTool.insertionIndex,
+          [sample],
+        ),
+      });
+      return;
+    }
+    if (isPlacementTool(activeTool)) {
+      const placement = placementForPointer(
+        activePath.path,
+        activeTool,
+        pointer,
+        viewport,
+      );
+      setPlacementPreview({ point: pointer, placement });
+      if (placement) onPlaceElement?.(placement);
       return;
     }
 
@@ -1363,33 +1362,12 @@ export function PathStage({
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (isCanvasChromeEventTarget(event.target)) {
-      setRotationHover(null);
       setPointerPosition(null);
       return;
     }
 
     const pointer = stagePointFromEvent(event);
     setPointerPosition(pointer);
-    if (
-      activePath &&
-      isPlacementTool(activeTool) &&
-      !activeDragRef.current &&
-      !activeRotationDragRef.current
-    ) {
-      setPlacementPreview({
-        point: pointer,
-        placement: placementForPointer(
-          activePath.path,
-          activeTool,
-          pointer,
-          viewport,
-        ),
-      });
-      setHoveredOverlayPathId(null);
-      setHoveredOverlayPoint(null);
-      return;
-    }
-
     const curveDraft = activeCurveDraftRef.current;
     if (
       curveDraft &&
@@ -1474,12 +1452,9 @@ export function PathStage({
 
     const panDrag = activePanDragRef.current;
     if (!panDrag || panDrag.pointerId !== event.pointerId) {
-      const hit =
-        activePath &&
-        durableProject &&
-        !lockedGeometry &&
-        !canvasInteractionActive
-          ? hitTestRotationHandle(
+      const handle =
+        activePath && durableProject && !canvasInteractionActive
+          ? hitTestPathHandle(
               activePath.path,
               durableProject.config,
               selectedElementIndex,
@@ -1487,28 +1462,24 @@ export function PathStage({
               positionPreview,
               rotationPreview,
               pointer,
+              activeTool,
             )
           : null;
-      const element =
-        hit !== null ? activePath?.path.path_elements[hit] : undefined;
-      const linked =
-        element && durableProject
-          ? linkedTargetForElement(durableProject, element)
-          : null;
-      const canRotate =
-        hit !== null &&
-        !(
-          element &&
-          linked?.locked &&
-          linkedTargetControlsElementRotation(element, linked)
-        );
-      setRotationHover(
-        canRotate && activePath
-          ? { pathId: activePath.path_id, index: hit }
+      setPlacementPreview(
+        activePath && isPlacementTool(activeTool) && !handle && !lockedGeometry
+          ? {
+              point: pointer,
+              placement: placementForPointer(
+                activePath.path,
+                activeTool,
+                pointer,
+                viewport,
+              ),
+            }
           : null,
       );
       const overlayHit =
-        activePath && !canvasInteractionActive && !canRotate
+        activeTool === "select" && !canvasInteractionActive && !handle
           ? hitTestOverlayPath(overlayPaths, viewport, pointer)
           : null;
       setHoveredOverlayPathId(overlayHit?.pathId ?? null);
@@ -1880,6 +1851,10 @@ export function PathStage({
         className={[
           "path-stage__canvas",
           isPanning ? "is-panning" : "",
+          hoveredHandle?.kind === "position" && !hoveredHandleLocked
+            ? "is-position-target"
+            : "",
+          activeDrag ? "is-position-dragging" : "",
           curveTool ? "is-curve-tool" : "",
           isPlacementTool(activeTool) ? "is-placement-tool" : "",
           hoveredOverlayPath ? "has-ghost-hover" : "",
@@ -1897,7 +1872,6 @@ export function PathStage({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onPointerLeave={() => {
-          setRotationHover(null);
           setPointerPosition(null);
           if (!activeDragRef.current && !activeCurveDraftRef.current) {
             setPlacementPreview(null);
@@ -2074,7 +2048,7 @@ function CanvasToolRail({
           title={
             disabled
               ? `${label} needs two path elements`
-              : `${label} tool (${shortcut}) — ${tool === "waypoint" ? "Place a robot position and heading" : tool === "translation" ? "Place a position target without changing heading" : tool === "select" ? "Select elements or drag empty space to pan" : tool === "rotation" ? "Set a heading along the path" : tool === "event" ? "Trigger an action along the path" : "Draw a sequence of position targets"}. Drag any existing position center to move it.`
+              : `${label} tool (${shortcut}) — ${tool === "waypoint" ? "Place a robot position and heading" : tool === "translation" ? "Place a position target without changing heading" : tool === "select" ? "Select elements or drag empty space to pan" : tool === "rotation" ? "Set a heading along the path" : tool === "event" ? "Trigger an action along the path" : "Draw a sequence of position targets"}. Drag any existing position center to move it; drag a robot's front edge to rotate.`
           }
           onClick={() => onToolChange(tool)}
         >
@@ -2582,7 +2556,7 @@ function modelPointDistance(first: PointMeters, second: PointMeters): number {
   );
 }
 
-function hitTestRotationHandle(
+function hitTestPathHandle(
   path: PathModel,
   config: ProjectConfig,
   selectedElementIndex: number | null,
@@ -2590,7 +2564,8 @@ function hitTestRotationHandle(
   positionPreview: PositionOverrides,
   rotationPreview: RotationOverrides,
   pointer: StagePoint,
-): number | null {
+  tool: EditorTool,
+): { kind: "position" | "rotation"; index: number } | null {
   // Respect the same visual stacking as normal selection, including overlapping nodes.
   const index = hitTestPathElement(
     path,
@@ -2602,29 +2577,49 @@ function hitTestRotationHandle(
   );
   if (index === null) return null;
   const element = path.path_elements[index];
-  if (!isWaypoint(element) && !isRotationTarget(element)) return null;
   const position = getElementPosition(
     path.path_elements,
     index,
     positionPreview,
   );
-  const heading = getElementHeadingRadians(
-    path.path_elements,
-    index,
-    rotationPreview,
-    positionPreview,
-  );
-  if (!position || heading === null) return null;
+  if (!position) return null;
+  const center = modelToStagePoint(position, viewport);
   const size = robotSizeFromConfig(config);
-  return hitTestRobotFrontFace(
-    modelToStagePoint(position, viewport),
-    pointer,
-    size.lengthMeters * viewport.scale,
-    size.widthMeters * viewport.scale,
-    heading,
+  // Center dragging takes priority when zoomed-out handle regions overlap.
+  const centerRadius = isWaypoint(element)
+    ? Math.min(
+        12,
+        Math.max(
+          3,
+          (Math.min(size.lengthMeters, size.widthMeters) * viewport.scale) / 4,
+        ),
+      )
+    : 12;
+  if (
+    isAnchorElement(element) &&
+    pointDistance(center, pointer) <= centerRadius
   )
-    ? index
-    : null;
+    return { kind: "position", index };
+  if (isWaypoint(element) || isRotationTarget(element)) {
+    const heading = getElementHeadingRadians(
+      path.path_elements,
+      index,
+      rotationPreview,
+      positionPreview,
+    );
+    if (
+      heading !== null &&
+      hitTestRobotFrontFace(
+        center,
+        pointer,
+        size.lengthMeters * viewport.scale,
+        size.widthMeters * viewport.scale,
+        heading,
+      )
+    )
+      return { kind: "rotation", index };
+  }
+  return tool === "select" ? { kind: "position", index } : null;
 }
 
 function hitTestPathElement(

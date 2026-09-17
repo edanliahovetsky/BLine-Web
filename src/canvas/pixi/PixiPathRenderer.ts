@@ -192,6 +192,9 @@ export class PixiPathRenderer {
     // React handles canvas interaction; keep Pixi's default cursor from
     // overwriting the CSS rotation, placement, and pan cursors.
     this.app.renderer.events.cursorStyles.default = () => {};
+    // Pointer events can arrive while create() awaits the field texture, before
+    // this override exists. Clear any inline cursor Pixi already applied then.
+    this.app.canvas.style.removeProperty("cursor");
     this.field = field;
     this.fieldSprite = new Sprite(fieldTexture ?? Texture.EMPTY);
     this.app.canvas.dataset.testid = "path-stage-pixi-canvas";
