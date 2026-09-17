@@ -1675,6 +1675,7 @@ export function AppShell() {
       options: {
         autoSyncEnabled: boolean;
         selectedFieldId: string;
+        eventKeyEdits?: EventKeyEdit[];
       },
     ) => {
       const state = projectStore.getState();
@@ -1689,7 +1690,11 @@ export function AppShell() {
           },
         },
       };
-      if (JSON.stringify(config) !== JSON.stringify(state.project.config)) {
+      if (options.eventKeyEdits?.length) {
+        state.applySettings(config, options.eventKeyEdits);
+      } else if (
+        JSON.stringify(config) !== JSON.stringify(state.project.config)
+      ) {
         state.applyConfigCommand(
           createUpdateProjectConfigCommand(state.project.config, config),
         );

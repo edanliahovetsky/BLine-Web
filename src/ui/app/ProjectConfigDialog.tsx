@@ -68,6 +68,7 @@ interface ProjectConfigDialogProps {
     options: {
       autoSyncEnabled: boolean;
       selectedFieldId: string;
+      eventKeyEdits?: EventKeyEdit[];
     },
   ): void;
   onCancel(): void;
@@ -372,6 +373,14 @@ export function ProjectConfigDialog({
                   config={draft}
                   edits={eventKeyEdits}
                   onChange={(config, edits) => {
+                    if (walkthrough) {
+                      onWalkthroughChange?.(config, {
+                        autoSyncEnabled: draftAutoSyncEnabled,
+                        selectedFieldId: fieldDraft.selectedFieldId,
+                        eventKeyEdits: edits,
+                      });
+                      return;
+                    }
                     setDraft(config);
                     setEventKeyEdits(edits);
                   }}

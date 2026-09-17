@@ -67,7 +67,12 @@ export interface TourStep {
   body: string;
   describe?(): string;
   /** Keep Settings open with edits applied to the isolated practice project. */
-  settingsSection?: "robot" | "path-defaults" | "field" | "optimizer";
+  settingsSection?:
+    | "robot"
+    | "path-defaults"
+    | "field"
+    | "optimizer"
+    | "event-triggers";
   /** Start on another section when the learner must navigate to this one. */
   settingsNavigateFrom?: TourStep["settingsSection"];
   /** Optional further reading shown inside the lesson card. */

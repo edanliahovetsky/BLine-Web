@@ -556,12 +556,13 @@ test("moves rotation targets, tests both heading modes, and shows the fast-turn 
   await finish(page);
 });
 
-test("slides an event and creates the requested key on a different segment", async ({
+test("slides events and reuses keys from the trigger manager @webkit-canvas", async ({
   page,
-}) => {
+}, testInfo) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1280, height: 800 });
   await gotoSampleEditor(page);
+  const before = await practice(page);
   await openLesson(page, "Event triggers");
   await heading(page, "Slide an event trigger");
   await dragField(page, [6.8, 3.8], [7.4, 4.4]);
@@ -590,6 +591,85 @@ test("slides an event and creates the requested key on a different segment", asy
   await eventPulse;
   await expect(advanceButton(page)).toBeVisible({ timeout: 20_000 });
   await advance(page);
+  await heading(page, "Open the trigger manager");
+  await expect(advanceButton(page)).toHaveCount(0);
+  const settings = page.getByRole("dialog", { name: "Edit Config" });
+  await settings
+    .getByRole("button", { name: "Event Triggers", exact: true })
+    .click();
+  await advance(page);
+  await heading(page, "Register a Lib Key");
+  await expect(advanceButton(page)).toHaveCount(0);
+  await expect(settings).not.toContainText("Lib Keys are saved");
+  await expect(settings).not.toContainText("Changes apply");
+  const addKey = page.getByRole("button", { name: "Add new", exact: true });
+  await expect(addKey).toHaveText("");
+  await addKey.click();
+  await page.getByLabel("New Lib Key", { exact: true }).fill("stopIntake");
+  await page.getByRole("button", { name: "Save Lib Key", exact: true }).click();
+  await advance(page);
+  await heading(page, "Find a registered key");
+  const search = page.getByLabel("Search event triggers", { exact: true });
+  await expect(search).not.toHaveAttribute("placeholder");
+  await search.fill("stop");
+  await expect(page.locator(".event-key-row")).toHaveCount(1);
+  await expect(advanceButton(page)).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("trigger-manager-lesson.png"),
+  });
+  await page.setViewportSize({ width: 560, height: 720 });
+  await dismissMobileSupportWarning(page);
+  await auditLayout(page);
+  await expect(search).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath("trigger-manager-lesson-narrow.png"),
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await advance(page);
+  await heading(page, "Manage registered keys");
+  await expect(advanceButton(page)).toHaveCount(0);
+  await page
+    .getByRole("button", {
+      name: "Event trigger actions for stopIntake",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("menuitem", { name: "Rename All", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Duplicate", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Delete", exact: true }),
+  ).toBeVisible();
+  await expect(advanceButton(page)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await heading(page, "Manage registered keys");
+  // Manager edits in a lesson update only the practice project, including
+  // existing event instances. Repeating edits must not replay earlier ones.
+  for (const [from, to] of [
+    ["startIntake", "collect"],
+    ["collect", "startIntake"],
+  ]) {
+    await page
+      .getByRole("button", {
+        name: `Event trigger actions for ${from}`,
+        exact: true,
+      })
+      .click();
+    await page
+      .getByRole("menuitem", { name: "Rename All", exact: true })
+      .click();
+    await page.getByLabel("Replacement Lib Key", { exact: true }).fill(to);
+    await page
+      .getByRole("button", { name: "Save Lib Key", exact: true })
+      .click();
+    expect((await practice(page)).path.path_elements[1]).toMatchObject({
+      lib_key: to,
+    });
+  }
+  await advance(page);
   await heading(page, "Add an event on the next segment");
   await place(page, "Event", 12.6, 3.9);
   await setNumber(page, "Event Pos (0-1)", "0.6");
@@ -597,8 +677,15 @@ test("slides an event and creates the requested key on a different segment", asy
   await key.fill("wrongKey");
   await key.press("Tab");
   await expect(advanceButton(page)).toHaveCount(0);
-  await key.fill("stopIntake");
+  await key.fill("stop");
+  await expect(
+    page.getByRole("option", { name: "stopIntake", exact: true }),
+  ).toBeVisible();
   await key.press("Tab");
+  await expect(key).toHaveValue("stopIntake");
+  // Pointer selection also works through the lesson's interaction shield.
+  await key.fill("stop");
+  await page.getByRole("option", { name: "stopIntake", exact: true }).click();
   await advance(page);
   await heading(page, "Try both events");
   const elements = (await practice(page)).path.path_elements;
@@ -612,6 +699,8 @@ test("slides an event and creates the requested key on a different segment", asy
   expect(elements[3]).toMatchObject({ lib_key: "stopIntake", t_ratio: 0.6 });
   await playAndInspect(page);
   await finish(page);
+  expect((await practice(page)).config).toEqual(before.config);
+  expect((await practice(page)).path).toEqual(before.path);
 });
 
 test("restores the user's path, field, tab, and clean practice on reopening", async ({

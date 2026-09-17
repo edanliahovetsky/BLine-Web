@@ -136,6 +136,7 @@ export function EventKeyInput({
             id={id}
             role="listbox"
             aria-label="Registered event triggers"
+            data-tour="event-key-options"
             className="dropdown-select-control__menu event-key-options"
             style={position}
           >

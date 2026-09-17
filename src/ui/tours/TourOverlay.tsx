@@ -427,7 +427,7 @@ export function TourOverlay({
         // Let an editor popup consume Escape before the lesson sees it.
         if (
           document.querySelector(
-            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"]:not([data-walkthrough]), .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
+            '[data-tour="constraint-popout"], [data-tour="element-add-menu"], [data-tour="element-link-menu"], [data-tour="element-type-menu"], [data-tour="event-key-menu"], [data-tour="event-key-options"], [data-tour="project-navigator"], [data-tour="linked-elements-dialog"], [data-tour="settings-dialog"]:not([data-walkthrough]), .top-menu__panel, [data-tour="path-breadcrumb"] [role="listbox"], [role="dialog"][aria-label="Path health"]',
           )
         )
           return;
