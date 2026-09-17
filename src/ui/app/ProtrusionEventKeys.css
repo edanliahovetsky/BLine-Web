@@ -11,9 +11,7 @@
   margin: 0;
 }
 .protrusion-event-keys .event-keys-add {
-  flex-basis: 28px;
-  height: 26px;
-  min-height: 26px;
+  --event-key-button-size: 28px;
   background: var(--bline-surface-inset);
 }
 .protrusion-event-keys .event-keys-add:hover:not(:disabled) {
