@@ -1,3 +1,4 @@
+import { pathNameError } from "../../core/model/projectIdentity";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, FolderOpen, Trash2 } from "lucide-react";
 import type { ProjectPath, ProjectPathGroup } from "../../core/model/project";
@@ -124,6 +125,7 @@ export function CreateProjectDialog({
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const [projectName, setProjectName] = useState("My Robot Project");
   const [pathName, setPathName] = useState("Path 1");
+  const nameError = pathNameError(pathName);
 
   useEffect(() => {
     projectInputRef.current?.focus();
@@ -146,6 +148,7 @@ export function CreateProjectDialog({
         }}
         onSubmit={(event) => {
           event.preventDefault();
+          if (nameError) return;
           onCreate({
             projectName: projectName.trim() || "Untitled Project",
             pathName: pathName.trim() || "Path 1",
@@ -171,16 +174,22 @@ export function CreateProjectDialog({
             <span>First path</span>
             <input
               aria-label="First path name"
+              aria-invalid={Boolean(nameError)}
               type="text"
               value={pathName}
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => setPathName(event.currentTarget.value)}
             />
           </label>
+          {nameError && <p role="alert">{nameError}</p>}
         </section>
         <footer className="project-dialog__footer">
           <ActionButton onClick={onCancel}>Cancel</ActionButton>
-          <ActionButton type="submit" tone="primary">
+          <ActionButton
+            type="submit"
+            tone="primary"
+            disabled={Boolean(nameError)}
+          >
             Done
           </ActionButton>
         </footer>
@@ -317,6 +326,7 @@ export function NameEntryDialog({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [displayName, setDisplayName] = useState(initialValue);
   const normalizedName = displayName.trim();
+  const nameError = pathNameError(normalizedName);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -339,7 +349,7 @@ export function NameEntryDialog({
         }}
         onSubmit={(event) => {
           event.preventDefault();
-          if (normalizedName) {
+          if (normalizedName && !nameError) {
             onSubmit(normalizedName);
           }
         }}
@@ -365,6 +375,7 @@ export function NameEntryDialog({
               onChange={(event) => setDisplayName(event.currentTarget.value)}
             />
           </label>
+          {nameError && <p role="alert">{nameError}</p>}
         </section>
         <footer className="config-dialog__footer">
           <button type="button" onClick={onCancel}>
@@ -373,7 +384,7 @@ export function NameEntryDialog({
           <button
             type="submit"
             className="primary-dialog-action"
-            disabled={!normalizedName}
+            disabled={!normalizedName || Boolean(nameError)}
           >
             {submitLabel}
           </button>
@@ -821,6 +832,9 @@ export function SaveFailureDialog({
 }) {
   const ref = useDialogFocusTrap<HTMLElement>();
   const [exporting, setExporting] = useState(false);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [ref]);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   return (
     <div
@@ -843,7 +857,7 @@ export function SaveFailureDialog({
         <header className="project-dialog__header">
           <h2 id="save-failure-title">Unable to save this project</h2>
           <CloseButton
-            ariaLabel="Keep editing"
+            ariaLabel="Close save recovery"
             onClick={() => onChoose("cancel")}
           />
         </header>

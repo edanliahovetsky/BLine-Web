@@ -1,3 +1,6 @@
+import { projectEventKeys } from "../../../core/model/eventKeys";
+import { projectStore } from "../../../state/projectStore";
+import { EventKeyInput } from "../../controls/EventKeyInput";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { createPortal } from "react-dom";
@@ -44,7 +47,7 @@ import {
 interface PropertyEditorProps {
   element: PathElement | null;
   selectedElements: readonly SelectedElement[];
-  project: Pick<Project, "linked_targets"> | null;
+  project: Project | null;
   selectedElementIndex: number | null;
   open: boolean;
   typeOptions: readonly AddableElementType[];
@@ -108,6 +111,7 @@ export function PropertyEditor({
         {multiple ? (
           <BulkPropertyFields
             selectedElements={selectedElements}
+            eventKeys={project ? projectEventKeys(project) : []}
             fieldGeometry={fieldGeometry}
             onUpdateSelectedElements={onUpdateSelectedElements}
           />
@@ -159,6 +163,7 @@ export function PropertyEditor({
             ) : null}
             {isEventTrigger(element) ? (
               <EventFields
+                eventKeys={project ? projectEventKeys(project) : []}
                 element={element}
                 onUpdateElement={(nextElement) => {
                   setTourEditCount((count) => count + 1);
@@ -174,11 +179,13 @@ export function PropertyEditor({
 }
 
 function BulkPropertyFields({
+  eventKeys,
   selectedElements,
   fieldGeometry,
   onUpdateSelectedElements,
 }: {
   selectedElements: readonly SelectedElement[];
+  eventKeys: readonly string[];
   fieldGeometry: FieldGeometry;
   onUpdateSelectedElements(
     replacements: readonly { index: number; element: PathElement }[],
@@ -195,6 +202,9 @@ function BulkPropertyFields({
   );
   const allAreEvents = selectedElements.every(({ element }) =>
     isEventTrigger(element),
+  );
+  const eventKey = commonString(selectedElements, ({ element }) =>
+    isEventTrigger(element) ? element.lib_key : "",
   );
   const hasCommonFields =
     allHavePosition || allHaveRotation || allHaveRatio || allAreEvents;
@@ -335,19 +345,22 @@ function BulkPropertyFields({
         />
       ) : null}
       {allAreEvents ? (
-        <BulkTextField
-          label="Lib Key"
-          value={commonString(selectedElements, ({ element }) =>
-            isEventTrigger(element) ? element.lib_key : "",
-          )}
-          onChange={(value) =>
-            updateAll((element) =>
-              isEventTrigger(element)
-                ? updateEventTrigger(element, { lib_key: value })
-                : element,
-            )
-          }
-        />
+        <label className="property-row">
+          <span>Lib Key</span>
+          <EventKeyInput
+            keys={eventKeys}
+            onCommit={(key) => projectStore.getState().registerEventKey(key)}
+            value={eventKey ?? ""}
+            placeholder={eventKey === null ? "Mixed" : "No action"}
+            onChange={(value) =>
+              updateAll((element) =>
+                isEventTrigger(element)
+                  ? updateEventTrigger(element, { lib_key: value })
+                  : element,
+              )
+            }
+          />
+        </label>
       ) : null}
       {!hasCommonFields ? (
         <div
@@ -432,29 +445,6 @@ function BulkBooleanField({
         />
         <span className="bline-switch__track" aria-hidden="true" />
       </span>
-    </label>
-  );
-}
-
-function BulkTextField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string | null;
-  onChange(value: string): void;
-}) {
-  return (
-    <label className="property-row">
-      <span>{label}</span>
-      <input
-        aria-label={label}
-        type="text"
-        placeholder={value === null ? "Mixed" : "No action"}
-        value={value ?? ""}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      />
     </label>
   );
 }
@@ -942,9 +932,11 @@ function RotationFields({
 }
 
 function EventFields({
+  eventKeys,
   element,
   onUpdateElement,
 }: {
+  eventKeys: readonly string[];
   element: Extract<PathElement, { type: "event_trigger" }>;
   onUpdateElement(element: PathElement): void;
 }) {
@@ -964,18 +956,13 @@ function EventFields({
       />
       <label className="property-row">
         <span>Lib Key</span>
-        <input
-          aria-label="Lib Key"
-          type="text"
-          placeholder="No action"
+        <EventKeyInput
+          keys={eventKeys}
           value={element.lib_key}
-          onChange={(event) =>
-            onUpdateElement(
-              updateEventTrigger(element, {
-                lib_key: event.currentTarget.value,
-              }),
-            )
+          onChange={(key) =>
+            onUpdateElement(updateEventTrigger(element, { lib_key: key }))
           }
+          onCommit={(key) => projectStore.getState().registerEventKey(key)}
         />
       </label>
     </>

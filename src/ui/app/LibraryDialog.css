@@ -228,12 +228,3 @@
     border-bottom: 1px solid var(--bline-border-strong);
   }
 }
-
-.fc-file-name {
-  display: block;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 400;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}

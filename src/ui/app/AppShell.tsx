@@ -1,3 +1,4 @@
+import type { EventKeyEdit } from "../../core/model/eventKeys";
 import {
   useCallback,
   useEffect,
@@ -478,6 +479,7 @@ export function AppShell() {
         showCommandPalette ||
         showConfigDialog ||
         importError !== null ||
+        saveFailure !== null ||
         showDeletePathDialog ||
         showDeletePathGroupDialog ||
         showDeleteProjectDialog ||
@@ -523,6 +525,7 @@ export function AppShell() {
     showCommandPalette,
     showConfigDialog,
     importError,
+    saveFailure,
     showDeletePathDialog,
     showDeletePathGroupDialog,
     showDeleteProjectDialog,
@@ -1709,6 +1712,7 @@ export function AppShell() {
       options: {
         autoSyncEnabled: boolean;
         configChanged: boolean;
+        eventKeyEdits: EventKeyEdit[];
         selectedFieldId: string;
         fieldBackgrounds: FieldBackgroundEntry[];
         fieldImageDrafts: Array<{ fieldId: string; file: File }>;
@@ -1724,10 +1728,8 @@ export function AppShell() {
       if (tourStore.getState().activeTourId) {
         // Practice settings must not persist field selections, uploaded images,
         // or generator preferences under the captured real Project's id.
-        if (options.configChanged) {
-          state.applyConfigCommand(
-            createUpdateProjectConfigCommand(currentProject.config, nextConfig),
-          );
+        if (options.configChanged || options.eventKeyEdits.length > 0) {
+          state.applySettings(nextConfig, options.eventKeyEdits);
         }
         autoVelocityStore.setState({
           autoSyncEnabled: options.autoSyncEnabled,
@@ -1776,10 +1778,8 @@ export function AppShell() {
             "The active Project changed while Settings were saving",
           );
         }
-        if (options.configChanged) {
-          latest.applyConfigCommand(
-            createUpdateProjectConfigCommand(currentProject.config, nextConfig),
-          );
+        if (options.configChanged || options.eventKeyEdits.length > 0) {
+          latest.applySettings(nextConfig, options.eventKeyEdits);
         }
         setFieldBackgrounds(listFieldBackgrounds());
         setFieldSelectionOverride({
@@ -2196,6 +2196,7 @@ export function AppShell() {
     if (
       event.defaultPrevented ||
       importError !== null ||
+      saveFailure !== null ||
       projectTransitionInProgress ||
       hasActiveBlockingSurface({
         openTopMenu,
@@ -2594,10 +2595,17 @@ export function AppShell() {
             const bundle = await state.exportProjectArchive();
             if (!bundle || !state.project)
               throw new Error("No project is available to export");
-            downloadBlob(
-              bundle,
-              `${safeDownloadName(state.project.display_name)}.bline-project.json`,
-            );
+            const fileName = `${safeDownloadName(state.project.display_name)}.bline-project.json`;
+            if (state.io?.capabilities.directFileAutosave) {
+              const saved = await saveBlobAs(bundle, fileName, {
+                title: "Export recovery copy",
+                useNativeSaveDialog: true,
+              });
+              if (!saved)
+                throw new Error("Export cancelled. Your edits are still open.");
+            } else {
+              downloadBlob(bundle, fileName);
+            }
           }}
         />
       )}
@@ -2626,6 +2634,7 @@ export function AppShell() {
           }
           autoSyncEnabled={autoSyncEnabled}
           config={durableProject.config}
+          project={durableProject}
           fieldBackgrounds={settingsWalkthrough ? [] : fieldBackgrounds}
           selectedFieldId={
             settingsWalkthrough

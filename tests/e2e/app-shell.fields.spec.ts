@@ -32,6 +32,7 @@ test("edits project config with undo support", async ({ page }) => {
     "Path Defaults",
     "Field",
     "Generator",
+    "Event Triggers",
   ]);
   await expect(
     dialog.getByRole("heading", { name: "Auto Velocity" }),

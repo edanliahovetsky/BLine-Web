@@ -1,3 +1,8 @@
+import {
+  applyEventKeyEdits,
+  projectEventKeys,
+  type EventKeyEdit,
+} from "../core/model/eventKeys";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   activeProjectPath,
@@ -254,6 +259,8 @@ export interface ProjectStoreState {
       selectedElementIndex?: number | null;
     },
   ): PathStructureEditResult;
+  registerEventKey(key: string): void;
+  applySettings(config: ProjectConfig, edits: readonly EventKeyEdit[]): void;
   applyConfigCommand(command: HistoryCommand<ProjectConfig>): void;
   applyDerivedPathCommand(
     command: HistoryCommand<PathModel>,
@@ -1429,6 +1436,47 @@ export function createProjectStore(
         },
       );
       return result;
+    },
+    registerEventKey(rawKey) {
+      requireProjectMutationAllowed();
+      const state = get();
+      const project = state.project;
+      const key = rawKey.trim();
+      if (
+        !project ||
+        !key ||
+        project.config.gui.event_trigger_keys?.includes(key)
+      )
+        return;
+      const next = cloneProject(project);
+      next.config.gui.event_trigger_keys = [
+        ...new Set([...projectEventKeys(project), key]),
+      ];
+      applyProjectTransition(
+        set,
+        history,
+        project,
+        next,
+        currentNavigation(state),
+        currentNavigation(state),
+        "Register event trigger",
+      );
+    },
+    applySettings(config, edits) {
+      requireProjectMutationAllowed();
+      const state = get();
+      const project = requireProject(state.project);
+      const next = applyEventKeyEdits(project, edits);
+      next.config = structuredClone(config);
+      applyProjectTransition(
+        set,
+        history,
+        project,
+        next,
+        currentNavigation(state),
+        currentNavigation(state),
+        "Update project settings",
+      );
     },
     applyConfigCommand(command) {
       requireProjectMutationAllowed();

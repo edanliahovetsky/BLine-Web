@@ -589,7 +589,7 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
   const entries = parseStoredZip(await readFile(downloadPath));
   expect([...entries.keys()].sort()).toEqual([
     "autos/config.json",
-    "autos/paths/sample-path.json",
+    "autos/paths/Sample Path.json",
     "autos/project.json",
   ]);
   expect(JSON.parse(requiredZipText(entries, "autos/config.json"))).toEqual({
@@ -603,7 +603,7 @@ test("browser autos folder export downloads one zip preserving the autos tree", 
     path_groups: [],
   });
   const exportedPath = JSON.parse(
-    requiredZipText(entries, "autos/paths/sample-path.json"),
+    requiredZipText(entries, "autos/paths/Sample Path.json"),
   ) as { path_elements?: unknown[] };
   expect(exportedPath).toMatchObject({
     path_elements: expect.any(Array),
@@ -711,7 +711,7 @@ test("browser legacy autos folder import re-exports the clean sidecar tree", asy
     await chooser.setFiles(autosDir);
 
     await expect(page.getByTestId("current-path-status")).toContainText(
-      "legacy auto",
+      "legacy_auto",
     );
 
     await openProjectMenu(page);
@@ -786,7 +786,7 @@ test("File export saves the active path and import path round-trips it", async (
   await releaseSaveFilePicker(page);
   await expect.poll(() => savedFileCount(page)).toBe(1);
   const saved = await savedFile(page, 0);
-  expect(saved.suggestedName).toBe("sample-path.json");
+  expect(saved.suggestedName).toBe("Sample Path.json");
   expect(JSON.parse(saved.text)).toMatchObject({
     path_elements: expect.any(Array),
   });
@@ -803,6 +803,6 @@ test("File export saves the active path and import path round-trips it", async (
   });
 
   await expect(page.getByTestId("current-path-status")).toHaveText(
-    "Current Path: roundtrip path",
+    "Current Path: roundtrip-path",
   );
 });

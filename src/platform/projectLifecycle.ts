@@ -53,6 +53,7 @@ export interface DurableCloseTarget {
 }
 
 export interface ProjectCloseState {
+  revisionToken?: string;
   dirty: boolean;
   activeSave: unknown | null;
   blocked: boolean;
@@ -581,7 +582,12 @@ export function installDurableProjectCloseHandler(
           if (state.activeSave || state.blocked || !options.onSaveFailure)
             return;
           const decision = await options.onSaveFailure(error);
-          if (decision === "retry") continue;
+          if (decision === "cancel") return;
+          if (
+            decision === "retry" ||
+            options.getProjectState().revisionToken !== state.revisionToken
+          )
+            continue;
           if (decision === "discard") {
             const latest = options.getProjectState();
             if (!latest.activeSave && !latest.blocked) await target.destroy();

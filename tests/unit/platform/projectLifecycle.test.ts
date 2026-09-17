@@ -42,6 +42,34 @@ describe("Project platform lifecycle", () => {
     },
   );
 
+  it("does not discard a revision changed while close recovery was open", async () => {
+    const close = new RecordingCloseTarget();
+    let revisionToken = "a:1";
+    const decision = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        revisionToken = "a:2";
+        return "discard";
+      })
+      .mockResolvedValue("cancel");
+    await installDurableProjectCloseHandler(close, {
+      getProjectState: () => ({
+        dirty: true,
+        activeSave: null,
+        blocked: false,
+        revisionToken,
+      }),
+      flushProject: async () => {
+        throw new Error("autos folder missing");
+      },
+      flushUserData: async () => {},
+      onSaveFailure: decision,
+    });
+    await close.requestClose();
+    expect(decision).toHaveBeenCalledTimes(2);
+    expect(close.destroyed).toBe(false);
+  });
+
   it("acquires a browser journal lease lazily and only once", async () => {
     const locks = new TestLockManager();
     const journal = createBrowserAutosaveRecoveryJournal(new MapStorage(), {

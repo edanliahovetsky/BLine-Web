@@ -401,7 +401,7 @@ export class StorageProjectIoService implements ProjectIoService {
       typeof parsedObject?.display_name === "string" &&
       parsedObject.display_name.trim()
         ? parsedObject.display_name
-        : fileName.replace(/\.json$/i, "").replace(/[-_]+/g, " ");
+        : fileName.replace(/\.json$/i, "");
 
     const { project: nextProject } = addPathToProject(project, {
       display_name: displayName,

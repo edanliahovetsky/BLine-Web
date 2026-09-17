@@ -63,6 +63,7 @@ type AutoGenerationDefaults = Pick<
 export interface SerializedProjectEditorConfig {
   gui: Pick<ProjectConfig["gui"], "robot" | "protrusions"> & {
     field?: Pick<ProjectConfig["gui"]["field"], "grid_size_meters">;
+    event_trigger_keys?: string[];
   };
   kinematic_constraints: AutoGenerationDefaults;
 }
@@ -188,6 +189,9 @@ function serializeProjectFileMetadata(
     display_name: project.display_name,
     editor_config: {
       gui: {
+        ...(config.gui.event_trigger_keys
+          ? { event_trigger_keys: [...config.gui.event_trigger_keys] }
+          : {}),
         ...(config.gui.field.grid_size_meters
           ? {
               field: {
@@ -431,12 +435,16 @@ function isEditorConfig(input: unknown): boolean {
     "default_auto_velocity_merge_tolerance_meters_per_sec",
   ] as const;
   return (
-    hasExactKeys(
-      gui,
-      isObject(gui) && gui.field !== undefined
-        ? ["robot", "protrusions", "field"]
-        : ["robot", "protrusions"],
-    ) &&
+    hasExactKeys(gui, [
+      "robot",
+      "protrusions",
+      ...(isObject(gui) && gui.field !== undefined ? ["field"] : []),
+      ...(isObject(gui) && gui.event_trigger_keys !== undefined
+        ? ["event_trigger_keys"]
+        : []),
+    ]) &&
+    (gui.event_trigger_keys === undefined ||
+      isStringList(gui.event_trigger_keys)) &&
     (gui.field === undefined ||
       (hasExactKeys(gui.field, ["grid_size_meters"]) &&
         hasExactKeys(gui.field.grid_size_meters, [

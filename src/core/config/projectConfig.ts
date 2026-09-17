@@ -13,6 +13,7 @@ export const defaultAutoVelocityMergeToleranceMetersPerSec = 0.3;
 
 export interface CanonicalProjectConfig {
   gui: {
+    event_trigger_keys?: string[];
     robot: {
       length_meters: number;
       width_meters: number;
@@ -112,6 +113,16 @@ function updateProjectConfig(
   config: CanonicalProjectConfig,
   input: Record<string, unknown>,
 ): void {
+  if (isRecord(input.gui) && Array.isArray(input.gui.event_trigger_keys)) {
+    config.gui.event_trigger_keys = [
+      ...new Set(
+        input.gui.event_trigger_keys
+          .filter((key): key is string => typeof key === "string")
+          .map((key) => key.trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
   const robotLength = lookupAny(input, [
     ["robot_length_meters"],
     ["gui", "robot", "length_meters"],

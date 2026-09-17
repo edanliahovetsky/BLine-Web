@@ -1,0 +1,41 @@
+.event-key-input {
+  position: relative;
+  min-width: 0;
+}
+.event-key-input input {
+  position: relative;
+  width: 100%;
+  background: transparent;
+}
+.event-key-input__completion {
+  position: absolute;
+  inset: 0;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  white-space: pre;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--bline-text-muted);
+  opacity: 0.55;
+  font: inherit;
+}
+.event-key-input__completion > span {
+  color: transparent;
+}
+.event-key-options {
+  max-height: 240px;
+}
+
+.property-row .event-key-input__completion {
+  z-index: 1;
+  padding: 0 9px;
+  color: var(--bline-text-muted);
+  font-size: inherit;
+  font-weight: 400;
+}
+.property-row .event-key-input__completion > span {
+  color: transparent;
+  font-size: inherit;
+  font-weight: inherit;
+}

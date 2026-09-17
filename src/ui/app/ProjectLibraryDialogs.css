@@ -772,3 +772,18 @@ body.is-resizing-navigator * {
     transition: none !important;
   }
 }
+
+.fc-file-name {
+  display: block;
+  color: var(--bline-text-muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-label {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}

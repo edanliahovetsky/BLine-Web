@@ -828,7 +828,7 @@ export function PathLibraryDialog({
                 <Folder className="fc-folder" size={17} />
               )}
               <span
-                className="fc-name"
+                className="fc-label"
                 title={
                   node.kind === "path"
                     ? project.paths.find((path) => path.path_id === node.id)
@@ -836,7 +836,7 @@ export function PathLibraryDialog({
                     : node.name
                 }
               >
-                {node.name}
+                <span className="fc-name">{node.name}</span>
                 {node.kind === "path" && (
                   <small className="fc-file-name">
                     {

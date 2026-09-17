@@ -1,3 +1,6 @@
+import type { Project } from "../../core/model/project";
+import type { EventKeyEdit } from "../../core/model/eventKeys";
+import { EventTriggerSettings } from "./EventTriggerSettings";
 import {
   createContext,
   useContext,
@@ -43,12 +46,14 @@ const configSections = [
   { id: "path-defaults", label: "Path Defaults" },
   { id: "field", label: "Field" },
   { id: "optimizer", label: "Generator" },
+  { id: "event-triggers", label: "Event Triggers" },
 ] as const;
 
 type ConfigSectionId = (typeof configSections)[number]["id"];
 
 interface ProjectConfigDialogProps {
   lessonMode?: boolean;
+  project?: Project;
   walkthrough?: {
     section: ConfigSectionId;
     target?: string;
@@ -71,6 +76,7 @@ interface ProjectConfigDialogProps {
     options: {
       autoSyncEnabled: boolean;
       configChanged: boolean;
+      eventKeyEdits: EventKeyEdit[];
       selectedFieldId: string;
       fieldBackgrounds: FieldBackgroundEntry[];
       fieldImageDrafts: Array<{ fieldId: string; file: File }>;
@@ -88,6 +94,7 @@ const SettingsWalkthroughContext =
   createContext<ProjectConfigDialogProps["walkthrough"]>(undefined);
 
 export function ProjectConfigDialog({
+  project,
   lessonMode = false,
   walkthrough,
   config,
@@ -99,6 +106,7 @@ export function ProjectConfigDialog({
   onSave,
   onLoadFieldImage,
 }: ProjectConfigDialogProps) {
+  const [eventKeyEdits, setEventKeyEdits] = useState<EventKeyEdit[]>([]);
   const initialConfig = useMemo(() => createProjectConfig(config), [config]);
   const initialFieldDraft = useMemo<FieldDraft>(
     () => ({
@@ -166,7 +174,10 @@ export function ProjectConfigDialog({
   const configChanged = !configsEqual(initialConfig, normalizedDraft);
   const fieldChanged = !fieldDraftsEqual(initialFieldDraft, fieldDraft);
   const isDirty =
-    configChanged || fieldChanged || draftAutoSyncEnabled !== autoSyncEnabled;
+    configChanged ||
+    eventKeyEdits.length > 0 ||
+    fieldChanged ||
+    draftAutoSyncEnabled !== autoSyncEnabled;
   const selectedField = useMemo(
     () =>
       resolveUserFieldDefinition(
@@ -196,6 +207,7 @@ export function ProjectConfigDialog({
         onSave(normalizedDraft, {
           autoSyncEnabled: draftAutoSyncEnabled,
           configChanged,
+          eventKeyEdits,
           selectedFieldId: fieldDraft.selectedFieldId,
           fieldBackgrounds: structuredClone(fieldDraft.fieldBackgrounds),
           fieldImageDrafts: Object.entries(fieldImageDrafts)
@@ -354,6 +366,17 @@ export function ProjectConfigDialog({
                 />
               ) : null}
 
+              {activeSection === "event-triggers" && project && (
+                <EventTriggerSettings
+                  project={project}
+                  config={draft}
+                  edits={eventKeyEdits}
+                  onChange={(config, edits) => {
+                    setDraft(config);
+                    setEventKeyEdits(edits);
+                  }}
+                />
+              )}
               {activeSection === "optimizer" ? (
                 <OptimizerSettingsSection
                   autoSyncEnabled={draftAutoSyncEnabled}
@@ -1251,7 +1274,7 @@ async function uploadCustomFieldImage({
     const uploaded: FieldBackgroundEntry = {
       id: fieldId,
       asset_id: selectedCustomField?.asset_id ?? fieldId,
-      name: pathDisplayNameFromFileName(file.name),
+      name: pathDisplayNameFromFileName(file.name).replace(/[-_]+/g, " "),
       file_name: file.name,
       mime_type: file.type || "image/png",
       size_bytes: file.size,

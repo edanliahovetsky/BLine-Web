@@ -1031,7 +1031,9 @@ function inferDisplayName(records: readonly ImportRecord[]): string {
   const firstPath = records[0]?.rawPath;
   const root = firstPath?.split("/").find(Boolean);
 
-  return root ? pathDisplayNameFromFileName(root) : "Imported Autos";
+  return root
+    ? pathDisplayNameFromFileName(root).replace(/[-_]+/g, " ")
+    : "Imported Autos";
 }
 
 function isObject(input: unknown): input is Record<string, unknown> {

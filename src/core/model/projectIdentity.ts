@@ -60,3 +60,12 @@ function randomId(): string {
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
 }
+
+export function pathNameError(name: string): string | null {
+  try {
+    pathFileNameFromDisplayName(name);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}

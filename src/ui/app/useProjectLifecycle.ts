@@ -277,6 +277,7 @@ export function useProjectLifecycle({
           getProjectState: () => {
             const state = projectStore.getState();
             return {
+              revisionToken: `${state.projectSessionId}:${state.revision}`,
               dirty: state.dirty,
               activeSave: state.activeSave,
               blocked:

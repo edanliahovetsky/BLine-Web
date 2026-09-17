@@ -1,0 +1,129 @@
+.event-keys-help {
+  color: var(--bline-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.event-keys-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.event-keys-toolbar .fc-search {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.event-keys-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.event-keys-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--bline-border-control);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.event-key-row + .event-key-row {
+  border-top: 1px solid var(--bline-border-control);
+}
+.event-key-row__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  min-width: 0;
+}
+.event-key-row__main > svg {
+  flex-shrink: 0;
+  color: var(--bline-text-muted);
+}
+.event-key-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.event-key-row__count {
+  color: var(--bline-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.event-key-row .fc-more {
+  opacity: 1;
+}
+.event-key-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--bline-border-control);
+  border-radius: 8px;
+}
+.event-key-edit label {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.event-key-edit input {
+  width: 100%;
+}
+.event-key-edit p {
+  width: 100%;
+  margin: 0;
+  font-size: 12px;
+}
+.event-key-delete {
+  padding: 0 10px 10px;
+  font-size: 12px;
+}
+.event-key-delete p {
+  margin: 0 0 8px;
+}
+.event-key-delete button + button {
+  margin-left: 6px;
+}
+.event-keys-empty {
+  padding: 18px 12px;
+  color: var(--bline-text-muted);
+  font-size: 12px;
+}
+
+.event-keys-add,
+.event-key-edit button,
+.event-key-delete button {
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid var(--bline-border-control);
+  border-radius: var(--bline-radius-control);
+  background: var(--bline-surface-raised);
+  color: var(--bline-text-primary);
+  font-size: 12px;
+}
+.event-keys-add:hover,
+.event-key-edit button:hover,
+.event-key-delete button:hover {
+  background: var(--bline-surface-hover);
+}
+.event-key-edit input {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--bline-border-control);
+  border-radius: var(--bline-radius-control);
+  background: var(--bline-surface-inset);
+  color: var(--bline-text-primary);
+}
+.event-key-delete .danger-action {
+  color: var(--bline-danger-text);
+}
