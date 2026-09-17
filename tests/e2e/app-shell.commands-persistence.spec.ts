@@ -353,10 +353,7 @@ test("opens a saved project from the mobile project list", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
 
-  await page
-    .getByRole("complementary", { name: "Path inspector" })
-    .getByRole("button", { name: "Close inspector" })
-    .click();
+  await page.getByRole("button", { name: "Toggle inspector" }).click();
   await openProjectMenu(page);
   await page.getByRole("menuitem", { name: "Workspace" }).click();
   await page.getByRole("menuitem", { name: "Open Project..." }).click();

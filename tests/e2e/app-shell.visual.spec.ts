@@ -104,14 +104,14 @@ test.describe("app shell visual baselines", () => {
     await expect(inspector).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Close inspector" }),
-    ).toBeHidden();
+    ).toHaveCount(0);
 
     await page.setViewportSize({ width: 1120, height: 800 });
 
     await expect(inspector).toHaveClass(/is-open/);
     await expect(
       page.getByRole("button", { name: "Close inspector" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Dismiss inspector" }),
     ).toBeVisible();

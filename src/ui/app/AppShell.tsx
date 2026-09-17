@@ -2544,7 +2544,6 @@ export function AppShell() {
               inspectorWidth={inspectorWidth}
               footer={inspectorVisible ? workspaceStatus : null}
               curveToolActive={curveToolSession !== null}
-              onClose={() => setInspectorOpen(false)}
               onActiveTabChange={setInspectorTab}
               onInspectorResize={(width) =>
                 setInspectorWidth(clampInspectorWidth(width))

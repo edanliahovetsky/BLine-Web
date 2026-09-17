@@ -4,7 +4,6 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { X } from "lucide-react";
 import type { LinkedTargetKind } from "../../core/io/projectSchema";
 import type { Project, ProjectPath } from "../../core/model/project";
 import type { FieldGeometry } from "../../core/field/fieldConfig";
@@ -40,7 +39,6 @@ import {
   readEditorUiPreferences,
   writeEditorUiPreferences,
 } from "../app/editorCommands";
-import { IconButton } from "../controls";
 import {
   updateOrderedSelection,
   type OrderedSelectionGesture,
@@ -57,7 +55,6 @@ interface SidebarProps {
   inspectorWidth: number;
   footer?: ReactNode;
   curveToolActive?: boolean;
-  onClose?(): void;
   onActiveTabChange?(tab: "elements" | "constraints"): void;
   onInspectorResize?(width: number): void;
   onOpenLinkedTargetPicker?(): void;
@@ -74,7 +71,6 @@ export function Sidebar({
   inspectorWidth,
   footer,
   curveToolActive = false,
-  onClose,
   onActiveTabChange,
   onInspectorResize,
   onOpenLinkedTargetPicker,
@@ -484,14 +480,6 @@ export function Sidebar({
             Constraints
           </button>
         </div>
-        <IconButton
-          className="inspector-sidebar__close"
-          aria-label="Close inspector"
-          title="Close inspector"
-          onClick={onClose}
-        >
-          <X aria-hidden="true" size={16} />
-        </IconButton>
       </header>
 
       {activeTab === "elements" ? (

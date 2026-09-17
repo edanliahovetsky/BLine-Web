@@ -5388,12 +5388,6 @@ body.is-resizing-inspector * {
   background: var(--bline-surface-selected);
 }
 
-.inspector-sidebar__close {
-  display: none;
-  border-color: transparent;
-  background: transparent;
-}
-
 .inspector-sidebar__panel {
   flex: 1 1 auto;
   min-height: 0;
@@ -6286,10 +6280,6 @@ body.is-resizing-inspector * {
 
   .inspector-resize-handle {
     display: none;
-  }
-
-  .inspector-sidebar__close {
-    display: inline-flex;
   }
 
   .inspector-backdrop {
