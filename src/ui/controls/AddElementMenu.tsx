@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import type { AddableElementType } from "../sidebar/sidebarCommands";
-import { ElementIcon, PlusIcon } from "../icons";
+import { ElementBadge, PlusIcon } from "../icons";
 import { useFloatingMenu } from "./useFloatingMenu";
 
 interface AddElementMenuProps {
@@ -82,15 +82,10 @@ export function AddElementMenu({
                     onAdd(option.type);
                   }}
                 >
-                  <span
-                    aria-hidden="true"
-                    className={`element-type-mark type-${option.type}`}
-                  >
-                    <ElementIcon
-                      type={option.type}
-                      legacyAppearance={legacyAppearance}
-                    />
-                  </span>
+                  <ElementBadge
+                    type={option.type}
+                    legacyAppearance={legacyAppearance}
+                  />
                   <span>{option.label}</span>
                 </button>
               ))}

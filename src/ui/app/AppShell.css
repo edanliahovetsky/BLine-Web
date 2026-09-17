@@ -1515,6 +1515,7 @@ select {
 
 .element-type-mark {
   display: grid;
+  flex: none;
   width: 22px;
   height: 22px;
   place-items: center;
@@ -1522,29 +1523,30 @@ select {
   color: #081017;
 }
 
-.element-type-mark svg {
-  width: 14px;
-  height: 14px;
+.element-type-mark > svg {
+  display: block;
+  width: 22px;
+  height: 22px;
 }
 
 .type-waypoint {
+  --element-badge-color: #1f6feb;
   color: #d7efff;
-  background: #1f6feb;
 }
 
 .type-translation {
+  --element-badge-color: #238bbf;
   color: #d7efff;
-  background: #238bbf;
 }
 
 .type-rotation {
+  --element-badge-color: #62d26f;
   color: #062012;
-  background: #62d26f;
 }
 
 .type-event_trigger {
+  --element-badge-color: #a371f7;
   color: #ffffff;
-  background: #a371f7;
 }
 
 .path-element-row__role {

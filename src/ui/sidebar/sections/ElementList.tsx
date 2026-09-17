@@ -10,7 +10,7 @@ import {
 } from "../../../core/model/path";
 import { canMovePathElement } from "../../../core/model/projectPathEdits";
 import { formatPointMeters } from "../../../canvas/modelSync";
-import { CopyIcon, ElementIcon, GripIcon, RemoveIcon } from "../../icons";
+import { CopyIcon, ElementBadge, GripIcon, RemoveIcon } from "../../icons";
 import { AddElementMenu } from "../../controls/AddElementMenu";
 import { SidebarSection } from "../SidebarSection";
 import {
@@ -199,15 +199,10 @@ export function ElementList({
                     <span className="drag-grip" aria-hidden="true">
                       <GripIcon />
                     </span>
-                    <span
-                      aria-hidden="true"
-                      className={`element-type-mark type-${type}`}
-                    >
-                      <ElementIcon
-                        type={type}
-                        legacyAppearance={legacyAppearance}
-                      />
-                    </span>
+                    <ElementBadge
+                      type={type}
+                      legacyAppearance={legacyAppearance}
+                    />
                     <span className="visually-hidden">
                       {index + 1}. {elementTypeLabel(element)}{" "}
                       {detail.accessibleText}

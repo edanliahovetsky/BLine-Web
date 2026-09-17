@@ -217,48 +217,84 @@ export function ElementIcon({
   type: AddableElementType;
   legacyAppearance?: boolean;
 }) {
-  if (type === "event_trigger") {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
-        <path d="m13 2-8 12h6l-1 8 9-13h-6z" />
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <ElementSymbol type={type} legacyAppearance={legacyAppearance} />
+    </svg>
+  );
+}
+
+export function ElementBadge({
+  type,
+  legacyAppearance = false,
+}: {
+  type: AddableElementType;
+  legacyAppearance?: boolean;
+}) {
+  return (
+    <span aria-hidden="true" className={`element-type-mark type-${type}`}>
+      <svg viewBox="0 0 22 22" {...iconProps({ size: 22 })}>
+        {/* Paint the circle and symbol together to keep their centers aligned. */}
+        <circle
+          cx="11"
+          cy="11"
+          r="11"
+          fill="var(--element-badge-color)"
+          stroke="none"
+        />
+        <g transform={`translate(4 4) scale(${14 / 24})`}>
+          <ElementSymbol type={type} legacyAppearance={legacyAppearance} />
+        </g>
       </svg>
-    );
+    </span>
+  );
+}
+
+function ElementSymbol({
+  type,
+  legacyAppearance,
+}: {
+  type: AddableElementType;
+  legacyAppearance: boolean;
+}) {
+  if (type === "event_trigger") {
+    return <path d="m13 2-8 12h6l-1 8 9-13h-6z" />;
   }
 
   if (type === "rotation") {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <>
         <path d="M20 11a8 8 0 1 0-2.35 5.65" />
         <path d="M20 4v7h-7" />
-      </svg>
+      </>
     );
   }
 
   if (type === "translation") {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <>
         <circle cx="12" cy="12" r="6" />
         <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
         <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
-      </svg>
+      </>
     );
   }
 
   if (legacyAppearance) {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <>
         <rect x="4" y="4" width="16" height="16" rx="2" />
         <path d="m12 8.5 3.5 7h-7z" strokeWidth={1.5} />
-      </svg>
+      </>
     );
   }
 
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+    <>
       <path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2" />
       <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
       <circle cx="12" cy="4" r="1.8" fill="currentColor" stroke="none" />
-    </svg>
+    </>
   );
 }
 
