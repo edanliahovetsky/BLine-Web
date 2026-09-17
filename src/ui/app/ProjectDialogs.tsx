@@ -809,3 +809,95 @@ function DeleteLibraryItemsDialog({
     </div>
   );
 }
+
+export function SaveFailureDialog({
+  message,
+  onChoose,
+  onExport,
+}: {
+  message: string;
+  onChoose(choice: "retry" | "discard" | "cancel"): void;
+  onExport(): Promise<void>;
+}) {
+  const ref = useDialogFocusTrap<HTMLElement>();
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  return (
+    <div
+      className="config-dialog-backdrop save-failure-backdrop"
+      role="presentation"
+    >
+      <section
+        ref={ref}
+        className="project-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="save-failure-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onChoose("cancel");
+          }
+        }}
+      >
+        <header className="project-dialog__header">
+          <h2 id="save-failure-title">Unable to save this project</h2>
+          <CloseButton
+            ariaLabel="Keep editing"
+            onClick={() => onChoose("cancel")}
+          />
+        </header>
+        <div className="project-dialog__body">
+          <p>
+            The project folder may have moved or become unavailable. Restore it
+            and retry, or export a copy before leaving.
+          </p>
+          <p>{message}</p>
+          <p>
+            Leaving without saving discards changes since the last successful
+            save.
+          </p>
+          {exportMessage && <p role="status">{exportMessage}</p>}
+        </div>
+        <footer className="project-dialog__footer">
+          <ActionButton onClick={() => onChoose("cancel")}>
+            Keep editing
+          </ActionButton>
+          <ActionButton
+            disabled={exporting}
+            onClick={() => {
+              setExporting(true);
+              void onExport()
+                .then(
+                  () =>
+                    setExportMessage(
+                      "Copy exported. You can now leave without saving to the original folder.",
+                    ),
+                  (error: unknown) =>
+                    setExportMessage(
+                      error instanceof Error ? error.message : String(error),
+                    ),
+                )
+                .finally(() => setExporting(false));
+            }}
+          >
+            Export copy
+          </ActionButton>
+          <ActionButton
+            disabled={exporting}
+            onClick={() => onChoose("discard")}
+          >
+            Leave without saving
+          </ActionButton>
+          <ActionButton
+            tone="primary"
+            disabled={exporting}
+            onClick={() => onChoose("retry")}
+          >
+            Retry save
+          </ActionButton>
+        </footer>
+      </section>
+    </div>
+  );
+}

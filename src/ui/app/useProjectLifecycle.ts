@@ -31,6 +31,7 @@ import { autoVelocityStore } from "../../state/autoVelocityStore";
 import {
   legacyProjectMigrationOwnsSession,
   projectStore,
+  type SaveFailureDecision,
 } from "../../state/projectStore";
 import { flushUserData, initializeUserData } from "../../userData";
 import { tourStore } from "../tours/tourStore";
@@ -64,6 +65,31 @@ export function useProjectLifecycle({
   projectIo,
   onEditorLayoutLoaded,
 }: UseProjectLifecycleOptions) {
+  const [saveFailure, setSaveFailure] = useState<string | null>(null);
+  const saveFailureResolver = useRef<
+    ((choice: SaveFailureDecision) => void) | null
+  >(null);
+  const requestSaveFailureDecision = useCallback(
+    (error: unknown) =>
+      new Promise<SaveFailureDecision>((resolve) => {
+        saveFailureResolver.current?.("cancel");
+        saveFailureResolver.current = resolve;
+        setSaveFailure(toError(error).message);
+      }),
+    [],
+  );
+  const resolveSaveFailure = useCallback((choice: SaveFailureDecision) => {
+    setSaveFailure(null);
+    saveFailureResolver.current?.(choice);
+    saveFailureResolver.current = null;
+  }, []);
+  useEffect(() => {
+    projectStore.getState().setSaveFailureHandler(requestSaveFailureDecision);
+    return () => {
+      projectStore.getState().setSaveFailureHandler(null);
+      saveFailureResolver.current?.("cancel");
+    };
+  }, [requestSaveFailureDecision]);
   const [workspaceSummaries, setWorkspaceSummaries] = useState<
     ProjectWorkspaceSummary[]
   >([]);
@@ -264,6 +290,7 @@ export function useProjectLifecycle({
           flushProject: () => projectStore.getState().saveWorkspace(),
           flushUserData,
           onError: (error) => projectStore.getState().markSaveError(error),
+          onSaveFailure: requestSaveFailureDecision,
         }),
       )
       .then((unlisten) => {
@@ -279,7 +306,11 @@ export function useProjectLifecycle({
       disposed = true;
       removeCloseListener?.();
     };
-  }, [environmentCapabilities, projectRecoveryLifecycle]);
+  }, [
+    environmentCapabilities,
+    projectRecoveryLifecycle,
+    requestSaveFailureDecision,
+  ]);
 
   useEffect(() => {
     if (!durableProject || !dirty) {
@@ -333,6 +364,8 @@ export function useProjectLifecycle({
   }, [autosaveRecoveryJournal]);
 
   return {
+    saveFailure,
+    resolveSaveFailure,
     autosaveStatus,
     cancelAutosave,
     fieldBackgrounds,

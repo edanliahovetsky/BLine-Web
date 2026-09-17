@@ -19,6 +19,29 @@ import { createTourSessionController } from "../../../src/ui/tours/tourSession";
 import { createTourStore } from "../../../src/ui/tours/tourStore";
 
 describe("Project platform lifecycle", () => {
+  it.each(["discard", "cancel"] as const)(
+    "handles %s after a failed desktop close save",
+    async (choice) => {
+      const close = new RecordingCloseTarget();
+      const decision = vi.fn(async () => choice);
+      await installDurableProjectCloseHandler(close, {
+        getProjectState: () => ({
+          dirty: true,
+          activeSave: null,
+          blocked: false,
+        }),
+        flushProject: async () => {
+          throw new Error("autos folder missing");
+        },
+        flushUserData: async () => {},
+        onSaveFailure: decision,
+      });
+      await close.requestClose();
+      expect(decision).toHaveBeenCalledOnce();
+      expect(close.destroyed).toBe(choice === "discard");
+    },
+  );
+
   it("acquires a browser journal lease lazily and only once", async () => {
     const locks = new TestLockManager();
     const journal = createBrowserAutosaveRecoveryJournal(new MapStorage(), {

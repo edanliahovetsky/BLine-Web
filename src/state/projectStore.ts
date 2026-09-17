@@ -128,7 +128,13 @@ export interface ProjectEditOwnership extends ProjectMutationOwnership {
 
 export type DerivedPathCommandResult = "applied" | "noop" | "stale";
 
+export type SaveFailureDecision = "retry" | "discard" | "cancel";
+export type SaveFailureHandler = (
+  error: unknown,
+) => Promise<SaveFailureDecision>;
+
 export interface ProjectStoreState {
+  setSaveFailureHandler(handler: SaveFailureHandler | null): void;
   project: Project | null;
   activePathId: string | null;
   activePathGroupId: string | null;
@@ -266,6 +272,7 @@ export type ProjectStore = StoreApi<ProjectStoreState>;
 export function createProjectStore(
   history = createHistoryStore<Project>(),
 ): ProjectStore {
+  let saveFailureHandler: SaveFailureHandler | null = null;
   let nextProjectSessionId = 1;
   let ioGeneration = 0;
   let savePromise: Promise<ProjectIoWriteOutcome> | null = null;
@@ -285,14 +292,35 @@ export function createProjectStore(
     // A save can admit another synchronous edit before its awaiting caller resumes.
     // Keep draining that work until transition ownership can be captured atomically.
     while (true) {
+      let discard = false;
       if (persistCurrentProject) {
-        await persistBeforeProjectTransition(get);
+        const before = get();
+        try {
+          await persistBeforeProjectTransition(get);
+        } catch (error) {
+          if (
+            !saveFailureHandler ||
+            get().activeSave ||
+            legacyProjectMigrationOwnsSession(get())
+          )
+            throw error;
+          const decision = await saveFailureHandler(error);
+          if (decision === "cancel") throw error;
+          // Consent applies only to the exact revision shown in the dialog.
+          if (
+            decision === "retry" ||
+            get().projectSessionId !== before.projectSessionId ||
+            get().revision !== before.revision
+          )
+            continue;
+          discard = true;
+        }
       }
       if (activeProjectTransition) {
         throw new Error("Another Project change is already in progress");
       }
       const state = get();
-      if (persistCurrentProject && state.dirty) {
+      if (persistCurrentProject && state.dirty && !discard) {
         continue;
       }
       const ownership: ProjectTransitionOwnership = {
@@ -462,6 +490,9 @@ export function createProjectStore(
   };
 
   const store = createStore<ProjectStoreState>((set, get) => ({
+    setSaveFailureHandler(handler) {
+      saveFailureHandler = handler;
+    },
     project: null,
     activePathId: null,
     activePathGroupId: null,

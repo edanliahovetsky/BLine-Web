@@ -470,3 +470,7 @@
 .path-removal__footer .path-removal__delete:hover:not(:disabled) {
   background: var(--bline-danger-solid);
 }
+
+.save-failure-backdrop {
+  z-index: 1000;
+}

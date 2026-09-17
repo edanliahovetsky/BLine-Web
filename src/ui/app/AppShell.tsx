@@ -131,6 +131,7 @@ import {
   DeleteProjectsDialog,
   NameEntryDialog,
   ImportErrorDialog,
+  SaveFailureDialog,
   ProjectImportDialog,
 } from "./ProjectDialogs";
 import {
@@ -373,6 +374,8 @@ export function AppShell() {
     return () => observer.disconnect();
   }, []);
   const {
+    saveFailure,
+    resolveSaveFailure,
     autosaveStatus,
     cancelAutosave,
     fieldBackgrounds,
@@ -2582,6 +2585,22 @@ export function AppShell() {
           onChoose={resolveImportDecision}
         />
       ) : null}
+      {saveFailure !== null && (
+        <SaveFailureDialog
+          message={saveFailure}
+          onChoose={resolveSaveFailure}
+          onExport={async () => {
+            const state = projectStore.getState();
+            const bundle = await state.exportProjectArchive();
+            if (!bundle || !state.project)
+              throw new Error("No project is available to export");
+            downloadBlob(
+              bundle,
+              `${safeDownloadName(state.project.display_name)}.bline-project.json`,
+            );
+          }}
+        />
+      )}
       {importError !== null ? (
         <ImportErrorDialog
           message={importError}

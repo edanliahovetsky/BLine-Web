@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createProjectDocument,
   type ProjectDocument,
@@ -59,6 +59,47 @@ import type {
 } from "../../../src/storage";
 
 describe("history store", () => {
+  it("lets the user leave a failed save, and keeps edits if opening is cancelled", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("a", "Alpha", 1),
+    );
+    renameActivePath(store, "Unsaved");
+    vi.spyOn(io, "saveWorkspace").mockRejectedValue(
+      new Error("autos folder missing"),
+    );
+    const decide = vi
+      .fn()
+      .mockResolvedValueOnce("cancel")
+      .mockResolvedValue("discard");
+    store.getState().setSaveFailureHandler(decide);
+    await expect(store.getState().openWorkspace()).rejects.toThrow(
+      "autos folder missing",
+    );
+    expect(store.getState().dirty).toBe(true);
+    expect(io.transitionCalls).not.toContain("openWorkspace");
+    vi.spyOn(io, "openWorkspace").mockResolvedValueOnce(null);
+    await store.getState().openWorkspace();
+    expect(store.getState().project?.paths[0].display_name).toBe("Unsaved");
+    expect(store.getState().dirty).toBe(true);
+    await store.getState().switchWorkspace("b");
+    expect(store.getState().dirty).toBe(false);
+    expect(decide).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries persistence before a requested project change", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("a", "Alpha", 1),
+    );
+    renameActivePath(store, "Unsaved");
+    vi.spyOn(io, "saveWorkspace").mockRejectedValueOnce(
+      new Error("folder missing"),
+    );
+    store.getState().setSaveFailureHandler(async () => "retry");
+    await store.getState().switchWorkspace("b");
+    expect(store.getState().dirty).toBe(false);
+    expect(io.writes).toHaveLength(1);
+  });
+
   it("executes commands and supports undo/redo", () => {
     const history = createHistoryStore<number>();
     const increment: HistoryCommand<number> = {

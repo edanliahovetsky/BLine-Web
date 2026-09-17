@@ -64,6 +64,7 @@ export interface DurableProjectCloseOptions {
   flushProject(): Promise<unknown>;
   flushUserData(): Promise<void>;
   onError?(error: unknown): void;
+  onSaveFailure?(error: unknown): Promise<"retry" | "discard" | "cancel">;
   timeoutMs?: number;
 }
 
@@ -561,17 +562,34 @@ export function installDurableProjectCloseHandler(
     closing = true;
     try {
       options.prepareClose?.();
-      await withTimeout(
-        Promise.all([drainProject(options), options.flushUserData()]),
-        options.timeoutMs ?? 5_000,
-      );
-      const state = options.getProjectState();
-      if (state.blocked || state.dirty || state.activeSave) {
-        throw new Error("Project persistence is not safe to close");
+      while (true) {
+        try {
+          await withTimeout(
+            Promise.all([drainProject(options), options.flushUserData()]),
+            options.timeoutMs ?? 5_000,
+          );
+          const state = options.getProjectState();
+          if (state.blocked || state.dirty || state.activeSave) {
+            throw new Error("Project persistence is not safe to close");
+          }
+          await target.destroy();
+          return;
+        } catch (error) {
+          options.onError?.(error);
+          const state = options.getProjectState();
+          // Never abandon a live write or a migration mid-operation.
+          if (state.activeSave || state.blocked || !options.onSaveFailure)
+            return;
+          const decision = await options.onSaveFailure(error);
+          if (decision === "retry") continue;
+          if (decision === "discard") {
+            const latest = options.getProjectState();
+            if (!latest.activeSave && !latest.blocked) await target.destroy();
+          }
+          return;
+        }
       }
-      await target.destroy();
-    } catch (error) {
-      options.onError?.(error);
+    } finally {
       closing = false;
     }
   });
