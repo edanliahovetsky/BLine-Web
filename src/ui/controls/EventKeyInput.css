@@ -23,10 +23,6 @@
 .event-key-input__completion > span {
   color: transparent;
 }
-.event-key-options {
-  max-height: 240px;
-}
-
 .property-row .event-key-input__completion {
   z-index: 1;
   padding: 0 9px;

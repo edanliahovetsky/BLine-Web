@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import { useFloatingMenu } from "./useFloatingMenu";
 import "./EventKeyInput.css";
 
+// Eight 30px options, seven 2px gaps, and the menu's padding and border.
+const eventKeyMenuHeightLimit = 8 * 30 + 7 * 2 + 12;
+
 /** Editable combobox: typing remains freeform; Tab accepts the suggested suffix. */
 export function EventKeyInput({
   value,
@@ -26,7 +29,12 @@ export function EventKeyInput({
   const id = useId();
   const originalKey = useRef(value);
   const { open, setOpen, triggerRef, panelRef, position } =
-    useFloatingMenu<HTMLInputElement>("trigger", false);
+    useFloatingMenu<HTMLInputElement>(
+      "trigger",
+      false,
+      "start",
+      eventKeyMenuHeightLimit,
+    );
   const [active, setActive] = useState(0);
   const [availableKeys, setAvailableKeys] = useState(keys);
   const matches = availableKeys.filter((key) =>

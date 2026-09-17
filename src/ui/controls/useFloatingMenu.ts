@@ -6,6 +6,7 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
   width: number | "trigger",
   focusOnOpen = true,
   align: "start" | "center" = "start",
+  heightLimit = Number.POSITIVE_INFINITY,
 ) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<T | null>(null);
@@ -27,9 +28,15 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
       );
       const below = window.innerHeight - rect.bottom - gap - padding;
       const above = rect.top - gap - padding;
-      const showBelow = below >= panel.scrollHeight || below >= above;
-      const maxHeight = Math.max(0, showBelow ? below : above);
-      const height = Math.min(panel.scrollHeight, maxHeight);
+      const contentHeight =
+        panel.scrollHeight + panel.offsetHeight - panel.clientHeight;
+      const preferredHeight = Math.min(contentHeight, heightLimit);
+      const showBelow = below >= preferredHeight || below >= above;
+      const maxHeight = Math.max(
+        0,
+        Math.min(heightLimit, showBelow ? below : above),
+      );
+      const height = Math.min(contentHeight, maxHeight);
       setPosition({
         position: "fixed",
         zIndex: 1000,
@@ -68,7 +75,7 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open, width, focusOnOpen, align]);
+  }, [open, width, focusOnOpen, align, heightLimit]);
 
   useEffect(() => {
     if (!open) return;
