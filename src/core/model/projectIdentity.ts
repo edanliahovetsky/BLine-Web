@@ -22,29 +22,36 @@ export function normalizePathFileName(value: string): string {
 
 /** One naming policy for Paths created, renamed, or duplicated in the editor. */
 export function pathFileNameFromDisplayName(value: string): string {
-  const stem = value
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return `${stem || "untitled-path"}.json`;
+  const stem = value.trim().replace(/\.json$/i, "") || "Untitled Path";
+  if (
+    /[<>:"/\\|?*]/.test(stem) ||
+    [...stem].some((char) => char.charCodeAt(0) < 32) ||
+    /[. ]$/.test(stem) ||
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(stem)
+  ) {
+    throw new Error(
+      'Use a filename without < > : " / \\ | ? *, trailing dots, or reserved device names.',
+    );
+  }
+  return `${stem}.json`;
 }
 
 export function pathDisplayNameFromFileName(fileName: string): string {
-  return fileName.replace(/\.json$/i, "").replace(/[-_]+/g, " ");
+  return fileName.replace(/\.json$/i, "");
 }
 
 function safeExplicitFileStem(value: string): string {
-  return (
-    value
-      .trim()
-      .replace(/\\/g, "/")
-      .split("/")
-      .filter(Boolean)
-      .at(-1)
-      ?.replace(/[^a-zA-Z0-9_.-]+/g, "_")
-      .replace(/^_+|_+$/g, "") ?? ""
-  );
+  let stem =
+    value.trim().replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? "";
+  stem = [...stem]
+    .map((char) =>
+      char.charCodeAt(0) < 32 || /[<>:"|?*]/.test(char) ? "_" : char,
+    )
+    .join("")
+    .replace(/[. ]+$/, "");
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(stem))
+    stem = `_${stem}`;
+  return stem;
 }
 
 function randomId(): string {

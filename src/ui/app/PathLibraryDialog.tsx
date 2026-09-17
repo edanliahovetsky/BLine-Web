@@ -827,8 +827,24 @@ export function PathLibraryDialog({
               {node.kind === "group" && (
                 <Folder className="fc-folder" size={17} />
               )}
-              <span className="fc-name" title={node.name}>
+              <span
+                className="fc-name"
+                title={
+                  node.kind === "path"
+                    ? project.paths.find((path) => path.path_id === node.id)
+                        ?.file_name
+                    : node.name
+                }
+              >
                 {node.name}
+                {node.kind === "path" && (
+                  <small className="fc-file-name">
+                    {
+                      project.paths.find((path) => path.path_id === node.id)
+                        ?.file_name
+                    }
+                  </small>
+                )}
               </span>
               <span
                 className="fc-count"

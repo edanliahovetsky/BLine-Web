@@ -13,6 +13,30 @@ import {
 } from "../../../src/core/model/projectOperations";
 
 describe("Project and editor navigation", () => {
+  it("keeps capitalization, underscores, Unicode and safe punctuation in names and files", () => {
+    const result = addPathToProject(
+      createProject({ project_id: "names", display_name: "Names" }),
+      { display_name: "TEST_AUTO – Score (2)!" },
+    );
+    expect(result.project.paths[0]).toMatchObject({
+      display_name: "TEST_AUTO – Score (2)!",
+      file_name: "TEST_AUTO – Score (2)!.json",
+    });
+    const copy = duplicatePathInProject(
+      result.project,
+      result.createdPathId,
+      "TEST_AUTO – Score (2)!",
+    );
+    expect(copy.project.paths[1]).toMatchObject({
+      display_name: "TEST_AUTO – Score (2)!-2",
+      file_name: "TEST_AUTO – Score (2)!-2.json",
+    });
+    for (const display_name of ["../escape", "a\\b", "a:b", "NUL", "path."]) {
+      expect(() => addPathToProject(result.project, { display_name })).toThrow(
+        "Use a filename",
+      );
+    }
+  });
   it("uses one filename policy for create, rename, and duplicate", () => {
     const initial = createProject({
       project_id: "project-filename-policy",
@@ -20,14 +44,14 @@ describe("Project and editor navigation", () => {
       paths: [],
     });
     const first = addPathToProject(initial, { display_name: "Third Path" });
-    expect(first.project.paths[0]?.file_name).toBe("third-path.json");
+    expect(first.project.paths[0]?.file_name).toBe("Third Path.json");
 
     const renamed = renamePathInProject(
       first.project,
       first.createdPathId,
       "Center Score!",
     );
-    expect(renamed.paths[0]?.file_name).toBe("center-score.json");
+    expect(renamed.paths[0]?.file_name).toBe("Center Score!.json");
 
     const duplicated = duplicatePathInProject(
       renamed,
@@ -35,8 +59,8 @@ describe("Project and editor navigation", () => {
       "Center Score!",
     );
     expect(duplicated.project.paths.map((path) => path.file_name)).toEqual([
-      "center-score.json",
-      "center-score-2.json",
+      "Center Score!.json",
+      "Center Score!-2.json",
     ]);
   });
 

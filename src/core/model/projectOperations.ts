@@ -38,7 +38,9 @@ export function addPathToProject(
     ),
     path: structuredClone(input.path ?? createPathModel()),
   };
-  path.display_name ||= pathDisplayNameFromFileName(path.file_name);
+  path.display_name = input.file_name
+    ? path.display_name || pathDisplayNameFromFileName(path.file_name)
+    : pathDisplayNameFromFileName(path.file_name);
   const pathGroups = project.path_groups.map((group) =>
     input.addToGroupId && group.group_id === input.addToGroupId
       ? { ...group, path_ids: uniqueStrings([...group.path_ids, path.path_id]) }
@@ -70,7 +72,7 @@ export function renamePathInProject(
       path.path_id === pathId
         ? {
             ...structuredClone(path),
-            display_name: name || pathDisplayNameFromFileName(nextFileName),
+            display_name: pathDisplayNameFromFileName(nextFileName),
             file_name: nextFileName,
           }
         : structuredClone(path),
