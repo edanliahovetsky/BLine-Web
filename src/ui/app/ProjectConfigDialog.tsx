@@ -1,5 +1,10 @@
 import type { Project } from "../../core/model/project";
-import type { EventKeyEdit } from "../../core/model/eventKeys";
+import {
+  applyEventKeyEdits,
+  projectEventKeys,
+  type EventKeyEdit,
+} from "../../core/model/eventKeys";
+import { ProtrusionEventKeys } from "./ProtrusionEventKeys";
 import { EventTriggerSettings } from "./EventTriggerSettings";
 import {
   createContext,
@@ -108,6 +113,10 @@ export function ProjectConfigDialog({
   onLoadFieldImage,
 }: ProjectConfigDialogProps) {
   const [eventKeyEdits, setEventKeyEdits] = useState<EventKeyEdit[]>([]);
+  const eventKeyProject = useMemo(
+    () => (project ? applyEventKeyEdits(project, eventKeyEdits) : null),
+    [project, eventKeyEdits],
+  );
   const initialConfig = useMemo(() => createProjectConfig(config), [config]);
   const initialFieldDraft = useMemo<FieldDraft>(
     () => ({
@@ -354,6 +363,17 @@ export function ProjectConfigDialog({
               {activeSection === "robot" ? (
                 <RobotSettingsSection
                   draft={draft}
+                  eventKeys={
+                    eventKeyProject
+                      ? projectEventKeys({ ...eventKeyProject, config: draft })
+                      : [
+                          ...new Set([
+                            ...(draft.gui.event_trigger_keys ?? []),
+                            ...draft.gui.protrusions.show_on_event_keys,
+                            ...draft.gui.protrusions.hide_on_event_keys,
+                          ]),
+                        ]
+                  }
                   protrusionDefaultStateOptions={protrusionDefaultStateOptions}
                   protrusionsEnabled={protrusionsEnabled}
                   setDraft={setDraft}
@@ -688,15 +708,29 @@ function FieldSettingsSection({
 
 function RobotSettingsSection({
   draft,
+  eventKeys,
   protrusionDefaultStateOptions,
   protrusionsEnabled,
   setDraft,
 }: {
   draft: ProjectConfig;
+  eventKeys: string[];
   protrusionDefaultStateOptions: string[];
   protrusionsEnabled: boolean;
   setDraft: Dispatch<SetStateAction<ProjectConfig>>;
 }) {
+  const registerKey = (value: string) => {
+    const key = value.trim();
+    if (!key) return;
+    setDraft((current) => {
+      const keys = current.gui.event_trigger_keys ?? [];
+      if (keys.includes(key)) return current;
+      return {
+        ...current,
+        gui: { ...current.gui, event_trigger_keys: [...keys, key] },
+      };
+    });
+  };
   return (
     <ConfigSection title="Robot">
       <ConfigSubsection title="Size">
@@ -813,26 +847,26 @@ function RobotSettingsSection({
               })
             }
           />
-          <TextRow
+          <ProtrusionEventKeys
             label="Show On Event Keys"
-            value={draft.gui.protrusions.show_on_event_keys.join(", ")}
+            action="Show"
+            value={draft.gui.protrusions.show_on_event_keys}
+            keys={eventKeys}
             disabled={!protrusionsEnabled}
-            placeholder="event_a, event_b"
-            onChange={(value) =>
-              updateProtrusions(setDraft, {
-                show_on_event_keys: parseKeyList(value),
-              })
+            onRegister={registerKey}
+            onChange={(show_on_event_keys) =>
+              updateProtrusions(setDraft, { show_on_event_keys })
             }
           />
-          <TextRow
+          <ProtrusionEventKeys
             label="Hide On Event Keys"
-            value={draft.gui.protrusions.hide_on_event_keys.join(", ")}
+            action="Hide"
+            value={draft.gui.protrusions.hide_on_event_keys}
+            keys={eventKeys}
             disabled={!protrusionsEnabled}
-            placeholder="event_a, event_b"
-            onChange={(value) =>
-              updateProtrusions(setDraft, {
-                hide_on_event_keys: parseKeyList(value),
-              })
+            onRegister={registerKey}
+            onChange={(hide_on_event_keys) =>
+              updateProtrusions(setDraft, { hide_on_event_keys })
             }
           />
         </div>
@@ -1376,17 +1410,6 @@ async function readImageSize(
   } finally {
     URL.revokeObjectURL(url);
   }
-}
-
-function parseKeyList(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-    ),
-  ];
 }
 
 function configsEqual(left: ProjectConfig, right: ProjectConfig): boolean {

@@ -220,10 +220,16 @@ for (const viewport of [
       .selectOption("hidden");
     await next(page, "Connect the event keys");
     await page
-      .getByLabel("Show On Event Keys", { exact: true })
+      .getByRole("button", { name: "Add show event key", exact: true })
+      .click();
+    await page
+      .getByLabel("Show event key 1", { exact: true })
       .fill("startIntake");
     await page
-      .getByLabel("Hide On Event Keys", { exact: true })
+      .getByRole("button", { name: "Add hide event key", exact: true })
+      .click();
+    await page
+      .getByLabel("Hide event key 1", { exact: true })
       .fill("stopIntake");
     await next(page, "Place the extend event");
     await addEvent(page, 0, 1, "startIntake", "0.3");

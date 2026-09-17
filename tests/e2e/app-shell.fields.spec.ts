@@ -67,7 +67,14 @@ test("edits project config with undo support", async ({ page }) => {
     "shown",
   );
   await page.getByLabel("Protrusion Side").selectOption("front");
-  await page.getByLabel("Show On Event Keys").fill("intake, deploy");
+  await page
+    .getByRole("button", { name: "Add show event key", exact: true })
+    .click();
+  await page.getByLabel("Show event key 1", { exact: true }).fill("intake");
+  await page
+    .getByRole("button", { name: "Add show event key", exact: true })
+    .click();
+  await page.getByLabel("Show event key 2", { exact: true }).fill("deploy");
   await saveButton.click();
   await expect(page.getByTestId("save-status")).toContainText(
     /Autosave pending|Saved/,

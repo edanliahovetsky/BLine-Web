@@ -1,0 +1,32 @@
+.protrusion-event-keys {
+  min-width: 0;
+  margin-top: 14px;
+}
+.protrusion-event-keys h4 {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 540;
+}
+.protrusion-event-keys .event-key-input {
+  flex: 1;
+  font-size: 12px;
+}
+.protrusion-event-keys .event-key-input input {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--bline-border-control);
+  border-radius: var(--bline-radius-control);
+  color: var(--bline-text-primary);
+  font: inherit;
+}
+.protrusion-event-keys .event-key-input__completion {
+  padding: 0 9px;
+}
+.protrusion-event-keys .fc-more {
+  margin-right: 0;
+}
+.protrusion-event-keys button:disabled,
+.protrusion-event-keys input:disabled {
+  cursor: not-allowed;
+}

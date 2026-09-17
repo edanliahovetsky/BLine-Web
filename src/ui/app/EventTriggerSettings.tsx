@@ -1,16 +1,5 @@
 import { useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import {
-  Check,
-  Copy,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Search,
-  Trash2,
-  X,
-  Zap,
-} from "lucide-react";
+import { Check, Plus, Search, X, Zap } from "lucide-react";
 import type { Project, ProjectConfig } from "../../core/model/project";
 import {
   applyEventKeyEdits,
@@ -18,7 +7,7 @@ import {
   projectEventKeys,
   type EventKeyEdit,
 } from "../../core/model/eventKeys";
-import { useFloatingMenu } from "../controls/useFloatingMenu";
+import { EventKeyMenu } from "../controls/EventKeyMenu";
 import "./EventTriggerSettings.css";
 
 export function EventTriggerSettings({
@@ -213,100 +202,5 @@ export function EventTriggerSettings({
         )}
       </ul>
     </section>
-  );
-}
-
-function EventKeyMenu({
-  name,
-  onRename,
-  onDuplicate,
-  onDelete,
-}: {
-  name: string;
-  onRename(): void;
-  onDuplicate(): void;
-  onDelete(): void;
-}) {
-  const { open, setOpen, triggerRef, panelRef, position } =
-    useFloatingMenu<HTMLButtonElement>(190);
-  const choose = (action: () => void) => {
-    setOpen(false);
-    action();
-  };
-  return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="fc-more"
-        aria-label={`Event trigger actions for ${name}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        <MoreHorizontal size={17} />
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={panelRef}
-            role="menu"
-            data-tour="event-key-menu"
-            className="fc-menu"
-            style={position}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                event.stopPropagation();
-                setOpen(false);
-                triggerRef.current?.focus();
-              } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault();
-                const items = [
-                  ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                    "button",
-                  ),
-                ];
-                const current = items.indexOf(
-                  document.activeElement as HTMLButtonElement,
-                );
-                items[
-                  (current +
-                    (event.key === "ArrowDown" ? 1 : -1) +
-                    items.length) %
-                    items.length
-                ]?.focus();
-              }
-            }}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => choose(onRename)}
-            >
-              <Pencil size={14} />
-              Rename All
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => choose(onDuplicate)}
-            >
-              <Copy size={14} />
-              Duplicate
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="fc-delete"
-              onClick={() => choose(onDelete)}
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
-          </div>,
-          document.body,
-        )}
-    </>
   );
 }

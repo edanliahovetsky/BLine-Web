@@ -10,12 +10,18 @@ export function EventKeyInput({
   onChange,
   onCommit,
   placeholder = "No action",
+  ariaLabel = "Lib Key",
+  disabled = false,
+  autoFocus = false,
 }: {
   value: string;
   keys: readonly string[];
   onChange(value: string): void;
   onCommit(value: string): void;
   placeholder?: string;
+  ariaLabel?: string;
+  disabled?: boolean;
+  autoFocus?: boolean;
 }) {
   const id = useId();
   const originalKey = useRef(value);
@@ -28,7 +34,7 @@ export function EventKeyInput({
   );
   const index = Math.min(active, Math.max(0, matches.length - 1));
   const suggestion = matches[index];
-  const expanded = open && matches.length > 0;
+  const expanded = !disabled && open && matches.length > 0;
   const choose = (key: string) => {
     onChange(key);
     onCommit(originalKey.current);
@@ -53,7 +59,9 @@ export function EventKeyInput({
       <input
         type="text"
         ref={triggerRef}
-        aria-label="Lib Key"
+        aria-label={ariaLabel}
+        disabled={disabled}
+        autoFocus={autoFocus}
         role="combobox"
         aria-autocomplete="both"
         aria-description="Tab completes a suggestion. Use arrow keys to choose a registered trigger."

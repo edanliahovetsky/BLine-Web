@@ -236,7 +236,7 @@ export const robotSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Connect the event keys",
-      body: "Use the keys from the Event Triggers lesson: enter startIntake in Show On Event Keys and stopIntake in Hide On Event Keys. These settings control the extension shown in the preview. Your robot code still handles what each event actually does. Lists can contain several keys separated by commas.",
+      body: "Use + beside Show On Event Keys to add startIntake, then + beside Hide On Event Keys to add stopIntake. Each key has its own field; type a registered key’s prefix and press Tab to complete it, or choose from the suggestions. The ⋯ menu renames, duplicates, or removes that assignment. These lists control the preview extension; your robot code still handles what each event does.",
       target: "settings-protrusions",
       settingsSection: "robot",
       task: "Connect startIntake and stopIntake",
