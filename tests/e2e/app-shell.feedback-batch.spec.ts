@@ -32,6 +32,32 @@ test("registers, autocompletes, renames and clears event keys with undo @webkit-
   let dialog = await events(page);
   await addKey(page, "intakeFast");
   await addKey(page, "intakeSlow");
+  await page.getByRole("button", { name: "Add new", exact: true }).click();
+  const newKey = page.getByLabel("New Lib Key", { exact: true });
+  await expect(
+    page.getByRole("button", { name: "Save Lib Key", exact: true }),
+  ).toBeDisabled();
+  await expect(page.locator(".event-key-edit")).not.toContainText(
+    "New Lib Key",
+  );
+  await newKey.fill(" intakeFast ");
+  await expect(newKey).toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.getByRole("button", { name: "Save Lib Key", exact: true }),
+  ).toBeDisabled();
+  await newKey.press("Enter");
+  await expect(newKey).toBeVisible();
+  await expect(page.locator(".event-key-edit")).not.toContainText(
+    "already registered",
+  );
+  await newKey.fill("anotherKey");
+  await expect(newKey).not.toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.getByRole("button", { name: "Save Lib Key", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Cancel Lib Key edit", exact: true })
+    .click();
   await page
     .getByRole("button", {
       name: "Event trigger actions for intakeFast",

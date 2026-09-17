@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Plus, Search, X, Zap } from "lucide-react";
+import { Check, CircleAlert, Plus, Search, X, Zap } from "lucide-react";
 import type { Project, ProjectConfig } from "../../core/model/project";
 import {
   applyEventKeyEdits,
@@ -27,12 +27,14 @@ export function EventTriggerSettings({
     value: string;
   } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [error, setError] = useState("");
   const preview = useMemo(
     () => ({ ...applyEventKeyEdits(project, edits), config }),
     [project, config, edits],
   );
   const keys = projectEventKeys(preview);
+  const editedKey = editing?.value.trim() ?? "";
+  const duplicateKey = editing?.from === null && keys.includes(editedKey);
+  const canCommit = editedKey.length > 0 && !duplicateKey;
   const visible = keys.filter((key) =>
     key.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
   );
@@ -43,16 +45,8 @@ export function EventTriggerSettings({
     onChange(next.config, [...edits, { from, to }]);
   };
   const commit = () => {
-    if (!editing) return;
-    const key = editing.value.trim();
-    if (!key) {
-      setError("Enter a Lib Key.");
-      return;
-    }
-    if (editing.from === null && keys.includes(key)) {
-      setError("This Lib Key is already registered.");
-      return;
-    }
+    if (!editing || !canCommit) return;
+    const key = editedKey;
     if (editing.from !== null) replace(editing.from, key);
     else
       onChange(
@@ -63,12 +57,10 @@ export function EventTriggerSettings({
         [...edits],
       );
     setEditing(null);
-    setError("");
   };
   const startEdit = (from: string | null, value: string) => {
     setEditing({ from, value });
     setDeleting(null);
-    setError("");
   };
   return (
     <section
@@ -99,34 +91,46 @@ export function EventTriggerSettings({
       {editing && (
         <div className="event-key-edit">
           <label>
-            <span>
-              {editing.from === null
-                ? "New Lib Key"
-                : `Rename all “${editing.from}” to`}
-            </span>
-            <input
-              autoFocus
-              aria-label={
-                editing.from === null ? "New Lib Key" : "Replacement Lib Key"
-              }
-              value={editing.value}
-              onChange={(event) =>
-                setEditing({ ...editing, value: event.currentTarget.value })
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  commit();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setEditing(null);
+            {editing.from !== null && (
+              <span>{`Rename all “${editing.from}” to`}</span>
+            )}
+            <div className="event-key-edit__input">
+              <input
+                autoFocus
+                aria-label={
+                  editing.from === null ? "New Lib Key" : "Replacement Lib Key"
                 }
-              }}
-            />
+                aria-invalid={duplicateKey || undefined}
+                aria-description={
+                  duplicateKey
+                    ? "This Lib Key is already registered."
+                    : undefined
+                }
+                value={editing.value}
+                onChange={(event) =>
+                  setEditing({ ...editing, value: event.currentTarget.value })
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    commit();
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setEditing(null);
+                  }
+                }}
+              />
+              {duplicateKey && <CircleAlert size={14} aria-hidden="true" />}
+            </div>
           </label>
-          <button type="button" aria-label="Save Lib Key" onClick={commit}>
+          <button
+            type="button"
+            aria-label="Save Lib Key"
+            disabled={!canCommit}
+            onClick={commit}
+          >
             <Check size={16} />
           </button>
           <button
@@ -136,7 +140,6 @@ export function EventTriggerSettings({
           >
             <X size={16} />
           </button>
-          {error && <p role="alert">{error}</p>}
           {editing.from &&
             editing.value !== editing.from &&
             keys.includes(editing.value.trim()) && (

@@ -67,6 +67,17 @@
 .event-key-edit input {
   width: 100%;
 }
+.event-key-edit__input {
+  position: relative;
+}
+.event-key-edit__input > svg {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--bline-danger-text);
+  pointer-events: none;
+}
 .event-key-edit p {
   width: 100%;
   margin: 0;
@@ -113,7 +124,7 @@
   flex-shrink: 0;
 }
 .event-keys-add:hover,
-.event-key-edit button:hover,
+.event-key-edit button:hover:not(:disabled),
 .event-key-delete button:hover {
   background: var(--bline-surface-hover);
 }
@@ -124,6 +135,16 @@
   border-radius: var(--bline-radius-control);
   background: var(--bline-surface-inset);
   color: var(--bline-text-primary);
+}
+.event-key-edit input[aria-invalid="true"] {
+  padding-right: 30px;
+  border-color: var(--bline-danger-border);
+  outline-color: var(--bline-danger-border);
+}
+.event-key-edit button:disabled {
+  color: var(--bline-text-disabled);
+  opacity: var(--bline-disabled-opacity);
+  cursor: default;
 }
 .event-key-delete .danger-action {
   color: var(--bline-danger-text);
