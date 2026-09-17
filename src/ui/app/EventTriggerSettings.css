@@ -111,6 +111,18 @@
   color: var(--bline-text-primary);
   font-size: 12px;
 }
+.event-key-edit button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  height: 32px;
+  padding: 0;
+}
+.event-keys-add > svg,
+.event-key-edit button > svg {
+  display: block;
+  flex-shrink: 0;
+}
 .event-keys-add:hover,
 .event-key-edit button:hover,
 .event-key-delete button:hover {
