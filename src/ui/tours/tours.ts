@@ -27,7 +27,7 @@ import {
   practiceConfig,
 } from "./tourScenario";
 import { checkPlan, feedback } from "./tourChecks";
-import { robotSettingsTour } from "./robotSettingsLesson";
+import { settingsTours } from "./robotSettingsLesson";
 import { supplementalTours } from "./supplementalLessons";
 import {
   createManagementPaths,
@@ -744,10 +744,9 @@ export const rotationTargetsTour: TourDefinition = {
 export const eventTriggersTour: TourDefinition = {
   id: "event-triggers",
   title: "Event triggers",
-  summary: "Place events and save reusable Lib Keys in the trigger manager",
-  durationMinutes: 5,
-  completionMessage:
-    "You moved events, registered a reusable Lib Key, and found the tools for managing keys across a project.",
+  summary: "Move an event and add another on a different segment",
+  durationMinutes: 3,
+  completionMessage: "You added and moved events on two parts of a path.",
   practicePath: createEventLessonPath,
   practiceConfig,
   steps: [
@@ -786,76 +785,8 @@ export const eventTriggersTour: TourDefinition = {
       ),
     },
     {
-      title: "Open the trigger manager",
-      body: "Lib Keys belong to the project, so you can reuse them across its paths. Open Event Triggers in File → Settings to manage them. The key you already used, startIntake, appears automatically.",
-      target: "settings-nav-event-triggers",
-      settingsSection: "event-triggers",
-      settingsNavigateFrom: "robot",
-      visible: ["settings-dialog"],
-      interact: ["settings-nav"],
-      prepare: {
-        inspector: "closed",
-        simulation: "start",
-        closeMenus: true,
-      },
-      task: "Open Event Triggers",
-      check: openControl(
-        '[data-tour="settings-nav-event-triggers"][aria-current="page"]',
-        "Choose Event Triggers in the settings menu.",
-      ),
-    },
-    {
-      title: "Register a Lib Key",
-      body: "Click +, enter stopIntake, and confirm with the checkmark. Registering a key makes it available in the inspector without adding an event to the path. In your own project, click Save when you finish in Settings; this lesson applies edits to its practice project as you go.",
-      target: "settings-event-triggers",
-      settingsSection: "event-triggers",
-      visible: ["settings-dialog"],
-      interact: ["settings-event-triggers"],
-      task: "Register stopIntake",
-      check: () =>
-        feedback(
-          currentConfig().gui.event_trigger_keys?.includes("stopIntake") ??
-            false,
-          "Click +, enter stopIntake, then click the checkmark.",
-          "stopIntake is ready to reuse.",
-        ),
-    },
-    {
-      title: "Find a registered key",
-      body: "Type stop into the search field beside the magnifying glass. The list filters as you type. Each row shows how many times its key is used in this project's events and protrusion settings; stopIntake has no uses yet.",
-      target: "settings-event-triggers",
-      settingsSection: "event-triggers",
-      visible: ["settings-dialog"],
-      interact: ["settings-event-triggers"],
-      task: "Search for stop",
-      check: () =>
-        feedback(
-          document
-            .querySelector<HTMLInputElement>(
-              '[aria-label="Search event triggers"]',
-            )
-            ?.value.trim()
-            .toLowerCase() === "stop",
-          "Type stop in the search field.",
-          "The list now shows matching keys.",
-        ),
-    },
-    {
-      title: "Manage registered keys",
-      body: "Open the ⋯ menu beside stopIntake. Rename All replaces that key in every path and protrusion setting in the project. Duplicate registers a new key without copying event elements. Delete removes the registration and clears matching Lib Keys, leaving the event elements in place. These edits can be undone. Keep stopIntake for the next step.",
-      target: "settings-event-triggers",
-      settingsSection: "event-triggers",
-      visible: ["settings-dialog"],
-      interact: ["settings-event-triggers"],
-      task: "Open the key's action menu",
-      check: openControl(
-        '[aria-label="Event trigger actions for stopIntake"][aria-expanded="true"]',
-        "Click the ⋯ button beside stopIntake.",
-      ),
-    },
-    {
       title: "Add an event on the next segment",
-      body: "Choose Event and add another trigger between the translation target and End. Set Event Pos to 0.6. In Lib Key, type stop and press Tab to complete stopIntake. You can also choose a suggestion with the arrow keys and Enter or click it.",
+      body: "Choose Event and add another trigger between the translation target and End. Set Event Pos to 0.6 and Lib Key to stopIntake.",
       target: "tool-event",
       visible: ["path-canvas", "element-properties"],
       interact: [...elementExploration, "tool-event"],
@@ -907,12 +838,18 @@ export const foundationalTours: readonly TourDefinition[] = [
   pathTuningTour,
   rotationTargetsTour,
   eventTriggersTour,
-  robotSettingsTour,
 ];
-export const tours: readonly TourDefinition[] = [
+export const tourPickerEntries: readonly (
+  | TourDefinition
+  | { id: "settings"; title: "Settings"; lessons: readonly TourDefinition[] }
+)[] = [
   ...foundationalTours,
+  { id: "settings", title: "Settings", lessons: settingsTours },
   ...supplementalTours,
 ];
+export const tours: readonly TourDefinition[] = tourPickerEntries.flatMap(
+  (entry) => ("lessons" in entry ? entry.lessons : [entry]),
+);
 export function findTour(tourId: string | null) {
   return tours.find((tour) => tour.id === tourId) ?? null;
 }

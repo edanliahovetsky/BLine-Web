@@ -13,6 +13,8 @@ import {
 } from "../../state/projectStore";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
 import { feedback } from "./tourChecks";
+import { createEventLessonPath } from "./courseScenarios";
+import { observedTourCondition } from "./tourInteraction";
 import { waypoint, translation } from "./tourScenario";
 import { tourStore, type TourDefinition, type TourStep } from "./tourStore";
 
@@ -40,11 +42,17 @@ const navigation = (
 ): TourStep =>
   settings({
     title: `Open ${label}`,
-    body: `Choose ${label} in the settings menu to explore the next group of settings.`,
+    body: `Choose ${label} in File → Settings. This sublesson uses a fresh practice project and restores your own project when you finish.`,
     target: `settings-nav-${section}`,
     settingsSection: section,
     settingsNavigateFrom: from,
     interact: ["settings-nav"],
+    prepare: {
+      inspector: "closed",
+      navigator: "closed",
+      simulation: "start",
+      closeMenus: true,
+    },
     task: `Open ${label}`,
     check: () =>
       feedback(
@@ -152,23 +160,30 @@ function addEvent(key: string, segment: number, ratio: number): TourStep[] {
   ];
 }
 
+const practiceSettingsPath = () =>
+  createPathModel({
+    path_elements: [waypoint(3, 2), translation(7, 4), waypoint(11, 4, 90)],
+  });
+function openControl(selector: string, waiting: string) {
+  const opened = observedTourCondition(
+    () => !!document.querySelector(selector),
+  );
+  return () => feedback(opened(), waiting, "Ready to continue.");
+}
+
 export const robotSettingsTour: TourDefinition = {
   id: "robot-settings",
-  title: "Robot Settings",
-  summary:
-    "Set up your robot, animate an intake, and explore each settings section",
-  durationMinutes: 7,
+  title: "Robot",
+  summary: "Set bumper dimensions and animate protrusions with events",
+  durationMinutes: 4,
   completionMessage:
-    "You resized the robot, animated its extension with events, and explored the project settings. Use Tune Your Robot to apply these ideas to your real robot.",
+    "You configured the robot footprint and animated an extension with event triggers.",
   practiceConfig: createProjectConfig,
-  practicePath: () =>
-    createPathModel({
-      path_elements: [waypoint(3, 2), translation(7, 4), waypoint(11, 4, 90)],
-    }),
+  practicePath: practiceSettingsPath,
   steps: [
     settings({
       title: "Robot size",
-      body: "We’ll work through File → Settings in menu order, starting from the normal defaults in a practice project. Robot Length and Width are the outside bumper dimensions shown on the field. Set Length to 0.8 m and Width to 1.2 m, then look at the changed footprint.",
+      body: "Open File → Settings → Robot to set your bumper size and protrusions. This practice project starts with the normal defaults. Robot Length and Width are the outside bumper dimensions shown on the field. Set Length to 0.8 m and Width to 1.2 m, then look at the changed footprint.",
       target: "settings-size",
       settingsSection: "robot",
       prepare: {
@@ -243,6 +258,19 @@ export const robotSettingsTour: TourDefinition = {
       task: "Play through both events",
       check: playedThrough(),
     }),
+  ],
+};
+
+export const pathDefaultsSettingsTour: TourDefinition = {
+  id: "settings-path-defaults",
+  title: "Path Defaults",
+  summary: "Set default motion limits and end tolerances",
+  durationMinutes: 2,
+  completionMessage:
+    "You explored the default motion limits and the tolerances for finishing a path.",
+  practiceConfig: createProjectConfig,
+  practicePath: practiceSettingsPath,
+  steps: [
     navigation("path-defaults", "robot", "Path Defaults"),
     settings({
       title: "Translation defaults",
@@ -275,7 +303,20 @@ export const robotSettingsTour: TourDefinition = {
       target: "settings-end-tolerance",
       settingsSection: "path-defaults",
     }),
-    navigation("field", "path-defaults", "Field"),
+  ],
+};
+
+export const fieldSettingsTour: TourDefinition = {
+  id: "settings-field",
+  title: "Field",
+  summary: "Choose field images and resize a blank practice grid",
+  durationMinutes: 2,
+  completionMessage:
+    "You changed the field image, resized a blank grid, and learned how custom images are scaled.",
+  practiceConfig: createProjectConfig,
+  practicePath: practiceSettingsPath,
+  steps: [
+    navigation("field", "robot", "Field"),
     settings({
       title: "Choose a competition field",
       body: "Field Image selects the background for a competition year. Built-in fields are already scaled to meters. Choose Reefscape 2025 to try a different year; in your project, choose the field you’re using.",
@@ -327,7 +368,19 @@ export const robotSettingsTour: TourDefinition = {
       target: "settings-field",
       settingsSection: "field",
     }),
-    navigation("optimizer", "field", "Generator"),
+  ],
+};
+
+export const generatorSettingsTour: TourDefinition = {
+  id: "settings-generator",
+  title: "Generator",
+  summary: "Adjust safety factors and control automatic generation",
+  durationMinutes: 2,
+  completionMessage: "You explored generator factors and automatic updates.",
+  practiceConfig: createProjectConfig,
+  practicePath: practiceSettingsPath,
+  steps: [
+    navigation("optimizer", "robot", "Generator"),
     settings({
       title: "Generator factors",
       body: "Velocity and Acceleration safety factors reserve margin below the applicable motion limits. A factor of 1 uses the full limit; 0.9 uses 90%. Merge difference combines nearby generated speed caps when their difference is within that many m/s; a larger value produces fewer distinct caps. Try 0.9 for the Velocity safety factor.",
@@ -373,7 +426,7 @@ export const robotSettingsTour: TourDefinition = {
     }),
     settings({
       title: "Tune your robot",
-      body: "You’ve now worked through Robot, Path Defaults, Field, and Generator. For your real robot, use its bumper dimensions and measured motion limits, then tune and validate its controllers. Tune Your Robot explains that process in detail. Finish returns to your original project.",
+      body: "You’ve explored the generator’s safety factors and sync controls. For your real robot, use its bumper dimensions and measured motion limits, then tune and validate its controllers. Tune Your Robot explains that process in detail. Finish returns to your original project.",
       settingsSection: "optimizer",
       resource: {
         label: "Read Tune Your Robot",
@@ -382,3 +435,95 @@ export const robotSettingsTour: TourDefinition = {
     }),
   ],
 };
+
+export const eventTriggerSettingsTour: TourDefinition = {
+  id: "settings-event-triggers",
+  title: "Event Triggers",
+  summary: "Register, find, and manage reusable Lib Keys",
+  durationMinutes: 2,
+  completionMessage:
+    "You registered a reusable key and explored project-wide rename, duplicate, and clear actions.",
+  practiceConfig: createProjectConfig,
+  practicePath: createEventLessonPath,
+  steps: [
+    {
+      title: "Open the trigger manager",
+      body: "Lib Keys belong to the project, so you can reuse them across its paths. Open Event Triggers in File → Settings to manage them. This practice path already uses startIntake, so it appears automatically.",
+      target: "settings-nav-event-triggers",
+      settingsSection: "event-triggers",
+      autoGenerate: false,
+      settingsNavigateFrom: "robot",
+      visible: ["settings-dialog"],
+      interact: ["settings-nav"],
+      prepare: {
+        inspector: "closed",
+        simulation: "start",
+        closeMenus: true,
+      },
+      task: "Open Event Triggers",
+      check: openControl(
+        '[data-tour="settings-nav-event-triggers"][aria-current="page"]',
+        "Choose Event Triggers in the settings menu.",
+      ),
+    },
+    {
+      title: "Register a Lib Key",
+      body: "Click +, enter stopIntake, and confirm with the checkmark. Registering a key makes it available in the inspector without adding an event to the path. In your own project, click Save when you finish in Settings; this lesson applies edits to its practice project as you go.",
+      target: "settings-event-triggers",
+      settingsSection: "event-triggers",
+      autoGenerate: false,
+      visible: ["settings-dialog"],
+      interact: ["settings-event-triggers"],
+      task: "Register stopIntake",
+      check: () =>
+        feedback(
+          config().gui.event_trigger_keys?.includes("stopIntake") ?? false,
+          "Click +, enter stopIntake, then click the checkmark.",
+          "stopIntake is ready to reuse.",
+        ),
+    },
+    {
+      title: "Find a registered key",
+      body: "Type stop into the search field beside the magnifying glass. The list filters as you type. Each row shows how many times its key is used in this project's events and protrusion settings; stopIntake has no uses yet.",
+      target: "settings-event-triggers",
+      settingsSection: "event-triggers",
+      autoGenerate: false,
+      visible: ["settings-dialog"],
+      interact: ["settings-event-triggers"],
+      task: "Search for stop",
+      check: () =>
+        feedback(
+          document
+            .querySelector<HTMLInputElement>(
+              '[aria-label="Search event triggers"]',
+            )
+            ?.value.trim()
+            .toLowerCase() === "stop",
+          "Type stop in the search field.",
+          "The list now shows matching keys.",
+        ),
+    },
+    {
+      title: "Manage registered keys",
+      body: "Open the ⋯ menu beside stopIntake. Rename All replaces that key in every path and protrusion setting in the project. Duplicate registers a new key without copying event elements. Delete removes the registration and clears matching Lib Keys, leaving the event elements in place. These edits can be undone. In the inspector, type part of a registered key and press Tab, or choose a suggestion with the arrow keys or pointer.",
+      target: "settings-event-triggers",
+      settingsSection: "event-triggers",
+      autoGenerate: false,
+      visible: ["settings-dialog"],
+      interact: ["settings-event-triggers"],
+      task: "Open the key's action menu",
+      check: openControl(
+        '[aria-label="Event trigger actions for stopIntake"][aria-expanded="true"]',
+        "Click the ⋯ button beside stopIntake.",
+      ),
+    },
+  ],
+};
+
+export const settingsTours: readonly TourDefinition[] = [
+  robotSettingsTour,
+  pathDefaultsSettingsTour,
+  fieldSettingsTour,
+  generatorSettingsTour,
+  eventTriggerSettingsTour,
+];

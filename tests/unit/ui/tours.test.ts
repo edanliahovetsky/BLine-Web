@@ -59,14 +59,13 @@ afterEach(() => {
 });
 
 describe("foundational lesson content", () => {
-  it("uses the foundational lessons with robot settings after event triggers in order", () => {
+  it("keeps the foundational lessons in order before settings sublessons", () => {
     expect(foundationalTours.map((tour) => tour.title)).toEqual([
       "Getting Started",
       "BLine Fundamentals",
       "Path Tuning",
       "Rotation targets",
       "Event triggers",
-      "Robot Settings",
     ]);
     for (const tour of foundationalTours) {
       expect(tour.durationMinutes).toBeGreaterThan(0);

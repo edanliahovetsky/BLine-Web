@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { ChangeEvent, CSSProperties, RefObject } from "react";
-import { CircleAlert } from "lucide-react";
+import { ChevronDown, CircleAlert } from "lucide-react";
 import {
   PathStage,
   type CanvasElementPlacement,
@@ -96,7 +96,7 @@ import {
 } from "./editorCommands";
 import { derivePathDiagnostics, type PathDiagnostic } from "./pathDiagnostics";
 import { TourOverlay } from "../tours/TourOverlay";
-import { tourStore } from "../tours/tourStore";
+import { tourStore, type TourDefinition } from "../tours/tourStore";
 import {
   capturePracticeTransfer,
   importPracticeFolder,
@@ -116,7 +116,7 @@ import {
   selectedFieldBackgroundForProject,
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
-import { findTour, tours } from "../tours/tours";
+import { findTour, tourPickerEntries, tours } from "../tours/tours";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -2992,6 +2992,45 @@ function TourPickerDialog({
     (tour) => !completedTourIds.includes(tour.id),
   )?.id;
 
+  const [settingsExpanded, setSettingsExpanded] = useState(() =>
+    tourPickerEntries.some(
+      (entry) =>
+        "lessons" in entry &&
+        entry.lessons.some(
+          (lesson) =>
+            lesson.id === recommendedTourId ||
+            completedTourIds.includes(lesson.id),
+        ),
+    ),
+  );
+  const renderLesson = (tour: TourDefinition, number: string) => {
+    const done = completedTourIds.includes(tour.id);
+    const recommended = tour.id === recommendedTourId;
+    return (
+      <button
+        key={tour.id}
+        type="button"
+        className={`tour-picker__lesson${done ? " is-done" : ""}`}
+        data-testid={`tour-picker-${tour.id}`}
+        onClick={() => onStart(tour.id)}
+      >
+        <span className="tour-picker__badge">{done ? "✓" : number}</span>
+        <span className="tour-picker__copy">
+          <strong>{tour.title}</strong>
+          {recommended && (
+            <span className="tour-picker__recommended">
+              {completedCount === 0 ? "Recommended first" : "Recommended next"}
+            </span>
+          )}
+          <small>{tour.summary}</small>
+        </span>
+        <span className="tour-picker__duration">
+          {tour.durationMinutes} min
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div
       className="config-dialog-backdrop"
@@ -3025,35 +3064,60 @@ function TourPickerDialog({
           <CloseButton ariaLabel="Close lessons" onClick={onClose} />
         </header>
         <div className="tour-picker__list">
-          {tours.map((tour, index) => {
-            const done = completedTourIds.includes(tour.id);
-            const recommended = tour.id === recommendedTourId;
+          {tourPickerEntries.map((entry, index) => {
+            if (!("lessons" in entry))
+              return renderLesson(entry, String(index + 1));
+            const done = entry.lessons.filter((lesson) =>
+              completedTourIds.includes(lesson.id),
+            ).length;
+            const recommended = entry.lessons.some(
+              (lesson) => lesson.id === recommendedTourId,
+            );
             return (
-              <button
-                key={tour.id}
-                type="button"
-                className={done ? "is-done" : ""}
-                data-testid={`tour-picker-${tour.id}`}
-                onClick={() => onStart(tour.id)}
-              >
-                <span className="tour-picker__badge">
-                  {done ? "✓" : index + 1}
-                </span>
-                <span className="tour-picker__copy">
-                  <strong>{tour.title}</strong>
-                  {recommended ? (
-                    <span className="tour-picker__recommended">
-                      {completedCount === 0
-                        ? "Recommended first"
-                        : "Recommended next"}
-                    </span>
-                  ) : null}
-                  <small>{tour.summary}</small>
-                </span>
-                <span className="tour-picker__duration">
-                  {tour.durationMinutes} min
-                </span>
-              </button>
+              <div key={entry.id} className="tour-picker__group">
+                <button
+                  type="button"
+                  className={`tour-picker__lesson${done === entry.lessons.length ? " is-done" : ""}`}
+                  data-testid="tour-picker-settings"
+                  aria-label="Settings"
+                  aria-expanded={settingsExpanded}
+                  aria-controls="settings-sublessons"
+                  onClick={() => setSettingsExpanded((expanded) => !expanded)}
+                >
+                  <span className="tour-picker__badge">
+                    {done === entry.lessons.length ? "✓" : index + 1}
+                  </span>
+                  <span className="tour-picker__copy">
+                    <strong>Settings</strong>
+                    {recommended && (
+                      <span className="tour-picker__recommended">
+                        Recommended next
+                      </span>
+                    )}
+                    <small>
+                      {done} / {entry.lessons.length} complete · Choose a
+                      settings section
+                    </small>
+                  </span>
+                  <ChevronDown
+                    size={16}
+                    className="tour-picker__expand"
+                    aria-hidden="true"
+                  />
+                </button>
+                {settingsExpanded && (
+                  <div
+                    id="settings-sublessons"
+                    className="tour-picker__children"
+                    role="group"
+                    aria-label="Settings lessons"
+                  >
+                    {entry.lessons.map((lesson, childIndex) =>
+                      renderLesson(lesson, `${index + 1}.${childIndex + 1}`),
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

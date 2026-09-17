@@ -4282,7 +4282,7 @@ select {
 }
 
 .tour-card__actions button:active:not(:disabled),
-.tour-picker__list > button:active:not(:disabled),
+.tour-picker__lesson:active:not(:disabled),
 .help-hub-popover button:active:not(:disabled),
 .help-hub-popover a:active {
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.4);
@@ -4328,7 +4328,7 @@ select {
   padding: 12px 14px 14px;
 }
 
-.tour-picker__list > button {
+.tour-picker__lesson {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: flex-start;
@@ -4342,10 +4342,29 @@ select {
   cursor: pointer;
 }
 
-.tour-picker__list > button:hover,
-.tour-picker__list > button:focus-visible {
+.tour-picker__lesson:hover,
+.tour-picker__lesson:focus-visible {
   border-color: var(--bline-border-strong);
   background: var(--bline-surface-hover);
+}
+
+.tour-picker__group > .tour-picker__lesson {
+  width: 100%;
+}
+.tour-picker__children {
+  display: grid;
+  gap: 7px;
+  margin: 7px 0 0 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--bline-border-control);
+}
+.tour-picker__expand {
+  align-self: center;
+  color: var(--bline-text-muted);
+  transform: rotate(-90deg);
+}
+.tour-picker__lesson[aria-expanded="true"] .tour-picker__expand {
+  transform: rotate(0);
 }
 
 .tour-picker__badge {
@@ -4359,7 +4378,7 @@ select {
   font-size: 0.66rem;
 }
 
-.tour-picker__list > button.is-done .tour-picker__badge {
+.tour-picker__lesson.is-done .tour-picker__badge {
   border-color: var(--bline-success-border);
   color: var(--bline-success);
   background: color-mix(in srgb, var(--bline-success-surface) 10%, transparent);
