@@ -16,6 +16,7 @@ export interface CanonicalProjectConfig {
     robot: {
       length_meters: number;
       width_meters: number;
+      legacy_heading_marker?: boolean;
     };
     protrusions: {
       enabled: boolean;
@@ -131,6 +132,14 @@ function updateProjectConfig(
       robotWidth.value,
       config.gui.robot.width_meters,
     );
+  }
+
+  if (
+    isRecord(input.gui) &&
+    isRecord(input.gui.robot) &&
+    input.gui.robot.legacy_heading_marker === true
+  ) {
+    config.gui.robot.legacy_heading_marker = true;
   }
 
   const enabled = lookupAny(input, [

@@ -200,6 +200,9 @@ function serializeProjectFileMetadata(
         robot: {
           length_meters: config.gui.robot.length_meters,
           width_meters: config.gui.robot.width_meters,
+          ...(config.gui.robot.legacy_heading_marker
+            ? { legacy_heading_marker: true }
+            : {}),
         },
         protrusions: {
           enabled: config.gui.protrusions.enabled,
@@ -450,7 +453,15 @@ function isEditorConfig(input: unknown): boolean {
             value >= 0.5 &&
             value <= 30,
         ))) &&
-    hasExactKeys(gui.robot, ["length_meters", "width_meters"]) &&
+    hasExactKeys(gui.robot, [
+      "length_meters",
+      "width_meters",
+      ...(isObject(gui.robot) && gui.robot.legacy_heading_marker !== undefined
+        ? ["legacy_heading_marker"]
+        : []),
+    ]) &&
+    (gui.robot.legacy_heading_marker === undefined ||
+      typeof gui.robot.legacy_heading_marker === "boolean") &&
     isNonNegativeNumber(gui.robot.length_meters) &&
     isNonNegativeNumber(gui.robot.width_meters) &&
     hasExactKeys(gui.protrusions, [

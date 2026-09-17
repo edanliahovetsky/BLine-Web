@@ -742,6 +742,7 @@ export class PixiPathRenderer {
           protrusions.side !== "none",
         protrusionDistanceMeters: protrusions.distance_meters,
         protrusionSide: protrusions.side,
+        legacyHeadingMarker: config.gui.robot.legacy_heading_marker,
       };
       if (
         !isStagePointWithinCanvas(
@@ -968,6 +969,7 @@ interface DrawNodeInput {
   dimmed: boolean;
   selectedPulse: number;
   rotationHovered: boolean;
+  legacyHeadingMarker?: boolean;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
   handoffRadiusState: AnchorRadiusState | null;
@@ -1147,6 +1149,8 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
       input.protrusionSide,
       opacity,
       input.rotationHovered,
+      0,
+      input.legacyHeadingMarker,
     );
     return;
   }
@@ -1233,6 +1237,7 @@ function drawRobotFootprint(
   opacity: number,
   rotationHovered = false,
   eventPulse = 0,
+  legacyHeadingMarker = false,
 ): void {
   const metrics = elementFootprintMetrics(width, height);
   const outlineAccent =
@@ -1262,6 +1267,8 @@ function drawRobotFootprint(
   // Match the heading dot's colored diameter to the painted outline,
   // including its hover weight, with the same thin black border around both.
   const frontRadius = outline.strokeWidth / 2 + elementOutlineWidthPx;
+  const showHeadingHandle = !legacyHeadingMarker || rotationHovered;
+  const headingGap = showHeadingHandle ? frontRadius + 2 : 0;
   const extension = robotProtrusionBounds({
     lengthPx: width,
     widthPx: height,
@@ -1323,7 +1330,7 @@ function drawRobotFootprint(
   const commands = footprintOutlineCommands(
     outline.rect,
     cornerRadius,
-    frontRadius + 2,
+    headingGap,
     extension ? protrusionSide : "none",
   );
   // The bumper dimensions include the thin black outer outline.
@@ -1332,7 +1339,7 @@ function drawRobotFootprint(
     footprintOutlineCommands(
       backing.rect,
       cornerRadius,
-      frontRadius + 2,
+      headingGap,
       extension ? protrusionSide : "none",
     ),
     transform,
@@ -1359,6 +1366,22 @@ function drawRobotFootprint(
     width: outline.strokeWidth,
     alpha: outlineOpacity,
   });
+  if (legacyHeadingMarker) {
+    const size = Math.min(width, height) * 0.32;
+    drawPolygon(
+      graphics,
+      [size / 2, 0, -size / 2, size / 2, -size / 2, -size / 2],
+      {
+        fill: 0x05080b,
+        fillAlpha: 0.25 * opacity,
+        stroke: accent,
+        strokeAlpha: opacity,
+        strokeWidth: Math.max(1.4, outlineWidth * 0.72),
+      },
+      transform,
+    );
+    if (!showHeadingHandle) return;
+  }
   const center = transformLocalPoint(transform, 0, 0);
   const centerRadius = metrics.centerRadius / 2;
   drawOutlinedDot(graphics, center, centerRadius, accent, opacity);
