@@ -265,7 +265,7 @@ function ElementSymbol({
     return (
       <>
         <path d="M20 11a8 8 0 1 0-2.35 5.65" />
-        <path d="m17 8 3 3 3-3" />
+        <path d="M20 4v7h-7" transform="rotate(10 20 11)" />
       </>
     );
   }
