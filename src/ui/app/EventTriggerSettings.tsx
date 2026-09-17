@@ -87,18 +87,12 @@ export function EventTriggerSettings({
       data-tour="settings-event-triggers"
     >
       <h2>Event Triggers</h2>
-      <p className="event-keys-help">
-        Lib Keys are saved with this project and suggested in the inspector.
-        Rename All updates every matching event and protrusion setting. Delete
-        clears the key everywhere and keeps the event elements.
-      </p>
       <div className="event-keys-toolbar">
         <label className="fc-search">
           <Search size={14} />
           <input
             type="search"
             aria-label="Search event triggers"
-            placeholder="Search event triggers"
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
@@ -106,10 +100,11 @@ export function EventTriggerSettings({
         <button
           type="button"
           className="event-keys-add"
+          aria-label="Add new"
+          title="Add new"
           onClick={() => startEdit(null, "")}
         >
           <Plus size={14} />
-          Add new
         </button>
       </div>
       {editing && (
@@ -217,9 +212,6 @@ export function EventTriggerSettings({
           </li>
         )}
       </ul>
-      <p className="event-keys-help">
-        Changes apply when you save Settings. You can undo them in the editor.
-      </p>
     </section>
   );
 }
@@ -259,6 +251,7 @@ function EventKeyMenu({
           <div
             ref={panelRef}
             role="menu"
+            data-tour="event-key-menu"
             className="fc-menu"
             style={position}
             onKeyDown={(event) => {

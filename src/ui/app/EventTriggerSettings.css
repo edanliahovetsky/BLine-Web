@@ -1,9 +1,3 @@
-.event-keys-help {
-  color: var(--bline-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  margin: 0 0 12px;
-}
 .event-keys-toolbar {
   display: flex;
   align-items: center;
@@ -14,12 +8,6 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-}
-.event-keys-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
 }
 .event-keys-list {
   margin: 0 0 12px;
@@ -111,6 +99,7 @@
   color: var(--bline-text-primary);
   font-size: 12px;
 }
+.event-keys-add,
 .event-key-edit button {
   display: grid;
   place-items: center;
