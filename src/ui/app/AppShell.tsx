@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { ChangeEvent, CSSProperties, RefObject } from "react";
-import { ChevronDown, CircleAlert } from "lucide-react";
+import { Check, ChevronDown, CircleAlert } from "lucide-react";
 import {
   PathStage,
   type CanvasElementPlacement,
@@ -3014,7 +3014,9 @@ function TourPickerDialog({
         data-testid={`tour-picker-${tour.id}`}
         onClick={() => onStart(tour.id)}
       >
-        <span className="tour-picker__badge">{done ? "✓" : number}</span>
+        <span className="tour-picker__badge">
+          {done ? <Check size={14} role="img" aria-label="Completed" /> : number}
+        </span>
         <span className="tour-picker__copy">
           <strong>{tour.title}</strong>
           {recommended && (
@@ -3085,7 +3087,11 @@ function TourPickerDialog({
                   onClick={() => setSettingsExpanded((expanded) => !expanded)}
                 >
                   <span className="tour-picker__badge">
-                    {done === entry.lessons.length ? "✓" : index + 1}
+                    {done === entry.lessons.length ? (
+                      <Check size={14} role="img" aria-label="Completed" />
+                    ) : (
+                      index + 1
+                    )}
                   </span>
                   <span className="tour-picker__copy">
                     <strong>Settings</strong>
