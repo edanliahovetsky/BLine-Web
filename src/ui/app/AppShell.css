@@ -304,11 +304,7 @@ select {
 .dropdown-select-control__option.is-selected {
   border-color: var(--bline-border-accent);
   color: var(--bline-text-primary);
-  background: linear-gradient(
-    to right,
-    var(--bline-accent) 3px,
-    var(--bline-surface-selected) 3px
-  );
+  background: var(--bline-surface-selected);
   box-shadow: none;
 }
 
