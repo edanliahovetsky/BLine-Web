@@ -527,6 +527,72 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
           };
         });
       });
+      const headingDots = [20, 50, 200].flatMap((scale) => {
+        const dotViewport = { ...viewport, scale };
+        const center = modelToStagePoint(position, dotViewport);
+        dotViewport.x += 300 - center.x;
+        dotViewport.y += 180 - center.y;
+        return cases.slice(0, 2).flatMap(({ name, index, path }) =>
+          [false, true].map((hovered) => {
+            const image = pixels({
+              ...input,
+              path,
+              viewport: dotViewport,
+              hoveredRotationIndex: hovered ? index : null,
+            });
+            const front = renderer
+              .getDebugApi()
+              .nodePosition(`path-element-front-${index}`)!;
+            const band = Math.min(
+              30,
+              (config.gui.robot.length_meters * scale) / 4,
+            );
+            const accentSpan = (y: number) => {
+              let count = 0;
+              for (
+                let x = Math.floor(front.x - band);
+                x <= Math.ceil(front.x + band);
+                x++
+              ) {
+                const offset = (y * capture.width + x) * 4;
+                const [r, g, b] = image.slice(offset, offset + 3);
+                if (
+                  name === "waypoint"
+                    ? r > g * 1.3 && g > b * 1.3
+                    : g > r * 1.3 && g > b * 1.2
+                )
+                  count++;
+              }
+              return count;
+            };
+            const diameter = Math.max(accentSpan(179), accentSpan(180));
+            // Measure the uninterrupted top edge; the front edge's gap and
+            // rounded corners nearly touch at the smallest zoom.
+            const top = 180 - (config.gui.robot.width_meters * scale) / 2;
+            let thickness = 0;
+            for (
+              let y = Math.floor(top - 2);
+              y <=
+              Math.floor(top + (config.gui.robot.width_meters * scale) / 4);
+              y++
+            ) {
+              const offset = (y * capture.width + 300) * 4;
+              const [r, g, b] = image.slice(offset, offset + 3);
+              if (
+                name === "waypoint"
+                  ? r > g * 1.3 && g > b * 1.3
+                  : g > r * 1.3 && g > b * 1.2
+              )
+                thickness++;
+            }
+            return {
+              name: `${name}, scale ${scale}, hovered ${hovered}`,
+              diameter,
+              thickness,
+            };
+          }),
+        );
+      });
       const bodies = cases.map(({ name, index, path, baselinePath }) => {
         const scene = { ...input, path };
         if (name === "simulation") {
@@ -835,6 +901,7 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       return {
         colorSamples,
         smallMarkers,
+        headingDots,
         bodies,
         cornerSamples,
         edgeSamples,
@@ -868,6 +935,15 @@ test("Open Edge body pixels fit bumper dimensions and only selection ink pulses 
       marker.extent,
       `${marker.name} stays smaller than the robot at scale ${marker.scale}`,
     ).toBeLessThan(0.6 * marker.scale * 0.85);
+  }
+  for (const dot of results.headingDots) {
+    expect(dot.diameter, `${dot.name} heading remains visible`).toBeGreaterThan(
+      0,
+    );
+    expect(
+      Math.abs(dot.diameter - dot.thickness),
+      `${dot.name} heading matches outline (one antialiased pixel per edge)`,
+    ).toBeLessThanOrEqual(2);
   }
   for (const sample of results.cornerSamples) {
     expect.soft(sample.inkPixels, sample.name).toBeGreaterThan(0);

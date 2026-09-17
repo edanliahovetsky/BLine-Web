@@ -1259,6 +1259,9 @@ function drawRobotFootprint(
     rect: backing.rect,
     strokeWidth: Math.min(outlineWidth, backing.strokeWidth),
   };
+  // Match the heading dot's colored diameter to the painted outline,
+  // including its hover weight, with the same thin black border around both.
+  const frontRadius = outline.strokeWidth / 2 + elementOutlineWidthPx;
   const extension = robotProtrusionBounds({
     lengthPx: width,
     widthPx: height,
@@ -1320,7 +1323,7 @@ function drawRobotFootprint(
   const commands = footprintOutlineCommands(
     outline.rect,
     cornerRadius,
-    metrics.frontRadius + 2,
+    frontRadius + 2,
     extension ? protrusionSide : "none",
   );
   // The bumper dimensions include the thin black outer outline.
@@ -1329,7 +1332,7 @@ function drawRobotFootprint(
     footprintOutlineCommands(
       backing.rect,
       cornerRadius,
-      metrics.frontRadius + 2,
+      frontRadius + 2,
       extension ? protrusionSide : "none",
     ),
     transform,
@@ -1370,7 +1373,7 @@ function drawRobotFootprint(
     outline.rect.x + outline.rect.width,
     0,
   );
-  drawOutlinedDot(graphics, front, metrics.frontRadius, accent, opacity);
+  drawOutlinedDot(graphics, front, frontRadius, accent, opacity);
 }
 
 function drawRobotProtrusionOutline(
