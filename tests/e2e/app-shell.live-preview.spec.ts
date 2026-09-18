@@ -28,7 +28,9 @@ interface PreviewObservationWindow extends PixiDebugWindow {
 test("animates multiple display frames between real simulation results @webkit-canvas", async ({
   page,
 }) => {
-  // Observe the real worker without changing its results or delivery timing.
+  // Keep the real worker and results, but advance display time one frame at a
+  // time so a busy CI runner cannot skip the entire 80 ms blend between paints.
+  await page.clock.install();
   await page.addInitScript(() => {
     const observed = window as unknown as PreviewObservationWindow;
     const observation = (observed.__previewObservation = {
@@ -60,6 +62,7 @@ test("animates multiple display frames between real simulation results @webkit-c
   await gotoSampleEditor(page);
   await expect.poll(async () => (await trace(page)).length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Fast forward simulation" }).click();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
   const before = JSON.stringify(await trace(page));
   const box = await requiredBox(page.getByTestId("path-stage-canvas"));
   const start = await canvasNodePosition(page, "path-element-node-1");
@@ -72,16 +75,27 @@ test("animates multiple display frames between real simulation results @webkit-c
   await page.mouse.down();
   await page.mouse.move(box.x + start.x - 65, box.y + start.y - 40);
   await expect
-    .poll(() =>
-      page.evaluate(() => {
+    .poll(async () => {
+      await page.clock.runFor(16);
+      return page.evaluate(
+        () =>
+          (window as unknown as PreviewObservationWindow).__previewObservation
+            .results.length,
+      );
+    })
+    .toBe(1);
+  await expect
+    .poll(async () => {
+      await page.clock.runFor(16);
+      return page.evaluate(() => {
         const observation = (window as unknown as PreviewObservationWindow)
           .__previewObservation;
         return (
           observation.results.length === 1 &&
           observation.frames.at(-1) === observation.results[0]
         );
-      }),
-    )
+      });
+    })
     .toBe(true);
   const observation = await page.evaluate(() => {
     const observation = (window as unknown as PreviewObservationWindow)
@@ -99,6 +113,7 @@ test("animates multiple display frames between real simulation results @webkit-c
   expect(observation.results).toHaveLength(1);
   await page.keyboard.press("Escape");
   await page.mouse.up();
+  await page.clock.resume();
   await expect.poll(async () => JSON.stringify(await trace(page))).toBe(before);
 });
 
