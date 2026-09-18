@@ -869,7 +869,7 @@ export function SaveFailureDialog({
     >
       <section
         ref={ref}
-        className="mobile-warning-dialog save-recovery-dialog"
+        className={`mobile-warning-dialog save-recovery-dialog${canLeave ? " save-recovery-dialog--leaving" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="save-failure-title"
@@ -915,10 +915,16 @@ export function SaveFailureDialog({
         )}
         {actionError && <p role="alert">{actionError}</p>}
         {notice && <p role="status">{notice}</p>}
-        <div className="save-recovery-dialog__alternatives">
+        {canLeave && (
+          <p className="save-recovery-dialog__hint">
+            Leaving without saving discards changes since the last successful
+            save.
+          </p>
+        )}
+        <footer className="mobile-warning-dialog__footer save-recovery-dialog__footer">
           <button
             type="button"
-            className={secondary}
+            className={`${secondary} save-recovery-dialog__export`}
             disabled={busy}
             onClick={() => void run("export", onExport)}
           >
@@ -934,14 +940,6 @@ export function SaveFailureDialog({
               Leave without saving
             </button>
           )}
-        </div>
-        {canLeave && (
-          <p className="save-recovery-dialog__hint">
-            Leaving without saving discards changes since the last successful
-            save.
-          </p>
-        )}
-        <footer className="mobile-warning-dialog__footer save-recovery-dialog__footer">
           <button
             type="button"
             className={secondary}

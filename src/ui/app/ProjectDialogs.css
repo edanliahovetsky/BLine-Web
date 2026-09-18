@@ -476,10 +476,14 @@
 }
 
 .mobile-warning-dialog.save-recovery-dialog {
-  width: min(560px, calc(100vw - 32px));
+  width: min(620px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
   overflow-wrap: anywhere;
+}
+
+.mobile-warning-dialog.save-recovery-dialog--leaving {
+  width: min(780px, calc(100vw - 32px));
 }
 
 .save-recovery-dialog .mobile-warning-dialog__header h2 {
@@ -505,7 +509,6 @@
   margin-top: 8px;
 }
 
-.save-recovery-dialog__alternatives,
 .save-recovery-dialog__footer {
   display: flex;
   flex-wrap: wrap;
@@ -521,8 +524,11 @@
   white-space: nowrap;
 }
 
+.save-recovery-dialog__export {
+  margin-right: auto;
+}
+
 .save-recovery-dialog__discard {
-  margin-left: auto;
   color: var(--bline-danger-text);
 }
 
