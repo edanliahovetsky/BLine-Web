@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { gotoSampleEditor } from "./support/app-shell-shared";
+import {
+  gotoSampleEditor,
+  waitForEditorReady,
+} from "./support/app-shell-shared";
 
 // Only the IO seam is faked; all edits, autosave, dialog actions and persistence
 // run through the real application. Native filesystem behavior has Rust tests.
@@ -171,6 +174,7 @@ test("retry succeeds after the folder is restored @webkit-canvas", async ({
     ),
   ).toBe(0);
   await page.reload();
+  await waitForEditorReady(page);
   await page.getByTestId("path-element-row-4").click();
   await expect(page.getByLabel("Lib Key", { exact: true })).toHaveValue(
     "retryThisEvent",

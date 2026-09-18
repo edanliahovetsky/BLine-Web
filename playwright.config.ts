@@ -31,7 +31,14 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL,
-    trace: "retain-on-failure",
+    // Keep actionable failure traces without continuously screenshotting the
+    // animated canvas throughout hundreds of tests on hosted runners.
+    trace: {
+      mode: "retain-on-failure",
+      screenshots: false,
+      snapshots: true,
+      sources: false,
+    },
     screenshot: "only-on-failure",
   },
   webServer: {

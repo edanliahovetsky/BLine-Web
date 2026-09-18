@@ -548,19 +548,53 @@ test("automatically syncs added, edited, and removed acceleration ranges", async
   await velocity.getByRole("button", { name: "Generate constraints" }).click();
   await expect(velocity.getByRole("status")).toHaveText("Up to date");
 
-  const tab = page.getByRole("tab", { name: "Constraints", exact: true });
-  const expectAutomaticRefresh = async () => {
-    await expect(tab).toHaveClass(/is-optimizing/);
-    await expect(tab).not.toHaveClass(/is-optimizing/);
-    await expect(velocity.getByRole("status")).toHaveText("Up to date");
+  const expectAutomaticRefresh = async (edit: () => Promise<void>) => {
+    // Subscribe before the edit. A fast solve can start and finish between
+    // locator polls, so observing a temporary CSS class is a race.
+    const observation = await page.evaluateHandle(async () => {
+      const {
+        autoVelocityStore,
+      }: typeof import("../../src/state/autoVelocityStore") = await import(
+        /* @vite-ignore */ "/src/state/autoVelocityStore.ts" as string
+      );
+      const result = {
+        ran: false,
+        completed: false,
+        error: null as string | null,
+      };
+      const unsubscribe = autoVelocityStore.subscribe((state) => {
+        if (state.phase === "running" && state.runSource === "sync")
+          result.ran = true;
+        if (result.ran && state.phase === "idle") {
+          result.completed = true;
+          result.error = state.lastError;
+        }
+      });
+      return { result, unsubscribe };
+    });
+    try {
+      await edit();
+      await expect
+        .poll(() => observation.evaluate(({ result }) => result))
+        .toEqual({
+          ran: true,
+          completed: true,
+          error: null,
+        });
+      await expect(velocity.getByRole("status")).toHaveText("Up to date");
+    } finally {
+      await observation.evaluate(({ unsubscribe }) => unsubscribe());
+      await observation.dispose();
+    }
   };
-  await page
-    .getByRole("button", { name: "Add constraint", exact: true })
-    .click();
-  await page
-    .getByRole("menuitem", { name: "Max Acceleration", exact: true })
-    .click();
-  await expectAutomaticRefresh();
+  await expectAutomaticRefresh(async () => {
+    await page
+      .getByRole("button", { name: "Add constraint", exact: true })
+      .click();
+    await page
+      .getByRole("menuitem", { name: "Max Acceleration", exact: true })
+      .click();
+  });
 
   const acceleration = page.getByTestId(
     "constraint-card-max_acceleration_meters_per_sec2",
@@ -568,16 +602,18 @@ test("automatically syncs added, edited, and removed acceleration ranges", async
   await acceleration
     .getByTestId(/^constraint-range-max_acceleration_meters_per_sec2-\d+$/)
     .click();
-  await acceleration.getByLabel(/^Constraint \d+ value$/).fill("3");
-  await expectAutomaticRefresh();
+  await expectAutomaticRefresh(() =>
+    acceleration.getByLabel(/^Constraint \d+ value$/).fill("3"),
+  );
   await expect(acceleration.getByLabel(/^Constraint \d+ value$/)).toHaveValue(
     "3",
   );
 
-  await acceleration
-    .getByRole("button", { name: /^Delete constraint \d+$/ })
-    .click();
-  await expectAutomaticRefresh();
+  await expectAutomaticRefresh(() =>
+    acceleration
+      .getByRole("button", { name: /^Delete constraint \d+$/ })
+      .click(),
+  );
   await expect(
     acceleration.getByTestId(
       /^constraint-range-max_acceleration_meters_per_sec2-\d+$/,

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   canvasMetrics,
   canvasNodePosition,
@@ -277,7 +277,14 @@ test("defers autosave while a dirty canvas drag is active", async ({
 });
 
 test("plays and seeks the simulation transport", async ({ page }) => {
+  await page.clock.install();
   await gotoSampleEditor(page);
+  await expect(
+    page.getByRole("button", { name: "Fast forward simulation" }),
+  ).toBeEnabled();
+  // Advance playback explicitly: a slow pointer action must not let the
+  // simulation end and remove Pause before the test can click it.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
 
   const transport = page.getByTestId("simulation-transport");
   await expect(transport).toBeVisible();
@@ -309,7 +316,10 @@ test("plays and seeks the simulation transport", async ({ page }) => {
     transport.getByRole("button", { name: "Pause simulation" }),
   ).toBeVisible();
   await expect
-    .poll(async () => page.getByTestId("simulation-time").innerText())
+    .poll(async () => {
+      await page.clock.runFor(16);
+      return page.getByTestId("simulation-time").innerText();
+    })
     .not.toMatch(/^0\.00 /);
   await transport.getByRole("button", { name: "Pause simulation" }).click();
 
@@ -357,12 +367,14 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   await transport.getByRole("button", { name: "Play simulation" }).click();
   await expect
     .poll(
-      async () =>
-        Number(
+      async () => {
+        await page.clock.runFor(16);
+        return Number(
           (await page
             .getByTestId("path-stage-canvas")
             .getAttribute("data-simulation-event-pulse")) ?? 0,
-        ),
+        );
+      },
       { timeout: 10_000, intervals: [50, 50, 50, 50, 100] },
     )
     .toBeGreaterThan(0.4);
@@ -741,10 +753,10 @@ test("scrolls selected rows into view", async ({ page }) => {
     "true",
   );
 
-  for (let index = 0; index < 12; index += 1) {
-    await page.getByRole("button", { name: "Add element" }).click();
-    await page.getByRole("menuitem", { name: "Waypoint" }).click();
-  }
+  await seedScrollablePath(page, 11);
+  await page.getByTestId("path-element-row-15").click();
+  await page.getByRole("button", { name: "Add element" }).click();
+  await page.getByRole("menuitem", { name: "Waypoint" }).click();
 
   const pathList = page.getByRole("list", { name: "Path elements" });
   const selectedRow = page.getByTestId("path-element-row-16");
@@ -765,10 +777,7 @@ test("keeps outer sidebar scroll while selected canvas elements scroll within th
   await page.setViewportSize({ width: 1200, height: 720 });
   await gotoSampleEditor(page);
 
-  for (let index = 0; index < 12; index += 1) {
-    await page.getByRole("button", { name: "Add element" }).click();
-    await page.getByRole("menuitem", { name: "Waypoint" }).click();
-  }
+  await seedScrollablePath(page, 12);
 
   const scrollBefore = await page.evaluate(() => {
     const sidebar = document.querySelector<HTMLElement>(".inspector-sidebar");
@@ -1623,3 +1632,29 @@ test("keeps velocity status and actions on one centered row", async ({
   });
   await expectCenteredHeaderRow();
 });
+
+// Repeated Add-menu clicks are covered by the element-creation test. These
+// fixtures exercise scrolling with a long path without replaying that setup.
+async function seedScrollablePath(page: Page, count: number): Promise<void> {
+  await page.evaluate(async (count) => {
+    const {
+      projectStore,
+      activePathForProjectStore,
+    }: typeof import("../../src/state/projectStore") = await import(
+      /* @vite-ignore */ "/src/state/projectStore.ts" as string
+    );
+    const initial = activePathForProjectStore(projectStore.getState())!;
+    const waypoint = initial.path.path_elements.findLast(
+      (element) => element.type === "waypoint",
+    )!;
+    for (let index = 0; index < count; index += 1) {
+      const path = activePathForProjectStore(projectStore.getState())!;
+      projectStore.getState().applyPathStructureEdit({
+        kind: "insert",
+        index: path.path.path_elements.length - 1,
+        element: structuredClone(waypoint),
+      });
+    }
+  }, count);
+  await expect(page.getByTestId(`path-element-row-${5 + count}`)).toBeVisible();
+}

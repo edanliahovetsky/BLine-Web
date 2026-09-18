@@ -41,6 +41,7 @@ export async function gotoSampleEditor(page: Page): Promise<void> {
   }
 
   await expect(pathStage).toBeVisible();
+  await waitForEditorReady(page);
 }
 
 export async function requiredBox(locator: Locator): Promise<Bounds> {
@@ -61,10 +62,19 @@ export async function dismissMobileSupportWarning(page: Page): Promise<void> {
 }
 
 export async function openProjectSettings(page: Page): Promise<void> {
+  await waitForEditorReady(page);
   const file = page.getByRole("button", { name: "File", exact: true });
   if ((await file.getAttribute("aria-expanded")) !== "true") {
     await file.click();
   }
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Edit Config" })).toBeVisible();
+}
+
+// The canvas can paint during persisted-project restoration. Wait until that
+// transition finishes before selecting a row or opening a menu after reload.
+export async function waitForEditorReady(page: Page): Promise<void> {
+  const status = page.getByTestId("save-status");
+  await expect(status).toBeVisible();
+  await expect(status).not.toContainText("Loading");
 }

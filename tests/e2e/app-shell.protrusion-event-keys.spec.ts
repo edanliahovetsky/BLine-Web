@@ -17,7 +17,6 @@ for (const width of [1280, 390]) {
   test(`edits protrusion key lists with autocomplete at ${width}px @webkit-canvas`, async ({
     page,
   }, testInfo) => {
-    test.setTimeout(30_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await gotoSampleEditor(page);
     await page.getByTestId("path-element-row-4").click();
