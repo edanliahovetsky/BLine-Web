@@ -14,6 +14,7 @@ export function EventKeyInput({
   onCommit,
   placeholder = "No action",
   ariaLabel = "Lib Key",
+  inputId,
   disabled = false,
   autoFocus = false,
 }: {
@@ -23,6 +24,7 @@ export function EventKeyInput({
   onCommit(value: string): void;
   placeholder?: string;
   ariaLabel?: string;
+  inputId?: string;
   disabled?: boolean;
   autoFocus?: boolean;
 }) {
@@ -66,6 +68,7 @@ export function EventKeyInput({
       )}
       <input
         type="text"
+        id={inputId}
         ref={triggerRef}
         aria-label={ariaLabel}
         disabled={disabled}

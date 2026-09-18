@@ -58,6 +58,7 @@ interface SidebarProps {
   onActiveTabChange?(tab: "elements" | "constraints"): void;
   onInspectorResize?(width: number): void;
   onOpenLinkedTargetPicker?(): void;
+  onOpenEventTriggerSettings(): void;
   onDialogOpenChange?(open: boolean): void;
 }
 
@@ -74,6 +75,7 @@ export function Sidebar({
   onActiveTabChange,
   onInspectorResize,
   onOpenLinkedTargetPicker,
+  onOpenEventTriggerSettings,
   onDialogOpenChange,
 }: SidebarProps) {
   const optimizerPhase = useStoreSelector(
@@ -521,6 +523,7 @@ export function Sidebar({
             onUnlinkTarget={handleUnlinkTarget}
             onCreateLinkedTarget={handleCreateLinkedTarget}
             onOpenLinkedTargetPicker={() => onOpenLinkedTargetPicker?.()}
+            onOpenEventTriggerSettings={onOpenEventTriggerSettings}
           />
         </div>
       ) : (

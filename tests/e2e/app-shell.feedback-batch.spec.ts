@@ -25,6 +25,50 @@ async function addKey(page: Page, key: string) {
   await page.getByRole("button", { name: "Save Lib Key", exact: true }).click();
 }
 
+for (const width of [1280, 390]) {
+  test(`opens the event manager from Lib Key at ${width}px @webkit-canvas`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await gotoSampleEditor(page);
+    const eventRow = page.getByTestId("path-element-row-4");
+    if (!(await eventRow.isVisible())) {
+      await page.getByRole("button", { name: "Toggle inspector" }).click();
+    }
+    await eventRow.click();
+    const input = page.getByLabel("Lib Key", { exact: true });
+    const selection = await page
+      .getByTestId("selected-element-status")
+      .innerText();
+    await input.fill("quickPickup");
+    await page.getByRole("button", { name: "Manage event triggers" }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit Config" });
+    await expect(
+      dialog.getByRole("heading", { name: "Event Triggers", exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole("button", {
+        name: "Event trigger actions for quickPickup",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await addKey(page, "reserveKey");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(input).toHaveValue("quickPickup");
+    await expect(page.getByTestId("selected-element-status")).toHaveText(
+      selection,
+    );
+    await input.fill("reserve");
+    await input.press("Tab");
+    await expect(input).toHaveValue("reserveKey");
+    await openProjectSettings(page);
+    await expect(
+      dialog.getByRole("heading", { name: "Robot", exact: true }),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  });
+}
+
 test("registers, autocompletes, renames and clears event keys with undo @webkit-canvas", async ({
   page,
 }, testInfo) => {

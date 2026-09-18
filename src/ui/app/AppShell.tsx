@@ -77,7 +77,10 @@ import {
   createNamedProject,
   createSampleProject,
 } from "./initialProject";
-import { ProjectConfigDialog } from "./ProjectConfigDialog";
+import {
+  ProjectConfigDialog,
+  type ConfigSectionId,
+} from "./ProjectConfigDialog";
 import { writeProjectFolder } from "./projectFolderExport";
 import { CommandPalette, ShortcutHelpDialog } from "./CommandPalette";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
@@ -257,7 +260,9 @@ export function AppShell() {
   const redoLabel = redoDescription ? `Redo ${redoDescription}` : "Redo";
   const [openTopMenu, setOpenTopMenu] = useState<TopMenuId | null>(null);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
-  const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [configDialogSection, setConfigDialogSection] =
+    useState<ConfigSectionId | null>(null);
+  const showConfigDialog = configDialogSection !== null;
   const [importError, setImportError] = useState<string | null>(null);
   const [importDecision, setImportDecision] = useState<{
     existing: ProjectWorkspaceSummary;
@@ -564,7 +569,7 @@ export function AppShell() {
       restoreView: (view) => {
         autoVelocityStore.setState({ autoSyncEnabled: view.autoSyncEnabled });
         setShowLinkedTargetsDialog(false);
-        setShowConfigDialog(false);
+        setConfigDialogSection(null);
         setLinkedTargetPickerRequest(null);
         setOpenTopMenu(null);
         setShowPathGroupsDialog(view.navigatorOpen);
@@ -1739,7 +1744,7 @@ export function AppShell() {
         autoVelocityStore.setState({
           autoSyncEnabled: options.autoSyncEnabled,
         });
-        setShowConfigDialog(false);
+        setConfigDialogSection(null);
         return;
       }
       if (configSaveInProgressRef.current) {
@@ -1791,7 +1796,7 @@ export function AppShell() {
           projectId: currentProject.project_id,
           fieldId: options.selectedFieldId,
         });
-        setShowConfigDialog(false);
+        setConfigDialogSection(null);
       } finally {
         configSaveInProgressRef.current = false;
       }
@@ -2020,7 +2025,7 @@ export function AppShell() {
     label: "Open project settings",
     category: "Project",
     disabled: !projectAvailable || toolbarBusy,
-    run: () => setShowConfigDialog(true),
+    run: () => setConfigDialogSection("robot"),
   };
   const saveCommand: EditorCommand = {
     id: "project.save",
@@ -2549,6 +2554,9 @@ export function AppShell() {
                 setInspectorWidth(clampInspectorWidth(width))
               }
               onOpenLinkedTargetPicker={handleOpenLinkedTargetPicker}
+              onOpenEventTriggerSettings={() =>
+                setConfigDialogSection("event-triggers")
+              }
               onDialogOpenChange={setInspectorDialogOpen}
             />
             {!inspectorVisible ? workspaceStatus : null}
@@ -2627,6 +2635,7 @@ export function AppShell() {
               : "settings"
           }
           lessonMode={Boolean(activeTourId)}
+          initialSection={configDialogSection ?? undefined}
           walkthrough={
             settingsWalkthrough
               ? {
@@ -2645,7 +2654,7 @@ export function AppShell() {
               ? durableProject.config.gui.field.selected_field_id
               : selectedFieldId
           }
-          onCancel={() => setShowConfigDialog(false)}
+          onCancel={() => setConfigDialogSection(null)}
           onSave={handleSaveConfig}
           onWalkthroughChange={handleWalkthroughConfig}
           onLoadFieldImage={handleLoadFieldImage}

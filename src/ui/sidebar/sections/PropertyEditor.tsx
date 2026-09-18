@@ -1,7 +1,7 @@
 import { projectEventKeys } from "../../../core/model/eventKeys";
 import { projectStore } from "../../../state/projectStore";
 import { EventKeyInput } from "../../controls/EventKeyInput";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -18,7 +18,7 @@ import {
   isElementCompatibleWithLinkedTarget,
   nextLinkedTargetName,
 } from "../../../core/linkedTargets";
-import { Check } from "lucide-react";
+import { Check, Settings } from "lucide-react";
 import { LinkIcon } from "../../icons";
 import {
   isEventTrigger,
@@ -30,6 +30,7 @@ import {
 import {
   NumberStepperControl,
   SwitchInput,
+  TooltipIconButton,
   useControlTooltip,
 } from "../../controls";
 import { SidebarSection } from "../SidebarSection";
@@ -59,6 +60,7 @@ interface PropertyEditorProps {
   onUnlinkTarget(): void;
   onCreateLinkedTarget(kind: LinkedTargetKind, displayName: string): void;
   onOpenLinkedTargetPicker(): void;
+  onOpenEventTriggerSettings(): void;
   fieldGeometry?: FieldGeometry;
 }
 
@@ -80,6 +82,7 @@ export function PropertyEditor({
   onUnlinkTarget,
   onCreateLinkedTarget,
   onOpenLinkedTargetPicker,
+  onOpenEventTriggerSettings,
   fieldGeometry = defaultFieldGeometry,
 }: PropertyEditorProps) {
   const [tourEditCount, setTourEditCount] = useState(0);
@@ -114,6 +117,7 @@ export function PropertyEditor({
             eventKeys={project ? projectEventKeys(project) : []}
             fieldGeometry={fieldGeometry}
             onUpdateSelectedElements={onUpdateSelectedElements}
+            onOpenEventTriggerSettings={onOpenEventTriggerSettings}
           />
         ) : (
           <>
@@ -164,6 +168,7 @@ export function PropertyEditor({
             {isEventTrigger(element) ? (
               <EventFields
                 eventKeys={project ? projectEventKeys(project) : []}
+                onOpenEventTriggerSettings={onOpenEventTriggerSettings}
                 element={element}
                 onUpdateElement={(nextElement) => {
                   setTourEditCount((count) => count + 1);
@@ -183,9 +188,11 @@ function BulkPropertyFields({
   selectedElements,
   fieldGeometry,
   onUpdateSelectedElements,
+  onOpenEventTriggerSettings,
 }: {
   selectedElements: readonly SelectedElement[];
   eventKeys: readonly string[];
+  onOpenEventTriggerSettings(): void;
   fieldGeometry: FieldGeometry;
   onUpdateSelectedElements(
     replacements: readonly { index: number; element: PathElement }[],
@@ -345,22 +352,19 @@ function BulkPropertyFields({
         />
       ) : null}
       {allAreEvents ? (
-        <label className="property-row">
-          <span>Lib Key</span>
-          <EventKeyInput
-            keys={eventKeys}
-            onCommit={(key) => projectStore.getState().registerEventKey(key)}
-            value={eventKey ?? ""}
-            placeholder={eventKey === null ? "Mixed" : "No action"}
-            onChange={(value) =>
-              updateAll((element) =>
-                isEventTrigger(element)
-                  ? updateEventTrigger(element, { lib_key: value })
-                  : element,
-              )
-            }
-          />
-        </label>
+        <EventKeyField
+          eventKeys={eventKeys}
+          value={eventKey ?? ""}
+          placeholder={eventKey === null ? "Mixed" : "No action"}
+          onOpenEventTriggerSettings={onOpenEventTriggerSettings}
+          onChange={(value) =>
+            updateAll((element) =>
+              isEventTrigger(element)
+                ? updateEventTrigger(element, { lib_key: value })
+                : element,
+            )
+          }
+        />
       ) : null}
       {!hasCommonFields ? (
         <div
@@ -935,10 +939,12 @@ function EventFields({
   eventKeys,
   element,
   onUpdateElement,
+  onOpenEventTriggerSettings,
 }: {
   eventKeys: readonly string[];
   element: Extract<PathElement, { type: "event_trigger" }>;
   onUpdateElement(element: PathElement): void;
+  onOpenEventTriggerSettings(): void;
 }) {
   return (
     <>
@@ -954,18 +960,57 @@ function EventFields({
           )
         }
       />
-      <label className="property-row">
+      <EventKeyField
+        eventKeys={eventKeys}
+        value={element.lib_key}
+        onOpenEventTriggerSettings={onOpenEventTriggerSettings}
+        onChange={(key) =>
+          onUpdateElement(updateEventTrigger(element, { lib_key: key }))
+        }
+      />
+    </>
+  );
+}
+
+function EventKeyField({
+  eventKeys,
+  value,
+  placeholder,
+  onChange,
+  onOpenEventTriggerSettings,
+}: {
+  eventKeys: readonly string[];
+  value: string;
+  placeholder?: string;
+  onChange(value: string): void;
+  onOpenEventTriggerSettings(): void;
+}) {
+  const inputId = useId();
+  return (
+    <div className="property-row">
+      <label htmlFor={inputId}>
         <span>Lib Key</span>
+      </label>
+      <div className="property-event-key-controls">
         <EventKeyInput
+          inputId={inputId}
           keys={eventKeys}
-          value={element.lib_key}
-          onChange={(key) =>
-            onUpdateElement(updateEventTrigger(element, { lib_key: key }))
-          }
+          value={value}
+          placeholder={placeholder}
+          onChange={onChange}
           onCommit={(key) => projectStore.getState().registerEventKey(key)}
         />
-      </label>
-    </>
+        <TooltipIconButton
+          className="sidebar-icon-button property-event-key-settings"
+          aria-label="Manage event triggers"
+          title="Manage event triggers"
+          aria-haspopup="dialog"
+          onClick={onOpenEventTriggerSettings}
+        >
+          <Settings size={16} aria-hidden="true" />
+        </TooltipIconButton>
+      </div>
+    </div>
   );
 }
 

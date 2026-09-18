@@ -54,10 +54,11 @@ const configSections = [
   { id: "event-triggers", label: "Event Triggers" },
 ] as const;
 
-type ConfigSectionId = (typeof configSections)[number]["id"];
+export type ConfigSectionId = (typeof configSections)[number]["id"];
 
 interface ProjectConfigDialogProps {
   lessonMode?: boolean;
+  initialSection?: ConfigSectionId;
   project?: Project;
   walkthrough?: {
     section: ConfigSectionId;
@@ -102,6 +103,7 @@ const SettingsWalkthroughContext =
 export function ProjectConfigDialog({
   project,
   lessonMode = false,
+  initialSection = "robot",
   walkthrough,
   config,
   autoSyncEnabled,
@@ -135,7 +137,7 @@ export function ProjectConfigDialog({
     useState(autoSyncEnabled);
   const fieldInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedSection, setActiveSection] = useState<ConfigSectionId>(
-    walkthrough?.initialSection ?? walkthrough?.section ?? "robot",
+    walkthrough?.initialSection ?? walkthrough?.section ?? initialSection,
   );
   const activeSection = selectedSection;
   const contentRef = useRef<HTMLDivElement>(null);

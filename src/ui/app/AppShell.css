@@ -1782,6 +1782,26 @@ select {
   opacity: 1;
 }
 
+.property-event-key-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.property-event-key-controls .event-key-input {
+  flex: 1;
+}
+
+.property-event-key-controls .property-event-key-settings {
+  flex: 0 0 29px;
+  width: 29px;
+  min-width: 29px;
+  height: 29px;
+  min-height: 29px;
+  color: var(--bline-text-muted);
+}
+
 .bline-select-control,
 .sidebar-select-control {
   position: relative;
