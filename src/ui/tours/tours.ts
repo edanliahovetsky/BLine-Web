@@ -217,7 +217,7 @@ export const gettingStartedTour: TourDefinition = {
     },
     {
       title: "Elements",
-      body: "Open Elements to see the path order. Select a row to edit its position, heading, or event key in the properties below the list.",
+      body: "Open Elements to see the path order. Select a row to edit its position, rotation, or event key in the properties below the list.",
       target: "inspector-elements",
       interact: ["inspector-elements"],
       task: "Open Elements",
@@ -331,7 +331,7 @@ export const fundamentalsTour: TourDefinition = {
     },
     {
       title: "Place Start and End",
-      body: "Choose Waypoint and place one in Start, then choose Waypoint again and place one in End. A waypoint sets both position and heading.",
+      body: "Choose Waypoint and place one in Start, then choose Waypoint again and place one in End. A waypoint sets both position and rotation (also called heading, the direction the robot faces).",
       target: "tool-waypoint",
       visible: ["path-canvas"],
       interact: ["tool-waypoint", "path-canvas", "element-properties"],
@@ -624,7 +624,7 @@ export const rotationTargetsTour: TourDefinition = {
   steps: [
     {
       title: "Add a rotation target",
-      body: "A rotation target sets a heading partway along the path. Choose Rotation and place one between Start and End. This path has a speed limit of 2 m/s.",
+      body: "The robot’s rotation, also called its heading, is the direction it faces. A rotation target sets that direction partway along the path. Choose Rotation and place one between Start and End. This path has a speed limit of 2 m/s.",
       target: "tool-rotation",
       visible: ["path-canvas"],
       interact: [...elementExploration, "tool-rotation"],
