@@ -115,6 +115,15 @@ jobs:
           VITE_ENABLE_BUG_REPORT: "false"
         run: npm run test:e2e
 
+      - name: Preserve browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-failure-evidence-${{ github.workflow }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Beta toolbar and startup
         if: github.ref_name == 'web-beta'
         run: npm run test:e2e:beta

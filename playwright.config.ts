@@ -20,9 +20,11 @@ const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  timeout: 30_000,
+  // Hosted macOS runners take longer to paint and complete multi-step flows.
+  // Keep every assertion; allow those same operations to finish on CI.
+  timeout: process.env.CI ? 60_000 : 30_000,
   expect: {
-    timeout: 5_000,
+    timeout: process.env.CI ? 15_000 : 5_000,
   },
   fullyParallel: true,
   workers: process.env.CI ? 2 : undefined,
@@ -30,6 +32,7 @@ export default defineConfig({
   use: {
     baseURL,
     trace: "on-first-retry",
+    screenshot: "only-on-failure",
   },
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`,
