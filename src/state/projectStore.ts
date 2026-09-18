@@ -1547,9 +1547,11 @@ export function createProjectStore(
       ];
       history.setState({
         undoStack,
-        redoStack: [],
+        // Regeneration amends existing output; it is not a new user edit.
+        // In particular, a solve after Undo must leave that edit redoable.
+        redoStack: historyState.redoStack,
         canUndo: true,
-        canRedo: false,
+        canRedo: historyState.redoStack.length > 0,
       });
       setProject(set, nextProject, navigation, true);
       return "applied";

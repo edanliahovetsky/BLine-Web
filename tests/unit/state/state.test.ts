@@ -1913,6 +1913,58 @@ describe("autosave coordinator", () => {
   });
 });
 
+describe("derived generation after undo", () => {
+  it("preserves redo until the user makes a new edit", async () => {
+    const { store } = await initializedProjectStore(
+      exampleWorkspace("project-a", "Alpha", 2),
+    );
+    renameActivePath(store, "Beta");
+    renameActivePath(store, "Gamma");
+    renameActivePath(store, "Delta");
+    store.getState().undo();
+    store.getState().undo();
+    const ownership = captureProjectEditOwnership(store.getState());
+    expect(ownership).not.toBeNull();
+    const redoStack = store.getState().history.getState().redoStack;
+
+    expect(
+      store.getState().applyDerivedPathCommand(
+        {
+          description: "Refresh generated constraints after undo",
+          apply: (path) => ({
+            ...path,
+            ranged_constraints: [
+              {
+                key: "max_velocity_meters_per_sec",
+                value: 2,
+                start_ordinal: 1,
+                end_ordinal: 2,
+                source: "auto_velocity",
+              },
+            ],
+          }),
+          revert: (path) => path,
+        },
+        ownership!,
+      ),
+    ).toBe("applied");
+
+    expect(store.getState().history.getState().redoStack).toEqual(redoStack);
+    expect(store.getState().history.getState().canRedo).toBe(true);
+    store.getState().redo();
+    expect(activePathForProjectStore(store.getState())?.display_name).toBe(
+      "Gamma",
+    );
+    store.getState().redo();
+    expect(activePathForProjectStore(store.getState())?.display_name).toBe(
+      "Delta",
+    );
+    store.getState().undo();
+    renameActivePath(store, "New branch");
+    expect(store.getState().history.getState().canRedo).toBe(false);
+  });
+});
+
 describe("save conflict recovery", () => {
   it("surfaces a recoverable conflict without discarding the user's work", async () => {
     const { store, io } = await initializedProjectStore(

@@ -271,9 +271,18 @@ for (const [width, height] of [
       await expect(advanceButton(page)).toBeVisible();
       await page.getByTestId("tour-card").focus();
       await page.keyboard.press("ControlOrMeta+z");
-      expect((await practice(page)).path.path_elements).toHaveLength(4);
+      await expect
+        .poll(async () => (await practice(page)).path.path_elements.length)
+        .toBe(4);
+      // Let any background regeneration settle: it must not erase Redo.
+      await expect(page.getByTestId("save-status")).toContainText("Saved");
+      await expect(
+        page.getByRole("button", { name: "Redo", exact: true }),
+      ).toBeEnabled();
       await page.keyboard.press("ControlOrMeta+Shift+z");
-      expect((await practice(page)).path.path_elements).toHaveLength(5);
+      await expect
+        .poll(async () => (await practice(page)).path.path_elements.length)
+        .toBe(5);
       await advance(page);
       await heading(page, "Read the drive order");
       const beforeOrder = geometry((await practice(page)).path);
