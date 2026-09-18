@@ -94,6 +94,12 @@ jobs:
         if: contains(steps.metadata.outputs.version, '-beta.')
         run: npm run test:e2e:beta
 
+      - name: Offline browser and update recovery
+        env:
+          VITE_RELEASE_CHANNEL: ${{ github.ref_name == 'web-beta' && 'beta' || 'stable' }}
+          VITE_ENABLE_BUG_REPORT: ${{ github.ref_name == 'web-beta' && 'true' || 'false' }}
+        run: npm run test:offline
+
       - name: Preserve browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v7
@@ -102,12 +108,6 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Offline browser and update recovery
-        env:
-          VITE_RELEASE_CHANNEL: ${{ github.ref_name == 'web-beta' && 'beta' || 'stable' }}
-          VITE_ENABLE_BUG_REPORT: ${{ github.ref_name == 'web-beta' && 'true' || 'false' }}
-        run: npm run test:offline
 
       - name: Rust format check
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -124,13 +124,13 @@ jobs:
         run: npm run tauri:build
 
   browser:
-    name: Browser suite (${{ matrix.shard }}/2)
+    name: Browser suite (${{ matrix.shard }}/4)
     runs-on: macos-latest
     strategy:
-      # Both disjoint shards report their failures; neither hides the other.
+      # Every disjoint shard reports its failures; none hides the others.
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -149,7 +149,9 @@ jobs:
 
       # Each test belongs to exactly one shard of this same-commit suite.
       - name: Full browser suite shard
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/2
+        # One browser worker per runner avoids overlapping WebGL contexts in
+        # hosted WebKit. Four disjoint shards retain parallel throughput.
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4 --workers=1
 
       - name: Preserve browser failure evidence
         if: failure()
