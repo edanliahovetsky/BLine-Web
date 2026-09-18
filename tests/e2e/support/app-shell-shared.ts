@@ -14,22 +14,20 @@ export async function gotoSampleEditor(page: Page): Promise<void> {
   const mobileWarning = page.getByRole("dialog", {
     name: "Mobile support warning",
   });
-  const startHeading = page.getByRole("heading", {
-    name: "BLine",
-  });
+  // Home renders while persistence initializes. On reload it may disappear
+  // when the saved project opens, so only click Sample after Home is ready.
+  const readyHome = page
+    .getByTestId("start-center")
+    .and(page.locator('[aria-busy="false"]'));
   const initializationError = page.getByRole("alert");
   await expect(
-    pathStage
-      .or(mobileWarning)
-      .or(startHeading)
-      .or(initializationError)
-      .first(),
+    pathStage.or(mobileWarning).or(readyHome).or(initializationError).first(),
   ).toBeVisible();
 
   if (await mobileWarning.isVisible()) {
     await mobileWarning.getByRole("button", { name: "Continue" }).click();
     await expect(
-      pathStage.or(startHeading).or(initializationError).first(),
+      pathStage.or(readyHome).or(initializationError).first(),
     ).toBeVisible();
   }
 
@@ -38,7 +36,7 @@ export async function gotoSampleEditor(page: Page): Promise<void> {
       `BLine initialization failed: ${await initializationError.innerText()}`,
     );
   }
-  if (await startHeading.isVisible()) {
+  if (await readyHome.isVisible()) {
     await page.getByRole("button", { name: "Sample path" }).click();
   }
 
