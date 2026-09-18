@@ -364,21 +364,42 @@ test("plays and seeks the simulation transport", async ({ page }) => {
   });
   await expect(page.getByTestId("simulation-time")).toContainText("0.00 /");
 
-  await transport.getByRole("button", { name: "Play simulation" }).click();
-  await expect
-    .poll(
-      async () => {
-        await page.clock.runFor(16);
-        return Number(
-          (await page
-            .getByTestId("path-stage-canvas")
-            .getAttribute("data-simulation-event-pulse")) ?? 0,
+  const pulse = await page
+    .getByTestId("path-stage-canvas")
+    .evaluateHandle((canvas) => {
+      const result = { peak: 0 };
+      const observer = new MutationObserver(() => {
+        result.peak = Math.max(
+          result.peak,
+          Number(canvas.getAttribute("data-simulation-event-pulse") ?? 0),
         );
-      },
-      { timeout: 10_000, intervals: [50, 50, 50, 50, 100] },
-    )
-    .toBeGreaterThan(0.4);
-  await transport.getByRole("button", { name: "Pause simulation" }).click();
+      });
+      observer.observe(canvas, {
+        attributes: true,
+        attributeFilter: ["data-simulation-event-pulse"],
+      });
+      return { result, stop: () => observer.disconnect() };
+    });
+  try {
+    const duration = Number(
+      await page.getByLabel("Simulation time").getAttribute("max"),
+    );
+    expect(duration).toBeGreaterThan(0);
+    await transport.getByRole("button", { name: "Play simulation" }).click();
+    // Run the whole timeline, recording the visible pulse when it happens.
+    // The number of frames must not depend on how many remote polls a runner
+    // can squeeze into ten wall-clock seconds.
+    await page.clock.runFor(Math.ceil(duration * 1000) + 100);
+    await expect
+      .poll(() => pulse.evaluate(({ result }) => result.peak))
+      .toBeGreaterThan(0.4);
+    await expect
+      .poll(() => simulationProgress(page))
+      .toMatchObject({ atEnd: true });
+  } finally {
+    await pulse.evaluate(({ stop }) => stop());
+    await pulse.dispose();
+  }
 });
 
 test("creates every path element type from the inspector menu", async ({

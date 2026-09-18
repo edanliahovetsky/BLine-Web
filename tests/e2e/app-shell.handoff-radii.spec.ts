@@ -145,6 +145,21 @@ async function importHandoffPath(
     })
     .getByRole("button", { name: "Auto", exact: true })
     .click();
+  // Switching radius mode queues automatic synchronization. The Generate
+  // button is enabled during that debounce but can disable between pointer
+  // down/up when the solve starts. Finish that edit before the manual action.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const {
+          autoVelocityStore,
+        }: typeof import("../../src/state/autoVelocityStore") = await import(
+          /* @vite-ignore */ "/src/state/autoVelocityStore.ts" as string
+        );
+        return autoVelocityStore.getState().phase;
+      }),
+    )
+    .toBe("idle");
   await expect(
     page.getByRole("button", { name: "Generate constraints" }),
   ).toBeEnabled();

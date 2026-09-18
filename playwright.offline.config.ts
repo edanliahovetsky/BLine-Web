@@ -10,7 +10,15 @@ export default defineConfig({
   fullyParallel: true,
   workers: 2,
   reporter: [["list"]],
-  use: { trace: "retain-on-failure" },
+  use: {
+    trace: {
+      mode: "retain-on-failure",
+      screenshots: false,
+      snapshots: true,
+      sources: false,
+    },
+    screenshot: "only-on-failure",
+  },
   // Playwright service-worker testing is supported on Chromium only:
   // https://playwright.dev/docs/service-workers
   // The normal E2E config still covers WebKit editor rendering.

@@ -779,6 +779,7 @@ test("a failed save holds the old editor until a successful retry", async ({
   page,
   production,
 }) => {
+  await page.clock.install();
   await prepareOffline(page);
   await page.evaluate(() => {
     const controls = window.__offlineTest;
@@ -801,7 +802,7 @@ test("a failed save holds the old editor until a successful retry", async ({
   production.publishUpdate();
   await updateWorker(page);
   await awaitOfflineRelease(page, releaseId(production.nextRelease));
-  await page.waitForTimeout(1600);
+  await page.clock.runFor(1600);
   expect(await pageRelease(page)).toBe(releaseId(production.release));
   await recovery
     .getByRole("button", { name: "Retry save", exact: true })
@@ -811,6 +812,10 @@ test("a failed save holds the old editor until a successful retry", async ({
     });
   await expect(recovery).toHaveCount(0);
   await expect(page.getByTestId("save-status")).toContainText("Saved");
+  // Closing recovery restores focus to the control that was active when the
+  // failure arrived. That can be X on a busy runner. Finish editing explicitly:
+  // a focused numeric field correctly postpones automatic reloads.
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
   await expect
     .poll(() => pageRelease(page))
     .toBe(releaseId(production.nextRelease));
