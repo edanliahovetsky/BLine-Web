@@ -65,7 +65,12 @@ export function useProjectLifecycle({
   projectIo,
   onEditorLayoutLoaded,
 }: UseProjectLifecycleOptions) {
-  const [saveFailure, setSaveFailure] = useState<string | null>(null);
+  const [saveFailure, setSaveFailure] = useState<{
+    message: string;
+    canLeave: boolean;
+  } | null>(null);
+  const dismissedFailureSession = useRef<string | null>(null);
+  const recoveryInProgress = useRef(false);
   const saveFailureResolver = useRef<
     ((choice: SaveFailureDecision) => void) | null
   >(null);
@@ -74,15 +79,87 @@ export function useProjectLifecycle({
       new Promise<SaveFailureDecision>((resolve) => {
         saveFailureResolver.current?.("cancel");
         saveFailureResolver.current = resolve;
-        setSaveFailure(toError(error).message);
+        setSaveFailure({ message: toError(error).message, canLeave: true });
       }),
     [],
   );
   const resolveSaveFailure = useCallback((choice: SaveFailureDecision) => {
+    dismissedFailureSession.current =
+      choice === "cancel" ? projectStore.getState().projectSessionId : null;
     setSaveFailure(null);
     saveFailureResolver.current?.(choice);
     saveFailureResolver.current = null;
   }, []);
+  const showSaveFailure = useCallback((error: unknown) => {
+    const state = projectStore.getState();
+    if (
+      !state.project ||
+      state.status !== "error" ||
+      legacyProjectMigrationOwnsSession(state)
+    )
+      return;
+    setSaveFailure((current) => ({
+      message: toError(error).message,
+      canLeave: current?.canLeave ?? false,
+    }));
+  }, []);
+  const recoverSaveFailure = useCallback(
+    async (recreateFolder = false) => {
+      recoveryInProgress.current = true;
+      try {
+        const state = projectStore.getState();
+        if (recreateFolder) await state.recreateProjectFolder();
+        else await state.saveWorkspace();
+        resolveSaveFailure("retry");
+      } catch (error) {
+        const state = projectStore.getState();
+        // Let the existing conflict/metadata recovery take over if retry finds
+        // a changed folder. Never leave a project transition waiting behind it.
+        if (state.status === "conflict" || state.status === "damaged") {
+          resolveSaveFailure("cancel");
+        } else {
+          showSaveFailure(error);
+          throw error;
+        }
+      } finally {
+        recoveryInProgress.current = false;
+      }
+    },
+    [resolveSaveFailure, showSaveFailure],
+  );
+  useEffect(
+    () =>
+      projectStore.subscribe((state, previous) => {
+        if (state.projectSessionId !== previous.projectSessionId) {
+          dismissedFailureSession.current = null;
+          setSaveFailure(null);
+          saveFailureResolver.current?.("cancel");
+          saveFailureResolver.current = null;
+          return;
+        }
+        if (
+          state.version !== previous.version ||
+          (state.status === "idle" && !state.dirty)
+        ) {
+          dismissedFailureSession.current = null;
+        }
+        if (
+          previous.status === "saving" &&
+          state.status === "idle" &&
+          !state.dirty &&
+          !recoveryInProgress.current
+        ) {
+          resolveSaveFailure("retry");
+        }
+        if (
+          previous.status === "saving" &&
+          state.status === "error" &&
+          dismissedFailureSession.current !== state.projectSessionId
+        )
+          showSaveFailure(state.error);
+      }),
+    [resolveSaveFailure, showSaveFailure],
+  );
   useEffect(() => {
     projectStore.getState().setSaveFailureHandler(requestSaveFailureDecision);
     return () => {
@@ -367,6 +444,8 @@ export function useProjectLifecycle({
   return {
     saveFailure,
     resolveSaveFailure,
+    showSaveFailure,
+    recoverSaveFailure,
     autosaveStatus,
     cancelAutosave,
     fieldBackgrounds,

@@ -224,11 +224,16 @@ test("offers an export and an exit after a failed project save @webkit-canvas", 
   await page.getByTestId("path-element-row-4").click();
   await page.getByLabel("Lib Key", { exact: true }).fill("unsavedAction");
   await page.getByLabel("Lib Key", { exact: true }).press("Tab");
-  await createNewProject(page);
   const recovery = page.getByRole("dialog", {
     name: "Unable to save this project",
   });
   await expect(recovery).toBeVisible();
+  await expect(
+    recovery.getByRole("button", { name: "Leave without saving", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    recovery.getByRole("button", { name: "Recreate folder", exact: true }),
+  ).toHaveCount(0);
   const download = page.waitForEvent("download");
   await recovery
     .getByRole("button", { name: "Export copy", exact: true })
@@ -237,10 +242,16 @@ test("offers an export and an exit after a failed project save @webkit-canvas", 
   await recovery
     .getByRole("button", { name: "Keep editing", exact: true })
     .click();
-  await page
-    .getByRole("dialog", { name: "Create project", exact: true })
-    .getByRole("button", { name: "Done", exact: true })
+  await page.getByLabel("Lib Key", { exact: true }).fill("stillEditing");
+  await page.getByLabel("Lib Key", { exact: true }).press("Tab");
+  await expect(page.getByTestId("save-status")).toContainText("Save failed");
+  await expect(recovery).toHaveCount(0);
+  await page.getByTestId("save-status").click();
+  await expect(recovery).toBeVisible();
+  await recovery
+    .getByRole("button", { name: "Keep editing", exact: true })
     .click();
+  await createNewProject(page);
   await expect(recovery).toBeVisible();
   await recovery
     .getByRole("button", { name: "Leave without saving", exact: true })

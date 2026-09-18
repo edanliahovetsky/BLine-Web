@@ -31,3 +31,5 @@ export function isProjectIoConflict(error: unknown): boolean {
     (error as { name?: unknown }).name === "StorageConflictError"
   );
 }
+
+export { missingProjectDirectoryPath } from "../../storage/adapter";

@@ -382,6 +382,8 @@ export function AppShell() {
   const {
     saveFailure,
     resolveSaveFailure,
+    showSaveFailure,
+    recoverSaveFailure,
     autosaveStatus,
     cancelAutosave,
     fieldBackgrounds,
@@ -1138,14 +1140,15 @@ export function AppShell() {
     try {
       await projectStore.getState().saveWorkspace();
       await refreshWorkspaceSummaries();
-    } catch {
-      // The project store already records the error for the status bar.
+    } catch (error) {
+      showSaveFailure(error);
     }
   }, [
     cancelAutosave,
     legacyFieldMigrationPhase,
     refreshWorkspaceSummaries,
     retryLegacyFieldMigration,
+    showSaveFailure,
   ]);
 
   const beginToolbarAction = useCallback(
@@ -2600,8 +2603,15 @@ export function AppShell() {
       ) : null}
       {saveFailure !== null && (
         <SaveFailureDialog
-          message={saveFailure}
+          message={saveFailure.message}
+          canLeave={saveFailure.canLeave}
           onChoose={resolveSaveFailure}
+          onRetry={() => recoverSaveFailure()}
+          onRecreate={
+            projectIo?.capabilities.directFileAutosave
+              ? () => recoverSaveFailure(true)
+              : undefined
+          }
           onExport={async () => {
             const state = projectStore.getState();
             const bundle = await state.exportProjectArchive();
@@ -3023,7 +3033,11 @@ function TourPickerDialog({
         onClick={() => onStart(tour.id)}
       >
         <span className="tour-picker__badge">
-          {done ? <Check size={14} role="img" aria-label="Completed" /> : number}
+          {done ? (
+            <Check size={14} role="img" aria-label="Completed" />
+          ) : (
+            number
+          )}
         </span>
         <span className="tour-picker__copy">
           <strong>{tour.title}</strong>

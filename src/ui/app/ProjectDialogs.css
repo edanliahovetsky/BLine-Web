@@ -474,3 +474,59 @@
 .save-failure-backdrop {
   z-index: 1000;
 }
+
+.mobile-warning-dialog.save-recovery-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.save-recovery-dialog .mobile-warning-dialog__header h2 {
+  flex: 1;
+}
+
+.save-recovery-dialog__details {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--bline-border-subtle);
+  border-radius: var(--bline-radius-control);
+  background: var(--bline-surface-input);
+  color: var(--bline-text-secondary);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.save-recovery-dialog__details summary {
+  cursor: pointer;
+}
+
+.save-recovery-dialog__details p {
+  margin-top: 8px;
+}
+
+.save-recovery-dialog__alternatives,
+.save-recovery-dialog__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.save-recovery-dialog__footer {
+  padding-top: 12px;
+  border-top: 1px solid var(--bline-border-subtle);
+}
+
+.save-recovery-dialog .mobile-warning-dialog__action {
+  white-space: nowrap;
+}
+
+.save-recovery-dialog__discard {
+  margin-left: auto;
+  color: var(--bline-danger-text);
+}
+
+.save-recovery-dialog p.save-recovery-dialog__hint {
+  color: var(--bline-text-secondary);
+  font-size: 0.8rem;
+}

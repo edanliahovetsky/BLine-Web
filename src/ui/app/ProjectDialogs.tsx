@@ -1,3 +1,4 @@
+import { missingProjectDirectoryPath } from "../../platform/projectIo";
 import { pathNameError } from "../../core/model/projectIdentity";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, FolderOpen, Trash2 } from "lucide-react";
@@ -823,19 +824,44 @@ function DeleteLibraryItemsDialog({
 
 export function SaveFailureDialog({
   message,
+  canLeave,
   onChoose,
+  onRetry,
+  onRecreate,
   onExport,
 }: {
   message: string;
+  canLeave: boolean;
   onChoose(choice: "retry" | "discard" | "cancel"): void;
+  onRetry(): Promise<void>;
+  onRecreate?: () => Promise<void>;
   onExport(): Promise<void>;
 }) {
   const ref = useDialogFocusTrap<HTMLElement>();
-  const [exporting, setExporting] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const missingDirectory = missingProjectDirectoryPath(message);
+  const canRecreate = Boolean(missingDirectory && onRecreate);
+  const busy = pendingAction !== null;
   useEffect(() => {
     ref.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, [ref]);
-  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const run = async (name: string, action: () => Promise<void>) => {
+    setPendingAction(name);
+    setNotice(null);
+    setActionError(null);
+    try {
+      await action();
+      if (name === "export") setNotice("Copy exported.");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPendingAction(null);
+    }
+  };
+  const secondary =
+    "mobile-warning-dialog__action save-conflict-dialog__action--secondary";
   return (
     <div
       className="config-dialog-backdrop save-failure-backdrop"
@@ -843,73 +869,107 @@ export function SaveFailureDialog({
     >
       <section
         ref={ref}
-        className="project-dialog"
+        className="mobile-warning-dialog save-recovery-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="save-failure-title"
+        aria-describedby="save-failure-description"
+        aria-busy={busy}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
+            event.preventDefault();
             event.stopPropagation();
-            onChoose("cancel");
+            if (!busy) onChoose("cancel");
           }
         }}
       >
-        <header className="project-dialog__header">
-          <h2 id="save-failure-title">Unable to save this project</h2>
+        <header className="mobile-warning-dialog__header">
+          <span className="mobile-warning-dialog__icon" aria-hidden="true">
+            !
+          </span>
+          <h2 id="save-failure-title">
+            {missingDirectory
+              ? "Project folder is missing"
+              : "Unable to save this project"}
+          </h2>
           <CloseButton
             ariaLabel="Close save recovery"
+            disabled={busy}
             onClick={() => onChoose("cancel")}
           />
         </header>
-        <div className="project-dialog__body">
-          <p>
-            The project folder may have moved or become unavailable. Restore it
-            and retry, or export a copy before leaving.
-          </p>
-          <p>{message}</p>
-          <p>
+        <p id="save-failure-description">
+          {canRecreate
+            ? "Your edits are still open. Restore the folder and retry, or recreate it using the project currently open in BLine."
+            : "Your edits are still open. Retry saving, keep editing, or export a copy."}
+        </p>
+        {missingDirectory ? (
+          <code className="save-recovery-dialog__details">
+            {missingDirectory}
+          </code>
+        ) : (
+          <details className="save-recovery-dialog__details">
+            <summary>Details</summary>
+            <p>{message}</p>
+          </details>
+        )}
+        {actionError && <p role="alert">{actionError}</p>}
+        {notice && <p role="status">{notice}</p>}
+        <div className="save-recovery-dialog__alternatives">
+          <button
+            type="button"
+            className={secondary}
+            disabled={busy}
+            onClick={() => void run("export", onExport)}
+          >
+            {pendingAction === "export" ? "Exporting…" : "Export copy"}
+          </button>
+          {canLeave && (
+            <button
+              type="button"
+              className={`${secondary} save-recovery-dialog__discard`}
+              disabled={busy}
+              onClick={() => onChoose("discard")}
+            >
+              Leave without saving
+            </button>
+          )}
+        </div>
+        {canLeave && (
+          <p className="save-recovery-dialog__hint">
             Leaving without saving discards changes since the last successful
             save.
           </p>
-          {exportMessage && <p role="status">{exportMessage}</p>}
-        </div>
-        <footer className="project-dialog__footer">
-          <ActionButton onClick={() => onChoose("cancel")}>
+        )}
+        <footer className="mobile-warning-dialog__footer save-recovery-dialog__footer">
+          <button
+            type="button"
+            className={secondary}
+            disabled={busy}
+            onClick={() => onChoose("cancel")}
+          >
             Keep editing
-          </ActionButton>
-          <ActionButton
-            disabled={exporting}
-            onClick={() => {
-              setExporting(true);
-              void onExport()
-                .then(
-                  () =>
-                    setExportMessage(
-                      "Copy exported. You can now leave without saving to the original folder.",
-                    ),
-                  (error: unknown) =>
-                    setExportMessage(
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                )
-                .finally(() => setExporting(false));
-            }}
+          </button>
+          <button
+            type="button"
+            className={
+              canRecreate ? secondary : "mobile-warning-dialog__action"
+            }
+            disabled={busy}
+            onClick={() => void run("retry", onRetry)}
           >
-            Export copy
-          </ActionButton>
-          <ActionButton
-            disabled={exporting}
-            onClick={() => onChoose("discard")}
-          >
-            Leave without saving
-          </ActionButton>
-          <ActionButton
-            tone="primary"
-            disabled={exporting}
-            onClick={() => onChoose("retry")}
-          >
-            Retry save
-          </ActionButton>
+            {pendingAction === "retry" ? "Retrying…" : "Retry save"}
+          </button>
+          {canRecreate && onRecreate && (
+            <button
+              type="button"
+              className="mobile-warning-dialog__action"
+              disabled={busy}
+              onClick={() => void run("recreate", onRecreate)}
+            >
+              {pendingAction === "recreate" ? "Recreating…" : "Recreate folder"}
+            </button>
+          )}
         </footer>
       </section>
     </div>
