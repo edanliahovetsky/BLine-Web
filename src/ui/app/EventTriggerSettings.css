@@ -139,7 +139,7 @@
   width: 16px;
   height: 16px;
 }
-.event-keys-add:hover,
+.event-keys-add:hover:not(:disabled),
 .event-key-edit button:hover:not(:disabled),
 .event-key-delete button:hover {
   background: var(--bline-surface-hover);

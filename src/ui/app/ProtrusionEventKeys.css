@@ -17,6 +17,11 @@
 .protrusion-event-keys .event-keys-add:hover:not(:disabled) {
   background: var(--bline-surface-hover);
 }
+.protrusion-event-keys .event-keys-add:disabled {
+  border-color: var(--bline-border-strong);
+  color: var(--bline-text-disabled);
+  opacity: var(--bline-disabled-opacity);
+}
 .protrusion-event-keys .event-keys-list {
   margin: 0;
   border: 0;
