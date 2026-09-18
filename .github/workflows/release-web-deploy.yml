@@ -1,17 +1,22 @@
-name: Web and Beta Release
+name: Build Release Artifacts
 
+# Called by CI at its immutable github.sha; artifact builds run alongside checks.
 on:
-  push:
-    branches:
-      - web-deploy
-      - web-beta
+  workflow_call:
+    outputs:
+      candidate:
+        value: ${{ github.sha }}
+      version:
+        value: ${{ jobs.metadata.outputs.version }}
+      tag:
+        value: ${{ jobs.metadata.outputs.tag }}
+      prerelease:
+        value: ${{ jobs.metadata.outputs.prerelease }}
+      releaseName:
+        value: ${{ jobs.metadata.outputs.releaseName }}
 
 permissions:
-  contents: write
-
-concurrency:
-  group: web-release-${{ github.ref_name }}
-  cancel-in-progress: false
+  contents: read
 
 env:
   BLINE_RELEASE_CHANNEL: ${{ github.ref_name == 'web-beta' && 'beta' || 'stable' }}
@@ -44,102 +49,11 @@ jobs:
           npm run release:check
           npm run release:metadata
 
-  verify:
-    name: Release Gate
-    runs-on: macos-latest
-    needs: metadata
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Checkout BLine-Lib
-        uses: actions/checkout@v6
-        with:
-          repository: edanliahovetsky/BLine-Lib
-          ref: main
-          path: .ci/BLine-Lib
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-          cache: npm
-
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium webkit
-
-      - name: Release metadata check
-        run: npm run release:check -- "${{ needs.metadata.outputs.tag }}"
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Release tooling tests
-        run: npm run test:release
-
-      - name: Unit tests
-        run: npm run test
-
-      - name: Parity harness
-        run: npm run parity
-
-      - name: BLine-Lib IO compatibility
-        env:
-          BLINE_LIB_DIR: ${{ github.workspace }}/.ci/BLine-Lib
-        run: npm run validate:bline-lib-io
-
-      - name: Build web bundle
-        run: npm run build
-
-      - name: Browser smoke
-        # Shared theme snapshots describe the default toolbar. The beta control
-        # has its own behavior, responsive layout, and keyboard checks below.
-        env:
-          VITE_RELEASE_CHANNEL: stable
-          VITE_ENABLE_BUG_REPORT: "false"
-        run: npm run test:e2e
-
-      - name: Preserve browser failure evidence
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: browser-failure-evidence-${{ github.workflow }}-${{ github.run_attempt }}
-          path: test-results/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Beta toolbar and startup
-        if: github.ref_name == 'web-beta'
-        run: npm run test:e2e:beta
-
-      - name: Offline browser and update recovery
-        run: npm run test:offline
-
-      - name: Tauri build
-        run: npm run ${{ github.ref_name == 'web-beta' && 'tauri:build:beta' || 'tauri:build' }}
-
   web-artifact:
     name: Web Artifact
     runs-on: ubuntu-22.04
     needs:
       - metadata
-      - verify
 
     steps:
       - name: Checkout
@@ -177,7 +91,6 @@ jobs:
     runs-on: ${{ matrix.platform }}
     needs:
       - metadata
-      - verify
     strategy:
       fail-fast: false
       matrix:
@@ -276,88 +189,3 @@ jobs:
           name: release-desktop-${{ matrix.asset-prefix }}
           path: desktop-assets/*
           if-no-files-found: error
-
-  publish-draft:
-    name: Publish Draft Release
-    runs-on: ubuntu-22.04
-    needs:
-      - metadata
-      - web-artifact
-      - desktop-artifacts
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-
-      - name: Download release assets
-        uses: actions/download-artifact@v8
-        with:
-          pattern: release-*
-          path: release-assets
-          merge-multiple: true
-
-      - name: Create release notes
-        env:
-          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
-          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
-          RELEASE_NOTES_PATH: release-notes.md
-        run: npm run release:notes
-
-      - name: Create or update draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.metadata.outputs.tag }}
-          TITLE: ${{ needs.metadata.outputs.releaseName }}
-          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
-        run: |
-          if gh release view "${TAG}" --json isDraft --jq .isDraft > release-is-draft.txt 2>/dev/null; then
-            if [[ "$(cat release-is-draft.txt)" != "true" ]]; then
-              echo "Release ${TAG} already exists and is not a draft. Refusing to replace published assets."
-              exit 1
-            fi
-            RELEASE_EXISTS=true
-          else
-            RELEASE_EXISTS=false
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
-            if [[ "$(git rev-parse "${TAG}^{commit}")" != "${GITHUB_SHA}" ]]; then
-              echo "Tag ${TAG} points to another commit. Bump the version; release tags are immutable."
-              exit 1
-            fi
-          else
-            git tag "${TAG}" "${GITHUB_SHA}"
-            git push origin "refs/tags/${TAG}"
-          fi
-
-          if [[ "${RELEASE_EXISTS}" == "true" ]]; then
-            gh release edit "${TAG}" \
-              --title "${TITLE}" \
-              --notes-file release-notes.md \
-              --draft=true \
-              --prerelease="${PRERELEASE}" \
-              --target "${GITHUB_SHA}"
-          else
-            args=(release create "${TAG}" --title "${TITLE}" --notes-file release-notes.md --draft --target "${GITHUB_SHA}" --latest=false)
-            if [[ "${PRERELEASE}" == "true" ]]; then
-              args+=(--prerelease)
-            fi
-            gh "${args[@]}"
-          fi
-
-          mapfile -d '' assets < <(find release-assets -type f -print0)
-          if [[ "${#assets[@]}" -eq 0 ]]; then
-            echo "No release assets were downloaded."
-            exit 1
-          fi
-
-          gh release upload "${TAG}" "${assets[@]}" --clobber

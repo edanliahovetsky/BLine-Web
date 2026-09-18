@@ -65,11 +65,7 @@ Keep versions aligned in `package.json`, `package-lock.json`,
 
 ```sh
 npm ci
-npm run release:check
-npm run test:release
-npm run test:e2e:beta
-npm run build:beta
-npm run tauri:build:beta
+npm run release:validate -- beta
 ```
 
 The beta commands set branding and bug reporting and apply the desktop identity
@@ -77,12 +73,29 @@ overlay. The desktop build also preserves all window settings from the base
 configuration. Ordinary `build` and `tauri:build` commands keep the current app
 identity, unless web branding flags are explicitly supplied.
 
-The release workflow applies beta flags to its build, unit, offline, and beta
-toolbar checks on `web-beta`. The full browser suite retains its default build
-flags for the shared visual baselines; `test:e2e:beta` separately verifies the
-beta toolbar, startup layout, and keyboard navigation. It creates platform
-installers and prepares a draft named from the beta number. Inspect the resulting
-artifacts before publishing the draft.
+Run the full local gate before pushing the exact candidate. It checks metadata,
+formatting, lint, types, units and optimizer corpus, parity and BLine-Lib IO,
+the full browser suite, beta-specific toolbar behavior, production offline
+recovery, Rust checks, and the local desktop build. Set `BLINE_LIB_DIR` when the
+library checkout is not in its usual sibling location. A failed check stops the
+gate; it never pushes or publishes.
+
+On GitHub, CI runs the full browser suite once. The beta-only pass repeats only
+layouts and keyboard navigation affected by the extra bug-report control;
+general startup and storage tests remain in the full suite. Browser tests advance
+the test clock for deliberate delays and wait for generation/import completion.
+The test runner applies a guarded Playwright 1.59.1 workaround that registers the
+directory-upload input listener before sending files to WebKit; review it when
+upgrading Playwright. The application import handler and native file upload still
+run normally. Release artifact
+jobs start in parallel with CI validation, without waiting for the browser suite.
+
+The draft release depends on successful app validation, Windows storage tests,
+and every installer/web build in that same CI run. Reusable workflows inherit
+its immutable commit SHA, and the publication job checks the candidate SHA again.
+Assets come only from that run, so an older green run or artifacts from another
+commit cannot satisfy the gate. Failed or canceled validation prevents tagging
+and draft creation. Inspect the resulting artifacts before publishing the draft.
 
 ## Feedback
 

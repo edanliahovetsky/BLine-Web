@@ -8,6 +8,10 @@ const result = spawnSync(
     "tests/e2e/app-shell.bug-report.spec.ts",
     "tests/e2e/app-shell.toolbar-centering.spec.ts",
     "tests/e2e/app-shell.startup-layout.spec.ts",
+    // Database upgrades, general startup, and inspector behavior already run in
+    // the full suite. Repeat only the layouts and keyboard order the beta link changes.
+    "--grep",
+    "bug reporting|centers the selector|keeps the selector centered|preserves toolbar ordering|keeps dropdowns usable|portrait toolbar with the keyboard",
     ...process.argv.slice(2),
   ],
   {

@@ -9,6 +9,14 @@ on:
       - web-beta
       - "codex/**"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Never interrupt packaging/publishing a promoted candidate.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/web-beta' && github.ref != 'refs/heads/web-deploy' }}
+
 jobs:
   app:
     name: App, Browser, and Tauri
@@ -79,8 +87,11 @@ jobs:
       - name: Build web bundle
         run: npm run build
 
-      - name: Browser smoke
+      - name: Full browser suite
         run: npm run test:e2e
+
+      - name: Beta toolbar and keyboard navigation
+        run: npm run test:e2e:beta
 
       - name: Preserve browser failure evidence
         if: failure()
@@ -92,6 +103,9 @@ jobs:
           retention-days: 7
 
       - name: Offline browser and update recovery
+        env:
+          VITE_RELEASE_CHANNEL: ${{ github.ref_name == 'web-beta' && 'beta' || 'stable' }}
+          VITE_ENABLE_BUG_REPORT: ${{ github.ref_name == 'web-beta' && 'true' || 'false' }}
         run: npm run test:offline
 
       - name: Rust format check
@@ -104,6 +118,8 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Tauri build
+        # Release branches already build and verify both Mac architectures below.
+        if: github.ref != 'refs/heads/web-beta' && github.ref != 'refs/heads/web-deploy'
         run: npm run tauri:build
 
   windows-rust:
@@ -119,3 +135,22 @@ jobs:
 
       - name: Windows storage tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+  release-artifacts:
+    name: Release Artifacts
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/web-beta' || github.ref == 'refs/heads/web-deploy')
+    uses: ./.github/workflows/release-web-deploy.yml
+
+  release:
+    name: Validated Release
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/web-beta' || github.ref == 'refs/heads/web-deploy')
+    needs: [app, windows-rust, release-artifacts]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-release.yml
+    with:
+      candidate: ${{ needs.release-artifacts.outputs.candidate }}
+      version: ${{ needs.release-artifacts.outputs.version }}
+      tag: ${{ needs.release-artifacts.outputs.tag }}
+      prerelease: ${{ needs.release-artifacts.outputs.prerelease }}
+      releaseName: ${{ needs.release-artifacts.outputs.releaseName }}

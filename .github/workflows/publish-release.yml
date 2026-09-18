@@ -1,0 +1,114 @@
+name: Prepare Validated Release
+
+# CI calls this only after validation and every artifact job pass in that run.
+on:
+  workflow_call:
+    inputs:
+      candidate:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      tag:
+        type: string
+        required: true
+      prerelease:
+        type: string
+        required: true
+      releaseName:
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  BLINE_RELEASE_CHANNEL: ${{ github.ref_name == 'web-beta' && 'beta' || 'stable' }}
+
+jobs:
+  publish-draft:
+    name: Publish Draft Release
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Require the validated candidate
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: test "$CANDIDATE" = "$GITHUB_SHA"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release notes
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_NOTES_PATH: release-notes.md
+        run: npm run release:notes
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          TITLE: ${{ inputs.releaseName }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if gh release view "${TAG}" --json isDraft --jq .isDraft > release-is-draft.txt 2>/dev/null; then
+            if [[ "$(cat release-is-draft.txt)" != "true" ]]; then
+              echo "Release ${TAG} already exists and is not a draft. Refusing to replace published assets."
+              exit 1
+            fi
+            RELEASE_EXISTS=true
+          else
+            RELEASE_EXISTS=false
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            if [[ "$(git rev-parse "${TAG}^{commit}")" != "${GITHUB_SHA}" ]]; then
+              echo "Tag ${TAG} points to another commit. Bump the version; release tags are immutable."
+              exit 1
+            fi
+          else
+            git tag "${TAG}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${TAG}"
+          fi
+
+          if [[ "${RELEASE_EXISTS}" == "true" ]]; then
+            gh release edit "${TAG}" \
+              --title "${TITLE}" \
+              --notes-file release-notes.md \
+              --draft=true \
+              --prerelease="${PRERELEASE}" \
+              --target "${GITHUB_SHA}"
+          else
+            args=(release create "${TAG}" --title "${TITLE}" --notes-file release-notes.md --draft --target "${GITHUB_SHA}" --latest=false)
+            if [[ "${PRERELEASE}" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+            gh "${args[@]}"
+          fi
+
+          mapfile -d '' assets < <(find release-assets -type f -print0)
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No release assets were downloaded."
+            exit 1
+          fi
+
+          gh release upload "${TAG}" "${assets[@]}" --clobber
