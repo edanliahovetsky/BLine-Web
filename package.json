@@ -25,7 +25,10 @@
     "build:beta": "node scripts/build-beta.mjs web",
     "tauri:build:beta": "node scripts/build-beta.mjs desktop",
     "test:release": "node --test tests/release/*.test.mjs",
-    "release:metadata": "node scripts/release-metadata.mjs"
+    "release:metadata": "node scripts/release-metadata.mjs",
+    "release:validate": "node scripts/validate-release.mjs",
+    "pretest:e2e": "node scripts/playwright-directory-upload.mjs",
+    "pretest:e2e:beta": "node scripts/playwright-directory-upload.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",
