@@ -270,6 +270,22 @@ pub fn storage_write_project_files(
     )
 }
 
+/// Explicitly recover the open Project after its folder was removed. Unlike normal
+/// saves, this may create the folder, but it must never adopt an existing target.
+#[tauri::command]
+pub fn storage_recreate_project_folder(
+    app: AppHandle,
+    directory_locator: String,
+    files: Vec<ProjectTextFile>,
+) -> Result<ProjectTextFileWriteResult, String> {
+    if directory_locator.trim().is_empty() {
+        return Err("Desktop project directory locator is empty".to_owned());
+    }
+    // Use the exact adopted locator, not discovery rules for a newly picked folder.
+    let dir = absolutize(Path::new(&directory_locator));
+    recreate_project_folder_with_lock(&dir, &files, &project_storage_lock_path(&app)?)
+}
+
 /// Write the canonical snapshot used to migrate one explicitly identified legacy
 /// Project. Unlike a normal save, this command must not change the desktop shell's
 /// remembered current or recent Project while an asynchronous migration finishes.
@@ -494,6 +510,34 @@ fn write_project_text_file_set_with_lock(
 
     with_exclusive_project_lock(lock_path, || {
         write_project_text_file_set_locked(project_dir, files, expected)
+    })
+}
+
+fn recreate_project_folder_with_lock(
+    project_dir: &Path,
+    files: &[ProjectTextFile],
+    lock_path: &Path,
+) -> Result<ProjectTextFileWriteResult, String> {
+    validate_complete_project_file_set(files)?;
+    with_exclusive_project_lock(lock_path, || {
+        // create_dir is exclusive: a restored folder, file, or symlink is left
+        // untouched. Missing parents (for example an unplugged volume) also fail.
+        fs::create_dir(project_dir).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                "The folder exists again. Retry saving to check it before making changes."
+                    .to_owned()
+            } else {
+                format!("Could not recreate the project folder: {error}")
+            }
+        })?;
+        let empty_version = project_source_file_set_version(&[], &[]);
+        let result = write_project_text_file_set_locked(project_dir, files, Some(&empty_version));
+        if result.is_err() {
+            // Remove only an empty directory. Leave any recovery transaction or
+            // externally created files intact if a write failed partway through.
+            let _ = fs::remove_dir(project_dir);
+        }
+        result
     })
 }
 
@@ -1939,6 +1983,80 @@ mod tests {
             write_project_text_file_set(&dir, &canonical, Some(&before.version)).unwrap_err(),
             "storage-conflict: project file-set version mismatch"
         );
+    }
+
+    #[test]
+    fn missing_project_folder_requires_explicit_recovery() {
+        let dir = temp_project_dir("missing-folder-recovery");
+        fs::remove_dir(&dir).unwrap();
+        let files = vec![
+            project_file("config.json", "config"),
+            project_file("paths/one.json", "one"),
+            project_file("paths/two.json", "two"),
+            project_file("project.json", "metadata"),
+        ];
+        assert!(write_project_text_file_set(&dir, &files, None).is_err());
+        assert!(!dir.exists());
+        let saved =
+            recreate_project_folder_with_lock(&dir, &files, &test_project_storage_lock_path(&dir))
+                .unwrap();
+        let reopened = read_project_text_file_set(&dir).unwrap();
+        assert_eq!(reopened.files, files);
+        assert_eq!(reopened.version, saved.version);
+        write_project_text_file_set(&dir, &files, Some(&saved.version)).unwrap();
+    }
+
+    #[test]
+    fn folder_recovery_never_replaces_a_reappeared_folder_or_file() {
+        let dir = temp_project_dir("reappeared-folder");
+        let files = vec![
+            project_file("config.json", "new"),
+            project_file("project.json", "metadata"),
+        ];
+        fs::write(dir.join("keep.txt"), "external data").unwrap();
+        assert!(recreate_project_folder_with_lock(
+            &dir,
+            &files,
+            &test_project_storage_lock_path(&dir)
+        )
+        .unwrap_err()
+        .contains("exists again"));
+        assert_eq!(
+            fs::read_to_string(dir.join("keep.txt")).unwrap(),
+            "external data"
+        );
+        assert!(!dir.join("project.json").exists());
+        let file = dir.join("occupied");
+        fs::write(&file, "keep file").unwrap();
+        assert!(recreate_project_folder_with_lock(
+            &file,
+            &files,
+            &test_project_storage_lock_path(&file)
+        )
+        .is_err());
+        assert_eq!(fs::read_to_string(file).unwrap(), "keep file");
+        let missing_parent = dir.join("gone").join("autos");
+        assert!(recreate_project_folder_with_lock(
+            &missing_parent,
+            &files,
+            &test_project_storage_lock_path(&dir)
+        )
+        .is_err());
+        assert!(!dir.join("gone").exists());
+    }
+
+    #[test]
+    fn folder_recovery_rejects_invalid_files_before_creating_a_folder() {
+        let parent = temp_project_dir("invalid-folder-recovery");
+        let dir = parent.join("autos");
+        assert!(recreate_project_folder_with_lock(
+            &dir,
+            &[project_file("../escape", "bad")],
+            &test_project_storage_lock_path(&dir)
+        )
+        .is_err());
+        assert!(!dir.exists());
+        assert!(!parent.join("escape").exists());
     }
 
     #[test]

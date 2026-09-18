@@ -168,6 +168,10 @@ export interface ProjectIoService {
     project: Project,
     expectedVersion?: string,
   ): Promise<ProjectIoWriteOutcome>;
+  recreateProjectFolder?(
+    current: ProjectIoWorkspace,
+    project: Project,
+  ): Promise<ProjectIoWriteOutcome>;
   listWorkspaces(): Promise<ProjectWorkspaceSummary[]>;
   switchWorkspace(
     id: string,

@@ -248,6 +248,30 @@ export class TauriStorage implements ProjectFolderAdapter {
     return locator ? (this.damageByLocator.get(locator) ?? null) : null;
   }
 
+  async recreateProjectFolder(
+    project: Project,
+    storageId: string,
+  ): Promise<WriteResult> {
+    const result = await this.invoke<ProjectFileSetWritePayload>(
+      "storage_recreate_project_folder",
+      {
+        directoryLocator: storageId,
+        files: serializeProjectFiles(project).map((file) => ({
+          relativePath: file.relativePath,
+          contents: file.text,
+        })),
+      },
+    );
+    this.rememberFileSetWithoutStealingCurrentLocator(result, storageId);
+    this.damageByLocator.delete(storageId);
+    this.legacyFilesByLocator.delete(storageId);
+    this.damagedLegacyFilesByLocator.delete(storageId);
+    this.legacyAttestationByLocator.delete(storageId);
+    this.cleanupProofByLocator.delete(storageId);
+    this.canonicalLocators.add(result.directoryLocator);
+    return { version: result.version, updatedAt: result.updatedAt };
+  }
+
   async replaceDamagedProject(
     project: Project,
     expectedVersion?: string,

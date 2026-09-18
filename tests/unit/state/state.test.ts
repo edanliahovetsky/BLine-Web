@@ -302,6 +302,57 @@ describe("project store", () => {
     );
   });
 
+  it("recreates a missing folder from current edits and resumes versioned saves", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("recovery", "Alpha", 2),
+    );
+    const recover = vi.fn(io.saveWorkspace.bind(io));
+    Object.assign(io, { recreateProjectFolder: recover });
+    renameActivePath(store, "Unsaved edits");
+    store
+      .getState()
+      .markSaveError(
+        new Error("Desktop project directory does not exist: /tmp/autos"),
+      );
+    const recovered = await store.getState().recreateProjectFolder();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(recover.mock.calls[0][1].paths).toHaveLength(1);
+    expect(recover.mock.calls[0][1].paths[0].display_name).toBe(
+      "Unsaved edits",
+    );
+    expect(store.getState()).toMatchObject({
+      dirty: false,
+      status: "idle",
+      error: null,
+      version: recovered?.version,
+    });
+    renameActivePath(store, "After recovery");
+    await store.getState().saveWorkspace();
+    expect(io.writes.at(-1)?.expectedVersion).toBe(recovered?.version);
+  });
+
+  it("keeps the open project and unsaved edits when folder recovery fails", async () => {
+    const { store, io } = await initializedProjectStore(
+      exampleWorkspace("recovery", "Alpha", 2),
+    );
+    Object.assign(io, {
+      recreateProjectFolder: async () => {
+        throw new Error("The folder exists again");
+      },
+    });
+    renameActivePath(store, "Keep this edit");
+    const project = store.getState().project;
+    await expect(store.getState().recreateProjectFolder()).rejects.toThrow(
+      "The folder exists again",
+    );
+    expect(store.getState().project).toBe(project);
+    expect(store.getState()).toMatchObject({
+      dirty: true,
+      status: "error",
+      activeSave: null,
+    });
+  });
+
   it("loads and saves through the configured IO service", async () => {
     const workspace = exampleWorkspace("project-a", "Alpha", 1);
     const io = new RecordingIo(workspace);

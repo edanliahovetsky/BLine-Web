@@ -1110,6 +1110,42 @@ describe("BrowserStorage", () => {
 });
 
 describe("TauriStorage", () => {
+  it("recreates the exact missing folder with every open Project file", async () => {
+    const project = exampleWorkspace("recover", "Recovery", ["One", "Two"]);
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> =
+      [];
+    const storage = new TauriStorage({
+      invoke: async <T>(command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        return {
+          directoryLocator: "/tmp/missing/autos",
+          version: "recreated",
+          updatedAt: "2026-09-17T12:00:00Z",
+        } as T;
+      },
+    });
+    await expect(
+      storage.recreateProjectFolder(project, "/tmp/missing/autos"),
+    ).resolves.toMatchObject({ version: "recreated" });
+    expect(calls).toEqual([
+      {
+        command: "storage_recreate_project_folder",
+        args: {
+          directoryLocator: "/tmp/missing/autos",
+          files: serializeProjectFiles(project).map((file) => ({
+            relativePath: file.relativePath,
+            contents: file.text,
+          })),
+        },
+      },
+    ]);
+    await storage.writeProject(project, "recreated", "/tmp/missing/autos");
+    expect(calls.at(-1)).toMatchObject({
+      command: "storage_write_project_files",
+      args: { expected: "recreated", directoryLocator: "/tmp/missing/autos" },
+    });
+  });
+
   it("passes canonical Project text files through the desktop shell", async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> =
       [];

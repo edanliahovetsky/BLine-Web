@@ -131,6 +131,11 @@ export interface CurrentWorkspaceAdapter extends StorageAdapter {
 }
 
 export interface ProjectFolderAdapter extends StorageAdapter {
+  /** Explicit recovery only: recreate a missing folder without replacing an existing one. */
+  recreateProjectFolder?(
+    project: Project,
+    storageId: string,
+  ): Promise<WriteResult>;
   readProjectSnapshot(
     id: string,
     options?: { establishRecoveryOwnership?: boolean },
@@ -193,6 +198,14 @@ export class ProjectNotFoundError extends Error {
     super(`Project not found: ${id}`);
     this.name = "ProjectNotFoundError";
   }
+}
+
+export function missingProjectDirectoryPath(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const prefix = "Desktop project directory does not exist: ";
+  return message.startsWith(prefix)
+    ? message.slice(prefix.length).trim() || null
+    : null;
 }
 
 /** A create/import collision is not a stale save and must not offer overwrite recovery. */

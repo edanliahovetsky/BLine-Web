@@ -360,6 +360,29 @@ export class StorageProjectIoService implements ProjectIoService {
     };
   }
 
+  async recreateProjectFolder(
+    current: ProjectIoWorkspace,
+    project: Project,
+  ): Promise<ProjectIoWriteOutcome> {
+    if (
+      !isProjectFolderAdapter(this.storage) ||
+      !this.storage.recreateProjectFolder
+    ) {
+      throw new Error("Folder recovery is not available for this project");
+    }
+    const storageId = this.storageId(current.handle);
+    const result = await this.storage.recreateProjectFolder(project, storageId);
+    return {
+      result,
+      workspace: this.workspaceAfterWrite(
+        project,
+        storageId,
+        result,
+        current.summary,
+      ),
+    };
+  }
+
   async listWorkspaces(): Promise<ProjectWorkspaceSummary[]> {
     return isProjectFolderAdapter(this.storage)
       ? this.storage.listRecentWorkspaces()

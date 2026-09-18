@@ -175,6 +175,7 @@ export interface ProjectStoreState {
   reloadFromDisk(): Promise<Project | null>;
   overwriteConflict(): Promise<WriteResult | null>;
   replaceDamagedProject(): Promise<WriteResult | null>;
+  recreateProjectFolder(): Promise<WriteResult | null>;
   prepareLegacyProjectMigration(
     projectSessionId: string,
     migration: LegacyProjectViewMigration,
@@ -427,6 +428,7 @@ export function createProjectStore(
     expectedVersion: string | undefined,
     force: boolean,
     replaceDamage = false,
+    recreateFolder = false,
   ): Promise<WriteResult> => {
     const state = get();
     const projectSessionId = state.projectSessionId;
@@ -448,13 +450,15 @@ export function createProjectStore(
 
     const service = requireProjectIo(state.io);
     const current = requireIoWorkspace(state);
-    const ownedSavePromise = replaceDamage
-      ? service.replaceDamagedProject(current, project, expectedVersion)
-      : service.saveWorkspace(
-          current,
-          project,
-          force ? undefined : expectedVersion,
-        );
+    const ownedSavePromise = recreateFolder
+      ? service.recreateProjectFolder!(current, project)
+      : replaceDamage
+        ? service.replaceDamagedProject(current, project, expectedVersion)
+        : service.saveWorkspace(
+            current,
+            project,
+            force ? undefined : expectedVersion,
+          );
     savePromise = ownedSavePromise;
 
     try {
@@ -758,6 +762,15 @@ export function createProjectStore(
         return null;
       }
       return executeOwnedSave(set, get, project, version, false, true);
+    },
+    async recreateProjectFolder() {
+      if (savePromise) await savePromise.catch(() => undefined);
+      const { project, io } = get();
+      if (!project) return null;
+      if (!io?.recreateProjectFolder) {
+        throw new Error("Folder recovery is not available for this project");
+      }
+      return executeOwnedSave(set, get, project, undefined, false, false, true);
     },
     async completeLegacyProjectMigration(expectedProjectSessionId, migration) {
       if (savePromise) {
