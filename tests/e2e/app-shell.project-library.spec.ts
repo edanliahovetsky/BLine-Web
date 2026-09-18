@@ -422,6 +422,7 @@ test("keeps File flyouts compact and Edit actions in a single menu", async ({
 test("keeps project flyouts stable while hovering between choices", async ({
   page,
 }) => {
+  await page.clock.install();
   await gotoSampleEditor(page);
 
   await openProjectMenu(page);
@@ -439,7 +440,7 @@ test("keeps project flyouts stable while hovering between choices", async ({
     transferBox.y + 12,
   );
   await expect(transferMenu).toBeVisible();
-  await page.waitForTimeout(350);
+  await page.clock.runFor(350);
   await expect(transferMenu).toBeVisible();
 
   await page.mouse.move(16, 16);
@@ -470,6 +471,7 @@ test("switches paths from the toolbar path selector", async ({ page }) => {
 test("keeps narrow File flyouts stable and closes them after leaving", async ({
   page,
 }) => {
+  await page.clock.install();
   await page.setViewportSize({ width: 800, height: 700 });
   await gotoSampleEditor(page);
 
@@ -481,7 +483,7 @@ test("keeps narrow File flyouts stable and closes them after leaving", async ({
   const importBox = await requiredBox(importMenu);
   await page.mouse.move(importBox.x + importBox.width / 2, importBox.y + 12);
   await expect(importMenu).toBeVisible();
-  await page.waitForTimeout(350);
+  await page.clock.runFor(350);
   await expect(importMenu).toBeVisible();
 
   const fileMenu = page.getByTestId("top-menu-project");

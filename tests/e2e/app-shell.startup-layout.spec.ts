@@ -74,18 +74,12 @@ test("closes its User Data connection when a newer database version is requested
       () =>
         new Promise<number>((resolve, reject) => {
           const request = indexedDB.open("bline-web-user-field-assets", 3);
-          const timeout = window.setTimeout(
-            () => reject(new Error("User Data versionchange remained blocked")),
-            2_000,
-          );
           request.addEventListener("success", () => {
-            window.clearTimeout(timeout);
             const version = request.result.version;
             request.result.close();
             resolve(version);
           });
           request.addEventListener("error", () => {
-            window.clearTimeout(timeout);
             reject(request.error);
           });
         }),

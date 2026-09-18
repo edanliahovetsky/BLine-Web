@@ -238,6 +238,7 @@ test("keeps the rotation handle attached while dragging selected elements", asyn
 test("defers autosave while a dirty canvas drag is active", async ({
   page,
 }) => {
+  await page.clock.install();
   await installWorkspaceWriteSpy(page);
   await gotoSampleEditor(page);
 
@@ -264,7 +265,7 @@ test("defers autosave while a dirty canvas drag is active", async ({
   await page.mouse.down();
   await resetWorkspaceWriteSpy(page);
   await page.mouse.move(movedAnchor.x + 60, movedAnchor.y - 24, { steps: 4 });
-  await page.waitForTimeout(550);
+  await page.clock.runFor(550);
 
   expect(await workspaceWriteCount(page)).toBe(0);
 
@@ -1260,6 +1261,7 @@ test("highlights, dismisses, and resolves path health issues", async ({
 test("shows persistent save feedback in the sidebar and collapsed canvas", async ({
   page,
 }) => {
+  await page.clock.install();
   await gotoSampleEditor(page);
   await page.getByTestId("path-element-row-1").click();
   await page.getByRole("button", { name: "Toggle inspector" }).click();
@@ -1288,7 +1290,7 @@ test("shows persistent save feedback in the sidebar and collapsed canvas", async
   await page.keyboard.press("Enter");
   await expect(saveStatus).toContainText("Saved");
   await expect(floatingStatus).toBeVisible();
-  await page.waitForTimeout(2_100);
+  await page.clock.runFor(2_100);
   await expect(saveStatus).toBeVisible();
   await expect(saveStatus.locator(".workspace-status__save-glyph")).toHaveText(
     "✅",

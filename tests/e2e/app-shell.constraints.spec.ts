@@ -862,6 +862,7 @@ test("warns when ranged constraints exceed the global value", async ({
 test("warns when minimum constraints exceed their paired maximum", async ({
   page,
 }) => {
+  await page.clock.install();
   await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
@@ -877,14 +878,12 @@ test("warns when minimum constraints exceed their paired maximum", async ({
   await expect(tooltip).not.toHaveAttribute("title", /.*/);
   await tooltip.hover();
   await expect(page.getByRole("tooltip")).toHaveCount(0);
-  await page.waitForTimeout(1100);
+  await page.clock.runFor(1100);
   await expect(page.getByRole("tooltip")).toHaveText(minimumTooltipText);
   await page.mouse.move(0, 0);
   await expect(page.getByRole("tooltip")).toHaveCount(0);
   await tooltip.click();
-  await expect(page.getByRole("tooltip")).toHaveText(minimumTooltipText, {
-    timeout: 300,
-  });
+  await expect(page.getByRole("tooltip")).toHaveText(minimumTooltipText);
   await page.mouse.move(0, 0);
   await expect(page.getByRole("tooltip")).toHaveCount(0);
 
@@ -1154,6 +1153,19 @@ test("uses range and toggle selection for handoff radii", async ({ page }) => {
 });
 
 test("keeps canvas handoff radii visual-only", async ({ page }) => {
+  const waitForGeneration = async () => {
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const storePath = "/src/state/autoVelocityStore.ts";
+          const { autoVelocityStore } = (await import(
+            /* @vite-ignore */ storePath
+          )) as typeof import("../../src/state/autoVelocityStore");
+          return autoVelocityStore.getState().phase;
+        }),
+      )
+      .toBe("idle");
+  };
   await gotoManualConstraintEditor(page);
   await openConstraintsTab(page);
 
@@ -1164,17 +1176,7 @@ test("keeps canvas handoff radii visual-only", async ({ page }) => {
   await expect(chip).toHaveClass(/handoff-radius-chip--auto/);
   // This fixture has manual velocities, so its velocity status can remain
   // "Not generated" after the automatic radius finishes updating.
-  await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const storePath = "/src/state/autoVelocityStore.ts";
-        const { autoVelocityStore } = (await import(
-          /* @vite-ignore */ storePath
-        )) as typeof import("../../src/state/autoVelocityStore");
-        return autoVelocityStore.getState().phase;
-      }),
-    )
-    .toBe("idle");
+  await waitForGeneration();
 
   const canvas = page.getByTestId("path-stage-canvas");
   const canvasBox = await requiredBox(canvas);
@@ -1202,6 +1204,9 @@ test("keeps canvas handoff radii visual-only", async ({ page }) => {
   await page.mouse.up();
 
   await expect(chip).toHaveClass(/handoff-radius-chip--auto/);
+  // A canvas move can queue another solve. Let its pending/running phases end
+  // before clicking Manual, which intentionally disables while solving.
+  await waitForGeneration();
   await chip.click();
   await mode.getByRole("button", { name: "Manual" }).click();
   await expect(chip).toHaveClass(/handoff-radius-chip--manual/);

@@ -87,6 +87,7 @@ test("keeps the course reachable in a short window", async ({ page }) => {
 });
 
 test("keeps lesson actions and dialogue visible on hover", async ({ page }) => {
+  await page.clock.install();
   await page.setViewportSize({ width: 1600, height: 900 });
   await gotoSampleEditor(page);
   await openLesson(page, "Getting Started");
@@ -101,7 +102,7 @@ test("keeps lesson actions and dialogue visible on hover", async ({ page }) => {
   await page.mouse.up();
   await card.getByRole("heading", { name: "Canvas", exact: true }).hover();
   await expect(card).toHaveAttribute("data-hover-fade", "false");
-  await page.waitForTimeout(900);
+  await page.clock.runFor(900);
   await expect(card).toHaveCSS("opacity", "1");
   await skip.hover();
   await expect(card).toHaveCSS("opacity", "1");
@@ -314,6 +315,7 @@ for (const [width, height] of [
       width +
       "px @webkit-canvas",
     async ({ page }) => {
+      await page.clock.install();
       test.setTimeout(180_000);
       await page.setViewportSize({ width, height });
       await gotoSampleEditor(page);
@@ -409,7 +411,7 @@ for (const [width, height] of [
         { type: "waypoint", x: 6, y: 1.4, rotation: 0 },
       ]);
       expect(hasGeneratedValues(rectangle)).toBe(false);
-      await page.waitForTimeout(900);
+      await page.clock.runFor(900);
       expect(hasGeneratedValues((await practice(page)).path)).toBe(false);
       await dragField(page, [12.3, 4.5], [14, 5]);
       await page.getByTestId("tour-card").focus();
