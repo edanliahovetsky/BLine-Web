@@ -150,7 +150,9 @@ export function EventTriggerSettings({
       <ul className="event-keys-list" aria-label="Registered event triggers">
         {visible.map((key) => (
           <li key={key} className="event-key-row">
-            <div className="event-key-row__main">
+            <div
+              className={`event-key-row__main${deleting === key ? " event-key-row__main--clearing" : ""}`}
+            >
               <Zap size={15} />
               <span className="event-key-row__name" title={key}>
                 {key}
@@ -159,41 +161,43 @@ export function EventTriggerSettings({
                 {eventKeyUsage(preview, key)}{" "}
                 {eventKeyUsage(preview, key) === 1 ? "use" : "uses"}
               </span>
-              <EventKeyMenu
-                name={key}
-                onRename={() => startEdit(key, key)}
-                onDelete={() => {
-                  setDeleting(key);
-                  setEditing(null);
-                }}
-                onDuplicate={() => {
-                  let copy = `${key}_copy`;
-                  let index = 2;
-                  while (keys.includes(copy)) copy = `${key}_copy${index++}`;
-                  startEdit(null, copy);
-                }}
-              />
-            </div>
-            {deleting === key && (
-              <div className="event-key-delete">
-                <p>
-                  Clear “{key}” from this project? Event elements stay in place.
-                </p>
-                <button type="button" onClick={() => setDeleting(null)}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="danger-action"
-                  onClick={() => {
-                    replace(key, "");
-                    setDeleting(null);
-                  }}
+              {deleting === key ? (
+                <div
+                  className="event-key-delete"
+                  role="group"
+                  aria-label={`Clear ${key}`}
                 >
-                  Clear key
-                </button>
-              </div>
-            )}
+                  <button type="button" onClick={() => setDeleting(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-action"
+                    onClick={() => {
+                      replace(key, "");
+                      setDeleting(null);
+                    }}
+                  >
+                    Clear key
+                  </button>
+                </div>
+              ) : (
+                <EventKeyMenu
+                  name={key}
+                  onRename={() => startEdit(key, key)}
+                  onDelete={() => {
+                    setDeleting(key);
+                    setEditing(null);
+                  }}
+                  onDuplicate={() => {
+                    let copy = `${key}_copy`;
+                    let index = 2;
+                    while (keys.includes(copy)) copy = `${key}_copy${index++}`;
+                    startEdit(null, copy);
+                  }}
+                />
+              )}
+            </div>
           </li>
         ))}
         {visible.length === 0 && (

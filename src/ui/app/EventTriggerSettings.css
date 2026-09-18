@@ -91,15 +91,18 @@
   margin: 0;
   font-size: 12px;
 }
+.event-key-row__main--clearing {
+  flex-wrap: wrap;
+}
+.event-key-row__main--clearing .event-key-row__name {
+  flex-basis: 64px;
+}
 .event-key-delete {
-  padding: 0 10px 10px;
-  font-size: 12px;
-}
-.event-key-delete p {
-  margin: 0 0 8px;
-}
-.event-key-delete button + button {
-  margin-left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
 }
 .event-keys-empty {
   padding: 18px 12px;
