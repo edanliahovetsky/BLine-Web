@@ -57,7 +57,10 @@ jobs:
         run: npx playwright install chromium webkit
 
       - name: Release metadata check
-        run: npm run release:check
+        id: metadata
+        run: |
+          npm run release:check
+          npm run release:metadata
 
       - name: Release tooling tests
         run: npm run test:release
@@ -91,6 +94,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Beta toolbar and keyboard navigation
+        if: contains(steps.metadata.outputs.version, '-beta.')
         run: npm run test:e2e:beta
 
       - name: Preserve browser failure evidence

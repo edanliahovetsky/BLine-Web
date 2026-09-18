@@ -32,7 +32,7 @@ const checks = [
   npm("validate:bline-lib-io"),
   npm("build"),
   npm("test:e2e"),
-  npm("test:e2e:beta"),
+  ...(version.includes("-beta.") ? [npm("test:e2e:beta")] : []),
   npm("test:offline", {
     VITE_RELEASE_CHANNEL: channel,
     VITE_ENABLE_BUG_REPORT: String(channel === "beta"),
