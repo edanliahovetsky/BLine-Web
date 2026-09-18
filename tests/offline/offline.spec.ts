@@ -792,15 +792,25 @@ test("a failed save holds the old editor until a successful retry", async ({
   });
   await page.getByTestId("path-element-row-0").click();
   await page.getByLabel("X (m)", { exact: true }).fill("7.25");
-  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await page.getByLabel("X (m)", { exact: true }).blur();
   await expect(page.getByTestId("save-status")).toContainText("Save failed");
+  const recovery = page.getByRole("dialog", {
+    name: "Unable to save this project",
+  });
+  await expect(recovery).toBeVisible();
   production.publishUpdate();
   await updateWorker(page);
   await awaitOfflineRelease(page, releaseId(production.nextRelease));
   await page.waitForTimeout(1600);
   expect(await pageRelease(page)).toBe(releaseId(production.release));
-  await page.evaluate(() => window.__offlineTest.releaseSave!());
-  await page.getByTestId("save-status").click();
+  await recovery
+    .getByRole("button", { name: "Retry save", exact: true })
+    .evaluate((button) => {
+      window.__offlineTest.releaseSave!();
+      (button as HTMLButtonElement).click();
+    });
+  await expect(recovery).toHaveCount(0);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
   await expect
     .poll(() => pageRelease(page))
     .toBe(releaseId(production.nextRelease));

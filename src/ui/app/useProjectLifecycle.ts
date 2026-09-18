@@ -393,6 +393,10 @@ export function useProjectLifecycle({
   useEffect(() => {
     if (!durableProject || !dirty) {
       if (!dirty) {
+        // Recovery and manual saves bypass the autosave coordinator. Once the
+        // project is clean, clear its old error/pending state as well so the
+        // save indicator and waiting offline updates reflect the completed save.
+        autosaveRef.current?.cancel();
         projectRecoveryLifecycle.clearIfReady();
       }
       return;

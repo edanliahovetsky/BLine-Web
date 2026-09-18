@@ -101,6 +101,7 @@ for (const width of [1280, 390]) {
       (window as RecoveryWindow).__recoveryFixture!.release!(),
     );
     await expect(dialog).toHaveCount(0);
+    await expect(page.getByTestId("save-status")).toContainText("Saved");
     await expect(page.getByLabel("Lib Key", { exact: true })).toHaveValue(
       "recoverThisEvent",
     );
@@ -153,11 +154,17 @@ test("retry succeeds after the folder is restored @webkit-canvas", async ({
     name: "Project folder is missing",
   });
   await expect(dialog).toBeVisible();
-  await page.evaluate(() => {
-    (window as RecoveryWindow).__recoveryFixture!.missing = false;
-  });
-  await dialog.getByRole("button", { name: "Retry save", exact: true }).click();
+  await expect(page.getByTestId("save-status")).toContainText("Save failed");
+  // Restore the IO seam and retry in the same turn: an already queued autosave
+  // may otherwise recover first and close the dialog before the click arrives.
+  await dialog
+    .getByRole("button", { name: "Retry save", exact: true })
+    .evaluate((button) => {
+      (window as RecoveryWindow).__recoveryFixture!.missing = false;
+      (button as HTMLButtonElement).click();
+    });
   await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
   expect(
     await page.evaluate(
       () => (window as RecoveryWindow).__recoveryFixture!.recreations,
