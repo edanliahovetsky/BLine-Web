@@ -484,7 +484,7 @@ export const eventTriggerSettingsTour: TourDefinition = {
     },
     {
       title: "Find a registered key",
-      body: "Type stop into the search field beside the magnifying glass. The list filters as you type. Each row shows how many times its key is used in this project's events and protrusion settings; stopIntake has no uses yet.",
+      body: "Type stop into the search field beside the magnifying glass. The list filters as you type. Each row shows how many event trigger elements use its key across this project's paths; stopIntake has no uses yet.",
       target: "settings-event-triggers",
       settingsSection: "event-triggers",
       autoGenerate: false,

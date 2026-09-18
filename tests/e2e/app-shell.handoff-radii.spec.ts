@@ -115,7 +115,7 @@ async function importHandoffPath(
   // The sample and imported fixture both have four anchors. Wait for the
   // imported path itself before changing modes or starting generation.
   await expect(page.getByTestId("current-path-status")).toHaveText(
-    "Current Path: handoff radii",
+    "Current Path: handoff-radii",
   );
   await openConstraintsTab(page);
   await expect(

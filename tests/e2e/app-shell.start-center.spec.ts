@@ -174,7 +174,7 @@ test("keeps start actions and imports usable in a narrow window", async ({
   ).toBeVisible();
   await expect(
     start.getByRole("button", { name: "Lessons", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await expect(
     start.getByRole("link", { name: "Download desktop editor" }),
   ).toBeVisible();

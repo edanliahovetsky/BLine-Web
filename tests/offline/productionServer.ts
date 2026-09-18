@@ -57,6 +57,7 @@ interface ProductionServer {
 export const test = base.extend<{ production: ProductionServer }>({
   baseURL: async ({ production }, provide) => provide(production.url),
   production: async ({}, provide) => {
+    const originalNodeEnv = process.env.NODE_ENV;
     let release = await readRelease("current");
     const original = release;
     const next = await readRelease("next");
@@ -179,11 +180,13 @@ export const test = base.extend<{ production: ProductionServer }>({
           corrupted = path;
         },
         serveDevelopment: async () => {
+          // Production fixture builds set NODE_ENV=production for the workers.
+          // A real Vite dev launch uses development, including React refresh.
+          process.env.NODE_ENV = "development";
           development = await createViteServer({
             server: {
               middlewareMode: true,
-              hmr: false,
-              ws: false,
+              hmr: { server },
               watch: null,
             },
             logLevel: "error",
@@ -193,6 +196,8 @@ export const test = base.extend<{ production: ProductionServer }>({
     } finally {
       await development?.close();
       await stopServing();
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
     }
   },
 });

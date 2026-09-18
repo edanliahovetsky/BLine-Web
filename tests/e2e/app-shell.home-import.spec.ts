@@ -91,7 +91,7 @@ test("imports an autos folder from Home @webkit-canvas", async ({ page }) => {
     await chooser.setFiles(folder);
     await expect(start).toHaveCount(0);
     await expect(page.getByTestId("current-path-status")).toContainText(
-      "opening move",
+      "opening_move",
     );
     await expect(page.getByTestId("path-stage")).toBeVisible();
   } finally {

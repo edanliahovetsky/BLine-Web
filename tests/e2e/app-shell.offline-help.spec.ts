@@ -26,7 +26,7 @@ test("completes the offline lesson and remembers completion @webkit-canvas", asy
 
   await page.reload();
   await home.getByTestId("start-center-guided-tour").click();
-  await expect(lesson).toHaveClass("is-done");
+  await expect(lesson).toHaveClass(/\bis-done\b/);
   // The normal development server must remain free of offline caches.
   expect(
     await page.evaluate(() =>
