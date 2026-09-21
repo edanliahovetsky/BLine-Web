@@ -6785,7 +6785,10 @@ body.is-resizing-inspector * {
 }
 
 .handoff-distance-control {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
   flex: 0 0 88px;
   width: 88px;
 }
@@ -6795,17 +6798,14 @@ body.is-resizing-inspector * {
 }
 
 .handoff-distance-control input {
-  padding-left: 6px;
-  padding-right: 18px;
+  height: 100%;
+  padding: 0 6px;
 }
 
 .handoff-distance-control > span {
-  position: absolute;
-  top: 50%;
-  right: 29px;
-  transform: translateY(-50%);
   color: var(--bline-text-secondary);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
+  font-weight: 700;
   pointer-events: none;
 }
 

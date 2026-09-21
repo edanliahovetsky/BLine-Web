@@ -113,7 +113,7 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
     "Using project default (Radius)",
   );
 
-  // The whole spinbox, including its suffix and arrows, stays 88px wide.
+  // The spinbox, arrows and separate metre suffix together stay 88px wide.
   // Both sidebar extremes must retain one row with a right-aligned geometry group.
   const resize = page.getByRole("separator", { name: "Resize inspector" });
   for (const [key, name] of [
@@ -127,11 +127,19 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
       row.locator(".handoff-distance-control"),
     );
     const modeBox = await requiredBox(mode);
+    const inputBox = await requiredBox(distance);
+    const arrowsBox = await requiredBox(row.locator(".sidebar-stepper"));
+    const unitBox = await requiredBox(
+      row.locator(".handoff-distance-control > span"),
+    );
     const centers = [sourceBox, distanceBox, modeBox].map(
       (box) => box.y + box.height / 2,
     );
     expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
     expect(distanceBox.width).toBe(88);
+    expect(inputBox.height).toBe(arrowsBox.height);
+    expect(inputBox.y).toBe(arrowsBox.y);
+    expect(unitBox.x).toBeGreaterThan(arrowsBox.x + arrowsBox.width);
     expect(sourceBox.x).toBeCloseTo(rowBox.x);
     expect(modeBox.x + modeBox.width).toBeCloseTo(rowBox.x + rowBox.width);
     expect(distanceBox.x).toBeGreaterThan(sourceBox.x + sourceBox.width);
