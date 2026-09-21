@@ -175,11 +175,14 @@ function runPathSimulation(
     anchors,
     cumulativeLengths,
   );
-  const initialHeading = desiredHeadingForGlobalS(
-    globalKeyframes,
-    0,
-    startHeadingBase,
-  ).desiredTheta;
+  // A ghost pose is the measured starting state, even when the first rotation
+  // target requests a different heading immediately. Turn toward it under the
+  // configured angular limits instead of starting already at that target.
+  const initialHeading =
+    anchors[0].pathIndex < 0
+      ? startHeadingBase
+      : desiredHeadingForGlobalS(globalKeyframes, 0, startHeadingBase)
+          .desiredTheta;
   const endHeadingTarget = desiredHeadingForGlobalS(
     globalKeyframes,
     totalPathLength,

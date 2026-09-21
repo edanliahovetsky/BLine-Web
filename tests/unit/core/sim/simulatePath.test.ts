@@ -64,37 +64,48 @@ describe("simulatePath", () => {
     expect(path.path_elements).toHaveLength(1);
   });
 
-  it("uses the ghost anchor for leading rotation targets and their ranged limits", () => {
-    const path = createPathModel({
-      preview: {
-        start_pose: { x_meters: 0, y_meters: 0, rotation_radians: 0 },
-      },
-      path_elements: [
-        createRotationTarget({ rotation_radians: Math.PI / 2, t_ratio: 0.5 }),
-        createTranslationTarget({ x_meters: 2 }),
-      ],
-      ranged_constraints: [
-        {
-          key: "max_velocity_deg_per_sec",
-          value: 30,
-          start_ordinal: 1,
-          end_ordinal: 1,
+  it.each([
+    { tRatio: 0.5, profiled: true },
+    { tRatio: 0, profiled: true },
+    { tRatio: 0.5, profiled: false },
+  ])(
+    "uses the ghost pose for leading rotations and limits ($tRatio, $profiled)",
+    ({ tRatio, profiled }) => {
+      const path = createPathModel({
+        preview: {
+          start_pose: { x_meters: 0, y_meters: 0, rotation_radians: 0 },
         },
-      ],
-    });
-    const { anchors, cumulativeLengths } = buildSegments(path);
-    expect(buildRotationDomainEvents(path, anchors, cumulativeLengths)).toEqual(
-      [{ event_ordinal_1b: 1, s_m: 1 }],
-    );
-    const result = simulatePathWithTrace(path, defaultConfig);
-    expect(result.trace[0].theta_rad).toBe(0);
-    expect(result.trace.at(-1)!.theta_rad).toBeCloseTo(Math.PI / 2, 6);
-    const peakOmega = Math.max(
-      ...result.trace.map((sample) => Math.abs(sample.omega_radps)),
-    );
-    expect(peakOmega).toBeGreaterThan(0.1);
-    expect(peakOmega).toBeLessThanOrEqual(Math.PI / 6 + 1e-9);
-  });
+        path_elements: [
+          createRotationTarget({
+            rotation_radians: Math.PI / 2,
+            t_ratio: tRatio,
+            profiled_rotation: profiled,
+          }),
+          createTranslationTarget({ x_meters: 2 }),
+        ],
+        ranged_constraints: [
+          {
+            key: "max_velocity_deg_per_sec",
+            value: 30,
+            start_ordinal: 1,
+            end_ordinal: 1,
+          },
+        ],
+      });
+      const { anchors, cumulativeLengths } = buildSegments(path);
+      expect(
+        buildRotationDomainEvents(path, anchors, cumulativeLengths),
+      ).toEqual([{ event_ordinal_1b: 1, s_m: 2 * tRatio }]);
+      const result = simulatePathWithTrace(path, defaultConfig);
+      expect(result.trace[0].theta_rad).toBe(0);
+      expect(result.trace.at(-1)!.theta_rad).toBeCloseTo(Math.PI / 2, 6);
+      const peakOmega = Math.max(
+        ...result.trace.map((sample) => Math.abs(sample.omega_radps)),
+      );
+      expect(peakOmega).toBeGreaterThan(0.1);
+      expect(peakOmega).toBeLessThanOrEqual(Math.PI / 6 + 1e-9);
+    },
+  );
 
   it("rejects nonpositive timesteps", () => {
     const path = createPathModel({
