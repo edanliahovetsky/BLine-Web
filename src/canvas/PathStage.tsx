@@ -11,6 +11,8 @@ import {
   type WheelEvent,
 } from "react";
 import {
+  ArrowLeft,
+  ArrowRight,
   Eye,
   EyeOff,
   Focus,
@@ -80,7 +82,10 @@ import {
   type RotationOverrides,
   type StagePoint,
 } from "./geometry";
-import { isTranslationBearingElement } from "./modelSync";
+import {
+  isTranslationBearingElement,
+  createSetPathPreviewCommand,
+} from "./modelSync";
 import {
   applyPathElementEdit,
   type PathElementEdit,
@@ -1968,6 +1973,25 @@ export function PathStage({
           />
         )}
         <SimulationTransport
+          tankDirection={
+            durableProject?.config.gui.robot.drive_type === "tank" && activePath
+              ? (activePath.path.preview?.tank_direction ?? "forward")
+              : undefined
+          }
+          onTankDirectionChange={(direction) => {
+            if (!activePath) return;
+            setSimulationPlaying(false);
+            setSimulationTime(0);
+            projectStore
+              .getState()
+              .applyPathCommand(
+                createSetPathPreviewCommand(
+                  activePath.path,
+                  { ...activePath.path.preview, tank_direction: direction },
+                  "Set tank preview direction",
+                ),
+              );
+          }}
           result={simulationResult}
           currentTimeS={simulationTime}
           playing={simulationPlaying}
@@ -2295,6 +2319,8 @@ function placementForPointer(
 }
 
 function SimulationTransport({
+  tankDirection,
+  onTankDirectionChange,
   result,
   currentTimeS,
   playing,
@@ -2305,6 +2331,8 @@ function SimulationTransport({
   onFinish,
   onSeek,
 }: {
+  tankDirection?: "forward" | "backward";
+  onTankDirectionChange(direction: "forward" | "backward"): void;
   result: SimResult | null;
   currentTimeS: number;
   playing: boolean;
@@ -2324,72 +2352,102 @@ function SimulationTransport({
   } as CSSProperties;
 
   return (
-    <div
-      className="simulation-transport"
-      data-testid="simulation-transport"
-      data-tour="simulation-transport"
-      data-tour-seek-count={seekCount}
-      data-tour-play-count={playCount}
-    >
-      <div className="transport-primary-controls">
-        <button
-          type="button"
-          className="transport-step-button"
-          aria-label="Reset simulation"
-          aria-keyshortcuts="J Home"
-          title="Restart simulation (J or Home)"
-          onClick={onReset}
-          disabled={disabled || safeCurrent <= 0}
-        >
-          <SkipBackIcon size={16} />
-        </button>
-        <button
-          type="button"
-          className="transport-play-button"
-          data-tour="transport-play"
-          aria-label={playing ? "Pause simulation" : "Play simulation"}
-          aria-keyshortcuts="Space K"
-          title={
-            playing ? "Pause simulation (Space)" : "Play simulation (Space)"
-          }
-          onClick={onTogglePlaying}
-          disabled={disabled}
-        >
-          <span
-            className={playing ? "transport-icon pause" : "transport-icon play"}
+    <div className="simulation-transport-row">
+      <div
+        className="simulation-transport"
+        data-testid="simulation-transport"
+        data-tour="simulation-transport"
+        data-tour-seek-count={seekCount}
+        data-tour-play-count={playCount}
+      >
+        <div className="transport-primary-controls">
+          <button
+            type="button"
+            className="transport-step-button"
+            aria-label="Reset simulation"
+            aria-keyshortcuts="J Home"
+            title="Restart simulation (J or Home)"
+            onClick={onReset}
+            disabled={disabled || safeCurrent <= 0}
+          >
+            <SkipBackIcon size={16} />
+          </button>
+          <button
+            type="button"
+            className="transport-play-button"
+            data-tour="transport-play"
+            aria-label={playing ? "Pause simulation" : "Play simulation"}
+            aria-keyshortcuts="Space K"
+            title={
+              playing ? "Pause simulation (Space)" : "Play simulation (Space)"
+            }
+            onClick={onTogglePlaying}
+            disabled={disabled}
+          >
+            <span
+              className={
+                playing ? "transport-icon pause" : "transport-icon play"
+              }
+            />
+          </button>
+          <button
+            type="button"
+            className="transport-step-button"
+            aria-label="Fast forward simulation"
+            aria-keyshortcuts="L End"
+            title="Jump to end (L or End)"
+            onClick={onFinish}
+            disabled={disabled || safeCurrent >= total}
+          >
+            <SkipForwardIcon size={16} />
+          </button>
+        </div>
+        <span className="transport-time" data-testid="simulation-time">
+          {safeCurrent.toFixed(2)} / {total.toFixed(2)} s
+        </span>
+        <span className="transport-elapsed" aria-hidden="true">
+          {safeCurrent.toFixed(2)}s
+        </span>
+        <div className="transport-timeline" data-tour="transport-timeline">
+          <input
+            aria-label="Simulation time"
+            type="range"
+            min={0}
+            max={Math.max(total, 0)}
+            step={0.02}
+            value={safeCurrent}
+            style={timelineStyle}
+            disabled={disabled}
+            onChange={(event) => onSeek(Number(event.currentTarget.value))}
           />
-        </button>
-        <button
-          type="button"
-          className="transport-step-button"
-          aria-label="Fast forward simulation"
-          aria-keyshortcuts="L End"
-          title="Jump to end (L or End)"
-          onClick={onFinish}
-          disabled={disabled || safeCurrent >= total}
+        </div>
+      </div>
+      {tankDirection && (
+        <div
+          className="tank-preview-direction"
+          role="group"
+          aria-label="Tank preview direction"
         >
-          <SkipForwardIcon size={16} />
-        </button>
-      </div>
-      <span className="transport-time" data-testid="simulation-time">
-        {safeCurrent.toFixed(2)} / {total.toFixed(2)} s
-      </span>
-      <span className="transport-elapsed" aria-hidden="true">
-        {safeCurrent.toFixed(2)}s
-      </span>
-      <div className="transport-timeline" data-tour="transport-timeline">
-        <input
-          aria-label="Simulation time"
-          type="range"
-          min={0}
-          max={Math.max(total, 0)}
-          step={0.02}
-          value={safeCurrent}
-          style={timelineStyle}
-          disabled={disabled}
-          onChange={(event) => onSeek(Number(event.currentTarget.value))}
-        />
-      </div>
+          <button
+            type="button"
+            aria-label="Drive backward in preview"
+            title="Drive backward in preview"
+            aria-pressed={tankDirection === "backward"}
+            onClick={() => onTankDirectionChange("backward")}
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Drive forward in preview"
+            title="Drive forward in preview"
+            aria-pressed={tankDirection === "forward"}
+            onClick={() => onTankDirectionChange("forward")}
+          >
+            <ArrowRight size={18} aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2863,7 +2921,7 @@ function isCanvasChromeEventTarget(target: EventTarget): boolean {
     target instanceof Element &&
     Boolean(
       target.closest(
-        ".simulation-transport, .canvas-tool-rail, .canvas-view-controls",
+        ".simulation-transport-row, .canvas-tool-rail, .canvas-view-controls",
       ),
     )
   );

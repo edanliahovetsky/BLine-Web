@@ -1,3 +1,8 @@
+import {
+  withGenerationPreviewStart,
+  withoutGenerationPreviewStart,
+  profileWithoutGenerationStart,
+} from "./generationPreview";
 import { RotationProgress } from "../sim/rotationProgress";
 import { handoffReached, resolveHandoffMode } from "../model/handoffModes";
 import type { HandoffMode } from "../model/path";
@@ -344,7 +349,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 16;
+const autoConstraintSolverVersion = 17;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -362,9 +367,15 @@ export function generateAutoVelocityProfile(
     return cached;
   }
 
-  const profile = needsRuntimeConstraintValidation(path)
-    ? solveRuntimeValidatedConstraints(path, config, options, false).profile
-    : generateTranslationAutoVelocityProfile(path, config, options);
+  const prepared = withGenerationPreviewStart(path);
+  const profile =
+    prepared !== path
+      ? profileWithoutGenerationStart(
+          generateAutoVelocityProfile(prepared, config, options),
+        )
+      : needsRuntimeConstraintValidation(path, config)
+        ? solveRuntimeValidatedConstraints(path, config, options, false).profile
+        : generateTranslationAutoVelocityProfile(path, config, options);
   cacheProfile(cacheKey, profile);
   return profile;
 }
@@ -550,6 +561,9 @@ export function jointAutoConstraintSearchPlan(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): JointAutoConstraintSearchPlan {
+  const prepared = withGenerationPreviewStart(path);
+  if (prepared !== path)
+    return jointAutoConstraintSearchPlan(prepared, config, options);
   const setup = createAutoVelocitySolveSetup(path, config, options);
   const searchableBlocks = jointRadiusCoordinates(
     path,
@@ -559,7 +573,7 @@ export function jointAutoConstraintSearchPlan(
   ).filter(
     (coordinate) => coordinate.maxRadiusMeters >= coordinate.minRadiusMeters,
   ).length;
-  if (hasAuthoredRotations(path)) {
+  if (needsRuntimeConstraintValidation(path, config)) {
     const capCount = setup.segments.filter(
       (_, i) => !setup.simulationContext.pinnedCapsByOrdinal.has(i + 2),
     ).length;
@@ -1237,7 +1251,12 @@ export function solveJointAutoConstraints(
   config: SimulationConfig,
   options: AutoVelocityGenerationOptions = {},
 ): JointAutoConstraintSolveResult {
-  if (needsRuntimeConstraintValidation(path)) {
+  const prepared = withGenerationPreviewStart(path);
+  if (prepared !== path)
+    return withoutGenerationPreviewStart(
+      solveJointAutoConstraints(prepared, config, options),
+    );
+  if (needsRuntimeConstraintValidation(path, config)) {
     return solveRuntimeValidatedConstraints(path, config, options, true);
   }
   return solveTranslationJointConstraints(path, config, options);
@@ -1286,7 +1305,11 @@ function hasAuthoredRotations(path: PathModel): boolean {
   );
 }
 
-function needsRuntimeConstraintValidation(path: PathModel): boolean {
+function needsRuntimeConstraintValidation(
+  path: PathModel,
+  config: SimulationConfig,
+): boolean {
+  if (config.gui?.robot?.drive_type === "tank") return true;
   if (hasAuthoredRotations(path)) return true;
   const anchorCount = translationAnchors(path.path_elements).length;
   for (let ordinal = 2; ordinal <= anchorCount; ordinal += 1) {
@@ -1312,6 +1335,7 @@ function solveRuntimeValidatedConstraints(
   options: AutoVelocityGenerationOptions,
   optimizeRadii: boolean,
 ): JointAutoConstraintSolveResult {
+  const tank = config.gui?.robot?.drive_type === "tank";
   const basePath = optimizeRadii ? seedHandoffRadii(path).path : path;
   const problem = createJointSearchProblem(basePath, config, options);
   const setup = problem.setup;
@@ -1349,7 +1373,7 @@ function solveRuntimeValidatedConstraints(
     ),
   };
   const baseline =
-    setup.corners.length === 0
+    tank || setup.corners.length === 0
       ? null
       : optimizeRadii
         ? solveTranslationJointConstraints(translationPath, config, options)
@@ -1418,18 +1442,27 @@ function solveRuntimeValidatedConstraints(
         config,
         options,
       );
-      // Use the same translation simulation, safety margins and objective as
-      // the translation-only search. Rotation adds feasibility constraints;
-      // it must not replace the handoff/error tradeoffs with a time-only score.
-      const scoringEvaluation = evaluateJointCandidateFast(
-        candidateSetup.simulationContext,
-        candidateSetup.segments,
-        candidateSetup.corners,
-        caps,
-        setup.usableMaxVelocityMps,
-        setup.usableMaxAccelerationMps2,
-        scoringWorkspace,
-      );
+      // Retain the handoff/error tradeoffs of the translation-only search.
+      // Tank needs its own ideal preview to evaluate the turning geometry;
+      // holonomic rotation adds feasibility checks to the fast translation score.
+      const scoringEvaluation = tank
+        ? evaluateVelocityCapsWithGenericSimulation(
+            candidateSetup.simulationContext,
+            candidateSetup.segments,
+            candidateSetup.corners,
+            caps,
+            setup.usableMaxVelocityMps,
+            setup.usableMaxAccelerationMps2,
+          )
+        : evaluateJointCandidateFast(
+            candidateSetup.simulationContext,
+            candidateSetup.segments,
+            candidateSetup.corners,
+            caps,
+            setup.usableMaxVelocityMps,
+            setup.usableMaxAccelerationMps2,
+            scoringWorkspace,
+          );
       const objectiveCost = jointSearchObjectiveCost(
         scoringEvaluation,
         candidateSetup.corners,
@@ -1517,16 +1550,19 @@ function solveRuntimeValidatedConstraints(
             Math.hypot(sample.x_m - end.x, sample.y_m - end.y) <= 0.001,
         );
         const trace =
-          arrivalIndex < 0
+          tank || arrivalIndex < 0
             ? evaluation.trace
             : evaluation.trace.slice(0, arrivalIndex + 1);
-        const reachedEnd = arrivalIndex >= 0;
+        const reachedEnd = tank
+          ? simulation.completed === true
+          : arrivalIndex >= 0;
         const timeS = trace.at(-1)?.time_s ?? 0;
         const translationPassed =
           reachedEnd && evaluation.handoffs.every((handoff) => handoff.passed);
-        const rotation = translationPassed
-          ? evaluateRotationFeasibility(candidatePath, config, trace)
-          : [];
+        const rotation =
+          translationPassed && !tank
+            ? evaluateRotationFeasibility(candidatePath, config, trace)
+            : [];
         const feasible =
           translationPassed && rotation.every((target) => target.passed);
         const translationViolation =
@@ -2085,6 +2121,7 @@ function radicalInverse(index: number, base: number): number {
  * Deterministic global-search reference entry point for quality benchmarks.
  * Production reuses the same search engine for small problems and recovery,
  * so comparisons against this entry point are not an independent oracle.
+ * This benchmark is holonomic-only; tank uses the runtime-validated search.
  */
 export function solveJointAutoConstraintsReference(
   path: PathModel,
@@ -2092,6 +2129,20 @@ export function solveJointAutoConstraintsReference(
   options: AutoVelocityGenerationOptions = {},
   referenceOptions: JointAutoConstraintReferenceOptions = {},
 ): JointAutoConstraintSolveResult {
+  const prepared = withGenerationPreviewStart(path);
+  if (prepared !== path)
+    return withoutGenerationPreviewStart(
+      solveJointAutoConstraintsReference(
+        prepared,
+        config,
+        options,
+        referenceOptions,
+      ),
+    );
+  if (config.gui?.robot?.drive_type === "tank")
+    throw new Error(
+      "The global-search reference supports holonomic paths only",
+    );
   return solveJointAutoConstraintsGlobalSearchInternal(
     path,
     config,
@@ -3231,6 +3282,8 @@ export function autoVelocityInputSignature(
   try {
     return JSON.stringify({
       solverVersion: autoConstraintSolverVersion,
+      driveType: config.gui?.robot?.drive_type ?? "swerve",
+      preview: path.preview ?? null,
       handoffModes: path.path_elements.map((element) =>
         resolveHandoffMode(
           path,
@@ -3247,6 +3300,11 @@ export function autoVelocityInputSignature(
         ),
       ),
       scalarConstraints: {
+        minVelocityMps: path.constraints.min_velocity_meters_per_sec,
+        minVelocityDegPerSec: path.constraints.min_velocity_deg_per_sec,
+        endTranslationTolerance:
+          path.constraints.end_translation_tolerance_meters,
+        endRotationTolerance: path.constraints.end_rotation_tolerance_deg,
         maxVelocityMps: path.constraints.max_velocity_meters_per_sec,
         maxAccelerationMps2: path.constraints.max_acceleration_meters_per_sec2,
         maxVelocityDegPerSec: path.constraints.max_velocity_deg_per_sec,
@@ -3274,6 +3332,14 @@ export function autoVelocityInputSignature(
           endOrdinal: constraint.end_ordinal,
         })),
       config: {
+        endTranslationTolerance: getDefaultOptionalConfigValue(
+          config,
+          "end_translation_tolerance_meters",
+        ),
+        endRotationTolerance: getDefaultOptionalConfigValue(
+          config,
+          "end_rotation_tolerance_deg",
+        ),
         maxVelocityMps: getDefaultOptionalConfigValue(
           config,
           "max_velocity_meters_per_sec",
@@ -6033,7 +6099,8 @@ function evaluateVelocityCapsWithGenericSimulation(
     result.global_s_by_time.get(result.times_sorted.at(-1) ?? 0) ?? 0;
   const totalLength = segments.at(-1)?.endS ?? 0;
   const reachedEnd =
-    totalLength <= minPositive || finalGlobalS >= totalLength - 0.02;
+    result.completed ??
+    (totalLength <= minPositive || finalGlobalS >= totalLength - 0.02);
   const handoffs = corners.map((corner) =>
     evaluateHandoff(corner, segments, result.trace),
   );

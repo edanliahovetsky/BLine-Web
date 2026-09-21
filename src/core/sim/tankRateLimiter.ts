@@ -85,13 +85,16 @@ export function limitTankVelocity(
     )
       best = { forward, omega, turnError, speedError };
   };
+  // If the nearest angular rate is feasible, no sampled rate can improve it.
+  // This is the common straight/unsaturated case; avoid searching it again.
+  const winner = (): Candidate | null => best;
   consider(clamp(targetOmega, low, high));
+  const direct = winner();
+  if (direct) return { forward: direct.forward, omega: direct.omega };
   consider(current.omega);
   if (low <= 0 && high >= 0) consider(0);
   let spacing = (high - low) / 32;
   for (let i = 0; i <= 32; i++) consider(low + spacing * i);
-  // The callback updates best; retain its declared union across TypeScript's flow analysis.
-  const winner = (): Candidate | null => best;
   for (let refinement = 0; refinement < 8; refinement++) {
     const selected = winner();
     if (!selected) break;

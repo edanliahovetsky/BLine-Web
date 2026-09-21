@@ -230,9 +230,9 @@ describe("generateAutoVelocityProfile", () => {
     expectSafeAutoVelocityProfile(profile);
   });
 
-  it("adds a first-ordinal default cap at half of configured max velocity", () => {
+  it("generates the incoming current-pose segment for a single target", () => {
     const path = createPathModel({
-      path_elements: [createTranslationTarget({ x_meters: 0, y_meters: 0 })],
+      path_elements: [createTranslationTarget({ x_meters: 3, y_meters: 0 })],
     });
 
     const profile = generateAutoVelocityProfile(path, config, {
@@ -245,8 +245,8 @@ describe("generateAutoVelocityProfile", () => {
       {
         segmentIndex: 0,
         targetOrdinal: 1,
-        value: 2.5,
-        minVelocityLimitMps: 2.5,
+        value: 4,
+        minVelocityLimitMps: 4,
       },
     ]);
   });

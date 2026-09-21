@@ -887,12 +887,21 @@ select {
   text-transform: uppercase;
 }
 
-.simulation-transport {
+.simulation-transport-row {
   position: absolute;
   z-index: 8;
   right: 16px;
   bottom: 10px;
   left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  container: simulation-controls / inline-size;
+}
+
+.simulation-transport {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: auto 4.25rem minmax(64px, 1fr);
   align-items: center;
@@ -5303,10 +5312,13 @@ button.path-health-popover__issue:focus-visible {
   font-weight: 720;
 }
 
-.simulation-transport {
-  right: max(12px, calc(50% - 330px));
+.simulation-transport-row {
+  right: max(56px, calc(50% - 330px));
   bottom: 10px;
   left: max(70px, calc(50% - 330px));
+}
+
+.simulation-transport {
   grid-template-columns: auto 4rem minmax(80px, 1fr);
   min-height: 38px;
   padding: 4px 8px;
@@ -6342,8 +6354,8 @@ body.is-resizing-inspector * {
     right: 8px;
   }
 
-  .simulation-transport {
-    right: 8px;
+  .simulation-transport-row {
+    right: 56px;
     left: 56px;
   }
 }
@@ -6474,14 +6486,16 @@ body.is-resizing-inspector * {
   grid-area: 1 / 2;
   container: navigator-canvas / inline-size;
 }
-.workspace.is-navigator-open .simulation-transport {
+.workspace.is-navigator-open .simulation-transport-row {
   bottom: 48px;
   left: max(12px, calc(50% - 330px));
 }
 @container navigator-canvas (max-width: 480px) {
+  .simulation-transport-row {
+    right: 12px;
+  }
   .simulation-transport {
     grid-template-columns: auto 4rem;
-    right: 12px;
   }
   .transport-timeline {
     grid-column: 1 / -1;
@@ -6741,4 +6755,36 @@ body.is-resizing-inspector * {
 .handoff-controls .dropdown-select-control__button {
   min-width: 0;
   font-size: 0.72rem;
+}
+
+/* A separate transparent group keeps tank preview preferences beside playback. */
+.tank-preview-direction {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  background: transparent;
+}
+.tank-preview-direction button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 7px;
+  color: var(--bline-text-secondary);
+  background: transparent;
+}
+.tank-preview-direction button[aria-pressed="true"] {
+  color: var(--bline-text-primary);
+  border-color: var(--bline-border-accent);
+  background: var(--bline-primary-active);
+}
+@container simulation-controls (max-width: 360px) {
+  .simulation-transport {
+    grid-template-columns: auto 4rem;
+  }
+  .simulation-transport .transport-timeline {
+    grid-column: 1 / -1;
+  }
 }

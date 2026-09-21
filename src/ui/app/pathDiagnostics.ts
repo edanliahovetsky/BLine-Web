@@ -1,3 +1,4 @@
+import { hasAuthoredStart } from "../../core/model/pathPreview";
 import { evaluateRotationFeasibility } from "../../core/sim/rotationFeasibility";
 import { getElementPosition } from "../../canvas/geometry";
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
@@ -47,21 +48,29 @@ export function derivePathDiagnostics(
   const diagnostics: PathDiagnostic[] = [];
   const elements = path.path_elements;
   const anchorCount = elements.filter(isAnchorElement).length;
-  if (anchorCount < 2) {
-    const missingAnchorCount = 2 - anchorCount;
+  if (anchorCount === 0) {
     diagnostics.push({
       id: "anchor-count",
       severity: "warning",
+      summary: "Add a waypoint or translation target to simulate this path.",
+      fix: { kind: "add-anchors", count: 1, label: "Add a waypoint" },
+    });
+  }
+
+  if (elements.length > 0 && !isAnchorElement(elements.at(-1)!)) {
+    diagnostics.push({
+      id: "path-end",
+      severity: "error",
+      summary: "The final element must be a waypoint or translation target.",
+      fix: { kind: "add-anchors", count: 1, label: "Add a waypoint" },
+    });
+  }
+  if (anchorCount > 0 && !hasAuthoredStart(path)) {
+    diagnostics.push({
+      id: "current-pose-start",
+      severity: "info",
       summary:
-        anchorCount === 0
-          ? "Add two waypoints or translation targets to simulate this path."
-          : "Add one more waypoint or translation target to simulate this path.",
-      fix: {
-        kind: "add-anchors",
-        count: missingAnchorCount,
-        label:
-          missingAnchorCount === 1 ? "Add a waypoint" : "Add two waypoints",
-      },
+        "This path starts at the robot’s current pose. The ghost waypoint sets its preview start.",
     });
   }
 
@@ -118,7 +127,40 @@ export function derivePathDiagnostics(
     }
   });
 
-  if (anchorCount >= 2) {
+  const tank = config.gui?.robot?.drive_type === "tank";
+  if (tank && anchorCount > 0) {
+    const ignored = elements.findIndex(
+      (element, index) =>
+        element.type === "rotation" ||
+        (element.type === "waypoint" &&
+          index > 0 &&
+          index < elements.length - 1),
+    );
+    if (ignored >= 0)
+      diagnostics.push({
+        id: "tank-intermediate-rotations",
+        severity: "info",
+        elementIndex: ignored,
+        summary: "Tank drive ignores intermediate rotation targets.",
+      });
+    try {
+      const result = simulatePathWithTrace(path, config, { dt_s: 0.02 });
+      if (!result.completed)
+        diagnostics.push({
+          id: "tank-incomplete",
+          severity: "warning",
+          summary:
+            "Tank preview did not finish. Check the path geometry and motion limits.",
+        });
+    } catch {
+      diagnostics.push({
+        id: "tank-evaluation",
+        severity: "warning",
+        summary: "Tank motion could not be simulated with these limits.",
+      });
+    }
+  }
+  if (!tank && anchorCount > 0) {
     const { anchors, cumulativeLengths } = buildSegments(path);
     const rotationTargets = buildGlobalRotationTargets(
       path,

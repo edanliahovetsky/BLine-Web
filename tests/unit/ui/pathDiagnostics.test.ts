@@ -11,8 +11,7 @@ import {
 describe("path diagnostics", () => {
   it("reports incomplete paths", () => {
     const workspace = createSampleProject();
-    workspace.paths[0].path.path_elements =
-      workspace.paths[0].path.path_elements.slice(0, 1);
+    workspace.paths[0].path.path_elements = [];
     expect(
       derivePathDiagnostics(
         workspace.paths[0].path,
@@ -28,6 +27,35 @@ describe("path diagnostics", () => {
         }),
       ]),
     );
+  });
+
+  it("allows a single destination and identifies its preview-only start", () => {
+    const path = createPathModel({
+      path_elements: [createTranslationTarget({ x_meters: 2, y_meters: 2 })],
+    });
+    const warnings = derivePathDiagnostics(path, defaultFieldGeometry, []);
+    expect(warnings).toEqual([
+      expect.objectContaining({ id: "current-pose-start", severity: "info" }),
+    ]);
+  });
+
+  it("does not evaluate ignored tank headings as holonomic rotation failures", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createRotationTarget({ t_ratio: 0.5, rotation_radians: Math.PI }),
+        createTranslationTarget({ x_meters: 3, y_meters: 1 }),
+      ],
+    });
+    const warnings = derivePathDiagnostics(path, defaultFieldGeometry, [], {
+      gui: { robot: { drive_type: "tank" } },
+    });
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        id: "tank-intermediate-rotations",
+        severity: "info",
+      }),
+    ]);
   });
 
   it("reports empty event keys and off-field elements", () => {

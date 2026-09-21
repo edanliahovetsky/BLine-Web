@@ -1,3 +1,4 @@
+import type { PathPreview } from "../core/model/pathPreview";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -39,6 +40,27 @@ export function createSetHandoffModeCommand(
   return {
     description: "Set handoff mode",
     apply: (value) => update(value, mode),
+    revert: (value) => update(value, previous),
+  };
+}
+
+/** Preview preferences participate in project history but never robot path JSON. */
+export function createSetPathPreviewCommand(
+  path: PathModel,
+  preview: PathPreview,
+  description: string,
+): HistoryCommand<PathModel> {
+  const previous = path.preview ? structuredClone(path.preview) : undefined;
+  const next = structuredClone(preview);
+  const update = (value: PathModel, preferences: PathPreview | undefined) => {
+    const copy = structuredClone(value);
+    if (preferences) copy.preview = structuredClone(preferences);
+    else delete copy.preview;
+    return copy;
+  };
+  return {
+    description,
+    apply: (value) => update(value, next),
     revert: (value) => update(value, previous),
   };
 }

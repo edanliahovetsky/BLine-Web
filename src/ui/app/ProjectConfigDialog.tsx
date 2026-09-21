@@ -36,6 +36,7 @@ import {
 import {
   createProjectConfig,
   type ProtrusionSide,
+  type DriveType,
   type ProtrusionState,
 } from "../../core/config/projectConfig";
 import { pathDisplayNameFromFileName } from "../../core/model/projectIdentity";
@@ -738,6 +739,32 @@ function RobotSettingsSection({
   };
   return (
     <ConfigSection title="Robot">
+      <ConfigSubsection title="Drivetrain">
+        <label className="config-row">
+          <span className="config-row__label">Drive type</span>
+          <SelectControl
+            ariaLabel="Drive type"
+            value={draft.gui.robot.drive_type ?? "swerve"}
+            options={[
+              { value: "swerve", label: "Swerve" },
+              { value: "tank", label: "Tank" },
+              { value: "mecanum", label: "Mecanum" },
+            ]}
+            onChange={(value) =>
+              setDraft((current) => ({
+                ...current,
+                gui: {
+                  ...current.gui,
+                  robot: {
+                    ...current.gui.robot,
+                    drive_type: value as DriveType,
+                  },
+                },
+              }))
+            }
+          />
+        </label>
+      </ConfigSubsection>
       <ConfigSubsection title="Size">
         <NumberRow
           label="Robot Length (m)"
