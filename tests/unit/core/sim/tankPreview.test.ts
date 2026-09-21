@@ -161,6 +161,37 @@ describe("ideal tank preview", () => {
     });
   });
 
+  it.each([
+    { key: "max_velocity_deg_per_sec", value: 5, ranged: false },
+    { key: "max_velocity_deg_per_sec", value: 5, ranged: true },
+    { key: "max_acceleration_deg_per_sec2", value: 0.5, ranged: false },
+    { key: "max_acceleration_deg_per_sec2", value: 0.5, ranged: true },
+    { key: "max_acceleration_meters_per_sec2", value: 0.001, ranged: true },
+  ] as const)(
+    "allows slow feasible motion with $key=$value (ranged=$ranged)",
+    ({ key, value, ranged }) => {
+      const path = createPathModel({
+        path_elements: [waypoint(0, 0, 0), waypoint(1, 0, Math.PI)],
+        ranged_constraints: ranged
+          ? [{ key, value, start_ordinal: 2, end_ordinal: 2 }]
+          : [],
+      });
+      const result = simulatePathWithTrace(path, {
+        ...config,
+        ...(!ranged && { [`default_${key}`]: value }),
+      });
+      const last = result.trace.at(-1)!;
+      expect(result.total_time_s).toBeGreaterThan(30);
+      expect(result.completed).toBe(true);
+      expect(Math.hypot(last.x_m - 1, last.y_m)).toBeLessThanOrEqual(0.03);
+      expect(
+        Math.abs(shortestAngularDistance(Math.PI, last.theta_rad)),
+      ).toBeLessThan((2 * Math.PI) / 180);
+      expect(last.speed_mps).toBeLessThan(1e-8);
+      expect(Math.abs(last.omega_radps)).toBeLessThan(1e-8);
+    },
+  );
+
   it.each(["forward", "backward"] as const)(
     "uses the selected %s direction, ignoring intermediate headings",
     (direction) => {

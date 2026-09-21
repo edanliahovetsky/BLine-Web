@@ -14,6 +14,7 @@ import {
   buildRotationDomainEvents,
   buildSegments,
   handoffRadiusForSegment,
+  minimumPositiveConstraint,
   normalizeSimulationConfig,
   remainingDistanceFrom,
   resolveVelocityBaseline,
@@ -127,15 +128,35 @@ export function simulateTankPath(
   let velocity: TankVelocity = { forward: 0, omega: 0 };
   let phase: Phase = "follow";
   let completed = false;
-  const slowest = Math.min(
+  const slowestV = minimumPositiveConstraint(
+    path,
+    "max_velocity_meters_per_sec",
     baseV,
-    ...anchors.map(
-      (_, i) =>
-        activeTranslationLimit(path, "max_velocity_meters_per_sec", i + 1) ??
-        baseV,
-    ),
   );
-  const guard = Math.max(30, (2 * totalLength) / Math.max(0.05, slowest) + 20);
+  const slowestA = minimumPositiveConstraint(
+    path,
+    "max_acceleration_meters_per_sec2",
+    baseA,
+  );
+  const slowestW = degreesToRadians(
+    minimumPositiveConstraint(path, "max_velocity_deg_per_sec", baseW),
+  );
+  const slowestAlpha = degreesToRadians(
+    minimumPositiveConstraint(path, "max_acceleration_deg_per_sec2", baseAlpha),
+  );
+  // Budget travel from rest and a half-turn per leg, plus stopped final alignment.
+  // Include ranged limits and acceleration: a short path can take a long time
+  // when turning or accelerating slowly. The margin allows curved travel and
+  // settling; this only bounds the simulation loop, not the motion itself.
+  const translationTime = segments.reduce(
+    (sum, segment) =>
+      sum + motionTimeAllowance(segment.length_m, slowestV, slowestA),
+    0,
+  );
+  const rotationTime =
+    (segments.length + (finalHeading !== null && !rolling ? 1 : 0)) *
+    motionTimeAllowance(Math.PI, slowestW, slowestAlpha);
+  const guard = Math.max(30, 2 * (translationTime + rotationTime) + 20);
   const save = (oldVx: number, oldVy: number, elapsed: number) => {
     poses.set(time, [x, y, theta]);
     progress.set(time, s);
@@ -352,6 +373,20 @@ export function simulateTankPath(
     trace,
     completed,
   };
+}
+
+// Conservative time allowance for rest-to-rest motion over a distance (or angle).
+// Adding cruising and acceleration times covers both short and speed-limited moves.
+function motionTimeAllowance(
+  distance: number,
+  speed: number,
+  acceleration: number,
+) {
+  if (
+    ![speed, acceleration].every((value) => Number.isFinite(value) && value > 0)
+  )
+    return 0; // Invalid limits are rejected by the simulation loop.
+  return distance / speed + 2 * Math.sqrt(distance / acceleration);
 }
 
 function project(

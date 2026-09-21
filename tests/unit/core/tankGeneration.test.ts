@@ -66,6 +66,33 @@ it("generates and validates tank limits with the actual ideal preview, ignoring 
   );
 }, 30000);
 
+it("accepts a feasible stopped tank turn that takes longer than thirty seconds", () => {
+  const path = createPathModel({
+    path_elements: [
+      createWaypoint(),
+      createWaypoint({
+        translation_target: createTranslationTarget({ x_meters: 1 }),
+        rotation_target: createRotationTarget({ rotation_radians: Math.PI }),
+      }),
+    ],
+    ranged_constraints: [
+      {
+        key: "max_velocity_deg_per_sec",
+        value: 5,
+        start_ordinal: 2,
+        end_ordinal: 2,
+      },
+    ],
+  });
+  const result = solveJointAutoConstraints(
+    path,
+    createProjectConfig({ gui: { robot: { drive_type: "tank" } } }),
+  );
+  expect(result.status).toBe("valid");
+  expect(result.stats.genericValidationPassed).toBe(true);
+  expect(result.stats.stabilityValidationPassed).toBe(true);
+});
+
 it.each(["tank", "swerve"] as const)(
   "generates a %s current-pose path without shifting authored constraints or exporting a ghost",
   (driveType) => {
