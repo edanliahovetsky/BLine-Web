@@ -522,7 +522,16 @@ test("updates an online editor even when its own offline download never complete
   await expect
     .poll(() => production.failedRequests.includes(worker))
     .toBe(true);
-  await page.waitForTimeout(1500);
+  // Drain this page's registration/update job while the second release is
+  // still served. Otherwise it can absorb the third-release update below.
+  await updateWorker(page);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () => !(await navigator.serviceWorker.ready).installing,
+      ),
+    )
+    .toBe(true);
   expect(await pageRelease(page)).toBe(releaseId(production.nextRelease));
   production.fail(null);
   production.publishThird();
