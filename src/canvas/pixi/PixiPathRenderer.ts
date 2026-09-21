@@ -52,6 +52,11 @@ import {
   type RotationOverrides,
   type StagePoint,
 } from "../geometry";
+import { resolveHandoffMode } from "../../core/model/handoffModes";
+import {
+  progressHandoffGate,
+  type ProgressHandoffGate,
+} from "../progressHandoffGate";
 import { handoffRingRadiusPx } from "../handoffRadiusInteraction";
 import {
   centeredRobotBounds,
@@ -708,6 +713,13 @@ export class PixiPathRenderer {
     if (origin && ghost) {
       renderedNodes.unshift({ element: ghost, index: -1, position: origin });
     }
+    const incomingStarts = new Map<number, StagePoint>();
+    let previousAnchor: StagePoint | undefined;
+    for (const { element, index, position } of renderedNodes) {
+      if (!isWaypoint(element) && !isTranslationTarget(element)) continue;
+      if (previousAnchor) incomingStarts.set(index, previousAnchor);
+      previousAnchor = modelToStagePoint(position, input.viewport);
+    }
     const orderedNodes =
       input.selectedElementIndex === null
         ? renderedNodes
@@ -724,6 +736,22 @@ export class PixiPathRenderer {
     for (const { element, index, position } of orderedNodes) {
       const point = modelToStagePoint(position, input.viewport);
       const handoffRadius = handoffRadiusByElementIndex.get(index);
+      const progressMode =
+        resolveHandoffMode(
+          path,
+          element,
+          config.kinematic_constraints.default_handoff_mode,
+        ) === "progress";
+      const incomingStart = incomingStarts.get(index);
+      const gate =
+        progressMode && incomingStart && handoffRadius && !handoffRadius.inert
+          ? progressHandoffGate(
+              incomingStart,
+              point,
+              handoffRadius.effectiveValueMeters,
+              input.viewport.scale,
+            )
+          : null;
       const node: DrawNodeInput = {
         element,
         index,
@@ -740,8 +768,9 @@ export class PixiPathRenderer {
           input.rotationPreview,
           input.positionPreview,
         ),
+        progressGate: gate,
         handoffRadiusMeters:
-          handoffRadius && !handoffRadius.inert
+          !progressMode && handoffRadius && !handoffRadius.inert
             ? handoffRadius.effectiveValueMeters
             : null,
         handoffRadiusState:
@@ -991,6 +1020,7 @@ interface DrawNodeInput {
   previewStart?: boolean;
   legacyHeadingMarker?: boolean;
   headingRadians: number | null;
+  progressGate?: ProgressHandoffGate | null;
   handoffRadiusMeters: number | null;
   handoffRadiusState: AnchorRadiusState | null;
   robotSizeMeters: RobotSizeMeters;
@@ -1073,6 +1103,14 @@ function nodeVisibilityMargin(input: DrawNodeInput): number {
     input.handoffRadiusMeters && input.handoffRadiusState
       ? handoffRingRadiusPx(input.handoffRadiusMeters, scale) + 3
       : 0,
+    input.progressGate
+      ? Math.hypot(
+          input.progressGate.center.x - input.point.x,
+          input.progressGate.center.y - input.point.y,
+        ) +
+          input.progressGate.lengthPx / 2 +
+          4
+      : 0,
   );
 }
 
@@ -1096,6 +1134,31 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
     rotation: toStageRadians(input.headingRadians),
   };
 
+  if (input.progressGate && input.handoffRadiusState) {
+    const width =
+      Math.max(
+        0.9,
+        Math.min(1.9, eventMarkerMetrics(input.metersToPixels).strokeWidth),
+      ) + (input.selected ? 0.35 : 0);
+    // The outline and color share the same six strokes and uniform rounded caps.
+    // Draw all outlines first so adjacent dash ends retain the same color treatment.
+    for (const style of [
+      { color: 0x05080b, width: width + 2.55, alpha: 0.82 * opacity },
+      {
+        color: handoffRingColors[input.handoffRadiusState],
+        width,
+        alpha: (input.selected ? 0.98 : 0.82) * opacity,
+      },
+    ]) {
+      for (const dash of input.progressGate.dashes) {
+        drawPolyline(
+          graphics,
+          [dash.start.x, dash.start.y, dash.end.x, dash.end.y],
+          style,
+        );
+      }
+    }
+  }
   if (input.handoffRadiusMeters && input.handoffRadiusState) {
     drawHandoffRadiusRing(graphics, point, {
       radiusPx: handoffRingRadiusPx(

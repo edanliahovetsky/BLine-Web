@@ -561,7 +561,7 @@ const definitions: SupplementalTour[] = [
     steps: [
       {
         title: "Two ways to reach a handoff",
-        body: "A handoff changes the translation target before the robot reaches the point. Radius waits until the robot is within the chosen distance. Progress measures along the incoming line: it hands off when that much distance remains, even if the robot is beside the line. Neither mode requires a stop.",
+        body: "A handoff changes the translation target before the robot reaches the point. Radius waits until the robot is within the chosen distance. Progress measures along the incoming line: it hands off when that much distance remains, even if the robot is beside the line. The purple dashed gate marks that threshold; its visible ends do not limit lateral distance. Neither mode requires a stop.",
         visible: ["path-canvas"],
         prepare: {
           inspector: "open",

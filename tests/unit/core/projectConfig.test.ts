@@ -11,6 +11,22 @@ import {
 } from "../../../src/core/field/fieldConfig";
 
 describe("project config", () => {
+  it("loads handoff defaults from robot config without requiring editor protrusion settings", () => {
+    expect(
+      createProjectConfig({
+        kinematic_constraints: { default_handoff_mode: "progress" },
+      }).kinematic_constraints.default_handoff_mode,
+    ).toBe("progress");
+    expect(
+      createProjectConfig({ default_handoff_mode: "radius" })
+        .kinematic_constraints.default_handoff_mode,
+    ).toBe("radius");
+    expect(() =>
+      createProjectConfig({
+        kinematic_constraints: { default_handoff_mode: "typo" },
+      }),
+    ).toThrow("Handoff mode");
+  });
   it("preserves blank grid dimensions without changing calibrated image geometry", () => {
     const config = createProjectConfig({
       gui: {

@@ -197,17 +197,17 @@ function updateProjectConfig(
     ["protrusion_side"],
     ["gui", "protrusions", "side"],
   ]);
-  if (side.found) {
-    const mode = lookupAny(input, [
-      ["default_handoff_mode"],
-      ["kinematic_constraints", "default_handoff_mode"],
-    ]);
-    if (mode.found) {
-      config.kinematic_constraints.default_handoff_mode = parseHandoffMode(
-        mode.value,
-      );
-    }
+  const handoffMode = lookupAny(input, [
+    ["default_handoff_mode"],
+    ["kinematic_constraints", "default_handoff_mode"],
+  ]);
+  if (handoffMode.found) {
+    config.kinematic_constraints.default_handoff_mode = parseHandoffMode(
+      handoffMode.value,
+    );
+  }
 
+  if (side.found) {
     config.gui.protrusions.side = normalizeProtrusionSide(
       side.value,
       config.gui.protrusions.side,
