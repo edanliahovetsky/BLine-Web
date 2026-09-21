@@ -6723,3 +6723,22 @@ body.is-resizing-inspector * {
     max-height: 100%;
   }
 }
+
+/* Handoff ownership, distance and geometry stay on one aligned row. */
+.handoff-controls {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(82px, 1fr) minmax(
+      110px,
+      1.3fr
+    );
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.handoff-controls > * {
+  min-width: 0;
+}
+.handoff-controls .dropdown-select-control__button {
+  min-width: 0;
+  font-size: 0.72rem;
+}

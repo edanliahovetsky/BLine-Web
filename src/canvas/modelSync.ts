@@ -4,6 +4,7 @@ import {
   isTranslationTarget,
   isWaypoint,
   type HandoffRadiusSource,
+  type HandoffMode,
   type PathElement,
   type PathModel,
 } from "../core/model/path";
@@ -12,6 +13,34 @@ import type { PointMeters } from "./geometry";
 
 export function isTranslationBearingElement(element: PathElement): boolean {
   return isTranslationTarget(element) || isWaypoint(element);
+}
+
+/** A null index edits the path default; an element index edits that target's override. */
+export function createSetHandoffModeCommand(
+  path: PathModel,
+  index: number | null,
+  mode: HandoffMode | undefined,
+): HistoryCommand<PathModel> {
+  const owner = (value: PathModel) => {
+    if (index === null) return value;
+    const element = value.path_elements[index];
+    if (element?.type === "translation") return element;
+    if (element?.type === "waypoint") return element.translation_target;
+    throw new Error(`Element ${index} does not carry a handoff mode`);
+  };
+  const previous = owner(path).handoff_mode;
+  const update = (value: PathModel, next: HandoffMode | undefined) => {
+    const copy = structuredClone(value);
+    const target = owner(copy);
+    if (next === undefined) delete target.handoff_mode;
+    else target.handoff_mode = next;
+    return copy;
+  };
+  return {
+    description: "Set handoff mode",
+    apply: (value) => update(value, mode),
+    revert: (value) => update(value, previous),
+  };
 }
 
 export interface HandoffRadiusState {

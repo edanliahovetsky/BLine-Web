@@ -86,6 +86,50 @@ test("generates and persists handoffs below the former 0.3 meter cutoff", async 
   await expect(chips).toHaveText(generatedValues);
 });
 
+test("handoff mode is aligned, undoable and preserved on reopen", async ({
+  page,
+}) => {
+  await importHandoffPath(page, [
+    [1, 1, null],
+    [4, 1, 0.45],
+    [4, 4, null],
+  ]);
+  await page.getByTestId("handoff-radius-chip-1").click();
+  const mode = page.getByRole("combobox", {
+    name: "Handoff mode 2",
+    exact: true,
+  });
+  await expect(mode).toHaveText("Default (Radius)");
+  await mode.click();
+  await page.getByRole("option", { name: "Progress", exact: true }).click();
+  await expect(mode).toHaveText("Progress");
+  const row = page.getByTestId("handoff-radius-detail");
+  const boxes = await Promise.all([
+    requiredBox(row.getByRole("group", { name: "Handoff distance source" })),
+    requiredBox(row.getByRole("spinbutton")),
+    requiredBox(mode),
+  ]);
+  const centers = boxes.map((box) => box.y + box.height / 2);
+  expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(mode).toHaveText("Default (Radius)");
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(mode).toHaveText("Progress");
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await page.reload();
+  await openConstraintsTab(page);
+  await page.getByTestId("handoff-radius-chip-1").click();
+  await expect(mode).toHaveText("Progress");
+  await expect(
+    page.getByRole("combobox", { name: "Path handoff mode", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await page.getByTestId("path-element-row-1").click();
+  await expect(page.getByTestId("property-editor")).toBeVisible();
+  await expect(page.getByTestId("handoff-radius-detail")).toHaveCount(0);
+  await expect(mode).toHaveCount(0);
+});
+
 async function importHandoffPath(
   page: Page,
   anchors: Array<[number, number, number | null]>,
@@ -140,7 +184,7 @@ async function importHandoffPath(
       name:
         automaticIndexes.length > 1
           ? "Selected handoff radius mode"
-          : "Handoff radius mode",
+          : "Handoff distance source",
       exact: true,
     })
     .getByRole("button", { name: "Auto", exact: true })

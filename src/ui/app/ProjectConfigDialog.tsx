@@ -906,10 +906,24 @@ function PathDefaultsSettingsSection({
         />
         <KinematicNumberRow
           draft={draft}
-          label="Default Handoff Radius (m)"
+          label="Default Handoff Distance (m)"
           configKey="default_intermediate_handoff_radius_meters"
           step={0.05}
           setDraft={setDraft}
+        />
+        <SelectRow
+          label="Default Handoff Mode"
+          value={draft.kinematic_constraints.default_handoff_mode ?? "radius"}
+          options={["radius", "progress"]}
+          onChange={(value) =>
+            setDraft((current) => ({
+              ...current,
+              kinematic_constraints: {
+                ...current.kinematic_constraints,
+                default_handoff_mode: value as "radius" | "progress",
+              },
+            }))
+          }
         />
       </ConfigSubsection>
 

@@ -58,6 +58,7 @@ describe("supplemental lessons", () => {
       ["import-export", "Importing and Exporting"],
       ["path-management", "Path Management"],
       ["use-bline-offline", "How to use BLine offline"],
+      ["handoff-modes", "Advanced — Handoff Modes"],
       ["linked-elements", "Advanced — Linked Elements"],
       ["path-linking", "Advanced — Path Linking"],
     ]);

@@ -70,9 +70,9 @@ export function storedHandoffRadiusMeters(element: PathElement): number | null {
     : isWaypoint(element)
       ? element.translation_target.intermediate_handoff_radius_meters
       : null;
-  // The follower falls back to the default for anything not positive, so an
+  // The follower falls back to the default for anything negative or nonfinite, so an
   // unusable stored value reads as unset here too.
-  return typeof raw === "number" && Number.isFinite(raw) && raw > 0
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0
     ? raw
     : null;
 }

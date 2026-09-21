@@ -305,7 +305,7 @@ test("generates velocity constraints directly and reports their lifecycle", asyn
   );
   await firstRadius.click();
   await page
-    .getByRole("group", { name: "Handoff radius mode" })
+    .getByRole("group", { name: "Handoff distance source" })
     .getByRole("button", { name: "Auto" })
     .click();
   await expect(firstRadius).toHaveClass(/handoff-radius-chip--auto/);
@@ -1058,10 +1058,10 @@ test("presents every anchor radius as a chip in the Constraints tab", async ({
   await expect(page.getByTestId("handoff-radius-detail")).toBeVisible();
   await expect(
     page
-      .getByRole("group", { name: "Handoff radius mode" })
+      .getByRole("group", { name: "Handoff distance source" })
       .getByRole("button", { name: "Manual" }),
   ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByLabel("Handoff radius 2 value")).toHaveValue("0.4");
+  await expect(page.getByLabel("Handoff distance 2 (m)")).toHaveValue("0.4");
   await expect(
     card.getByTestId("ranged-constraint-row-max_velocity_meters_per_sec-empty"),
   ).toHaveCount(0);
@@ -1093,12 +1093,12 @@ test("pins and releases handoff radii around the optimizer", async ({
   const pinnedValue = pinnedChip.locator(".handoff-radius-chip__value");
   const generatedChip = page.getByTestId("handoff-radius-chip-3");
   const generatedValue = generatedChip.locator(".handoff-radius-chip__value");
-  const mode = page.getByRole("group", { name: "Handoff radius mode" });
+  const mode = page.getByRole("group", { name: "Handoff distance source" });
   const generate = page.getByRole("button", { name: "Generate constraints" });
 
   // A manual value the user typed is a pin the optimizer must respect.
   await pinnedChip.click();
-  const pinnedInput = page.getByLabel("Handoff radius 2 value");
+  const pinnedInput = page.getByLabel("Handoff distance 2 (m)");
   await pinnedInput.fill("0.28");
   await pinnedInput.press("Enter");
   await expect(pinnedValue).toHaveText("0.28 m");
@@ -1107,7 +1107,7 @@ test("pins and releases handoff radii around the optimizer", async ({
   await generatedChip.click();
   await mode.getByRole("button", { name: "Auto" }).click();
   await expect(generatedChip).toHaveClass(/handoff-radius-chip--auto/);
-  await expect(page.getByLabel("Handoff radius 3 value")).toBeDisabled();
+  await expect(page.getByLabel("Handoff distance 3 (m)")).toBeDisabled();
 
   await expect(generate).toBeEnabled();
   await generate.click();
@@ -1122,7 +1122,7 @@ test("pins and releases handoff radii around the optimizer", async ({
   await pinnedChip.click();
   await mode.getByRole("button", { name: "Auto" }).click();
   await expect(pinnedChip).toHaveClass(/handoff-radius-chip--auto/);
-  await expect(page.getByLabel("Handoff radius 2 value")).toBeDisabled();
+  await expect(page.getByLabel("Handoff distance 2 (m)")).toBeDisabled();
 
   await generate.click();
   await expect(pinnedChip).toHaveClass(/handoff-radius-chip--auto/);
@@ -1207,7 +1207,7 @@ test("keeps canvas handoff radii visual-only", async ({ page }) => {
 
   const chip = page.getByTestId("handoff-radius-chip-1");
   await chip.click();
-  const mode = page.getByRole("group", { name: "Handoff radius mode" });
+  const mode = page.getByRole("group", { name: "Handoff distance source" });
   await mode.getByRole("button", { name: "Auto" }).click();
   await expect(chip).toHaveClass(/handoff-radius-chip--auto/);
   // This fixture has manual velocities, so its velocity status can remain

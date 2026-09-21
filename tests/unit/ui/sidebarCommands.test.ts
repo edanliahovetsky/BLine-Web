@@ -1,3 +1,6 @@
+import { createSetHandoffModeCommand } from "../../../src/canvas/modelSync";
+import { createHistoryStore } from "../../../src/state/historyStore";
+import type { PathModel } from "../../../src/core/model/path";
 import { describe, expect, it } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
 import { clearGeneratedAutoConstraints } from "../../../src/core/constraints/autoConstraintGeneration";
@@ -68,6 +71,37 @@ function applyStructureToDocument(
 }
 
 describe("sidebar commands", () => {
+  it("undoes and redoes handoff inheritance without replacing geometry or constraints", () => {
+    const path = createPathModel({
+      path_elements: [
+        createWaypoint(),
+        createTranslationTarget({ x_meters: 3 }),
+      ],
+    });
+    const history = createHistoryStore<PathModel>();
+    let edited = history
+      .getState()
+      .execute(path, createSetHandoffModeCommand(path, null, "progress"));
+    edited = history
+      .getState()
+      .execute(edited, createSetHandoffModeCommand(edited, 0, "radius"));
+    expect(edited.path_elements[0]).toMatchObject({
+      translation_target: { handoff_mode: "radius" },
+    });
+    edited = history.getState().undo(edited).value;
+    expect(edited.path_elements).toEqual(path.path_elements);
+    expect(edited.handoff_mode).toBe("progress");
+    edited = history.getState().undo(edited).value;
+    expect(edited).toEqual(path);
+    edited = history.getState().redo(edited).value;
+    edited = history.getState().redo(edited).value;
+    expect(edited.handoff_mode).toBe("progress");
+    expect(edited.path_elements[0]).toMatchObject({
+      translation_target: { handoff_mode: "radius" },
+    });
+    expect(edited.constraints).toEqual(path.constraints);
+  });
+
   it("inserts and removes elements through Project structural edits", () => {
     const project = exampleProject();
     const element = createDefaultElement(
@@ -714,7 +748,7 @@ describe("handoffRadiusChipsForPath", () => {
           intermediate_handoff_radius_meters: 0.34,
         }),
         createTranslationTarget({ x_meters: 7, y_meters: 4 }),
-        // Zero is unusable at runtime, which reads the same as unset.
+        // Zero is an explicit zero-distance handoff, not an inherited default.
         createTranslationTarget({
           x_meters: 7,
           y_meters: 7,
@@ -728,7 +762,7 @@ describe("handoffRadiusChipsForPath", () => {
       "manual",
       "manual",
       "unset",
-      "unset",
+      "manual",
     ]);
     expect(chips.map((chip) => chip.source)).toEqual([
       "auto",

@@ -1,3 +1,9 @@
+import { RotationProgress } from "./rotationProgress";
+import {
+  handoffReached,
+  parseHandoffMode,
+  resolveHandoffMode,
+} from "../model/handoffModes";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -173,6 +179,12 @@ function runPathSimulation(
     startHeadingBase,
   ).desiredTheta;
 
+  const rotationProgress = new RotationProgress(
+    segments,
+    globalKeyframes,
+    initialHeading,
+  );
+
   if (collectTrace) {
     trace.push({
       time_s: 0,
@@ -241,7 +253,17 @@ function runPathSimulation(
 
     while (
       segmentIndex < segments.length - 1 &&
-      distToTarget <= handoffRadius
+      handoffReached(
+        resolveHandoffMode(
+          path,
+          path.path_elements[anchors[segmentIndex + 1].pathIndex],
+          cfg.default_handoff_mode ?? "radius",
+        ),
+        distToTarget,
+        projectedS,
+        segment.length_m,
+        handoffRadius,
+      )
     ) {
       segmentIndex += 1;
       segment = segments[segmentIndex];
@@ -263,12 +285,11 @@ function runPathSimulation(
 
     const ux = distToTarget > 1e-9 ? dx / distToTarget : 1;
     const uy = distToTarget > 1e-9 ? dy / distToTarget : 0;
-    const globalS = cumulativeLengths[segmentIndex] + projectedS;
-    const desiredTheta = desiredHeadingForGlobalS(
-      globalKeyframes,
-      globalS,
-      startHeadingBase,
-    ).desiredTheta;
+    const rotation = rotationProgress.update(x, y, segmentIndex);
+    const desiredTheta =
+      segmentIndex === segments.length - 1 && distToTarget <= epsPos
+        ? endHeadingTarget
+        : rotation.headingRadians;
     const remaining = remainingDistanceFrom(segments, segmentIndex, x, y);
     const nextAnchorOrdinal1b = segmentIndex + 2;
     const maxVEff = activeTranslationLimit(
@@ -298,19 +319,19 @@ function runPathSimulation(
       path,
       rotationDomainEvents,
       "max_velocity_deg_per_sec",
-      globalS,
+      rotation.progressMeters,
     );
     const maxAlphaEff = activeRotationLimit(
       path,
       rotationDomainEvents,
       "max_acceleration_deg_per_sec2",
-      globalS,
+      rotation.progressMeters,
     );
     const minOmegaEff = activeRotationLimit(
       path,
       rotationDomainEvents,
       "min_velocity_deg_per_sec",
-      globalS,
+      rotation.progressMeters,
     );
     const rotationVelocity = resolveVelocityBaseline(
       maxOmegaEff ?? radiansToDegrees(baseMaxOmega),
@@ -776,6 +797,9 @@ function normalizeSimulationConfig(input: unknown): SimulationConfig {
     ? input.kinematic_constraints
     : {};
   return {
+    default_handoff_mode: parseHandoffMode(
+      input.default_handoff_mode ?? nested.default_handoff_mode,
+    ),
     default_max_velocity_meters_per_sec: numericOption(
       input.default_max_velocity_meters_per_sec ??
         nested.default_max_velocity_meters_per_sec,
@@ -1007,7 +1031,7 @@ function handoffRadiusForSegment(
         ? target.translation_target.intermediate_handoff_radius_meters
         : null;
   const parsed = numericOption(radius);
-  return parsed !== null && parsed > 0 ? parsed : defaultRadius;
+  return parsed !== null && parsed >= 0 ? parsed : defaultRadius;
 }
 
 function remainingDistanceFrom(

@@ -1,3 +1,5 @@
+import { AutoVelocityModeControl } from "../../controls/AutoVelocityModeControl";
+import { ElementHandoffControls } from "./HandoffControls";
 import {
   useEffect,
   useId,
@@ -31,7 +33,6 @@ import {
   type AutoVelocityStatus,
 } from "../../../core/constraints/autoVelocityApply";
 import {
-  createSetHandoffRadiusCommand,
   createSetHandoffRadiiCommand,
   type HandoffRadiusState,
 } from "../../../canvas/modelSync";
@@ -990,9 +991,11 @@ function AutoConstraintLedgerCard({
             }}
           />
         ) : (
-          <HandoffRadiusControls
+          <ElementHandoffControls
+            path={path}
+            config={config}
             chip={selectedChip}
-            autoVelocityRunning={autoVelocityRunning}
+            disabled={autoVelocityRunning}
           />
         )
       ) : activeType === "velocity" ? (
@@ -1283,52 +1286,6 @@ function HandoffRadiusBulkControls({
         >
           <RemoveIcon size={16} />
         </SidebarIconButton>
-      </div>
-    </div>
-  );
-}
-
-function HandoffRadiusControls({
-  chip,
-  autoVelocityRunning,
-}: {
-  chip: HandoffRadiusChip | null;
-  autoVelocityRunning: boolean;
-}) {
-  return (
-    <div
-      className="ranged-constraint-controls"
-      data-testid="handoff-radius-detail"
-    >
-      <div className="ranged-constraint-controls__fields">
-        {chip ? (
-          <>
-            <AutoVelocityModeControl
-              ariaLabel="Handoff radius mode"
-              disabled={autoVelocityRunning}
-              mode={chip.state === "unset" ? null : chip.state}
-              onModeChange={(mode) => setHandoffRadiusMode(chip, mode)}
-            />
-            <label className="ranged-constraint-controls__value">
-              <div className="constraint-value-input">
-                <NumberStepperControl
-                  ariaLabel={`Handoff radius ${chip.ordinal} value`}
-                  value={chip.effectiveValueMeters}
-                  step={handoffRadiusStep}
-                  min={0}
-                  disabled={chip.state === "auto" || autoVelocityRunning}
-                  onChange={(value) => {
-                    if (value === null) {
-                      return;
-                    }
-                    pinHandoffRadius(chip, value);
-                  }}
-                />
-                <span>m</span>
-              </div>
-            </label>
-          </>
-        ) : null}
       </div>
     </div>
   );
@@ -2738,42 +2695,6 @@ function AutoVelocityStatusIndicator({
   );
 }
 
-function AutoVelocityModeControl({
-  mode,
-  disabled,
-  ariaLabel = "Velocity constraint mode",
-  onModeChange,
-}: {
-  mode: "auto" | "manual" | null;
-  disabled: boolean;
-  ariaLabel?: string;
-  onModeChange(mode: "auto" | "manual"): void;
-}) {
-  return (
-    <div className="auto-velocity-mode" role="group" aria-label={ariaLabel}>
-      {(["auto", "manual"] as const).map((option) => (
-        <button
-          key={option}
-          type="button"
-          className={[`is-${option}`, mode === option ? "is-active" : ""]
-            .filter(Boolean)
-            .join(" ")}
-          aria-pressed={mode === option}
-          disabled={disabled}
-          onClick={() => {
-            if (mode === option) {
-              return;
-            }
-            onModeChange(option);
-          }}
-        >
-          {option === "auto" ? "Auto" : "Manual"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function ScalarConstraintRow({
   path,
   config,
@@ -3117,27 +3038,6 @@ function clearGeneratedConstraints(path: PathModel): void {
  * re-seeds it on the next Generate or background sync; keeping the current
  * number meanwhile means the path never jumps to an unrelated radius.
  */
-function setHandoffRadiusMode(
-  chip: HandoffRadiusChip,
-  mode: "auto" | "manual",
-): void {
-  projectStore.getState().applyPathCommand(
-    createSetHandoffRadiusCommand(chip.elementIndex, storedHandoffState(chip), {
-      radiusMeters: chip.effectiveValueMeters,
-      source: mode,
-    }),
-  );
-}
-
-function pinHandoffRadius(chip: HandoffRadiusChip, radiusMeters: number): void {
-  projectStore.getState().applyPathCommand(
-    createSetHandoffRadiusCommand(chip.elementIndex, storedHandoffState(chip), {
-      radiusMeters,
-      source: "manual",
-    }),
-  );
-}
-
 function setHandoffRadiusModes(
   chips: readonly HandoffRadiusChip[],
   mode: "auto" | "manual",

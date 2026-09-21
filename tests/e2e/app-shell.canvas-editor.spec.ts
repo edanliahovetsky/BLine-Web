@@ -176,8 +176,8 @@ test("keeps handoff radius editing in Constraints", async ({ page }) => {
   await openConstraintsTab(page);
   const chip = page.getByTestId("handoff-radius-chip-1");
   await chip.click();
-  const radiusInput = page.getByLabel("Handoff radius 2 value");
-  const mode = page.getByRole("group", { name: "Handoff radius mode" });
+  const radiusInput = page.getByLabel("Handoff distance 2 (m)");
+  const mode = page.getByRole("group", { name: "Handoff distance source" });
 
   await mode.getByRole("button", { name: "Manual" }).click();
   await radiusInput.fill("0.5");

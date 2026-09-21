@@ -1,3 +1,6 @@
+import { RotationProgress } from "../sim/rotationProgress";
+import { handoffReached, resolveHandoffMode } from "../model/handoffModes";
+import type { HandoffMode } from "../model/path";
 import {
   defaultAutoVelocityAccelerationSafetyFactor,
   defaultAutoVelocityMergeToleranceMetersPerSec,
@@ -225,6 +228,7 @@ interface AutoVelocitySimulationContext {
   maxTranslationAccelerationBySegment: readonly (number | null)[];
   accelerationSafetyFactor: number;
   handoffRadiiBySegmentIndex: readonly number[];
+  handoffModesBySegmentIndex: readonly HandoffMode[];
   /**
    * Manual max-velocity caps by target ordinal. The apply step never overwrites
    * a manual constraint, so at these ordinals the pin — not whatever a solver
@@ -340,7 +344,7 @@ const nearStraightNoPreferenceRadians = (60 * Math.PI) / 180;
 const nearStraightBaseRadiusMeters = 0.3;
 const nearStraightVelocityLookaheadSeconds = 0.08;
 const nearStraightRadiusWeight = 12;
-const autoConstraintSolverVersion = 15;
+const autoConstraintSolverVersion = 16;
 const maxProfileCacheEntries = 32;
 const minPositive = 1e-9;
 const profileCache = new Map<string, AutoVelocityProfile>();
@@ -3227,6 +3231,15 @@ export function autoVelocityInputSignature(
   try {
     return JSON.stringify({
       solverVersion: autoConstraintSolverVersion,
+      handoffModes: path.path_elements.map((element) =>
+        resolveHandoffMode(
+          path,
+          element,
+          config.default_handoff_mode ??
+            config.kinematic_constraints?.default_handoff_mode ??
+            "radius",
+        ),
+      ),
       pathElements: path.path_elements.map((element) =>
         autoVelocityElementCacheSignature(
           element,
@@ -3561,6 +3574,15 @@ function createAutoVelocitySimulationContext(
       return ranged === null ? null : ranged * accelerationSafetyFactor;
     }),
     accelerationSafetyFactor,
+    handoffModesBySegmentIndex: segments.map((_, segmentIndex) =>
+      resolveHandoffMode(
+        path,
+        path.path_elements[anchors[segmentIndex + 1].pathIndex],
+        config.default_handoff_mode ??
+          config.kinematic_constraints?.default_handoff_mode ??
+          "radius",
+      ),
+    ),
     handoffRadiiBySegmentIndex: segments.map((_, segmentIndex) => {
       const targetAnchor = anchors[segmentIndex + 1];
       return handoffRadiusForAnchor(
@@ -5069,6 +5091,11 @@ function simulateJointCandidate(
   let x = firstSegment.ax;
   let y = firstSegment.ay;
   let theta = context.initialHeading;
+  const rotationProgress = new RotationProgress(
+    context.segments,
+    context.rotationKeyframes,
+    context.initialHeading,
+  );
   let vx = 0;
   let vy = 0;
   let omega = 0;
@@ -5116,7 +5143,13 @@ function simulateJointCandidate(
 
     while (
       segmentIndex < context.segments.length - 1 &&
-      distToTarget <= handoffRadius
+      handoffReached(
+        context.handoffModesBySegmentIndex[segmentIndex],
+        distToTarget,
+        projectedS,
+        segment.lengthMeters,
+        handoffRadius,
+      )
     ) {
       segmentIndex += 1;
       segment = context.segments[segmentIndex]!;
@@ -5131,13 +5164,11 @@ function simulateJointCandidate(
 
     const ux = distToTarget > 1e-9 ? dx / distToTarget : 1;
     const uy = distToTarget > 1e-9 ? dy / distToTarget : 0;
-    const globalS = (context.cumulativeLengths[segmentIndex] ?? 0) + projectedS;
+    const rotation = rotationProgress.update(x, y, segmentIndex);
     const desiredTheta = tracksRotation
-      ? desiredHeadingForGlobalS(
-          context.rotationKeyframes,
-          globalS,
-          context.startHeadingBase,
-        ).desiredTheta
+      ? segmentIndex === context.segments.length - 1 && distToTarget <= epsPos
+        ? context.endHeadingTarget
+        : rotation.headingRadians
       : theta;
     const remaining =
       distToTarget +
@@ -5155,14 +5186,14 @@ function simulateJointCandidate(
       ? activeRotationLimit(
           context.rotationDomainEvents,
           context.maxRotationVelocityConstraints,
-          globalS,
+          rotation.progressMeters,
         )
       : null;
     const maxAlphaEff = tracksRotation
       ? activeRotationLimit(
           context.rotationDomainEvents,
           context.maxRotationAccelerationConstraints,
-          globalS,
+          rotation.progressMeters,
         )
       : null;
     const maxOmega =
@@ -5629,6 +5660,11 @@ function simulateAutoVelocityCaps(
   let x = firstSegment.ax;
   let y = firstSegment.ay;
   let theta = context.initialHeading;
+  const rotationProgress = new RotationProgress(
+    context.segments,
+    context.rotationKeyframes,
+    context.initialHeading,
+  );
   let speeds: ChassisSpeeds = { vx_mps: 0, vy_mps: 0, omega_radps: 0 };
   let tS = 0;
   let segmentIndex = 0;
@@ -5667,7 +5703,13 @@ function simulateAutoVelocityCaps(
 
     while (
       segmentIndex < context.segments.length - 1 &&
-      distToTarget <= handoffRadius
+      handoffReached(
+        context.handoffModesBySegmentIndex[segmentIndex],
+        distToTarget,
+        projectedS,
+        segment.lengthMeters,
+        handoffRadius,
+      )
     ) {
       segmentIndex += 1;
       segment = context.segments[segmentIndex];
@@ -5686,12 +5728,11 @@ function simulateAutoVelocityCaps(
 
     const ux = distToTarget > 1e-9 ? dx / distToTarget : 1;
     const uy = distToTarget > 1e-9 ? dy / distToTarget : 0;
-    const globalS = context.cumulativeLengths[segmentIndex] + projectedS;
-    const desiredTheta = desiredHeadingForGlobalS(
-      context.rotationKeyframes,
-      globalS,
-      context.startHeadingBase,
-    ).desiredTheta;
+    const rotation = rotationProgress.update(x, y, segmentIndex);
+    const desiredTheta =
+      segmentIndex === context.segments.length - 1 && distToTarget <= epsPos
+        ? context.endHeadingTarget
+        : rotation.headingRadians;
     const remaining = remainingDistanceFrom(
       context.segments,
       segmentIndex,
@@ -5709,12 +5750,12 @@ function simulateAutoVelocityCaps(
     const maxOmegaEff = activeRotationLimit(
       context.rotationDomainEvents,
       context.maxRotationVelocityConstraints,
-      globalS,
+      rotation.progressMeters,
     );
     const maxAlphaEff = activeRotationLimit(
       context.rotationDomainEvents,
       context.maxRotationAccelerationConstraints,
-      globalS,
+      rotation.progressMeters,
     );
     const maxOmega =
       maxOmegaEff === null
@@ -7035,7 +7076,9 @@ function handoffRadiusForAnchor(
       : element && isWaypoint(element)
         ? element.translation_target.intermediate_handoff_radius_meters
         : null;
-  return resolvePositive(value, null, defaultHandoffRadius);
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : defaultHandoffRadius;
 }
 
 function defaultHeading(segment: SegmentGeometry): number {

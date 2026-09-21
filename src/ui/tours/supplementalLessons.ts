@@ -1,5 +1,10 @@
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
-import { isWaypoint, type PathModel } from "../../core/model/path";
+import {
+  createPathModel,
+  createTranslationTarget,
+  isWaypoint,
+  type PathModel,
+} from "../../core/model/path";
 import type { LinkedTarget, ProjectPathGroup } from "../../core/model/project";
 import { projectStore } from "../../state/projectStore";
 import { feedback } from "./tourChecks";
@@ -460,6 +465,95 @@ const definitions: SupplementalTour[] = [
     steps: managementSteps,
   },
   offlineTour,
+  {
+    id: "handoff-modes",
+    title: "Advanced — Handoff Modes",
+    summary: "Choose when the follower moves to the next point",
+    durationMinutes: 3,
+    completionMessage: "Lesson complete.",
+    practiceConfig,
+    practicePath: () =>
+      createPathModel({
+        path_elements: [
+          createTranslationTarget({
+            x_meters: 2,
+            y_meters: 2,
+            intermediate_handoff_radius_meters: 0.45,
+          }),
+          createTranslationTarget({
+            x_meters: 5,
+            y_meters: 2,
+            intermediate_handoff_radius_meters: 0.45,
+          }),
+          createTranslationTarget({ x_meters: 5, y_meters: 5 }),
+        ],
+      }),
+    steps: [
+      {
+        title: "Two ways to reach a handoff",
+        body: "A handoff changes the translation target before the robot reaches the point. Radius waits until the robot is within the chosen distance. Progress measures along the incoming line: it hands off when that much distance remains, even if the robot is beside the line. Neither mode requires a stop.",
+        visible: ["path-canvas"],
+        prepare: {
+          inspector: "open",
+          inspectorTab: "constraints",
+          simulation: "start",
+        },
+      },
+      {
+        title: "Change one point",
+        body: "In Constraints, select the middle purple handoff chip. The row below it keeps Auto/Manual, the distance in metres, and Radius/Progress together. Auto generates the distance; Manual lets you enter it. The geometry mode is a separate choice. The final point uses end tolerances instead of a handoff.",
+        task: "Set the middle handoff to Progress",
+        check: () => {
+          const element = pathById(projectStore.getState().activePathId ?? "")
+            ?.path.path_elements[1];
+          return feedback(
+            element?.type === "translation" &&
+              element.handoff_mode === "progress",
+            "Select the middle purple chip, then choose Progress in its mode menu.",
+            "This point uses Progress.",
+          );
+        },
+        interact: ["path-canvas", "inspector-panel", "max-velocity-card"],
+        visible: ["path-canvas", "inspector-panel"],
+      },
+      {
+        title: "Choose an inherited default",
+        body: "Settings → Path Defaults selects the project mode. Each handoff can override it or use Default; the parentheses show which mode that currently means, including any path default already stored in an imported file. Older projects use Radius.",
+        settingsSection: "path-defaults",
+        task: "Set the project default to Progress and save",
+        check: () =>
+          feedback(
+            project()?.config.kinematic_constraints.default_handoff_mode ===
+              "progress",
+            "Choose Progress in Default Handoff Mode, then save Settings.",
+            "New default handoffs will use Progress.",
+          ),
+      },
+      {
+        title: "Try both on a corner",
+        task: "Play the path",
+        check: () =>
+          feedback(
+            hasAction("play"),
+            "Press Play to preview the corner.",
+            "Continue when you are ready.",
+          ),
+        body: "Run the path, then compare Radius and Progress on the middle point. Progress can leave a segment while the robot is still laterally displaced, so inspect the corner clearance. Rotation progresses independently: an early translation handoff does not jump to an authored heading. A larger distance can still leave less space for the robot to complete its turn.",
+        interact: [
+          "path-canvas",
+          "inspector-panel",
+          "max-velocity-card",
+          ...transport,
+        ],
+        visible: ["path-canvas", "inspector-panel", ...transport],
+        prepare: {
+          inspector: "open",
+          inspectorTab: "constraints",
+          simulation: "start",
+        },
+      },
+    ],
+  },
   {
     id: "linked-elements",
     title: "Advanced — Linked Elements",

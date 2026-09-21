@@ -30,6 +30,7 @@ const lessonTitles = [
   "Importing and Exporting",
   "Path Management",
   "How to use BLine offline",
+  "Advanced — Handoff Modes",
   "Advanced — Linked Elements",
   "Advanced — Path Linking",
 ];
@@ -460,10 +461,10 @@ for (const [width, height] of [
       await heading(page, "Make a radius Manual");
       await page.getByTestId("handoff-radius-chip-1").click();
       await page
-        .getByRole("group", { name: "Handoff radius mode", exact: true })
+        .getByRole("group", { name: "Handoff distance source", exact: true })
         .getByRole("button", { name: "Manual", exact: true })
         .click();
-      await setNumber(page, "Handoff radius 2 value", "0.4");
+      await setNumber(page, "Handoff distance 2 (m)", "0.4");
       await advance(page);
       await heading(page, "Make a velocity Manual");
       await selectSpeed(page, 4);
