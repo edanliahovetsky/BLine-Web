@@ -86,48 +86,115 @@ test("generates and persists handoffs below the former 0.3 meter cutoff", async 
   await expect(chips).toHaveText(generatedValues);
 });
 
-test("handoff mode is aligned, undoable and preserved on reopen", async ({
+test("geometry buttons preserve inheritance, distance ownership and compact alignment", async ({
   page,
-}) => {
+}, testInfo) => {
   await importHandoffPath(page, [
     [1, 1, null],
     [4, 1, 0.45],
     [4, 4, null],
   ]);
   await page.getByTestId("handoff-radius-chip-1").click();
-  const mode = page.getByRole("combobox", {
-    name: "Handoff mode 2",
+  const row = page.getByTestId("handoff-radius-detail");
+  const mode = row.getByRole("group", { name: "Handoff mode 2", exact: true });
+  const radius = mode.getByRole("button", { name: "Radius", exact: true });
+  const progress = mode.getByRole("button", { name: "Progress", exact: true });
+  const reset = page.getByRole("button", {
+    name: "Use default handoff mode for point 2",
     exact: true,
   });
-  await expect(mode).toHaveText("Default (Radius)");
-  await mode.click();
-  await page.getByRole("option", { name: "Progress", exact: true }).click();
-  await expect(mode).toHaveText("Progress");
-  const row = page.getByTestId("handoff-radius-detail");
-  const boxes = await Promise.all([
-    requiredBox(row.getByRole("group", { name: "Handoff distance source" })),
-    requiredBox(row.getByRole("spinbutton")),
-    requiredBox(mode),
-  ]);
-  const centers = boxes.map((box) => box.y + box.height / 2);
-  expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+  const distance = row.getByRole("spinbutton");
+  const source = row.getByRole("group", { name: "Handoff distance source" });
+  await expect(mode.getByRole("button")).toHaveCount(2);
+  await expect(radius).toHaveAttribute("aria-pressed", "true");
+  await expect(reset).toHaveCount(0);
+  await radius.hover();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "Using project default (Radius)",
+  );
+
+  // The whole spinbox, including its suffix and arrows, stays 88px wide.
+  // Both sidebar extremes must retain one row with a right-aligned geometry group.
+  const resize = page.getByRole("separator", { name: "Resize inspector" });
+  for (const [key, name] of [
+    ["Home", "narrow"],
+    ["End", "wide"],
+  ] as const) {
+    await resize.press(key);
+    const rowBox = await requiredBox(row);
+    const sourceBox = await requiredBox(source);
+    const distanceBox = await requiredBox(
+      row.locator(".handoff-distance-control"),
+    );
+    const modeBox = await requiredBox(mode);
+    const centers = [sourceBox, distanceBox, modeBox].map(
+      (box) => box.y + box.height / 2,
+    );
+    expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+    expect(distanceBox.width).toBe(88);
+    expect(sourceBox.x).toBeCloseTo(rowBox.x);
+    expect(modeBox.x + modeBox.width).toBeCloseTo(rowBox.x + rowBox.width);
+    expect(distanceBox.x).toBeGreaterThan(sourceBox.x + sourceBox.width);
+    expect(modeBox.x - distanceBox.x - distanceBox.width).toBe(8);
+    await page
+      .getByTestId("constraint-card-max_velocity_meters_per_sec")
+      .screenshot({
+        path: testInfo.outputPath(`handoff-controls-${name}.png`),
+      });
+  }
+  await resize.press("Home");
+  await progress.click();
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await expect(radius).toHaveAttribute("aria-pressed", "false");
+  await expect(reset).toBeVisible();
+  await expect(distance).toHaveValue("0.45");
+  await expect(page.getByTestId("handoff-radius-chip-1")).toHaveClass(
+    /--manual/,
+  );
+  await source.getByRole("button", { name: "Auto", exact: true }).click();
+  await expect(distance).toBeDisabled();
+  await expect(progress).toBeEnabled();
+  await reset.click();
+  await expect(radius).toHaveAttribute("aria-pressed", "true");
+  await expect(reset).toHaveCount(0);
+  await expect(distance).toHaveValue("0.45");
+  await expect(distance).toBeDisabled();
+  await expect(page.getByTestId("handoff-radius-chip-1")).toHaveClass(/--auto/);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(mode).toHaveText("Default (Radius)");
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await expect(reset).toBeVisible();
   await page.getByRole("button", { name: "Redo", exact: true }).click();
-  await expect(mode).toHaveText("Progress");
+  await expect(radius).toHaveAttribute("aria-pressed", "true");
+  await expect(reset).toHaveCount(0);
+  // Pin the value before checking persistence: Auto radii are regenerated on
+  // reopen, so their current draft is not an authored distance to preserve.
+  await source.getByRole("button", { name: "Manual", exact: true }).click();
+  await progress.click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   await page.reload();
   await openConstraintsTab(page);
   await page.getByTestId("handoff-radius-chip-1").click();
-  await expect(mode).toHaveText("Progress");
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await expect(reset).toBeVisible();
+  await expect(distance).toHaveValue("0.45");
+  await expect(distance).toBeEnabled();
+  await page
+    .getByTestId("constraint-card-max_velocity_meters_per_sec")
+    .screenshot({ path: testInfo.outputPath("handoff-controls-override.png") });
+  await reset.click();
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await page.reload();
+  await openConstraintsTab(page);
+  await page.getByTestId("handoff-radius-chip-1").click();
+  await expect(radius).toHaveAttribute("aria-pressed", "true");
+  await expect(reset).toHaveCount(0);
   await expect(
     page.getByRole("combobox", { name: "Path handoff mode", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("tab", { name: "Elements", exact: true }).click();
   await page.getByTestId("path-element-row-1").click();
   await expect(page.getByTestId("property-editor")).toBeVisible();
-  await expect(page.getByTestId("handoff-radius-detail")).toHaveCount(0);
-  await expect(mode).toHaveCount(0);
+  await expect(row).toHaveCount(0);
 });
 
 async function importHandoffPath(

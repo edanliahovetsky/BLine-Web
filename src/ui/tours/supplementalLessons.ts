@@ -579,7 +579,7 @@ const definitions: SupplementalTour[] = [
           return feedback(
             element?.type === "translation" &&
               element.handoff_mode === "progress",
-            "Select the middle purple chip, then choose Progress in its mode menu.",
+            "Select the middle purple chip, then choose the Progress arrow button.",
             "This point uses Progress.",
           );
         },
@@ -588,7 +588,7 @@ const definitions: SupplementalTour[] = [
       },
       {
         title: "Choose an inherited default",
-        body: "Settings → Path Defaults selects the project mode. Each handoff can override it or use Default; the parentheses show which mode that currently means, including any path default already stored in an imported file. Older projects use Radius.",
+        body: "Settings → Path Defaults selects the project mode. The geometry buttons show the resolved mode, including any path default stored in an imported file. Choose either button to override it. Use the small reset on the selected tile to inherit again; hover a geometry button to see where its default comes from. Older projects use Radius.",
         settingsSection: "path-defaults",
         task: "Set the project default to Progress and save",
         check: () =>

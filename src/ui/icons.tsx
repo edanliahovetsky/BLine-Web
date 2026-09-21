@@ -5,6 +5,24 @@ type IconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
 };
 
+export function HandoffRadiusIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <path d="m12 12 5.5-5.5" />
+    </svg>
+  );
+}
+
+export function HandoffProgressIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <path d="M12 4v16M3 12h18m-3-3 3 3-3 3" />
+    </svg>
+  );
+}
+
 export function SplitSegmentIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>

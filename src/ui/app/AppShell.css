@@ -2819,6 +2819,32 @@ select {
   background: var(--bline-surface-base);
 }
 
+.handoff-radius-tile {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.handoff-radius-tile .handoff-mode-reset {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  min-height: 0;
+  padding: 2px;
+  border: 1px solid rgba(255, 209, 251, 0.35);
+  border-radius: 4px;
+  color: #ffd1fb;
+  background: rgba(30, 12, 29, 0.7);
+}
+
+.handoff-radius-tile .handoff-mode-reset svg {
+  width: 12px;
+  height: 12px;
+}
+
 .handoff-radius-chip {
   display: inline-flex;
   align-items: center;
@@ -6740,21 +6766,94 @@ body.is-resizing-inspector * {
 
 /* Handoff ownership, distance and geometry stay on one aligned row. */
 .handoff-controls {
-  display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(82px, 1fr) minmax(
-      110px,
-      1.3fr
-    );
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 .handoff-controls > * {
+  flex: 0 0 auto;
   min-width: 0;
 }
-.handoff-controls .dropdown-select-control__button {
-  min-width: 0;
-  font-size: 0.72rem;
+
+.handoff-controls__geometry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.handoff-distance-control {
+  position: relative;
+  flex: 0 0 88px;
+  width: 88px;
+}
+
+.handoff-distance-control .sidebar-number-control {
+  height: 32px;
+}
+
+.handoff-distance-control input {
+  padding-left: 6px;
+  padding-right: 18px;
+}
+
+.handoff-distance-control > span {
+  position: absolute;
+  top: 50%;
+  right: 29px;
+  transform: translateY(-50%);
+  color: var(--bline-text-secondary);
+  font-size: 0.68rem;
+  pointer-events: none;
+}
+
+.handoff-distance-control:has(input:disabled) > span {
+  color: var(--bline-text-disabled);
+}
+
+.handoff-mode-buttons {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: var(--bline-radius-control);
+  background: var(--bline-surface-base);
+}
+
+.handoff-mode-buttons button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 30px;
+  min-height: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 0;
+  color: var(--bline-text-secondary);
+  background: transparent;
+}
+
+.handoff-mode-buttons button + button {
+  border-left: 1px solid var(--bline-border-strong);
+}
+
+.handoff-mode-buttons button[aria-pressed="true"] {
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-selected);
+}
+
+.handoff-mode-buttons button:hover:not(:disabled) {
+  color: var(--bline-text-primary);
+}
+
+.handoff-mode-buttons button:focus-visible {
+  outline-offset: -3px;
+}
+
+.handoff-mode-buttons svg {
+  width: 21px;
+  height: 21px;
 }
 
 /* A separate transparent group keeps tank preview preferences beside playback. */

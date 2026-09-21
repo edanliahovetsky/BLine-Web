@@ -155,10 +155,28 @@ test("progress gates keep six dashes across zoom, selection and distance edits @
   await canvas.screenshot({
     path: testInfo.outputPath("gate-minimum-length.png"),
   });
+  const modes = page.getByRole("group", {
+    name: "Handoff mode 2",
+    exact: true,
+  });
+  const radius = modes.getByRole("button", { name: "Radius", exact: true });
+  const progress = modes.getByRole("button", { name: "Progress", exact: true });
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await progress.hover();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "Using path default (Progress)",
+  );
+  await radius.click();
+  await expect(radius).toHaveAttribute("aria-pressed", "true");
   await page
-    .getByRole("combobox", { name: "Handoff mode 2", exact: true })
+    .getByRole("button", {
+      name: "Use default handoff mode for point 2",
+      exact: true,
+    })
     .click();
-  await page.getByRole("option", { name: "Radius", exact: true }).click();
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await gateInk(page, 1.2)).runs.length).toBe(6);
+  await radius.click();
   await canvas.screenshot({
     path: testInfo.outputPath("radius-mode-preserved.png"),
   });

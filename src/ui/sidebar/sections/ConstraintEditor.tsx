@@ -1,5 +1,5 @@
 import { AutoVelocityModeControl } from "../../controls/AutoVelocityModeControl";
-import { ElementHandoffControls } from "./HandoffControls";
+import { ElementHandoffControls, HandoffModeReset } from "./HandoffControls";
 import {
   useEffect,
   useId,
@@ -963,14 +963,26 @@ function AutoConstraintLedgerCard({
           }}
         >
           {chips.map((chip) => (
-            <HandoffRadiusChipButton
+            <div
               key={chip.elementIndex}
-              chip={chip}
-              selected={selectedElementIndexes.includes(chip.elementIndex)}
-              ledger
+              className="handoff-radius-tile"
               style={{ gridRow: chip.ordinal }}
-              onSelect={(gesture) => selectRadiusChip(chip, gesture)}
-            />
+            >
+              <HandoffRadiusChipButton
+                chip={chip}
+                selected={selectedElementIndexes.includes(chip.elementIndex)}
+                ledger
+                onSelect={(gesture) => selectRadiusChip(chip, gesture)}
+              />
+              {selectedElementIndexes.includes(chip.elementIndex) && (
+                <HandoffModeReset
+                  path={path}
+                  config={config}
+                  chip={chip}
+                  disabled={autoVelocityRunning}
+                />
+              )}
+            </div>
           ))}
         </div>
       </div>
