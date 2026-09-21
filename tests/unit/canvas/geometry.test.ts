@@ -17,6 +17,7 @@ import {
   clampModelPoint,
   getElementHeadingRadians,
   getElementPosition,
+  pathPositionOverrides,
   getNeighborAnchorPositions,
   interpolateSegmentPosition,
   projectPointToSegmentRatio,
@@ -36,6 +37,49 @@ import {
 } from "../../../src/canvas/constraintRange";
 
 describe("canvas geometry", () => {
+  it("places and drags leading events relative to the preview origin without adding a selectable element", () => {
+    const path = createPathModel({
+      preview: {
+        start_pose: { x_meters: 2, y_meters: 1, rotation_radians: 0 },
+      },
+      path_elements: [
+        createEventTrigger({ t_ratio: 0.5 }),
+        createRotationTarget({ t_ratio: 0.75 }),
+        createTranslationTarget({ x_meters: 6, y_meters: 3 }),
+      ],
+    });
+    const overrides = pathPositionOverrides(path);
+    expect(getElementPosition(path.path_elements, 0, overrides)).toEqual({
+      x_meters: 4,
+      y_meters: 2,
+    });
+    const neighbors = getNeighborAnchorPositions(
+      path.path_elements,
+      1,
+      overrides,
+    )!;
+    expect(
+      projectPointToSegmentRatio(
+        { x_meters: 5, y_meters: 2.5 },
+        neighbors.previous,
+        neighbors.next,
+      ),
+    ).toBe(0.75);
+    expect(
+      getRenderableElementPositions(path.path_elements, overrides).map(
+        (value) => value.index,
+      ),
+    ).toEqual([0, 1, 2]);
+    const moved = pathPositionOverrides(
+      path,
+      new Map([[-1, { x_meters: 4, y_meters: 1 }]]),
+    );
+    expect(getElementPosition(path.path_elements, 0, moved)).toEqual({
+      x_meters: 5,
+      y_meters: 2,
+    });
+    expect(path.preview?.start_pose?.x_meters).toBe(2);
+  });
   it("distinguishes a real pointer move from a zero-distance event", () => {
     expect(stagePointsDiffer({ x: 12, y: 8 }, { x: 12, y: 8 })).toBe(false);
     expect(stagePointsDiffer({ x: 12, y: 8 }, { x: 12.01, y: 8 })).toBe(true);

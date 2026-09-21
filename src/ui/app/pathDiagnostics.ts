@@ -1,6 +1,9 @@
 import { hasAuthoredStart } from "../../core/model/pathPreview";
 import { evaluateRotationFeasibility } from "../../core/sim/rotationFeasibility";
-import { getElementPosition } from "../../canvas/geometry";
+import {
+  getElementPosition,
+  pathPositionOverrides,
+} from "../../canvas/geometry";
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
 import {
   isPointWithinFieldCoordinates,
@@ -89,7 +92,11 @@ export function derivePathDiagnostics(
       });
     }
 
-    const position = getElementPosition(elements, index);
+    const position = getElementPosition(
+      elements,
+      index,
+      pathPositionOverrides(path),
+    );
     const linkedTargetId = getPathElementLinkedTargetId(element);
     const linkedTarget = linkedTargetId
       ? linkedTargets.find((target) => target.target_id === linkedTargetId)

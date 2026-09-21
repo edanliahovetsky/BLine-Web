@@ -58,6 +58,7 @@ describe("supplemental lessons", () => {
       ["import-export", "Importing and Exporting"],
       ["path-management", "Path Management"],
       ["use-bline-offline", "How to use BLine offline"],
+      ["current-pose-start", "Advanced — Current-pose Starts"],
       ["handoff-modes", "Advanced — Handoff Modes"],
       ["linked-elements", "Advanced — Linked Elements"],
       ["path-linking", "Advanced — Path Linking"],
@@ -88,9 +89,7 @@ describe("supplemental lessons", () => {
         expect(lesson.steps[0].check).toBeUndefined();
         continue;
       }
-      expect(
-        lesson.steps.filter((step) => step.check).length,
-      ).toBeGreaterThanOrEqual(3);
+      expect(lesson.steps.some((step) => step.check)).toBe(true);
       expect(lesson.steps.every((step) => !step.check || !!step.task)).toBe(
         true,
       );

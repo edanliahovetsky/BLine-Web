@@ -196,7 +196,7 @@ describe("sidebar commands", () => {
     expect(getInsertionIndex(project.path, "waypoint", 1)).toBe(2);
   });
 
-  it("hides rotation-domain additions until two anchors exist", () => {
+  it("allows leading rotation-domain elements once a destination exists", () => {
     const project = createProjectDocument({
       project_id: "project-a",
       display_name: "Alpha",
@@ -208,11 +208,14 @@ describe("sidebar commands", () => {
     expect(getAddableElementTypes(project.path)).toEqual([
       "waypoint",
       "translation",
+      "rotation",
+      "event_trigger",
     ]);
     expect(
       createDefaultElement(project.path, project.config, "event_trigger", 0)
         .type,
-    ).toBe("translation");
+    ).toBe("event_trigger");
+    expect(getInsertionIndex(project.path, "event_trigger", 0)).toBe(0);
   });
 
   it("uses the project handoff default for new anchor elements", () => {
@@ -298,7 +301,7 @@ describe("sidebar commands", () => {
     }
   });
 
-  it("limits endpoint type switches to anchor elements", () => {
+  it("limits only the final element type to anchors", () => {
     const project = createProjectDocument({
       project_id: "project-a",
       display_name: "Alpha",
@@ -316,7 +319,7 @@ describe("sidebar commands", () => {
       }),
     });
 
-    expect(getSwitchableElementTypes(project.path, 0)).toEqual([
+    expect(getSwitchableElementTypes(project.path, 2)).toEqual([
       "translation",
       "waypoint",
     ]);
@@ -327,7 +330,7 @@ describe("sidebar commands", () => {
       "event_trigger",
     ]);
     expect(
-      createConvertedElement(project.path, project.config, 0, "rotation"),
+      createConvertedElement(project.path, project.config, 2, "rotation"),
     ).toBeNull();
   });
 

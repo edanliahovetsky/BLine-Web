@@ -37,9 +37,11 @@ import {
 } from "../constraintRange";
 import { elementColors, handoffRingColors } from "../elementStyle";
 import {
+  canvasElementAt,
   clipStagePolyline,
   getElementHeadingRadians,
   getElementPosition,
+  pathPositionOverrides,
   getRenderableElementPositions,
   fieldImageStageRect,
   isStagePointWithinCanvas,
@@ -431,6 +433,8 @@ export class PixiPathRenderer {
       elements,
       input.positionPreview,
     ).map(({ position }) => modelToStagePoint(position, input.viewport));
+    const origin = input.positionPreview.get(-1);
+    if (origin) points.unshift(modelToStagePoint(origin, input.viewport));
     if (points.length < 2) {
       return;
     }
@@ -453,7 +457,10 @@ export class PixiPathRenderer {
     for (const overlay of input.overlayPaths) {
       const points = getRenderableElementPositions(
         overlay.path.path_elements,
+        pathPositionOverrides(overlay.path),
       ).map(({ position }) => modelToStagePoint(position, input.viewport));
+      const origin = pathPositionOverrides(overlay.path).get(-1);
+      if (origin) points.unshift(modelToStagePoint(origin, input.viewport));
       if (points.length < 2) {
         continue;
       }
@@ -696,6 +703,11 @@ export class PixiPathRenderer {
       );
       return position ? [{ element, index, position }] : [];
     });
+    const origin = input.positionPreview.get(-1);
+    const ghost = canvasElementAt(path, -1);
+    if (origin && ghost) {
+      renderedNodes.unshift({ element: ghost, index: -1, position: origin });
+    }
     const orderedNodes =
       input.selectedElementIndex === null
         ? renderedNodes
@@ -715,6 +727,7 @@ export class PixiPathRenderer {
       const node: DrawNodeInput = {
         element,
         index,
+        previewStart: index === -1,
         point,
         selected: input.selectedElementIndex === index,
         hideSelectionOutline: input.hideSelectionOutline ?? false,
@@ -737,7 +750,11 @@ export class PixiPathRenderer {
         metersToPixels: input.viewport.scale,
         protrusionVisible:
           Boolean(protrusions.enabled) &&
-          Boolean(protrusionVisibilityByIndex.get(index)) &&
+          Boolean(
+            index === -1
+              ? protrusions.default_state === "shown"
+              : protrusionVisibilityByIndex.get(index),
+          ) &&
           protrusions.distance_meters > 0 &&
           protrusions.side !== "none",
         protrusionDistanceMeters: protrusions.distance_meters,
@@ -971,6 +988,7 @@ interface DrawNodeInput {
   dimmed: boolean;
   selectedPulse: number;
   rotationHovered: boolean;
+  previewStart?: boolean;
   legacyHeadingMarker?: boolean;
   headingRadians: number | null;
   handoffRadiusMeters: number | null;
@@ -1139,9 +1157,11 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
       transform,
       width,
       height,
-      isWaypoint(input.element)
-        ? elementColors.waypoint
-        : elementColors.rotation,
+      input.previewStart
+        ? 0x8c9aa4
+        : isWaypoint(input.element)
+          ? elementColors.waypoint
+          : elementColors.rotation,
       isWaypoint(input.element)
         ? waypointOutlineWidth(input.metersToPixels)
         : metrics.strokeWidth,

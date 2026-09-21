@@ -329,7 +329,7 @@ describe("project Path structural edits", () => {
     const rejected = applyPathStructureEdit(project, "path-a", {
       kind: "reorder",
       fromIndex: 1,
-      toIndex: 0,
+      toIndex: 3,
     });
     const noop = applyPathStructureEdit(project, "path-a", {
       kind: "reorder",
@@ -337,7 +337,8 @@ describe("project Path structural edits", () => {
       toIndex: 0,
     });
 
-    expect(canMovePathElement(project.paths[0].path, 1, 0)).toBe(false);
+    expect(canMovePathElement(project.paths[0].path, 1, 3)).toBe(false);
+    expect(canMovePathElement(project.paths[0].path, 1, 0)).toBe(true);
     expect(rejected).toMatchObject({ status: "rejected", project });
     expect(noop).toMatchObject({ status: "noop", project });
   });

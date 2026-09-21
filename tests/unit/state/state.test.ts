@@ -100,6 +100,28 @@ describe("history store", () => {
     expect(io.writes).toHaveLength(1);
   });
 
+  it("initializes missing ghost metadata once without an Undo entry or overwriting a saved pose", async () => {
+    const { store } = await initializedProjectStore(
+      exampleWorkspace("ghost", "Ghost", 1),
+    );
+    const pathId = store.getState().activePathId!;
+    const center = { x_meters: 8, y_meters: 4, rotation_radians: 0 };
+    store.getState().initializePreviewStart(pathId, center);
+    expect(
+      activePathForProjectStore(store.getState())?.path.preview?.start_pose,
+    ).toEqual(center);
+    expect(store.getState().history.getState().canUndo).toBe(false);
+    store.getState().initializePreviewStart(pathId, { ...center, x_meters: 2 });
+    expect(
+      activePathForProjectStore(store.getState())?.path.preview?.start_pose,
+    ).toEqual(center);
+    await store.getState().saveWorkspace();
+    await store.getState().reloadFromDisk();
+    expect(
+      activePathForProjectStore(store.getState())?.path.preview?.start_pose,
+    ).toEqual(center);
+  });
+
   it("executes commands and supports undo/redo", () => {
     const history = createHistoryStore<number>();
     const increment: HistoryCommand<number> = {

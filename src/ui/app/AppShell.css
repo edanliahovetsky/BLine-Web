@@ -6764,6 +6764,7 @@ body.is-resizing-inspector * {
   gap: 2px;
   background: transparent;
 }
+
 .tank-preview-direction button {
   display: grid;
   place-items: center;

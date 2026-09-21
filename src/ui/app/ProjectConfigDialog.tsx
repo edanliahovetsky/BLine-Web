@@ -744,11 +744,10 @@ function RobotSettingsSection({
           <span className="config-row__label">Drive type</span>
           <SelectControl
             ariaLabel="Drive type"
-            value={draft.gui.robot.drive_type ?? "swerve"}
+            value={draft.gui.robot.drive_type === "tank" ? "tank" : "swerve"}
             options={[
-              { value: "swerve", label: "Swerve" },
+              { value: "swerve", label: "Swerve / Mecanum" },
               { value: "tank", label: "Tank" },
-              { value: "mecanum", label: "Mecanum" },
             ]}
             onChange={(value) =>
               setDraft((current) => ({

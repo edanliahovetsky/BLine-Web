@@ -1,6 +1,7 @@
 import { getPathElementLinkedTargetId } from "../../core/linkedTargets";
 import {
   createPathModel,
+  createRotationTarget,
   createTranslationTarget,
   isWaypoint,
   type PathModel,
@@ -465,6 +466,75 @@ const definitions: SupplementalTour[] = [
     steps: managementSteps,
   },
   offlineTour,
+  {
+    id: "current-pose-start",
+    title: "Advanced — Current-pose Starts",
+    summary: "Start a path wherever the robot is when it runs",
+    durationMinutes: 3,
+    completionMessage: "Lesson complete.",
+    practiceConfig,
+    practicePath: () =>
+      createPathModel({
+        preview: {
+          start_pose: { x_meters: 3, y_meters: 3, rotation_radians: 0 },
+        },
+        path_elements: [
+          createRotationTarget({ rotation_radians: Math.PI / 2, t_ratio: 0.5 }),
+          createTranslationTarget({ x_meters: 7, y_meters: 4 }),
+        ],
+      }),
+    steps: [
+      {
+        title: "An implicit start",
+        body: "A single destination, or a path beginning with a rotation or event, starts from the robot’s current pose when execution begins. This example has a rotation target followed by a translation target. Its grey ghost waypoint represents the starting pose for preview only.",
+        visible: ["path-canvas", "inspector-panel"],
+        prepare: {
+          inspector: "open",
+          inspectorTab: "elements",
+          simulation: "start",
+          tool: "select",
+        },
+      },
+      {
+        title: "Move the preview start",
+        body: "Drag the grey ghost waypoint to a different position. Drag its front edge to rotate it, just like a regular waypoint. Select it and use the arrow keys to adjust its position. Moving it changes the preview and generated constraints without adding an element to the list.",
+        target: "path-canvas",
+        prepare: { inspector: "closed", simulation: "start", tool: "select" },
+        interact: ["path-canvas"],
+        visible: ["path-canvas", "inspector-panel"],
+        task: "Move the ghost waypoint",
+        check: () => {
+          const pose = pathById(projectStore.getState().activePathId ?? "")
+            ?.path.preview?.start_pose;
+          return feedback(
+            !!pose && Math.hypot(pose.x_meters - 3, pose.y_meters - 3) > 0.05,
+            "Drag the grey preview start to another position.",
+            "The preview now starts at that position.",
+          );
+        },
+      },
+      {
+        title: "Try the path",
+        body: "Press Play. The leading rotation is placed along the line from the ghost to the destination, just like a rotation between two authored points. It does not require a stop. Tank drive ignores intermediate rotations and uses the chosen forward/backward preview direction.",
+        target: "transport-play",
+        interact: ["path-canvas", ...transport],
+        visible: ["path-canvas", ...transport],
+        task: "Play from your preview start",
+        check: () =>
+          feedback(
+            hasAction("play"),
+            "Press Play to run the preview.",
+            "Continue when you are ready.",
+          ),
+      },
+      {
+        title: "What reaches the robot",
+        body: "The ghost is saved only in this project’s editor metadata. It cannot be linked and is not exported as a path element. Robot code samples the actual pose when the path starts, so test the expected starting area. Requesting a pose reset on a path without an authored start reports a warning and skips the reset. The last element must still be a waypoint or translation target.",
+        visible: ["path-canvas", "inspector-panel"],
+        interact: ["path-canvas", ...transport],
+      },
+    ],
+  },
   {
     id: "handoff-modes",
     title: "Advanced — Handoff Modes",

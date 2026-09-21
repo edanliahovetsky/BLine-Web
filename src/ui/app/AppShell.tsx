@@ -28,7 +28,10 @@ import {
   type FieldBackgroundEntry,
 } from "../../core/field/fieldConfig";
 import type { TranslationTarget } from "../../core/model/path";
-import { getElementPosition } from "../../canvas/geometry";
+import {
+  getElementPosition,
+  pathPositionOverrides,
+} from "../../canvas/geometry";
 import { formatPointMeters, getElementLabel } from "../../canvas/modelSync";
 import {
   isRejectedProjectImport,
@@ -1821,7 +1824,11 @@ export function AppShell() {
       : null;
   const selectedPosition =
     activePath && selectedElementIndex !== null
-      ? getElementPosition(activePath.path.path_elements, selectedElementIndex)
+      ? getElementPosition(
+          activePath.path.path_elements,
+          selectedElementIndex,
+          pathPositionOverrides(activePath.path),
+        )
       : null;
   const ioCapabilities = projectIo?.capabilities;
   const supportsProjectFolders =

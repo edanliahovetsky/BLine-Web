@@ -1,5 +1,9 @@
+import { hasAuthoredStart } from "../../../core/model/pathPreview";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { getElementPosition } from "../../../canvas/geometry";
+import {
+  getElementPosition,
+  pathPositionOverrides,
+} from "../../../canvas/geometry";
 import {
   isEventTrigger,
   isRotationTarget,
@@ -52,6 +56,7 @@ export function ElementList({
   onMoveElement,
 }: ElementListProps) {
   const elements = path?.path_elements ?? [];
+  const authoredStart = path ? hasAuthoredStart(path) : false;
   const listRef = useRef<HTMLOListElement | null>(null);
   const selectedRowRef = useRef<HTMLLIElement | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -155,7 +160,11 @@ export function ElementList({
           >
             {elements.map((element, index) => {
               const selected = selectedElementIndexes.includes(index);
-              const position = getElementPosition(elements, index);
+              const position = getElementPosition(
+                elements,
+                index,
+                path ? pathPositionOverrides(path) : undefined,
+              );
               const type = elementTypeValue(element);
               const detail = elementRowDetail(element, position);
 
@@ -184,6 +193,7 @@ export function ElementList({
                       index,
                       elements.length,
                       detail.accessibleText,
+                      authoredStart,
                     )}
                     aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Delete Backspace"
                     aria-pressed={selected}
@@ -215,16 +225,17 @@ export function ElementList({
                         <span className="path-element-row__type">
                           {elementTypeLabel(element)}
                         </span>
-                        {index === 0 || index === elements.length - 1 ? (
+                        {(index === 0 && authoredStart) ||
+                        index === elements.length - 1 ? (
                           <span
                             className="path-element-row__role"
                             title={
-                              index === 0
+                              index === 0 && authoredStart
                                 ? "Start of the path"
                                 : "Final target — the path finishes here by tolerance, not by a handoff"
                             }
                           >
-                            {index === 0 ? "Start" : "End"}
+                            {index === 0 && authoredStart ? "Start" : "End"}
                           </span>
                         ) : null}
                       </span>
@@ -287,9 +298,10 @@ function elementRowAccessibleLabel(
   index: number,
   total: number,
   detail: string,
+  authoredStart: boolean,
 ): string {
   const role =
-    index === 0
+    index === 0 && authoredStart
       ? ", start of path"
       : index === total - 1
         ? ", end of path"

@@ -11,23 +11,31 @@ import {
 } from "../../../src/canvas/simulationEventPulse";
 
 describe("simulation event pulse", () => {
-  it("peaks as the robot crosses an event and fades shortly afterward", () => {
-    const path = createPathModel({
-      path_elements: [
-        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
-        createEventTrigger({ t_ratio: 0.5, lib_key: "intake" }),
-        createTranslationTarget({ x_meters: 4, y_meters: 0 }),
-      ],
-    });
-    const trace = [sample(0, 0), sample(1, 2), sample(2, 4)];
+  it.each([false, true])(
+    "peaks at the same geometric event with a ghost start: %s",
+    (ghost) => {
+      const path = createPathModel({
+        preview: {
+          start_pose: { x_meters: 0, y_meters: 0, rotation_radians: 0 },
+        },
+        path_elements: [
+          ...(!ghost
+            ? [createTranslationTarget({ x_meters: 0, y_meters: 0 })]
+            : []),
+          createEventTrigger({ t_ratio: 0.5, lib_key: "intake" }),
+          createTranslationTarget({ x_meters: 4, y_meters: 0 }),
+        ],
+      });
+      const trace = [sample(0, 0), sample(1, 2), sample(2, 4)];
 
-    expect(simulationEventPulseAtTime(path, trace, 0.8)).toBe(0);
-    expect(simulationEventPulseAtTime(path, trace, 1)).toBe(1);
-    expect(simulationEventKeysAtTime(path, trace, 1)).toEqual(["intake"]);
-    expect(simulationEventKeysAtTime(path, trace, 1.43)).toEqual([]);
-    expect(simulationEventPulseAtTime(path, trace, 1.21)).toBeCloseTo(0.5);
-    expect(simulationEventPulseAtTime(path, trace, 1.43)).toBe(0);
-  });
+      expect(simulationEventPulseAtTime(path, trace, 0.8)).toBe(0);
+      expect(simulationEventPulseAtTime(path, trace, 1)).toBe(1);
+      expect(simulationEventKeysAtTime(path, trace, 1)).toEqual(["intake"]);
+      expect(simulationEventKeysAtTime(path, trace, 1.43)).toEqual([]);
+      expect(simulationEventPulseAtTime(path, trace, 1.21)).toBeCloseTo(0.5);
+      expect(simulationEventPulseAtTime(path, trace, 1.43)).toBe(0);
+    },
+  );
 
   it("stays inactive when the path has no event triggers", () => {
     const path = createPathModel({

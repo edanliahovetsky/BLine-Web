@@ -57,7 +57,7 @@ test("tank preview direction persists with Undo/Redo and fits beside playback @w
   await openProjectSettings(page);
   await dialog
     .getByRole("combobox", { name: "Drive type", exact: true })
-    .selectOption("mecanum");
+    .selectOption({ label: "Swerve / Mecanum" });
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(backward).toHaveCount(0);
   await expect(

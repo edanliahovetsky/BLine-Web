@@ -16,6 +16,7 @@ import {
 import {
   getElementHeadingRadians,
   getElementPosition,
+  pathPositionOverrides,
 } from "../../canvas/geometry";
 import type { ProjectConfig } from "../../core/model/project";
 import {
@@ -52,7 +53,7 @@ export const addableElementTypes: readonly AddableElementType[] = [
 
 export function getAddableElementTypes(path: PathModel): AddableElementType[] {
   const anchorCount = countAnchorElements(path.path_elements);
-  if (anchorCount < 2) {
+  if (anchorCount < 1) {
     return ["waypoint", "translation"];
   }
 
@@ -67,7 +68,7 @@ export function getSwitchableElementTypes(
     return [];
   }
 
-  const isEndpoint = index === 0 || index === path.path_elements.length - 1;
+  const isEndpoint = index === path.path_elements.length - 1;
   if (isEndpoint) {
     return ["translation", "waypoint"];
   }
@@ -352,7 +353,11 @@ export function createConvertedElement(
     return null;
   }
 
-  const position = getElementPosition(path.path_elements, index);
+  const position = getElementPosition(
+    path.path_elements,
+    index,
+    pathPositionOverrides(path),
+  );
   const headingRadians =
     getElementHeadingRadians(path.path_elements, index) ?? 0;
   const handoffRadius = getExistingHandoffRadius(element);
@@ -405,10 +410,7 @@ export function getInsertionIndex(
   const baseIndex = selectedIndex === null ? length : selectedIndex + 1;
 
   if (type === "rotation" || type === "event_trigger") {
-    if (length < 2) {
-      return length;
-    }
-    return clamp(baseIndex, 1, length - 1);
+    return clamp(baseIndex, 0, Math.max(0, length - 1));
   }
 
   return clampIndex(baseIndex, length);

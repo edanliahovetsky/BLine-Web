@@ -447,15 +447,8 @@ export function canMovePathElement(
 }
 
 function isValidPathElementOrder(elements: readonly PathElement[]): boolean {
-  if (elements.filter(isAnchorElement).length < 2) {
-    return elements.every(isAnchorElement);
-  }
-  return elements.every(
-    (element, index) =>
-      isAnchorElement(element) ||
-      (elements.slice(0, index).some(isAnchorElement) &&
-        elements.slice(index + 1).some(isAnchorElement)),
-  );
+  // Leading rotations/events use the execution's current-pose origin.
+  return elements.length === 0 || isAnchorElement(elements.at(-1)!);
 }
 
 function selectionAfterRemoval(

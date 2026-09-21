@@ -1,10 +1,6 @@
-import {
-  isAnchorElement,
-  isEventTrigger,
-  type PathModel,
-} from "../core/model/path";
+import { isEventTrigger, type PathModel } from "../core/model/path";
 import type { SimulationTraceSample } from "../core/sim/types";
-import { getElementPosition } from "./geometry";
+import { buildSegments } from "../core/sim/simulatePath";
 
 const eventPulseLeadSeconds = 0.06;
 const eventPulseFadeSeconds = 0.42;
@@ -72,29 +68,9 @@ export function simulationEventMoments(
 function eventTriggerPathDistances(
   path: PathModel,
 ): { distance: number; key: string }[] {
-  const anchors = path.path_elements.flatMap((element, pathIndex) => {
-    if (!isAnchorElement(element)) {
-      return [];
-    }
-    const position = getElementPosition(path.path_elements, pathIndex);
-    return position ? [{ pathIndex, position }] : [];
-  });
-  if (anchors.length < 2) {
-    return [];
-  }
-
-  const cumulativeDistances = [0];
-  for (let index = 1; index < anchors.length; index += 1) {
-    const previous = anchors[index - 1].position;
-    const current = anchors[index].position;
-    cumulativeDistances.push(
-      cumulativeDistances[index - 1] +
-        Math.hypot(
-          current.x_meters - previous.x_meters,
-          current.y_meters - previous.y_meters,
-        ),
-    );
-  }
+  const { anchors, cumulativeLengths: cumulativeDistances } =
+    buildSegments(path);
+  if (anchors.length < 2) return [];
 
   return path.path_elements.flatMap((element, pathIndex) => {
     if (!isEventTrigger(element)) {

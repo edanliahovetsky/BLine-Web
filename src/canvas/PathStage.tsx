@@ -1,4 +1,9 @@
 import {
+  hasAuthoredStart,
+  previewStartPose,
+  type PathPreview,
+} from "../core/model/pathPreview";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -68,6 +73,8 @@ import {
   clampModelPoint,
   getElementHeadingRadians,
   getElementPosition,
+  pathPositionOverrides,
+  canvasElementAt,
   getRenderableElementPositions,
   getNeighborAnchorPositions,
   interpolateSegmentPosition,
@@ -216,6 +223,7 @@ export function PathStage({
   const activeRotationDragRef = useRef<ActiveRotationDrag | null>(null);
   const activeCurveDraftRef = useRef<ActiveCurveDraft | null>(null);
   const rotationFrameRef = useRef<number | null>(null);
+  const [stageMeasured, setStageMeasured] = useState(false);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
   const [viewScale, setViewScale] = useState(1);
   const activeTourId = useStoreSelector(
@@ -269,6 +277,9 @@ export function PathStage({
     useState<ActiveRotationDrag | null>(null);
   const [activeCurveDraft, setActiveCurveDraftState] =
     useState<ActiveCurveDraft | null>(null);
+  const [selectedPreviewPathId, setSelectedPreviewPathId] = useState<
+    string | null
+  >(null);
   const [dragPreview, setDragPreview] =
     useState<PositionOverrides>(emptyPreview);
   const [pointerPosition, setPointerPosition] = useState<StagePoint | null>(
@@ -488,6 +499,7 @@ export function PathStage({
         Math.floor(rect.height) || Math.round(width / activeFieldAspectRatio),
       );
       setStageSize({ width, height });
+      setStageMeasured(rect.width > 0 && rect.height > 0);
     };
 
     updateSize();
@@ -581,7 +593,43 @@ export function PathStage({
           },
     [baseViewport, panOffset, viewScale, lessonCamera, stageSize],
   );
-  const positionPreview = dragPreview;
+  const positionPreview = useMemo(
+    () =>
+      activePath
+        ? pathPositionOverrides(activePath.path, dragPreview)
+        : dragPreview,
+    [activePath, dragPreview],
+  );
+  const selectedCanvasIndex =
+    selectedElementIndex ??
+    (selectedPreviewPathId === activePath?.path_id &&
+    activePath &&
+    !hasAuthoredStart(activePath.path)
+      ? -1
+      : null);
+
+  useEffect(
+    () => selectionStore.subscribe(() => setSelectedPreviewPathId(null)),
+    [],
+  );
+
+  useEffect(() => {
+    if (
+      !stageMeasured ||
+      !activePath ||
+      hasAuthoredStart(activePath.path) ||
+      activePath.path.preview?.start_pose ||
+      !activePath.path.path_elements.some(isAnchorElement)
+    )
+      return;
+    projectStore.getState().initializePreviewStart(activePath.path_id, {
+      ...stageToModelPoint(
+        { x: stageSize.width / 2, y: stageSize.height / 2 },
+        viewport,
+      ),
+      rotation_radians: 0,
+    });
+  }, [activePath, stageSize, viewport, stageMeasured]);
 
   const committedSimulationResult: SimTraceResult | null = useMemo(() => {
     if (!activePath || !durableProject) {
@@ -599,6 +647,23 @@ export function PathStage({
 
   const previewPath = useMemo(() => {
     if (!activePath || !durableProject) return null;
+    if (activeDrag?.index === -1 || activeRotationDrag?.index === -1) {
+      const pose = previewStartPose(activePath.path);
+      return {
+        ...activePath.path,
+        preview: {
+          ...activePath.path.preview,
+          start_pose: {
+            ...pose,
+            ...(activeDrag?.index === -1 ? activeDrag.current : {}),
+            rotation_radians:
+              activeRotationDrag?.index === -1
+                ? activeRotationDrag.currentRadians
+                : pose.rotation_radians,
+          },
+        },
+      };
+    }
     const edit: PathElementEdit | null = activeDrag?.moved
       ? activeDrag.currentRatio !== null
         ? {
@@ -736,15 +801,14 @@ export function PathStage({
     activeDrag !== null ||
     activeRotationDrag !== null ||
     activeCurveDraft !== null;
-  const rotationPreview: RotationOverrides = useMemo(
-    () =>
-      activeRotationDrag
-        ? new Map([
-            [activeRotationDrag.index, activeRotationDrag.currentRadians],
-          ])
-        : emptyRotationPreview,
-    [activeRotationDrag],
-  );
+  const rotationPreview: RotationOverrides = useMemo(() => {
+    const values = new Map<number, number>();
+    if (activePath && !hasAuthoredStart(activePath.path))
+      values.set(-1, previewStartPose(activePath.path).rotation_radians);
+    if (activeRotationDrag)
+      values.set(activeRotationDrag.index, activeRotationDrag.currentRadians);
+    return values;
+  }, [activePath, activeRotationDrag]);
   const hoveredElementIndex = useMemo(
     () =>
       pointerPosition && activePath && durableProject
@@ -754,7 +818,7 @@ export function PathStage({
             viewport,
             positionPreview,
             pointerPosition,
-            selectedElementIndex,
+            selectedCanvasIndex,
           )
         : null,
     [
@@ -763,16 +827,16 @@ export function PathStage({
       durableProject,
       viewport,
       positionPreview,
-      selectedElementIndex,
+      selectedCanvasIndex,
     ],
   );
   const hideSelectionOutline =
-    selectedElementIndex !== null &&
-    (hoveredElementIndex === selectedElementIndex ||
-      activeDrag?.index === selectedElementIndex ||
-      activeRotationDrag?.index === selectedElementIndex);
+    selectedCanvasIndex !== null &&
+    (hoveredElementIndex === selectedCanvasIndex ||
+      activeDrag?.index === selectedCanvasIndex ||
+      activeRotationDrag?.index === selectedCanvasIndex);
   const selectedPulseValue = useSelectionPulse(
-    selectedElementIndex !== null,
+    selectedCanvasIndex !== null,
     canvasInteractionActive || hideSelectionOutline,
   );
   // Resolve hover and pointer-down through the same handle hit test so a
@@ -787,7 +851,7 @@ export function PathStage({
         ? hitTestPathHandle(
             activePath.path,
             durableProject.config,
-            selectedElementIndex,
+            selectedCanvasIndex,
             viewport,
             positionPreview,
             rotationPreview,
@@ -801,7 +865,7 @@ export function PathStage({
       durableProject,
       lockedGeometry,
       canvasInteractionActive,
-      selectedElementIndex,
+      selectedCanvasIndex,
       viewport,
       positionPreview,
       rotationPreview,
@@ -809,7 +873,7 @@ export function PathStage({
     ],
   );
   const hoveredHandleElement = hoveredHandle
-    ? activePath?.path.path_elements[hoveredHandle.index]
+    ? activePath && canvasElementAt(activePath.path, hoveredHandle.index)
     : undefined;
   const hoveredHandleLink =
     hoveredHandleElement && durableProject
@@ -1022,7 +1086,7 @@ export function PathStage({
       path: activePath?.path ?? null,
       overlayPaths,
       hoveredOverlayPathId,
-      selectedElementIndex,
+      selectedElementIndex: selectedCanvasIndex,
       selectedRangedConstraint,
       positionPreview,
       rotationPreview,
@@ -1047,7 +1111,7 @@ export function PathStage({
     overlayPaths,
     hoveredOverlayPathId,
     rotationPreview,
-    selectedElementIndex,
+    selectedCanvasIndex,
     selectedPulseValue,
     hideSelectionOutline,
     hoveredRotationIndex,
@@ -1066,6 +1130,22 @@ export function PathStage({
     rendererRef.current?.update(renderInput);
   }, [renderInput]);
 
+  const commitPreviewStart = (pose: NonNullable<PathPreview["start_pose"]>) => {
+    if (!activePath || projectStore.getState().projectTransitionInProgress)
+      return;
+    setSimulationPlaying(false);
+    setSimulationTime(0);
+    projectStore
+      .getState()
+      .applyPathCommand(
+        createSetPathPreviewCommand(
+          activePath.path,
+          { ...activePath.path.preview, start_pose: pose },
+          "Set preview start",
+        ),
+      );
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (
       event.defaultPrevented ||
@@ -1079,6 +1159,41 @@ export function PathStage({
     // can resize the complete interface. Canvas-only view shortcuts are
     // intentionally unmodified and work while the canvas has focus.
     if (event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+
+    if (
+      selectedCanvasIndex === -1 &&
+      activePath &&
+      !lockedGeometry &&
+      event.key.startsWith("Arrow")
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      const pose = previewStartPose(activePath.path);
+      const step = event.shiftKey ? 0.25 : 0.05;
+      commitPreviewStart({
+        ...pose,
+        ...clampModelPoint(
+          {
+            x_meters:
+              pose.x_meters +
+              (event.key === "ArrowRight"
+                ? step
+                : event.key === "ArrowLeft"
+                  ? -step
+                  : 0),
+            y_meters:
+              pose.y_meters +
+              (event.key === "ArrowUp"
+                ? step
+                : event.key === "ArrowDown"
+                  ? -step
+                  : 0),
+          },
+          viewport.field,
+        ),
+      });
       return;
     }
 
@@ -1206,9 +1321,19 @@ export function PathStage({
     pointerId: number,
   ) => {
     if (!activePath || !durableProject) return;
-    selectionStore.getState().selectElement(index, activePath.path);
-    const element = activePath.path.path_elements[index];
-    const start = getElementPosition(activePath.path.path_elements, index);
+    if (index === -1) {
+      selectionStore.getState().clearSelection();
+      setSelectedPreviewPathId(activePath.path_id);
+    } else {
+      setSelectedPreviewPathId(null);
+      selectionStore.getState().selectElement(index, activePath.path);
+    }
+    const element = canvasElementAt(activePath.path, index);
+    const start = getElementPosition(
+      activePath.path.path_elements,
+      index,
+      pathPositionOverrides(activePath.path),
+    );
     if (!element || !start || !isDragEnabled(element)) {
       return;
     }
@@ -1262,9 +1387,9 @@ export function PathStage({
         viewport,
         positionPreview,
         pointer,
-        selectedElementIndex,
+        selectedCanvasIndex,
       );
-      if (hit !== null)
+      if (hit !== null && hit >= 0)
         selectionStore.getState().selectElement(hit, activePath.path);
       return;
     }
@@ -1272,7 +1397,7 @@ export function PathStage({
     const handle = hitTestPathHandle(
       activePath.path,
       durableProject.config,
-      selectedElementIndex,
+      selectedCanvasIndex,
       viewport,
       positionPreview,
       rotationPreview,
@@ -1287,8 +1412,14 @@ export function PathStage({
     const rotationHit = handle?.kind === "rotation" ? handle.index : null;
     if (rotationHit !== null) {
       setPlacementPreview(null);
-      selectionStore.getState().selectElement(rotationHit, activePath.path);
-      const element = activePath.path.path_elements[rotationHit];
+      if (rotationHit === -1) {
+        selectionStore.getState().clearSelection();
+        setSelectedPreviewPathId(activePath.path_id);
+      } else {
+        setSelectedPreviewPathId(null);
+        selectionStore.getState().selectElement(rotationHit, activePath.path);
+      }
+      const element = canvasElementAt(activePath.path, rotationHit);
       const linkedTarget = linkedTargetForElement(durableProject, element);
       const linkedTargetId =
         element &&
@@ -1300,8 +1431,11 @@ export function PathStage({
         return;
       }
       const startRadians =
-        getElementHeadingRadians(activePath.path.path_elements, rotationHit) ??
-        0;
+        getElementHeadingRadians(
+          activePath.path.path_elements,
+          rotationHit,
+          rotationPreview,
+        ) ?? 0;
       setActiveRotationDrag({
         pointerId: event.pointerId,
         index: rotationHit,
@@ -1357,6 +1491,7 @@ export function PathStage({
     }
 
     selectionStore.getState().clearSelection();
+    setSelectedPreviewPathId(null);
     activePanDragRef.current = {
       pointerId: event.pointerId,
       startPointer: pointer,
@@ -1462,7 +1597,7 @@ export function PathStage({
           ? hitTestPathHandle(
               activePath.path,
               durableProject.config,
-              selectedElementIndex,
+              selectedCanvasIndex,
               viewport,
               positionPreview,
               rotationPreview,
@@ -1571,6 +1706,7 @@ export function PathStage({
       const segment = getNeighborAnchorPositions(
         activePath.path.path_elements,
         drag.index,
+        pathPositionOverrides(activePath.path),
       );
       if (segment) {
         nextRatio = projectPointToSegmentRatio(
@@ -1589,6 +1725,14 @@ export function PathStage({
     setActiveDrag(null);
 
     if (projectStore.getState().projectTransitionInProgress) {
+      return;
+    }
+
+    if (drag.index === -1) {
+      commitPreviewStart({
+        ...previewStartPose(activePath.path),
+        ...nextPosition,
+      });
       return;
     }
 
@@ -1649,6 +1793,17 @@ export function PathStage({
     setActiveRotationDrag(null);
 
     if (projectStore.getState().projectTransitionInProgress) {
+      return;
+    }
+
+    if (rotationDrag.index === -1) {
+      if (
+        Math.abs(angularDelta(rotationDrag.startRadians, nextRadians)) >= 0.001
+      )
+        commitPreviewStart({
+          ...previewStartPose(activePath.path),
+          rotation_radians: nextRadians,
+        });
       return;
     }
 
@@ -1720,8 +1875,9 @@ export function PathStage({
       viewport,
       positionPreview,
       pointer,
-      selectedElementIndex,
+      selectedCanvasIndex,
     );
+    if (elementIndex === -1) return;
     setContextMenu({
       stagePoint: pointer,
       fieldPoint: stageToModelPoint(pointer, viewport),
@@ -2037,13 +2193,13 @@ function CanvasToolRail({
       tool: "rotation",
       label: "Rotation",
       shortcut: "3",
-      disabled: anchorCount < 2,
+      disabled: anchorCount < 1,
     },
     {
       tool: "event",
       label: "Event",
       shortcut: "4",
-      disabled: anchorCount < 2,
+      disabled: anchorCount < 1,
     },
     { tool: "curve", label: "Curve", shortcut: "C" },
   ];
@@ -2272,6 +2428,8 @@ function placementForPointer(
     const anchorPosition = getElementPosition(elements, index);
     return anchorPosition ? [{ index, position: anchorPosition }] : [];
   });
+  if (!hasAuthoredStart(path))
+    anchors.unshift({ index: -1, position: previewStartPose(path) });
   if (anchors.length < 2) {
     return null;
   }
@@ -2646,7 +2804,8 @@ function hitTestPathHandle(
     selectedElementIndex,
   );
   if (index === null) return null;
-  const element = path.path_elements[index];
+  const element = canvasElementAt(path, index);
+  if (!element) return null;
   const position = getElementPosition(
     path.path_elements,
     index,
@@ -2714,6 +2873,14 @@ function hitTestPathElement(
       },
     ];
   });
+  const origin = positionPreview.get(-1);
+  const ghost = canvasElementAt(path, -1);
+  if (origin && ghost)
+    renderedNodes.unshift({
+      element: ghost,
+      index: -1,
+      point: modelToStagePoint(origin, viewport),
+    });
   const orderedNodes =
     selectedElementIndex === null
       ? renderedNodes
@@ -2738,7 +2905,14 @@ function hitTestPathElement(
         element,
         point,
         pointer,
-        getElementHeadingRadians(elements, index, undefined, positionPreview),
+        index === -1
+          ? previewStartPose(path).rotation_radians
+          : getElementHeadingRadians(
+              elements,
+              index,
+              undefined,
+              positionPreview,
+            ),
         viewport,
         robotSizeMeters,
       )
@@ -2763,8 +2937,11 @@ function hitTestOverlayPath(
     const overlay = overlays[overlayIndex];
     const points = getRenderableElementPositions(
       overlay.path.path_elements,
+      pathPositionOverrides(overlay.path),
     ).map(({ position }) => modelToStagePoint(position, viewport));
 
+    const origin = pathPositionOverrides(overlay.path).get(-1);
+    if (origin) points.unshift(modelToStagePoint(origin, viewport));
     for (let pointIndex = 1; pointIndex < points.length; pointIndex += 1) {
       const previous = points[pointIndex - 1];
       const next = points[pointIndex];
@@ -2829,7 +3006,7 @@ function projectDragStagePoint(
 ): { position: PointMeters; ratio: number | null; stagePoint: StagePoint } {
   let position = stageToModelPoint(stagePoint, viewport);
   let ratio: number | null = null;
-  const element = path.path_elements[index];
+  const element = canvasElementAt(path, index);
 
   if (element && isTranslationBearingElement(element)) {
     position = clampModelPoint(position, viewport.field);
@@ -2838,7 +3015,11 @@ function projectDragStagePoint(
     (isRotationTarget(element) || isEventTrigger(element))
   ) {
     ratio = element.t_ratio;
-    const segment = getNeighborAnchorPositions(path.path_elements, index);
+    const segment = getNeighborAnchorPositions(
+      path.path_elements,
+      index,
+      pathPositionOverrides(path),
+    );
     if (segment) {
       ratio = projectPointToSegmentRatio(
         position,
@@ -2934,7 +3115,11 @@ function rotationFromStagePoint(
   point: StagePoint,
   drag?: ActiveRotationDrag,
 ): number | null {
-  const position = getElementPosition(path.path_elements, index);
+  const position = getElementPosition(
+    path.path_elements,
+    index,
+    pathPositionOverrides(path),
+  );
   if (!position) return null;
   const center = modelToStagePoint(position, viewport);
   const pointerRadians = Math.atan2(center.y - point.y, point.x - center.x);
@@ -3051,7 +3236,6 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const emptyPreview = new Map<number, PointMeters>();
-const emptyRotationPreview = new Map<number, number>();
 const minViewScale = 1;
 const maxViewScale = 8;
 const zoomStepFactor = 1.03;

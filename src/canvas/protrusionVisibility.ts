@@ -79,7 +79,10 @@ function buildAnchorProgressGeometry(
   anchors: AnchorProgress[];
   anchorSByPathIndex: ReadonlyMap<number, number>;
 } {
-  const anchors: AnchorProgress[] = [];
+  const origin = positionOverrides.get(-1);
+  const anchors: AnchorProgress[] = origin
+    ? [{ index: -1, position: origin }]
+    : [];
   for (const [index, element] of elements.entries()) {
     if (!isAnchorElement(element)) {
       continue;
@@ -201,7 +204,7 @@ function neighborAnchorIndexes(
   elements: readonly PathElement[],
   index: number,
 ): { previous: number; next: number } | null {
-  let previous: number | null = null;
+  let previous: number | null = -1;
   let next: number | null = null;
 
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {

@@ -26,7 +26,8 @@ import {
   renamePathGroupInProject,
   renamePathInProject,
 } from "../core/model/projectOperations";
-import type { PathModel } from "../core/model/path";
+import { isAnchorElement, type PathModel } from "../core/model/path";
+import { hasAuthoredStart, type PathPreview } from "../core/model/pathPreview";
 import {
   applyPathElementEdit,
   applyPathStructureEdit,
@@ -248,6 +249,10 @@ export interface ProjectStoreState {
     options?: ProjectImportOptions,
   ): Promise<ProjectImportResult>;
   exportProjectArchive(): Promise<Blob | null>;
+  initializePreviewStart(
+    pathId: string,
+    pose: NonNullable<PathPreview["start_pose"]>,
+  ): void;
   applyPathCommand(command: HistoryCommand<PathModel>, pathId?: string): void;
   applyPathElementEdit(
     edit: PathElementEdit,
@@ -499,6 +504,14 @@ export function createProjectStore(
       }
     }
   };
+
+  // Remember implicit defaults across Undo/Redo without creating a user edit.
+  // Saved or explicitly moved poses always take precedence.
+  let previewStartSession: string | null = null;
+  const initialPreviewStarts = new Map<
+    string,
+    NonNullable<PathPreview["start_pose"]>
+  >();
 
   const store = createStore<ProjectStoreState>((set, get) => ({
     setSaveFailureHandler(handler) {
@@ -1373,6 +1386,35 @@ export function createProjectStore(
         return null;
       }
       return io.exportProjectArchive(project);
+    },
+    initializePreviewStart(pathId, pose) {
+      if (activeProjectTransition) return;
+      const state = get();
+      const path = state.project?.paths.find(
+        (entry) => entry.path_id === pathId,
+      )?.path;
+      if (
+        !state.project ||
+        !path ||
+        path.preview?.start_pose ||
+        hasAuthoredStart(path) ||
+        !path.path_elements.some(isAnchorElement) ||
+        !Object.values(pose).every(Number.isFinite)
+      )
+        return;
+      if (previewStartSession !== state.projectSessionId) {
+        initialPreviewStarts.clear();
+        previewStartSession = state.projectSessionId;
+      }
+      const startPose = initialPreviewStarts.get(pathId) ?? { ...pose };
+      initialPreviewStarts.set(pathId, startPose);
+      const project = cloneProject(state.project);
+      const target = project.paths.find((entry) => entry.path_id === pathId)!;
+      target.path.preview = {
+        ...target.path.preview,
+        start_pose: { ...startPose },
+      };
+      setProject(set, project, currentNavigation(state), true);
     },
     applyPathCommand(command, requestedPathId) {
       requireProjectMutationAllowed();

@@ -12,7 +12,12 @@ import {
   isTranslationTarget,
   isWaypoint,
   type PathElement,
+  type PathModel,
+  createWaypoint,
+  createTranslationTarget,
+  createRotationTarget,
 } from "../core/model/path";
+import { hasAuthoredStart, previewStartPose } from "../core/model/pathPreview";
 
 export interface CanvasSize {
   width: number;
@@ -124,6 +129,32 @@ export interface PointMeters {
 
 export type PositionOverrides = ReadonlyMap<number, PointMeters>;
 export type RotationOverrides = ReadonlyMap<number, number>;
+
+/** Index -1 is a canvas-only origin; it never becomes an authored element. */
+export function pathPositionOverrides(
+  path: PathModel,
+  overrides: PositionOverrides = emptyOverrides,
+): PositionOverrides {
+  if (hasAuthoredStart(path) || overrides.has(-1)) return overrides;
+  return new Map([[-1, previewStartPose(path)], ...overrides]);
+}
+
+/** Reuse the waypoint geometry for the private origin without changing the path. */
+export function canvasElementAt(
+  path: PathModel,
+  index: number,
+): PathElement | undefined {
+  if (index !== -1) return path.path_elements[index];
+  if (hasAuthoredStart(path) || !path.path_elements.some(isAnchorElement))
+    return undefined;
+  const pose = previewStartPose(path);
+  return createWaypoint({
+    translation_target: createTranslationTarget(pose),
+    rotation_target: createRotationTarget({
+      rotation_radians: pose.rotation_radians,
+    }),
+  });
+}
 
 export function createFieldViewport(
   size: CanvasSize,
@@ -406,7 +437,7 @@ function findNeighborAnchorPosition(
     }
   }
 
-  return null;
+  return direction === -1 ? (overrides.get(-1) ?? null) : null;
 }
 
 function getSegmentHeadingRadians(
