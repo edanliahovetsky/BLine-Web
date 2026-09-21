@@ -222,6 +222,16 @@ function runPathSimulation(
   let segmentIndex = 0;
   const endX = anchors[anchors.length - 1].x;
   const endY = anchors[anchors.length - 1].y;
+  const finalOrdinal = anchors.length - (anchors[0].pathIndex < 0 ? 1 : 0);
+  const endMinimum = resolveVelocityBaseline(
+    activeTranslationLimit(path, "max_velocity_meters_per_sec", finalOrdinal) ??
+      baseMaxV,
+    activeTranslationLimit(path, "min_velocity_meters_per_sec", finalOrdinal) ??
+      path.constraints.min_velocity_meters_per_sec ??
+      0,
+    baseMaxV,
+  ).min;
+  const rollingEnd = endMinimum > 0;
 
   const minTransV = minimumPositiveConstraint(
     path,
@@ -317,7 +327,7 @@ function runPathSimulation(
     );
     const translationVelocity = resolveVelocityBaseline(
       maxVEff ?? baseMaxV,
-      minVEff ?? 0,
+      minVEff ?? path.constraints.min_velocity_meters_per_sec ?? 0,
       baseMaxV,
     );
     const maxV = translationVelocity.max;
@@ -343,7 +353,7 @@ function runPathSimulation(
     );
     const rotationVelocity = resolveVelocityBaseline(
       maxOmegaEff ?? radiansToDegrees(baseMaxOmega),
-      minOmegaEff ?? 0,
+      minOmegaEff ?? path.constraints.min_velocity_deg_per_sec ?? 0,
       radiansToDegrees(baseMaxOmega),
     );
     const maxOmega = degreesToRadians(rotationVelocity.max);
@@ -351,7 +361,7 @@ function runPathSimulation(
     const maxAlpha =
       maxAlphaEff === null ? baseMaxAlpha : degreesToRadians(maxAlphaEff);
 
-    const stoppingSpeed = Math.sqrt(2 * baseMaxA * remaining);
+    const stoppingSpeed = Math.sqrt(endMinimum ** 2 + 2 * maxA * remaining);
     let vDesScalar = Math.max(0, Math.min(maxV, stoppingSpeed));
     const angularError = shortestAngularDistance(desiredTheta, theta);
     if (
@@ -368,17 +378,24 @@ function runPathSimulation(
         ? -Math.min(omegaControl, maxOmega)
         : Math.min(omegaControl, maxOmega);
     const previousSpeeds = speeds;
-    let limited = limitAcceleration(
+    let requested = applyTranslationMinimumBaseline(
       {
         vx_mps: vDesScalar * ux,
         vy_mps: vDesScalar * uy,
         omega_radps: omegaDes,
       },
-      speeds,
-      dt,
-      maxA,
-      maxAlpha,
+      ux,
+      uy,
+      minV,
+      distToTarget,
     );
+    requested = applyRotationMinimumBaseline(
+      requested,
+      minOmega,
+      Math.abs(angularError),
+      angularError,
+    );
+    let limited = limitAcceleration(requested, speeds, dt, maxA, maxAlpha);
 
     if (Math.abs(limited.omega_radps) > maxOmega && maxOmega > 0) {
       limited = {
@@ -386,19 +403,6 @@ function runPathSimulation(
         omega_radps: Math.sign(limited.omega_radps) * maxOmega,
       };
     }
-    limited = applyTranslationMinimumBaseline(
-      limited,
-      ux,
-      uy,
-      minV,
-      distToTarget,
-    );
-    limited = applyRotationMinimumBaseline(
-      limited,
-      minOmega,
-      Math.abs(angularError),
-      angularError,
-    );
     const dynamicsLimited = limited;
     const axMps2 = (dynamicsLimited.vx_mps - previousSpeeds.vx_mps) / dt;
     const ayMps2 = (dynamicsLimited.vy_mps - previousSpeeds.vy_mps) / dt;
@@ -412,7 +416,9 @@ function runPathSimulation(
       if (hypot2(stepDx, stepDy) >= Math.max(0, distToTarget - epsPos)) {
         x = endX;
         y = endY;
-        limited = { vx_mps: 0, vy_mps: 0, omega_radps: limited.omega_radps };
+        if (!rollingEnd) {
+          limited = { vx_mps: 0, vy_mps: 0, omega_radps: limited.omega_radps };
+        }
         snappedPosition = true;
       } else {
         x += stepDx;
@@ -444,7 +450,7 @@ function runPathSimulation(
     timesSorted.push(tKey);
     trailPoints.push([x, y]);
 
-    if (segmentIndex === segments.length - 1) {
+    if (segmentIndex === segments.length - 1 && !rollingEnd) {
       const distToFinal = hypot2(endX - x, endY - y);
       let rotErr = Math.abs(shortestAngularDistance(endHeadingTarget, theta));
       let snappedPos = false;
@@ -514,7 +520,7 @@ function runPathSimulation(
       });
     }
 
-    if (snappedPosition && snappedRotation) {
+    if (snappedPosition && (rollingEnd || snappedRotation)) {
       break;
     }
 

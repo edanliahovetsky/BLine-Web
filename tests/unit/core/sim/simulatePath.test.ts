@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createConstraints,
   createEventTrigger,
   createPathModel,
   createRotationTarget,
@@ -247,7 +248,7 @@ describe("simulatePath", () => {
     ).toBeGreaterThan((10 * Math.PI) / 180 + 1e-3);
   });
 
-  it("applies ranged minimum translation velocity baselines", () => {
+  it("approaches ranged minimum velocity through the acceleration limit", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 0, y_meters: 0 }),
@@ -274,7 +275,53 @@ describe("simulatePath", () => {
       (sample) => sample.speed_mps > 0,
     );
 
-    expect(firstMovingSample?.speed_mps).toBeCloseTo(0.8, 6);
+    expect(firstMovingSample?.speed_mps).toBeCloseTo(4 * 0.02, 6);
+    expect(result.trace.at(-1)!.speed_mps).toBeGreaterThanOrEqual(0.8);
+    expect(
+      Math.max(...result.trace.map((sample) => sample.acceleration_mps2)),
+    ).toBeLessThanOrEqual(4 + 1e-6);
+  });
+
+  it("finishes rolling exits with best-effort heading, but waits for heading on stopped exits", () => {
+    const path = createPathModel({
+      path_elements: [
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 0,
+            y_meters: 0,
+          }),
+          rotation_target: createRotationTarget({ rotation_radians: 0 }),
+        }),
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            x_meters: 2,
+            y_meters: 0,
+          }),
+          rotation_target: createRotationTarget({
+            rotation_radians: Math.PI / 2,
+          }),
+        }),
+      ],
+      constraints: createConstraints({ min_velocity_meters_per_sec: 0.8 }),
+    });
+    const config = { ...defaultConfig, default_max_velocity_deg_per_sec: 10 };
+    const rolling = simulatePathWithTrace(path, config, { dt_s: 0.02 });
+    const exit = rolling.trace.at(-1)!;
+    expect(exit.x_m).toBeCloseTo(2);
+    expect(exit.speed_mps).toBeGreaterThanOrEqual(0.8);
+    expect(exit.theta_rad).toBeLessThan(Math.PI / 4);
+    expect(exit.snapped_rotation).toBe(false);
+    const stopped = simulatePathWithTrace(
+      {
+        ...path,
+        constraints: { ...path.constraints, min_velocity_meters_per_sec: null },
+      },
+      config,
+      { dt_s: 0.02 },
+    );
+    expect(stopped.total_time_s).toBeGreaterThan(rolling.total_time_s);
+    expect(stopped.trace.at(-1)!.theta_rad).toBeCloseTo(Math.PI / 2);
+    expect(stopped.trace.at(-1)!.speed_mps).toBe(0);
   });
 
   it("disables ranged minimum translation baselines that exceed the paired maximum", () => {

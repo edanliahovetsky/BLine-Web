@@ -66,7 +66,7 @@ describe("Phase 2 parity harness", () => {
     });
   });
 
-  it("keeps the dense PySide simulation fixture numerically stable", () => {
+  it("preserves legacy translation timing and endpoints through the rotation-continuity fix", () => {
     const path = deserializePath(
       readJson("../tests/fixtures/simulation/top_sweep_short_depo.json"),
     );
@@ -85,11 +85,12 @@ describe("Phase 2 parity harness", () => {
     expect(result.total_time_s).toBeCloseTo(18.54, 2);
     expect(result.trail_points).toHaveLength(928);
     expectPose(result.poses_by_time.get(0), [3.376893, 5.590979, 0], 6);
-    expectPose(
-      result.poses_by_time.get(9.26),
-      [1.743742, 4.971691, 1.366353],
-      6,
-    );
+    // The old heading here included a segment-handoff discontinuity. Keep
+    // the independent translation reference; the new rotation schedule is
+    // checked against geometric continuity cases in rotationProgress.test.ts.
+    const middle = result.poses_by_time.get(9.26)!;
+    expect(middle[0]).toBeCloseTo(1.743742, 6);
+    expect(middle[1]).toBeCloseTo(4.971691, 6);
     expectPose(result.poses_by_time.get(18.54), [6.020539, 5.353239, 0], 6);
   });
 });
