@@ -57,6 +57,7 @@ export interface SimulationTraceSample {
 }
 
 export interface SimResult {
+  completed?: boolean;
   poses_by_time: Map<number, PoseTuple>;
   global_s_by_time: Map<number, number>;
   protrusion_visible_by_time: Map<number, boolean>;

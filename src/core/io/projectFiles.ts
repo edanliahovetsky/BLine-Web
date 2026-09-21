@@ -1,3 +1,4 @@
+import { isPathPreview } from "../model/pathPreview";
 import {
   createProjectConfig,
   projectConfigDefaultLookup,
@@ -204,6 +205,9 @@ function serializeProjectFileMetadata(
         robot: {
           length_meters: config.gui.robot.length_meters,
           width_meters: config.gui.robot.width_meters,
+          ...(config.gui.robot.drive_type
+            ? { drive_type: config.gui.robot.drive_type }
+            : {}),
           ...(config.gui.robot.legacy_heading_marker
             ? { legacy_heading_marker: true }
             : {}),
@@ -464,10 +468,15 @@ function isEditorConfig(input: unknown): boolean {
     hasExactKeys(gui.robot, [
       "length_meters",
       "width_meters",
+      ...(isObject(gui.robot) && gui.robot.drive_type !== undefined
+        ? ["drive_type"]
+        : []),
       ...(isObject(gui.robot) && gui.robot.legacy_heading_marker !== undefined
         ? ["legacy_heading_marker"]
         : []),
     ]) &&
+    (gui.robot.drive_type === undefined ||
+      isOneOf(gui.robot.drive_type, ["swerve", "tank", "mecanum"])) &&
     (gui.robot.legacy_heading_marker === undefined ||
       typeof gui.robot.legacy_heading_marker === "boolean") &&
     isNonNegativeNumber(gui.robot.length_meters) &&
@@ -516,6 +525,7 @@ function isProjectFilePath(input: unknown): boolean {
 function isPathEditorMetadata(input: unknown): boolean {
   if (!isObject(input)) return false;
   const allowed = [
+    "preview",
     "ranged_constraints",
     "linked_targets",
     "handoff_radius_sources",
@@ -523,6 +533,7 @@ function isPathEditorMetadata(input: unknown): boolean {
   const present = allowed.filter((key) => input[key] !== undefined);
   if (present.length === 0 || !hasExactKeys(input, present)) return false;
   return (
+    (input.preview === undefined || isPathPreview(input.preview)) &&
     (input.ranged_constraints === undefined ||
       (Array.isArray(input.ranged_constraints) &&
         input.ranged_constraints.length > 0 &&
@@ -612,8 +623,11 @@ function assertPathEditorMetadataIsLossless(
 ): void {
   const actual = serializePathEditorMetadata(path);
   const durableExpected =
-    expected?.ranged_constraints || expected?.linked_targets
+    expected?.preview ||
+    expected?.ranged_constraints ||
+    expected?.linked_targets
       ? {
+          ...(expected.preview ? { preview: expected.preview } : {}),
           ...(expected.ranged_constraints
             ? { ranged_constraints: expected.ranged_constraints }
             : {}),

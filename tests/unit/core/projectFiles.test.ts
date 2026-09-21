@@ -19,11 +19,14 @@ import {
 } from "../../../src/core/linkedTargets";
 
 describe("Project file-set codec", () => {
-  it("preserves project, path and element handoff choices through actual files", () => {
+  it("preserves handoff choices and preview preferences without exporting preview data to robot files", () => {
     const project = createProject({
       project_id: "handoff-project",
       display_name: "Handoff project",
-      config: { kinematic_constraints: { default_handoff_mode: "progress" } },
+      config: {
+        gui: { robot: { drive_type: "tank" } },
+        kinematic_constraints: { default_handoff_mode: "progress" },
+      },
       paths: [
         {
           path_id: "handoffs",
@@ -31,8 +34,15 @@ describe("Project file-set codec", () => {
           file_name: "handoffs.json",
           path: createPathModel({
             handoff_mode: "radius",
+            preview: {
+              tank_direction: "backward",
+              start_pose: { x_meters: 1, y_meters: 2, rotation_radians: 0.5 },
+            },
             path_elements: [
-              createTranslationTarget({ x_meters: 0, intermediate_handoff_radius_meters: .45 }),
+              createTranslationTarget({
+                x_meters: 0,
+                intermediate_handoff_radius_meters: 0.45,
+              }),
               createWaypoint({
                 translation_target: createTranslationTarget({
                   x_meters: 2,
@@ -40,7 +50,10 @@ describe("Project file-set codec", () => {
                   intermediate_handoff_radius_meters: 0.3,
                 }),
               }),
-              createTranslationTarget({ x_meters: 4, intermediate_handoff_radius_meters: .45 }),
+              createTranslationTarget({
+                x_meters: 4,
+                intermediate_handoff_radius_meters: 0.45,
+              }),
             ],
           }),
         },
@@ -52,6 +65,15 @@ describe("Project file-set codec", () => {
       "progress",
     );
     expect(restored.paths[0].path.handoff_mode).toBe("radius");
+    expect(restored.config.gui.robot.drive_type).toBe("tank");
+    expect(restored.paths[0].path.preview).toEqual(
+      project.paths[0].path.preview,
+    );
+    for (const file of files.filter(
+      (file) => file.relativePath !== "project.json",
+    )) {
+      expect(file.text).not.toMatch(/tank_direction|start_pose|drive_type/);
+    }
     expect(restored.paths[0].path.path_elements[1]).toMatchObject({
       translation_target: {
         handoff_mode: "progress",

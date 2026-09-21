@@ -1,3 +1,4 @@
+import { isPathPreview } from "../model/pathPreview";
 import {
   defaultAutoVelocityMergeToleranceMetersPerSec,
   projectConfigDefaultLookup,
@@ -476,6 +477,8 @@ export function applyPathEditorMetadata(
   path: PathModel,
   input: unknown,
 ): PathModel {
+  if (isObject(input) && isPathPreview(input.preview))
+    path.preview = structuredClone(input.preview);
   const rangedMetadata = readRangedConstraintMetadata(input);
   const linkedTargets = readLinkedPathElementTargets(input);
   const handoffRadiusSources = readHandoffRadiusSources(input);

@@ -1,3 +1,4 @@
+import type { PathPreview } from "./pathPreview";
 export const translationConstraintKeys = [
   "max_velocity_meters_per_sec",
   "min_velocity_meters_per_sec",
@@ -101,6 +102,7 @@ export type PathElement =
   | Waypoint;
 
 export interface PathModel {
+  preview?: PathPreview;
   handoff_mode?: HandoffMode;
   path_elements: PathElement[];
   constraints: Constraints;

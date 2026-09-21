@@ -31,11 +31,16 @@ export function serializePathEditorMetadata(
     return [metadata];
   });
 
-  if (rangedConstraints.length === 0 && linkedTargets.length === 0) {
+  if (
+    rangedConstraints.length === 0 &&
+    linkedTargets.length === 0 &&
+    !path.preview
+  ) {
     return undefined;
   }
 
   return {
+    ...(path.preview ? { preview: structuredClone(path.preview) } : {}),
     ...(rangedConstraints.length > 0
       ? { ranged_constraints: rangedConstraints }
       : {}),

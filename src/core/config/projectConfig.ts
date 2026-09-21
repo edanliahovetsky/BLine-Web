@@ -6,6 +6,8 @@ import {
   type ProjectFieldConfig,
 } from "../field/fieldConfig";
 
+export type DriveType = "swerve" | "tank" | "mecanum";
+
 export type ProtrusionSide = "none" | "left" | "right" | "front" | "back";
 export type ProtrusionState = "" | "shown" | "hidden";
 
@@ -20,6 +22,7 @@ export interface CanonicalProjectConfig {
       length_meters: number;
       width_meters: number;
       legacy_heading_marker?: boolean;
+      drive_type?: DriveType;
     };
     protrusions: {
       enabled: boolean;
@@ -156,6 +159,16 @@ function updateProjectConfig(
     input.gui.robot.legacy_heading_marker === true
   ) {
     config.gui.robot.legacy_heading_marker = true;
+  }
+
+  const driveType = lookupPath(input, ["gui", "robot", "drive_type"]);
+  if (
+    driveType.found &&
+    (driveType.value === "swerve" ||
+      driveType.value === "tank" ||
+      driveType.value === "mecanum")
+  ) {
+    config.gui.robot.drive_type = driveType.value;
   }
 
   const enabled = lookupAny(input, [

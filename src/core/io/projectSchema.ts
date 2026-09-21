@@ -1,3 +1,4 @@
+import type { PathPreview } from "../model/pathPreview";
 import type {
   AutoVelocityConstraintMetadata,
   ConstraintKey,
@@ -70,6 +71,7 @@ export interface SerializedRangedConstraintMetadata {
 }
 
 export interface SerializedPathEditorMetadata {
+  preview?: PathPreview;
   ranged_constraints?: SerializedRangedConstraintMetadata[];
   linked_targets?: SerializedLinkedPathElementTarget[];
   handoff_radius_sources?: SerializedHandoffRadiusSource[];

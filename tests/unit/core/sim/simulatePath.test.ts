@@ -41,7 +41,7 @@ describe("simulatePath", () => {
     expectPose(result.poses_by_time.get(2), [3, 1, 0.321751], 6);
   });
 
-  it("returns a single zero-time pose for one anchor", () => {
+  it("simulates a single target from the separate preview start", () => {
     const path = createPathModel({
       path_elements: [
         createTranslationTarget({ x_meters: 2.5, y_meters: -1.25 }),
@@ -50,9 +50,16 @@ describe("simulatePath", () => {
 
     const result = simulatePath(path, defaultConfig, { dt_s: 0.01 });
 
-    expect(result.total_time_s).toBe(0);
-    expect(result.times_sorted).toEqual([0]);
-    expectPose(result.poses_by_time.get(0), [2.5, -1.25, 0], 9);
+    expect(result.total_time_s).toBeGreaterThan(0);
+    expect(result.trail_points.length).toBeGreaterThan(1);
+    const { anchors } = buildSegments(path);
+    expect(anchors[0]).toEqual({ x: 0, y: 0, pathIndex: -1 });
+    expectPose(
+      result.poses_by_time.get(result.total_time_s),
+      [2.5, -1.25, 0],
+      9,
+    );
+    expect(path.path_elements).toHaveLength(1);
   });
 
   it("rejects nonpositive timesteps", () => {

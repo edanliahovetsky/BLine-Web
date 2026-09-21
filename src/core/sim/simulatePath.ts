@@ -1,3 +1,5 @@
+import { simulateTankPath } from "./simulateTankPath";
+import { hasAuthoredStart, previewStartPose } from "../model/pathPreview";
 import { RotationProgress } from "./rotationProgress";
 import {
   handoffReached,
@@ -38,7 +40,7 @@ import {
   wrapAngleRadians,
 } from "./simGeometry";
 
-interface Anchor {
+export interface Anchor {
   x: number;
   y: number;
   pathIndex: number;
@@ -84,6 +86,8 @@ function runPathSimulation(
   options: SimulationOptions,
   collectTrace: boolean,
 ): SimTraceResult {
+  if (config.gui?.robot?.drive_type === "tank")
+    return simulateTankPath(path, config, options, collectTrace);
   const dt = options.dt_s ?? 0.02;
   if (!Number.isFinite(dt) || dt <= 0) {
     throw new Error("Simulation dt_s must be a positive finite number");
@@ -157,7 +161,10 @@ function runPathSimulation(
 
   const totalPathLength = cumulativeLengths[cumulativeLengths.length - 1] ?? 0;
   const firstSegment = segments[0];
-  const startHeadingBase = defaultHeading(firstSegment);
+  const startHeadingBase =
+    anchors[0].pathIndex < 0
+      ? previewStartPose(path).rotation_radians
+      : defaultHeading(firstSegment);
   const globalKeyframes = buildGlobalRotationKeyframes(
     path,
     anchors,
@@ -192,7 +199,7 @@ function runPathSimulation(
       y_m: firstSegment.ay,
       theta_rad: initialHeading,
       segment_index: 0,
-      target_anchor_ordinal_1b: 2,
+      target_anchor_ordinal_1b: 2 - (anchors[0].pathIndex < 0 ? 1 : 0),
       global_s_m: 0,
       segment_s_m: 0,
       vx_mps: 0,
@@ -291,7 +298,8 @@ function runPathSimulation(
         ? endHeadingTarget
         : rotation.headingRadians;
     const remaining = remainingDistanceFrom(segments, segmentIndex, x, y);
-    const nextAnchorOrdinal1b = segmentIndex + 2;
+    const nextAnchorOrdinal1b =
+      segmentIndex + 2 - (anchors[0].pathIndex < 0 ? 1 : 0);
     const maxVEff = activeTranslationLimit(
       path,
       "max_velocity_meters_per_sec",
@@ -343,8 +351,8 @@ function runPathSimulation(
     const maxAlpha =
       maxAlphaEff === null ? baseMaxAlpha : degreesToRadians(maxAlphaEff);
 
-    const vPControl = Math.sqrt(2 * baseMaxA * remaining);
-    let vDesScalar = Math.max(0, Math.min(maxV, vPControl));
+    const stoppingSpeed = Math.sqrt(2 * baseMaxA * remaining);
+    let vDesScalar = Math.max(0, Math.min(maxV, stoppingSpeed));
     const angularError = shortestAngularDistance(desiredTheta, theta);
     if (
       segmentIndex === segments.length - 1 &&
@@ -488,7 +496,8 @@ function runPathSimulation(
         y_m: pose[1],
         theta_rad: pose[2],
         segment_index: segmentIndex,
-        target_anchor_ordinal_1b: segmentIndex + 2,
+        target_anchor_ordinal_1b:
+          segmentIndex + 2 - (anchors[0].pathIndex < 0 ? 1 : 0),
         global_s_m: globalSByTime.get(tKey) ?? poseGlobalS,
         segment_s_m: traceSegment
           ? projectedDistanceOnSegment(traceSegment, pose[0], pose[1])
@@ -553,6 +562,11 @@ export function buildSegments(path: PathModel): SegmentBuildResult {
     if (anchor) {
       anchors.push({ ...anchor, pathIndex });
     }
+  }
+
+  if (anchors.length > 0 && !hasAuthoredStart(path)) {
+    const start = previewStartPose(path);
+    anchors.unshift({ x: start.x_meters, y: start.y_meters, pathIndex: -1 });
   }
 
   const segments: Segment[] = [];
@@ -788,7 +802,7 @@ export function desiredHeadingForGlobalS(
   };
 }
 
-function normalizeSimulationConfig(input: unknown): SimulationConfig {
+export function normalizeSimulationConfig(input: unknown): SimulationConfig {
   if (!isRecord(input)) {
     return {};
   }
@@ -797,6 +811,14 @@ function normalizeSimulationConfig(input: unknown): SimulationConfig {
     ? input.kinematic_constraints
     : {};
   return {
+    default_end_translation_tolerance_meters: numericOption(
+      input.default_end_translation_tolerance_meters ??
+        nested.default_end_translation_tolerance_meters,
+    ),
+    default_end_rotation_tolerance_deg: numericOption(
+      input.default_end_rotation_tolerance_deg ??
+        nested.default_end_rotation_tolerance_deg,
+    ),
     default_handoff_mode: parseHandoffMode(
       input.default_handoff_mode ?? nested.default_handoff_mode,
     ),
@@ -841,7 +863,7 @@ function resolveConstraint(
   return defaultValue;
 }
 
-function resolveVelocityBaseline(
+export function resolveVelocityBaseline(
   maxValue: number,
   minValue: number,
   globalMaxValue: number,
@@ -939,7 +961,7 @@ export function activeTranslationLimit(
   return best;
 }
 
-function activeRotationLimit(
+export function activeRotationLimit(
   path: PathModel,
   rotationDomainEvents: readonly RotationDomainEvent[],
   key: RangedConstraintKey,
@@ -1012,7 +1034,7 @@ function minimumPositiveConstraint(
   return best;
 }
 
-function handoffRadiusForSegment(
+export function handoffRadiusForSegment(
   path: PathModel,
   segmentIndex: number,
   anchors: readonly Anchor[],
@@ -1034,7 +1056,7 @@ function handoffRadiusForSegment(
   return parsed !== null && parsed >= 0 ? parsed : defaultRadius;
 }
 
-function remainingDistanceFrom(
+export function remainingDistanceFrom(
   segments: readonly Segment[],
   segmentIndex: number,
   currentX: number,
@@ -1063,7 +1085,7 @@ function projectedDistanceOnSegment(
   return Math.max(0, Math.min(projected, segment.length_m));
 }
 
-function buildProtrusionVisibilityByTime(
+export function buildProtrusionVisibilityByTime(
   path: PathModel,
   rawConfig: unknown,
   anchors: readonly Anchor[],
