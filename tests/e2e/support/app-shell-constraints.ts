@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { gotoSampleEditor } from "./app-shell-shared";
 
 /** Stable authored values for tests of manual range/radius editing. */
@@ -49,8 +49,12 @@ export async function gotoManualConstraintEditor(page: Page): Promise<void> {
 
 export async function openConstraintsTab(page: Page): Promise<void> {
   const constraintsTab = page.getByRole("tab", { name: /Constraints/ });
-  if (!(await constraintsTab.isVisible())) {
-    await page.getByRole("button", { name: "Toggle inspector" }).click();
+  const toggle = page.getByRole("button", { name: "Toggle inspector" });
+  // A missing tab during reload does not mean the inspector is closed.
+  // Wait for the mounted toolbar, then read its actual expansion state.
+  await expect(toggle).toBeVisible();
+  if ((await toggle.getAttribute("aria-expanded")) === "false") {
+    await toggle.click();
   }
   await constraintsTab.click();
 }

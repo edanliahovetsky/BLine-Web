@@ -179,7 +179,8 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
   await source.getByRole("button", { name: "Manual", exact: true }).click();
   await progress.click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
-  await page.reload();
+  // Exercise opening Constraints before the new document has mounted its UI.
+  await page.reload({ waitUntil: "commit" });
   await openConstraintsTab(page);
   await page.getByTestId("handoff-radius-chip-1").click();
   await expect(progress).toHaveAttribute("aria-pressed", "true");
@@ -191,7 +192,7 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
     .screenshot({ path: testInfo.outputPath("handoff-controls-override.png") });
   await reset.click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
-  await page.reload();
+  await page.reload({ waitUntil: "commit" });
   await openConstraintsTab(page);
   await page.getByTestId("handoff-radius-chip-1").click();
   await expect(radius).toHaveAttribute("aria-pressed", "true");
