@@ -32,7 +32,7 @@ jobs:
         with:
           repository: edanliahovetsky/BLine-Lib
           # Tested 2027 API/format partner for this editor development line.
-          ref: 140bfb3b6213a6a7369d04f870f9cbbe7e57e223
+          ref: 13ed0ce72bbf41b35076e9f69d1641794f26eda3
           path: .ci/BLine-Lib
 
       - name: Setup Node

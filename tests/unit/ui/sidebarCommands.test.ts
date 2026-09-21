@@ -115,13 +115,11 @@ describe("sidebar commands", () => {
           type,
         )!;
         expect(
-          store
-            .getState()
-            .applyPathStructureEdit({
-              kind: "convert",
-              index: 1,
-              element: converted,
-            }).status,
+          store.getState().applyPathStructureEdit({
+            kind: "convert",
+            index: 1,
+            element: converted,
+          }).status,
         ).toBe("applied");
         const after = structuredClone(current());
         const loaded = deserializePath(serializePath(after));
