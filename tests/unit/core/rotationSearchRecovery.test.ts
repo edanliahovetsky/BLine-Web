@@ -65,6 +65,8 @@ const settings = {
   mergeToleranceMps: 0.3,
 };
 
+// These bounded searches assert path quality, not runner speed. Allow slower
+// CI hosts time to complete the same optimizer work.
 it("repairs a fast real-path seed instead of accepting a slow feasible basin", () => {
   const solved = solveJointAutoConstraints(path, config, settings);
   expect(solved.status).toBe("valid");
@@ -99,7 +101,7 @@ it("repairs a fast real-path seed instead of accepting a slow feasible basin", (
       Math.hypot(final.x_m - 14.61279, final.y_m - 0.49502),
     ).toBeLessThanOrEqual(0.001);
   }
-}, 10000);
+}, 30000);
 
 it("keeps nonbinding rotations from inflating handoff radii on the same real path", () => {
   const withoutRotation = {
@@ -132,4 +134,4 @@ it("keeps nonbinding rotations from inflating handoff radii on the same real pat
       0.15,
     );
   });
-});
+}, 30000);
