@@ -1332,7 +1332,7 @@ test("shows persistent save feedback in the sidebar and collapsed canvas", async
   );
 });
 
-test("adds missing waypoints from path health as one undoable fix", async ({
+test("adds a missing destination from path health as one undoable fix", async ({
   page,
 }) => {
   await gotoSampleEditor(page);
@@ -1344,16 +1344,21 @@ test("adds missing waypoints from path health as one undoable fix", async ({
   const health = page.getByRole("button", { name: "Path health: 1 issue" });
   await health.click();
   const dialog = page.getByRole("dialog", { name: "Path health" });
-  await expect(dialog).toContainText("Add two waypoints");
+  await expect(dialog).toContainText("Add a waypoint");
   await dialog
     .getByRole("button")
-    .filter({ hasText: "Add two waypoints" })
+    .filter({ hasText: "Add a waypoint" })
     .click();
 
-  await expect(rows).toHaveCount(2);
-  await expect(page.getByRole("button", { name: /^Path health/ })).toHaveCount(
-    0,
+  await expect(rows).toHaveCount(1);
+  await page.getByRole("button", { name: /^Path health/ }).click();
+  await expect(dialog).toContainText(
+    "This path starts at the robot’s current pose",
   );
+  await expect(
+    dialog.getByRole("button", { name: "Add a waypoint" }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await runEditMenuAction(page, "Undo");
   await expect(rows).toHaveCount(0);
@@ -1572,8 +1577,18 @@ test("chooses element types from a styled dropdown with pointer and keyboard @we
   await page.getByRole("tab", { name: "Elements", exact: true }).click();
   await expect(options).toHaveCount(0);
 
-  // Boundary elements still offer only the compatible position types.
+  // A leading rotation/event can now use the current-pose start.
+  // The final element must still carry a translation.
   await page.getByTestId("path-element-row-0").click();
+  await type.click();
+  await expect(options.getByRole("option")).toHaveText([
+    "Translation",
+    "Waypoint",
+    "Rotation",
+    "Event Trigger",
+  ]);
+  await type.press("Escape");
+  await page.getByTestId("path-element-row-5").click();
   await type.click();
   await expect(options.getByRole("option")).toHaveText([
     "Translation",

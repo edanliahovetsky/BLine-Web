@@ -30,6 +30,7 @@ const lessonTitles = [
   "Importing and Exporting",
   "Path Management",
   "How to use BLine offline",
+  "Advanced — Current-pose Starts",
   "Advanced — Handoff Modes",
   "Advanced — Linked Elements",
   "Advanced — Path Linking",
@@ -521,7 +522,8 @@ test("keeps the element type dropdown usable during lessons @webkit-canvas", asy
     .click();
   await expect(type).toHaveText("Translation");
   await type.press("ArrowDown");
-  await type.press("End");
+  await type.press("Home");
+  await type.press("ArrowDown");
   await type.press("Enter");
   await expect(type).toHaveText("Waypoint");
   await heading(page, "Add a rotation target");

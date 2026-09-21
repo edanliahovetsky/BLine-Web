@@ -48,6 +48,28 @@ function archive(name: string, projectId?: string) {
 }
 
 async function storedProject(page: Page) {
+  // A one-target import initializes its editor-only start after the canvas
+  // measures its viewport. Capture preservation baselines after that save.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { projectStore, activePathForProjectStore } = await import(
+          /* @vite-ignore */ "/src/state/projectStore.ts" as string
+        );
+        const { hasAuthoredStart } = await import(
+          /* @vite-ignore */ "/src/core/model/pathPreview.ts" as string
+        );
+        const path = activePathForProjectStore(projectStore.getState())?.path;
+        return (
+          !path ||
+          path.path_elements.length === 0 ||
+          hasAuthoredStart(path) ||
+          Boolean(path.preview?.start_pose)
+        );
+      }),
+    )
+    .toBe(true);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
   return page.evaluate(() => {
     const id = localStorage.getItem("bline-web:current-workspace")!;
     return { id, text: localStorage.getItem(`bline-web:workspace:${id}`) };
