@@ -9,6 +9,7 @@ import {
   gotoSampleEditor,
   openProjectSettings,
   requiredBox,
+  selectDropdownOption,
 } from "../e2e/support/app-shell-shared";
 import { modelToCanvasPoint } from "../e2e/support/app-shell-canvas";
 import {
@@ -283,9 +284,7 @@ test("preserves custom field images and User Data across offline reloads", async
   await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field", exact: true }).click();
-  await dialog
-    .getByLabel("Field Image", { exact: true })
-    .selectOption("frc2022-rapid-react");
+  await selectDropdownOption(page, "Field Image", "Rapid React 2022");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(() => activeFieldLabel(page)).toBe("Rapid React 2022");
   await expect.poll(() => activeFieldImageLoaded(page)).toBe(true);
