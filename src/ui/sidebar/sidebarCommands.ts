@@ -371,6 +371,11 @@ export function createConvertedElement(
     getElementHeadingRadians(path.path_elements, index) ?? 0;
   const handoffRadius = getExistingHandoffRadius(element);
   const handoffRadiusSource = getHandoffRadiusSource(element) ?? undefined;
+  const handoffMode = isWaypoint(element)
+    ? element.translation_target.handoff_mode
+    : isTranslationTarget(element)
+      ? element.handoff_mode
+      : undefined;
   const ratio = getExistingRatio(element);
 
   if (nextType === "translation") {
@@ -379,6 +384,7 @@ export function createConvertedElement(
       y_meters: position?.y_meters ?? field.width_meters / 2,
       intermediate_handoff_radius_meters: handoffRadius,
       handoff_radius_source: handoffRadiusSource,
+      handoff_mode: handoffMode,
     });
   }
 
@@ -389,6 +395,7 @@ export function createConvertedElement(
         y_meters: position?.y_meters ?? field.width_meters / 2,
         intermediate_handoff_radius_meters: handoffRadius,
         handoff_radius_source: handoffRadiusSource,
+        handoff_mode: handoffMode,
       }),
       rotation_target: createRotationTarget({
         rotation_radians: headingRadians,

@@ -1,5 +1,10 @@
 import { createSetHandoffModeCommand } from "../../../src/canvas/modelSync";
 import { createHistoryStore } from "../../../src/state/historyStore";
+import { createProjectStore } from "../../../src/state/projectStore";
+import {
+  deserializePath,
+  serializePath,
+} from "../../../src/core/io/projectSerde";
 import type { PathModel } from "../../../src/core/model/path";
 import { describe, expect, it } from "vitest";
 import { seedHandoffRadii } from "../../../src/core/bend/autoSeedHandoffRadii";
@@ -71,6 +76,74 @@ function applyStructureToDocument(
 }
 
 describe("sidebar commands", () => {
+  it.each(["progress", "radius", undefined] as const)(
+    "preserves handoff mode %s through anchor conversion, history and export",
+    (mode) => {
+      const path = createPathModel({
+        path_elements: [
+          createTranslationTarget(),
+          createTranslationTarget({
+            x_meters: 2,
+            handoff_mode: mode,
+            intermediate_handoff_radius_meters: 0.4,
+            handoff_radius_source: "manual",
+          }),
+          createTranslationTarget({ x_meters: 4 }),
+        ],
+      });
+      const project = createProject({
+        project_id: "conversion",
+        display_name: "Conversion",
+        paths: [
+          {
+            path_id: "test",
+            display_name: "Test",
+            file_name: "test.json",
+            path,
+          },
+        ],
+      });
+      const store = createProjectStore();
+      store.setState({ project, activePathId: "test" });
+      const current = () => store.getState().project!.paths[0].path;
+      for (const type of ["waypoint", "translation"] as const) {
+        const before = structuredClone(current());
+        const converted = createConvertedElement(
+          before,
+          project.config,
+          1,
+          type,
+        )!;
+        expect(
+          store
+            .getState()
+            .applyPathStructureEdit({
+              kind: "convert",
+              index: 1,
+              element: converted,
+            }).status,
+        ).toBe("applied");
+        const after = structuredClone(current());
+        const loaded = deserializePath(serializePath(after));
+        const element = loaded.path_elements[1];
+        const translation = isWaypoint(element)
+          ? element.translation_target
+          : element;
+        expect(translation).toMatchObject({
+          type: "translation",
+          x_meters: 2,
+          intermediate_handoff_radius_meters: 0.4,
+        });
+        expect(
+          isTranslationTarget(translation) && translation.handoff_mode,
+        ).toBe(mode);
+        store.getState().undo();
+        expect(current()).toEqual(before);
+        store.getState().redo();
+        expect(current()).toEqual(after);
+      }
+    },
+  );
   it("undoes and redoes handoff inheritance without replacing geometry or constraints", () => {
     const path = createPathModel({
       path_elements: [
