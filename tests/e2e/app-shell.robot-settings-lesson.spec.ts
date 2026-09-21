@@ -1,3 +1,4 @@
+import { selectDropdownOption } from "./support/app-shell-shared";
 import { expect, test, type Page } from "@playwright/test";
 import {
   gotoSampleEditor,
@@ -212,12 +213,8 @@ for (const viewport of [
     await page.getByRole("switch", { name: "Enable Protrusions" }).check();
     await next(page, "Set up the extension");
     await number(page, "Protrusion Distance (m)", "0.3");
-    await page
-      .getByLabel("Protrusion Side", { exact: true })
-      .selectOption("front");
-    await page
-      .getByLabel("Default Protrusion State", { exact: true })
-      .selectOption("hidden");
+    await selectDropdownOption(page, "Protrusion Side", "front");
+    await selectDropdownOption(page, "Default Protrusion State", "hidden");
     await next(page, "Connect the event keys");
     await page
       .getByRole("button", { name: "Add show event key", exact: true })
@@ -298,17 +295,13 @@ for (const viewport of [
         await next(page, "End tolerance");
       } else if (section.id === "settings-field") {
         await next(page, "Choose a competition field");
-        await page
-          .getByLabel("Field Image", { exact: true })
-          .selectOption("frc2025-reefscape");
+        await selectDropdownOption(page, "Field Image", "Reefscape 2025");
         await next(page, "See the new field");
         await expect
           .poll(() => fieldState(page))
           .toMatchObject({ id: "frc2025-reefscape", imageLoaded: true });
         await next(page, "Try the blank grid");
-        await page
-          .getByLabel("Field Image", { exact: true })
-          .selectOption("blank-grid");
+        await selectDropdownOption(page, "Field Image", "Blank Meter Grid");
         await next(page, "Resize the grid");
         await number(page, "Field Length (m)", "12");
         await number(page, "Field Width (m)", "6");

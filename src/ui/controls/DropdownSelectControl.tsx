@@ -7,12 +7,14 @@ import { useFloatingMenu } from "./useFloatingMenu";
 export function DropdownSelectControl<T extends string>({
   ariaLabel,
   menuTourTarget,
+  disabled = false,
   options,
   value,
   onChange,
 }: {
   ariaLabel: string;
   menuTourTarget?: string;
+  disabled?: boolean;
   options: readonly SelectControlOption<T>[];
   value: T;
   onChange(value: T): void;
@@ -31,7 +33,7 @@ export function DropdownSelectControl<T extends string>({
   };
   const choose = (index: number) => {
     const option = options[index];
-    if (!option || option.disabled) return;
+    if (disabled || !option || option.disabled) return;
     setOpen(false);
     onChange(option.value);
     triggerRef.current?.focus({ preventScroll: true });
@@ -57,7 +59,7 @@ export function DropdownSelectControl<T extends string>({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open ? `${listboxId}-${activeIndex}` : undefined}
-        disabled={enabledIndices.length === 0}
+        disabled={disabled || enabledIndices.length === 0}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={(event) => {
           if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -121,7 +123,7 @@ export function DropdownSelectControl<T extends string>({
           <ChevronDownIcon size={12} />
         </span>
       </button>
-      {open
+      {open && !disabled
         ? createPortal(
             <div
               ref={panelRef}

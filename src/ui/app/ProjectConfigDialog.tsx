@@ -40,12 +40,9 @@ import {
   type ProtrusionState,
 } from "../../core/config/projectConfig";
 import { pathDisplayNameFromFileName } from "../../core/model/projectIdentity";
-import {
-  CloseButton,
-  NumberStepperControl,
-  SelectControl,
-  SwitchInput,
-} from "../controls";
+import { CloseButton, NumberStepperControl, SwitchInput } from "../controls";
+
+import { DropdownSelectControl } from "../controls/DropdownSelectControl";
 
 const configSections = [
   { id: "robot", label: "Robot" },
@@ -742,7 +739,8 @@ function RobotSettingsSection({
       <ConfigSubsection title="Drivetrain">
         <label className="config-row">
           <span className="config-row__label">Drive type</span>
-          <SelectControl
+          <DropdownSelectControl
+            menuTourTarget="settings-select-options"
             ariaLabel="Drive type"
             value={draft.gui.robot.drive_type === "tank" ? "tank" : "swerve"}
             options={[
@@ -1055,7 +1053,8 @@ function FieldSelectRow({
   return (
     <label className="config-row" data-tour="settings-field-select">
       <span className="config-row__label">Field Image</span>
-      <SelectControl
+      <DropdownSelectControl
+        menuTourTarget="settings-select-options"
         ariaLabel="Field Image"
         value={value}
         options={[
@@ -1187,7 +1186,8 @@ function SelectRow({
   return (
     <label className={`config-row${disabled ? " is-disabled" : ""}`}>
       <span className="config-row__label">{label}</span>
-      <SelectControl
+      <DropdownSelectControl
+        menuTourTarget="settings-select-options"
         ariaLabel={label}
         value={value}
         disabled={disabled}

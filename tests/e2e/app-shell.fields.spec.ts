@@ -1,3 +1,4 @@
+import { selectDropdownOption } from "./support/app-shell-shared";
 import { expect, test, type Page } from "@playwright/test";
 import { canvasNodePositionOrNull } from "./support/app-shell-canvas";
 import { runEditMenuAction } from "./support/app-shell-commands";
@@ -63,10 +64,8 @@ test("edits project config with undo support", async ({ page }) => {
     dialog.getByTitle("Increase Protrusion Distance (m)"),
   ).toBeEnabled();
   await expect(dialog.getByLabel("Protrusion Side")).toBeEnabled();
-  await expect(page.getByLabel("Default Protrusion State")).toHaveValue(
-    "shown",
-  );
-  await page.getByLabel("Protrusion Side").selectOption("front");
+  await expect(page.getByLabel("Default Protrusion State")).toHaveText("shown");
+  await selectDropdownOption(page, "Protrusion Side", "front");
   await page
     .getByRole("button", { name: "Add show event key", exact: true })
     .click();
@@ -105,7 +104,11 @@ test("uploads and restores a custom field image from Settings", async ({
   const saveButton = dialog.getByRole("button", { name: "Save" });
   await expect(dialog).toBeVisible();
 
-  const fieldOptions = await fieldSelect.locator("option").allTextContents();
+  await fieldSelect.click();
+  const fieldOptions = await page
+    .getByRole("listbox", { name: "Field Image options" })
+    .getByRole("option")
+    .allTextContents();
   expect(fieldOptions).toEqual(
     expect.arrayContaining([
       "Rapid React 2022",
@@ -118,7 +121,10 @@ test("uploads and restores a custom field image from Settings", async ({
     ]),
   );
 
-  await fieldSelect.selectOption("blank-grid");
+  await page
+    .getByRole("listbox", { name: "Field Image options" })
+    .getByRole("option", { name: "Blank Meter Grid", exact: true })
+    .click();
   await expect(dialog.getByTestId("field-preview")).toBeVisible();
   await dialog.getByLabel("Upload field image").setInputFiles({
     name: "practice-field.png",
@@ -237,11 +243,13 @@ test("keeps uploaded and replacement Field images as drafts until Settings is sa
   await openProjectSettings(page);
   dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field" }).click();
+  await dialog.getByLabel("Field Image", { exact: true }).click();
   await expect(
-    dialog.getByLabel("Field Image", { exact: true }).getByRole("option", {
-      name: "cancelled field.png",
-    }),
+    page
+      .getByRole("listbox", { name: "Field Image options" })
+      .getByRole("option", { name: "cancelled field.png" }),
   ).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await dialog.getByLabel("Upload field image").setInputFiles({
     name: "saved-field.png",
@@ -541,6 +549,23 @@ test("cancels project config edits with Escape", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Robot" }).click();
+  const driveType = page.getByRole("combobox", {
+    name: "Drive type",
+    exact: true,
+  });
+  await driveType.click();
+  await expect(
+    page
+      .getByRole("listbox", { name: "Drive type options" })
+      .getByRole("option", { name: "Swerve / Mecanum" }),
+  ).toHaveAttribute("aria-selected", "true");
+  await driveType.press("End");
+  await driveType.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect(driveType).toHaveText("Swerve / Mecanum");
+  await driveType.press("End");
+  await driveType.press("Enter");
+  await expect(driveType).toHaveText("Tank");
   await page.getByLabel("Robot Width (m)").fill("0.725");
   await expect(dialog.getByRole("button", { name: "Save" })).toBeEnabled();
 
@@ -642,9 +667,7 @@ test("resizes the blank grid with saved dimensions and undo @webkit-canvas", asy
   await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
   await dialog.getByRole("button", { name: "Field", exact: true }).click();
-  await dialog
-    .getByLabel("Field Image", { exact: true })
-    .selectOption("blank-grid");
+  await selectDropdownOption(page, "Field Image", "Blank Meter Grid");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(gridSize).toEqual([18, 9]);
   await openProjectSettings(page);

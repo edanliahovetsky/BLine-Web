@@ -78,3 +78,16 @@ export async function waitForEditorReady(page: Page): Promise<void> {
   await expect(status).toBeVisible();
   await expect(status).not.toContainText("Loading");
 }
+
+/** Select a visible option in the shared portaled dropdown. */
+export async function selectDropdownOption(
+  page: Page,
+  label: string,
+  option: string,
+): Promise<void> {
+  await page.getByRole("combobox", { name: label, exact: true }).click();
+  await page
+    .getByRole("listbox", { name: `${label} options`, exact: true })
+    .getByRole("option", { name: option, exact: true })
+    .click();
+}

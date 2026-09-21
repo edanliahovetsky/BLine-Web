@@ -3738,9 +3738,15 @@ select {
   height: 30px;
 }
 
-.config-row .bline-select-control {
+.config-row .bline-select-control,
+.config-row .dropdown-select-control {
   min-width: 0;
   width: 100%;
+}
+
+.config-row .dropdown-select-control__button {
+  height: 30px;
+  min-height: 30px;
 }
 
 .config-row .sidebar-number-control input {

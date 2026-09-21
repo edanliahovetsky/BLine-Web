@@ -1,3 +1,4 @@
+import { selectDropdownOption } from "./support/app-shell-shared";
 import { expect, test, type Page } from "@playwright/test";
 import {
   canvasMetrics,
@@ -98,9 +99,7 @@ for (const background of ["built-in", "grid", "custom"] as const) {
       const dialog = page.getByRole("dialog", { name: "Edit Config" });
       await dialog.getByRole("button", { name: "Field", exact: true }).click();
       if (background === "grid") {
-        await dialog
-          .getByLabel("Field Image", { exact: true })
-          .selectOption("blank-grid");
+        await selectDropdownOption(page, "Field Image", "Blank Meter Grid");
       } else {
         await dialog.getByLabel("Upload field image").setInputFiles({
           name: "practice-field.png",

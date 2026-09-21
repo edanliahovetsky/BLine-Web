@@ -36,6 +36,15 @@ test.describe("shared theme across dialogs and nested controls", () => {
         page,
         `settings-${section.toLowerCase().replaceAll(" ", "-")}.png`,
       );
+      if (section === "Robot") {
+        await dialog
+          .getByRole("combobox", { name: "Drive type", exact: true })
+          .click();
+        await expect(
+          page.getByRole("listbox", { name: "Drive type options" }),
+        ).toBeVisible();
+        await snapshot(page, "settings-drive-type-options.png");
+      }
     });
   }
 

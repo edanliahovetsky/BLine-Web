@@ -1,3 +1,4 @@
+import { selectDropdownOption } from "./support/app-shell-shared";
 import {
   installSaveFilePickerSpy,
   openProjectMenu,
@@ -19,9 +20,7 @@ test("tank driving direction persists with Undo/Redo and fits beside playback @w
   await gotoSampleEditor(page);
   await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
-  await dialog
-    .getByRole("combobox", { name: "Drive type", exact: true })
-    .selectOption("tank");
+  await selectDropdownOption(page, "Drive type", "Tank");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   const backward = page.getByRole("button", {
     name: "Drive backward",
@@ -92,9 +91,7 @@ test("tank driving direction persists with Undo/Redo and fits beside playback @w
   ).toBeLessThan(1);
   expect(direction.x + direction.width).toBeLessThanOrEqual(save.x);
   await openProjectSettings(page);
-  await dialog
-    .getByRole("combobox", { name: "Drive type", exact: true })
-    .selectOption({ label: "Swerve / Mecanum" });
+  await selectDropdownOption(page, "Drive type", "Swerve / Mecanum");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(backward).toHaveCount(0);
   await expect(

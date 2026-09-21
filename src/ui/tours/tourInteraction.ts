@@ -68,6 +68,8 @@ export function tourInteractionTargets(step: TourStep): readonly string[] {
     targets.includes("element-properties")
   )
     targets.push("event-key-options");
+  if (targets.some((target) => target.startsWith("settings-")))
+    targets.push("settings-select-options");
   // Inspector menus render in a portal, outside their owning control's DOM.
   if (!step.lockGeometry) {
     if (targets.includes("inspector-panel")) targets.push("element-add-menu");
