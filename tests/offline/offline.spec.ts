@@ -384,6 +384,16 @@ test("online refresh opens the new release while an editing tab waits, then upda
   await oldTab.goto(production.url);
   await oldTab.getByTestId("path-element-row-0").click();
   await oldTab.getByLabel("X (m)", { exact: true }).focus();
+  // A same-URL register() can return the existing worker without checking its
+  // script. Observe the app's explicit update check so this test cannot pass
+  // only because Chromium happened to schedule a navigation soft update.
+  await page.addInitScript(() => {
+    const update = ServiceWorkerRegistration.prototype.update;
+    ServiceWorkerRegistration.prototype.update = function () {
+      document.documentElement.dataset.offlineUpdateRequested = "true";
+      return update.call(this);
+    };
+  });
   production.publishUpdate();
   await page.reload();
   await expect.poll(() => pageRelease(page)).toBe(next);
@@ -391,6 +401,10 @@ test("online refresh opens the new release while an editing tab waits, then upda
   await expect(page.locator("html")).toHaveAttribute(
     "data-offline-test-build",
     "next",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-offline-update-requested",
+    "true",
   );
   await awaitOfflineRelease(page, next);
   await oldTab.waitForTimeout(1500);

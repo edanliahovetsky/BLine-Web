@@ -67,8 +67,7 @@ export function registerOfflineApp(
   let disposed = false;
   let registration: ServiceWorkerRegistration | undefined;
   const register = () => {
-    // Registering again also checks for updates, including retrying an
-    // interrupted first download when the connection comes back.
+    // Retry an interrupted first download when the connection comes back.
     if (disposed) return;
     reportRelease();
     if (
@@ -86,7 +85,11 @@ export function registerOfflineApp(
       })
       .then((installed) => {
         registration = installed;
-        if (!disposed) reportRelease();
+        if (disposed) return;
+        reportRelease();
+        // A same-URL register() can return an existing worker without checking
+        // for new bytes. Do not rely on the browser's navigation update timing.
+        if (installed.active) return installed.update();
       })
       .catch(() => {
         // An offline visit or unavailable storage must not prevent editing.
