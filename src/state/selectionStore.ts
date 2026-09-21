@@ -14,8 +14,13 @@ export interface SelectedRangedConstraint {
 
 export interface SelectionState {
   selectedElementIndex: number | null;
+  elementSelectionKind: "element" | "handoff";
   selectedRangedConstraint: SelectedRangedConstraint | null;
-  selectElement(index: number | null, path?: PathModel | null): void;
+  selectElement(
+    index: number | null,
+    path?: PathModel | null,
+    kind?: "element" | "handoff",
+  ): void;
   selectRangedConstraint(
     selection: SelectedRangedConstraint | null,
     path?: PathModel | null,
@@ -30,9 +35,11 @@ export type SelectionStore = StoreApi<SelectionState>;
 export function createSelectionStore(): SelectionStore {
   return createStore<SelectionState>((set, get) => ({
     selectedElementIndex: null,
+    elementSelectionKind: "element",
     selectedRangedConstraint: null,
-    selectElement(index, path) {
+    selectElement(index, path, kind = "element") {
       set({
+        elementSelectionKind: kind,
         selectedElementIndex:
           path === undefined
             ? normalizeRawSelection(index)
@@ -43,6 +50,7 @@ export function createSelectionStore(): SelectionStore {
     selectRangedConstraint(selection, path) {
       set({
         selectedElementIndex: null,
+        elementSelectionKind: "element",
         selectedRangedConstraint:
           path === undefined
             ? normalizeRawRangedConstraintSelection(selection)
@@ -50,7 +58,11 @@ export function createSelectionStore(): SelectionStore {
       });
     },
     clearSelection() {
-      set({ selectedElementIndex: null, selectedRangedConstraint: null });
+      set({
+        selectedElementIndex: null,
+        elementSelectionKind: "element",
+        selectedRangedConstraint: null,
+      });
     },
     clearRangedConstraintSelection() {
       set({ selectedRangedConstraint: null });

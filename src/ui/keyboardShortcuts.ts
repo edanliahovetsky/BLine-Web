@@ -46,9 +46,15 @@ export function isInteractiveShortcutTarget(
 
 export function removeSelectedPathElement(): boolean {
   const path = activePathForProjectStore(projectStore.getState())?.path;
-  const selectedElementIndex = selectionStore.getState().selectedElementIndex;
+  const { selectedElementIndex, elementSelectionKind } =
+    selectionStore.getState();
 
-  if (!path || selectedElementIndex === null) {
+  // Radius selection highlights its anchor for context, not structural editing.
+  if (
+    !path ||
+    selectedElementIndex === null ||
+    elementSelectionKind === "handoff"
+  ) {
     return false;
   }
 

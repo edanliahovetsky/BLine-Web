@@ -205,6 +205,45 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
   await expect(row).toHaveCount(0);
 });
 
+test("deleting a handoff selection never removes its path element", async ({
+  page,
+}) => {
+  await importHandoffPath(page, [
+    [1, 1, null],
+    [4, 1, 0.45],
+    [4, 4, null],
+  ]);
+  const chip = page.getByTestId("handoff-radius-chip-1");
+  await chip.click();
+  for (const key of ["Delete", "Backspace"]) {
+    await chip.press(key);
+    // Retain the radius selection while focus moves to the canvas. Both its
+    // own handler and the global shortcut must respect the selected object.
+    await page.getByTestId("path-stage-canvas").focus();
+    await page.keyboard.press(key);
+    await expect(
+      page.locator('[data-testid^="handoff-radius-chip-"]'),
+    ).toHaveCount(3);
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
+  }
+  await page.getByRole("tab", { name: "Elements", exact: true }).click();
+  await page.getByTestId("path-element-row-1").click();
+  await page.keyboard.press("Delete");
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    2,
+  );
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator('[data-testid^="path-element-row-"]')).toHaveCount(
+    3,
+  );
+  await openConstraintsTab(page);
+  await page.getByTestId("path-stage-canvas").focus();
+  await page.keyboard.press("Delete");
+  await expect(
+    page.locator('[data-testid^="handoff-radius-chip-"]'),
+  ).toHaveCount(3);
+});
+
 async function importHandoffPath(
   page: Page,
   anchors: Array<[number, number, number | null]>,

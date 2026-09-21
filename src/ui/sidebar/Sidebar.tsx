@@ -372,6 +372,14 @@ export function Sidebar({
   };
 
   const handleSelectTab = (tab: "elements" | "constraints") => {
+    const selection = selectionStore.getState();
+    if (selection.selectedElementIndex !== null) {
+      selection.selectElement(
+        selection.selectedElementIndex,
+        activePath?.path,
+        tab === "constraints" ? "handoff" : "element",
+      );
+    }
     onActiveTabChange?.(tab);
     writeEditorUiPreferences({
       ...readEditorUiPreferences(),

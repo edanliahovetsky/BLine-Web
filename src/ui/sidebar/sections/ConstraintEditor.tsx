@@ -845,7 +845,7 @@ function AutoConstraintLedgerCard({
       activePathForProjectStore(projectStore.getState())?.path ?? path;
     selectionStore
       .getState()
-      .selectElement(nextSelection.focusIndex, latestPath);
+      .selectElement(nextSelection.focusIndex, latestPath, "handoff");
   };
 
   return (
