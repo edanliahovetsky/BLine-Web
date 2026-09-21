@@ -252,15 +252,20 @@ test("reopens, edits, simulates, and starts the optimizer offline", async ({
   await expect.poll(() => savedFileCount(page)).toBe(1);
   const exported = JSON.parse((await savedFile(page, 0)).text);
   expect(exported.path_elements[0].translation_target.x_meters).toBe(6.25);
+  const timeline = page.getByLabel("Simulation time", { exact: true });
+  const duration = Number(await timeline.getAttribute("max"));
+  expect(duration).toBeGreaterThan(0);
   await page
     .getByRole("button", { name: "Play simulation", exact: true })
     .click();
+  // Let the short path finish. A remote Pause click can arrive after playback
+  // has already ended, when that button correctly no longer exists.
   await expect
-    .poll(() => page.getByTestId("simulation-time").innerText())
-    .not.toMatch(/^0\.00/);
-  await page
-    .getByRole("button", { name: "Pause simulation", exact: true })
-    .click();
+    .poll(async () => Number(await timeline.inputValue()))
+    .toBeCloseTo(duration, 2);
+  await expect(
+    page.getByRole("button", { name: "Play simulation", exact: true }),
+  ).toBeVisible();
 
   await openConstraintsTab(page);
   const card = page.getByTestId("constraint-card-max_velocity_meters_per_sec");

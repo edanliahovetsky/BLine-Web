@@ -348,22 +348,52 @@ for (const [width, height] of [
       await expect
         .poll(async () => Number(await stage.getAttribute("data-lesson-time")))
         .toBeGreaterThan(0);
-      await advance(page);
-      await heading(page, "Cross the handoff radius");
-      await expect(stage).toHaveAttribute(
-        "data-lesson-phase",
-        "handoff-crossing",
-      );
-      await expect
-        .poll(async () => Number(await stage.getAttribute("data-lesson-zoom")))
-        .toBeGreaterThan(1.5);
-      await expect
-        .poll(
-          async () =>
-            Number(await canvas.getAttribute("data-simulation-event-pulse")),
-          { timeout: 15_000 },
-        )
-        .toBeGreaterThan(0.1);
+      // Capture rendered frames before playback starts. Remote polling can miss
+      // the brief handoff flash entirely on a busy runner.
+      const pulse = await canvas.evaluateHandle((element) => {
+        const result = { peak: 0 };
+        const observer = new MutationObserver(() => {
+          if (
+            element
+              .closest('[data-testid="path-stage"]')
+              ?.getAttribute("data-lesson-phase") === "handoff-crossing"
+          )
+            result.peak = Math.max(
+              result.peak,
+              Number(element.getAttribute("data-simulation-event-pulse") ?? 0),
+            );
+        });
+        observer.observe(element, {
+          attributes: true,
+          attributeFilter: ["data-simulation-event-pulse"],
+        });
+        return { result, stop: () => observer.disconnect() };
+      });
+      try {
+        await advance(page);
+        await heading(page, "Cross the handoff radius");
+        await expect(stage).toHaveAttribute(
+          "data-lesson-phase",
+          "handoff-crossing",
+        );
+        // Advance through the whole animation, including the flash fading out.
+        await page.clock.runFor(6_000);
+        await expect
+          .poll(async () =>
+            Number(await stage.getAttribute("data-lesson-zoom")),
+          )
+          .toBeGreaterThan(1.5);
+        await expect(canvas).toHaveAttribute(
+          "data-simulation-event-pulse",
+          "0.000",
+        );
+        await expect
+          .poll(() => pulse.evaluate(({ result }) => result.peak))
+          .toBeGreaterThan(0.1);
+      } finally {
+        await pulse.evaluate(({ stop }) => stop());
+        await pulse.dispose();
+      }
       await expect(page.getByTestId("tour-active-target")).toHaveAttribute(
         "data-target",
         "End",
