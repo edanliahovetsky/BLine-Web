@@ -259,6 +259,52 @@ describe("sidebar commands", () => {
     }
   });
 
+  it("seeds only the second anchor from the ghost pose without mutating it", () => {
+    const project = exampleProject();
+    const ghost = { x_meters: 2.3, y_meters: 4.1, rotation_radians: 0.73 };
+    const path = createPathModel({
+      path_elements: [createWaypoint()],
+      preview: { start_pose: ghost },
+    });
+    for (const type of ["translation", "waypoint"] as const) {
+      for (const selected of [null, 0]) {
+        const element = createDefaultElement(
+          path,
+          project.config,
+          type,
+          selected,
+        );
+        const translation = isWaypoint(element)
+          ? element.translation_target
+          : element;
+        expect(translation).toMatchObject({
+          x_meters: ghost.x_meters,
+          y_meters: ghost.y_meters,
+        });
+        if (isWaypoint(element))
+          expect(element.rotation_target.rotation_radians).toBe(
+            ghost.rotation_radians,
+          );
+        const extended = {
+          ...path,
+          path_elements: [...path.path_elements, element],
+        };
+        const third = createDefaultElement(
+          extended,
+          project.config,
+          "translation",
+          1,
+        );
+        expect(third).toMatchObject({
+          x_meters: ghost.x_meters + 0.75,
+          y_meters: ghost.y_meters + 0.35,
+        });
+      }
+    }
+    expect(path.path_elements).toHaveLength(1);
+    expect(path.preview?.start_pose).toEqual(ghost);
+  });
+
   it("bounds new translation elements by the field, not robot size", () => {
     const project = createProjectDocument({
       project_id: "project-a",

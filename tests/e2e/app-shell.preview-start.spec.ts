@@ -104,4 +104,53 @@ test("ghost starts at the canvas center, uses waypoint drag/rotation and survive
       rotation_radians: expect.closeTo(final.rotation_radians, 4),
     });
   await expect(page.getByTestId("path-element-row-1")).toHaveCount(0);
+
+  // Adding a second anchor reuses the edited ghost rather than the old +x/+y
+  // offset. Undo must bring back the same private preview pose.
+  for (const type of ["Translation", "Waypoint"]) {
+    const ghost = await previewPose(page);
+    const ghostPosition = await canvasNodePosition(
+      page,
+      "path-element-node--1",
+    );
+    await page
+      .getByRole("button", { name: "Add element", exact: true })
+      .click();
+    await page.getByRole("menuitem", { name: type, exact: true }).click();
+    await expect(page.getByTestId("path-element-row-1")).toContainText(type);
+    await expect
+      .poll(() => canvasNodePosition(page, "path-element-node-1"))
+      .toMatchObject({
+        x: expect.closeTo(ghostPosition.x, 3),
+        y: expect.closeTo(ghostPosition.y, 3),
+      });
+    await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue(
+      String(Number(ghost.x_meters.toFixed(2))),
+    );
+    await expect(page.getByLabel("Y (m)", { exact: true })).toHaveValue(
+      String(Number(ghost.y_meters.toFixed(2))),
+    );
+    if (type === "Waypoint") {
+      const radians = await page.evaluate(async () => {
+        const { projectStore, activePathForProjectStore } = await import(
+          /* @vite-ignore */ "/src/state/projectStore.ts" as string
+        );
+        return activePathForProjectStore(projectStore.getState())!.path
+          .path_elements[1].rotation_target.rotation_radians;
+      });
+      expect(radians).toBe(ghost.rotation_radians);
+    }
+    await expect.poll(() => previewPose(page)).toEqual(ghost);
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect(page.getByTestId("path-element-row-1")).toHaveCount(0);
+    await expect
+      .poll(() => canvasNodePosition(page, "path-element-node--1"))
+      .toMatchObject({
+        x: expect.closeTo(ghostPosition.x, 3),
+        y: expect.closeTo(ghostPosition.y, 3),
+      });
+    await page.getByRole("button", { name: "Redo", exact: true }).click();
+    await expect(page.getByTestId("path-element-row-1")).toContainText(type);
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+  }
 });

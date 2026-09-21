@@ -294,11 +294,20 @@ export function createDefaultElement(
   const resolvedType = getAddableElementTypes(path).includes(type)
     ? type
     : "translation";
-  const position = defaultPosition(path, field, selectedIndex);
+  // When the ghost disappears, seed the new anchor from the pose the user
+  // already positioned. Explicit canvas placement still supplies its own x/y.
+  const ghostPose =
+    path.path_elements.length === 1 &&
+    countAnchorElements(path.path_elements) === 1 &&
+    (resolvedType === "translation" || resolvedType === "waypoint")
+      ? path.preview?.start_pose
+      : undefined;
+  const position = ghostPose ?? defaultPosition(path, field, selectedIndex);
   const headingRadians =
-    selectedIndex === null
+    ghostPose?.rotation_radians ??
+    (selectedIndex === null
       ? 0
-      : (getElementHeadingRadians(path.path_elements, selectedIndex) ?? 0);
+      : (getElementHeadingRadians(path.path_elements, selectedIndex) ?? 0));
 
   if (resolvedType === "translation") {
     return createTranslationTarget({

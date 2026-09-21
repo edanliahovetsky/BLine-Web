@@ -419,11 +419,16 @@ test("creates every path element type from the inspector menu", async ({
   await expect(page.getByLabel("X (m)")).toHaveValue("9.52");
   await expect(page.getByLabel("Y (m)")).toHaveValue("4.89");
 
+  const ghostPosition = await canvasNodePosition(page, "path-element-node--1");
   await addElement.click();
   await page.getByRole("menuitem", { name: "Waypoint" }).click();
   await expect(page.getByLabel("Rotation (deg)")).toHaveValue("0");
-  await expect(page.getByLabel("X (m)")).toHaveValue("10.27");
-  await expect(page.getByLabel("Y (m)")).toHaveValue("5.24");
+  await expect
+    .poll(() => canvasNodePosition(page, "path-element-node-1"))
+    .toMatchObject({
+      x: expect.closeTo(ghostPosition.x, 3),
+      y: expect.closeTo(ghostPosition.y, 3),
+    });
 
   await addElement.click();
   menu = page.getByRole("menu");
