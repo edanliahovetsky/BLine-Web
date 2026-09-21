@@ -16,8 +16,6 @@ import {
   type WheelEvent,
 } from "react";
 import {
-  ArrowLeft,
-  ArrowRight,
   Eye,
   EyeOff,
   Focus,
@@ -58,6 +56,7 @@ import {
   ElementIcon,
   SkipBackIcon,
   SkipForwardIcon,
+  TankPreviewDirectionIcon,
 } from "../ui/icons";
 import { IconButton } from "../ui/controls";
 import type { EditorTool } from "../ui/app/editorCommands";
@@ -2129,6 +2128,9 @@ export function PathStage({
           />
         )}
         <SimulationTransport
+          legacyAppearance={
+            durableProject?.config.gui.robot.legacy_heading_marker
+          }
           tankDirection={
             durableProject?.config.gui.robot.drive_type === "tank" && activePath
               ? (activePath.path.preview?.tank_direction ?? "forward")
@@ -2477,6 +2479,7 @@ function placementForPointer(
 }
 
 function SimulationTransport({
+  legacyAppearance,
   tankDirection,
   onTankDirectionChange,
   result,
@@ -2489,6 +2492,7 @@ function SimulationTransport({
   onFinish,
   onSeek,
 }: {
+  legacyAppearance?: boolean;
   tankDirection?: "forward" | "backward";
   onTankDirectionChange(direction: "forward" | "backward"): void;
   result: SimResult | null;
@@ -2588,21 +2592,29 @@ function SimulationTransport({
         >
           <button
             type="button"
-            aria-label="Drive backward in preview"
-            title="Drive backward in preview"
+            aria-label="Preview driving backward"
+            title="Preview driving backward"
             aria-pressed={tankDirection === "backward"}
             onClick={() => onTankDirectionChange("backward")}
           >
-            <ArrowLeft size={18} aria-hidden="true" />
+            <TankPreviewDirectionIcon
+              direction="backward"
+              legacyAppearance={legacyAppearance}
+              size={24}
+            />
           </button>
           <button
             type="button"
-            aria-label="Drive forward in preview"
-            title="Drive forward in preview"
+            aria-label="Preview driving forward"
+            title="Preview driving forward"
             aria-pressed={tankDirection === "forward"}
             onClick={() => onTankDirectionChange("forward")}
           >
-            <ArrowRight size={18} aria-hidden="true" />
+            <TankPreviewDirectionIcon
+              direction="forward"
+              legacyAppearance={legacyAppearance}
+              size={24}
+            />
           </button>
         </div>
       )}

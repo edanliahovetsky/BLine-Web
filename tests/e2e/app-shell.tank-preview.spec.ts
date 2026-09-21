@@ -7,7 +7,7 @@ import {
 
 test("tank preview direction persists with Undo/Redo and fits beside playback @webkit-canvas", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await gotoSampleEditor(page);
   await openProjectSettings(page);
@@ -17,11 +17,11 @@ test("tank preview direction persists with Undo/Redo and fits beside playback @w
     .selectOption("tank");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   const backward = page.getByRole("button", {
-    name: "Drive backward in preview",
+    name: "Preview driving backward",
     exact: true,
   });
   const forward = page.getByRole("button", {
-    name: "Drive forward in preview",
+    name: "Preview driving forward",
     exact: true,
   });
   await expect(forward).toHaveAttribute("aria-pressed", "true");
@@ -34,6 +34,32 @@ test("tank preview direction persists with Undo/Redo and fits beside playback @w
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   await page.reload();
   await expect(backward).toHaveAttribute("aria-pressed", "true");
+  for (const legacy of [true, false]) {
+    await openProjectSettings(page);
+    await dialog
+      .getByRole("switch", { name: "Legacy appearance", exact: true })
+      .setChecked(legacy);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    for (const [direction, button] of [
+      ["forward", forward],
+      ["backward", backward],
+    ] as const) {
+      await button.click();
+      await expect(button).toHaveAttribute("aria-pressed", "true");
+      await expect(button).toHaveAttribute(
+        "title",
+        `Preview driving ${direction}`,
+      );
+      const bounds = await requiredBox(button);
+      expect(bounds.width).toBe(32);
+      expect(bounds.height).toBe(32);
+      await page.locator(".simulation-transport-row").screenshot({
+        path: testInfo.outputPath(
+          `${legacy ? "legacy" : "regular"}-${direction}.png`,
+        ),
+      });
+    }
+  }
   await page
     .getByRole("button", { name: "Toggle inspector", exact: true })
     .click();

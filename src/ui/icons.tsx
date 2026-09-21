@@ -224,6 +224,30 @@ export function ElementIcon({
   );
 }
 
+/** The same forward-facing waypoint in both states; only the wheel arrows reverse. */
+export function TankPreviewDirectionIcon({
+  direction,
+  legacyAppearance = false,
+  ...props
+}: IconProps & {
+  direction: "forward" | "backward";
+  legacyAppearance?: boolean;
+}) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...iconProps(props)}>
+      <g transform="translate(3 3) scale(.75)">
+        <ElementSymbol type="waypoint" legacyAppearance={legacyAppearance} />
+      </g>
+      <g
+        strokeWidth={1.5}
+        transform={direction === "backward" ? "rotate(180 12 12)" : undefined}
+      >
+        <path d="M2.5 19V5m-1.5 2.5L2.5 5 4 7.5M21.5 19V5M20 7.5 21.5 5 23 7.5" />
+      </g>
+    </svg>
+  );
+}
+
 export function ElementBadge({
   type,
   legacyAppearance = false,
