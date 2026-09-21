@@ -11,6 +11,7 @@ import {
 import {
   buildSegments,
   buildGlobalRotationKeyframes,
+  buildRotationDomainEvents,
   desiredHeadingForGlobalS,
   simulatePath,
   simulatePathWithTrace,
@@ -61,6 +62,38 @@ describe("simulatePath", () => {
       9,
     );
     expect(path.path_elements).toHaveLength(1);
+  });
+
+  it("uses the ghost anchor for leading rotation targets and their ranged limits", () => {
+    const path = createPathModel({
+      preview: {
+        start_pose: { x_meters: 0, y_meters: 0, rotation_radians: 0 },
+      },
+      path_elements: [
+        createRotationTarget({ rotation_radians: Math.PI / 2, t_ratio: 0.5 }),
+        createTranslationTarget({ x_meters: 2 }),
+      ],
+      ranged_constraints: [
+        {
+          key: "max_velocity_deg_per_sec",
+          value: 30,
+          start_ordinal: 1,
+          end_ordinal: 1,
+        },
+      ],
+    });
+    const { anchors, cumulativeLengths } = buildSegments(path);
+    expect(buildRotationDomainEvents(path, anchors, cumulativeLengths)).toEqual(
+      [{ event_ordinal_1b: 1, s_m: 1 }],
+    );
+    const result = simulatePathWithTrace(path, defaultConfig);
+    expect(result.trace[0].theta_rad).toBe(0);
+    expect(result.trace.at(-1)!.theta_rad).toBeCloseTo(Math.PI / 2, 6);
+    const peakOmega = Math.max(
+      ...result.trace.map((sample) => Math.abs(sample.omega_radps)),
+    );
+    expect(peakOmega).toBeGreaterThan(0.1);
+    expect(peakOmega).toBeLessThanOrEqual(Math.PI / 6 + 1e-9);
   });
 
   it("rejects nonpositive timesteps", () => {
@@ -403,43 +436,48 @@ describe("simulatePath", () => {
     );
   });
 
-  it("toggles protrusion visibility from named event triggers", () => {
-    const path = createPathModel({
-      path_elements: [
-        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
-        createEventTrigger({ t_ratio: 0.25, lib_key: "deploy" }),
-        createEventTrigger({ t_ratio: 0.75, lib_key: "stow" }),
-        createTranslationTarget({ x_meters: 4, y_meters: 0 }),
-      ],
-    });
+  it.each([false, true])(
+    "toggles protrusion visibility from named event triggers (ghost start: %s)",
+    (ghost) => {
+      const path = createPathModel({
+        path_elements: [
+          ...(!ghost
+            ? [createTranslationTarget({ x_meters: 0, y_meters: 0 })]
+            : []),
+          createEventTrigger({ t_ratio: 0.25, lib_key: "deploy" }),
+          createEventTrigger({ t_ratio: 0.75, lib_key: "stow" }),
+          createTranslationTarget({ x_meters: 4, y_meters: 0 }),
+        ],
+      });
 
-    const result = simulatePath(
-      path,
-      {
-        ...defaultConfig,
-        gui: {
-          robot: {
-            length_meters: 0.5,
-            width_meters: 0.5,
-          },
-          protrusions: {
-            enabled: true,
-            distance_meters: 0.25,
-            side: "front",
-            default_state: "hidden",
-            show_on_event_keys: ["deploy"],
-            hide_on_event_keys: ["stow"],
+      const result = simulatePath(
+        path,
+        {
+          ...defaultConfig,
+          gui: {
+            robot: {
+              length_meters: 0.5,
+              width_meters: 0.5,
+            },
+            protrusions: {
+              enabled: true,
+              distance_meters: 0.25,
+              side: "front",
+              default_state: "hidden",
+              show_on_event_keys: ["deploy"],
+              hide_on_event_keys: ["stow"],
+            },
           },
         },
-      },
-      { dt_s: 0.01 },
-    );
+        { dt_s: 0.01 },
+      );
 
-    expect(result.protrusion_visible_by_time.get(0)).toBe(false);
-    expect(visibilityAtOrAfterS(result, 1)).toBe(true);
-    expect(visibilityAtOrAfterS(result, 2)).toBe(true);
-    expect(visibilityAtOrAfterS(result, 3)).toBe(false);
-  });
+      expect(result.protrusion_visible_by_time.get(0)).toBe(false);
+      expect(visibilityAtOrAfterS(result, 1)).toBe(true);
+      expect(visibilityAtOrAfterS(result, 2)).toBe(true);
+      expect(visibilityAtOrAfterS(result, 3)).toBe(false);
+    },
+  );
 
   it("uses case-sensitive event key matching and gives show keys precedence", () => {
     const path = createPathModel({

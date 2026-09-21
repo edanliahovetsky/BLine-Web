@@ -644,11 +644,7 @@ export function buildGlobalRotationTargets(
 
   for (const [pathIndex, element] of path.path_elements.entries()) {
     if (isRotationTarget(element)) {
-      const bracket = surroundingAnchorOrdinals(
-        path.path_elements,
-        anchors,
-        pathIndex,
-      );
+      const bracket = surroundingAnchorOrdinals(anchors, pathIndex);
       if (!bracket) {
         continue;
       }
@@ -714,11 +710,7 @@ export function buildRotationDomainEvents(
     }
 
     if (isRotationTarget(element)) {
-      const bracket = surroundingAnchorOrdinals(
-        path.path_elements,
-        anchors,
-        pathIndex,
-      );
+      const bracket = surroundingAnchorOrdinals(anchors, pathIndex);
       if (!bracket) {
         continue;
       }
@@ -1163,11 +1155,7 @@ function buildProtrusionTriggerSchedule(
       continue;
     }
 
-    const bracket = surroundingAnchorOrdinals(
-      path.path_elements,
-      anchors,
-      pathIndex,
-    );
+    const bracket = surroundingAnchorOrdinals(anchors, pathIndex);
     if (!bracket) {
       continue;
     }
@@ -1204,38 +1192,18 @@ function anchorPoint(element: PathElement): { x: number; y: number } | null {
 }
 
 function surroundingAnchorOrdinals(
-  elements: readonly PathElement[],
   anchors: readonly Anchor[],
   pathIndex: number,
 ): { previous: number; next: number } | null {
-  let previous: number | null = null;
-  let next: number | null = null;
-
-  for (let index = pathIndex - 1; index >= 0; index -= 1) {
-    if (anchorPoint(elements[index]) !== null) {
-      const anchorIndex = anchors.findIndex(
-        (anchor) => anchor.pathIndex === index,
-      );
-      if (anchorIndex !== -1) {
-        previous = anchorIndex;
-        break;
-      }
-    }
+  // Use the resolved anchor sequence, including the private ghost at index -1.
+  // Leading rotations and events belong to the ghost-to-first-target segment.
+  let previous = -1;
+  for (const [ordinal, anchor] of anchors.entries()) {
+    if (anchor.pathIndex < pathIndex) previous = ordinal;
+    else if (anchor.pathIndex > pathIndex)
+      return previous < 0 ? null : { previous, next: ordinal };
   }
-
-  for (let index = pathIndex + 1; index < elements.length; index += 1) {
-    if (anchorPoint(elements[index]) !== null) {
-      const anchorIndex = anchors.findIndex(
-        (anchor) => anchor.pathIndex === index,
-      );
-      if (anchorIndex !== -1) {
-        next = anchorIndex;
-        break;
-      }
-    }
-  }
-
-  return previous === null || next === null ? null : { previous, next };
+  return null;
 }
 
 function dedupeRotationKeyframes(
