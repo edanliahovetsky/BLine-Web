@@ -173,9 +173,14 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(radius).toHaveAttribute("aria-pressed", "true");
   await expect(reset).toHaveCount(0);
-  // Author a distance before checking persistence. Auto may have regenerated
-  // it while checking mode inheritance; Manual pins that latest generated value.
+  // Redo queues generation. Wait through its pending and running phases so
+  // generation cannot disable Manual between actionability and pointer input.
+  await waitForAutomaticConstraints(page);
+  // Manual pins the latest generated value before authoring the saved distance.
   await source.getByRole("button", { name: "Manual", exact: true }).click();
+  await expect(
+    source.getByRole("button", { name: "Manual", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await distance.fill("0.45");
   await distance.press("Enter");
   await progress.click();
@@ -308,6 +313,13 @@ async function importHandoffPath(
   // Switching radius mode queues automatic synchronization. The Generate
   // button is enabled during that debounce but can disable between pointer
   // down/up when the solve starts. Finish that edit before the manual action.
+  await waitForAutomaticConstraints(page);
+  await expect(
+    page.getByRole("button", { name: "Generate constraints" }),
+  ).toBeEnabled();
+}
+
+async function waitForAutomaticConstraints(page: Page): Promise<void> {
   await expect
     .poll(() =>
       page.evaluate(async () => {
@@ -320,9 +332,6 @@ async function importHandoffPath(
       }),
     )
     .toBe("idle");
-  await expect(
-    page.getByRole("button", { name: "Generate constraints" }),
-  ).toBeEnabled();
 }
 
 async function purplePixelsAroundAnchor(
