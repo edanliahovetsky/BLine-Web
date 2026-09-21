@@ -7,6 +7,7 @@ on:
       - main
       - web-deploy
       - web-beta
+      - bline-2027
       - "codex/**"
 
 permissions:
@@ -30,7 +31,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: edanliahovetsky/BLine-Lib
-          ref: main
+          # Tested 2027 API/format partner for this editor development line.
+          ref: 140bfb3b6213a6a7369d04f870f9cbbe7e57e223
           path: .ci/BLine-Lib
 
       - name: Setup Node
@@ -43,7 +45,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "25"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

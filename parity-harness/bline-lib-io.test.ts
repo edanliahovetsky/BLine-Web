@@ -4,6 +4,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  limitTankVelocity,
+  type TankVelocity,
+} from "../src/core/sim/tankRateLimiter";
 
 import {
   createConstraints,
@@ -67,6 +71,7 @@ interface PathReport {
 }
 
 interface CompatibilityReport {
+  tankTransitions: TankVelocity[][];
   globals: {
     default_max_velocity_meters_per_sec: number;
     default_max_acceleration_meters_per_sec2: number;
@@ -80,6 +85,75 @@ interface CompatibilityReport {
 }
 
 const defaultBLineLibDir = resolve(".ci/BLine-Lib");
+
+// These inputs exercise shared limiter mathematics, not equality between the
+// GUI's ideal guidance and the robot's PID feedback controller.
+const tankCases = [
+  {
+    name: "forward startup",
+    initial: [0, 0],
+    request: [2, 0],
+    limits: [2, 4, 3, 2.5],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
+    name: "reverse startup",
+    initial: [0, 0],
+    request: [-2, 0],
+    limits: [2, 4, 3, 2.5],
+    dt: 0.02,
+    direction: "backward",
+  },
+  {
+    name: "fast corner",
+    initial: [2.5, 0],
+    request: [3, 2.5],
+    limits: [2, 4, 3, 2.5],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
+    name: "braking while turning",
+    initial: [1.5, 1],
+    request: [0, 2],
+    limits: [2, 4, 3, 2.5],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
+    name: "turn reversal",
+    initial: [1, 1.5],
+    request: [2, -2],
+    limits: [2, 4, 3, 2.5],
+    dt: 0.01,
+    direction: "forward",
+  },
+  {
+    name: "lowered limits",
+    initial: [3, 1.5],
+    request: [1, 0.2],
+    limits: [1, 2, 1, 1],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
+    name: "opposing measured motion",
+    initial: [-1, 0],
+    request: [2, 0.5],
+    limits: [2, 4, 3, 2.5],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
+    name: "paused clock",
+    initial: [1, 0.5],
+    request: [0, 0],
+    limits: [2, 4, 3, 2.5],
+    dt: 0,
+    direction: "forward",
+  },
+] as const;
 
 describe("BLine-Lib IO compatibility", () => {
   it("loads BLine-Web exported autos folders through the public BLine-Lib Path API", async () => {
@@ -109,6 +183,31 @@ describe("BLine-Lib IO compatibility", () => {
       expect(existsSync(join(autosDir, "project.json"))).toBe(true);
       expect(existsSync(join(autosDir, ".bline-web"))).toBe(false);
       const report = await runBLineLibValidation(autosDir, tempRoot);
+      expect(report.tankTransitions).toHaveLength(tankCases.length);
+      for (const [index, scenario] of tankCases.entries()) {
+        let velocity = {
+          forward: scenario.initial[0] as number,
+          omega: scenario.initial[1] as number,
+        };
+        const [acceleration, angularAcceleration, speed, omega] =
+          scenario.limits;
+        const steps = report.tankTransitions[index];
+        expect(steps).toHaveLength(40);
+        for (const expected of steps) {
+          velocity = limitTankVelocity(
+            velocity,
+            { forward: scenario.request[0], omega: scenario.request[1] },
+            { acceleration, angularAcceleration, speed, omega },
+            scenario.dt,
+            scenario.direction,
+          );
+          expect(velocity.forward, scenario.name).toBeCloseTo(
+            expected.forward,
+            8,
+          );
+          expect(velocity.omega, scenario.name).toBeCloseTo(expected.omega, 8);
+        }
+      }
 
       expect(report.globals).toEqual({
         default_max_velocity_meters_per_sec: 5.5,
@@ -382,6 +481,11 @@ async function runBLineLibValidation(
   const initScriptPath = join(tempRoot, "bline-lib-io.init.gradle");
   const reportPath = join(tempRoot, "bline-lib-io-report.json");
   await writeFile(initScriptPath, gradleInitScript(), "utf8");
+  await writeFile(
+    join(tempRoot, "tank-cases.json"),
+    JSON.stringify(tankCases),
+    "utf8",
+  );
 
   const gradleArgs = [
     "--no-daemon",
@@ -424,6 +528,7 @@ async function runBLineLibValidation(
 function gradleInitScript(): string {
   return `
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import java.net.URLClassLoader
 
 allprojects { p ->
@@ -509,7 +614,37 @@ allprojects { p ->
           .findAll { it.isFile() && it.name.toLowerCase().endsWith('.json') }
           .sort { it.name }
 
+        // Package-private control code stays private in the shipped API. This
+        // cross-language test invokes it reflectively from the Gradle harness.
+        def type = { name -> Class.forName('frc.robot.lib.BLine.' + name, true, classLoader) }
+        def construct = { clazz, values ->
+          def ctor = clazz.declaredConstructors[0]
+          ctor.accessible = true
+          ctor.newInstance(values as Object[])
+        }
+        def call = { object, name ->
+          def method = object.class.getDeclaredMethod(name)
+          method.accessible = true
+          method.invoke(object)
+        }
+        def velocityClass = type('TankRateLimiter$Velocity')
+        def limitsClass = type('TankRateLimiter$Limits')
+        def limiter = type('TankRateLimiter').declaredMethods.find { it.name == 'limit' }
+        limiter.accessible = true
+        def transitions = new JsonSlurper().parse(new File(reportPath.parentFile, 'tank-cases.json')).collect { scenario ->
+          def velocity = construct(velocityClass, scenario.initial.collect { it.doubleValue() })
+          def request = construct(velocityClass, scenario.request.collect { it.doubleValue() })
+          def limits = construct(limitsClass, scenario.limits.collect { it.doubleValue() })
+          def direction = Enum.valueOf(type('DriveDirection'), scenario.direction.toUpperCase())
+          (0..<40).collect {
+            def result = limiter.invoke(null, velocity, request, limits, scenario.dt.doubleValue(), direction)
+            velocity = call(result, 'velocity')
+            [forward: call(velocity, 'forward'), omega: call(velocity, 'omega')]
+          }
+        }
+
         def report = [
+          tankTransitions: transitions,
           globals: [
             default_max_velocity_meters_per_sec: globals.getMaxVelocityMetersPerSec(),
             default_max_acceleration_meters_per_sec2: globals.getMaxAccelerationMetersPerSec2(),
