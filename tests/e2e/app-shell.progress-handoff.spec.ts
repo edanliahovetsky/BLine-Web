@@ -57,6 +57,17 @@ async function gateInk(page: Page, distance: number) {
   return { runs, scale, center, length };
 }
 
+/** Resize can replace the Pixi canvas while a screenshot is being captured. */
+async function expectGateInk(page: Page, distance: number, length?: number) {
+  let ink: Awaited<ReturnType<typeof gateInk>> | undefined;
+  await expect(async () => {
+    ink = await gateInk(page, distance);
+    expect(ink.runs).toHaveLength(6);
+    if (length !== undefined) expect(ink.length).toBe(length);
+  }).toPass({ timeout: 5_000 });
+  return ink!;
+}
+
 test("progress gates keep six dashes across zoom, selection and distance edits @webkit-canvas", async ({
   page,
 }, testInfo) => {
@@ -102,20 +113,18 @@ test("progress gates keep six dashes across zoom, selection and distance edits @
     "Progress Gates",
   );
   const canvas = page.getByTestId("path-stage-pixi-canvas");
-  await expect.poll(async () => (await gateInk(page, 0.6)).runs.length).toBe(6);
+  await expectGateInk(page, 0.6);
   await canvas.screenshot({
     path: testInfo.outputPath("gates-diagonal-crowded-unselected.png"),
   });
   await openConstraintsTab(page);
   await page.getByTestId("handoff-radius-chip-1").click();
-  const initial = await gateInk(page, 0.6);
-  expect(initial.runs).toHaveLength(6);
+  const initial = await expectGateInk(page, 0.6);
   await canvas.screenshot({ path: testInfo.outputPath("gate-selected.png") });
   const input = page.getByLabel("Handoff distance 2 (m)");
   await input.fill("1.2");
   await input.press("Enter");
-  await expect.poll(async () => (await gateInk(page, 1.2)).runs.length).toBe(6);
-  const moved = await gateInk(page, 1.2);
+  const moved = await expectGateInk(page, 1.2);
   expect(moved.length).toBeCloseTo(initial.length);
   expect(initial.center.x - moved.center.x).toBeCloseTo(0.6 * initial.scale);
   await canvas.screenshot({
@@ -137,9 +146,7 @@ test("progress gates keep six dashes across zoom, selection and distance edits @
         )
         .not.toBeCloseTo(before.x);
     }
-    await expect
-      .poll(async () => (await gateInk(page, 1.2)).runs.length)
-      .toBe(6);
+    await expectGateInk(page, 1.2);
     await canvas.screenshot({ path: testInfo.outputPath(`gate-${name}.png`) });
   }
   // A larger field reaches the 30px minimum at fit zoom.
@@ -149,8 +156,7 @@ test("progress gates keep six dashes across zoom, selection and distance edits @
   await settings.getByLabel("Field Width (m)", { exact: true }).fill("30");
   await settings.getByRole("button", { name: "Save", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 700 });
-  await expect.poll(async () => (await gateInk(page, 1.2)).length).toBe(30);
-  await expect.poll(async () => (await gateInk(page, 1.2)).runs.length).toBe(6);
+  await expectGateInk(page, 1.2, 30);
   await canvas.screenshot({
     path: testInfo.outputPath("gate-minimum-length.png"),
   });
@@ -174,7 +180,7 @@ test("progress gates keep six dashes across zoom, selection and distance edits @
     })
     .click();
   await expect(progress).toHaveAttribute("aria-pressed", "true");
-  await expect.poll(async () => (await gateInk(page, 1.2)).runs.length).toBe(6);
+  await expectGateInk(page, 1.2);
   await radius.click();
   await canvas.screenshot({
     path: testInfo.outputPath("radius-mode-preserved.png"),
