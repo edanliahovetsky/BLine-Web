@@ -165,7 +165,6 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
   await reset.click();
   await expect(radius).toHaveAttribute("aria-pressed", "true");
   await expect(reset).toHaveCount(0);
-  await expect(distance).toHaveValue("0.45");
   await expect(distance).toBeDisabled();
   await expect(page.getByTestId("handoff-radius-chip-1")).toHaveClass(/--auto/);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
@@ -174,9 +173,11 @@ test("geometry buttons preserve inheritance, distance ownership and compact alig
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(radius).toHaveAttribute("aria-pressed", "true");
   await expect(reset).toHaveCount(0);
-  // Pin the value before checking persistence: Auto radii are regenerated on
-  // reopen, so their current draft is not an authored distance to preserve.
+  // Author a distance before checking persistence. Auto may have regenerated
+  // it while checking mode inheritance; Manual pins that latest generated value.
   await source.getByRole("button", { name: "Manual", exact: true }).click();
+  await distance.fill("0.45");
+  await distance.press("Enter");
   await progress.click();
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   // Exercise opening Constraints before the new document has mounted its UI.

@@ -54,11 +54,15 @@ for (const width of [1280, 390]) {
     ).toBeVisible();
     await addKey(page, "reserveKey");
     await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).toBeHidden();
     await expect(input).toHaveValue("quickPickup");
     await expect(page.getByTestId("selected-element-status")).toHaveText(
       selection,
     );
     await input.fill("reserve");
+    await expect(
+      page.getByRole("option", { name: "reserveKey", exact: true }),
+    ).toBeVisible();
     await input.press("Tab");
     await expect(input).toHaveValue("reserveKey");
     await openProjectSettings(page);

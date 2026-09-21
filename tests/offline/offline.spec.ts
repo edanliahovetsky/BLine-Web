@@ -948,6 +948,10 @@ test("keeps a live editor's assets through more than one subsequent release", as
   await awaitOfflineRelease(page, releaseId(production.nextRelease));
   const newer = await context.newPage();
   await newer.goto(production.url);
+  await expect(newer.getByTestId("path-stage")).toBeVisible();
+  // Finish this tab's initial registration/update check before replacing the
+  // served worker again; a pending update job can otherwise absorb the next one.
+  await updateWorker(newer);
   production.publishThird();
   await updateWorker(newer);
   await awaitOfflineRelease(newer, releaseId(production.thirdRelease));
@@ -965,5 +969,17 @@ test("keeps a live editor's assets through more than one subsequent release", as
     oldWorker,
   );
   expect(bytes).toEqual(Array.from(production.release.get(oldWorker)!));
-  await editAndSave(page);
+  // Keep editing in the old release. Clicking the sidebar first would blur
+  // this input and allow the pending update to reload during row selection.
+  const x = page.getByLabel("X (m)", { exact: true });
+  await expect(x).toBeFocused();
+  await x.fill("6.25");
+  expect(await pageRelease(page)).toBe(old);
+  await x.press("Tab");
+  await expect
+    .poll(() => pageRelease(page))
+    .toBe(releaseId(production.thirdRelease));
+  await page.getByTestId("path-element-row-0").click();
+  await expect(x).toHaveValue("6.25");
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
 });
