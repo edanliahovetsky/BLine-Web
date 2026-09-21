@@ -19,6 +19,103 @@ import {
 } from "../../../src/core/linkedTargets";
 
 describe("Project file-set codec", () => {
+  it.each([undefined, "forward", "backward"] as const)(
+    "migrates old preview direction once, preserving the runtime override %s and private ghost pose",
+    (savedDirection) => {
+      const project = createProject({
+        project_id: "direction-project",
+        display_name: "Directions",
+        paths: [
+          {
+            path_id: "path",
+            display_name: "Path",
+            file_name: "path.json",
+            path: createPathModel({
+              path_elements: [createTranslationTarget({ x_meters: 3 })],
+              preview: {
+                start_pose: { x_meters: 1, y_meters: 2, rotation_radians: 0.5 },
+              },
+            }),
+          },
+        ],
+      });
+      const files = serializeProjectFiles(project);
+      const runtimeFile = files.find(
+        (file) => file.relativePath === "paths/path.json",
+      )!;
+      const runtime = JSON.parse(runtimeFile.text);
+      if (savedDirection === undefined) delete runtime.tank_drive_direction;
+      else runtime.tank_drive_direction = savedDirection;
+      runtimeFile.text = JSON.stringify(runtime);
+      const metadataFile = files.find(
+        (file) => file.relativePath === "project.json",
+      )!;
+      const metadata = JSON.parse(metadataFile.text);
+      metadata.paths[0].editor_metadata.preview.tank_direction = "backward";
+      metadataFile.text = JSON.stringify(metadata);
+      const restored = deserializeProjectFiles(files);
+      expect(restored.paths[0].path.tank_drive_direction).toBe(
+        savedDirection ?? "backward",
+      );
+      expect(restored.paths[0].path.preview).toEqual(
+        project.paths[0].path.preview,
+      );
+      const exported = serializeProjectFiles(restored);
+      expect(
+        exported.some((file) => file.text.includes('"tank_direction"')),
+      ).toBe(false);
+      const robot = JSON.parse(
+        exported.find((file) => file.relativePath === "paths/path.json")!.text,
+      );
+      expect(robot.tank_drive_direction).toBe(savedDirection ?? "backward");
+      expect(robot).not.toHaveProperty("preview");
+      expect(serializeProjectFiles(deserializeProjectFiles(exported))).toEqual(
+        exported,
+      );
+      // Direction-only metadata becomes empty, not a rejected or duplicate private value.
+      delete metadata.paths[0].editor_metadata.preview.start_pose;
+      metadataFile.text = JSON.stringify(metadata);
+      const directionOnly = deserializeProjectFiles(files);
+      expect(directionOnly.paths[0].path.preview).toBeUndefined();
+      expect(
+        serializeProjectFiles(directionOnly).find(
+          (file) => file.relativePath === "project.json",
+        )!.text,
+      ).not.toContain('"preview"');
+    },
+  );
+
+  it("defaults legacy runtime paths to forward and gives invalid directions file context", () => {
+    const files = [
+      { relativePath: "config.json", text: "{}" },
+      {
+        relativePath: "paths/Score Left.json",
+        text: JSON.stringify({
+          path_elements: [{ type: "translation", x_meters: 2, y_meters: 1 }],
+        }),
+      },
+    ];
+    expect(
+      JSON.parse(
+        serializeProjectFiles(deserializeProjectFiles(files)).find(
+          (file) => file.relativePath === "paths/Score Left.json",
+        )!.text,
+      ).tank_drive_direction,
+    ).toBe("forward");
+    for (const invalid of ["reverse", "FORWARD", "", null, 1, false, {}]) {
+      const raw = JSON.parse(files[1].text);
+      raw.tank_drive_direction = invalid;
+      expect(() =>
+        deserializeProjectFiles([
+          files[0],
+          { ...files[1], text: JSON.stringify(raw) },
+        ]),
+      ).toThrow(
+        'Score Left.json.tank_drive_direction: expected "forward" or "backward"',
+      );
+    }
+  });
+
   it("preserves handoff choices and preview preferences without exporting preview data to robot files", () => {
     const project = createProject({
       project_id: "handoff-project",
@@ -47,8 +144,8 @@ describe("Project file-set codec", () => {
                 },
               },
             ],
+            tank_drive_direction: "backward",
             preview: {
-              tank_direction: "backward",
               start_pose: { x_meters: 1, y_meters: 2, rotation_radians: 0.5 },
             },
             path_elements: [
@@ -79,6 +176,12 @@ describe("Project file-set codec", () => {
     );
     expect(restored.paths[0].path.handoff_mode).toBe("radius");
     expect(restored.config.gui.robot.drive_type).toBe("tank");
+    expect(restored.paths[0].path.tank_drive_direction).toBe("backward");
+    expect(
+      JSON.parse(
+        files.find((file) => file.relativePath === "paths/handoffs.json")!.text,
+      ).tank_drive_direction,
+    ).toBe("backward");
     expect(restored.paths[0].path.preview).toEqual(
       project.paths[0].path.preview,
     );

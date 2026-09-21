@@ -97,8 +97,8 @@ describe("ideal tank preview", () => {
     (direction) => {
       const startHeading = direction === "forward" ? Math.PI : 0;
       const path = createPathModel({
+        tank_drive_direction: direction,
         preview: {
-          tank_direction: direction,
           start_pose: {
             x_meters: 0,
             y_meters: 0,

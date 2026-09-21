@@ -48,6 +48,7 @@ interface ElementReport {
 }
 
 interface PathReport {
+  tank_drive_direction: "FORWARD" | "BACKWARD";
   file_name: string;
   valid: boolean;
   end_translation_tolerance_meters: number;
@@ -126,6 +127,7 @@ describe("BLine-Lib IO compatibility", () => {
 
       const mixed = requirePathReport(report, "mixed_auto.json");
       expect(mixed.valid).toBe(true);
+      expect(mixed.tank_drive_direction).toBe("BACKWARD");
       expect(mixed.elements.map((element) => element.type)).toEqual([
         "Waypoint",
         "EventTrigger",
@@ -175,6 +177,7 @@ describe("BLine-Lib IO compatibility", () => {
       });
 
       const scalar = requirePathReport(report, "scalar_limits.json");
+      expect(scalar.tank_drive_direction).toBe("FORWARD");
       expect(scalar.valid).toBe(true);
       expect(scalar.elements.map((element) => element.type)).toEqual([
         "Waypoint",
@@ -245,6 +248,7 @@ function createCompatibilityWorkspace() {
         display_name: "Mixed Auto",
         file_name: "mixed_auto.json",
         path: createPathModel({
+          tank_drive_direction: "backward",
           constraints: createConstraints({
             end_translation_tolerance_meters: 0.07,
             end_rotation_tolerance_deg: 1.25,
@@ -521,6 +525,7 @@ allprojects { p ->
             [
               file_name: file.name,
               valid: path.isValid(),
+                tank_drive_direction: path.getTankDriveDirection().name(),
               end_translation_tolerance_meters: path.getEndTranslationToleranceMeters(),
               end_rotation_tolerance_deg: path.getEndRotationToleranceDeg(),
               elements: path.getPathElements().collect { elementReport(it) },

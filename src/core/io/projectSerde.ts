@@ -1,3 +1,7 @@
+import {
+  applyPreviewMetadata,
+  parseTankDriveDirection,
+} from "../model/pathPreview";
 import { parseHandoffMode } from "../model/handoffModes";
 import {
   countAnchorElements,
@@ -130,6 +134,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
 
   return {
     path_elements: pathElements,
+    tank_drive_direction: path.tank_drive_direction ?? "forward",
     ...(path.handoff_mode ? { handoff_mode: path.handoff_mode } : {}),
     ...(Object.keys(constraints).length ? { constraints } : {}),
   };
@@ -138,15 +143,26 @@ export function serializePath(path: PathModel): SerializedPathDocument {
 export function deserializePath(
   input: unknown,
   defaultLookup?: DefaultLookup,
+  context = "Path",
 ): PathModel {
   const { items, rangedBlock, constraints } = readPathInput(input);
   const mode = parseHandoffMode(
     isObject(input) ? input.handoff_mode : undefined,
   );
   const path = createPathModel({
+    ...(isObject(input) && "tank_drive_direction" in input
+      ? {
+          tank_drive_direction: parseTankDriveDirection(
+            input.tank_drive_direction,
+            `${context}.tank_drive_direction`,
+          ),
+        }
+      : {}),
     constraints,
     ...(mode ? { handoff_mode: mode } : {}),
   });
+
+  if (isObject(input)) applyPreviewMetadata(path, input.preview, context);
 
   for (const item of items) {
     if (!isObject(item)) {

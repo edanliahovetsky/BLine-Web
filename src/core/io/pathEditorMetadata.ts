@@ -1,3 +1,4 @@
+import { privatePathPreview } from "../model/pathPreview";
 import { roundToBLinePrecision } from "./blineJson";
 import { getPathElementLinkedTargetId } from "../linkedTargets";
 import type { PathModel } from "../model/path";
@@ -32,16 +33,17 @@ export function serializePathEditorMetadata(
     return [metadata];
   });
 
+  const preview = privatePathPreview(path.preview);
   if (
     rangedConstraints.length === 0 &&
     linkedTargets.length === 0 &&
-    !path.preview
+    !preview
   ) {
     return undefined;
   }
 
   return {
-    ...(path.preview ? { preview: structuredClone(path.preview) } : {}),
+    ...(preview ? { preview } : {}),
     ...(rangedConstraints.length > 0
       ? { ranged_constraints: rangedConstraints }
       : {}),

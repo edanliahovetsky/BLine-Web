@@ -414,6 +414,7 @@ export class StorageProjectIoService implements ProjectIoService {
     const path = deserializePath(
       pathInput,
       projectConfigDefaultLookup(lookupConfig),
+      file.name || "Imported path",
     );
     const fileName = normalizePathFileName(
       typeof parsedObject?.path_file_name === "string"

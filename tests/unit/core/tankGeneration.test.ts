@@ -59,7 +59,7 @@ it("generates and validates tank limits with the actual ideal preview, ignoring 
   );
   expect(autoVelocityInputSignature(path, config, {})).not.toBe(
     autoVelocityInputSignature(
-      { ...path, preview: { tank_direction: "backward" } },
+      { ...path, tank_drive_direction: "backward" },
       config,
       {},
     ),

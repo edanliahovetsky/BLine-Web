@@ -202,6 +202,7 @@ describe("project path serde", () => {
     });
 
     expect(serializePath(path)).toEqual({
+      tank_drive_direction: "forward",
       path_elements: [
         { type: "translation", x_meters: 0, y_meters: 0 },
         {

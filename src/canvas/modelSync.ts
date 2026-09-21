@@ -5,6 +5,7 @@ import {
   isTranslationTarget,
   isWaypoint,
   type HandoffRadiusSource,
+  type DriveDirection,
   type HandoffMode,
   type PathElement,
   type PathModel,
@@ -40,6 +41,24 @@ export function createSetHandoffModeCommand(
   return {
     description: "Set handoff mode",
     apply: (value) => update(value, mode),
+    revert: (value) => update(value, previous),
+  };
+}
+
+export function createSetTankDriveDirectionCommand(
+  path: PathModel,
+  direction: DriveDirection,
+): HistoryCommand<PathModel> {
+  const previous = path.tank_drive_direction;
+  const update = (value: PathModel, next: DriveDirection | undefined) => {
+    const copy = structuredClone(value);
+    if (next === undefined) delete copy.tank_drive_direction;
+    else copy.tank_drive_direction = next;
+    return copy;
+  };
+  return {
+    description: "Set tank driving direction",
+    apply: (value) => update(value, direction),
     revert: (value) => update(value, previous),
   };
 }

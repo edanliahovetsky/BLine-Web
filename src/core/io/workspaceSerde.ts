@@ -1,4 +1,4 @@
-import { isPathPreview } from "../model/pathPreview";
+import { applyPreviewMetadata } from "../model/pathPreview";
 import { projectConfigDefaultLookup } from "../config/projectConfig";
 import {
   isRangedConstraintKey,
@@ -157,7 +157,7 @@ function deserializeProjectPathDocument(
     display_name: displayName,
     file_name: fileName,
     path: applyPathEditorMetadata(
-      deserializePath(object.path ?? input, defaultLookup),
+      deserializePath(object.path ?? input, defaultLookup, fileName),
       object.editor_metadata,
     ),
   });
@@ -473,9 +473,9 @@ function serializeLinkedTarget(target: LinkedTarget): SerializedLinkedTarget {
 export function applyPathEditorMetadata(
   path: PathModel,
   input: unknown,
+  context = "Path",
 ): PathModel {
-  if (isObject(input) && isPathPreview(input.preview))
-    path.preview = structuredClone(input.preview);
+  if (isObject(input)) applyPreviewMetadata(path, input.preview, context);
   const rangedMetadata = readRangedConstraintMetadata(input);
   const linkedTargets = readLinkedPathElementTargets(input);
   const handoffRadiusSources = readHandoffRadiusSources(input);

@@ -3284,6 +3284,10 @@ export function autoVelocityInputSignature(
       solverVersion: autoConstraintSolverVersion,
       driveType: config.gui?.robot?.drive_type ?? "swerve",
       preview: path.preview ?? null,
+      tankDirection:
+        config.gui?.robot?.drive_type === "tank"
+          ? (path.tank_drive_direction ?? "forward")
+          : null,
       handoffModes: path.path_elements.map((element) =>
         resolveHandoffMode(
           path,

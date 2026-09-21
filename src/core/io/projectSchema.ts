@@ -1,4 +1,4 @@
-import type { PathPreview } from "../model/pathPreview";
+import type { LegacyPathPreview } from "../model/pathPreview";
 import type {
   AutoVelocityConstraintMetadata,
   ConstraintKey,
@@ -71,7 +71,7 @@ export interface SerializedRangedConstraintMetadata {
 }
 
 export interface SerializedPathEditorMetadata {
-  preview?: PathPreview;
+  preview?: LegacyPathPreview;
   ranged_constraints?: SerializedRangedConstraintMetadata[];
   linked_targets?: SerializedLinkedPathElementTarget[];
   handoff_radius_sources?: SerializedHandoffRadiusSource[];
@@ -140,6 +140,7 @@ export type SerializedPathElement =
   | SerializedWaypoint;
 
 export interface SerializedPathDocument {
+  tank_drive_direction: "forward" | "backward";
   handoff_mode?: HandoffMode;
   path_elements: SerializedPathElement[];
   constraints?: SerializedConstraints;

@@ -1,4 +1,4 @@
-import { isPathPreview } from "../model/pathPreview";
+import { isPathPreview, privatePathPreview } from "../model/pathPreview";
 import {
   createProjectConfig,
   projectConfigDefaultLookup,
@@ -296,13 +296,18 @@ function deserializeMetadataProject(
     const runtimePath = deserializePath(
       parseJson(requiredText(runtimePathFiles, path.file_name.toLowerCase())),
       projectConfigDefaultLookup(config),
+      path.file_name,
     );
     assertRangedMetadataTargetsAreDistinct(
       path.path_id,
       runtimePath,
       path.editor_metadata,
     );
-    const model = applyPathEditorMetadata(runtimePath, path.editor_metadata);
+    const model = applyPathEditorMetadata(
+      runtimePath,
+      path.editor_metadata,
+      path.file_name,
+    );
     assertPathEditorMetadataIsLossless(
       path.path_id,
       model,
@@ -378,6 +383,7 @@ function deserializeRuntimeOnlyProject(
         path: deserializePath(
           parseJson(text),
           projectConfigDefaultLookup(config),
+          fileName,
         ),
       };
     }),
@@ -523,11 +529,11 @@ function isProjectFilePath(input: unknown): boolean {
   }
   return (
     input.editor_metadata === undefined ||
-    isPathEditorMetadata(input.editor_metadata)
+    isPathEditorMetadata(input.editor_metadata, input.file_name as string)
   );
 }
 
-function isPathEditorMetadata(input: unknown): boolean {
+function isPathEditorMetadata(input: unknown, context: string): boolean {
   if (!isObject(input)) return false;
   const allowed = [
     "preview",
@@ -538,7 +544,7 @@ function isPathEditorMetadata(input: unknown): boolean {
   const present = allowed.filter((key) => input[key] !== undefined);
   if (present.length === 0 || !hasExactKeys(input, present)) return false;
   return (
-    (input.preview === undefined || isPathPreview(input.preview)) &&
+    (input.preview === undefined || isPathPreview(input.preview, context)) &&
     (input.ranged_constraints === undefined ||
       (Array.isArray(input.ranged_constraints) &&
         input.ranged_constraints.length > 0 &&
@@ -631,16 +637,16 @@ function assertPathEditorMetadataIsLossless(
   // Older metadata writers retained binary rounding noise beyond robot-file
   // precision. Compare the serialized value, without discarding other metadata.
   expected = canonicalizePathEditorMetadata(expected);
+  // Direction moved into the runtime path; only the ghost pose remains private.
+  const preview = privatePathPreview(expected?.preview);
   const durableExpected =
-    expected?.preview ||
-    expected?.ranged_constraints ||
-    expected?.linked_targets
+    preview || expected?.ranged_constraints || expected?.linked_targets
       ? {
-          ...(expected.preview ? { preview: expected.preview } : {}),
-          ...(expected.ranged_constraints
+          ...(preview ? { preview } : {}),
+          ...(expected?.ranged_constraints
             ? { ranged_constraints: expected.ranged_constraints }
             : {}),
-          ...(expected.linked_targets
+          ...(expected?.linked_targets
             ? { linked_targets: expected.linked_targets }
             : {}),
         }

@@ -91,6 +91,7 @@ import {
 import {
   isTranslationBearingElement,
   createSetPathPreviewCommand,
+  createSetTankDriveDirectionCommand,
 } from "./modelSync";
 import {
   applyPathElementEdit,
@@ -2133,7 +2134,7 @@ export function PathStage({
           }
           tankDirection={
             durableProject?.config.gui.robot.drive_type === "tank" && activePath
-              ? (activePath.path.preview?.tank_direction ?? "forward")
+              ? (activePath.path.tank_drive_direction ?? "forward")
               : undefined
           }
           onTankDirectionChange={(direction) => {
@@ -2143,11 +2144,7 @@ export function PathStage({
             projectStore
               .getState()
               .applyPathCommand(
-                createSetPathPreviewCommand(
-                  activePath.path,
-                  { ...activePath.path.preview, tank_direction: direction },
-                  "Set tank preview direction",
-                ),
+                createSetTankDriveDirectionCommand(activePath.path, direction),
               );
           }}
           result={simulationResult}
@@ -2588,12 +2585,12 @@ function SimulationTransport({
         <div
           className="tank-preview-direction"
           role="group"
-          aria-label="Tank preview direction"
+          aria-label="Tank driving direction"
         >
           <button
             type="button"
-            aria-label="Preview driving backward"
-            title="Preview driving backward"
+            aria-label="Drive backward"
+            title="Drive backward"
             aria-pressed={tankDirection === "backward"}
             onClick={() => onTankDirectionChange("backward")}
           >
@@ -2605,8 +2602,8 @@ function SimulationTransport({
           </button>
           <button
             type="button"
-            aria-label="Preview driving forward"
-            title="Preview driving forward"
+            aria-label="Drive forward"
+            title="Drive forward"
             aria-pressed={tankDirection === "forward"}
             onClick={() => onTankDirectionChange("forward")}
           >

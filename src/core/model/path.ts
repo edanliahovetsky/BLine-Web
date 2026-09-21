@@ -33,6 +33,7 @@ export type RotationConstraintKey = (typeof rotationConstraintKeys)[number];
 export type RangedConstraintKey = (typeof rangedConstraintKeys)[number];
 export type ConstraintKey = (typeof constraintKeys)[number];
 export type RangedConstraintSource = "manual" | "auto_velocity";
+export type DriveDirection = "forward" | "backward";
 export type HandoffMode = "radius" | "progress";
 export type HandoffRadiusSource = "manual" | "auto";
 
@@ -102,6 +103,7 @@ export type PathElement =
   | Waypoint;
 
 export interface PathModel {
+  tank_drive_direction?: DriveDirection;
   preview?: PathPreview;
   handoff_mode?: HandoffMode;
   path_elements: PathElement[];

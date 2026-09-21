@@ -515,7 +515,7 @@ const definitions: SupplementalTour[] = [
       },
       {
         title: "Try the path",
-        body: "Press Play. The leading rotation is placed along the line from the ghost to the destination, just like a rotation between two authored points. It does not require a stop. Tank drive ignores intermediate rotations and uses the chosen forward/backward preview direction.",
+        body: "Press Play. The leading rotation is placed along the line from the ghost to the destination, just like a rotation between two authored points. It does not require a stop. Tank drive ignores intermediate rotations and uses the path’s saved driving direction. The arrow buttons beside playback also set the direction exported to the robot; Backward travels rear-first without reversing the element order.",
         target: "transport-play",
         interact: ["path-canvas", ...transport],
         visible: ["path-canvas", ...transport],

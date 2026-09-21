@@ -62,7 +62,7 @@ export function simulateTankPath(
       completed: false,
     };
   const ghost = anchors[0].pathIndex < 0;
-  const direction = path.preview?.tank_direction ?? "forward";
+  const direction = path.tank_drive_direction ?? "forward";
   const first = path.path_elements[0];
   let theta = ghost
     ? previewStartPose(path).rotation_radians

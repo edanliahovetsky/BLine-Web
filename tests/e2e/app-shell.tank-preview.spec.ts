@@ -1,3 +1,9 @@
+import {
+  installSaveFilePickerSpy,
+  openProjectMenu,
+  savedFile,
+  savedFileCount,
+} from "./support/app-shell-persistence";
 import { expect, test } from "@playwright/test";
 import {
   gotoSampleEditor,
@@ -5,10 +11,11 @@ import {
   requiredBox,
 } from "./support/app-shell-shared";
 
-test("tank preview direction persists with Undo/Redo and fits beside playback @webkit-canvas", async ({
+test("tank driving direction persists with Undo/Redo and fits beside playback @webkit-canvas", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 800 });
+  await installSaveFilePickerSpy(page);
   await gotoSampleEditor(page);
   await openProjectSettings(page);
   const dialog = page.getByRole("dialog", { name: "Edit Config" });
@@ -17,11 +24,11 @@ test("tank preview direction persists with Undo/Redo and fits beside playback @w
     .selectOption("tank");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   const backward = page.getByRole("button", {
-    name: "Preview driving backward",
+    name: "Drive backward",
     exact: true,
   });
   const forward = page.getByRole("button", {
-    name: "Preview driving forward",
+    name: "Drive forward",
     exact: true,
   });
   await expect(forward).toHaveAttribute("aria-pressed", "true");
@@ -34,6 +41,13 @@ test("tank preview direction persists with Undo/Redo and fits beside playback @w
   await expect(page.getByTestId("save-status")).toContainText("Saved");
   await page.reload();
   await expect(backward).toHaveAttribute("aria-pressed", "true");
+  await openProjectMenu(page);
+  await page.getByRole("menuitem", { name: "Import / Export" }).click();
+  await page.getByRole("menuitem", { name: "Export Path..." }).click();
+  await expect.poll(() => savedFileCount(page)).toBe(1);
+  const exported = JSON.parse((await savedFile(page, 0)).text);
+  expect(exported.tank_drive_direction).toBe("backward");
+  expect(exported).not.toHaveProperty("preview");
   for (const legacy of [true, false]) {
     await openProjectSettings(page);
     await dialog
@@ -46,10 +60,7 @@ test("tank preview direction persists with Undo/Redo and fits beside playback @w
     ] as const) {
       await button.click();
       await expect(button).toHaveAttribute("aria-pressed", "true");
-      await expect(button).toHaveAttribute(
-        "title",
-        `Preview driving ${direction}`,
-      );
+      await expect(button).toHaveAttribute("title", `Drive ${direction}`);
       const bounds = await requiredBox(button);
       expect(bounds.width).toBe(32);
       expect(bounds.height).toBe(32);
@@ -70,7 +81,7 @@ test("tank preview direction persists with Undo/Redo and fits beside playback @w
     .click();
   const transport = await requiredBox(page.getByTestId("simulation-transport"));
   const direction = await requiredBox(
-    page.getByRole("group", { name: "Tank preview direction" }),
+    page.getByRole("group", { name: "Tank driving direction" }),
   );
   const save = await requiredBox(page.getByTestId("save-status"));
   expect(direction.x).toBeGreaterThan(transport.x + transport.width);
