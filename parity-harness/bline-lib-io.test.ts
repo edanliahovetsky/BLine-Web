@@ -78,10 +78,10 @@ interface CompatibilityReport {
   paths: PathReport[];
 }
 
-const defaultBLineLibDir = "/Users/edan/FRC/BLine-Lib";
+const defaultBLineLibDir = resolve(".ci/BLine-Lib");
 
 describe("BLine-Lib IO compatibility", () => {
-  it("loads BLine-Web exported autos folders through BLine-Lib JsonUtils", async () => {
+  it("loads BLine-Web exported autos folders through the public BLine-Lib Path API", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "bline-web-lib-io-"));
     const autosDir = join(tempRoot, "autos");
 
@@ -440,9 +440,9 @@ allprojects { p ->
 
         def urls = p.sourceSets.test.runtimeClasspath.files.collect { it.toURI().toURL() } as URL[]
         def classLoader = new URLClassLoader(urls, ClassLoader.getSystemClassLoader())
-        def jsonUtils = Class.forName('frc.robot.lib.BLine.JsonUtils', true, classLoader)
-        def loadGlobalConstraints = jsonUtils.getMethod('loadGlobalConstraints', File.class)
-        def loadPath = jsonUtils.getMethod('loadPath', File.class, String.class)
+        def pathClass = Class.forName('frc.robot.lib.BLine.Path', true, classLoader)
+        def loadGlobalConstraints = pathClass.getMethod('loadGlobalConstraints', File.class)
+        def pathConstructor = pathClass.getConstructor(File.class, String.class)
 
         def optionalValue = { optional -> optional.isPresent() ? optional.get() : null }
         def rangeReport = { optional ->
@@ -516,7 +516,7 @@ allprojects { p ->
             default_end_rotation_tolerance_deg: globals.getEndRotationToleranceDeg()
           ],
           paths: pathFiles.collect { file ->
-            def path = loadPath.invoke(null, autosDir, file.name)
+            def path = pathConstructor.newInstance(autosDir, file.name)
             def constraints = path.getPathConstraints()
             [
               file_name: file.name,

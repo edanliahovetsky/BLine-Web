@@ -9,9 +9,11 @@ export interface ChassisSpeeds {
   omega_radps: number;
 }
 
-type KinematicSimulationConfig = Partial<
-  Record<keyof CanonicalProjectConfig["kinematic_constraints"], number | null>
->;
+type KinematicSimulationConfig = {
+  [Key in keyof CanonicalProjectConfig["kinematic_constraints"]]?:
+    | CanonicalProjectConfig["kinematic_constraints"][Key]
+    | null;
+};
 
 type GuiSimulationConfig = {
   robot?: Partial<CanonicalProjectConfig["gui"]["robot"]>;

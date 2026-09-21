@@ -440,7 +440,10 @@ export function ProjectConfigDialog({
   );
 }
 
-type KinematicKey = keyof ProjectConfig["kinematic_constraints"];
+type KinematicKey = Exclude<
+  keyof ProjectConfig["kinematic_constraints"],
+  "default_handoff_mode"
+>;
 
 function SettingsNav({
   activeSection,

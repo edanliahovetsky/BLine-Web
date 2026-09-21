@@ -32,6 +32,7 @@ export type RotationConstraintKey = (typeof rotationConstraintKeys)[number];
 export type RangedConstraintKey = (typeof rangedConstraintKeys)[number];
 export type ConstraintKey = (typeof constraintKeys)[number];
 export type RangedConstraintSource = "manual" | "auto_velocity";
+export type HandoffMode = "radius" | "progress";
 export type HandoffRadiusSource = "manual" | "auto";
 
 export interface AutoVelocityConstraintMetadata {
@@ -62,6 +63,7 @@ export interface RangedConstraint {
 }
 
 export interface TranslationTarget {
+  handoff_mode?: HandoffMode;
   type: "translation";
   x_meters: number;
   y_meters: number;
@@ -99,6 +101,7 @@ export type PathElement =
   | Waypoint;
 
 export interface PathModel {
+  handoff_mode?: HandoffMode;
   path_elements: PathElement[];
   constraints: Constraints;
   ranged_constraints: RangedConstraint[];

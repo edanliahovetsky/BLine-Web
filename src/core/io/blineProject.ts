@@ -65,6 +65,7 @@ export type BLineRuntimeKinematicConstraints = Pick<
   | "default_end_translation_tolerance_meters"
   | "default_end_rotation_tolerance_deg"
   | "default_intermediate_handoff_radius_meters"
+  | "default_handoff_mode"
 >;
 
 export interface BLineRuntimeConfig {
@@ -83,6 +84,9 @@ export function serializeBLineRuntimeConfig(
 
   return {
     kinematic_constraints: {
+      ...(constraints.default_handoff_mode
+        ? { default_handoff_mode: constraints.default_handoff_mode }
+        : {}),
       default_max_velocity_meters_per_sec:
         constraints.default_max_velocity_meters_per_sec,
       default_max_acceleration_meters_per_sec2:

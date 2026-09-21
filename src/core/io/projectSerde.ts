@@ -1,3 +1,4 @@
+import { parseHandoffMode } from "../model/handoffModes";
 import {
   countAnchorElements,
   countRotationEventElements,
@@ -55,6 +56,7 @@ export function serializePath(path: PathModel): SerializedPathDocument {
       const handoffSource = getHandoffRadiusSource(element);
       const entry = {
         type: "translation" as const,
+        ...(element.handoff_mode ? { handoff_mode: element.handoff_mode } : {}),
         x_meters: Number(element.x_meters),
         y_meters: Number(element.y_meters),
       };
@@ -96,6 +98,9 @@ export function serializePath(path: PathModel): SerializedPathDocument {
 
     const handoffSource = getHandoffRadiusSource(element);
     const translationData = {
+      ...(element.translation_target.handoff_mode
+        ? { handoff_mode: element.translation_target.handoff_mode }
+        : {}),
       x_meters: Number(element.translation_target.x_meters),
       y_meters: Number(element.translation_target.y_meters),
     };
@@ -123,9 +128,11 @@ export function serializePath(path: PathModel): SerializedPathDocument {
 
   const constraints = serializeConstraints(path);
 
-  return Object.keys(constraints).length === 0
-    ? { path_elements: pathElements }
-    : { path_elements: pathElements, constraints };
+  return {
+    path_elements: pathElements,
+    ...(path.handoff_mode ? { handoff_mode: path.handoff_mode } : {}),
+    ...(Object.keys(constraints).length ? { constraints } : {}),
+  };
 }
 
 export function deserializePath(
@@ -133,19 +140,31 @@ export function deserializePath(
   defaultLookup?: DefaultLookup,
 ): PathModel {
   const { items, rangedBlock, constraints } = readPathInput(input);
-  const path = createPathModel({ constraints });
+  const mode = parseHandoffMode(
+    isObject(input) ? input.handoff_mode : undefined,
+  );
+  const path = createPathModel({
+    constraints,
+    ...(mode ? { handoff_mode: mode } : {}),
+  });
 
   for (const item of items) {
     if (!isObject(item)) {
       continue;
     }
 
+    const modeSource =
+      item.type === "waypoint" && isObject(item.translation_target)
+        ? item.translation_target
+        : item;
+    const handoffMode = parseHandoffMode(modeSource.handoff_mode);
     try {
       const type = stringValue(item.type);
 
       if (type === "translation") {
         path.path_elements.push(
           createTranslationTarget({
+            ...(handoffMode ? { handoff_mode: handoffMode } : {}),
             x_meters: numberValue(item.x_meters, 0),
             y_meters: numberValue(item.y_meters, 0),
             intermediate_handoff_radius_meters: handoffDefault(
@@ -217,6 +236,7 @@ export function deserializePath(
         path.path_elements.push(
           createWaypoint({
             translation_target: createTranslationTarget({
+              ...(handoffMode ? { handoff_mode: handoffMode } : {}),
               x_meters: numberValue(translationData.x_meters, 0),
               y_meters: numberValue(translationData.y_meters, 0),
               intermediate_handoff_radius_meters: handoffDefault(

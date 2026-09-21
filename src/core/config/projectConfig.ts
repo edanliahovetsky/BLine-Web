@@ -1,3 +1,5 @@
+import type { HandoffMode } from "../model/path";
+import { parseHandoffMode } from "../model/handoffModes";
 import {
   createProjectFieldConfig,
   defaultProjectFieldConfig,
@@ -30,6 +32,7 @@ export interface CanonicalProjectConfig {
     field: ProjectFieldConfig;
   };
   kinematic_constraints: {
+    default_handoff_mode?: HandoffMode;
     default_max_velocity_meters_per_sec: number;
     default_max_acceleration_meters_per_sec2: number;
     default_intermediate_handoff_radius_meters: number;
@@ -93,11 +96,13 @@ export function getDefaultOptionalConfigValue(
   const defaultKey = `default_${key}` as keyof typeof constraints;
 
   if (defaultKey in constraints) {
-    return constraints[defaultKey];
+    const value = constraints[defaultKey];
+    return typeof value === "number" ? value : null;
   }
 
   if (key in constraints) {
-    return constraints[key as keyof typeof constraints];
+    const value = constraints[key as keyof typeof constraints];
+    return typeof value === "number" ? value : null;
   }
 
   return null;
@@ -180,6 +185,16 @@ function updateProjectConfig(
     ["gui", "protrusions", "side"],
   ]);
   if (side.found) {
+    const mode = lookupAny(input, [
+      ["default_handoff_mode"],
+      ["kinematic_constraints", "default_handoff_mode"],
+    ]);
+    if (mode.found) {
+      config.kinematic_constraints.default_handoff_mode = parseHandoffMode(
+        mode.value,
+      );
+    }
+
     config.gui.protrusions.side = normalizeProtrusionSide(
       side.value,
       config.gui.protrusions.side,
@@ -263,8 +278,13 @@ function updateProjectConfig(
     config.gui.field = createProjectFieldConfig(field.value);
   }
 
-  const defaultNumericKeys = Object.keys(config.kinematic_constraints) as Array<
-    keyof CanonicalProjectConfig["kinematic_constraints"]
+  const defaultNumericKeys = Object.keys(config.kinematic_constraints).filter(
+    (key) => key !== "default_handoff_mode",
+  ) as Array<
+    Exclude<
+      keyof CanonicalProjectConfig["kinematic_constraints"],
+      "default_handoff_mode"
+    >
   >;
   for (const key of defaultNumericKeys) {
     const value = lookupAny(input, [[key], ["kinematic_constraints", key]]);
@@ -274,6 +294,16 @@ function updateProjectConfig(
         config.kinematic_constraints[key],
       );
     }
+  }
+
+  const mode = lookupAny(input, [
+    ["default_handoff_mode"],
+    ["kinematic_constraints", "default_handoff_mode"],
+  ]);
+  if (mode.found) {
+    config.kinematic_constraints.default_handoff_mode = parseHandoffMode(
+      mode.value,
+    );
   }
 
   config.gui.protrusions.side = normalizeProtrusionSide(

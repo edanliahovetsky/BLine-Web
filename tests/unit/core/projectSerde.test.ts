@@ -46,6 +46,24 @@ import {
 } from "../../../src/core/io/projectFolder";
 
 describe("project path serde", () => {
+  it("rejects unknown handoff modes instead of silently dropping a target", () => {
+    expect(() =>
+      deserializePath({
+        path_elements: [
+          {
+            type: "translation",
+            x_meters: 1,
+            y_meters: 2,
+            handoff_mode: "typo",
+          },
+        ],
+      }),
+    ).toThrow("Handoff mode");
+    expect(() =>
+      deserializePath({ handoff_mode: "typo", path_elements: [] }),
+    ).toThrow("Handoff mode");
+  });
+
   it("serializes and deserializes the native BLine path shape", () => {
     const path = createPathModel({
       path_elements: [

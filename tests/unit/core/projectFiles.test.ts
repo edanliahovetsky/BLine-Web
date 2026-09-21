@@ -9,6 +9,7 @@ import { createProject } from "../../../src/core/model/project";
 import {
   createPathModel,
   createRotationTarget,
+  createWaypoint,
   createTranslationTarget,
   type RangedConstraint,
 } from "../../../src/core/model/path";
@@ -18,6 +19,51 @@ import {
 } from "../../../src/core/linkedTargets";
 
 describe("Project file-set codec", () => {
+  it("preserves project, path and element handoff choices through actual files", () => {
+    const project = createProject({
+      project_id: "handoff-project",
+      display_name: "Handoff project",
+      config: { kinematic_constraints: { default_handoff_mode: "progress" } },
+      paths: [
+        {
+          path_id: "handoffs",
+          display_name: "Handoffs",
+          file_name: "handoffs.json",
+          path: createPathModel({
+            handoff_mode: "radius",
+            path_elements: [
+              createTranslationTarget({ x_meters: 0, intermediate_handoff_radius_meters: .45 }),
+              createWaypoint({
+                translation_target: createTranslationTarget({
+                  x_meters: 2,
+                  handoff_mode: "progress",
+                  intermediate_handoff_radius_meters: 0.3,
+                }),
+              }),
+              createTranslationTarget({ x_meters: 4, intermediate_handoff_radius_meters: .45 }),
+            ],
+          }),
+        },
+      ],
+    });
+    const files = serializeProjectFiles(project);
+    const restored = deserializeProjectFiles(files);
+    expect(restored.config.kinematic_constraints.default_handoff_mode).toBe(
+      "progress",
+    );
+    expect(restored.paths[0].path.handoff_mode).toBe("radius");
+    expect(restored.paths[0].path.path_elements[1]).toMatchObject({
+      translation_target: {
+        handoff_mode: "progress",
+        intermediate_handoff_radius_meters: 0.3,
+      },
+    });
+    expect(restored.paths[0].path.path_elements[0]).not.toHaveProperty(
+      "handoff_mode",
+    );
+    expect(serializeProjectFiles(restored)).toEqual(files);
+  });
+
   it("round-trips blank grid dimensions without image preferences or metadata damage", () => {
     const project = createProject({
       project_id: "grid-project",

@@ -2,6 +2,7 @@ import type {
   AutoVelocityConstraintMetadata,
   ConstraintKey,
   HandoffRadiusSource,
+  HandoffMode,
   PathModel,
   RangedConstraintKey,
   RangedConstraintSource,
@@ -90,6 +91,7 @@ export type SerializedConstraints = Partial<
 >;
 
 export interface SerializedTranslationTarget {
+  handoff_mode?: HandoffMode;
   type: "translation";
   x_meters: number;
   y_meters: number;
@@ -111,6 +113,7 @@ export interface SerializedEventTrigger {
 }
 
 export interface SerializedWaypointTranslationTarget {
+  handoff_mode?: HandoffMode;
   x_meters: number;
   y_meters: number;
   intermediate_handoff_radius_meters?: number;
@@ -135,6 +138,7 @@ export type SerializedPathElement =
   | SerializedWaypoint;
 
 export interface SerializedPathDocument {
+  handoff_mode?: HandoffMode;
   path_elements: SerializedPathElement[];
   constraints?: SerializedConstraints;
 }
