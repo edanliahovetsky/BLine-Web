@@ -326,6 +326,14 @@ export function simulateTankPath(
     );
     save(oldVx, oldVy, dt);
   }
+  if (completed) {
+    // Successful tolerance-based completion consumes the final segment's events,
+    // like an intermediate handoff. Advance accepted progress, not the robot pose
+    // or velocity; aborted previews must leave unreached events pending.
+    progress.set(time, totalLength);
+    const lastSample = trace.at(-1);
+    if (lastSample) lastSample.global_s_m = totalLength;
+  }
   const times = [...poses.keys()];
   return {
     poses_by_time: poses,

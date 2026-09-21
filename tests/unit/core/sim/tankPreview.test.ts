@@ -4,10 +4,15 @@ import {
   createTranslationTarget,
   createRotationTarget,
   createWaypoint,
+  createEventTrigger,
 } from "../../../../src/core/model/path";
 import { simulatePathWithTrace } from "../../../../src/core/sim";
 import { shortestAngularDistance } from "../../../../src/core/sim/simGeometry";
 import type { SimulationConfig } from "../../../../src/core/sim/types";
+import {
+  simulationEventMoments,
+  simulationEventPulseAtTime,
+} from "../../../../src/canvas/simulationEventPulse";
 
 const config: SimulationConfig = {
   gui: { robot: { drive_type: "tank" } },
@@ -26,6 +31,70 @@ const waypoint = (x: number, y: number, angle: number) =>
   });
 
 describe("ideal tank preview", () => {
+  it.each([0, 0.8])(
+    "completes endpoint events inside tolerance with minimum speed %s",
+    (minimum) => {
+      const path = createPathModel({
+        path_elements: [
+          point(0, 0),
+          createEventTrigger({ lib_key: "finish", t_ratio: 1 }),
+          point(2, 0),
+        ],
+        constraints: {
+          ...createPathModel().constraints,
+          max_velocity_meters_per_sec: minimum === 0 ? 0.2 : 2,
+          min_velocity_meters_per_sec: minimum,
+          end_translation_tolerance_meters: 0.1,
+        },
+      });
+      const eventConfig: SimulationConfig = {
+        ...config,
+        gui: {
+          ...config.gui,
+          protrusions: {
+            enabled: true,
+            default_state: "hidden",
+            show_on_event_keys: ["finish"],
+          },
+        },
+      };
+      const result = simulatePathWithTrace(path, eventConfig);
+      const last = result.trace.at(-1)!;
+      expect(result.completed).toBe(true);
+      expect(last.x_m).toBeGreaterThanOrEqual(1.9);
+      expect(last.x_m).toBeLessThan(2);
+      expect(last.snapped_position).toBe(false);
+      expect(simulationEventMoments(path, result.trace)).toEqual([
+        { key: "finish", distance: 2, time: result.total_time_s },
+      ]);
+      expect(
+        simulationEventPulseAtTime(path, result.trace, result.total_time_s),
+      ).toBe(1);
+      expect(result.protrusion_visible_by_time.get(result.total_time_s)).toBe(
+        true,
+      );
+      expect(
+        result.protrusion_visible_by_time.get(result.times_sorted.at(-2)!),
+      ).toBe(false);
+
+      // An invalid motion limit aborts the preview; it must not complete pending events.
+      const incomplete = simulatePathWithTrace(
+        {
+          ...path,
+          constraints: {
+            ...path.constraints,
+            max_acceleration_meters_per_sec2: 0,
+          },
+        },
+        eventConfig,
+      );
+      expect(incomplete.completed).toBe(false);
+      expect(simulationEventMoments(path, incomplete.trace)).toEqual([]);
+      expect(
+        incomplete.protrusion_visible_by_time.get(incomplete.total_time_s),
+      ).toBe(false);
+    },
+  );
   it.each([30, 90, 150, 180])(
     "negotiates a %i degree point-to-point bend without feedback tuning",
     (degrees) => {
