@@ -1,3 +1,4 @@
+import { roundToBLinePrecision } from "./blineJson";
 import { getPathElementLinkedTargetId } from "../linkedTargets";
 import type { PathModel } from "../model/path";
 import type {
@@ -20,7 +21,7 @@ export function serializePathEditorMetadata(
 
     const metadata: SerializedRangedConstraintMetadata = {
       key: constraint.key,
-      value: Number(constraint.value),
+      value: roundToBLinePrecision(Number(constraint.value)),
       start_ordinal: Math.trunc(constraint.start_ordinal),
       end_ordinal: Math.trunc(constraint.end_ordinal),
       source: constraint.source,

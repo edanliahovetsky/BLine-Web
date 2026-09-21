@@ -34,6 +34,19 @@ describe("Project file-set codec", () => {
           file_name: "handoffs.json",
           path: createPathModel({
             handoff_mode: "radius",
+            ranged_constraints: [
+              {
+                key: "max_velocity_meters_per_sec",
+                value: 2.0300000000000002,
+                start_ordinal: 1,
+                end_ordinal: 3,
+                source: "auto_velocity",
+                auto_velocity: {
+                  velocity_safety_factor: 1,
+                  acceleration_safety_factor: 1,
+                },
+              },
+            ],
             preview: {
               tank_direction: "backward",
               start_pose: { x_meters: 1, y_meters: 2, rotation_radians: 0.5 },
@@ -84,6 +97,15 @@ describe("Project file-set codec", () => {
       "handoff_mode",
     );
     expect(serializeProjectFiles(restored)).toEqual(files);
+    const legacyPrecision = structuredClone(files);
+    const metadataFile = legacyPrecision.find(
+      (file) => file.relativePath === "project.json",
+    )!;
+    const oldMetadata = JSON.parse(metadataFile.text);
+    oldMetadata.paths[0].editor_metadata.ranged_constraints[0].value = 2.0300000000000002;
+    metadataFile.text = JSON.stringify(oldMetadata);
+    expect(openProjectFiles(legacyPrecision).damage).toBeNull();
+    expect(openProjectFiles(legacyPrecision).project).toEqual(restored);
   });
 
   it("round-trips blank grid dimensions without image preferences or metadata damage", () => {

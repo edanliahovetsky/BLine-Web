@@ -1,8 +1,5 @@
 import { isPathPreview } from "../model/pathPreview";
-import {
-  defaultAutoVelocityMergeToleranceMetersPerSec,
-  projectConfigDefaultLookup,
-} from "../config/projectConfig";
+import { projectConfigDefaultLookup } from "../config/projectConfig";
 import {
   isRangedConstraintKey,
   setHandoffRadiusSource,
@@ -678,10 +675,11 @@ function normalizeAutoVelocityMetadata(
   const metadata: AutoVelocityConstraintMetadata = {
     velocity_safety_factor: velocity,
     acceleration_safety_factor: acceleration,
-    merge_tolerance_meters_per_sec:
-      mergeTolerance ?? defaultAutoVelocityMergeToleranceMetersPerSec,
+    ...(mergeTolerance === null
+      ? {}
+      : { merge_tolerance_meters_per_sec: mergeTolerance }),
   };
-  if (inputSignature) {
+  if (inputSignature !== null) {
     metadata.input_signature = inputSignature;
   }
   return metadata;

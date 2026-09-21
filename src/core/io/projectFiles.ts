@@ -20,7 +20,7 @@ import {
   syncLinkedTargetElementsInProject,
 } from "../linkedTargets";
 import { serializeBLineRuntimeConfig } from "./blineProject";
-import { stringifyBLineJson } from "./blineJson";
+import { stringifyBLineJson, roundToBLinePrecision } from "./blineJson";
 import { serializePathEditorMetadata } from "./pathEditorMetadata";
 import type {
   ProjectConfig,
@@ -269,11 +269,16 @@ function canonicalizePathEditorMetadata(
   if (!metadata?.ranged_constraints) return metadata;
   return {
     ...metadata,
-    ranged_constraints: [...metadata.ranged_constraints].sort(
-      (left, right) =>
-        rangedConstraintKeys.indexOf(left.key) -
-        rangedConstraintKeys.indexOf(right.key),
-    ),
+    ranged_constraints: metadata.ranged_constraints
+      .map((entry) => ({
+        ...entry,
+        value: roundToBLinePrecision(entry.value),
+      }))
+      .sort(
+        (left, right) =>
+          rangedConstraintKeys.indexOf(left.key) -
+          rangedConstraintKeys.indexOf(right.key),
+      ),
   };
 }
 
@@ -603,7 +608,8 @@ function assertRangedMetadataTargetsAreDistinct(
       constraint.key === entry.key &&
       constraint.start_ordinal === entry.start_ordinal &&
       constraint.end_ordinal === entry.end_ordinal &&
-      Math.abs(constraint.value - entry.value) < 1e-9
+      roundToBLinePrecision(constraint.value) ===
+        roundToBLinePrecision(entry.value)
         ? [index]
         : [],
     );
@@ -622,6 +628,9 @@ function assertPathEditorMetadataIsLossless(
   expected: SerializedPathEditorMetadata | undefined,
 ): void {
   const actual = serializePathEditorMetadata(path);
+  // Older metadata writers retained binary rounding noise beyond robot-file
+  // precision. Compare the serialized value, without discarding other metadata.
+  expected = canonicalizePathEditorMetadata(expected);
   const durableExpected =
     expected?.preview ||
     expected?.ranged_constraints ||

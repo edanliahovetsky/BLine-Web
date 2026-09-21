@@ -69,7 +69,8 @@ function formatJsonNumber(value: number, forceFloat: boolean): string {
   return trimFixedDecimal(rounded.toFixed(blineDecimalPlaces));
 }
 
-function roundToBLinePrecision(value: number): number {
+/** Numeric precision shared by robot files and metadata referring to their values. */
+export function roundToBLinePrecision(value: number): number {
   const sign = value < 0 ? -1 : 1;
   const rounded =
     (Math.round((Math.abs(value) + Number.EPSILON) * blineScale) / blineScale) *
