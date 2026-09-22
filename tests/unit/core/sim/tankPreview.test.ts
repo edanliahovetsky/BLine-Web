@@ -122,7 +122,9 @@ describe("ideal tank preview", () => {
       expect(Math.abs(last.omega_radps)).toBeLessThan(1e-8);
       for (const sample of result.trace) {
         expect(sample.speed_mps).toBeLessThanOrEqual(2 + 1e-8);
-        expect(sample.acceleration_mps2).toBeLessThanOrEqual(3 + 1e-6);
+        // The endpoint zero command is positional, not an extra braking phase.
+        if (Math.hypot(sample.x_m - last.x_m, sample.y_m - last.y_m) > 0.06)
+          expect(sample.acceleration_mps2).toBeLessThanOrEqual(3 + 1e-6);
         // Differential drive can never slide sideways in its body frame.
         expect(
           -sample.vx_mps * Math.sin(sample.theta_rad) +
@@ -131,6 +133,23 @@ describe("ideal tank preview", () => {
       }
     },
   );
+  it("starts final alignment at position tolerance without waiting for a stopped speed", () => {
+    const path = createPathModel({
+      path_elements: [waypoint(0, 0, 0), waypoint(2, 0, Math.PI / 2)],
+      constraints: { ...createPathModel().constraints, end_translation_tolerance_meters: 0.2 },
+    });
+    const result = simulatePathWithTrace(path, config);
+    expect(result.completed).toBe(true);
+    const arrivalIndex = result.trace.findIndex(sample => Math.abs(2 - sample.x_m) <= 0.2);
+    const arrival = result.trace[arrivalIndex];
+    const alignment = result.trace[arrivalIndex + 1];
+    expect(arrival.speed_mps).toBeGreaterThan(0.02);
+    expect(alignment.speed_mps).toBe(0);
+    expect(alignment.omega_radps).toBeGreaterThan(0);
+    expect(alignment.x_m).toBe(arrival.x_m);
+    expect(result.trace.at(-1)!.speed_mps).toBe(0);
+    expect(result.trace.at(-1)!.omega_radps).toBe(0);
+  });
   it("scales time with physical limits rather than hidden controller gains", () => {
     const path = createPathModel({
       path_elements: [

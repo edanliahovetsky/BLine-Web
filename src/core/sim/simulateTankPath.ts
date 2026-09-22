@@ -29,7 +29,6 @@ import type {
 
 const clamp = (value: number, low: number, high: number) =>
   Math.max(low, Math.min(high, value));
-type Phase = "follow" | "brake" | "align" | "alignBrake" | "done";
 
 /**
  * Ideal, constraint-based differential-drive preview. Requests come from
@@ -126,7 +125,6 @@ export function simulateTankPath(
     time = 0,
     segmentIndex = 0;
   let velocity: TankVelocity = { forward: 0, omega: 0 };
-  let phase: Phase = "follow";
   let completed = false;
   const slowestV = minimumPositiveConstraint(
     path,
@@ -144,7 +142,7 @@ export function simulateTankPath(
   const slowestAlpha = degreesToRadians(
     minimumPositiveConstraint(path, "max_acceleration_deg_per_sec2", baseAlpha),
   );
-  // Budget travel from rest and a half-turn per leg, plus stopped final alignment.
+  // Budget travel from rest and a half-turn per leg, plus final heading alignment.
   // Include ranged limits and acceleration: a short path can take a long time
   // when turning or accelerating slowly. The margin allows curved travel and
   // settling; this only bounds the simulation loop, not the motion itself.
@@ -214,24 +212,13 @@ export function simulateTankPath(
       completed = true;
       break;
     }
-    const stopped =
-      Math.abs(velocity.forward) < 1e-8 && Math.abs(velocity.omega) < 1e-8;
     const endHeadingError =
       finalHeading === null ? 0 : shortestAngularDistance(finalHeading, theta);
-    if (phase === "follow" && atPosition && !rolling) phase = "brake";
-    if (phase === "brake" && stopped) phase = atPosition ? "align" : "follow";
-    if (phase === "align") {
-      if (!atPosition) phase = "brake";
-      else if (Math.abs(endHeadingError) <= headingTolerance)
-        phase = "alignBrake";
-    }
-    if (phase === "alignBrake" && stopped)
-      phase = !atPosition
-        ? "follow"
-        : Math.abs(endHeadingError) > headingTolerance
-          ? "align"
-          : "done";
-    if (phase === "done") {
+    if (atPosition && Math.abs(endHeadingError) <= headingTolerance) {
+      const oldVx = velocity.forward * Math.cos(theta);
+      const oldVy = velocity.forward * Math.sin(theta);
+      velocity = { forward: 0, omega: 0 };
+      save(oldVx, oldVy, dt);
       completed = true;
       break;
     }
@@ -282,12 +269,12 @@ export function simulateTankPath(
       break;
     const remaining = remainingDistanceFrom(segments, segmentIndex, x, y);
     const bearing = Math.atan2(segment.by - y, segment.bx - x);
-    const follow = phase === "follow";
+    const follow = !atPosition;
     const desiredHeading = follow
       ? bearing + (direction === "backward" ? Math.PI : 0)
       : (finalHeading ?? theta);
     const headingError = shortestAngularDistance(desiredHeading, theta);
-    const steer = phase === "align" || (follow && distance > 1e-9);
+    const steer = atPosition || distance > 1e-9;
     const magnitude = Math.min(
       maxV,
       Math.max(
@@ -314,7 +301,10 @@ export function simulateTankPath(
       if (Math.abs(headingError) > headingTolerance)
         omega = sign * Math.max(Math.abs(omega), Math.min(minW, maxW));
     }
-    const previous = velocity;
+    const oldVx = velocity.forward * Math.cos(theta);
+    const oldVy = velocity.forward * Math.sin(theta);
+    // Position tolerance ends translation immediately; final heading can keep turning.
+    const previous = atPosition ? { forward: 0, omega: velocity.omega } : velocity;
     velocity = limitTankVelocity(
       previous,
       {
@@ -330,8 +320,6 @@ export function simulateTankPath(
       dt,
       direction,
     );
-    const oldVx = previous.forward * Math.cos(theta),
-      oldVy = previous.forward * Math.sin(theta);
     const yaw = ((previous.omega + velocity.omega) * dt) / 2;
     const travel = ((previous.forward + velocity.forward) * dt) / 2;
     const sinc =
