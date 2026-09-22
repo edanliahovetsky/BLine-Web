@@ -123,6 +123,7 @@ import {
 } from "../../userData";
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
 import { findTour, tourPickerEntries, tours } from "../tours/tours";
+import { useLessonLink } from "../tours/useLessonLink";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -301,6 +302,7 @@ export function AppShell() {
   const pathHealthControlRef = useRef<HTMLDivElement | null>(null);
   const [showHelpHub, setShowHelpHub] = useState(false);
   const [showTourPicker, setShowTourPicker] = useState(false);
+  const [unavailableLessonLink, setUnavailableLessonLink] = useState(false);
   const activeTourId = useStoreSelector(
     tourStore,
     (state) => state.activeTourId,
@@ -873,6 +875,16 @@ export function AppShell() {
     (tourId: string) => tourSessionRef.current?.start(tourId) ?? false,
     [],
   );
+
+  useLessonLink({
+    canStart: () =>
+      !initializationError && tourViewRef.current?.blocked === false,
+    start: startGuidedTour,
+    onUnavailable: () => {
+      setUnavailableLessonLink(true);
+      setShowTourPicker(true);
+    },
+  });
 
   const seekTourSimulation = useCallback(
     (position: SimulationSeekRequest["position"]) => {
@@ -2790,10 +2802,15 @@ export function AppShell() {
       ) : null}
       {showTourPicker ? (
         <TourPickerDialog
-          onClose={() => setShowTourPicker(false)}
+          unavailableLink={unavailableLessonLink}
+          onClose={() => {
+            setShowTourPicker(false);
+            setUnavailableLessonLink(false);
+          }}
           onStart={(tourId) => {
             if (startGuidedTour(tourId)) {
               setShowTourPicker(false);
+              setUnavailableLessonLink(false);
             }
           }}
         />
@@ -3001,9 +3018,11 @@ function WorkspaceStatus({
 function TourPickerDialog({
   onClose,
   onStart,
+  unavailableLink,
 }: {
   onClose(): void;
   onStart(tourId: string): void;
+  unavailableLink: boolean;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
   const completedTourIds = useStoreSelector(
@@ -3095,6 +3114,11 @@ function TourPickerDialog({
           <CloseButton ariaLabel="Close lessons" onClick={onClose} />
         </header>
         <div className="tour-picker__list">
+          {unavailableLink && (
+            <p role="status">
+              This lesson link is unavailable. Choose a lesson below.
+            </p>
+          )}
           {tourPickerEntries.map((entry, index) => {
             if (!("lessons" in entry))
               return renderLesson(entry, String(index + 1));

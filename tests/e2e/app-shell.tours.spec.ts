@@ -36,6 +36,62 @@ const lessonTitles = [
   "Advanced — Path Linking",
 ];
 
+test("starts a linked lesson on a fresh browser and consumes only its URL parameter @webkit-canvas", async ({
+  page,
+}) => {
+  await page.goto("/?lesson=handoff-modes&source=docs#handoffs");
+  await heading(page, "Two ways to reach a handoff");
+  await expect(page.getByTestId("tour-picker")).toHaveCount(0);
+  expect((await practice(page)).hasPersistence).toBe(false);
+  await expect(page).toHaveURL(/\/\?source=docs#handoffs$/);
+  await exitLesson(page);
+  await expect(page.getByTestId("start-center")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("start-center")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+});
+
+test("restores a saved project after a linked lesson and after reloading during practice @webkit-canvas", async ({
+  page,
+}) => {
+  await gotoSampleEditor(page);
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  const before = await practice(page);
+  await page.goto("/?lesson=rotation-targets");
+  await heading(page, "Add a rotation target");
+  expect((await practice(page)).hasPersistence).toBe(false);
+  await exitLesson(page);
+  expect((await practice(page)).path).toEqual(before.path);
+  expect((await practice(page)).config).toEqual(before.config);
+
+  await page.goto("/?lesson=handoff-modes");
+  await heading(page, "Two ways to reach a handoff");
+  await page.reload();
+  await expect(page.getByTestId("path-stage")).toBeVisible();
+  await expect(page.getByTestId("save-status")).not.toContainText("Loading");
+  await expect(page.getByTestId("tour-card")).toHaveCount(0);
+  expect((await practice(page)).path).toEqual(before.path);
+  expect((await practice(page)).config).toEqual(before.config);
+});
+
+test("offers available lessons for an unknown lesson link @webkit-canvas", async ({
+  page,
+}) => {
+  await page.goto("/?lesson=old-lesson");
+  const picker = page.getByTestId("tour-picker");
+  await expect(picker.getByRole("status")).toHaveText(
+    "This lesson link is unavailable. Choose a lesson below.",
+  );
+  await expect(page).not.toHaveURL(/lesson=/);
+  await picker.getByText("Rotation targets", { exact: true }).click();
+  await heading(page, "Add a rotation target");
+  await exitLesson(page);
+  await expect(page.getByTestId("start-center")).toBeVisible();
+});
+
 test("opens help and all lessons, including offline guidance before advanced lessons", async ({
   page,
 }) => {
