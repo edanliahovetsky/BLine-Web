@@ -17,30 +17,39 @@ export function isTranslationBearingElement(element: PathElement): boolean {
   return isTranslationTarget(element) || isWaypoint(element);
 }
 
-/** A null index edits the path default; an element index edits that target's override. */
+/** Null edits the path default; element indexes edit overrides in one history step. */
 export function createSetHandoffModeCommand(
   path: PathModel,
-  index: number | null,
+  index: number | readonly number[] | null,
   mode: HandoffMode | undefined,
 ): HistoryCommand<PathModel> {
-  const owner = (value: PathModel) => {
+  const indexes =
+    typeof index === "number" || index === null ? [index] : [...index];
+  const owner = (value: PathModel, index: number | null) => {
     if (index === null) return value;
     const element = value.path_elements[index];
     if (element?.type === "translation") return element;
     if (element?.type === "waypoint") return element.translation_target;
     throw new Error(`Element ${index} does not carry a handoff mode`);
   };
-  const previous = owner(path).handoff_mode;
-  const update = (value: PathModel, next: HandoffMode | undefined) => {
+  const previous = indexes.map((index) => owner(path, index).handoff_mode);
+  const update = (value: PathModel, modes: (HandoffMode | undefined)[]) => {
     const copy = structuredClone(value);
-    const target = owner(copy);
-    if (next === undefined) delete target.handoff_mode;
-    else target.handoff_mode = next;
+    indexes.forEach((index, position) => {
+      const target = owner(copy, index);
+      const next = modes[position];
+      if (next === undefined) delete target.handoff_mode;
+      else target.handoff_mode = next;
+    });
     return copy;
   };
   return {
     description: "Set handoff mode",
-    apply: (value) => update(value, mode),
+    apply: (value) =>
+      update(
+        value,
+        indexes.map(() => mode),
+      ),
     revert: (value) => update(value, previous),
   };
 }

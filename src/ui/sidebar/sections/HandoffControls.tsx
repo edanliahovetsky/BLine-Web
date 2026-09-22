@@ -1,7 +1,7 @@
 import { RotateCcw } from "lucide-react";
 import type { CanonicalProjectConfig } from "../../../core/config/projectConfig";
 import type { AnchorHandoffRadius } from "../../../core/model/handoffRadii";
-import type { HandoffMode, PathModel } from "../../../core/model/path";
+import type { PathModel } from "../../../core/model/path";
 import {
   createSetHandoffModeCommand,
   createSetHandoffRadiusCommand,
@@ -11,38 +11,56 @@ import { NumberStepperControl, TooltipIconButton } from "../../controls";
 import { AutoVelocityModeControl } from "../../controls/AutoVelocityModeControl";
 import { HandoffProgressIcon, HandoffRadiusIcon } from "../../icons";
 
-function HandoffModeControl({
-  value,
-  inherited,
-  defaultSource,
-  onChange,
+export function HandoffModeControl({
+  path,
+  config,
+  chips,
   disabled = false,
   ariaLabel,
 }: {
-  value: HandoffMode | undefined;
-  inherited: HandoffMode;
-  defaultSource: "path" | "project";
-  onChange(mode: HandoffMode): void;
+  path: PathModel;
+  config: CanonicalProjectConfig;
+  chips: readonly AnchorHandoffRadius[];
   disabled?: boolean;
   ariaLabel: string;
 }) {
-  const resolved = value ?? inherited;
+  const selected = chips.filter((chip) => !chip.inert);
+  const values = selected.map(
+    (chip) => handoffTarget(path, chip.elementIndex)?.handoff_mode,
+  );
+  const inherited =
+    path.handoff_mode ??
+    config.kinematic_constraints.default_handoff_mode ??
+    "radius";
+  const defaultSource = path.handoff_mode === undefined ? "project" : "path";
+  const resolved = new Set(values.map((value) => value ?? inherited));
   const defaultLabel = inherited === "radius" ? "Radius" : "Progress";
-  const origin =
-    value === undefined
-      ? `Using ${defaultSource} default (${defaultLabel}).`
-      : `Element override. Reset on the selected tile to use the ${defaultSource} default (${defaultLabel}).`;
+  const origin = values.every((value) => value === undefined)
+    ? `Using ${defaultSource} default (${defaultLabel}).`
+    : `Element override. Reset on each selected tile to use the ${defaultSource} default (${defaultLabel}).`;
+  const selectionNote =
+    selected.length > 1
+      ? `${resolved.size > 1 ? "Selected points use different modes. " : ""}Applies to all ${selected.length} selected points. `
+      : "";
   return (
     <div className="handoff-mode-buttons" role="group" aria-label={ariaLabel}>
       {(["radius", "progress"] as const).map((mode) => (
         <TooltipIconButton
           key={mode}
           aria-label={mode === "radius" ? "Radius" : "Progress"}
-          aria-pressed={resolved === mode}
-          title={`${mode === "radius" ? "Radius" : "Progress"} handoff. ${origin}`}
-          disabled={disabled}
+          aria-pressed={resolved.size === 1 && resolved.has(mode)}
+          title={`${mode === "radius" ? "Radius" : "Progress"} handoff. ${selectionNote}${origin}`}
+          disabled={disabled || selected.length === 0}
           onClick={() => {
-            if (value !== mode) onChange(mode);
+            if (values.some((value) => value !== mode)) {
+              projectStore.getState().applyPathCommand(
+                createSetHandoffModeCommand(
+                  path,
+                  selected.map((chip) => chip.elementIndex),
+                  mode,
+                ),
+              );
+            }
           }}
         >
           {mode === "radius" ? <HandoffRadiusIcon /> : <HandoffProgressIcon />}
@@ -157,20 +175,9 @@ export function ElementHandoffControls({
         <HandoffModeControl
           ariaLabel={`Handoff mode ${chip.ordinal}`}
           disabled={disabled}
-          value={target.handoff_mode}
-          defaultSource={path.handoff_mode === undefined ? "project" : "path"}
-          inherited={
-            path.handoff_mode ??
-            config.kinematic_constraints.default_handoff_mode ??
-            "radius"
-          }
-          onChange={(mode) =>
-            projectStore
-              .getState()
-              .applyPathCommand(
-                createSetHandoffModeCommand(path, chip.elementIndex, mode),
-              )
-          }
+          path={path}
+          config={config}
+          chips={[chip]}
         />
       </div>
     </div>

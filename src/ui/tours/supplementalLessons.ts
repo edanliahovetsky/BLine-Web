@@ -571,7 +571,7 @@ const definitions: SupplementalTour[] = [
       },
       {
         title: "Change one point",
-        body: "In Constraints, select the middle purple handoff chip. The row below it keeps Auto/Manual, the distance in metres, and Radius/Progress together. Auto generates the distance; Manual lets you enter it. The geometry mode is a separate choice. The final point uses end tolerances instead of a handoff.",
+        body: "In Constraints, select the middle purple handoff chip. The row below it keeps Auto/Manual, the distance in metres, and Radius/Progress together. Auto generates the distance; Manual lets you enter it. Shift-click another chip to change several handoff modes together. The geometry mode is separate from Auto/Manual. The final point uses end tolerances instead of a handoff.",
         task: "Set the middle handoff to Progress",
         check: () => {
           const element = pathById(projectStore.getState().activePathId ?? "")

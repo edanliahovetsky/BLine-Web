@@ -1129,7 +1129,9 @@ test("pins and releases handoff radii around the optimizer", async ({
   await expect(pinnedValue).not.toHaveText("0.28 m");
 });
 
-test("uses range and toggle selection for handoff radii", async ({ page }) => {
+test("uses range and toggle selection for handoff distances and modes @webkit-canvas", async ({
+  page,
+}, testInfo) => {
   await gotoManualConstraintEditor(page);
   // Keep deleted radii unset while testing bulk edits. Background regeneration
   // is covered separately and can otherwise replace them before the assertion.
@@ -1146,10 +1148,49 @@ test("uses range and toggle selection for handoff radii", async ({ page }) => {
   const first = page.getByTestId("handoff-radius-chip-1");
   const second = page.getByTestId("handoff-radius-chip-3");
   await first.click();
+  await page
+    .getByRole("group", { name: "Handoff mode 2", exact: true })
+    .getByRole("button", { name: "Progress", exact: true })
+    .click();
   await second.click({ modifiers: ["Shift"] });
 
   const bulk = page.getByTestId("handoff-radius-bulk-detail");
   await expect(bulk).toContainText("2 radii selected");
+
+  const geometry = bulk.getByRole("group", { name: "Selected handoff modes" });
+  const radius = geometry.getByRole("button", { name: "Radius", exact: true });
+  const progress = geometry.getByRole("button", {
+    name: "Progress",
+    exact: true,
+  });
+  await expect(radius).toHaveAttribute("aria-pressed", "false");
+  await expect(progress).toHaveAttribute("aria-pressed", "false");
+  await progress.hover();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "Selected points use different modes",
+  );
+
+  // Bulk controls retain the single-selection row at both sidebar widths.
+  const resize = page.getByRole("separator", { name: "Resize inspector" });
+  for (const width of ["Home", "End"]) {
+    await resize.press(width);
+    const rowBox = await requiredBox(bulk.locator(".handoff-controls"));
+    const sourceBox = await requiredBox(
+      bulk.getByRole("group", { name: "Selected handoff radius mode" }),
+    );
+    const valueBox = await requiredBox(
+      bulk.locator(".handoff-distance-control"),
+    );
+    const modeBox = await requiredBox(geometry);
+    const centers = [sourceBox, valueBox, modeBox].map(
+      (box) => box.y + box.height / 2,
+    );
+    expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+    expect(valueBox.width).toBe(88);
+    expect(valueBox.x).toBeGreaterThan(sourceBox.x + sourceBox.width);
+    expect(modeBox.x + modeBox.width).toBeCloseTo(rowBox.x + rowBox.width);
+  }
+  await resize.press("Home");
 
   await first.click({ modifiers: [shortcut] });
   await expect(bulk).toHaveCount(0);
@@ -1182,6 +1223,51 @@ test("uses range and toggle selection for handoff radii", async ({ page }) => {
     "background-color",
     "rgb(36, 93, 68)",
   );
+
+  await progress.click();
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  const firstReset = page.getByRole("button", {
+    name: "Use default handoff mode for point 2",
+    exact: true,
+  });
+  const secondReset = page.getByRole("button", {
+    name: "Use default handoff mode for point 3",
+    exact: true,
+  });
+  await expect(firstReset).toBeVisible();
+  await expect(secondReset).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(progress).toHaveAttribute("aria-pressed", "false");
+  await expect(radius).toHaveAttribute("aria-pressed", "false");
+  await expect(firstReset).toBeVisible();
+  await expect(secondReset).toHaveCount(0);
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await radius.click();
+  await expect(radius).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    mode.getByRole("button", { name: "Auto", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(value).toHaveValue("0.35");
+  await expect(page.getByTestId("handoff-radius-chip-0")).toContainText(
+    "0.4 m",
+  );
+  await expect(page.getByTestId("handoff-radius-chip-5")).toBeDisabled();
+  await bulk.screenshot({
+    path: testInfo.outputPath("bulk-handoff-progress.png"),
+  });
+
+  await expect(page.getByTestId("save-status")).toContainText("Saved");
+  await page.reload();
+  await openConstraintsTab(page);
+  await first.click();
+  await second.click({ modifiers: ["Shift"] });
+  await expect(progress).toHaveAttribute("aria-pressed", "true");
+  await expect(value).toHaveValue("0.35");
+  await expect(first).toHaveClass(/handoff-radius-chip--auto/);
+  await expect(second).toHaveClass(/handoff-radius-chip--auto/);
 
   await bulk.getByLabel("Delete 2 handoff radii").click();
   await expect(first).toHaveClass(/handoff-radius-chip--unset/);

@@ -173,6 +173,52 @@ describe("sidebar commands", () => {
     expect(edited.constraints).toEqual(path.constraints);
   });
 
+  it("changes selected handoff modes together and restores each override on undo", () => {
+    const path = createPathModel({
+      handoff_mode: "progress",
+      path_elements: [
+        createWaypoint({
+          translation_target: createTranslationTarget({
+            handoff_mode: "radius",
+            intermediate_handoff_radius_meters: 0.25,
+            handoff_radius_source: "manual",
+          }),
+        }),
+        createRotationTarget(),
+        createTranslationTarget({
+          x_meters: 3,
+          intermediate_handoff_radius_meters: 0.7,
+          handoff_radius_source: "auto",
+        }),
+        createTranslationTarget({ x_meters: 5, handoff_mode: "radius" }),
+      ],
+    });
+    const before = structuredClone(path);
+    const history = createHistoryStore<PathModel>();
+    const edited = history
+      .getState()
+      .execute(path, createSetHandoffModeCommand(path, [0, 2], "progress"));
+    const expected = structuredClone(path);
+    const waypoint = expected.path_elements[0];
+    const translation = expected.path_elements[2];
+    if (!isWaypoint(waypoint) || !isTranslationTarget(translation))
+      throw new Error("Expected waypoint and translation test targets");
+    waypoint.translation_target.handoff_mode = "progress";
+    translation.handoff_mode = "progress";
+    expect(edited).toEqual(expected);
+    expect(path).toEqual(before);
+    const restored = history.getState().undo(edited).value;
+    expect(restored).toEqual(before);
+    expect(history.getState().redo(restored).value).toEqual(expected);
+    const roundTrip = deserializePath(serializePath(edited));
+    expect(roundTrip.path_elements).toMatchObject([
+      { translation_target: { handoff_mode: "progress" } },
+      { type: "rotation" },
+      { handoff_mode: "progress" },
+      { handoff_mode: "radius" },
+    ]);
+  });
+
   it("inserts and removes elements through Project structural edits", () => {
     const project = exampleProject();
     const element = createDefaultElement(

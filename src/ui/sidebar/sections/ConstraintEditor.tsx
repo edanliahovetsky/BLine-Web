@@ -1,5 +1,9 @@
 import { AutoVelocityModeControl } from "../../controls/AutoVelocityModeControl";
-import { ElementHandoffControls, HandoffModeReset } from "./HandoffControls";
+import {
+  ElementHandoffControls,
+  HandoffModeControl,
+  HandoffModeReset,
+} from "./HandoffControls";
 import {
   useEffect,
   useId,
@@ -990,6 +994,8 @@ function AutoConstraintLedgerCard({
       {activeType === "radius" ? (
         selectedChips.length > 1 ? (
           <HandoffRadiusBulkControls
+            path={path}
+            config={config}
             chips={selectedChips}
             autoVelocityRunning={autoVelocityRunning}
             onClearSelection={() => {
@@ -1230,10 +1236,14 @@ function HandoffRadiusChipButton({
 }
 
 function HandoffRadiusBulkControls({
+  path,
+  config,
   chips,
   autoVelocityRunning,
   onClearSelection,
 }: {
+  path: PathModel;
+  config: ProjectConfig;
   chips: readonly HandoffRadiusChip[];
   autoVelocityRunning: boolean;
   onClearSelection(): void;
@@ -1254,20 +1264,33 @@ function HandoffRadiusBulkControls({
 
   return (
     <div
-      className="ranged-constraint-controls"
+      className="handoff-bulk-controls"
       data-testid="handoff-radius-bulk-detail"
     >
-      <div className="ranged-constraint-controls__fields">
+      <div className="handoff-bulk-controls__summary">
         <p className="bulk-selection-summary">{chips.length} radii selected</p>
+        <SidebarIconButton
+          className="sidebar-icon-button--remove"
+          disabled={autoVelocityRunning}
+          aria-label={`Delete ${chips.length} handoff radii`}
+          title="Clear selected radii"
+          onClick={() => {
+            clearHandoffRadii(chips);
+            onClearSelection();
+          }}
+        >
+          <RemoveIcon size={16} />
+        </SidebarIconButton>
+      </div>
+      <div className="handoff-controls">
         <AutoVelocityModeControl
           ariaLabel="Selected handoff radius mode"
           disabled={autoVelocityRunning}
           mode={mode}
           onModeChange={(nextMode) => setHandoffRadiusModes(chips, nextMode)}
         />
-        <label className="ranged-constraint-controls__value">
-          <span>Value</span>
-          <div className="constraint-value-input">
+        <div className="handoff-controls__geometry">
+          <div className="handoff-distance-control">
             <NumberStepperControl
               allowEmpty
               ariaLabel="Selected handoff radii value"
@@ -1281,23 +1304,16 @@ function HandoffRadiusBulkControls({
                 }
               }}
             />
-            <span>m</span>
+            <span aria-hidden="true">m</span>
           </div>
-        </label>
-      </div>
-      <div className="ranged-constraint-controls__actions">
-        <SidebarIconButton
-          className="sidebar-icon-button--remove"
-          disabled={autoVelocityRunning}
-          aria-label={`Delete ${chips.length} handoff radii`}
-          title="Clear selected radii"
-          onClick={() => {
-            clearHandoffRadii(chips);
-            onClearSelection();
-          }}
-        >
-          <RemoveIcon size={16} />
-        </SidebarIconButton>
+          <HandoffModeControl
+            path={path}
+            config={config}
+            chips={chips}
+            disabled={autoVelocityRunning}
+            ariaLabel="Selected handoff modes"
+          />
+        </div>
       </div>
     </div>
   );

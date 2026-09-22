@@ -6771,6 +6771,18 @@ body.is-resizing-inspector * {
 }
 
 /* Handoff ownership, distance and geometry stay on one aligned row. */
+.handoff-bulk-controls {
+  display: grid;
+  gap: 6px;
+}
+
+.handoff-bulk-controls__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .handoff-controls {
   display: flex;
   justify-content: space-between;
