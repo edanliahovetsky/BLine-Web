@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { activeRotationLimit } from "../../../../src/core/sim/simulatePath";
 import {
   createConstraints,
   createEventTrigger,
@@ -26,6 +27,32 @@ const defaultConfig = {
 };
 
 describe("simulatePath", () => {
+  it("releases ranged angular limits after the last rotation target", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 0, y_meters: 0 }),
+        createRotationTarget({ rotation_radians: 0.1, t_ratio: 0.5 }),
+        createTranslationTarget({ x_meters: 1, y_meters: 0 }),
+        createTranslationTarget({ x_meters: 3, y_meters: 0 }),
+      ],
+      ranged_constraints: [
+        {
+          key: "min_velocity_deg_per_sec",
+          value: 60,
+          start_ordinal: 1,
+          end_ordinal: 1,
+        },
+      ],
+    });
+    const { anchors, cumulativeLengths } = buildSegments(path);
+    const events = buildRotationDomainEvents(path, anchors, cumulativeLengths);
+    expect(
+      activeRotationLimit(path, events, "min_velocity_deg_per_sec", 0.25),
+    ).toBe(60);
+    expect(
+      activeRotationLimit(path, events, "min_velocity_deg_per_sec", 1),
+    ).toBeNull();
+  });
   it("simulates a straight path with Python-reference sample values", () => {
     const path = createPathModel({
       path_elements: [
@@ -103,7 +130,14 @@ describe("simulatePath", () => {
         ...result.trace.map((sample) => Math.abs(sample.omega_radps)),
       );
       expect(peakOmega).toBeGreaterThan(0.1);
-      expect(peakOmega).toBeLessThanOrEqual(Math.PI / 6 + 1e-9);
+      expect(peakOmega).toBeLessThanOrEqual(Math.PI / 2 + 1e-9);
+      for (const sample of result.trace.filter(
+        (sample) => sample.global_s_m <= 2 * tRatio,
+      )) {
+        expect(Math.abs(sample.omega_radps)).toBeLessThanOrEqual(
+          Math.PI / 6 + 1e-9,
+        );
+      }
     },
   );
 

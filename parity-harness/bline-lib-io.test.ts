@@ -605,7 +605,7 @@ allprojects { p ->
 
         def urls = p.sourceSets.test.runtimeClasspath.files.collect { it.toURI().toURL() } as URL[]
         def classLoader = new URLClassLoader(urls, ClassLoader.getSystemClassLoader())
-        def pathClass = Class.forName('frc.robot.lib.BLine.Path', true, classLoader)
+        def pathClass = Class.forName('frc.robot.lib.BLine.path.Path', true, classLoader)
         def loadGlobalConstraints = pathClass.getMethod('loadGlobalConstraints', File.class)
         def pathConstructor = pathClass.getConstructor(File.class, String.class)
 
@@ -672,7 +672,7 @@ allprojects { p ->
 
         // Package-private control code stays private in the shipped API. This
         // cross-language test invokes it reflectively from the Gradle harness.
-        def type = { name -> Class.forName('frc.robot.lib.BLine.' + name, true, classLoader) }
+        def type = { name -> Class.forName('frc.robot.lib.BLine.' + (name == 'DriveDirection' ? 'path.' : 'following.') + name, true, classLoader) }
         def construct = { clazz, values ->
           def ctor = clazz.declaredConstructors[0]
           ctor.accessible = true

@@ -1014,7 +1014,7 @@ function rotationTargetEventOrdinal(
     }
   }
 
-  return events[events.length - 1].event_ordinal_1b;
+  return null;
 }
 
 export function minimumPositiveConstraint(
