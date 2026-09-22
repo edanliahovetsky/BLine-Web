@@ -1,12 +1,12 @@
 # BLine Web beta releases
 
-The 2027 preview uses the release title **BLine Web 2027 Beta 2**, version
-`1.0.0-beta.2`, and Git tag `v1.0.0-beta.2`. Later previews increment the beta
+The 2027 preview uses the release title **BLine Web 2027 Beta 3**, version
+`1.0.0-beta.3`, and Git tag `v1.0.0-beta.3`. Later previews increment the beta
 number. The finished release will be `v1.0.0`.
 
 ## Branches and website
 
-- `web-editor-improvements` contains the new editor development.
+- `bline-2027` contains the 2027 editor development.
 - `web-beta` holds the specific candidate offered to beta testers.
 - `web-deploy` continues to serve the current public editor.
 
@@ -54,8 +54,8 @@ export/import.
 
 Windows MSI compares only three version fields. For beta builds the installer
 version is `major.minor.(patch * 1000 + beta number)`: Beta 1 is `1.0.1`, Beta 2
-is `1.0.2`. The release version remains `1.0.0-beta.2`. Beta numbers are limited
-to 1–999 and the combined third field must fit within 65535. The current
+is `1.0.2`, and Beta 3 is `1.0.3`. The release version remains `1.0.0-beta.3`.
+Beta numbers are limited to 1–999 and the combined third field must fit within 65535. The current
 release channel retains its existing installer version mapping.
 
 ## Build a candidate
@@ -116,7 +116,7 @@ release:notes` (or let the workflow generate them). Review their user-facing cop
 alongside the recorded validation before publication.
 
 Share version-pinned links for the beta, such as
-`/d/web/v1.0.0-beta.2/windows-x64` on the BLine Metrics Worker. Do not use the
+`/d/web/v1.0.0-beta.3/windows-x64` on the BLine Metrics Worker. Do not use the
 moving `prerelease` or `latest` redirects to distinguish the current editor from
 the beta: those select the newest matching published release, including betas.
 

@@ -136,11 +136,16 @@ describe("ideal tank preview", () => {
   it("starts final alignment at position tolerance without waiting for a stopped speed", () => {
     const path = createPathModel({
       path_elements: [waypoint(0, 0, 0), waypoint(2, 0, Math.PI / 2)],
-      constraints: { ...createPathModel().constraints, end_translation_tolerance_meters: 0.2 },
+      constraints: {
+        ...createPathModel().constraints,
+        end_translation_tolerance_meters: 0.2,
+      },
     });
     const result = simulatePathWithTrace(path, config);
     expect(result.completed).toBe(true);
-    const arrivalIndex = result.trace.findIndex(sample => Math.abs(2 - sample.x_m) <= 0.2);
+    const arrivalIndex = result.trace.findIndex(
+      (sample) => Math.abs(2 - sample.x_m) <= 0.2,
+    );
     const arrival = result.trace[arrivalIndex];
     const alignment = result.trace[arrivalIndex + 1];
     expect(arrival.speed_mps).toBeGreaterThan(0.02);

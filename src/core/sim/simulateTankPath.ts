@@ -304,7 +304,9 @@ export function simulateTankPath(
     const oldVx = velocity.forward * Math.cos(theta);
     const oldVy = velocity.forward * Math.sin(theta);
     // Position tolerance ends translation immediately; final heading can keep turning.
-    const previous = atPosition ? { forward: 0, omega: velocity.omega } : velocity;
+    const previous = atPosition
+      ? { forward: 0, omega: velocity.omega }
+      : velocity;
     velocity = limitTankVelocity(
       previous,
       {

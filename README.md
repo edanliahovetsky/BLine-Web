@@ -57,7 +57,7 @@ observe, and improve this on the robot" faster.
 
 The published editor is **v0.1.0-alpha.12**, the React/Tauri successor to
 [BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). The updated UI on
-this branch is the **2027 season preview, v1.0.0-beta.2**.
+this branch is the **2027 season preview, v1.0.0-beta.3**.
 The current hosted app and current-editor downloads below remain on alpha.12;
 the beta has its own website and desktop downloads.
 
@@ -70,10 +70,10 @@ Current editor (`v0.1.0-alpha.12`):
 - [macOS Intel](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/macos-x64?source=readme-current)
 - [Linux x64](https://bline-metrics.edan-liahovetsky.workers.dev/d/web/v0.1.0-alpha.12/linux-x64?source=readme-current)
 
-The separate 2027 preview is **BLine Web 2027 Beta 2**
-(`v1.0.0-beta.2`). It installs as **BLine Web Beta** alongside the current app.
+The separate 2027 preview is **BLine Web 2027 Beta 3**
+(`v1.0.0-beta.3`). It installs as **BLine Web Beta** alongside the current app.
 Use its version-specific downloads on
-[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v1.0.0-beta.2) or the
+[GitHub Releases](https://github.com/edanliahovetsky/BLine-Web/releases/tag/v1.0.0-beta.3) or the
 [beta website](https://web-beta.bline-web.pages.dev/). See the
 [beta release guide](docs/beta-releases.md) for setup, storage separation, and
 bug reporting.
