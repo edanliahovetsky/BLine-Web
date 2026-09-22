@@ -90,6 +90,22 @@ const defaultBLineLibDir = resolve(".ci/BLine-Lib");
 // GUI's ideal guidance and the robot's PID feedback controller.
 const tankCases = [
   {
+    name: "joint speed and turn competition",
+    initial: [1, 0.9],
+    request: [2, 1],
+    limits: [2, 4, 3.5, 2.5],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
+    name: "near-zero joint selection",
+    initial: [1e-10, 0.5],
+    request: [1e-10, -2],
+    limits: [2, 4, 3.5, 2.5],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
     name: "forward startup",
     initial: [0, 0],
     request: [2, 0],
@@ -146,7 +162,7 @@ const tankCases = [
     direction: "forward",
   },
   {
-    name: "saturated corner must free braking capacity",
+    name: "saturated corner retains the unmodified request",
     initial: [2, 1],
     request: [2, 2],
     limits: [2, 4, 3, 2.5],
@@ -168,6 +184,22 @@ const tankCases = [
     limits: [10, 1e-8, 100, 100],
     dt: 0.02,
     direction: "forward",
+  },
+  {
+    name: "braking with an interior acceleration peak",
+    initial: [0.4735901723, 0.2965434234],
+    request: [0, 1.4188258514],
+    limits: [8.8176341472, 17.5766770437, 3.5, 2.5],
+    dt: 0.02,
+    direction: "forward",
+  },
+  {
+    name: "reverse braking with an interior acceleration peak",
+    initial: [-0.4735901723, 0.2965434234],
+    request: [0, 1.4188258514],
+    limits: [8.8176341472, 17.5766770437, 3.5, 2.5],
+    dt: 0.02,
+    direction: "backward",
   },
   {
     name: "paused clock",
