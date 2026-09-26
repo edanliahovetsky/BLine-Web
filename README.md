@@ -253,6 +253,9 @@ Manual smoke notes live under `tests/manual/`.
 
 ## Release Model
 
+See [Contributing](CONTRIBUTING.md) for stable and beta branches, release
+promotion, and local worktrees.
+
 `main` is the stable working branch. It should stay green, but it does not
 deploy to Cloudflare and does not create desktop release artifacts.
 
