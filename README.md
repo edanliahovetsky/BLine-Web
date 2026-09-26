@@ -277,6 +277,9 @@ Manual smoke notes live under `tests/manual/`.
 
 ## Release Model
 
+See [Contributing](CONTRIBUTING.md) for stable and beta branches, release
+promotion, and local worktrees.
+
 The opt-in 2027 beta uses the separate `web-beta` branch. See
 [Beta releases](docs/beta-releases.md) for its build commands and Cloudflare
 preview configuration. The production release process below remains separate.
