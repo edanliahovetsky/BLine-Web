@@ -33,6 +33,7 @@ import { hitTestRobotFrontFace } from "./elementGeometry";
 import { useSelectionPulse } from "./hooks/useSelectionPulse";
 import { robotSizeFromConfig } from "./robotFootprint";
 import { readFieldBackgroundImage } from "../userData";
+import { wheelZoomFactor } from "./wheelZoom";
 
 interface LinkedTargetsCanvasProps {
   compatibleTargetIds?: ReadonlySet<string> | null;
@@ -584,8 +585,7 @@ export function LinkedTargetsCanvas({
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const direction = event.deltaY > 0 ? -1 : 1;
-    const factor = direction > 0 ? zoomStepFactor : 1 / zoomStepFactor;
+    const factor = wheelZoomFactor(event);
     zoomAtStagePoint(stagePointFromEvent(event), factor);
   };
 
@@ -1014,6 +1014,5 @@ const emptyPreview = new Map<number, PointMeters>();
 const emptyRotationPreview = new Map<number, number>();
 const minViewScale = 1;
 const maxViewScale = 8;
-const zoomStepFactor = 1.03;
 const linkedElementsPreviewFieldPaddingPx = 6;
 const blankClickMaxDistancePx = 4;

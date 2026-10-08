@@ -53,8 +53,10 @@ test.describe("Pixi canvas rendering", () => {
 
     let box = await requiredBox(canvas);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    // Trackpad-sized deltas keep the fixed 3% step, leaving the canvas
+    // center over empty field for the pan below.
     for (let zoomStep = 0; zoomStep < 12; zoomStep += 1) {
-      await page.mouse.wheel(0, -400);
+      await page.mouse.wheel(0, -30);
     }
 
     await expect

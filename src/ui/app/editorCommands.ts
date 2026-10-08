@@ -29,6 +29,11 @@ export interface EditorCommand {
   keywords?: readonly string[];
   shortcut?: ShortcutBinding;
   shortcutAliases?: readonly ShortcutBinding[];
+  /**
+   * Display-only key hint for actions whose keys are handled by a focused
+   * surface (such as canvas view and playback keys) instead of the shell.
+   */
+  shortcutHint?: string;
   scope?: CommandScope;
   disabled?: boolean;
   run(): void | Promise<void>;
@@ -64,6 +69,7 @@ export interface EditorUiPreferencesV1 {
   inspectorTab: "elements" | "constraints";
   inspectorWidth: number;
   showGhostPaths: boolean;
+  showMotionProfile: boolean;
 }
 
 export const defaultEditorUiPreferences: EditorUiPreferencesV1 = {
@@ -71,6 +77,7 @@ export const defaultEditorUiPreferences: EditorUiPreferencesV1 = {
   inspectorTab: "elements",
   inspectorWidth: 340,
   showGhostPaths: true,
+  showMotionProfile: false,
 };
 
 export const inspectorWidthMin = 320;
@@ -83,6 +90,7 @@ export function readEditorUiPreferences(): EditorUiPreferencesV1 {
     inspectorTab: preferences.inspector_tab,
     inspectorWidth: clampInspectorWidth(preferences.inspector_width),
     showGhostPaths: preferences.show_ghost_paths,
+    showMotionProfile: preferences.show_motion_profile,
   };
 }
 
@@ -94,6 +102,7 @@ export function writeEditorUiPreferences(
     inspector_tab: preferences.inspectorTab,
     inspector_width: clampInspectorWidth(preferences.inspectorWidth),
     show_ghost_paths: preferences.showGhostPaths,
+    show_motion_profile: preferences.showMotionProfile,
   });
 }
 

@@ -13,6 +13,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  type RefObject,
   type WheelEvent,
 } from "react";
 import {
@@ -22,6 +23,7 @@ import {
   MousePointer2,
   ZoomIn,
   ZoomOut,
+  ChartSpline,
 } from "lucide-react";
 import {
   isAnchorElement,
@@ -41,7 +43,7 @@ import {
   type ResolvedFieldDefinition,
 } from "../core/field/fieldConfig";
 import { createCurveTranslationTargets } from "../core/pathProfile/curveProfile";
-import { simulatePathWithTrace, type SimResult } from "../core/sim";
+import { simulatePathWithTrace } from "../core/sim";
 import type { SimTraceResult } from "../core/sim/types";
 import { activePathForProjectStore, projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
@@ -79,6 +81,7 @@ import {
   interpolateSegmentPosition,
   modelToStagePoint,
   projectPointToSegmentRatio,
+  stageToFieldCoordinate,
   stageToModelPoint,
   stagePointsDiffer,
   type CanvasSize,
@@ -104,7 +107,13 @@ import {
   type PixiPathOverlay,
   type PixiRenderInput,
 } from "./pixi/PixiPathRenderer";
-import { simulationEventPulseAtTime } from "./simulationEventPulse";
+import {
+  simulationEventMoments,
+  simulationEventPulseAtTime,
+} from "./simulationEventPulse";
+import { buildMotionProfile, type MotionProfile } from "./motionProfile";
+import { MotionProfilePanel } from "./MotionProfilePanel";
+import { wheelZoomFactor } from "./wheelZoom";
 import { eventMarkerMetrics, hitTestRobotFrontFace } from "./elementGeometry";
 import { useSelectionPulse } from "./hooks/useSelectionPulse";
 import { robotSizeFromConfig } from "./robotFootprint";
@@ -141,7 +150,24 @@ interface PathStageProps {
     targets: readonly TranslationTarget[],
   ): void;
   onCurveToolCancel?(): void;
+  showMotionProfile?: boolean;
+  onShowMotionProfileChange?(show: boolean): void;
+  /** Lets shell commands drive the canvas view and preview transport. */
+  controlsRef?: RefObject<PathStageControls | null>;
 }
+
+export interface PathStageControls {
+  togglePlaying(): void;
+  restart(): void;
+  finish(): void;
+  /** Steps the preview speed, stopping at the slowest and fastest rates. */
+  stepPlaybackRate(direction: 1 | -1): void;
+  zoomIn(): void;
+  zoomOut(): void;
+  fitView(): void;
+}
+
+const playbackRates = [0.25, 0.5, 1, 2] as const;
 
 export interface SimulationSeekRequest {
   id: number;
@@ -209,6 +235,9 @@ export function PathStage({
   onInteractionStateChange,
   onCurveToolCommit,
   onCurveToolCancel,
+  showMotionProfile = false,
+  onShowMotionProfileChange,
+  controlsRef,
 }: PathStageProps = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
@@ -261,6 +290,7 @@ export function PathStage({
   const [simulationPlaying, setSimulationPlaying] = useState(false);
   const [simulationSeekCount, setSimulationSeekCount] = useState(0);
   const [simulationPlayCount, setSimulationPlayCount] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [hoveredOverlayPathId, setHoveredOverlayPathId] = useState<
     string | null
   >(null);
@@ -561,10 +591,26 @@ export function PathStage({
     };
   }, [fieldRenderKey]);
 
-  const baseViewport = useMemo(
-    () => createFieldViewport(stageSize, 24, activeField.geometry),
-    [activeField.geometry, stageSize],
-  );
+  // The fitted view keeps the field clear of the open motion profile and its
+  // transport; zooming and panning can still bring any part beneath them.
+  const fitReservedBottomPx =
+    showMotionProfile && !activeTourId
+      ? Math.min(motionProfileReservedHeightPx, stageSize.height * 0.35)
+      : 0;
+  const baseViewport = useMemo(() => {
+    const fitted = createFieldViewport(stageSize, 24, activeField.geometry);
+    if (fitted.y + fitted.height <= stageSize.height - fitReservedBottomPx) {
+      return fitted;
+    }
+    return createFieldViewport(
+      {
+        width: stageSize.width,
+        height: Math.max(1, stageSize.height - fitReservedBottomPx),
+      },
+      24,
+      activeField.geometry,
+    );
+  }, [activeField.geometry, fitReservedBottomPx, stageSize]);
   const viewport = useMemo(
     () =>
       lessonCamera
@@ -705,6 +751,8 @@ export function PathStage({
     committedSimulationResult,
   );
   const simulationResult = previewSimulationResult ?? committedSimulationResult;
+  // Lessons own their playback pacing, so a chosen rate only applies outside them.
+  const effectivePlaybackRate = activeTourId ? 1 : playbackRate;
 
   // A lesson owns camera/playback temporarily; exiting restores the user's view.
   useEffect(() => {
@@ -795,6 +843,40 @@ export function PathStage({
       : null;
     return fromConfig !== null && fromConfig > 0 ? fromConfig : 3;
   }, [activePath, durableProject]);
+  const motionProfileVisible = showMotionProfile && !activeTourId;
+  const pointerFieldPosition = useMemo(() => {
+    if (!pointerPosition || isPanning) {
+      return null;
+    }
+    return stageToFieldCoordinate(pointerPosition, viewport);
+  }, [isPanning, pointerPosition, viewport]);
+  const motionProfile = useMemo(
+    () =>
+      motionProfileVisible && simulationResult
+        ? buildMotionProfile(
+            activePath?.path ?? null,
+            simulationResult.trace,
+            simulationResult.total_time_s,
+            trajectoryMaxSpeedMps,
+          )
+        : null,
+    [activePath, motionProfileVisible, simulationResult, trajectoryMaxSpeedMps],
+  );
+  const timelineEventMarkers = useMemo(
+    () =>
+      activePath && simulationResult && simulationResult.total_time_s > 0
+        ? simulationEventMoments(activePath.path, simulationResult.trace).map(
+            (event) => ({
+              key: event.key || "Unnamed event",
+              ratio: Math.min(
+                1,
+                Math.max(0, event.time / simulationResult.total_time_s),
+              ),
+            }),
+          )
+        : [],
+    [activePath, simulationResult],
+  );
 
   const canvasInteractionActive =
     isPanning ||
@@ -956,7 +1038,8 @@ export function PathStage({
       if (lastTimestamp === null) {
         lastTimestamp = timestamp;
       }
-      const deltaS = (timestamp - lastTimestamp) / 1000;
+      const deltaS =
+        ((timestamp - lastTimestamp) / 1000) * effectivePlaybackRate;
       lastTimestamp = timestamp;
       setSimulationTime((current) => {
         const next = Math.min(simulationResult.total_time_s, current + deltaS);
@@ -976,7 +1059,12 @@ export function PathStage({
 
     frameId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frameId);
-  }, [simulationPlaying, simulationResult, canvasLesson]);
+  }, [
+    simulationPlaying,
+    simulationResult,
+    canvasLesson,
+    effectivePlaybackRate,
+  ]);
 
   const toggleSimulationPlaying = useCallback(() => {
     if (!simulationResult || simulationResult.total_time_s <= 0) {
@@ -1300,6 +1388,45 @@ export function PathStage({
     setPanOffset({ x: 0, y: 0 });
   }, [setPanOffset]);
 
+  const changePlaybackRate = useCallback((direction: 1 | -1, wrap: boolean) => {
+    setPlaybackRate((current) => {
+      const index = Math.max(
+        0,
+        playbackRates.indexOf(current as (typeof playbackRates)[number]),
+      );
+      const next = wrap
+        ? (index + direction + playbackRates.length) % playbackRates.length
+        : Math.min(playbackRates.length - 1, Math.max(0, index + direction));
+      return playbackRates[next];
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!controlsRef) {
+      return undefined;
+    }
+    controlsRef.current = {
+      togglePlaying: toggleSimulationPlaying,
+      restart: resetSimulation,
+      finish: finishSimulation,
+      stepPlaybackRate: (direction) => changePlaybackRate(direction, false),
+      zoomIn: () => zoomFromCenter(1.25),
+      zoomOut: () => zoomFromCenter(1 / 1.25),
+      fitView: resetView,
+    };
+    return () => {
+      controlsRef.current = null;
+    };
+  }, [
+    changePlaybackRate,
+    controlsRef,
+    finishSimulation,
+    resetSimulation,
+    resetView,
+    toggleSimulationPlaying,
+    zoomFromCenter,
+  ]);
+
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (canvasLesson) {
       event.preventDefault();
@@ -1310,8 +1437,7 @@ export function PathStage({
     }
 
     event.preventDefault();
-    const direction = event.deltaY > 0 ? -1 : 1;
-    const factor = direction > 0 ? zoomStepFactor : 1 / zoomStepFactor;
+    const factor = wheelZoomFactor(event);
     zoomAtStagePoint(stagePointFromEvent(event), factor);
   };
 
@@ -2063,6 +2189,23 @@ export function PathStage({
           onZoomIn={() => zoomFromCenter(1.25)}
           onZoomOut={() => zoomFromCenter(1 / 1.25)}
         />
+        {pointerFieldPosition && !activeTourId ? (
+          <div
+            className="path-stage__pointer-readout"
+            data-testid="pointer-field-position"
+            aria-hidden="true"
+          >
+            <span>
+              <small>X</small>
+              {pointerFieldPosition.x_meters.toFixed(2)}
+            </span>
+            <span>
+              <small>Y</small>
+              {pointerFieldPosition.y_meters.toFixed(2)}
+            </span>
+            <span className="path-stage__pointer-readout-unit">m</span>
+          </div>
+        ) : null}
         {rendererError ? (
           <div className="path-stage__renderer-error">
             Canvas renderer failed: {rendererError}
@@ -2148,6 +2291,18 @@ export function PathStage({
               );
           }}
           result={simulationResult}
+          motionProfile={motionProfile}
+          eventMarkers={activeTourId ? [] : timelineEventMarkers}
+          showMotionProfile={motionProfileVisible}
+          playbackRate={activeTourId ? null : playbackRate}
+          onCyclePlaybackRate={(direction) =>
+            changePlaybackRate(direction, true)
+          }
+          onToggleMotionProfile={
+            activeTourId
+              ? undefined
+              : () => onShowMotionProfileChange?.(!showMotionProfile)
+          }
           currentTimeS={simulationTime}
           playing={simulationPlaying}
           seekCount={simulationSeekCount}
@@ -2480,6 +2635,12 @@ function SimulationTransport({
   tankDirection,
   onTankDirectionChange,
   result,
+  motionProfile,
+  eventMarkers,
+  showMotionProfile,
+  playbackRate,
+  onCyclePlaybackRate,
+  onToggleMotionProfile,
   currentTimeS,
   playing,
   seekCount,
@@ -2492,7 +2653,14 @@ function SimulationTransport({
   legacyAppearance?: boolean;
   tankDirection?: "forward" | "backward";
   onTankDirectionChange(direction: "forward" | "backward"): void;
-  result: SimResult | null;
+  result: SimTraceResult | null;
+  motionProfile: MotionProfile | null;
+  eventMarkers: readonly { key: string; ratio: number }[];
+  showMotionProfile: boolean;
+  /** Null hides the rate control, as lessons own their pacing. */
+  playbackRate: number | null;
+  onCyclePlaybackRate(direction: 1 | -1): void;
+  onToggleMotionProfile?(): void;
   currentTimeS: number;
   playing: boolean;
   seekCount: number;
@@ -2509,16 +2677,34 @@ function SimulationTransport({
   const timelineStyle = {
     "--transport-progress": `${progress}%`,
   } as CSSProperties;
+  const rateLabel =
+    playbackRate === null
+      ? ""
+      : `${playbackRate === 0.25 ? "¼" : playbackRate === 0.5 ? "½" : playbackRate}×`;
 
   return (
     <div className="simulation-transport-row">
       <div
-        className="simulation-transport"
+        className={[
+          "simulation-transport",
+          playbackRate !== null ? "has-rate" : "",
+          onToggleMotionProfile ? "has-profile-toggle" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         data-testid="simulation-transport"
         data-tour="simulation-transport"
         data-tour-seek-count={seekCount}
         data-tour-play-count={playCount}
       >
+        {showMotionProfile && motionProfile && result ? (
+          <MotionProfilePanel
+            profile={motionProfile}
+            trace={result.trace}
+            currentTimeS={safeCurrent}
+            onSeek={onSeek}
+          />
+        ) : null}
         <div className="transport-primary-controls">
           <button
             type="button"
@@ -2564,10 +2750,30 @@ function SimulationTransport({
         <span className="transport-time" data-testid="simulation-time">
           {safeCurrent.toFixed(2)} / {total.toFixed(2)} s
         </span>
-        <span className="transport-elapsed" aria-hidden="true">
-          {safeCurrent.toFixed(2)}s
+        <span
+          className="transport-elapsed"
+          data-testid="simulation-elapsed"
+          aria-hidden="true"
+          title="Elapsed / total path time"
+        >
+          {safeCurrent.toFixed(2)}
+          <span className="transport-elapsed__total">
+            / {total.toFixed(2)}s
+          </span>
         </span>
         <div className="transport-timeline" data-tour="transport-timeline">
+          {eventMarkers.length > 0 ? (
+            <div className="transport-timeline__markers" aria-hidden="true">
+              {eventMarkers.map((marker, index) => (
+                <span
+                  key={`${marker.key}-${index}`}
+                  className="transport-timeline__event"
+                  data-testid="timeline-event-marker"
+                  style={{ left: `${marker.ratio * 100}%` }}
+                />
+              ))}
+            </div>
+          ) : null}
           <input
             aria-label="Simulation time"
             type="range"
@@ -2580,6 +2786,46 @@ function SimulationTransport({
             onChange={(event) => onSeek(Number(event.currentTarget.value))}
           />
         </div>
+        {playbackRate !== null || onToggleMotionProfile ? (
+          <div className="transport-secondary-controls">
+            {playbackRate !== null ? (
+              <button
+                type="button"
+                className="transport-rate-button"
+                data-testid="playback-rate"
+                aria-label={`Playback speed ${playbackRate}×`}
+                title="Playback speed (Shift-click to slow down)"
+                onClick={(event) =>
+                  onCyclePlaybackRate(event.shiftKey ? -1 : 1)
+                }
+              >
+                {rateLabel}
+              </button>
+            ) : null}
+            {onToggleMotionProfile ? (
+              <button
+                type="button"
+                className={[
+                  "transport-step-button",
+                  showMotionProfile ? "is-active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-label={
+                  showMotionProfile
+                    ? "Hide motion profile"
+                    : "Show motion profile"
+                }
+                aria-pressed={showMotionProfile}
+                aria-keyshortcuts="P"
+                title="Motion profile (P): speed and rotation over time"
+                onClick={onToggleMotionProfile}
+              >
+                <ChartSpline aria-hidden="true" size={16} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {tankDirection && (
         <div
@@ -3245,9 +3491,10 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const emptyPreview = new Map<number, PointMeters>();
+/** Matches the docked motion profile plus transport, measured from the stage bottom. */
+const motionProfileReservedHeightPx = 180;
 const minViewScale = 1;
 const maxViewScale = 8;
-const zoomStepFactor = 1.03;
 const curveFitToleranceMeters = 0.18;
 const curveMinTargetSpacingMeters = 0.35;
 const curveEndpointSnapToleranceMeters = 0.22;

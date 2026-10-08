@@ -1,5 +1,6 @@
 import {
   clampPointToFieldCoordinates,
+  isPointWithinFieldCoordinates,
   defaultFieldGeometry,
   fieldCoordinateOffsetXMeters,
   fieldCoordinateOffsetYMeters,
@@ -216,18 +217,36 @@ export function stageToModelPoint(
   point: StagePoint,
   viewport: FieldViewport,
 ): PointMeters {
-  const sceneX = (point.x - viewport.x) / viewport.scale;
-  const sceneY = (point.y - viewport.y) / viewport.scale;
-  const offsetX = fieldCoordinateOffsetXMeters(viewport.field);
-  const offsetY = fieldCoordinateOffsetYMeters(viewport.field);
-
   return clampModelPoint(
-    {
-      x_meters: sceneX - offsetX,
-      y_meters: viewport.field.width_meters - sceneY - offsetY,
-    },
+    stageToUnclampedModelPoint(point, viewport),
     viewport.field,
   );
+}
+
+/** The field coordinate under a stage point, or null outside the field. */
+export function stageToFieldCoordinate(
+  point: StagePoint,
+  viewport: FieldViewport,
+): PointMeters | null {
+  const modelPoint = stageToUnclampedModelPoint(point, viewport);
+  return isPointWithinFieldCoordinates(modelPoint, viewport.field)
+    ? modelPoint
+    : null;
+}
+
+function stageToUnclampedModelPoint(
+  point: StagePoint,
+  viewport: FieldViewport,
+): PointMeters {
+  const sceneX = (point.x - viewport.x) / viewport.scale;
+  const sceneY = (point.y - viewport.y) / viewport.scale;
+  return {
+    x_meters: sceneX - fieldCoordinateOffsetXMeters(viewport.field),
+    y_meters:
+      viewport.field.width_meters -
+      sceneY -
+      fieldCoordinateOffsetYMeters(viewport.field),
+  };
 }
 
 export function clampModelPoint(

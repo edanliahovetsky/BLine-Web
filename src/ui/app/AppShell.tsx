@@ -12,6 +12,7 @@ import { Check, ChevronDown, CircleAlert } from "lucide-react";
 import {
   PathStage,
   type CanvasElementPlacement,
+  type PathStageControls,
   type SimulationSeekRequest,
 } from "../../canvas/PathStage";
 import type { CurveToolSession } from "../../canvas/curveAuthoring";
@@ -346,6 +347,10 @@ export function AppShell() {
   const [showGhostPaths, setShowGhostPaths] = useState(
     () => readEditorUiPreferences().showGhostPaths,
   );
+  const [showMotionProfile, setShowMotionProfile] = useState(
+    () => readEditorUiPreferences().showMotionProfile,
+  );
+  const pathStageControlsRef = useRef<PathStageControls | null>(null);
   const [linkedTargetPickerRequest, setLinkedTargetPickerRequest] =
     useState<LinkedTargetPickerRequest | null>(null);
   const [showMobileSupportWarning, setShowMobileSupportWarning] =
@@ -414,10 +419,12 @@ export function AppShell() {
       inspectorTab,
       inspectorWidth,
       showGhostPaths,
+      showMotionProfile,
     }) => {
       setInspectorTab(inspectorTab);
       setInspectorWidth(inspectorWidth);
       setShowGhostPaths(showGhostPaths);
+      setShowMotionProfile(showMotionProfile);
     },
   });
 
@@ -2021,6 +2028,13 @@ export function AppShell() {
       showGhostPaths: show,
     });
   }, []);
+  const handleShowMotionProfileChange = useCallback((show: boolean) => {
+    setShowMotionProfile(show);
+    writeEditorUiPreferences({
+      ...readEditorUiPreferences(),
+      showMotionProfile: show,
+    });
+  }, []);
   const projectAvailable = Boolean(editorProject);
   const pathAvailable = Boolean(activePath);
   const projectIoAvailable =
@@ -2192,6 +2206,126 @@ export function AppShell() {
       run: () => handleToolChange("curve"),
     },
   ];
+  const canvasControls = () => pathStageControlsRef.current;
+  const canvasAvailable = pathAvailable && !showHome;
+  const motionProfileCommand: EditorCommand = {
+    id: "view.motion-profile",
+    label: showMotionProfile ? "Hide motion profile" : "Show motion profile",
+    category: "View",
+    keywords: ["graph", "chart", "velocity", "speed", "time", "plot"],
+    shortcut: { key: "p" },
+    scope: "editor",
+    disabled: !canvasAvailable || Boolean(activeTourId),
+    run: () => handleShowMotionProfileChange(!showMotionProfile),
+  };
+  const viewCommands: EditorCommand[] = [
+    motionProfileCommand,
+    {
+      id: "view.path-group-overlays",
+      label: showGhostPaths
+        ? "Hide Path Group overlays"
+        : "Show Path Group overlays",
+      category: "View",
+      keywords: ["ghost", "other paths", "reference"],
+      disabled: !canvasAvailable,
+      run: () => handleShowGhostPathsChange(!showGhostPaths),
+    },
+    {
+      id: "view.zoom-in",
+      label: "Zoom in",
+      category: "View",
+      shortcutHint: "+",
+      disabled: !canvasAvailable,
+      run: () => canvasControls()?.zoomIn(),
+    },
+    {
+      id: "view.zoom-out",
+      label: "Zoom out",
+      category: "View",
+      shortcutHint: "−",
+      disabled: !canvasAvailable,
+      run: () => canvasControls()?.zoomOut(),
+    },
+    {
+      id: "view.fit",
+      label: "Fit field to view",
+      category: "View",
+      keywords: ["reset", "zoom", "center"],
+      shortcutHint: "0",
+      disabled: !canvasAvailable,
+      run: () => canvasControls()?.fitView(),
+    },
+  ];
+  const playbackCommands: EditorCommand[] = [
+    {
+      id: "playback.toggle",
+      label: "Play or pause simulation",
+      category: "Playback",
+      keywords: ["preview", "run"],
+      shortcutHint: "K / Space",
+      disabled: !canvasAvailable,
+      run: () => canvasControls()?.togglePlaying(),
+    },
+    {
+      id: "playback.restart",
+      label: "Restart simulation",
+      category: "Playback",
+      keywords: ["preview", "rewind"],
+      shortcutHint: "J / Home",
+      disabled: !canvasAvailable,
+      run: () => canvasControls()?.restart(),
+    },
+    {
+      id: "playback.end",
+      label: "Jump to end",
+      category: "Playback",
+      keywords: ["preview", "finish"],
+      shortcutHint: "L / End",
+      disabled: !canvasAvailable,
+      run: () => canvasControls()?.finish(),
+    },
+    {
+      id: "playback.faster",
+      label: "Increase playback speed",
+      category: "Playback",
+      keywords: ["rate", "fast", "slow motion"],
+      disabled: !canvasAvailable || Boolean(activeTourId),
+      run: () => canvasControls()?.stepPlaybackRate(1),
+    },
+    {
+      id: "playback.slower",
+      label: "Decrease playback speed",
+      category: "Playback",
+      keywords: ["rate", "slow motion"],
+      disabled: !canvasAvailable || Boolean(activeTourId),
+      run: () => canvasControls()?.stepPlaybackRate(-1),
+    },
+  ];
+  const pathActionCommands: EditorCommand[] = [
+    {
+      id: "path.rename",
+      label: "Rename path",
+      category: "Path",
+      disabled: !pathAvailable || !projectIoAvailable || toolbarBusy,
+      run: handleRenamePath,
+    },
+    {
+      id: "path.save-as",
+      label: "Save path as copy",
+      category: "Path",
+      keywords: ["duplicate path", "clone path"],
+      disabled: !pathAvailable || !projectIoAvailable || toolbarBusy,
+      run: handleSavePathAs,
+    },
+    {
+      id: "help.lessons",
+      label: "Open lessons",
+      category: "Help",
+      keywords: ["tutorial", "tour", "learn", "guide"],
+      disabled: Boolean(activeTourId),
+      run: () => setShowTourPicker(true),
+    },
+  ];
   const pathCommands: EditorCommand[] = pathDocuments.map((path) => ({
     id: `path.open.${path.path_id}`,
     label: `Open path: ${path.display_name}`,
@@ -2212,6 +2346,9 @@ export function AppShell() {
     inspectorCommand,
     shortcutHelpCommand,
     ...toolCommands,
+    ...viewCommands,
+    ...playbackCommands,
+    ...pathActionCommands,
     ...pathCommands,
   ];
   const shortcutCommands = [
@@ -2221,6 +2358,7 @@ export function AppShell() {
     duplicateElementCommand,
     inspectorCommand,
     shortcutHelpCommand,
+    motionProfileCommand,
     ...toolCommands,
   ];
 
@@ -2525,6 +2663,9 @@ export function AppShell() {
                 activeTool={activeTool}
                 showGhostPaths={showGhostPaths}
                 onShowGhostPathsChange={handleShowGhostPathsChange}
+                showMotionProfile={showMotionProfile}
+                onShowMotionProfileChange={handleShowMotionProfileChange}
+                controlsRef={pathStageControlsRef}
                 curveTool={curveToolSession}
                 simulationSeekRequest={
                   activeTourId ? tourSimulationSeekRequest : null

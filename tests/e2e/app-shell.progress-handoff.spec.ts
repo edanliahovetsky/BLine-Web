@@ -133,9 +133,10 @@ test("progress gates keep six dashes across zoom, selection and distance edits @
   const box = await requiredBox(canvas);
   await page.mouse.move(box.x + moved.center.x, box.y + moved.center.y);
   // The editor starts at minimum zoom. Zoom about the gate to keep it visible.
+  // Trackpad-sized deltas use the fixed 3% step so 20 steps stay in range.
   for (const [name, delta] of [
-    ["zoom-in", -100],
-    ["zoom-out", 100],
+    ["zoom-in", -30],
+    ["zoom-out", 30],
   ] as const) {
     for (let step = 0; step < 20; step++) {
       const before = await canvasNodePosition(page, "path-element-node-0");

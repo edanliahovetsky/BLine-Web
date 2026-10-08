@@ -23,6 +23,7 @@ import {
   projectPointToSegmentRatio,
   getRenderableElementPositions,
   modelToStagePoint,
+  stageToFieldCoordinate,
   stageToModelPoint,
   stagePointsDiffer,
 } from "../../../src/canvas/geometry";
@@ -93,6 +94,29 @@ describe("canvas geometry", () => {
 
     expect(roundTrip.x_meters).toBeCloseTo(modelPoint.x_meters, 6);
     expect(roundTrip.y_meters).toBeCloseTo(modelPoint.y_meters, 6);
+  });
+
+  it("reports field coordinates only inside the field", () => {
+    const viewport = createFieldViewport({ width: 960, height: 540 });
+    const inside = stageToFieldCoordinate(
+      modelToStagePoint({ x_meters: 3.25, y_meters: 2.75 }, viewport),
+      viewport,
+    );
+
+    expect(inside?.x_meters).toBeCloseTo(3.25, 6);
+    expect(inside?.y_meters).toBeCloseTo(2.75, 6);
+    expect(
+      stageToFieldCoordinate(
+        { x: viewport.x + 40, y: viewport.y - 20 },
+        viewport,
+      ),
+    ).toBeNull();
+    expect(
+      stageToFieldCoordinate(
+        { x: viewport.x - 20, y: viewport.y + 40 },
+        viewport,
+      ),
+    ).toBeNull();
   });
 
   it("uses active field geometry for viewport sizing and coordinate offsets", () => {

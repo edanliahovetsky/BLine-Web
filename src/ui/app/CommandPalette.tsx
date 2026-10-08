@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Command, Search } from "lucide-react";
+import {
+  CircleHelp,
+  Command,
+  Eye,
+  FolderOpen,
+  MousePointer2,
+  Pencil,
+  Play,
+  Route,
+  Search,
+  type LucideIcon,
+} from "lucide-react";
 import type { EditorCommand } from "./editorCommands";
 import {
   commandMatchesQuery,
@@ -117,7 +128,7 @@ export function CommandPalette({
                 onClick={() => runCommand(command)}
               >
                 <span className="command-palette__result-icon">
-                  <Command aria-hidden="true" size={16} />
+                  <CommandCategoryIcon category={command.category} />
                 </span>
                 <span className="command-palette__result-copy">
                   <strong>{command.label}</strong>
@@ -125,8 +136,12 @@ export function CommandPalette({
                     <small>{command.category}</small>
                   ) : null}
                 </span>
-                {command.shortcut ? (
-                  <kbd>{formatShortcut(command.shortcut)}</kbd>
+                {command.shortcut || command.shortcutHint ? (
+                  <kbd>
+                    {command.shortcut
+                      ? formatShortcut(command.shortcut)
+                      : command.shortcutHint}
+                  </kbd>
                 ) : null}
               </button>
             ))
@@ -147,10 +162,15 @@ export function ShortcutHelpDialog({
   onClose(): void;
 }) {
   const dialogRef = useDialogFocusTrap<HTMLElement>();
+  // Opening from a canvas key leaves focus behind the modal; move it inside
+  // so Escape and Tab reach this dialog rather than the editor.
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, [dialogRef]);
   const grouped = useMemo(() => {
     const groups = new Map<string, EditorCommand[]>();
     for (const command of commands) {
-      if (!command.shortcut) {
+      if (!command.shortcut && !command.shortcutHint) {
         continue;
       }
       groups.set(command.category, [
@@ -169,6 +189,7 @@ export function ShortcutHelpDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard shortcuts"
+        tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -191,7 +212,11 @@ export function ShortcutHelpDialog({
                   <div key={command.id}>
                     <dt>{command.label}</dt>
                     <dd>
-                      <kbd>{formatShortcut(command.shortcut)}</kbd>
+                      <kbd>
+                        {command.shortcut
+                          ? formatShortcut(command.shortcut)
+                          : command.shortcutHint}
+                      </kbd>
                     </dd>
                   </div>
                 ))}
@@ -253,24 +278,32 @@ export function ShortcutHelpDialog({
             </dl>
           </section>
           <section>
-            <h3>Playback</h3>
+            <h3>General</h3>
             <dl>
               <div>
-                <dt>Restart simulation</dt>
+                <dt>Command palette</dt>
                 <dd>
-                  <kbd>J / Home</kbd>
+                  <kbd>
+                    {formatShortcut({ key: "k", metaOrCtrl: true })} / F1
+                  </kbd>
                 </dd>
               </div>
               <div>
-                <dt>Play or pause</dt>
+                <dt>Cancel tool or drag</dt>
                 <dd>
-                  <kbd>K / Space</kbd>
+                  <kbd>Esc</kbd>
                 </dd>
               </div>
               <div>
-                <dt>Jump to end</dt>
+                <dt>Zoom at pointer</dt>
                 <dd>
-                  <kbd>L / End</kbd>
+                  <kbd>Scroll</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Pan the field</dt>
+                <dd>
+                  <kbd>Drag empty space</kbd>
                 </dd>
               </div>
             </dl>
@@ -279,4 +312,20 @@ export function ShortcutHelpDialog({
       </section>
     </div>
   );
+}
+
+const categoryIcons: Record<string, LucideIcon> = {
+  "Canvas tools": MousePointer2,
+  Edit: Pencil,
+  Help: CircleHelp,
+  Path: Route,
+  Paths: Route,
+  Playback: Play,
+  Project: FolderOpen,
+  View: Eye,
+};
+
+function CommandCategoryIcon({ category }: { category: string }) {
+  const Icon = categoryIcons[category] ?? Command;
+  return <Icon aria-hidden="true" size={16} />;
 }

@@ -46,7 +46,9 @@ canvas tools live on the left, view controls live on the field, element and
 constraint editing share a tabbed inspector, and save health is summarized in
 one status bar. Use the Project Navigator to search paths and Path Groups or
 press `Cmd/Ctrl+K` to find commands without leaving the keyboard. Edit ranged
-constraints in the inspector's Constraints tab.
+constraints in the inspector's Constraints tab. The playback bar shows the
+path's total time and event timing, offers slower and faster preview speeds,
+and opens a motion profile of speed and rotation over time.
 
 The goal is not to make autonomous path planning look more complicated than it
 has to be. BLine uses practical point-to-point paths, forgiving tuning surfaces,
@@ -102,6 +104,9 @@ Useful shortcuts in the 2027 beta editor:
   event, and curve tools
 - `J` / Home, `K` / Space, `L` / End: restart, play or pause, and jump to
   the end of the simulation
+- `P`: show or hide the motion profile (speed and rotation over time; click
+  or drag the graph to scrub)
+- `+`, `-`, `0`: zoom the field in, out, or fit it to the view
 - Arrow keys: nudge the selected element on the field (`Shift` for larger
   steps)
 - `[` / `]`: move the selection to the previous / next path element

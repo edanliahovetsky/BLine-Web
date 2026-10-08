@@ -13,6 +13,7 @@ export interface EditorLayoutPreferences {
   inspector_width: number;
   show_ghost_paths: boolean;
   navigator_show_connections: boolean;
+  show_motion_profile: boolean;
 }
 
 export interface ProjectViewPreferences {
@@ -50,6 +51,7 @@ export const defaultUserData: UserData = {
     inspector_width: 340,
     show_ghost_paths: true,
     navigator_show_connections: true,
+    show_motion_profile: false,
   },
   completed_tour_ids: [],
   automatic_generation: { keep_in_sync: true },
@@ -142,6 +144,9 @@ export function migrateUserData(
       navigator_show_connections:
         booleanValue(persistedLayout?.navigator_show_connections) ??
         defaultUserData.editor_layout.navigator_show_connections,
+      show_motion_profile:
+        booleanValue(persistedLayout?.show_motion_profile) ??
+        defaultUserData.editor_layout.show_motion_profile,
     },
     completed_tour_ids: preferStringArray(
       root?.completed_tour_ids,
@@ -194,6 +199,8 @@ function isCurrentUserDataRecord(
     typeof layout.show_ghost_paths !== "boolean" ||
     (layout.navigator_show_connections !== undefined &&
       typeof layout.navigator_show_connections !== "boolean") ||
+    (layout.show_motion_profile !== undefined &&
+      typeof layout.show_motion_profile !== "boolean") ||
     !automaticGeneration ||
     typeof automaticGeneration.keep_in_sync !== "boolean" ||
     !Array.isArray(completedTourIds) ||
