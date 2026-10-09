@@ -25,20 +25,16 @@ point-to-point autonomous paths for FIRST Robotics Competition.
 
 ## Overview
 
-BLine is an open-source autonomous path generation and tracking suite for
-FIRST Robotics Competition holonomic drivetrains, made by students for students.
-It is built around the kind of path workflow teams actually need during build
-season: create a path quickly, run it, observe the robot, tune the constraints,
-and iterate again.
+BLine is open-source autonomy for FIRST Robotics Competition, made by
+students for students. It is built around the workflow
+teams actually need during build season: create a path quickly, run it, observe the
+robot, tune the constraints, and iterate again.
 
-BLine Web is the current editor for that workflow. It brings the original
-BLine desktop experience to a modern React/Tauri codebase that runs in the
-browser and as a desktop app.
-
-The editor is built for rapid iteration: create or open a BLine project, edit
-paths on the field, tune translation and rotation constraints, preview the
-idealized path simulation, and save/export the same `config.json` plus
-`paths/*.json` files used by the BLine robot library.
+BLine Web is the editor for that workflow, running in the browser and as a
+desktop app (React/Tauri). Create or open a project, edit paths on the field,
+tune translation and rotation constraints, preview the simulated path, and
+export the same `config.json` and `paths/*.json` files the BLine robot
+library reads.
 
 The goal is not to make autonomous path planning look more complicated than it
 has to be. BLine uses practical point-to-point paths, forgiving tuning surfaces,
