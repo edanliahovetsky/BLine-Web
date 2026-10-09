@@ -6,7 +6,7 @@ Web and desktop editor for creating, tuning, and previewing rapid
 point-to-point autonomous paths for FIRST Robotics Competition.
 
 [![Web Build](https://img.shields.io/badge/web-bline--web.pages.dev-0f766e)](https://bline-web.pages.dev/)
-[![Status](https://img.shields.io/badge/status-alpha-f59e0b)](#project-status)
+[![Status](https://img.shields.io/badge/status-beta-f59e0b)](#project-status)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-2563eb)](LICENSE)
 
 [Open the hosted app](https://bline-web.pages.dev/) |
@@ -43,7 +43,7 @@ observe, and improve this on the robot" faster.
 
 ## Project Status
 
-BLine Web is currently an alpha replacement for the original PySide6
+BLine Web is currently a beta replacement for the original PySide6
 [BLine-GUI](https://github.com/edanliahovetsky/BLine-GUI). Browser and Tauri
 desktop workflows are implemented and tested against the existing GUI's core
 behavior.
