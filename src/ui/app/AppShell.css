@@ -3915,6 +3915,77 @@ select {
   background: var(--bline-surface-base);
 }
 
+/* Stays in view while the robot's size and protrusion rows scroll by. */
+.config-dialog__robot-preview {
+  position: sticky;
+  z-index: 2;
+  top: -14px;
+  margin: -14px -14px 0;
+  padding: 14px 14px 10px;
+  background: var(--bline-surface-base);
+}
+
+.robot-footprint-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--bline-border-strong);
+  border-radius: 6px;
+  background: var(--bline-canvas-background);
+}
+
+.robot-footprint-preview svg {
+  display: block;
+  width: 100%;
+  max-height: 150px;
+}
+
+.robot-footprint-preview__body {
+  fill: color-mix(in srgb, #ff9f43 14%, transparent);
+  stroke-width: 2.5;
+}
+
+.robot-footprint-preview__front {
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.robot-footprint-preview__heading {
+  fill: none;
+  stroke: var(--bline-text-secondary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.robot-footprint-preview__protrusion {
+  fill: color-mix(in srgb, var(--bline-text-secondary) 16%, transparent);
+  stroke: var(--bline-text-secondary);
+  stroke-width: 2;
+}
+
+.robot-footprint-preview__protrusion.is-hidden {
+  fill: none;
+  stroke-dasharray: 5 4;
+}
+
+.robot-footprint-preview figcaption {
+  display: grid;
+  gap: 4px;
+  color: var(--bline-text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.robot-footprint-preview figcaption span:first-child {
+  color: var(--bline-text-primary);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 .field-preview img {
   display: block;
   width: 100%;

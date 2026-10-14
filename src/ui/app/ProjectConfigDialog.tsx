@@ -7,6 +7,7 @@ import {
 } from "../../core/model/eventKeys";
 import { ProtrusionEventKeys } from "./ProtrusionEventKeys";
 import { EventTriggerSettings } from "./EventTriggerSettings";
+import { RobotFootprintPreview } from "./RobotFootprintPreview";
 import {
   createContext,
   useContext,
@@ -759,6 +760,9 @@ function RobotSettingsSection({
   };
   return (
     <ConfigSection title="Robot">
+      <div className="config-dialog__robot-preview">
+        <RobotFootprintPreview draft={draft} />
+      </div>
       <ConfigSubsection title="Drivetrain">
         <label className="config-row">
           <span className="config-row__label">Drive type</span>
