@@ -1,4 +1,4 @@
-import { projectEventKeys } from "../../../core/model/eventKeys";
+import { eventKeyUsage, projectEventKeys } from "../../../core/model/eventKeys";
 import { projectStore } from "../../../state/projectStore";
 import { EventKeyInput } from "../../controls/EventKeyInput";
 import { useEffect, useId, useRef, useState } from "react";
@@ -49,6 +49,8 @@ interface PropertyEditorProps {
   element: PathElement | null;
   selectedElements: readonly SelectedElement[];
   project: Project | null;
+  /** The path holding the selection, so its keys are not suggested to themselves. */
+  pathId?: string | null;
   selectedElementIndex: number | null;
   open: boolean;
   typeOptions: readonly AddableElementType[];
@@ -69,10 +71,30 @@ interface SelectedElement {
   element: PathElement;
 }
 
+/** The project's other keys and how often each is used, for one key field. */
+interface EventKeySource {
+  keys: readonly string[];
+  usage(key: string): number;
+}
+
+function eventKeySource(
+  project: Project | null,
+  pathId: string | null,
+  elementIndexes: readonly number[],
+): EventKeySource {
+  return project
+    ? {
+        keys: projectEventKeys(project, { pathId, elementIndexes }),
+        usage: (key) => eventKeyUsage(project, key),
+      }
+    : { keys: [], usage: () => 0 };
+}
+
 export function PropertyEditor({
   element,
   selectedElements,
   project,
+  pathId = null,
   selectedElementIndex,
   open,
   typeOptions,
@@ -114,7 +136,11 @@ export function PropertyEditor({
         {multiple ? (
           <BulkPropertyFields
             selectedElements={selectedElements}
-            eventKeys={project ? projectEventKeys(project) : []}
+            eventKeys={eventKeySource(
+              project,
+              pathId,
+              selectedElements.map(({ index }) => index),
+            )}
             fieldGeometry={fieldGeometry}
             onUpdateSelectedElements={onUpdateSelectedElements}
             onOpenEventTriggerSettings={onOpenEventTriggerSettings}
@@ -167,7 +193,11 @@ export function PropertyEditor({
             ) : null}
             {isEventTrigger(element) ? (
               <EventFields
-                eventKeys={project ? projectEventKeys(project) : []}
+                eventKeys={eventKeySource(
+                  project,
+                  pathId,
+                  selectedElementIndex === null ? [] : [selectedElementIndex],
+                )}
                 onOpenEventTriggerSettings={onOpenEventTriggerSettings}
                 element={element}
                 onUpdateElement={(nextElement) => {
@@ -191,7 +221,7 @@ function BulkPropertyFields({
   onOpenEventTriggerSettings,
 }: {
   selectedElements: readonly SelectedElement[];
-  eventKeys: readonly string[];
+  eventKeys: EventKeySource;
   onOpenEventTriggerSettings(): void;
   fieldGeometry: FieldGeometry;
   onUpdateSelectedElements(
@@ -941,7 +971,7 @@ function EventFields({
   onUpdateElement,
   onOpenEventTriggerSettings,
 }: {
-  eventKeys: readonly string[];
+  eventKeys: EventKeySource;
   element: Extract<PathElement, { type: "event_trigger" }>;
   onUpdateElement(element: PathElement): void;
   onOpenEventTriggerSettings(): void;
@@ -979,7 +1009,7 @@ function EventKeyField({
   onChange,
   onOpenEventTriggerSettings,
 }: {
-  eventKeys: readonly string[];
+  eventKeys: EventKeySource;
   value: string;
   placeholder?: string;
   onChange(value: string): void;
@@ -994,11 +1024,12 @@ function EventKeyField({
       <div className="property-event-key-controls">
         <EventKeyInput
           inputId={inputId}
-          keys={eventKeys}
+          keys={eventKeys.keys}
+          usage={eventKeys.usage}
           value={value}
           placeholder={placeholder}
           onChange={onChange}
-          onCommit={(key) => projectStore.getState().registerEventKey(key)}
+          onRegister={(key) => projectStore.getState().registerEventKey(key)}
         />
         <TooltipIconButton
           className="sidebar-icon-button property-event-key-settings"

@@ -3,6 +3,7 @@ import { Check, CircleAlert, Plus, Search, X, Zap } from "lucide-react";
 import type { Project, ProjectConfig } from "../../core/model/project";
 import {
   applyEventKeyEdits,
+  eventKeyCaseVariant,
   eventKeyUsage,
   projectEventKeys,
   type EventKeyEdit,
@@ -34,7 +35,10 @@ export function EventTriggerSettings({
   const keys = projectEventKeys(preview);
   const editedKey = editing?.value.trim() ?? "";
   const duplicateKey = editing?.from === null && keys.includes(editedKey);
-  const canCommit = editedKey.length > 0 && !duplicateKey;
+  // A new key differing only by case would fire as a separate event.
+  const caseVariant =
+    editing?.from === null ? eventKeyCaseVariant(editedKey, keys) : null;
+  const canCommit = editedKey.length > 0 && !duplicateKey && !caseVariant;
   const visible = keys.filter((key) =>
     key.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
   );
@@ -100,7 +104,7 @@ export function EventTriggerSettings({
                 aria-label={
                   editing.from === null ? "New Lib Key" : "Replacement Lib Key"
                 }
-                aria-invalid={duplicateKey || undefined}
+                aria-invalid={duplicateKey || !!caseVariant || undefined}
                 aria-description={
                   duplicateKey
                     ? "This Lib Key is already registered."
@@ -122,7 +126,9 @@ export function EventTriggerSettings({
                   }
                 }}
               />
-              {duplicateKey && <CircleAlert size={14} aria-hidden="true" />}
+              {(duplicateKey || caseVariant) && (
+                <CircleAlert size={14} aria-hidden="true" />
+              )}
             </div>
           </label>
           <button
@@ -140,6 +146,12 @@ export function EventTriggerSettings({
           >
             <X size={16} />
           </button>
+          {caseVariant && (
+            <p>
+              <code>{caseVariant}</code> already exists. Keys are
+              case-sensitive.
+            </p>
+          )}
           {editing.from &&
             editing.value !== editing.from &&
             keys.includes(editing.value.trim()) && (

@@ -245,7 +245,7 @@ export function ElementList({
                             "path-element-row__detail",
                             detail.empty
                               ? "path-element-row__detail--empty"
-                              : "",
+                              : "path-element-row__detail--key",
                           ]
                             .filter(Boolean)
                             .join(" ")}

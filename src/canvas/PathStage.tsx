@@ -1669,6 +1669,7 @@ export function PathStage({
         viewport,
         drag.index,
         pointer,
+        event.shiftKey,
       );
       setActiveDrag(
         {
@@ -1780,7 +1781,7 @@ export function PathStage({
       return;
     }
 
-    finishActiveDrag(pointer, event.pointerId);
+    finishActiveDrag(pointer, event.pointerId, event.shiftKey);
     finishActiveRotation(pointer, event.pointerId);
     finishPanDrag();
   };
@@ -1806,7 +1807,11 @@ export function PathStage({
     finishPanDrag();
   };
 
-  const finishActiveDrag = (pointer: StagePoint, pointerId: number) => {
+  const finishActiveDrag = (
+    pointer: StagePoint,
+    pointerId: number,
+    snap = false,
+  ) => {
     const drag = activeDragRef.current;
     if (!drag || drag.pointerId !== pointerId || !activePath) {
       return;
@@ -1823,6 +1828,7 @@ export function PathStage({
       viewport,
       drag.index,
       pointer,
+      snap,
     );
     let nextPosition = projected.position;
     let nextRatio = projected.ratio;
@@ -1835,10 +1841,13 @@ export function PathStage({
         pathPositionOverrides(activePath.path),
       );
       if (segment) {
-        nextRatio = projectPointToSegmentRatio(
-          nextPosition,
-          segment.previous,
-          segment.next,
+        nextRatio = snapRatio(
+          projectPointToSegmentRatio(
+            nextPosition,
+            segment.previous,
+            segment.next,
+          ),
+          snap,
         );
         nextPosition = interpolateSegmentPosition(
           segment.previous,
@@ -2230,6 +2239,22 @@ export function PathStage({
               }
               size={18}
             />
+          </div>
+        ) : null}
+        {activeDrag?.moved &&
+        activeDrag.index >= 0 &&
+        activeDrag.currentRatio !== null ? (
+          <div
+            className="path-stage__ratio-readout"
+            data-testid="drag-ratio-readout"
+            style={(() => {
+              const point = modelToStagePoint(activeDrag.current, viewport);
+              return { left: point.x, top: point.y };
+            })()}
+            aria-hidden="true"
+          >
+            <small>Pos</small>
+            {activeDrag.currentRatio.toFixed(2)}
           </div>
         ) : null}
         {hoveredOverlayPath && hoveredOverlayPoint ? (
@@ -3253,11 +3278,26 @@ function hitTestElementShape(
   return false;
 }
 
+/** Shift-drag snaps an event or rotation position to 0.05 steps. */
+const ratioSnapStepsPerUnit = 20;
+function snapRatio(ratio: number, snap: boolean): number {
+  return snap
+    ? Math.min(
+        1,
+        Math.max(
+          0,
+          Math.round(ratio * ratioSnapStepsPerUnit) / ratioSnapStepsPerUnit,
+        ),
+      )
+    : ratio;
+}
+
 function projectDragStagePoint(
   path: PathModel,
   viewport: FieldViewport,
   index: number,
   stagePoint: StagePoint,
+  snap = false,
 ): { position: PointMeters; ratio: number | null; stagePoint: StagePoint } {
   let position = stageToModelPoint(stagePoint, viewport);
   let ratio: number | null = null;
@@ -3276,10 +3316,9 @@ function projectDragStagePoint(
       pathPositionOverrides(path),
     );
     if (segment) {
-      ratio = projectPointToSegmentRatio(
-        position,
-        segment.previous,
-        segment.next,
+      ratio = snapRatio(
+        projectPointToSegmentRatio(position, segment.previous, segment.next),
+        snap,
       );
       position = interpolateSegmentPosition(
         segment.previous,

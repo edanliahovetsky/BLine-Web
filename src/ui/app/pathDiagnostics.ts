@@ -1,4 +1,5 @@
 import { hasAuthoredStart } from "../../core/model/pathPreview";
+import { eventKeyCaseCollisions } from "../../core/model/eventKeys";
 import { evaluateRotationFeasibility } from "../../core/sim/rotationFeasibility";
 import {
   getElementPosition,
@@ -43,6 +44,8 @@ export function derivePathDiagnostics(
   geometry: FieldGeometry | null,
   linkedTargets: readonly LinkedTarget[],
   config: SimulationConfig = {},
+  /** Keys used or registered elsewhere in the project. */
+  projectKeys: readonly string[] = [],
 ): PathDiagnostic[] {
   if (!path || !geometry) {
     return [];
@@ -77,6 +80,12 @@ export function derivePathDiagnostics(
     });
   }
 
+  const caseCollisions = eventKeyCaseCollisions([
+    ...projectKeys,
+    ...elements.flatMap((element) =>
+      isEventTrigger(element) ? [element.lib_key] : [],
+    ),
+  ]);
   elements.forEach((element, index) => {
     if (isEventTrigger(element) && !element.lib_key.trim()) {
       diagnostics.push({
@@ -88,6 +97,24 @@ export function derivePathDiagnostics(
           kind: "focus-event-key",
           elementIndex: index,
           label: "Enter command key",
+        },
+      });
+    }
+    const collision = isEventTrigger(element)
+      ? caseCollisions.find((group) => group.includes(element.lib_key.trim()))
+      : undefined;
+    if (isEventTrigger(element) && collision) {
+      const key = element.lib_key.trim();
+      const others = collision.filter((candidate) => candidate !== key);
+      diagnostics.push({
+        id: `event-key-case-${index}`,
+        severity: "warning",
+        summary: `Event ${index + 1} key "${key}" differs only by case from ${others.map((other) => `"${other}"`).join(", ")}. Keys are case-sensitive.`,
+        elementIndex: index,
+        fix: {
+          kind: "focus-event-key",
+          elementIndex: index,
+          label: "Review Lib Key",
         },
       });
     }

@@ -1,6 +1,7 @@
 import type { Project } from "../../core/model/project";
 import {
   applyEventKeyEdits,
+  eventKeyUsage,
   projectEventKeys,
   type EventKeyEdit,
 } from "../../core/model/eventKeys";
@@ -363,17 +364,10 @@ export function ProjectConfigDialog({
               {activeSection === "robot" ? (
                 <RobotSettingsSection
                   draft={draft}
-                  eventKeys={
-                    eventKeyProject
-                      ? projectEventKeys({ ...eventKeyProject, config: draft })
-                      : [
-                          ...new Set([
-                            ...(draft.gui.event_trigger_keys ?? []),
-                            ...draft.gui.protrusions.show_on_event_keys,
-                            ...draft.gui.protrusions.hide_on_event_keys,
-                          ]),
-                        ]
-                  }
+                  eventKeyProject={{
+                    config: draft,
+                    paths: eventKeyProject?.paths ?? [],
+                  }}
                   protrusionDefaultStateOptions={protrusionDefaultStateOptions}
                   protrusionsEnabled={protrusionsEnabled}
                   setDraft={setDraft}
@@ -711,17 +705,21 @@ function FieldSettingsSection({
 
 function RobotSettingsSection({
   draft,
-  eventKeys,
+  eventKeyProject,
   protrusionDefaultStateOptions,
   protrusionsEnabled,
   setDraft,
 }: {
   draft: ProjectConfig;
-  eventKeys: string[];
+  /** The draft settings with the project's paths, for key suggestions. */
+  eventKeyProject: Pick<Project, "config" | "paths">;
   protrusionDefaultStateOptions: string[];
   protrusionsEnabled: boolean;
   setDraft: Dispatch<SetStateAction<ProjectConfig>>;
 }) {
+  const keysFor = (list: "show" | "hide") => (key: string) =>
+    projectEventKeys(eventKeyProject, { protrusion: { list, key } });
+  const usage = (key: string) => eventKeyUsage(eventKeyProject, key);
   const registerKey = (value: string) => {
     const key = value.trim();
     if (!key) return;
@@ -880,7 +878,8 @@ function RobotSettingsSection({
             label="Show On Event Keys"
             action="Show"
             value={draft.gui.protrusions.show_on_event_keys}
-            keys={eventKeys}
+            keysFor={keysFor("show")}
+            usage={usage}
             disabled={!protrusionsEnabled}
             onRegister={registerKey}
             onChange={(show_on_event_keys) =>
@@ -891,7 +890,8 @@ function RobotSettingsSection({
             label="Hide On Event Keys"
             action="Hide"
             value={draft.gui.protrusions.hide_on_event_keys}
-            keys={eventKeys}
+            keysFor={keysFor("hide")}
+            usage={usage}
             disabled={!protrusionsEnabled}
             onRegister={registerKey}
             onChange={(hide_on_event_keys) =>

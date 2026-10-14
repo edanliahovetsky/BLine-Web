@@ -11,6 +11,8 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+  --bline-font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   font-synthesis: none;
   line-height: 1.5;
   text-rendering: optimizeLegibility;

@@ -514,6 +514,7 @@ export function Sidebar({
             element={selectedElement}
             selectedElements={selectedElements}
             project={project}
+            pathId={activePath?.path_id ?? null}
             selectedElementIndex={selectedElementIndex}
             open
             typeOptions={

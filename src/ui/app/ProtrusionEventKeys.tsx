@@ -15,7 +15,8 @@ export function ProtrusionEventKeys({
   label,
   action,
   value,
-  keys,
+  keysFor,
+  usage,
   disabled,
   onChange,
   onRegister,
@@ -23,7 +24,9 @@ export function ProtrusionEventKeys({
   label: string;
   action: "Show" | "Hide";
   value: readonly string[];
-  keys: readonly string[];
+  /** The project's keys apart from this row's own text. */
+  keysFor(rowKey: string): readonly string[];
+  usage?(key: string): number;
   disabled: boolean;
   onChange(keys: string[]): void;
   onRegister(key: string): void;
@@ -94,7 +97,8 @@ export function ProtrusionEventKeys({
               <EventKeyInput
                 ariaLabel={`${action} event key ${index + 1}`}
                 value={row.value}
-                keys={keys}
+                keys={keysFor(row.value.trim())}
+                usage={usage}
                 disabled={disabled}
                 autoFocus={row.autoFocus}
                 placeholder="Lib Key"
@@ -105,7 +109,7 @@ export function ProtrusionEventKeys({
                     ),
                   )
                 }
-                onCommit={onRegister}
+                onRegister={onRegister}
               />
               <EventKeyMenu
                 name={`${action.toLowerCase()} key ${index + 1}`}
@@ -117,7 +121,7 @@ export function ProtrusionEventKeys({
                   let copy = row.value ? `${row.value}_copy` : "";
                   let suffix = 2;
                   const used = [
-                    ...keys,
+                    ...keysFor(""),
                     ...draft.rows.map((item) => item.value),
                   ];
                   while (copy && used.includes(copy))

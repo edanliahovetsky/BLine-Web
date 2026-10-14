@@ -37,7 +37,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--bline-font-mono);
   font-size: 12px;
+}
+.event-key-edit__input input {
+  font-family: var(--bline-font-mono);
 }
 .event-key-row__count {
   color: var(--bline-text-muted);

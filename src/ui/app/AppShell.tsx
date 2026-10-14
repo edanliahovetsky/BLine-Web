@@ -1,4 +1,7 @@
-import type { EventKeyEdit } from "../../core/model/eventKeys";
+import {
+  projectEventKeys,
+  type EventKeyEdit,
+} from "../../core/model/eventKeys";
 import {
   useCallback,
   useEffect,
@@ -106,7 +109,7 @@ import { TourOverlay } from "../tours/TourOverlay";
 import { tourStore, type TourDefinition } from "../tours/tourStore";
 import {
   capturePracticeTransfer,
-  importPracticeFolder,
+  importPracticeFolderWithFeedback,
   isCurrentPracticeTransfer,
 } from "../tours/tourTransfer";
 import { serializeBLineProjectFolder } from "../../core/io/projectFolder";
@@ -125,6 +128,7 @@ import {
 import { migrateImportedLegacyFieldBackgrounds } from "../../userData/legacyFieldMigration";
 import { findTour, tourPickerEntries, tours } from "../tours/tours";
 import { useLessonLink } from "../tours/useLessonLink";
+import { tourAllowsTarget } from "../tours/tourInteraction";
 import {
   ensureCurrentWorkspaceSummary,
   formatStorageLabel,
@@ -173,6 +177,16 @@ interface TourEditorViewSnapshot {
   optimizerError: string | null;
   showGhostPaths: boolean;
   showHome: boolean;
+}
+
+/** Focus the selected event's Lib Key, unless the active lesson shields it. */
+function focusEventKeyField() {
+  const input = document.querySelector<HTMLInputElement>(
+    '[data-testid="property-editor"] input[aria-label="Lib Key"]',
+  );
+  const lesson = tourStore.getState();
+  const step = findTour(lesson.activeTourId)?.steps[lesson.stepIndex];
+  if (input && (!step || tourAllowsTarget(step, input))) input.focus();
 }
 
 export function AppShell() {
@@ -973,11 +987,18 @@ export function AppShell() {
             projectStore.getState().activePathId,
           )?.path,
         );
-      if (tourStore.getState().activeTourId) {
-        seekTourSimulation("end");
+      // Placement is one-shot so a later click selects instead of adding.
+      setActiveTool("select");
+      if (element.type === "event_trigger") {
+        // A lesson owns the inspector's visibility; elsewhere open it to name the event.
+        if (!tourStore.getState().activeTourId) {
+          setInspectorOpen(true);
+          setInspectorTab("elements");
+        }
+        window.requestAnimationFrame(focusEventKeyField);
       }
     },
-    [activeField.geometry, seekTourSimulation],
+    [activeField.geometry],
   );
 
   const handleDismissMobileSupportWarning = useCallback(() => {
@@ -1668,7 +1689,7 @@ export function AppShell() {
 
       try {
         if (practice) {
-          await importPracticeFolder(files, practice);
+          await importPracticeFolderWithFeedback(files, practice);
           return;
         }
         await projectStore.getState().importProjectFolder(files, {
@@ -1907,6 +1928,7 @@ export function AppShell() {
         durableProject ? activeField.geometry : null,
         durableProject?.linked_targets ?? [],
         durableProject?.config ?? {},
+        durableProject ? projectEventKeys(durableProject) : [],
       ),
     [activeField.geometry, activePath, durableProject],
   );
@@ -1958,13 +1980,7 @@ export function AppShell() {
           ...readEditorUiPreferences(),
           inspectorTab: "elements",
         });
-        window.requestAnimationFrame(() => {
-          document
-            .querySelector<HTMLInputElement>(
-              '[data-testid="property-editor"] input[aria-label="Lib Key"]',
-            )
-            ?.focus();
-        });
+        window.requestAnimationFrame(focusEventKeyField);
       } else if (fix?.kind === "move-inside-field") {
         const position = getElementPosition(
           currentPath.path.path_elements,

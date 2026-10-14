@@ -1,4 +1,7 @@
 .event-key-input {
+  min-width: 0;
+}
+.event-key-input__field {
   position: relative;
   min-width: 0;
 }
@@ -6,6 +9,7 @@
   position: relative;
   width: 100%;
   background: transparent;
+  font-family: var(--bline-font-mono);
 }
 .event-key-input__completion {
   position: absolute;
@@ -19,6 +23,7 @@
   color: var(--bline-text-muted);
   opacity: 0.55;
   font: inherit;
+  font-family: var(--bline-font-mono);
 }
 .event-key-input__completion > span {
   color: transparent;
@@ -34,4 +39,56 @@
   color: transparent;
   font-size: inherit;
   font-weight: inherit;
+}
+.event-key-input__hint {
+  margin: 4px 0 0;
+  color: var(--bline-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+.event-key-input__hint code,
+.event-key-options code {
+  color: var(--bline-text-primary);
+  font-family: var(--bline-font-mono);
+}
+.event-key-input__hint button {
+  padding: 0;
+  border: 0;
+  color: var(--bline-accent);
+  background: none;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.event-key-input__hint button:hover {
+  text-decoration: underline;
+}
+.event-key-options__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.event-key-options__key {
+  overflow: hidden;
+  font-family: var(--bline-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.event-key-options__usage {
+  flex: none;
+  color: var(--bline-text-muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.event-key-options__register {
+  overflow: hidden;
+  color: var(--bline-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.event-key-options__empty {
+  padding: 6px 8px;
+  color: var(--bline-text-muted);
+  font-size: 0.75rem;
 }

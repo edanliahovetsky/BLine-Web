@@ -3,6 +3,7 @@ import { createSampleProject } from "../../../src/ui/app/initialProject";
 import { derivePathDiagnostics } from "../../../src/ui/app/pathDiagnostics";
 import { defaultFieldGeometry } from "../../../src/core/field/fieldConfig";
 import {
+  createEventTrigger,
   createPathModel,
   createRotationTarget,
   createTranslationTarget,
@@ -192,5 +193,40 @@ describe("path diagnostics", () => {
         workspace.linked_targets,
       ).find((item) => item.id === "broken-link-0")?.fix,
     ).toMatchObject({ kind: "remove-missing-link", elementIndex: 0 });
+  });
+  it("warns about event keys that differ only by case, here or elsewhere", () => {
+    const path = createPathModel({
+      path_elements: [
+        createTranslationTarget({ x_meters: 1, y_meters: 1 }),
+        createEventTrigger({ lib_key: "stopintake", t_ratio: 0.5 }),
+        createEventTrigger({ lib_key: "", t_ratio: 0.6 }),
+        createTranslationTarget({ x_meters: 3, y_meters: 1 }),
+      ],
+    });
+    const diagnostics = derivePathDiagnostics(
+      path,
+      defaultFieldGeometry,
+      [],
+      {},
+      ["stopIntake", "startIntake"],
+    );
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "event-key-case-1",
+          severity: "warning",
+          elementIndex: 1,
+          summary:
+            'Event 2 key "stopintake" differs only by case from "stopIntake". Keys are case-sensitive.',
+          fix: expect.objectContaining({ kind: "focus-event-key" }),
+        }),
+        expect.objectContaining({ id: "event-key-2", severity: "warning" }),
+      ]),
+    );
+    expect(
+      derivePathDiagnostics(path, defaultFieldGeometry, [], {}, [
+        "startIntake",
+      ]).some((diagnostic) => diagnostic.id.startsWith("event-key-case")),
+    ).toBe(false);
   });
 });

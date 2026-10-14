@@ -7,6 +7,8 @@ import {
 } from "../../../src/core/model/path";
 import {
   applyEventKeyEdits,
+  eventKeyCaseCollisions,
+  eventKeyCaseVariant,
   projectEventKeys,
 } from "../../../src/core/model/eventKeys";
 import {
@@ -116,5 +118,54 @@ describe("registered event keys", () => {
     store.getState().registerEventKey("Shoot");
     expect(store.getState().revision).toBe(revision);
     expect(projectEventKeys(store.getState().project!)).toContain("Shoot");
+  });
+  it("does not register a key that differs from an existing one only by case", () => {
+    const store = createProjectStore();
+    store.setState({
+      project: fixture(),
+      activePathId: "A",
+      projectSessionId: "test",
+    });
+    const revision = store.getState().revision;
+    store.getState().registerEventKey("intake");
+    store.getState().registerEventKey("STOP");
+    expect(store.getState().revision).toBe(revision);
+    expect(projectEventKeys(store.getState().project!)).toEqual([
+      "Intake",
+      "Stop",
+      "unused",
+    ]);
+  });
+
+  it("leaves a field's own text out of its suggestions", () => {
+    const project = fixture();
+    project.paths[0].path.path_elements[2] = createEventTrigger({
+      lib_key: "sto",
+    });
+    expect(projectEventKeys(project)).toContain("sto");
+    expect(
+      projectEventKeys(project, { pathId: "A", elementIndexes: [2] }),
+    ).not.toContain("sto");
+    // Path B still uses Stop, so it stays available.
+    expect(
+      projectEventKeys(project, { pathId: "A", elementIndexes: [2] }),
+    ).toContain("Stop");
+    project.config.gui.protrusions.hide_on_event_keys = ["Stopp"];
+    expect(
+      projectEventKeys(project, { protrusion: { list: "hide", key: "Stopp" } }),
+    ).not.toContain("Stopp");
+  });
+
+  it("finds keys that differ only by capitalization", () => {
+    expect(eventKeyCaseVariant("intake", ["Intake", "Stop"])).toBe("Intake");
+    expect(eventKeyCaseVariant("Intake", ["Intake", "intake"])).toBeNull();
+    expect(eventKeyCaseVariant("shoot", ["Intake"])).toBeNull();
+    expect(eventKeyCaseVariant("  ", ["Intake"])).toBeNull();
+    expect(
+      eventKeyCaseCollisions(["Intake", "intake", "Stop", " INTAKE ", "stop"]),
+    ).toEqual([
+      ["intake", "Intake", "INTAKE"],
+      ["stop", "Stop"],
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import {
   applyEventKeyEdits,
+  eventKeyCaseVariant,
   projectEventKeys,
   type EventKeyEdit,
 } from "../core/model/eventKeys";
@@ -1497,10 +1498,12 @@ export function createProjectStore(
       const state = get();
       const project = state.project;
       const key = rawKey.trim();
+      // A key differing only by case would fire as a separate event; keep one.
       if (
         !project ||
         !key ||
-        project.config.gui.event_trigger_keys?.includes(key)
+        project.config.gui.event_trigger_keys?.includes(key) ||
+        eventKeyCaseVariant(key, projectEventKeys(project))
       )
         return;
       const next = cloneProject(project);
