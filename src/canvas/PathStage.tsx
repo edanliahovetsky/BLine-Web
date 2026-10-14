@@ -50,6 +50,7 @@ import type { SimTraceResult } from "../core/sim/types";
 import { activePathForProjectStore, projectStore } from "../state/projectStore";
 import { useStoreSelector } from "../state/react";
 import { selectionStore } from "../state/selectionStore";
+import { hoverLinkStore, linkedHoverIndex } from "../state/hoverLinkStore";
 import {
   getPathElementLinkedTargetId,
   isElementCompatibleWithLinkedTarget,
@@ -1046,6 +1047,16 @@ export function PathStage({
       selectedCanvasIndex,
     ],
   );
+  const sidebarHoverIndex = useStoreSelector(hoverLinkStore, (state) =>
+    linkedHoverIndex(state, "canvas"),
+  );
+  useEffect(() => {
+    hoverLinkStore.getState().hover("canvas", hoveredElementIndex);
+  }, [hoveredElementIndex]);
+  useEffect(
+    () => () => hoverLinkStore.getState().leave("canvas"),
+    [activePathId],
+  );
   const hideSelectionOutline =
     selectedCanvasIndex !== null &&
     (hoveredElementIndex === selectedCanvasIndex ||
@@ -1315,6 +1326,7 @@ export function PathStage({
       selectedPulse: selectedPulseValue,
       hideSelectionOutline,
       hoveredRotationIndex,
+      linkedHoverIndex: sidebarHoverIndex,
       simulationResult,
       simulationTrace: simulationResult?.trace ?? null,
       trajectoryMaxSpeedMps,
@@ -1337,6 +1349,7 @@ export function PathStage({
     selectedPulseValue,
     hideSelectionOutline,
     hoveredRotationIndex,
+    sidebarHoverIndex,
     selectedRangedConstraint,
     simulationPlaying,
     simulationResult,

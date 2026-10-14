@@ -105,6 +105,8 @@ export interface PixiRenderInput {
   selectedLinkedTargetId?: string | null;
   hoveredRotationIndex?: number | null;
   hoveredLinkedTargetRotationId?: string | null;
+  /** An element the pointer is over in the sidebar, echoed as a highlight. */
+  linkedHoverIndex?: number | null;
 }
 
 export interface PixiPathOverlay {
@@ -720,16 +722,15 @@ export class PixiPathRenderer {
       if (previousAnchor) incomingStarts.set(index, previousAnchor);
       previousAnchor = modelToStagePoint(position, input.viewport);
     }
+    const linkedHoverIndex = input.linkedHoverIndex ?? null;
+    const raised = (index: number) =>
+      index === input.selectedElementIndex || index === linkedHoverIndex;
     const orderedNodes =
-      input.selectedElementIndex === null
+      input.selectedElementIndex === null && linkedHoverIndex === null
         ? renderedNodes
         : [
-            ...renderedNodes.filter(
-              ({ index }) => index !== input.selectedElementIndex,
-            ),
-            ...renderedNodes.filter(
-              ({ index }) => index === input.selectedElementIndex,
-            ),
+            ...renderedNodes.filter(({ index }) => !raised(index)),
+            ...renderedNodes.filter(({ index }) => raised(index)),
           ];
     const hasSelection = input.selectedElementIndex !== null;
 
@@ -758,8 +759,12 @@ export class PixiPathRenderer {
         previewStart: index === -1,
         point,
         selected: input.selectedElementIndex === index,
+        linkHovered: linkedHoverIndex === index,
         hideSelectionOutline: input.hideSelectionOutline ?? false,
-        dimmed: hasSelection && input.selectedElementIndex !== index,
+        dimmed:
+          hasSelection &&
+          input.selectedElementIndex !== index &&
+          linkedHoverIndex !== index,
         selectedPulse: input.selectedPulse,
         rotationHovered: input.hoveredRotationIndex === index,
         headingRadians: getElementHeadingRadians(
@@ -800,6 +805,7 @@ export class PixiPathRenderer {
         continue;
       }
       this.debugNodes.set(`path-element-node-${index}`, point);
+      if (node.linkHovered) this.debugNodes.set("linked-hover-node", point);
       if (isWaypoint(element) || isRotationTarget(element)) {
         this.debugNodes.set(
           `path-element-front-${index}`,
@@ -1013,6 +1019,7 @@ interface DrawNodeInput {
   index: number;
   point: StagePoint;
   selected: boolean;
+  linkHovered?: boolean;
   hideSelectionOutline: boolean;
   dimmed: boolean;
   selectedPulse: number;
@@ -1116,8 +1123,13 @@ function nodeVisibilityMargin(input: DrawNodeInput): number {
 
 function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
   const opacity = input.dimmed ? 0.58 : 1;
-  const showSelectionOutline = input.selected && !input.hideSelectionOutline;
-  const selectionOpacity = (0.46 + input.selectedPulse * 0.34) * opacity;
+  const linkHighlight = Boolean(input.linkHovered) && !input.selected;
+  const showSelectionOutline =
+    (input.selected && !input.hideSelectionOutline) || linkHighlight;
+  // A sidebar hover holds a steady outline; only a real selection pulses.
+  const selectionOpacity = linkHighlight
+    ? 0.86 * opacity
+    : (0.46 + input.selectedPulse * 0.34) * opacity;
   const point = input.point;
   const width = input.robotSizeMeters.lengthMeters * input.metersToPixels;
   const height = input.robotSizeMeters.widthMeters * input.metersToPixels;
@@ -1166,7 +1178,7 @@ function drawPathElementNode(graphics: Graphics, input: DrawNodeInput): void {
         input.metersToPixels,
       ),
       state: input.handoffRadiusState,
-      selected: input.selected,
+      selected: input.selected || linkHighlight,
       opacity,
     });
   }

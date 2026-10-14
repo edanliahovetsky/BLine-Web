@@ -1787,10 +1787,16 @@ select {
   flex: 0 0 auto;
 }
 
-/* Hover the whole row, including its action buttons, like the selection. */
+/* Hover the whole row, including its action buttons, like the selection.
+   Pointing at the element on the canvas lights the row the same way. */
 .path-element-list li:hover:not(.is-selected, .is-drop-target),
+.path-element-list li.is-linked-hover:not(.is-selected, .is-drop-target),
 .path-element-row:focus-visible {
   background: var(--bline-accent-soft);
+}
+
+.path-element-list li.is-linked-hover {
+  box-shadow: inset 2px 0 0 var(--bline-accent);
 }
 
 .drag-grip {
@@ -3221,8 +3227,13 @@ select {
 }
 
 .handoff-radius-chip:hover:not(:disabled),
+.handoff-radius-chip.is-linked-hover:not(:disabled),
 .handoff-radius-chip:focus-visible:not(:disabled) {
   color: var(--bline-text-primary);
+}
+
+.handoff-radius-chip.is-linked-hover:not(:disabled, .is-selected) {
+  box-shadow: inset 0 0 0 1px #ffd1fb;
 }
 
 .handoff-radius-chip__ordinal {

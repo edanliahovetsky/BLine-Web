@@ -98,6 +98,11 @@ import {
 } from "../orderedSelection";
 import { SidebarSection } from "../SidebarSection";
 import {
+  sidebarHoverProps,
+  useCanvasHoverIndex,
+  useEndSidebarHoverOnUnmount,
+} from "../useHoverLink";
+import {
   createAddRangedConstraintCommand,
   createInsertRangedConstraintCommand,
   createRemoveRangedConstraintCommand,
@@ -1204,6 +1209,8 @@ function HandoffRadiusChipButton({
   style?: CSSProperties;
   onSelect(gesture: OrderedSelectionGesture): void;
 }) {
+  const canvasHoverIndex = useCanvasHoverIndex();
+  useEndSidebarHoverOnUnmount();
   return (
     <button
       type="button"
@@ -1212,11 +1219,13 @@ function HandoffRadiusChipButton({
         `handoff-radius-chip--${chip.state}`,
         ledger ? "handoff-radius-chip--ledger" : "",
         selected ? "is-selected" : "",
+        canvasHoverIndex === chip.elementIndex ? "is-linked-hover" : "",
         chip.inert ? "is-inert" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       data-testid={`handoff-radius-chip-${chip.elementIndex}`}
+      {...sidebarHoverProps(chip.elementIndex)}
       disabled={chip.inert}
       style={style}
       aria-pressed={selected}

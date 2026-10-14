@@ -27,6 +27,11 @@ import {
   getAddableElementTypes,
   type AddableElementType,
 } from "../sidebarCommands";
+import {
+  sidebarHoverProps,
+  useCanvasHoverIndex,
+  useEndSidebarHoverOnUnmount,
+} from "../useHoverLink";
 
 interface ElementListProps {
   path: PathModel | null;
@@ -63,6 +68,8 @@ export function ElementList({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const suppressClickRef = useRef(false);
   const addableTypes = path ? getAddableElementTypes(path) : [];
+  const canvasHoverIndex = useCanvasHoverIndex();
+  useEndSidebarHoverOnUnmount();
 
   useEffect(() => {
     if (!open) {
@@ -178,11 +185,13 @@ export function ElementList({
                     selected ? "is-selected" : "",
                     dragIndex === index ? "is-dragging" : "",
                     dragOverIndex === index ? "is-drop-target" : "",
+                    canvasHoverIndex === index ? "is-linked-hover" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   data-testid={`path-element-item-${index}`}
                   data-path-element-index={index}
+                  {...sidebarHoverProps(index)}
                 >
                   <button
                     type="button"
