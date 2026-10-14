@@ -2271,6 +2271,15 @@ export function AppShell() {
       disabled: !canvasAvailable,
       run: () => canvasControls()?.fitView(),
     },
+    {
+      id: "view.fit-path",
+      label: "Fit path to view",
+      category: "View",
+      keywords: ["frame", "zoom", "center", "path"],
+      shortcutHint: "F",
+      disabled: !canvasAvailable,
+      run: () => canvasControls()?.framePath(),
+    },
   ];
   const playbackCommands: EditorCommand[] = [
     {

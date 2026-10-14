@@ -6,6 +6,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,6 +22,7 @@ import {
   EyeOff,
   Focus,
   MousePointer2,
+  Route,
   ZoomIn,
   ZoomOut,
   ChartSpline,
@@ -114,6 +116,21 @@ import {
 import { buildMotionProfile, type MotionProfile } from "./motionProfile";
 import { MotionProfilePanel } from "./MotionProfilePanel";
 import { wheelZoomFactor } from "./wheelZoom";
+import {
+  clampViewPan,
+  fittedCanvasView,
+  framedView,
+  interpolateView,
+  maxCanvasViewScale,
+  minCanvasViewScale,
+  pathFramingBounds,
+  reframeAfterResize,
+  viewsDiffer,
+  type CanvasView,
+  type StageFrame,
+  type StageInsets,
+} from "./pathFraming";
+import { subscribeCanvasViewRequests } from "./canvasViewRequests";
 import { eventMarkerMetrics, hitTestRobotFrontFace } from "./elementGeometry";
 import { useSelectionPulse } from "./hooks/useSelectionPulse";
 import { robotSizeFromConfig } from "./robotFootprint";
@@ -165,6 +182,8 @@ export interface PathStageControls {
   zoomIn(): void;
   zoomOut(): void;
   fitView(): void;
+  /** Zooms and centers so the whole active path is in view. */
+  framePath(): void;
 }
 
 const playbackRates = [0.25, 0.5, 1, 2] as const;
@@ -254,6 +273,16 @@ export function PathStage({
   const rotationFrameRef = useRef<number | null>(null);
   const [stageMeasured, setStageMeasured] = useState(false);
   const [stageSize, setStageSize] = useState<CanvasSize>(fallbackStageSize);
+  const stageOriginRef = useRef<StagePoint>({ x: 0, y: 0 });
+  const viewAnimationRef = useRef<{
+    frame: number;
+    target: CanvasView;
+  } | null>(null);
+  const previousFrameRef = useRef<{
+    frame: StageFrame;
+    view: CanvasView;
+    measured: boolean;
+  } | null>(null);
   const [viewScale, setViewScale] = useState(1);
   const activeTourId = useStoreSelector(
     tourStore,
@@ -528,6 +557,7 @@ export function PathStage({
         260,
         Math.floor(rect.height) || Math.round(width / activeFieldAspectRatio),
       );
+      stageOriginRef.current = { x: rect.left, y: rect.top };
       setStageSize({ width, height });
       setStageMeasured(rect.width > 0 && rect.height > 0);
     };
@@ -639,6 +669,108 @@ export function PathStage({
           },
     [baseViewport, panOffset, viewScale, lessonCamera, stageSize],
   );
+  // Keep framed paths clear of the tool rail, view controls and transport.
+  const framingInsets = useMemo<StageInsets>(
+    () => ({
+      top: 56,
+      right: 16,
+      bottom: 64 + fitReservedBottomPx,
+      left: 60,
+    }),
+    [fitReservedBottomPx],
+  );
+
+  const applyView = useCallback(
+    (view: CanvasView) => {
+      setViewScale(view.scale);
+      setPanOffset(view.pan);
+    },
+    [setPanOffset],
+  );
+
+  const stopViewAnimation = useCallback((): CanvasView | null => {
+    const animation = viewAnimationRef.current;
+    if (!animation) return null;
+    cancelAnimationFrame(animation.frame);
+    viewAnimationRef.current = null;
+    return animation.target;
+  }, []);
+
+  /** Interrupting a glide lands it, so input never acts on a transient view. */
+  const cancelViewAnimation = useCallback(() => {
+    const target = stopViewAnimation();
+    if (target) applyView(target);
+  }, [applyView, stopViewAnimation]);
+
+  const animateView = useCallback(
+    (target: CanvasView, from?: CanvasView) => {
+      stopViewAnimation();
+      const start = from ?? { scale: viewScale, pan: panOffsetRef.current };
+      if (
+        !viewsDiffer(start, target) ||
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      ) {
+        applyView(target);
+        return;
+      }
+      let startedAt: number | null = null;
+      const step = (now: number) => {
+        startedAt ??= now;
+        const t = Math.min(1, (now - startedAt) / viewAnimationMs);
+        if (t >= 1) {
+          viewAnimationRef.current = null;
+          applyView(target);
+          return;
+        }
+        applyView(interpolateView(start, target, 1 - (1 - t) ** 3));
+        viewAnimationRef.current = {
+          frame: requestAnimationFrame(step),
+          target,
+        };
+      };
+      applyView(start);
+      viewAnimationRef.current = { frame: requestAnimationFrame(step), target };
+    },
+    [applyView, stopViewAnimation, viewScale],
+  );
+
+  useEffect(() => () => void stopViewAnimation(), [stopViewAnimation]);
+
+  // When the inspector or navigator changes the canvas size, glide from where
+  // the field was on the page to a view that still frames the path.
+  useLayoutEffect(() => {
+    const previous = previousFrameRef.current;
+    const frame: StageFrame = {
+      base: baseViewport,
+      stage: stageSize,
+      origin: stageOriginRef.current,
+    };
+    const shown: CanvasView = { scale: viewScale, pan: panOffset };
+    previousFrameRef.current = { frame, view: shown, measured: stageMeasured };
+    if (
+      !previous?.measured ||
+      !stageMeasured ||
+      lessonCamera ||
+      (previous.frame.stage.width === stageSize.width &&
+        previous.frame.stage.height === stageSize.height)
+    ) {
+      return;
+    }
+    const intended = viewAnimationRef.current?.target ?? previous.view;
+    const reframe = (view: CanvasView) =>
+      reframeAfterResize({
+        previous: previous.frame,
+        next: frame,
+        view,
+        bounds: pathFramingBounds(
+          activePath?.path,
+          robotSizeFromConfig(durableProject?.config),
+        ),
+        insets: framingInsets,
+      });
+    animateView(reframe(intended).target, reframe(previous.view).start);
+  });
+
   const positionPreview = useMemo(
     () =>
       activePath
@@ -757,6 +889,7 @@ export function PathStage({
   // A lesson owns camera/playback temporarily; exiting restores the user's view.
   useEffect(() => {
     if (activeTourId && !capturedTourView.current) {
+      stopViewAnimation();
       capturedTourView.current = {
         scale: viewScale,
         pan: panOffsetRef.current,
@@ -767,6 +900,7 @@ export function PathStage({
       setPanOffsetState({ x: 0, y: 0 });
       panOffsetRef.current = { x: 0, y: 0 };
     } else if (!activeTourId && capturedTourView.current) {
+      stopViewAnimation();
       const saved = capturedTourView.current;
       capturedTourView.current = null;
       setViewScale(saved.scale);
@@ -1290,6 +1424,11 @@ export function PathStage({
       resetView();
       return;
     }
+    if (event.key === "f" || event.key === "F") {
+      event.preventDefault();
+      framePath();
+      return;
+    }
     if (event.key === "=" || event.key === "+") {
       event.preventDefault();
       zoomFromCenter(1.25);
@@ -1345,7 +1484,12 @@ export function PathStage({
 
   const zoomAtStagePoint = useCallback(
     (stagePoint: StagePoint, factor: number) => {
-      const nextScale = clamp(viewScale * factor, minViewScale, maxViewScale);
+      cancelViewAnimation();
+      const nextScale = clamp(
+        viewScale * factor,
+        minCanvasViewScale,
+        maxCanvasViewScale,
+      );
       if (Math.abs(nextScale - viewScale) < 0.0001) {
         return;
       }
@@ -1360,7 +1504,7 @@ export function PathStage({
 
       setViewScale(nextScale);
       setPanOffset(
-        clampPanOffset(
+        clampViewPan(
           {
             x: nextViewportX - baseViewport.x,
             y: nextViewportY - baseViewport.y,
@@ -1371,7 +1515,14 @@ export function PathStage({
         ),
       );
     },
-    [baseViewport, setPanOffset, stageSize, viewScale, viewport],
+    [
+      baseViewport,
+      cancelViewAnimation,
+      setPanOffset,
+      stageSize,
+      viewScale,
+      viewport,
+    ],
   );
 
   const zoomFromCenter = useCallback(
@@ -1383,10 +1534,59 @@ export function PathStage({
     [stageSize.height, stageSize.width, zoomAtStagePoint],
   );
 
-  const resetView = useCallback(() => {
-    setViewScale(1);
-    setPanOffset({ x: 0, y: 0 });
-  }, [setPanOffset]);
+  const resetView = useCallback(
+    () => animateView(fittedCanvasView),
+    [animateView],
+  );
+
+  const framePath = useCallback(() => {
+    const bounds = pathFramingBounds(
+      activePath?.path,
+      robotSizeFromConfig(durableProject?.config),
+    );
+    animateView(
+      bounds
+        ? framedView(bounds, baseViewport, stageSize, framingInsets)
+        : fittedCanvasView,
+    );
+  }, [
+    activePath,
+    animateView,
+    baseViewport,
+    durableProject,
+    framingInsets,
+    stageSize,
+  ]);
+  const framePathRef = useRef(framePath);
+  const resetViewRef = useRef(resetView);
+  useEffect(() => {
+    framePathRef.current = framePath;
+    resetViewRef.current = resetView;
+  }, [framePath, resetView]);
+
+  // Requests arrive alongside layout changes (a lesson opening the inspector),
+  // so wait for the resize to land before framing.
+  useEffect(() => {
+    let frames: number[] = [];
+    const unsubscribe = subscribeCanvasViewRequests((request) => {
+      frames.forEach((frame) => cancelAnimationFrame(frame));
+      frames = [
+        requestAnimationFrame(() => {
+          frames = [
+            requestAnimationFrame(() => {
+              frames = [];
+              if (request.kind === "frame-path") framePathRef.current();
+              else resetViewRef.current();
+            }),
+          ];
+        }),
+      ];
+    });
+    return () => {
+      unsubscribe();
+      frames.forEach((frame) => cancelAnimationFrame(frame));
+    };
+  }, []);
 
   const changePlaybackRate = useCallback((direction: 1 | -1, wrap: boolean) => {
     setPlaybackRate((current) => {
@@ -1413,6 +1613,7 @@ export function PathStage({
       zoomIn: () => zoomFromCenter(1.25),
       zoomOut: () => zoomFromCenter(1 / 1.25),
       fitView: resetView,
+      framePath,
     };
     return () => {
       controlsRef.current = null;
@@ -1421,6 +1622,7 @@ export function PathStage({
     changePlaybackRate,
     controlsRef,
     finishSimulation,
+    framePath,
     resetSimulation,
     resetView,
     toggleSimulationPlaying,
@@ -1501,6 +1703,7 @@ export function PathStage({
     }
 
     setContextMenu(null);
+    cancelViewAnimation();
     containerRef.current?.focus();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1756,7 +1959,7 @@ export function PathStage({
 
     event.preventDefault();
     setPanOffset(
-      clampPanOffset(
+      clampViewPan(
         {
           x: panDrag.startPanOffset.x + pointer.x - panDrag.startPointer.x,
           y: panDrag.startPanOffset.y + pointer.y - panDrag.startPointer.y,
@@ -2194,6 +2397,7 @@ export function PathStage({
           scale={viewScale}
           showGhostPaths={showGhostPaths}
           onFit={resetView}
+          onFramePath={framePath}
           onToggleGhostPaths={() => onShowGhostPathsChange?.(!showGhostPaths)}
           onZoomIn={() => zoomFromCenter(1.25)}
           onZoomOut={() => zoomFromCenter(1 / 1.25)}
@@ -2491,6 +2695,7 @@ function CanvasViewControls({
   scale,
   showGhostPaths,
   onFit,
+  onFramePath,
   onToggleGhostPaths,
   onZoomIn,
   onZoomOut,
@@ -2498,6 +2703,7 @@ function CanvasViewControls({
   scale: number;
   showGhostPaths: boolean;
   onFit(): void;
+  onFramePath(): void;
   onToggleGhostPaths(): void;
   onZoomIn(): void;
   onZoomOut(): void;
@@ -2545,6 +2751,15 @@ function CanvasViewControls({
       </button>
       <IconButton aria-label="Zoom in" title="Zoom in" onClick={onZoomIn}>
         <ZoomIn aria-hidden="true" size={16} />
+      </IconButton>
+      <IconButton
+        aria-label="Fit path"
+        aria-keyshortcuts="F"
+        title="Fit path (F)"
+        data-testid="fit-path"
+        onClick={onFramePath}
+      >
+        <Route aria-hidden="true" size={16} />
       </IconButton>
     </div>
   );
@@ -3494,37 +3709,6 @@ function normalizeRadians(radians: number): number {
   return normalized;
 }
 
-function clampPanOffset(
-  offset: StagePoint,
-  baseViewport: FieldViewport,
-  stageSize: CanvasSize,
-  scale: number,
-): StagePoint {
-  const scaledWidth = baseViewport.width * scale;
-  const scaledHeight = baseViewport.height * scale;
-
-  return {
-    x: clampAxisPan(offset.x, baseViewport.x, scaledWidth, stageSize.width),
-    y: clampAxisPan(offset.y, baseViewport.y, scaledHeight, stageSize.height),
-  };
-}
-
-function clampAxisPan(
-  offset: number,
-  basePosition: number,
-  scaledSize: number,
-  stageSize: number,
-): number {
-  if (scaledSize <= stageSize) {
-    return 0;
-  }
-
-  const minOffset = stageSize - scaledSize - basePosition;
-  const maxOffset = -basePosition;
-
-  return clamp(offset, minOffset, maxOffset);
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -3532,8 +3716,7 @@ function clamp(value: number, min: number, max: number): number {
 const emptyPreview = new Map<number, PointMeters>();
 /** Matches the docked motion profile plus transport, measured from the stage bottom. */
 const motionProfileReservedHeightPx = 180;
-const minViewScale = 1;
-const maxViewScale = 8;
+const viewAnimationMs = 240;
 const curveFitToleranceMeters = 0.18;
 const curveMinTargetSpacingMeters = 0.35;
 const curveEndpointSnapToleranceMeters = 0.22;
