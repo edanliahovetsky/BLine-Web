@@ -2629,11 +2629,6 @@ function CanvasToolRail({
                       : undefined
           }
           disabled={!path || disabled}
-          title={
-            disabled
-              ? `${label} needs two path elements`
-              : `${label} tool (${shortcut}) — ${tool === "waypoint" ? "Place a robot position and heading" : tool === "translation" ? "Place a position target without changing heading" : tool === "select" ? "Select elements or drag empty space to pan" : tool === "rotation" ? "Set a heading along the path" : tool === "event" ? "Trigger an action along the path" : "Draw a sequence of position targets"}. Drag any existing position center to move it; drag a robot's front edge to rotate.`
-          }
           onClick={() => onToolChange(tool)}
         >
           {tool === "select" ? (
@@ -2648,6 +2643,17 @@ function CanvasToolRail({
             />
           )}
           <kbd>{shortcut}</kbd>
+          {/* Shows at once on hover or focus; the shortcut reference holds
+              each tool's longer explanation. */}
+          <span
+            className="canvas-tool-rail__label"
+            data-testid={`tool-label-${tool}`}
+            aria-hidden="true"
+          >
+            {path && disabled
+              ? `${label} · needs two path elements`
+              : `${label} · ${shortcut}`}
+          </span>
         </button>
       ))}
     </aside>

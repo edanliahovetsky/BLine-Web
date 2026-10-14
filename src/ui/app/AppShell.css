@@ -5533,6 +5533,31 @@ button.path-health-popover__issue:focus-visible {
   font-size: 0.52rem;
 }
 
+/* An instant label beside the hovered or focused tool; no native-title delay. */
+.canvas-tool-rail__label {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 10px);
+  display: none;
+  padding: 4px 8px;
+  transform: translateY(-50%);
+  border: 1px solid var(--bline-border-strong);
+  border-radius: var(--bline-radius-popover);
+  color: var(--bline-text-primary);
+  background: var(--bline-surface-raised);
+  box-shadow: var(--bline-shadow-popover);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.canvas-tool-rail button:hover .canvas-tool-rail__label,
+.canvas-tool-rail button:focus-visible .canvas-tool-rail__label {
+  display: block;
+}
+
 .canvas-view-controls {
   position: absolute;
   z-index: 10;
@@ -6601,6 +6626,13 @@ body.is-resizing-inspector * {
 .shortcut-help-dialog dt {
   color: var(--bline-text-secondary);
   font-size: 0.74rem;
+}
+
+.shortcut-help-dialog dt small {
+  display: block;
+  padding-bottom: 4px;
+  color: var(--bline-text-muted);
+  font-size: 0.68rem;
 }
 
 .shortcut-help-dialog dd {

@@ -34,6 +34,8 @@ export interface EditorCommand {
    * surface (such as canvas view and playback keys) instead of the shell.
    */
   shortcutHint?: string;
+  /** A one-line explanation shown in the shortcut reference. */
+  description?: string;
   scope?: CommandScope;
   disabled?: boolean;
   run(): void | Promise<void>;

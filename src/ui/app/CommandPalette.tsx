@@ -210,7 +210,12 @@ export function ShortcutHelpDialog({
               <dl>
                 {categoryCommands.map((command) => (
                   <div key={command.id}>
-                    <dt>{command.label}</dt>
+                    <dt>
+                      {command.label}
+                      {command.description ? (
+                        <small>{command.description}</small>
+                      ) : null}
+                    </dt>
                     <dd>
                       <kbd>
                         {command.shortcut
@@ -226,6 +231,18 @@ export function ShortcutHelpDialog({
           <section>
             <h3>Path elements</h3>
             <dl>
+              <div>
+                <dt>Move an element</dt>
+                <dd>
+                  <kbd>Drag its center</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>Rotate a robot</dt>
+                <dd>
+                  <kbd>Drag its front edge</kbd>
+                </dd>
+              </div>
               <div>
                 <dt>Nudge element on field</dt>
                 <dd>
