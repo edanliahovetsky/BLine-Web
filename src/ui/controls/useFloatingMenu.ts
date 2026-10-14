@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 
+// Transparent rather than hidden, so a menu can still focus its first item.
 const unplacedPosition: CSSProperties = {
   position: "fixed",
   top: 0,
   left: 0,
-  visibility: "hidden",
+  opacity: 0,
+  pointerEvents: "none",
 };
 
 /** Anchor a portaled menu without clipping it inside the inspector's scrollers. */
@@ -14,9 +16,12 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
   focusOnOpen = true,
   align: "start" | "center" = "start",
   heightLimit = Number.POSITIVE_INFINITY,
+  minWidth = 0,
 ) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<T | null>(null);
+  /** Optional element to place against instead of the trigger. */
+  const anchorRef = useRef<HTMLElement | null>(null);
   // Until it is measured, keep a portaled panel out of the document flow so it
   // cannot extend or scroll the page.
   const [position, setPosition] = useState<CSSProperties>(unplacedPosition);
@@ -43,9 +48,9 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
     const place = () => {
       const padding = 8;
       const gap = 6;
-      const rect = trigger.getBoundingClientRect();
+      const rect = (anchorRef.current ?? trigger).getBoundingClientRect();
       const panelWidth = Math.min(
-        width === "trigger" ? rect.width : width,
+        Math.max(width === "trigger" ? rect.width : width, minWidth),
         window.innerWidth - padding * 2,
       );
       const below = window.innerHeight - rect.bottom - gap - padding;
@@ -83,6 +88,8 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
     place();
     const observer = new ResizeObserver(place);
     observer.observe(panel);
+    // An anchor can grow while open, e.g. when a hint appears beneath a field.
+    if (anchorRef.current) observer.observe(anchorRef.current);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     if (focusOnOpen) {
@@ -97,7 +104,7 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open, panel, width, focusOnOpen, align, heightLimit]);
+  }, [open, panel, width, focusOnOpen, align, heightLimit, minWidth]);
 
   useEffect(() => {
     if (!open) return;
@@ -128,5 +135,5 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
     };
   }, [open, panelRef]);
 
-  return { open, setOpen, triggerRef, panelRef, position };
+  return { open, setOpen, triggerRef, anchorRef, panelRef, position };
 }

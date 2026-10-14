@@ -2083,7 +2083,7 @@ select {
 
 .property-event-key-controls {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
 }

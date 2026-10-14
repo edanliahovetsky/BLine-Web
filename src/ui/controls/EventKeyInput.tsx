@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { eventKeyCaseVariant } from "../../core/model/eventKeys";
 import { useFloatingMenu } from "./useFloatingMenu";
@@ -6,6 +6,10 @@ import "./EventKeyInput.css";
 
 // Eight 30px options, seven 2px gaps, and the menu's padding and border.
 const eventKeyMenuHeightLimit = 8 * 30 + 7 * 2 + 12;
+// Room for a key and its usage count beside a narrow inspector field.
+const eventKeyMenuMinWidth = 220;
+
+const usageLabel = (count: number) => (count ? `used ${count}×` : "unused");
 
 type EventKeyOption =
   | { kind: "key"; key: string }
@@ -44,13 +48,17 @@ export function EventKeyInput({
 }) {
   const id = useId();
   const hintId = `${id}-hint`;
-  const { open, setOpen, triggerRef, panelRef, position } =
+  const { open, setOpen, triggerRef, anchorRef, panelRef, position } =
     useFloatingMenu<HTMLInputElement>(
       "trigger",
       false,
       "start",
       eventKeyMenuHeightLimit,
+      eventKeyMenuMinWidth,
     );
+  // The key this field held when focused. Replacing it keeps it registered so
+  // the project does not lose it, unless it was a capitalization slip.
+  const originalKey = useRef(value);
   const [active, setActive] = useState(0);
   // While Tab cycles, the list stays filtered by what was typed before it.
   const [cyclePrefix, setCyclePrefix] = useState<string | null>(null);
@@ -79,6 +87,7 @@ export function EventKeyInput({
     close();
   };
   const show = () => {
+    originalKey.current = value;
     setCyclePrefix(null);
     setActive(Math.max(0, matches.indexOf(value)));
     setOpen(true);
@@ -98,7 +107,13 @@ export function EventKeyInput({
       ? activeOption.key.slice(value.length)
       : "";
   return (
-    <div className="event-key-input">
+    // The list opens below the capitalization hint so it never covers it.
+    <div
+      className="event-key-input"
+      ref={(node) => {
+        anchorRef.current = node;
+      }}
+    >
       <div className="event-key-input__field">
         {completion && (
           <span className="event-key-input__completion" aria-hidden="true">
@@ -134,7 +149,16 @@ export function EventKeyInput({
             setActive(0);
             setOpen(true);
           }}
-          onBlur={close}
+          onBlur={(event) => {
+            const original = originalKey.current.trim();
+            if (
+              original &&
+              original !== event.currentTarget.value.trim() &&
+              !eventKeyCaseVariant(original, keys)
+            )
+              onRegister(original);
+            close();
+          }}
           onKeyDown={(event) => {
             if (
               event.nativeEvent.isComposing ||
@@ -228,6 +252,16 @@ export function EventKeyInput({
                 role="option"
                 tabIndex={-1}
                 aria-selected={i === index}
+                aria-label={
+                  option.kind === "key"
+                    ? option.key
+                    : `Register new key ${option.key}`
+                }
+                aria-description={
+                  option.kind === "key" && usage
+                    ? usageLabel(usage(option.key))
+                    : undefined
+                }
                 data-active={i === index}
                 className={`dropdown-select-control__option event-key-options__option${i === index ? " is-active" : ""}`}
                 onPointerDown={(event) => event.preventDefault()}
@@ -239,9 +273,7 @@ export function EventKeyInput({
                     <span className="event-key-options__key">{option.key}</span>
                     {usage && (
                       <span className="event-key-options__usage">
-                        {usage(option.key)
-                          ? `used ${usage(option.key)}×`
-                          : "unused"}
+                        {usageLabel(usage(option.key))}
                       </span>
                     )}
                   </>

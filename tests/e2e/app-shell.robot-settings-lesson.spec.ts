@@ -225,9 +225,21 @@ for (const viewport of [
     await page
       .getByRole("button", { name: "Add hide event key", exact: true })
       .click();
+    const hide = page.getByLabel("Hide event key 1", { exact: true });
+    // Suggestions are portaled outside Settings; the lesson must let the
+    // pointer reach them.
+    await hide.pressSequentially("st");
     await page
-      .getByLabel("Hide event key 1", { exact: true })
-      .fill("stopIntake");
+      .getByRole("listbox", { name: "Registered event triggers" })
+      .getByRole("option", { name: /^startIntake/ })
+      .click();
+    await expect(hide).toHaveValue("startIntake");
+    await hide.fill("stopintake");
+    await expect(page.getByTestId("tour-card")).toContainText(
+      'Keys are case-sensitive — you typed "stopintake"; use "stopIntake".',
+    );
+    await expect(forward(page)).toBeHidden();
+    await hide.fill("stopIntake");
     await next(page, "Place the extend event");
     await addEvent(page, 0, 1, "startIntake", "0.3");
     await next(page, "Place the retract event");

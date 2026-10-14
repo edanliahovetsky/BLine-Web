@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { PathModel } from "../../src/core/model/path";
@@ -709,9 +716,16 @@ test("slides an event and creates the requested key on a different segment @webk
     .click();
   await eventPulse;
   await expect(advanceButton(page)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("simulation-time")).toHaveText(
+    /^(\d+\.\d+) \/ \1 s$/,
+  );
   await advance(page);
   await heading(page, "Add an event on the next segment");
+  // The previous step ended at End; this exercise starts from the beginning,
+  // and placing an element must not jump the play bar back to End.
+  await expect(page.getByTestId("simulation-time")).toHaveText(/^0\.00 \//);
   await place(page, "Event", 12.6, 3.9);
+  await expect(page.getByTestId("simulation-time")).toHaveText(/^0\.00 \//);
   await setNumber(page, "Event Pos (0-1)", "0.6");
   const key = page.getByLabel("Lib Key", { exact: true });
   await key.fill("wrongKey");
@@ -846,15 +860,30 @@ test("exports and imports an autos folder inside the web lesson", async ({
     }
     await advance(page);
     await heading(page, "Import the autos folder");
-    await page.getByRole("button", { name: "File", exact: true }).click();
-    await page
-      .getByRole("menuitem", { name: "Import / Export", exact: true })
-      .click();
-    const choosing = page.waitForEvent("filechooser");
-    await page
-      .getByRole("menuitem", { name: "Import Autos Folder...", exact: true })
-      .click();
-    await (await choosing).setFiles(join(tempRoot, "autos"));
+    const chooseFolder = async (folder: string) => {
+      await page.getByRole("button", { name: "File", exact: true }).click();
+      await page
+        .getByRole("menuitem", { name: "Import / Export", exact: true })
+        .click();
+      const choosing = page.waitForEvent("filechooser");
+      await page
+        .getByRole("menuitem", { name: "Import Autos Folder...", exact: true })
+        .click();
+      await (await choosing).setFiles(folder);
+    };
+    // A failed practice import is explained in the lesson card.
+    const notes = join(tempRoot, "notes");
+    await mkdir(notes);
+    await writeFile(join(notes, "readme.txt"), "not an autos folder");
+    await chooseFolder(notes);
+    await expect(page.getByTestId("tour-card")).toContainText(
+      "That folder didn’t import: The selected folder does not contain any JSON files.",
+    );
+    await expect(page.getByTestId("save-status")).not.toContainText(/error/i);
+    // Choosing the folder that holds an unzipped "autos 3" finds it.
+    await rm(notes, { recursive: true });
+    await rename(join(tempRoot, "autos"), join(tempRoot, "autos 3"));
+    await chooseFolder(tempRoot);
     await advance(page);
     await heading(page, "Check the imported paths");
     await selectToolbarOption(page, "Toolbar path", "Score to Pickup");
