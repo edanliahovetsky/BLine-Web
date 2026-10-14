@@ -17,6 +17,7 @@ import {
 } from "../../../src/ui/tours/courseScenarios";
 import {
   createEventTrigger,
+  isEventTrigger,
   isRotationTarget,
   isTranslationTarget,
   isWaypoint,
@@ -32,6 +33,7 @@ import { simulatePathWithTrace } from "../../../src/core/sim";
 import { practiceConfig } from "../../../src/ui/tours/tourScenario";
 import { projectStore } from "../../../src/state/projectStore";
 import { tourStore } from "../../../src/ui/tours/tourStore";
+import { robotSettingsTour } from "../../../src/ui/tours/robotSettingsLesson";
 
 function loadPractice(path: PathModel) {
   projectStore.setState({
@@ -310,6 +312,55 @@ describe("foundational lesson content", () => {
     if (added.type === "event_trigger") added.t_ratio = 0.3;
     loadPractice(path);
     expect(step.check?.().complete).toBe(false);
+  });
+
+  it("keeps lesson keys exact but explains a capitalization miss", () => {
+    const path = createEventLessonPath();
+    const step = foundationalTours
+      .find((tour) => tour.id === "event-triggers")!
+      .steps.find(
+        (candidate) => candidate.title === "Add an event on the next segment",
+      )!;
+    path.path_elements.splice(
+      3,
+      0,
+      createEventTrigger({ lib_key: "stopintake", t_ratio: 0.6 }),
+    );
+    loadPractice(path);
+    expect(step.check?.()).toEqual({
+      complete: false,
+      message:
+        'Keys are case-sensitive — you typed "stopintake"; use "stopIntake".',
+    });
+    const typed = path.path_elements[3];
+    if (typed.type === "event_trigger") typed.lib_key = "stopIntake";
+    loadPractice(path);
+    expect(step.check?.().complete).toBe(true);
+  });
+
+  it("explains capitalization misses in the Robot lesson's key checks", () => {
+    const steps = robotSettingsTour.steps;
+    const connect = steps.find(
+      (step) => step.title === "Connect the event keys",
+    )!;
+    const setExtend = steps.find(
+      (step) => step.title === "Set the extend event",
+    )!;
+    const path = createEventLessonPath();
+    const event = path.path_elements.find(isEventTrigger)!;
+    event.lib_key = "StartIntake";
+    loadPractice(path);
+    const project = projectStore.getState().project!;
+    project.config.gui.protrusions.show_on_event_keys = ["startintake"];
+    project.config.gui.protrusions.hide_on_event_keys = ["stopIntake"];
+    expect(connect.check?.().message).toBe(
+      'Keys are case-sensitive — you typed "startintake"; use "startIntake".',
+    );
+    project.config.gui.protrusions.show_on_event_keys = ["startIntake"];
+    expect(connect.check?.().complete).toBe(true);
+    expect(setExtend.check?.().message).toBe(
+      'Keys are case-sensitive — you typed "StartIntake"; use "startIntake".',
+    );
   });
 
   it("unlocks demo Continue after Play without requiring the learner to finish the run", () => {

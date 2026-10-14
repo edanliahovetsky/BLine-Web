@@ -590,12 +590,14 @@ const definitions: SupplementalTour[] = [
         title: "Choose an inherited default",
         body: "Settings → Path Defaults selects the project mode. The geometry buttons show the resolved mode, including any path default stored in an imported file. Choose either button to override it. Use the small reset on the selected tile to inherit again; hover a geometry button to see where its default comes from. Older projects use Radius.",
         settingsSection: "path-defaults",
-        task: "Set the project default to Progress and save",
+        visible: ["settings-dialog"],
+        interact: ["settings-dialog"],
+        task: "Set the project default to Progress",
         check: () =>
           feedback(
             project()?.config.kinematic_constraints.default_handoff_mode ===
               "progress",
-            "Choose Progress in Default Handoff Mode, then save Settings.",
+            "Choose Progress in Default Handoff Mode.",
             "New default handoffs will use Progress.",
           ),
       },

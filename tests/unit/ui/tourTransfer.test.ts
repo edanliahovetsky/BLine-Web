@@ -13,6 +13,7 @@ import { projectStore } from "../../../src/state/projectStore";
 import {
   capturePracticeTransfer,
   importPracticeFolder,
+  importPracticeFolderWithFeedback,
 } from "../../../src/ui/tours/tourTransfer";
 import { createImportExportTour } from "../../../src/ui/tours/importExportLesson";
 import { tourStore } from "../../../src/ui/tours/tourStore";
@@ -101,6 +102,70 @@ describe("lesson autos folder transfer", () => {
     await expect(importPracticeFolder(broken, token)).rejects.toThrow();
     expect(projectStore.getState().project).toBe(project);
     expect(tourStore.getState().actions.importFolder).toBeUndefined();
+  });
+
+  it("finds the autos folder inside a selected parent folder", async () => {
+    const { files, token } = startPractice();
+    const nested = [
+      ...files.map((file) => ({
+        ...file,
+        webkitRelativePath: file.webkitRelativePath!.replace(
+          /^autos\//,
+          "Downloads/autos 3/",
+        ),
+      })),
+      {
+        name: "config.json",
+        webkitRelativePath: "Downloads/config.json",
+        text: async () => "{unrelated",
+      },
+    ];
+    expect(await importPracticeFolder(nested, token)).toBe(true);
+    expect(
+      projectStore.getState().project!.paths.map((path) => path.file_name),
+    ).toContain("score-to-pickup.json");
+    await expect(
+      importPracticeFolder(
+        [
+          ...nested,
+          ...files.map((file) => ({
+            ...file,
+            webkitRelativePath: file.webkitRelativePath!.replace(
+              /^autos\//,
+              "Downloads/autos 2/",
+            ),
+          })),
+        ],
+        token,
+      ),
+    ).rejects.toThrow(/more than one autos folder \(autos 3, autos 2\)/);
+  });
+
+  it("reports a failed practice import in the lesson card, not the save status", async () => {
+    const { files, token, lesson } = startPractice();
+    tourStore.getState().next(lesson.steps.length);
+    const step = lesson.steps[1];
+    const importToken = capturePracticeTransfer()!;
+    expect(
+      await importPracticeFolderWithFeedback(
+        files.filter((file) => !file.name.endsWith(".json")),
+        importToken,
+      ),
+    ).toBe(false);
+    expect(projectStore.getState().error).toBeNull();
+    expect(step.check!()).toEqual({
+      complete: false,
+      message:
+        "That folder didn’t import: The selected folder does not contain any JSON files. Select the autos folder you exported.",
+    });
+    expect(
+      await importPracticeFolderWithFeedback(files, capturePracticeTransfer()!),
+    ).toBe(true);
+    expect(step.check!()).toEqual({
+      complete: true,
+      message: "Autos folder imported.",
+    });
+    expect(token.stepIndex).toBe(0);
   });
 
   it.each(["exit", "restart", "step", "session"])(

@@ -22,6 +22,7 @@ import {
   assessTourStep,
   tourAllowsShortcut,
   tourAllowsTarget,
+  tourControlledPopups,
   tourInteractionTargets,
 } from "./tourInteraction";
 
@@ -270,8 +271,13 @@ export function TourOverlay({
       );
       setVisibleHoles(measureTargets(visibleToken));
       setHoles(
-        interactToken && !(lockInteractionOnComplete && actionComplete)
-          ? measureTargets(interactToken)
+        interactToken && step && !(lockInteractionOnComplete && actionComplete)
+          ? [
+              ...measureTargets(interactToken),
+              ...tourControlledPopups(step)
+                .map(visibleTourRect)
+                .filter((hole): hole is TourRect => hole !== null),
+            ]
           : [],
       );
     };
@@ -300,6 +306,7 @@ export function TourOverlay({
     actionComplete,
     interactToken,
     lockInteractionOnComplete,
+    step,
     stepTarget,
     visibleToken,
     hintTarget,

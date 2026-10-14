@@ -1,5 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, RefObject } from "react";
+
+const unplacedPosition: CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  visibility: "hidden",
+};
 
 /** Anchor a portaled menu without clipping it inside the inspector's scrollers. */
 export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
@@ -10,12 +17,27 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
 ) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<T | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<CSSProperties>({});
+  // Until it is measured, keep a portaled panel out of the document flow so it
+  // cannot extend or scroll the page.
+  const [position, setPosition] = useState<CSSProperties>(unplacedPosition);
+  // Some owners mount the panel after opening (e.g. once matches exist), so
+  // placement follows the mounted element rather than only the open flag.
+  const [panel, setPanel] = useState<HTMLDivElement | null>(null);
+  const [panelRef] = useState<RefObject<HTMLDivElement | null>>(() => {
+    let node: HTMLDivElement | null = null;
+    return {
+      get current() {
+        return node;
+      },
+      set current(next) {
+        node = next;
+        setPanel(next);
+      },
+    };
+  });
 
   useLayoutEffect(() => {
     const trigger = triggerRef.current;
-    const panel = panelRef.current;
     if (!open || !trigger || !panel) return;
 
     const place = () => {
@@ -75,7 +97,7 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open, width, focusOnOpen, align, heightLimit]);
+  }, [open, panel, width, focusOnOpen, align, heightLimit]);
 
   useEffect(() => {
     if (!open) return;
@@ -104,7 +126,7 @@ export function useFloatingMenu<T extends HTMLElement = HTMLElement>(
       document.removeEventListener("focusin", outside);
       document.removeEventListener("keydown", escape);
     };
-  }, [open]);
+  }, [open, panelRef]);
 
   return { open, setOpen, triggerRef, panelRef, position };
 }

@@ -65,7 +65,8 @@ export function tourInteractionTargets(step: TourStep): readonly string[] {
     targets.push("event-key-menu");
   if (
     targets.includes("inspector-panel") ||
-    targets.includes("element-properties")
+    targets.includes("element-properties") ||
+    targets.some((target) => target.startsWith("settings-"))
   )
     targets.push("event-key-options");
   if (targets.some((target) => target.startsWith("settings-")))
@@ -88,8 +89,54 @@ export function tourInteractionTargets(step: TourStep): readonly string[] {
   return targets;
 }
 
+/**
+ * Popups an allowed control owns through aria-controls, such as a combobox's
+ * portaled listbox, share that control's permission.
+ */
+export function tourControlledPopups(
+  step: TourStep,
+  root: ParentNode = document,
+): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>("[aria-controls]")].flatMap(
+    (controller) => {
+      const popup = controller.ownerDocument.getElementById(
+        controller.getAttribute("aria-controls") ?? "",
+      );
+      return popup &&
+        !controller.contains(popup) &&
+        tourAllowsOwnTarget(step, controller)
+        ? [popup]
+        : [];
+    },
+  );
+}
+
 /** Tool buttons live inside the canvas rectangle; they need their own permission. */
 export function tourAllowsTarget(step: TourStep, target: Element): boolean {
+  if (tourAllowsOwnTarget(step, target)) return true;
+  const owners = [
+    ...target.ownerDocument.querySelectorAll<HTMLElement>("[aria-controls]"),
+  ];
+  for (
+    let popup = target.closest("[id]");
+    popup;
+    popup = popup.parentElement?.closest("[id]") ?? null
+  ) {
+    const id = popup.id;
+    if (
+      owners.some(
+        (controller) =>
+          controller.getAttribute("aria-controls") === id &&
+          !controller.contains(popup) &&
+          tourAllowsOwnTarget(step, controller),
+      )
+    )
+      return true;
+  }
+  return false;
+}
+
+function tourAllowsOwnTarget(step: TourStep, target: Element): boolean {
   if (
     step.lockGeometry &&
     target.closest('[data-tour="inspector-panel"]') &&

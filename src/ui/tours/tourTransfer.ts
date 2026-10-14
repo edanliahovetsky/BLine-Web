@@ -60,3 +60,37 @@ export async function importPracticeFolder(
   tourStore.getState().recordAction("importFolder");
   return true;
 }
+
+/**
+ * Import for the lesson, reporting a failure in the lesson card instead of
+ * the editor's save status, which the practice project does not use.
+ */
+export async function importPracticeFolderWithFeedback(
+  files: readonly ProjectFolderImportFile[],
+  token: PracticeTransfer,
+): Promise<boolean> {
+  try {
+    const imported = await importPracticeFolder(files, token);
+    if (imported) tourStore.getState().reportTransferError(null);
+    return imported;
+  } catch (caughtError) {
+    if (isCurrentPracticeTransfer(token))
+      tourStore
+        .getState()
+        .reportTransferError(
+          caughtError instanceof Error && caughtError.message
+            ? caughtError.message
+            : String(caughtError),
+        );
+    return false;
+  }
+}
+
+/** The failure reported for the current lesson step, if any. */
+export function currentPracticeTransferError(): string | null {
+  const { transferError, attemptId, stepIndex } = tourStore.getState();
+  return transferError?.attemptId === attemptId &&
+    transferError.stepIndex === stepIndex
+    ? transferError.message
+    : null;
+}

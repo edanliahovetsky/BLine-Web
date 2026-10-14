@@ -947,7 +947,7 @@ function createImportRecords(
   const selectedRoot = commonRootSegment(rawPaths);
   const selectedPathsFolder = selectedRoot?.toLowerCase() === "paths";
 
-  return files.map((file, index) => {
+  const records = files.map((file, index) => {
     const rawPath = rawPaths[index] ?? file.name;
     const strippedPath = strippedPaths[index] ?? rawPath;
 
@@ -958,6 +958,38 @@ function createImportRecords(
       autosPath: normalizeAutosPath(strippedPath, selectedPathsFolder),
     };
   });
+  return selectedPathsFolder ? records : rebaseOnAutosRoot(records);
+}
+
+const autosPathFile = /^(?:(.*)\/)?paths\/[^/]+\.json$/i;
+
+/**
+ * An autos folder is the one that contains paths/*.json, whatever it is
+ * called. When the selection is a parent such as Downloads holding "autos 3",
+ * read the project from that nested folder.
+ */
+function rebaseOnAutosRoot(records: ImportRecord[]): ImportRecord[] {
+  const roots = [
+    ...new Set(
+      records.flatMap((record) => {
+        const match = autosPathFile.exec(record.autosPath);
+        return match ? [match[1] ?? ""] : [];
+      }),
+    ),
+  ];
+  if (roots.length === 0 || roots.includes("")) return records;
+  if (roots.length > 1) {
+    throw new Error(
+      `The selected folder contains more than one autos folder (${roots.join(", ")}). Select just one of them.`,
+    );
+  }
+  // Ignore unrelated files beside the autos folder, such as another config.json.
+  const prefix = `${roots[0]}/`;
+  return records.flatMap((record) =>
+    record.autosPath.startsWith(prefix)
+      ? [{ ...record, autosPath: record.autosPath.slice(prefix.length) }]
+      : [],
+  );
 }
 
 function assertDistinctNormalizedPathFiles(

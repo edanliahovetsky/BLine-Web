@@ -13,6 +13,7 @@ import {
   scorePose,
 } from "./supplementalScenarios";
 import { practiceConfig } from "./tourScenario";
+import { currentPracticeTransferError } from "./tourTransfer";
 import { tourStore, type TourDefinition, type TourStep } from "./tourStore";
 
 const fileMenus = [
@@ -52,12 +53,19 @@ const webSteps: TourStep[] = [
     target: "export-menu-entry",
     interact: [...fileMenus, "lesson-import-folder"],
     task: "Import the exported autos folder",
-    check: () =>
-      feedback(
-        hasAction("importFolder"),
-        "Select the autos folder, not its ZIP file or an individual path.",
-        "Autos folder imported.",
-      ),
+    check: () => {
+      const failure = currentPracticeTransferError();
+      return failure && !hasAction("importFolder")
+        ? {
+            complete: false,
+            message: `That folder didn’t import: ${failure.replace(/\.?$/, ".")} Select the autos folder you exported.`,
+          }
+        : feedback(
+            hasAction("importFolder"),
+            "Select the autos folder, not its ZIP file or an individual path.",
+            "Autos folder imported.",
+          );
+    },
   },
   {
     title: "Check the imported paths",

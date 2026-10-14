@@ -40,6 +40,12 @@ export type TourAction =
   | "exportFolder"
   | "importFolder"
   | "keepCopy";
+/** A failed lesson file transfer, shown in the lesson card for its own step. */
+export interface TourTransferError {
+  attemptId: number;
+  stepIndex: number;
+  message: string;
+}
 export interface TourReference {
   path: PathModel;
   config: ProjectConfig;
@@ -175,6 +181,7 @@ export interface TourState {
   completedStepIndexes: readonly number[];
   actions: Partial<Record<TourAction, number>>;
   reference: TourReference | null;
+  transferError: TourTransferError | null;
   completedTourIds: readonly string[];
   start(tourId: string): void;
   goTo(stepIndex: number): void;
@@ -183,6 +190,7 @@ export interface TourState {
   setStepComplete(index: number, complete: boolean): void;
   restartAt(index: number): void;
   recordAction(action: TourAction): void;
+  reportTransferError(message: string | null): void;
   captureReference(reference: TourReference): void;
   hydrateCompleted(ids: readonly string[]): void;
   finish(): void;
@@ -205,6 +213,7 @@ export function createTourStore(
     completedStepIndexes: [],
     actions: {},
     reference: null,
+    transferError: null,
     completedTourIds: [...new Set(options.completedTourIds ?? [])],
     start(tourId) {
       set({
@@ -263,6 +272,14 @@ export function createTourStore(
           ...get().actions,
           [action]: (get().actions[action] ?? 0) + 1,
         },
+      });
+    },
+    reportTransferError(message) {
+      const { activeTourId, attemptId, stepIndex } = get();
+      if (!activeTourId) return;
+      set({
+        transferError:
+          message === null ? null : { attemptId, stepIndex, message },
       });
     },
     captureReference(reference) {

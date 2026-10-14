@@ -26,7 +26,12 @@ import {
   near,
   practiceConfig,
 } from "./tourScenario";
-import { checkPlan, feedback } from "./tourChecks";
+import {
+  checkPlan,
+  feedback,
+  pathEventKeys,
+  withEventKeyCaseHint,
+} from "./tourChecks";
 import { settingsTours } from "./robotSettingsLesson";
 import { supplementalTours } from "./supplementalLessons";
 import {
@@ -798,25 +803,29 @@ export const eventTriggersTour: TourDefinition = {
           (last, element, index) => (isWaypoint(element) ? index : last),
           -1,
         );
-        return feedback(
-          bendIndex >= 0 &&
-            path.path_elements.some(
-              (element, index) =>
-                isEventTrigger(element) &&
-                index > 0 &&
-                index < bendIndex &&
-                element.lib_key.trim() === "startIntake",
-            ) &&
-            path.path_elements.some(
-              (element, index) =>
-                isEventTrigger(element) &&
-                index > bendIndex &&
-                index < endIndex &&
-                element.lib_key.trim() === "stopIntake" &&
-                Math.abs(element.t_ratio - 0.6) < 0.015,
-            ),
-          "Keep startIntake on the first segment and add stopIntake on the second at Event Pos 0.6.",
-          "stopIntake is on the second segment at 0.6.",
+        return withEventKeyCaseHint(
+          feedback(
+            bendIndex >= 0 &&
+              path.path_elements.some(
+                (element, index) =>
+                  isEventTrigger(element) &&
+                  index > 0 &&
+                  index < bendIndex &&
+                  element.lib_key.trim() === "startIntake",
+              ) &&
+              path.path_elements.some(
+                (element, index) =>
+                  isEventTrigger(element) &&
+                  index > bendIndex &&
+                  index < endIndex &&
+                  element.lib_key.trim() === "stopIntake" &&
+                  Math.abs(element.t_ratio - 0.6) < 0.015,
+              ),
+            "Keep startIntake on the first segment and add stopIntake on the second at Event Pos 0.6.",
+            "stopIntake is on the second segment at 0.6.",
+          ),
+          pathEventKeys(path),
+          ["startIntake", "stopIntake"],
         );
       }),
     },

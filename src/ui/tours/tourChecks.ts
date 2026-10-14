@@ -24,6 +24,40 @@ export function feedback(
 ): TourFeedback {
   return { complete, message: complete ? success : waiting };
 }
+/**
+ * Lesson keys must match exactly, as they do in robot code. When the only
+ * problem is capitalization, say so instead of repeating the instruction.
+ */
+export function eventKeyCaseHint(
+  typed: Iterable<string>,
+  expected: readonly string[],
+): string | null {
+  for (const raw of typed) {
+    const key = raw.trim();
+    const intended = expected.find(
+      (candidate) =>
+        candidate !== key &&
+        candidate.toLocaleLowerCase() === key.toLocaleLowerCase(),
+    );
+    if (intended)
+      return `Keys are case-sensitive — you typed "${key}"; use "${intended}".`;
+  }
+  return null;
+}
+export function withEventKeyCaseHint(
+  result: TourFeedback,
+  typed: Iterable<string>,
+  expected: readonly string[],
+): TourFeedback {
+  if (result.complete) return result;
+  const hint = eventKeyCaseHint(typed, expected);
+  return hint ? { complete: false, message: hint } : result;
+}
+export function pathEventKeys(path: PathModel | null | undefined): string[] {
+  return (path?.path_elements ?? []).flatMap((element) =>
+    isEventTrigger(element) ? [element.lib_key] : [],
+  );
+}
 export function speedCap(path: PathModel, ordinal: number) {
   return path.ranged_constraints.find(
     (constraint) =>

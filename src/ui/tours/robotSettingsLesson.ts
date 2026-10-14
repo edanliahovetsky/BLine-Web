@@ -12,7 +12,7 @@ import {
   projectStore,
 } from "../../state/projectStore";
 import { autoVelocityStore } from "../../state/autoVelocityStore";
-import { feedback } from "./tourChecks";
+import { feedback, pathEventKeys, withEventKeyCaseHint } from "./tourChecks";
 import { createEventLessonPath } from "./courseScenarios";
 import { observedTourCondition } from "./tourInteraction";
 import { waypoint, translation } from "./tourScenario";
@@ -150,11 +150,17 @@ function addEvent(key: string, segment: number, ratio: number): TourStep[] {
       },
       task: `Set ${key} to ${ratio} on segment ${segment}`,
       check: () =>
-        feedback(
-          eventPlaced(key, segment, ratio) &&
-            (segment === 1 || eventPlaced("startIntake", 1, 0.3)),
-          `Set ${key} on segment ${segment} at Event Pos ${ratio}. If you placed it on the wrong segment, go Back and restart the placement step.`,
-          `${key} is ready.`,
+        withEventKeyCaseHint(
+          feedback(
+            eventPlaced(key, segment, ratio) &&
+              (segment === 1 || eventPlaced("startIntake", 1, 0.3)),
+            `Set ${key} on segment ${segment} at Event Pos ${ratio}. If you placed it on the wrong segment, go Back and restart the placement step.`,
+            `${key} is ready.`,
+          ),
+          pathEventKeys(
+            activePathForProjectStore(projectStore.getState())?.path,
+          ),
+          [key],
         ),
     }),
   ];
@@ -240,14 +246,22 @@ export const robotSettingsTour: TourDefinition = {
       target: "settings-protrusions",
       settingsSection: "robot",
       task: "Connect startIntake and stopIntake",
-      check: configTask(
-        (c) =>
-          c.gui.protrusions.show_on_event_keys.includes("startIntake") &&
-          c.gui.protrusions.hide_on_event_keys.includes("stopIntake") &&
-          !c.gui.protrusions.show_on_event_keys.includes("stopIntake") &&
-          !c.gui.protrusions.hide_on_event_keys.includes("startIntake"),
-        "Enter startIntake under Show and stopIntake under Hide.",
-      ),
+      check: () => {
+        const { show_on_event_keys: show, hide_on_event_keys: hide } =
+          config().gui.protrusions;
+        return withEventKeyCaseHint(
+          configTask(
+            () =>
+              show.includes("startIntake") &&
+              hide.includes("stopIntake") &&
+              !show.includes("stopIntake") &&
+              !hide.includes("startIntake"),
+            "Enter startIntake under Show and stopIntake under Hide.",
+          )(),
+          [...show, ...hide],
+          ["startIntake", "stopIntake"],
+        );
+      },
     }),
     ...addEvent("startIntake", 1, 0.3),
     ...addEvent("stopIntake", 2, 0.7),
